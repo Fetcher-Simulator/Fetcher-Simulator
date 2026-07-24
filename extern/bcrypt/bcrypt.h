@@ -31,6 +31,8 @@
 
 #if defined(_WIN32)
 #  define BCRYPT_USE_OPENSSL 1
+#elif defined(__OpenBSD__)
+#  define BCRYPT_USE_OPENBSD 1
 #else
 #  define BCRYPT_USE_CRYPT 1
 #endif
@@ -142,6 +144,40 @@ namespace Bcrypt
 } // namespace Bcrypt
 
 #endif // BCRYPT_USE_CRYPT
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OpenBSD path — native crypt_newhash / crypt_checkpass
+// ─────────────────────────────────────────────────────────────────────────────
+
+#if defined(BCRYPT_USE_OPENBSD)
+
+#include <unistd.h>
+
+namespace Bcrypt
+{
+    inline std::string hash(const std::string& password, int cost = 12)
+    {
+        if (cost < 4 || cost > 31)
+            throw std::invalid_argument("bcrypt cost must be 4-31");
+
+        char preference[32];
+        snprintf(preference, sizeof(preference), "bcrypt,%d", cost);
+
+        char output[128] = {};
+        if (crypt_newhash(password.c_str(), preference, output, sizeof(output)) != 0)
+            throw std::runtime_error("bcrypt hash failed");
+        return std::string(output);
+    }
+
+    inline bool verify(const std::string& password, const std::string& stored)
+    {
+        if (stored.empty() || stored[0] != '$')
+            return false;
+        return crypt_checkpass(password.c_str(), stored.c_str()) == 0;
+    }
+} // namespace Bcrypt
+
+#endif // BCRYPT_USE_OPENBSD
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Windows path — OpenSSL + Blowfish

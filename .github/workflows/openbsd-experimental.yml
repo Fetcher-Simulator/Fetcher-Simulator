@@ -13,7 +13,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  bcrypt-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Test native OpenBSD bcrypt backend
+        uses: vmactions/openbsd-vm@v1.4.5
+        with:
+          release: "7.9"
+          arch: x86_64
+          usesh: true
+          copyback: false
+          run: |
+            set -eux
+            c++ -std=c++20 -Iextern/bcrypt \
+              CI/openbsd-bcrypt-smoke.cpp \
+              -o /tmp/openbsd-bcrypt-smoke
+            /tmp/openbsd-bcrypt-smoke
+
   build:
+    needs: bcrypt-smoke
     runs-on: ubuntu-latest
     timeout-minutes: 180
 

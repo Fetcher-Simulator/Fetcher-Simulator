@@ -64,7 +64,7 @@ target_link_libraries(openmw-server
     ${LUA_LIBRARIES}
 )
 
-if (UNIX)
+if (UNIX AND NOT CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")
     target_link_libraries(openmw-server crypt)
 endif()
 
