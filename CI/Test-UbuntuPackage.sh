@@ -58,6 +58,24 @@ docker run --rm --platform linux/amd64 \
 
         openmw --version
         openmw-server --help >/dev/null
-        test -f /usr/share/games/openmw/server-scripts/core.lua
+
+        scripts_dir=/usr/share/games/openmw/server-scripts
+        manifest="$scripts_dir/release-files.txt"
+        test -f "$manifest"
         test -f /usr/share/games/openmw/lua_libs/util.lua
+
+        mapfile -t expected_scripts < <(
+            sed -e "s/^[[:space:]]*//" -e "s/[[:space:]]*$//" "$manifest" |
+                grep -Ev "^(#|$)" |
+                sort
+        )
+        mapfile -t actual_scripts < <(
+            find "$scripts_dir" -maxdepth 1 -type f -printf "%f\n" |
+                sort
+        )
+        diff \
+            <(printf "%s\n" "${expected_scripts[@]}") \
+            <(printf "%s\n" "${actual_scripts[@]}")
+        test ! -e "$scripts_dir/test_callbacks.lua"
+        ! find "$scripts_dir" -maxdepth 1 -type f -name "*.bak" -print -quit | grep -q .
     '

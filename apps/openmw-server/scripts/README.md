@@ -40,6 +40,7 @@ Make changes on a test server first. A syntactically valid script can still gran
 The important files are:
 
 - `server.omwscripts` — declares the independently loaded global server scripts.
+- `release-files.txt` — authoritative whitelist of files included in dedicated-server release packages.
 - `core.lua` — common server lifecycle, authentication, command dispatch, and event routing.
 - `custom_scripts.lua` — central registry for deployment-specific gameplay and administration modules used by `core.lua`.
 - `config.lua` — operator-editable server configuration, exposed as `require("config")`.
@@ -419,6 +420,8 @@ local prefix = config.COMMAND_PREFIX or "/"
 ```
 
 Keep operator-editable values in `config.lua` instead of scattering them through feature modules. Provide safe defaults and validate configuration values before using them.
+
+Release packages ship `mod_manifest.lua` as an empty table. This allows a new server to start without inheriting another operator's mod list. Populate or regenerate that file only when the server should require exact client content filenames and SHA-256 hashes. Keep the generated manifest paired with the client package it describes.
 
 Never deploy with active secrets committed to the script directory or with a placeholder administrator password. Review `config.lua` before first launch, replace values such as `"changeme"`, and disable password-based administration entirely when it is not needed.
 

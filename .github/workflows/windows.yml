@@ -279,6 +279,20 @@ jobs:
       if: ${{ inputs.package }}
       run: cmake --install ${{ github.workspace }}/build --prefix ${{ github.workspace }}/portable-install
 
+    - name: Verify dedicated server Lua payload
+      shell: pwsh
+      run: |
+        $installRoot = "${{ github.workspace }}\install"
+        if ("${{ inputs.package }}" -eq "true") {
+          $installRoot = "${{ github.workspace }}\portable-install"
+        }
+        cmake `
+          "-DSERVER_SCRIPTS_DIR=$installRoot\server-scripts" `
+          "-DSERVER_SCRIPT_MANIFEST=${{ github.workspace }}\apps\openmw-server\scripts\release-files.txt" `
+          "-DLUA_LIBS_DIR=$installRoot\resources\lua_libs" `
+          -P "${{ github.workspace }}\CI\Verify-ServerScripts.cmake"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
     - name: Remove extra pdb files
       if: ${{ ! inputs.package }}
       shell: bash

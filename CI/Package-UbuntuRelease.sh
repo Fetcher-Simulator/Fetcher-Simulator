@@ -187,6 +187,12 @@ fi
 dpkg-deb --info "$archive_path"
 dpkg-deb --extract "$archive_path" "$verify_root"
 
+cmake \
+    -D "SERVER_SCRIPTS_DIR=$verify_root/usr/share/games/openmw/server-scripts" \
+    -D "SERVER_SCRIPT_MANIFEST=$source_root/apps/openmw-server/scripts/release-files.txt" \
+    -D "LUA_LIBS_DIR=$verify_root/usr/share/games/openmw/lua_libs" \
+    -P "$source_root/CI/Verify-ServerScripts.cmake"
+
 for required in \
     usr/bin/openmw \
     usr/bin/openmw-launcher \

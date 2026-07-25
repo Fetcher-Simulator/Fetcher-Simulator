@@ -1,0 +1,33 @@
+# Files shipped with the dedicated server Lua runtime.
+# Keep this list flat: one filename per line, relative to this directory.
+
+CLIENT_LUA_MULTIPLAYER.html
+CLIENT_LUA_MULTIPLAYER.md
+README.html
+README.md
+admin_ui_service.lua
+bardcraft_generated_bards.lua
+bardcraft_network_policy.lua
+bardcraft_persistence.lua
+command_registry.lua
+config.lua
+core.lua
+custom_scripts.lua
+custom_speech_commands.lua
+custom_speech_data.lua
+destructible_spawners.lua
+extended_speech_commands.lua
+intent_policy.lua
+mark_recall.lua
+mod_manifest.lua
+race_speech_commands.lua
+recorddynamic_test.lua
+recordstore.lua
+release-files.txt
+server.omwscripts
+speech_commands.lua
+speech_data.lua
+starwind_speech_commands.lua
+starwind_speech_data.lua
+surf_commands.lua
+surf_timer.lua

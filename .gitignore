@@ -110,5 +110,8 @@ Thumbs.db
 ## Local utility scripts
 /*.py
 
+## Server Lua local backups
+/apps/openmw-server/scripts/*.bak
+
 ## Archives
 /openmw.zip
