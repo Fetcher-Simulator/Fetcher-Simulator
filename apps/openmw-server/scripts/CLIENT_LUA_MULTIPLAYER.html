@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en" data-page="client">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#061012">
+  <meta name="description" content="Where local scripts meet an authoritative world">
+  <title>Client-side OpenMW Lua in Multiplayer · OpenMW Lua</title>
+  <style>
+:root {
+  color-scheme: dark;
+  --ink: #d8eee8;
+  --muted: #89aaa7;
+  --deep: #03090b;
+  --abyss: #071113;
+  --stone: rgba(15, 29, 30, .78);
+  --stone-2: rgba(8, 18, 20, .9);
+  --line: rgba(147, 218, 207, .18);
+  --glow: #8de7d6;
+  --glow-2: #7ca9ff;
+  --gold: #cabd82;
+  --shadow: rgba(0, 0, 0, .58);
+  --content: 860px;
+  --rail: 260px;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; background: var(--deep); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    radial-gradient(ellipse at 50% -15%, rgba(101, 179, 174, .22), transparent 42%),
+    radial-gradient(ellipse at 50% 105%, rgba(59, 136, 151, .24), transparent 38%),
+    linear-gradient(180deg, #061012 0%, #030708 50%, #061113 100%);
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1.72;
+  overflow-x: hidden;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -5;
+  background:
+    radial-gradient(ellipse at 9% 10%, #000 0 17%, transparent 18%),
+    radial-gradient(ellipse at 91% 9%, #000 0 18%, transparent 19%),
+    radial-gradient(ellipse at 50% -7%, transparent 0 32%, rgba(0,0,0,.96) 49%),
+    linear-gradient(90deg, rgba(0,0,0,.85), transparent 19% 81%, rgba(0,0,0,.85));
+  pointer-events: none;
+}
+.ambient, .caustics, .mist, .pool-line { position: fixed; pointer-events: none; }
+.ambient {
+  inset: -20%; z-index: -4; opacity: .32; filter: blur(36px);
+  background: conic-gradient(from 20deg at 50% 50%, transparent, rgba(82, 220, 202, .16), transparent 28%, rgba(77, 119, 204, .13), transparent 55%, rgba(82, 220, 202, .12), transparent);
+  animation: drift 24s ease-in-out infinite alternate;
+}
+.caustics {
+  left: -10vw; right: -10vw; bottom: -8vh; height: 48vh; z-index: -3;
+  opacity: .24; filter: blur(2px) saturate(1.4);
+  background:
+    repeating-radial-gradient(ellipse at 30% 70%, transparent 0 15px, rgba(146, 255, 233, .19) 18px 20px, transparent 24px 48px),
+    repeating-radial-gradient(ellipse at 70% 40%, transparent 0 20px, rgba(112, 174, 255, .14) 23px 25px, transparent 30px 58px);
+  transform: perspective(500px) rotateX(63deg) scale(1.35);
+  transform-origin: bottom;
+  animation: caustic-shift 13s linear infinite alternate;
+}
+.mist {
+  inset: auto -10vw 0; height: 33vh; z-index: -2;
+  background: linear-gradient(180deg, transparent, rgba(93, 174, 170, .06) 45%, rgba(59, 117, 128, .17));
+  filter: blur(15px);
+}
+.pool-line {
+  left: 0; right: 0; bottom: 19vh; z-index: -1; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(151, 245, 226, .55), transparent);
+  box-shadow: 0 0 30px 7px rgba(102, 221, 205, .11);
+}
+@keyframes drift { to { transform: translate3d(3%, -2%, 0) rotate(8deg) scale(1.04); } }
+@keyframes caustic-shift { to { background-position: 80px -40px, -70px 45px; transform: perspective(500px) rotateX(63deg) scale(1.42) translateX(2%); } }
+
+.skip-link { position: fixed; left: 1rem; top: -5rem; z-index: 50; padding: .7rem 1rem; background: #d6f8ef; color: #041011; border-radius: .3rem; }
+.skip-link:focus { top: 1rem; }
+.site-header {
+  min-height: 62vh; display: grid; place-items: center; text-align: center; padding: 7rem 1.5rem 5rem;
+  position: relative;
+}
+.site-header::before {
+  content: ""; position: absolute; inset: 0; opacity: .6;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(151, 236, 219, .18) 0 1px, transparent 2px),
+    radial-gradient(ellipse at center, transparent 0 32%, rgba(0,0,0,.32) 70%);
+  background-size: 39px 39px, 100% 100%;
+  mask-image: linear-gradient(180deg, black, transparent 92%);
+}
+.hero { position: relative; max-width: 950px; }
+.eyebrow { margin: 0 0 1.1rem; color: var(--gold); text-transform: uppercase; letter-spacing: .27em; font: 600 .72rem/1.4 system-ui, sans-serif; }
+h1 {
+  margin: 0; font-weight: 400; font-size: clamp(3rem, 8vw, 6.8rem); line-height: .95; letter-spacing: -.04em;
+  color: #e5f7f2; text-shadow: 0 0 36px rgba(133, 233, 213, .19), 0 3px 0 #020607;
+}
+.subtitle { margin: 1.4rem auto 0; color: #a7c5c1; font-style: italic; font-size: clamp(1.05rem, 2vw, 1.4rem); }
+.portal-nav { display: flex; flex-wrap: wrap; justify-content: center; gap: .85rem; margin-top: 2.3rem; }
+.portal-link, .source-link {
+  display: inline-flex; align-items: center; gap: .65rem; min-height: 44px; padding: .72rem 1rem;
+  color: #dff7f1; text-decoration: none; border: 1px solid rgba(142, 226, 210, .25); border-radius: 999px;
+  background: rgba(6, 18, 20, .56); backdrop-filter: blur(9px); box-shadow: inset 0 0 24px rgba(128, 232, 211, .04), 0 12px 32px rgba(0,0,0,.25);
+  font: 600 .77rem/1 system-ui, sans-serif; letter-spacing: .06em;
+  transition: border-color .25s, background .25s, transform .25s, box-shadow .25s;
+}
+.portal-link::before { content: "◇"; color: var(--glow); font-size: 1.1rem; }
+.source-link::before { content: "⌁"; color: var(--gold); font-size: 1.1rem; }
+.portal-link:hover, .source-link:hover { transform: translateY(-2px); border-color: rgba(142, 226, 210, .58); background: rgba(11, 31, 33, .8); box-shadow: 0 0 28px rgba(105, 226, 207, .08); }
+.rune-divider { margin: 3.2rem auto 0; color: rgba(202, 189, 130, .55); letter-spacing: 1.2em; font-size: .8rem; }
+
+.layout { width: min(calc(100% - 2rem), 1220px); margin: -3.5rem auto 10rem; display: grid; grid-template-columns: var(--rail) minmax(0, var(--content)); gap: 2.4rem; align-items: start; justify-content: center; position: relative; }
+.toc {
+  position: sticky; top: 1.2rem; max-height: calc(100vh - 2.4rem); overflow: auto; padding: 1.1rem 1rem 1.3rem;
+  border: 1px solid var(--line); border-radius: 1.2rem 1.2rem 1.2rem .35rem; background: linear-gradient(145deg, rgba(14, 30, 31, .7), rgba(4, 11, 13, .86));
+  backdrop-filter: blur(14px); box-shadow: inset 0 1px rgba(255,255,255,.03), 0 30px 60px rgba(0,0,0,.2);
+  scrollbar-width: thin; scrollbar-color: rgba(126, 211, 197, .3) transparent;
+}
+.toc h2 { margin: 0 0 .75rem; padding: 0; border: 0; color: var(--gold); font: 700 .7rem/1.2 system-ui, sans-serif; text-transform: uppercase; letter-spacing: .2em; }
+.toc ul { list-style: none; margin: 0; padding: 0; }
+.toc li { margin: 0; }
+.toc a { display: flex; align-items: center; justify-content: space-between; gap: .4rem; padding: .43rem .2rem; color: #89aaa7; text-decoration: none; font: 500 .75rem/1.35 system-ui, sans-serif; border-bottom: 1px solid rgba(145, 220, 207, .05); }
+.toc a:hover { color: #dcf8f1; }
+.toc a i { width: 4px; height: 4px; border-radius: 50%; background: rgba(138, 230, 213, .3); flex: 0 0 auto; }
+.toc-level-3 a { padding-left: .75rem; font-size: .7rem; opacity: .84; }
+
+.document {
+  min-width: 0; padding: clamp(1.25rem, 4vw, 3.8rem); border: 1px solid var(--line); border-radius: 2.2rem 2.2rem 2.2rem .6rem;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.025), transparent 10%),
+    radial-gradient(circle at 82% 2%, rgba(99, 214, 196, .07), transparent 19%),
+    linear-gradient(145deg, rgba(12, 27, 29, .88), rgba(4, 11, 13, .95));
+  backdrop-filter: blur(17px); box-shadow: inset 0 1px rgba(255,255,255,.04), 0 45px 100px rgba(0,0,0,.34), 0 0 0 8px rgba(2,8,9,.13);
+}
+.document > h1:first-child { display: none; }
+.document h2, .document h3, .document h4 { scroll-margin-top: 1.5rem; }
+.document h2 { margin: 3.5rem 0 1.1rem; padding-top: 1.6rem; border-top: 1px solid rgba(147, 218, 207, .11); color: #dff6ef; font-size: clamp(1.65rem, 3vw, 2.35rem); line-height: 1.18; font-weight: 400; letter-spacing: -.025em; }
+.document h2::before { content: "◈"; display: block; margin-bottom: .55rem; color: rgba(202, 189, 130, .65); font-size: .72rem; letter-spacing: .2em; }
+.document h3 { margin: 2.4rem 0 .8rem; color: #b8ddd5; font-size: 1.32rem; font-weight: 500; }
+.document h4 { margin: 1.8rem 0 .55rem; color: #b7cbc8; font-size: 1.06rem; font-family: system-ui, sans-serif; letter-spacing: .02em; }
+.heading-anchor { color: inherit; text-decoration: none; }
+.heading-anchor:hover { text-shadow: 0 0 18px rgba(128, 235, 213, .2); }
+p { margin: .8rem 0 1.15rem; }
+a { color: #99eadb; text-decoration-color: rgba(153, 234, 219, .35); text-underline-offset: .18em; }
+a:hover { color: #d9fff8; text-decoration-color: currentColor; }
+strong { color: #effbf8; font-weight: 700; }
+em { color: #bdd7d2; }
+code { padding: .12rem .36rem; border: 1px solid rgba(125, 207, 195, .14); border-radius: .28rem; background: rgba(0, 7, 8, .52); color: #aee8dc; font: .88em/1.45 Consolas, "Cascadia Mono", monospace; }
+ul, ol { padding-left: 1.35rem; margin: .7rem 0 1.25rem; }
+li { padding-left: .28rem; margin: .35rem 0; }
+li::marker { color: rgba(137, 229, 211, .62); }
+blockquote { position: relative; margin: 1.7rem 0; padding: 1rem 1.2rem 1rem 3.1rem; border: 1px solid rgba(202, 189, 130, .16); border-left: 2px solid rgba(202, 189, 130, .5); border-radius: .35rem 1rem 1rem .35rem; background: rgba(34, 31, 21, .15); color: #c6d9d4; }
+blockquote p { margin: 0; }
+.quote-mark { position: absolute; left: 1.15rem; top: 1rem; color: rgba(202, 189, 130, .7); }
+hr { border: 0; height: 1px; margin: 3rem 0; background: linear-gradient(90deg, transparent, rgba(143, 220, 206, .25), transparent); }
+.code-shell { margin: 1.35rem 0 1.7rem; overflow: hidden; border: 1px solid rgba(122, 206, 193, .15); border-radius: .8rem; background: #020809; box-shadow: inset 0 0 50px rgba(45, 118, 111, .05), 0 20px 40px rgba(0,0,0,.2); }
+.code-runes { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 12px; border-bottom: 1px solid rgba(130, 211, 198, .08); background: rgba(255,255,255,.018); }
+.code-runes span { width: 6px; height: 6px; border: 1px solid rgba(159, 226, 213, .25); transform: rotate(45deg); }
+pre { margin: 0; padding: 1rem 1.15rem 1.2rem; overflow: auto; line-height: 1.58; tab-size: 4; }
+pre code { padding: 0; border: 0; background: transparent; color: #b9d9d3; font-size: .83rem; }
+.table-wrap { margin: 1.4rem 0 2rem; overflow-x: auto; border: 1px solid rgba(140, 218, 204, .15); border-radius: .8rem; box-shadow: 0 18px 35px rgba(0,0,0,.16); }
+table { width: 100%; border-collapse: collapse; min-width: 620px; background: rgba(2, 9, 10, .4); font-size: .88rem; }
+th, td { padding: .8rem .9rem; text-align: left; vertical-align: top; border-bottom: 1px solid rgba(140, 218, 204, .09); border-right: 1px solid rgba(140, 218, 204, .06); }
+th { color: #d9f4ed; background: rgba(54, 105, 99, .14); font: 700 .73rem/1.35 system-ui, sans-serif; text-transform: uppercase; letter-spacing: .06em; }
+tr:last-child td { border-bottom: 0; }
+tr:hover td { background: rgba(104, 201, 184, .035); }
+
+.site-footer { width: min(calc(100% - 2rem), 900px); margin: -4rem auto 0; padding: 3rem 1rem 7rem; text-align: center; color: #668783; font: .75rem/1.6 system-ui, sans-serif; letter-spacing: .04em; }
+.site-footer .sigil { display: block; color: rgba(202, 189, 130, .5); font-size: 1.2rem; margin-bottom: .8rem; }
+
+@media (max-width: 980px) {
+  .layout { grid-template-columns: minmax(0, 860px); margin-top: -2.5rem; }
+  .toc { position: relative; top: auto; max-height: none; }
+  .toc ul { columns: 2; column-gap: 1.5rem; }
+  .toc li { break-inside: avoid; }
+}
+@media (max-width: 620px) {
+  .site-header { min-height: 56vh; padding-top: 5rem; }
+  .layout { width: min(calc(100% - 1rem), 860px); gap: 1rem; }
+  .document { padding: 1.25rem; border-radius: 1.25rem 1.25rem 1.25rem .35rem; }
+  .toc ul { columns: 1; }
+  .portal-nav { flex-direction: column; align-items: center; }
+  .portal-link, .source-link { width: min(100%, 330px); justify-content: center; }
+  h1 { font-size: clamp(2.6rem, 15vw, 4.3rem); }
+  .rune-divider { letter-spacing: .65em; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
+}
+@media print {
+  :root { color-scheme: light; }
+  body { color: #172321; background: white; }
+  body::before, .ambient, .caustics, .mist, .pool-line, .site-header::before, .toc, .portal-nav, .rune-divider { display: none !important; }
+  .site-header { min-height: 0; padding: 1cm 0 .5cm; color: #111; }
+  h1 { color: #111; text-shadow: none; font-size: 32pt; }
+  .subtitle, .eyebrow { color: #444; }
+  .layout { display: block; width: auto; margin: 0; }
+  .document { color: #172321; background: white; border: 0; box-shadow: none; padding: 0; }
+  .document h2, .document h3, .document h4, strong, a, code { color: #172321; }
+  .code-shell, blockquote, .table-wrap { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+  <a class="skip-link" href="#document">Skip to documentation</a>
+  <div class="ambient" aria-hidden="true"></div>
+  <div class="caustics" aria-hidden="true"></div>
+  <div class="mist" aria-hidden="true"></div>
+  <div class="pool-line" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <div class="hero">
+      <p class="eyebrow">Client Runtime · Multiplayer Compatibility</p>
+      <h1>Client-side OpenMW Lua in Multiplayer</h1>
+      <p class="subtitle">Where local scripts meet an authoritative world</p>
+      <nav class="portal-nav" aria-label="Related documentation">
+        <a class="portal-link" href="README.html">Return to server Lua</a>
+        <a class="source-link" href="CLIENT_LUA_MULTIPLAYER.md">Read the Markdown source</a>
+      </nav>
+      <div class="rune-divider" aria-hidden="true">◇ ◈ ◇</div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <nav class="toc" aria-label="On this page">
+      <h2>Carved passages</h2>
+      <ul><li class="toc-level-2"><a href="#the-goal"><span>The goal</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#client-lua-and-server-lua-have-different-jobs"><span>Client Lua and server Lua have different jobs</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#current-implementation-state"><span>Current implementation state</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#what-already-works-well-without-special-handling"><span>What already works well without special handling</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#what-is-only-partially-generic-today"><span>What is only partially generic today</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#what-cannot-be-made-safe-by-blindly-forwarding-calls"><span>What cannot be made safe by blindly forwarding calls</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#authority-model"><span>Authority model</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#data-flow"><span>Data flow</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#compatibility-targets-from-the-installed-mod-audit"><span>Compatibility targets from the installed-mod audit</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#guidance-for-mod-authors"><span>Guidance for mod authors</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#guidance-for-server-operators"><span>Guidance for server operators</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#near-term-work"><span>Near-term work</span><i aria-hidden="true"></i></a></li></ul>
+    </nav>
+    <article class="document" id="document"><h1 id="client-side-openmw-lua-in-multiplayer"><a class="heading-anchor" href="#client-side-openmw-lua-in-multiplayer" aria-label="Link to this section">Client-side OpenMW Lua in Multiplayer</a></h1>
+<p><strong>Status updated:</strong> July 24, 2026</p>
+<p>This document summarizes the current state of Fetcher's work to make ordinary client-side OpenMW Lua mods behave sensibly in multiplayer without requiring each mod to be rewritten or each server owner to maintain a separate custom server script.</p>
+<p>This README is intended to stand on its own for players, mod authors, and server operators. It describes the implemented compatibility features, current limitations, authority model, testing targets, and remaining work.</p>
+<p>For the dedicated server Lua API and tutorials, see <a href="README.html">Dedicated Server Lua Scripting</a>.</p>
+<h2 id="the-goal"><a class="heading-anchor" href="#the-goal" aria-label="Link to this section">The goal</a></h2>
+<p>The target is not a second, multiplayer-only Lua modding API. The target is for an unmodified OpenMW Lua mod to continue using normal OpenMW APIs while the multiplayer fork transparently provides the persistence, identity, authority, synchronization, and diagnostics needed around it.</p>
+<p>The compatibility design has three layers:</p>
+<ol><li><strong>Transparent engine behavior</strong> for features the engine can handle safely and generically, such as PLAYER script lifecycle persistence, character-scoped settings, stable inventory identity, and common authority-owned mutations.</li><li><strong>A centrally distributed compatibility registry</strong> for known mods whose events and mutations can be described with exact, versioned rules.</li><li><strong>Curated adapters</strong> for mechanics whose meaning cannot safely be inferred from a generic Lua call, such as transformations, quest choreography, shared stronghold state, or complex spawned-world systems.</li></ol>
+<p>A mod-specific client shim can still be useful for diagnostics or unusual adapters, but it is not the default compatibility strategy. Requiring existing mods to import a Fetcher module would defeat the main goal.</p>
+<h2 id="client-lua-and-server-lua-have-different-jobs"><a class="heading-anchor" href="#client-lua-and-server-lua-have-different-jobs" aria-label="Link to this section">Client Lua and server Lua have different jobs</a></h2>
+<p>Client-side OpenMW Lua remains the correct place for:</p>
+<ul><li>HUDs, menus, settings, and input;</li><li>camera, shader, sound, music, and presentation effects;</li><li>local prediction and responsive visual feedback;</li><li>ordinary PLAYER script state that belongs to one character;</li><li>mod logic that does not change authoritative multiplayer state.</li></ul>
+<p>Dedicated server Lua remains the correct place for:</p>
+<ul><li>validating requests from clients;</li><li>authoritative character and shared-world state;</li><li>inventory rewards and gameplay-sensitive persistence;</li><li>actor, object, quest, and world mutations that every client must agree on;</li><li>moderation, permissions, policy, and rate limits;</li><li>coordinating results among players.</li></ul>
+<p>A multiplayer feature commonly uses both sides. The client gathers input and presents the result; the server decides whether the gameplay action is valid and applies or broadcasts the authoritative outcome.</p>
+<h2 id="current-implementation-state"><a class="heading-anchor" href="#current-implementation-state" aria-label="Link to this section">Current implementation state</a></h2>
+<div class="table-wrap"><table><thead><tr>
+<th>Area</th>
+<th>Current state</th>
+</tr></thead><tbody>
+<tr><td>Client/server Lua event bridge</td><td>Available. Client Lua can use <code>openmw.mp.sendToServer(...)</code>; server Lua receives the named event with authenticated sender information. Server Lua can reply with <code>mp.send</code>, <code>mp.broadcast</code>, or <code>mp.broadcastToCell</code>.</td></tr>
+<tr><td>PLAYER script lifecycle</td><td>Implemented and live-tested. Character-bound <code>player_scripts.bin</code> checkpoints restore normal PLAYER <code>onSave</code>/<code>onLoad</code> behavior across multiplayer relogs instead of always starting with <code>onInit</code>.</td></tr>
+<tr><td>Character isolation</td><td>Live-tested. PLAYER script state and player storage are separated by server namespace and character key.</td></tr>
+<tr><td>Permanent player storage migration</td><td>Defaults-plus-overlay rebinding is implemented. Current engine/mod defaults are restored first and old character values are overlaid, preventing older storage files from deleting newly added settings. The old-camera-storage acceptance case remains part of the final validation set.</td></tr>
+<tr><td>Stable inventory instance identity</td><td>Implemented in the client/server source and packet/database paths. Server-issued <code>instanceId</code> values allow Lua references to distinguish otherwise identical stacks and survive inventory/world transfers. Broader paired-client acceptance is still in progress.</td></tr>
+<tr><td>Native Lua mutation audit</td><td>Implemented and building. Multiplayer mutations can be attributed to the exact active script, operation, target category, stable identity, and current authority route through <code>[MPAUDIT]</code> diagnostics. Real-session reports and script-bundle fingerprints still need broader coverage.</td></tr>
+<tr><td>Generic inventory/container/world routes</td><td>Initial routes are implemented. Same-inventory moves preserve handles, Lua drops use normal world-object placement, known world pickups retain identity, and non-player container transfers emit authoritative deltas. Acceptance with original unmodified inventory mods and multiple clients is still pending.</td></tr>
+<tr><td>Generic teleport and movement routing</td><td>Planned next. Safe self-movement needs prediction plus server validation and correction rather than blindly trusting a client-side <code>teleport</code> call.</td></tr>
+<tr><td>Generic actor/shared-world mutation routing</td><td>Partial infrastructure exists through ActorSync, WorldObjectSync, ObjectSync, and server <code>IntentPolicy</code>; broad automatic classification and policy enforcement are not complete.</td></tr>
+<tr><td>Authoritative character Lua storage</td><td>Existing server SQLite storage and bindings are available to server scripts, but a generic capability-scoped client proposal protocol is not complete. Local UI settings must not be mirrored to the server automatically.</td></tr>
+<tr><td>Compatibility registry and curated profiles</td><td>Designed but not yet the normal deployment path. Exact script-bundle fingerprints, signed/versioned rules, and initial profiles remain future work.</td></tr>
+<tr><td>Warn/enforce policy</td><td>Audit groundwork exists. Full <code>audit</code>, <code>warn</code>, and <code>enforce</code> progression with hardened validation remains future work.</td></tr>
+</tbody></table></div>
+<h2 id="what-already-works-well-without-special-handling"><a class="heading-anchor" href="#what-already-works-well-without-special-handling" aria-label="Link to this section">What already works well without special handling</a></h2>
+<p>Purely local mods are the easiest category. UI layout, settings windows, local keybinds, music routing, shaders, camera effects, and non-authoritative visual behavior should continue to run locally without generating multiplayer traffic.</p>
+<p>PLAYER scripts now have substantially better compatibility because their normal save payloads can survive a multiplayer relog. This directly addresses mods that keep hotbars, framework state, glider state, or similar character-local data in <code>onSave</code>/<code>onLoad</code> rather than in permanent storage.</p>
+<p>Permanent <code>storage.playerSection</code> settings are also safer across updates. A stored file missing a newly introduced key should receive the current default instead of replacing the whole registered settings table with an older incomplete table.</p>
+<h2 id="what-is-only-partially-generic-today"><a class="heading-anchor" href="#what-is-only-partially-generic-today" aria-label="Link to this section">What is only partially generic today</a></h2>
+<p>Inventory and container operations are the most advanced generic mutation path. Stable server-issued instance identity and the first Lua-driven pickup, drop, split, and container-transfer routes now exist in the engine. These changes are intended to support original unmodified mods such as inventory extenders and hotkey systems, but the full two-client and late-join acceptance matrix is not yet complete.</p>
+<p>The mutation audit system can identify calls such as object creation, removal, movement, teleporting, scaling, enable/disable, script attachment, inventory changes, actor state changes, and quest/player journal writes. Audit does not by itself make an operation authoritative; it provides the evidence needed to determine which operations can be routed generically and which require a profile.</p>
+<h2 id="what-cannot-be-made-safe-by-blindly-forwarding-calls"><a class="heading-anchor" href="#what-cannot-be-made-safe-by-blindly-forwarding-calls" aria-label="Link to this section">What cannot be made safe by blindly forwarding calls</a></h2>
+<p>A local or global OpenMW Lua event is not automatically a multiplayer event. Many single-player mods use <code>core.sendGlobalEvent</code> to move logic from a PLAYER script to a client GLOBAL script. Forwarding every such event to the server would expose arbitrary mod-defined calls as an unvalidated network API.</p>
+<p>Likewise, the engine cannot infer the complete gameplay meaning of every call to:</p>
+<ul><li><code>teleport</code>;</li><li><code>createObject</code> or object placement;</li><li><code>remove</code>;</li><li>actor movement or transformation;</li><li>quest and shared-world changes;</li><li>inventory, spell, stat, or reward changes;</li><li>dynamic script attachment.</li></ul>
+<p>The target is conservative generic support for operations whose ownership and limits are clear, plus centrally shipped rules or adapters for ambiguous mechanics. Unsupported or uncertain mutations should produce useful diagnostics rather than silently diverging between clients.</p>
+<h2 id="authority-model"><a class="heading-anchor" href="#authority-model" aria-label="Link to this section">Authority model</a></h2>
+<p>The compatibility work follows this ownership split:</p>
+<div class="table-wrap"><table><thead><tr>
+<th>State</th>
+<th>Default owner</th>
+</tr></thead><tbody>
+<tr><td>UI, keybinds, camera, audio, and local presentation</td><td>Client</td></tr>
+<tr><td>Character-local PLAYER script save payload</td><td>Client engine, scoped to server and character</td></tr>
+<tr><td>Gameplay-sensitive character state</td><td>Server</td></tr>
+<tr><td>Shared world, actors, quests, and persistent objects</td><td>Server</td></tr>
+<tr><td>Responsive local movement prediction</td><td>Client prediction with server confirmation/correction</td></tr>
+</tbody></table></div>
+<p>Client data is never treated as trustworthy merely because it came from Lua. The server receives the authenticated connection identity separately and injects sender information into inbound event payloads. Server handlers must use that trusted identity and validate permissions, ownership, ranges, counts, targets, cooldowns, and current world state.</p>
+<h2 id="data-flow"><a class="heading-anchor" href="#data-flow" aria-label="Link to this section">Data flow</a></h2>
+<p>A typical compatible action follows this path:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-text">Unmodified client Lua mod
+    -&gt; normal OpenMW API or client Lua event
+    -&gt; multiplayer classifier/audit layer
+    -&gt; local-only execution, or a typed server intent
+    -&gt; server Lua IntentPolicy and native validation
+    -&gt; PlayerSync / ActorSync / WorldObjectSync / ObjectSync
+    -&gt; authoritative result sent to affected clients</code></pre></div>
+<p>Client-to-server custom events use the client <code>openmw.mp</code> package:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">local mp = require(&quot;openmw.mp&quot;)
+
+mp.sendToServer(&quot;Example_Request&quot;, {
+    targetId = &quot;example_target&quot;,
+})</code></pre></div>
+<p>The server receives <code>Example_Request</code> as an event handler. The runtime injects authenticated sender fields such as <code>pid</code> and, when available, <code>characterId</code> into a table payload. The handler should validate the request and send back an explicit result.</p>
+<p>This explicit API is useful for native multiplayer mods and curated adapters. The generic compatibility project aims to reduce how often an ordinary existing mod must be changed to call it directly.</p>
+<h2 id="compatibility-targets-from-the-installed-mod-audit"><a class="heading-anchor" href="#compatibility-targets-from-the-installed-mod-audit" aria-label="Link to this section">Compatibility targets from the installed-mod audit</a></h2>
+<p>Current compatibility testing uses real installed mods as acceptance targets rather than relying only on synthetic examples:</p>
+<ul><li><strong>Zerkish Hotkeys Improved:</strong> PLAYER save/load restoration and stable identity for distinct item stacks.</li><li><strong>Inventory Extender:</strong> handle-preserving same-inventory moves, world drops and pickups, split stacks, and container transfers.</li><li><strong>StatsWindow and settings mods:</strong> local settings persistence and safe defaults migration.</li><li><strong>SkillFramework:</strong> PLAYER lifecycle now; NPC state must follow authority rather than being restored independently by every client.</li><li><strong>Tamriel Data passwall and OpenMW Hookshot:</strong> validated player movement, with actor/object targets routed according to authority.</li><li><strong>ErnGlider and surf maps:</strong> local presentation plus validated movement and shared collision/world state.</li><li><strong>Tamriel Rebuilt strongholds:</strong> server-owned shared progression and object state.</li><li><strong>Bardcraft:</strong> dedicated persistence remains appropriate while generic lifecycle and identity support reduce its custom patch surface.</li><li><strong>Complex quest/transformation mods:</strong> curated server-authoritative adapters where generic inference would be unsafe.</li></ul>
+<h2 id="guidance-for-mod-authors"><a class="heading-anchor" href="#guidance-for-mod-authors" aria-label="Link to this section">Guidance for mod authors</a></h2>
+<p>Continue using normal OpenMW Lua APIs. Keep local presentation local, use normal <code>onSave</code>/<code>onLoad</code> for character-local PLAYER state, and avoid assuming that a client GLOBAL script owns shared world truth.</p>
+<p>For a mod designed specifically for multiplayer, prefer small typed requests through <code>openmw.mp.sendToServer</code> rather than sending raw desired state. For example, request “use ability X on target Y” rather than “set my stat to 500” or “create arbitrary record Z.” The server can then validate the intent and decide the authoritative operation.</p>
+<p>Do not use local-only storage for rewards or state that affects other players. Do not expect client-created actors, collision objects, quest changes, or inventory grants to become authoritative merely because they worked in single player.</p>
+<h2 id="guidance-for-server-operators"><a class="heading-anchor" href="#guidance-for-server-operators" aria-label="Link to this section">Guidance for server operators</a></h2>
+<p>Matching client and server builds matter whenever the multiplayer packet format or identity model changes. The stable inventory-instance work in particular requires paired client/server deployment.</p>
+<p>Server operators should not patch supported client mods by hand as the normal compatibility strategy. Generic engine behavior and centrally distributed profiles are intended to keep compatibility consistent across servers. Until a mutation route or profile has passed acceptance, use audit output and explicit server scripts for gameplay-sensitive features.</p>
+<p>Content validation currently verifies configured content files, including <code>.omwscripts</code>, but an <code>.omwscripts</code> manifest does not prove the contents of every referenced or imported Lua file. Exact compatibility profiles therefore need a resolved Lua bundle fingerprint or a signed package manifest, not just a filename.</p>
+<h2 id="near-term-work"><a class="heading-anchor" href="#near-term-work" aria-label="Link to this section">Near-term work</a></h2>
+<p>The immediate validation and implementation sequence is:</p>
+<ol><li>Test matching client/server builds with the original unmodified inventory scripts across two clients and late join.</li><li>Verify identity migration for old database rows, split versus whole stacks, duplicate record instances, and server-created custom records.</li><li>Finish corrupt PLAYER-state fallback and the old settings-file migration acceptance cases.</li><li>Gather <code>[MPAUDIT]</code> reports from representative movement, actor, object, quest, and transformation mods.</li><li>Attach verified script-bundle fingerprints to diagnostics.</li><li>Implement the narrow validated player-movement intent with prediction and correction.</li><li>Add curated profiles only where audit evidence shows that ownership and intent cannot be inferred safely.</li></ol>
+<p>The practical objective is broad compatibility for unmodified client mods while keeping authoritative gameplay bounded, observable, and controlled by the server.</p></article>
+  </main>
+
+  <footer class="site-footer">
+    <span class="sigil" aria-hidden="true">◈</span>
+    A self-contained offline document. No external assets are required.
+  </footer>
+</body>
+</html>

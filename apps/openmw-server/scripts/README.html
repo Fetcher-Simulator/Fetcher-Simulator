@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en" data-page="server">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#061012">
+  <meta name="description" content="Authoritative scripting beneath the surface">
+  <title>Dedicated Server Lua Scripting · OpenMW Lua</title>
+  <style>
+:root {
+  color-scheme: dark;
+  --ink: #d8eee8;
+  --muted: #89aaa7;
+  --deep: #03090b;
+  --abyss: #071113;
+  --stone: rgba(15, 29, 30, .78);
+  --stone-2: rgba(8, 18, 20, .9);
+  --line: rgba(147, 218, 207, .18);
+  --glow: #8de7d6;
+  --glow-2: #7ca9ff;
+  --gold: #cabd82;
+  --shadow: rgba(0, 0, 0, .58);
+  --content: 860px;
+  --rail: 260px;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; background: var(--deep); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    radial-gradient(ellipse at 50% -15%, rgba(101, 179, 174, .22), transparent 42%),
+    radial-gradient(ellipse at 50% 105%, rgba(59, 136, 151, .24), transparent 38%),
+    linear-gradient(180deg, #061012 0%, #030708 50%, #061113 100%);
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1.72;
+  overflow-x: hidden;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -5;
+  background:
+    radial-gradient(ellipse at 9% 10%, #000 0 17%, transparent 18%),
+    radial-gradient(ellipse at 91% 9%, #000 0 18%, transparent 19%),
+    radial-gradient(ellipse at 50% -7%, transparent 0 32%, rgba(0,0,0,.96) 49%),
+    linear-gradient(90deg, rgba(0,0,0,.85), transparent 19% 81%, rgba(0,0,0,.85));
+  pointer-events: none;
+}
+.ambient, .caustics, .mist, .pool-line { position: fixed; pointer-events: none; }
+.ambient {
+  inset: -20%; z-index: -4; opacity: .32; filter: blur(36px);
+  background: conic-gradient(from 20deg at 50% 50%, transparent, rgba(82, 220, 202, .16), transparent 28%, rgba(77, 119, 204, .13), transparent 55%, rgba(82, 220, 202, .12), transparent);
+  animation: drift 24s ease-in-out infinite alternate;
+}
+.caustics {
+  left: -10vw; right: -10vw; bottom: -8vh; height: 48vh; z-index: -3;
+  opacity: .24; filter: blur(2px) saturate(1.4);
+  background:
+    repeating-radial-gradient(ellipse at 30% 70%, transparent 0 15px, rgba(146, 255, 233, .19) 18px 20px, transparent 24px 48px),
+    repeating-radial-gradient(ellipse at 70% 40%, transparent 0 20px, rgba(112, 174, 255, .14) 23px 25px, transparent 30px 58px);
+  transform: perspective(500px) rotateX(63deg) scale(1.35);
+  transform-origin: bottom;
+  animation: caustic-shift 13s linear infinite alternate;
+}
+.mist {
+  inset: auto -10vw 0; height: 33vh; z-index: -2;
+  background: linear-gradient(180deg, transparent, rgba(93, 174, 170, .06) 45%, rgba(59, 117, 128, .17));
+  filter: blur(15px);
+}
+.pool-line {
+  left: 0; right: 0; bottom: 19vh; z-index: -1; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(151, 245, 226, .55), transparent);
+  box-shadow: 0 0 30px 7px rgba(102, 221, 205, .11);
+}
+@keyframes drift { to { transform: translate3d(3%, -2%, 0) rotate(8deg) scale(1.04); } }
+@keyframes caustic-shift { to { background-position: 80px -40px, -70px 45px; transform: perspective(500px) rotateX(63deg) scale(1.42) translateX(2%); } }
+
+.skip-link { position: fixed; left: 1rem; top: -5rem; z-index: 50; padding: .7rem 1rem; background: #d6f8ef; color: #041011; border-radius: .3rem; }
+.skip-link:focus { top: 1rem; }
+.site-header {
+  min-height: 62vh; display: grid; place-items: center; text-align: center; padding: 7rem 1.5rem 5rem;
+  position: relative;
+}
+.site-header::before {
+  content: ""; position: absolute; inset: 0; opacity: .6;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(151, 236, 219, .18) 0 1px, transparent 2px),
+    radial-gradient(ellipse at center, transparent 0 32%, rgba(0,0,0,.32) 70%);
+  background-size: 39px 39px, 100% 100%;
+  mask-image: linear-gradient(180deg, black, transparent 92%);
+}
+.hero { position: relative; max-width: 950px; }
+.eyebrow { margin: 0 0 1.1rem; color: var(--gold); text-transform: uppercase; letter-spacing: .27em; font: 600 .72rem/1.4 system-ui, sans-serif; }
+h1 {
+  margin: 0; font-weight: 400; font-size: clamp(3rem, 8vw, 6.8rem); line-height: .95; letter-spacing: -.04em;
+  color: #e5f7f2; text-shadow: 0 0 36px rgba(133, 233, 213, .19), 0 3px 0 #020607;
+}
+.subtitle { margin: 1.4rem auto 0; color: #a7c5c1; font-style: italic; font-size: clamp(1.05rem, 2vw, 1.4rem); }
+.portal-nav { display: flex; flex-wrap: wrap; justify-content: center; gap: .85rem; margin-top: 2.3rem; }
+.portal-link, .source-link {
+  display: inline-flex; align-items: center; gap: .65rem; min-height: 44px; padding: .72rem 1rem;
+  color: #dff7f1; text-decoration: none; border: 1px solid rgba(142, 226, 210, .25); border-radius: 999px;
+  background: rgba(6, 18, 20, .56); backdrop-filter: blur(9px); box-shadow: inset 0 0 24px rgba(128, 232, 211, .04), 0 12px 32px rgba(0,0,0,.25);
+  font: 600 .77rem/1 system-ui, sans-serif; letter-spacing: .06em;
+  transition: border-color .25s, background .25s, transform .25s, box-shadow .25s;
+}
+.portal-link::before { content: "◇"; color: var(--glow); font-size: 1.1rem; }
+.source-link::before { content: "⌁"; color: var(--gold); font-size: 1.1rem; }
+.portal-link:hover, .source-link:hover { transform: translateY(-2px); border-color: rgba(142, 226, 210, .58); background: rgba(11, 31, 33, .8); box-shadow: 0 0 28px rgba(105, 226, 207, .08); }
+.rune-divider { margin: 3.2rem auto 0; color: rgba(202, 189, 130, .55); letter-spacing: 1.2em; font-size: .8rem; }
+
+.layout { width: min(calc(100% - 2rem), 1220px); margin: -3.5rem auto 10rem; display: grid; grid-template-columns: var(--rail) minmax(0, var(--content)); gap: 2.4rem; align-items: start; justify-content: center; position: relative; }
+.toc {
+  position: sticky; top: 1.2rem; max-height: calc(100vh - 2.4rem); overflow: auto; padding: 1.1rem 1rem 1.3rem;
+  border: 1px solid var(--line); border-radius: 1.2rem 1.2rem 1.2rem .35rem; background: linear-gradient(145deg, rgba(14, 30, 31, .7), rgba(4, 11, 13, .86));
+  backdrop-filter: blur(14px); box-shadow: inset 0 1px rgba(255,255,255,.03), 0 30px 60px rgba(0,0,0,.2);
+  scrollbar-width: thin; scrollbar-color: rgba(126, 211, 197, .3) transparent;
+}
+.toc h2 { margin: 0 0 .75rem; padding: 0; border: 0; color: var(--gold); font: 700 .7rem/1.2 system-ui, sans-serif; text-transform: uppercase; letter-spacing: .2em; }
+.toc ul { list-style: none; margin: 0; padding: 0; }
+.toc li { margin: 0; }
+.toc a { display: flex; align-items: center; justify-content: space-between; gap: .4rem; padding: .43rem .2rem; color: #89aaa7; text-decoration: none; font: 500 .75rem/1.35 system-ui, sans-serif; border-bottom: 1px solid rgba(145, 220, 207, .05); }
+.toc a:hover { color: #dcf8f1; }
+.toc a i { width: 4px; height: 4px; border-radius: 50%; background: rgba(138, 230, 213, .3); flex: 0 0 auto; }
+.toc-level-3 a { padding-left: .75rem; font-size: .7rem; opacity: .84; }
+
+.document {
+  min-width: 0; padding: clamp(1.25rem, 4vw, 3.8rem); border: 1px solid var(--line); border-radius: 2.2rem 2.2rem 2.2rem .6rem;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.025), transparent 10%),
+    radial-gradient(circle at 82% 2%, rgba(99, 214, 196, .07), transparent 19%),
+    linear-gradient(145deg, rgba(12, 27, 29, .88), rgba(4, 11, 13, .95));
+  backdrop-filter: blur(17px); box-shadow: inset 0 1px rgba(255,255,255,.04), 0 45px 100px rgba(0,0,0,.34), 0 0 0 8px rgba(2,8,9,.13);
+}
+.document > h1:first-child { display: none; }
+.document h2, .document h3, .document h4 { scroll-margin-top: 1.5rem; }
+.document h2 { margin: 3.5rem 0 1.1rem; padding-top: 1.6rem; border-top: 1px solid rgba(147, 218, 207, .11); color: #dff6ef; font-size: clamp(1.65rem, 3vw, 2.35rem); line-height: 1.18; font-weight: 400; letter-spacing: -.025em; }
+.document h2::before { content: "◈"; display: block; margin-bottom: .55rem; color: rgba(202, 189, 130, .65); font-size: .72rem; letter-spacing: .2em; }
+.document h3 { margin: 2.4rem 0 .8rem; color: #b8ddd5; font-size: 1.32rem; font-weight: 500; }
+.document h4 { margin: 1.8rem 0 .55rem; color: #b7cbc8; font-size: 1.06rem; font-family: system-ui, sans-serif; letter-spacing: .02em; }
+.heading-anchor { color: inherit; text-decoration: none; }
+.heading-anchor:hover { text-shadow: 0 0 18px rgba(128, 235, 213, .2); }
+p { margin: .8rem 0 1.15rem; }
+a { color: #99eadb; text-decoration-color: rgba(153, 234, 219, .35); text-underline-offset: .18em; }
+a:hover { color: #d9fff8; text-decoration-color: currentColor; }
+strong { color: #effbf8; font-weight: 700; }
+em { color: #bdd7d2; }
+code { padding: .12rem .36rem; border: 1px solid rgba(125, 207, 195, .14); border-radius: .28rem; background: rgba(0, 7, 8, .52); color: #aee8dc; font: .88em/1.45 Consolas, "Cascadia Mono", monospace; }
+ul, ol { padding-left: 1.35rem; margin: .7rem 0 1.25rem; }
+li { padding-left: .28rem; margin: .35rem 0; }
+li::marker { color: rgba(137, 229, 211, .62); }
+blockquote { position: relative; margin: 1.7rem 0; padding: 1rem 1.2rem 1rem 3.1rem; border: 1px solid rgba(202, 189, 130, .16); border-left: 2px solid rgba(202, 189, 130, .5); border-radius: .35rem 1rem 1rem .35rem; background: rgba(34, 31, 21, .15); color: #c6d9d4; }
+blockquote p { margin: 0; }
+.quote-mark { position: absolute; left: 1.15rem; top: 1rem; color: rgba(202, 189, 130, .7); }
+hr { border: 0; height: 1px; margin: 3rem 0; background: linear-gradient(90deg, transparent, rgba(143, 220, 206, .25), transparent); }
+.code-shell { margin: 1.35rem 0 1.7rem; overflow: hidden; border: 1px solid rgba(122, 206, 193, .15); border-radius: .8rem; background: #020809; box-shadow: inset 0 0 50px rgba(45, 118, 111, .05), 0 20px 40px rgba(0,0,0,.2); }
+.code-runes { height: 30px; display: flex; align-items: center; gap: 7px; padding: 0 12px; border-bottom: 1px solid rgba(130, 211, 198, .08); background: rgba(255,255,255,.018); }
+.code-runes span { width: 6px; height: 6px; border: 1px solid rgba(159, 226, 213, .25); transform: rotate(45deg); }
+pre { margin: 0; padding: 1rem 1.15rem 1.2rem; overflow: auto; line-height: 1.58; tab-size: 4; }
+pre code { padding: 0; border: 0; background: transparent; color: #b9d9d3; font-size: .83rem; }
+.table-wrap { margin: 1.4rem 0 2rem; overflow-x: auto; border: 1px solid rgba(140, 218, 204, .15); border-radius: .8rem; box-shadow: 0 18px 35px rgba(0,0,0,.16); }
+table { width: 100%; border-collapse: collapse; min-width: 620px; background: rgba(2, 9, 10, .4); font-size: .88rem; }
+th, td { padding: .8rem .9rem; text-align: left; vertical-align: top; border-bottom: 1px solid rgba(140, 218, 204, .09); border-right: 1px solid rgba(140, 218, 204, .06); }
+th { color: #d9f4ed; background: rgba(54, 105, 99, .14); font: 700 .73rem/1.35 system-ui, sans-serif; text-transform: uppercase; letter-spacing: .06em; }
+tr:last-child td { border-bottom: 0; }
+tr:hover td { background: rgba(104, 201, 184, .035); }
+
+.site-footer { width: min(calc(100% - 2rem), 900px); margin: -4rem auto 0; padding: 3rem 1rem 7rem; text-align: center; color: #668783; font: .75rem/1.6 system-ui, sans-serif; letter-spacing: .04em; }
+.site-footer .sigil { display: block; color: rgba(202, 189, 130, .5); font-size: 1.2rem; margin-bottom: .8rem; }
+
+@media (max-width: 980px) {
+  .layout { grid-template-columns: minmax(0, 860px); margin-top: -2.5rem; }
+  .toc { position: relative; top: auto; max-height: none; }
+  .toc ul { columns: 2; column-gap: 1.5rem; }
+  .toc li { break-inside: avoid; }
+}
+@media (max-width: 620px) {
+  .site-header { min-height: 56vh; padding-top: 5rem; }
+  .layout { width: min(calc(100% - 1rem), 860px); gap: 1rem; }
+  .document { padding: 1.25rem; border-radius: 1.25rem 1.25rem 1.25rem .35rem; }
+  .toc ul { columns: 1; }
+  .portal-nav { flex-direction: column; align-items: center; }
+  .portal-link, .source-link { width: min(100%, 330px); justify-content: center; }
+  h1 { font-size: clamp(2.6rem, 15vw, 4.3rem); }
+  .rune-divider { letter-spacing: .65em; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
+}
+@media print {
+  :root { color-scheme: light; }
+  body { color: #172321; background: white; }
+  body::before, .ambient, .caustics, .mist, .pool-line, .site-header::before, .toc, .portal-nav, .rune-divider { display: none !important; }
+  .site-header { min-height: 0; padding: 1cm 0 .5cm; color: #111; }
+  h1 { color: #111; text-shadow: none; font-size: 32pt; }
+  .subtitle, .eyebrow { color: #444; }
+  .layout { display: block; width: auto; margin: 0; }
+  .document { color: #172321; background: white; border: 0; box-shadow: none; padding: 0; }
+  .document h2, .document h3, .document h4, strong, a, code { color: #172321; }
+  .code-shell, blockquote, .table-wrap { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+  <a class="skip-link" href="#document">Skip to documentation</a>
+  <div class="ambient" aria-hidden="true"></div>
+  <div class="caustics" aria-hidden="true"></div>
+  <div class="mist" aria-hidden="true"></div>
+  <div class="pool-line" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <div class="hero">
+      <p class="eyebrow">Dedicated Server · Lua Runtime</p>
+      <h1>Dedicated Server Lua Scripting</h1>
+      <p class="subtitle">Authoritative scripting beneath the surface</p>
+      <nav class="portal-nav" aria-label="Related documentation">
+        <a class="portal-link" href="CLIENT_LUA_MULTIPLAYER.html">Enter the client-side chamber</a>
+        <a class="source-link" href="README.md">Read the Markdown source</a>
+      </nav>
+      <div class="rune-divider" aria-hidden="true">◇ ◈ ◇</div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <nav class="toc" aria-label="On this page">
+      <h2>Carved passages</h2>
+      <ul><li class="toc-level-2"><a href="#server-owner-quick-start"><span>Server owner quick start</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#directory-overview"><span>Directory overview</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#how-scripts-are-loaded"><span>How scripts are loaded</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#the-server-script-shape"><span>The server script shape</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#adding-a-custom-module"><span>Adding a custom module</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#common-server-events"><span>Common server events</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#the-mp-package"><span>The mp package</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#how-lua-communicates-with-the-c-server"><span>How Lua communicates with the C++ server</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#client-to-server-lua-events"><span>Client-to-server Lua events</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#chat-commands"><span>Chat commands</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#persistent-global-storage"><span>Persistent global storage</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#character-storage"><span>Character storage</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#configuration"><span>Configuration</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#sandbox-and-filesystem-access"><span>Sandbox and filesystem access</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#security-checklist"><span>Security checklist</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#performance-guidelines"><span>Performance guidelines</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#errors-and-debugging"><span>Errors and debugging</span><i aria-hidden="true"></i></a></li>
+<li class="toc-level-2"><a href="#source-files-for-deeper-technical-details"><span>Source files for deeper technical details</span><i aria-hidden="true"></i></a></li></ul>
+    </nav>
+    <article class="document" id="document"><h1 id="dedicated-server-lua-scripting"><a class="heading-anchor" href="#dedicated-server-lua-scripting" aria-label="Link to this section">Dedicated Server Lua Scripting</a></h1>
+<p>This directory contains the dedicated-server Lua scripts used by <code>openmw-server</code> in this multiplayer-enabled OpenMW build.</p>
+<p>This guide is written for server owners and script authors. It explains the server Lua runtime, how to configure and extend it, and the security and operational concerns involved in running custom scripts. Exact bindings and bundled feature scripts can vary between builds, so treat the files and C++ bindings shipped with your server as the source of truth.</p>
+<blockquote><span class="quote-mark">◈</span><p>Client-side OpenMW Lua is a separate runtime responsible for mod UI, input, presentation, PLAYER script state, and client-originated gameplay requests. See <a href="CLIENT_LUA_MULTIPLAYER.html">Client-side OpenMW Lua in Multiplayer</a> for the current state of generic multiplayer compatibility support for existing mods.</p></blockquote>
+<p>Server Lua is the authoritative scripting layer between the multiplayer network server, connected players, persistent server state, and client-side OpenMW Lua. It is mainly intended for multiplayer rules and services that must be controlled by the server rather than trusted to an individual client.</p>
+<p>Typical uses include:</p>
+<ul><li>chat commands and administration;</li><li>authentication, moderation, and access checks;</li><li>shared world or minigame state;</li><li>validating client requests;</li><li>server-controlled spawning, records, inventory, time, weather, and travel;</li><li>persistent account or character features;</li><li>coordinating a client-side Lua feature across multiple players;</li><li>sending targeted or broadcast Lua events to clients.</li></ul>
+<p>Server Lua is generally <strong>not</strong> the right place for rendering, HUD layout, camera effects, per-frame input handling, or purely local visual behavior. Those belong in client OpenMW Lua scripts. A common multiplayer feature uses both sides: the client handles presentation and input, while the server validates requests and owns the authoritative state.</p>
+<h2 id="server-owner-quick-start"><a class="heading-anchor" href="#server-owner-quick-start" aria-label="Link to this section">Server owner quick start</a></h2>
+<p>Before opening the server to players:</p>
+<ol><li>Confirm that the complete <code>server-scripts</code> directory was installed with the server binary.</li><li>Review <code>server.omwscripts</code> and remove global entries for features you do not intend to run.</li><li>Review <code>config.lua</code>, replace placeholder credentials, and disable administrative interfaces you do not need.</li><li>Ship every module and generated data file required by the enabled global scripts, but exclude development harnesses, backup files, and editor artifacts.</li><li>Make sure client-side scripts and content required by a client/server feature are distributed consistently to players.</li><li>Start the server and check the log for the selected script directory, parsed manifest, loaded global scripts, and Lua errors.</li><li>Back up the player database and <code>server-lua-storage.bin</code> whenever server Lua owns persistent gameplay or world state.</li></ol>
+<p>Make changes on a test server first. A syntactically valid script can still grant excessive permissions, duplicate rewards, corrupt persistent state, or trust data supplied by a modified client.</p>
+<h2 id="directory-overview"><a class="heading-anchor" href="#directory-overview" aria-label="Link to this section">Directory overview</a></h2>
+<p>The important files are:</p>
+<ul><li><code>server.omwscripts</code> — declares the independently loaded global server scripts.</li><li><code>core.lua</code> — common server lifecycle, authentication, command dispatch, and event routing.</li><li><code>custom_scripts.lua</code> — central registry for deployment-specific gameplay and administration modules used by <code>core.lua</code>.</li><li><code>config.lua</code> — operator-editable server configuration, exposed as <code>require("config")</code>.</li><li>additional feature-specific global scripts, which may run independently for a particular mod or service.</li><li><code>recordstore.lua</code> and <code>intent_policy.lua</code> — shared server infrastructure.</li><li>the remaining <code>.lua</code> files — modules loaded with <code>require(...)</code> by one of the global scripts.</li></ul>
+<p>Some server packages also include generated manifests or data modules. These can be runtime dependencies even though they should not be edited manually. Check comments in each generated file and preserve it when packaging the feature that consumes it.</p>
+<p><code>test_callbacks.lua</code> is a development harness and should not be loaded or shipped as a production script.</p>
+<h2 id="how-scripts-are-loaded"><a class="heading-anchor" href="#how-scripts-are-loaded" aria-label="Link to this section">How scripts are loaded</a></h2>
+<p>At startup, the server:</p>
+<ol><li>Locates a <code>server-scripts</code> directory.</li><li>Adds that directory to the server Lua virtual filesystem and module search path.</li><li>Finds and parses every <code>.omwscripts</code> manifest in the directory.</li><li>Loads each script declared with <code>GLOBAL:</code>.</li><li>Starts the dedicated Lua tick thread.</li></ol>
+<p>The exact manifest depends on the server package and enabled features. A minimal installation might contain:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-text">GLOBAL: core.lua</code></pre></div>
+<p>An independently loaded feature can add another entry:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-text">GLOBAL: optional_feature.lua</code></pre></div>
+<p>Inspect the <code>server.omwscripts</code> file shipped with your server instead of assuming every bundled feature is required.</p>
+<p>A <code>GLOBAL:</code> script is independently loaded by the engine and may return <code>eventHandlers</code>, a public interface, or both.</p>
+<p>A normal module loaded with <code>require("module_name")</code> is different. It is cached and returned to its caller, but it does not automatically become an independent event listener. This is why feature modules are registered in <code>custom_scripts.lua</code> and then explicitly called by <code>core.lua</code>.</p>
+<p>Do not add every module to <code>server.omwscripts</code>. Use <code>GLOBAL:</code> only for scripts that genuinely need their own event-handler table or public interface.</p>
+<h2 id="the-server-script-shape"><a class="heading-anchor" href="#the-server-script-shape" aria-label="Link to this section">The server script shape</a></h2>
+<p>A minimal global server script returns a table containing named event handlers:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">local mp = require(&quot;mp&quot;)
+
+return {
+    eventHandlers = {
+        OnServerInit = function(_data)
+            mp.log(&quot;Tutorial script started&quot;)
+        end,
+
+        OnPlayerConnect = function(data)
+            local player = mp.getPlayer(data.guid)
+            if not player then
+                return
+            end
+
+            player:sendMessage(&quot;Welcome, &quot; .. player.name .. &quot;!&quot;)
+            mp.log(player.name .. &quot; connected&quot;)
+        end,
+    },
+}</code></pre></div>
+<p>Save this as <code>tutorial.lua</code> and add the following line to <code>server.omwscripts</code> only when it should be an independent global script:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-text">GLOBAL: tutorial.lua</code></pre></div>
+<p>For ordinary server features, prefer the module pattern described below instead of adding another global entry point.</p>
+<h2 id="adding-a-custom-module"><a class="heading-anchor" href="#adding-a-custom-module" aria-label="Link to this section">Adding a custom module</a></h2>
+<p>Create <code>hello_command.lua</code>:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">local M = {}
+
+function M.handleChat(player, data, env)
+    local message = tostring(data.message or &quot;&quot;)
+    local command = (env.commandPrefix or &quot;/&quot;) .. &quot;hello&quot;
+
+    if message ~= command then
+        return nil
+    end
+
+    player:sendMessage(&quot;Hello from server Lua, &quot; .. player.name .. &quot;!&quot;)
+    return false
+end
+
+return M</code></pre></div>
+<p>Register it in <code>custom_scripts.lua</code>:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">return {
+    -- Existing modules...
+    helloCommand = require(&quot;hello_command&quot;),
+}</code></pre></div>
+<p>Then wire it into the appropriate place in <code>core.lua</code>:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">local handled = customScripts.helloCommand.handleChat(player, data, {
+    commandPrefix = COMMAND_PREFIX,
+})
+if handled ~= nil then
+    return handled
+end</code></pre></div>
+<p>The convention used by the command modules is:</p>
+<ul><li>return <code>nil</code> when the module does not recognize the message;</li><li>return <code>false</code> after handling a command so the original text is not relayed as normal chat.</li></ul>
+<p><code>custom_scripts.lua</code> centralizes module inclusion, but it intentionally does not guess which events or helper functions each feature requires. Event routing remains explicit in <code>core.lua</code>, making handler order and security dependencies visible.</p>
+<h2 id="common-server-events"><a class="heading-anchor" href="#common-server-events" aria-label="Link to this section">Common server events</a></h2>
+<p>The server currently emits events including:</p>
+<ul><li><code>OnServerInit</code></li><li><code>OnServerTick</code></li><li><code>OnPlayerConnect</code></li><li><code>OnPlayerDisconnect</code></li><li><code>OnPlayerCellChange</code></li><li><code>OnPlayerSendMessage</code></li><li><code>OnDoorState</code></li><li><code>OnWorldWeather</code></li><li><code>OnActorSpawned</code></li><li><code>OnActorDeath</code></li></ul>
+<p>Clients may also send custom event names. Those names arrive in the same <code>eventHandlers</code> table, such as <code>Tutorial_Request</code>, <code>MinigameTrigger</code>, or any event defined by a client/server feature.</p>
+<p>Event payloads are Lua tables. Examples:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">OnPlayerDisconnect = function(data)
+    mp.log(string.format(
+        &quot;%s disconnected: %s&quot;,
+        tostring(data.name),
+        tostring(data.reason)))
+end</code></pre></div>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">OnPlayerCellChange = function(data)
+    mp.log(string.format(
+        &quot;%s moved from %s to %s&quot;,
+        tostring(data.name),
+        tostring(data.oldCell),
+        tostring(data.newCell)))
+end</code></pre></div>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">OnServerTick = function(data)
+    local dt = tonumber(data.dt) or 0
+    -- Accumulate dt and run infrequent work rather than doing heavy work here.
+end</code></pre></div>
+<p>Normal event-handler return values are not a general-purpose cancellation mechanism. For example, <code>core.lua</code> suppresses a command by choosing not to call <code>mp.relayChat</code>; it does not depend on the engine interpreting <code>return false</code> from an asynchronous event.</p>
+<h2 id="the-mp-package"><a class="heading-anchor" href="#the-mp-package" aria-label="Link to this section">The <code>mp</code> package</a></h2>
+<p>Server scripts access multiplayer functionality with:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">local mp = require(&quot;mp&quot;)</code></pre></div>
+<p>The exact binding list is defined in:</p>
+<ul><li><code>apps/openmw-server/bindings/ServerBindings.cpp</code></li><li><code>apps/openmw-server/bindings/PlayerBindings.cpp</code></li></ul>
+<p>Common functions include:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">mp.log(&quot;message&quot;)
+mp.getPlayerCount()
+mp.getPlayer(guid)
+mp.getPlayers()
+mp.getWorldTime()
+mp.setWorldTime(12.0)
+mp.broadcast(&quot;Server announcement&quot;)
+mp.broadcastToCell(cellId, &quot;Message for this cell&quot;)
+mp.send(guid, &quot;CustomEvent&quot;, { value = 123 })
+mp.broadcast(&quot;CustomEvent&quot;, { value = 123 })
+mp.broadcastToCell(cellId, &quot;CustomEvent&quot;, { value = 123 })</code></pre></div>
+<p>Several functions are overloaded. For example, <code>mp.broadcast(text)</code> sends server chat, while <code>mp.broadcast(eventName, data)</code> sends a serialized Lua event to every client.</p>
+<p>A player object provides methods such as:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">local player = mp.getPlayer(guid)
+if player then
+    player:sendMessage(&quot;Private server message&quot;)
+    player:setNickname(&quot;Example&quot;)
+end</code></pre></div>
+<p>Always check that <code>mp.getPlayer(...)</code> returned a player. A disconnect can occur between the original network event and Lua processing.</p>
+<h2 id="how-lua-communicates-with-the-c-server"><a class="heading-anchor" href="#how-lua-communicates-with-the-c-server" aria-label="Link to this section">How Lua communicates with the C++ server</a></h2>
+<p>Server Lua runs on a dedicated Lua thread. The configured tick rate is read from <code>Config.LUA_TICK_RATE</code>; check the <code>config.lua</code> supplied with your server for the active value.</p>
+<p>The normal communication path is queue based:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-text">network/game thread
+    -&gt; enqueue named event and serialized payload
+Lua tick thread
+    -&gt; deserialize payload
+    -&gt; run matching eventHandlers
+    -&gt; mp.* call queues an outbound server action
+network/game thread
+    -&gt; drains and applies outbound actions</code></pre></div>
+<p>This separation prevents Lua from directly mutating most live server objects from the Lua thread. Calls such as <code>mp.send</code>, spawning, inventory changes, kicks, broadcasts, and world changes usually queue an action that is applied by the server afterward.</p>
+<p>Consequences for script authors:</p>
+<ul><li>An <code>mp.*</code> mutation may not be visible synchronously in the same Lua statement sequence.</li><li>A player may disconnect before a queued action is applied.</li><li>Long Lua handlers delay other queued Lua events.</li><li><code>OnServerTick</code> must stay lightweight.</li><li>Avoid busy loops, sleeps, blocking I/O, and large repeated serialization work.</li></ul>
+<p>The server also has a special immediate-intent path for operations that need a rapid authoritative answer. It wakes the Lua thread and waits only up to <code>Config.IMMEDIATE_INTENT_TIMEOUT_MS</code>. Intent evaluators must therefore be small, deterministic, and free of slow work.</p>
+<h2 id="client-to-server-lua-events"><a class="heading-anchor" href="#client-to-server-lua-events" aria-label="Link to this section">Client-to-server Lua events</a></h2>
+<p>In a multiplayer client script, the client-side <code>mp</code> package exposes:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">local mp = require(&quot;mp&quot;)
+
+mp.sendToServer(&quot;Tutorial_Ping&quot;, {
+    message = &quot;hello&quot;,
+})</code></pre></div>
+<p>The event travels in a multiplayer Lua-event packet and is delivered to the matching server event handler:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">local mp = require(&quot;mp&quot;)
+
+return {
+    eventHandlers = {
+        Tutorial_Ping = function(data)
+            -- The server injects the authenticated sender identity.
+            local player = mp.getPlayer(data.pid)
+            if not player then
+                return
+            end
+
+            local message = tostring(data.message or &quot;&quot;)
+            if #message &gt; 100 then
+                return
+            end
+
+            mp.log(string.format(
+                &quot;Tutorial_Ping from %s: %s&quot;,
+                player.name,
+                message))
+
+            mp.send(data.pid, &quot;Tutorial_Pong&quot;, {
+                accepted = true,
+                message = message,
+            })
+        end,
+    },
+}</code></pre></div>
+<p>For table payloads received from a client, the server injects:</p>
+<ul><li><code>data.pid</code> — authenticated connection GUID;</li><li><code>data.characterId</code> — authenticated database character ID, when available.</li></ul>
+<p>These injected fields replace any same-named values supplied by the client. Use them as the sender identity. Do not trust a client-provided player name, GUID in another field, account name, character ID, permission flag, price, inventory count, position, or claimed result without server-side verification.</p>
+<p>Server-to-client events use:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">mp.send(guid, &quot;EventName&quot;, data)                    -- one player
+mp.broadcast(&quot;EventName&quot;, data)                    -- every player
+mp.broadcastToCell(cellId, &quot;EventName&quot;, data)      -- players in one cell</code></pre></div>
+<p>The receiving client handles <code>EventName</code> in its own OpenMW Lua <code>eventHandlers</code> table.</p>
+<p>Keep payloads composed of serializable Lua values: booleans, numbers, strings, and tables containing supported values. Keep packets reasonably small and split large data into bounded chunks when necessary.</p>
+<h2 id="chat-commands"><a class="heading-anchor" href="#chat-commands" aria-label="Link to this section">Chat commands</a></h2>
+<p><code>OnPlayerSendMessage</code> receives chat before <code>core.lua</code> decides whether to relay it.</p>
+<p>The normal flow is:</p>
+<ol><li>Retrieve the authenticated player with <code>mp.getPlayer(data.guid)</code>.</li><li>Check whether the message begins with <code>Config.COMMAND_PREFIX</code>.</li><li>Offer it to command handlers in a deliberate order.</li><li>Require administrator status for privileged commands.</li><li>Send feedback with <code>player:sendMessage(...)</code>.</li><li>Return without relaying when a command was handled.</li><li>Call <code>mp.relayChat(data.guid, message)</code> for ordinary chat.</li></ol>
+<p>A command handler should validate argument count, types, ranges, referenced players, referenced records, and permissions. Do not place trust decisions only in a client-side command UI.</p>
+<h2 id="persistent-global-storage"><a class="heading-anchor" href="#persistent-global-storage" aria-label="Link to this section">Persistent global storage</a></h2>
+<p>The server exposes OpenMW global Lua storage through <code>mp.storage</code>:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">local mp = require(&quot;mp&quot;)
+local section = mp.storage.globalSection(&quot;Tutorial&quot;)
+
+local total = section:getCopy(&quot;joinCount&quot;) or 0
+section:set(&quot;joinCount&quot;, total + 1)</code></pre></div>
+<p>Use a unique section name for each feature. <code>getCopy</code> returns a copy suitable for modification; write the modified value back with <code>set</code>.</p>
+<p>Persistent global storage is saved by the server to <code>server-lua-storage.bin</code> in the server working directory. Back up this file together with the player database when it contains important world state.</p>
+<p>For runtime-only data:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">local section = mp.storage.globalSection(&quot;TutorialRuntime&quot;)
+section:setLifeTime(mp.storage.LIFE_TIME.GameSession)</code></pre></div>
+<p>Game-session storage is useful for authenticated-admin flags, caches, cooldowns, and other values that should reset on restart.</p>
+<h2 id="character-storage"><a class="heading-anchor" href="#character-storage" aria-label="Link to this section">Character storage</a></h2>
+<p>The server also provides database-backed storage tied to a character:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">local progress = mp.getCharacterStorage(guid, &quot;Tutorial&quot;, &quot;progress&quot;) or {}
+progress.completed = true
+mp.setCharacterStorage(guid, &quot;Tutorial&quot;, &quot;progress&quot;, progress)</code></pre></div>
+<p>When operating on an offline or explicitly identified character, use the <code>ForCharacter</code> variants with a database character ID:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">local value = mp.getCharacterStorageForCharacter(characterId, &quot;Tutorial&quot;, &quot;progress&quot;)
+mp.setCharacterStorageForCharacter(characterId, &quot;Tutorial&quot;, &quot;progress&quot;, value)</code></pre></div>
+<p>Setting a character-storage value to <code>nil</code>, or calling the matching delete function, removes it.</p>
+<p>Use global storage for server/world state. Use character storage for progression or preferences that belong to one saved character.</p>
+<h2 id="configuration"><a class="heading-anchor" href="#configuration" aria-label="Link to this section">Configuration</a></h2>
+<p><code>config.lua</code> is loaded by the C++ runtime and exposed as a sandboxed module:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">local config = require(&quot;config&quot;)
+local prefix = config.COMMAND_PREFIX or &quot;/&quot;</code></pre></div>
+<p>Keep operator-editable values in <code>config.lua</code> instead of scattering them through feature modules. Provide safe defaults and validate configuration values before using them.</p>
+<p>Never deploy with active secrets committed to the script directory or with a placeholder administrator password. Review <code>config.lua</code> before first launch, replace values such as <code>"changeme"</code>, and disable password-based administration entirely when it is not needed.</p>
+<h2 id="sandbox-and-filesystem-access"><a class="heading-anchor" href="#sandbox-and-filesystem-access" aria-label="Link to this section">Sandbox and filesystem access</a></h2>
+<p>Server Lua can use only packages and functions explicitly exposed by the server runtime. It does not receive unrestricted <code>os</code>, process execution, arbitrary sockets, or arbitrary filesystem access.</p>
+<p>Some builds may expose tightly constrained, feature-specific file operations with server-owned destinations. These are narrow C++ APIs, not general filesystem access.</p>
+<p>When a feature needs a new privileged operation, add a narrow validated C++ binding instead of exposing a general shell, filesystem, or network API to Lua.</p>
+<h2 id="security-checklist"><a class="heading-anchor" href="#security-checklist" aria-label="Link to this section">Security checklist</a></h2>
+<p>For every client-originated event or command:</p>
+<ul><li>identify the sender using injected <code>pid</code>/<code>characterId</code> or the server chat event GUID;</li><li>retrieve current server-side player state;</li><li>validate every field and limit string/table sizes;</li><li>enforce permissions on the server;</li><li>verify ownership and existence of referenced objects or records;</li><li>rate-limit actions that can be spammed;</li><li>avoid broadcasting private data;</li><li>log security-relevant failures without logging passwords or secrets;</li><li>design handlers so duplicate or delayed packets do not corrupt state.</li></ul>
+<p>The client should be treated as a request source, not as an authority.</p>
+<h2 id="performance-guidelines"><a class="heading-anchor" href="#performance-guidelines" aria-label="Link to this section">Performance guidelines</a></h2>
+<ul><li>Keep event handlers short.</li><li>Accumulate <code>data.dt</code> and run periodic work at a lower frequency instead of performing scans every tick.</li><li>Cache derived data when safe.</li><li>Avoid repeatedly copying very large storage tables.</li><li>Chunk large network payloads.</li><li>Do not serialize unnecessary fields.</li><li>Do not use unbounded loops over players, actors, records, or storage.</li><li>Keep immediate-intent evaluators well below their timeout.</li><li>Use <code>mp.log</code> sparingly in hot paths.</li></ul>
+<h2 id="errors-and-debugging"><a class="heading-anchor" href="#errors-and-debugging" aria-label="Link to this section">Errors and debugging</a></h2>
+<p>Use:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-lua">mp.log(&quot;[my_feature] useful diagnostic&quot;)</code></pre></div>
+<p>Startup logs report the selected script directory, parsed manifests, loaded global scripts, Lua tick rate, and script errors.</p>
+<p>Common failures:</p>
+<ul><li><strong>No server script directory found</strong> — the release did not install <code>server-scripts</code> beside or in a supported data location.</li><li><strong>No GLOBAL scripts configured</strong> — the manifest is missing or empty.</li><li><strong>module not found</strong> — a required <code>.lua</code> file was not shipped or the <code>require</code> name is wrong.</li><li><strong>handler never runs</strong> — the module was required but not wired into a global script's <code>eventHandlers</code> or dispatch path.</li><li><strong>client event has no handler</strong> — the client and server event names differ, including capitalization.</li><li><strong>changes do not appear</strong> — restart the server; required modules are cached and there is no general production hot-reload path.</li></ul>
+<p>When available, syntax-check scripts before launching:</p>
+<div class="code-shell"><div class="code-runes"><span></span><span></span><span></span></div><pre><code class="language-text">luac -p core.lua
+luac -p custom_scripts.lua
+luac -p my_feature.lua</code></pre></div>
+<p>Use a Lua 5.1/LuaJIT-compatible parser for the closest match to this runtime. A syntax check does not validate server-only APIs or event behavior.</p>
+<h2 id="source-files-for-deeper-technical-details"><a class="heading-anchor" href="#source-files-for-deeper-technical-details" aria-label="Link to this section">Source files for deeper technical details</a></h2>
+<p>The implementation is the final source of truth:</p>
+<ul><li><code>apps/openmw-server/LuaServerContext.cpp</code> — script discovery, manifests, packages, storage, event queues, Lua thread, ticks, immediate intents, and outbound actions.</li><li><code>apps/openmw-server/bindings/ServerBindings.cpp</code> — functions exposed through server <code>require("mp")</code>.</li><li><code>apps/openmw-server/bindings/PlayerBindings.cpp</code> — player object properties and methods.</li><li><code>apps/openmw-server/Server.cpp</code> — multiplayer packet handling and application of server actions.</li><li><code>apps/openmw/mwmp/MpNetworkBridge.cpp</code> — client <code>mp.sendToServer(...)</code> and client-side Lua-event transport.</li><li><code>apps/openmw-server/scripts/core.lua</code> — current command and event-routing examples.</li><li>other feature-specific global scripts in this directory — larger examples of client/server events, persistence, and independent event handling.</li></ul>
+<p>When adding a new binding, document its arguments, return value, thread/queue behavior, authority assumptions, and failure behavior here or next to its C++ registration.</p></article>
+  </main>
+
+  <footer class="site-footer">
+    <span class="sigil" aria-hidden="true">◈</span>
+    A self-contained offline document. No external assets are required.
+  </footer>
+</body>
+</html>

@@ -1,17 +1,10 @@
 local mp = require("mp")
-local adminUiService = require("admin_ui_service")
-local bardcraftNetworkPolicy = require("bardcraft_network_policy")
 local commandRegistry = require("command_registry")
 local Config = require("config")
+local customScripts = require("custom_scripts")
 local types = require("openmw.types")
 local intentPolicy = require("intent_policy")
-local markRecallCommands = require("mark_recall")
-local recordDynamicTest = require("recorddynamic_test")
 local recordStore = require("recordstore")
-local destructibleSpawners = require("destructible_spawners")
-local speechCommands = require("speech_commands")
-local surfCommands = require("surf_commands")
-local surfTimer = require("surf_timer")
 
 ------------------------------------------------------------------------
 -- Config
@@ -225,7 +218,7 @@ local function playerList()
 end
 
 local function sendBardcraftCommunityStatus(player)
-    local policy = bardcraftNetworkPolicy.get()
+    local policy = customScripts.bardcraftNetworkPolicy.get()
     player:sendMessage(string.format(
         "[Bardcraft] Community mode=%s, server MIDI downloads=%s, player uploads=%s, live relay fallback=%s.",
         policy.communitySongSharingMode and "on" or "off",
@@ -239,8 +232,8 @@ local function broadcastBardcraftNetworkPolicy(player)
     for _, target in ipairs(mp.getPlayers()) do
         local guid = tonumber(target and target.guid)
         if guid then
-            mp.send(guid, "BC_BardcraftNetworkPolicy", bardcraftNetworkPolicy.applyFields({
-                networkPolicy = bardcraftNetworkPolicy.copy(),
+            mp.send(guid, "BC_BardcraftNetworkPolicy", customScripts.bardcraftNetworkPolicy.applyFields({
+                networkPolicy = customScripts.bardcraftNetworkPolicy.copy(),
                 reason = "runtime-community-mode",
                 changedBy = tostring(player.name),
             }))
@@ -256,7 +249,7 @@ local function handleBardcraftCommunityCommand(player, action)
     end
 
     if action == "on" or action == "off" then
-        local policy = bardcraftNetworkPolicy.setRuntimeCommunityMode(action == "on")
+        local policy = customScripts.bardcraftNetworkPolicy.setRuntimeCommunityMode(action == "on")
         local sent = broadcastBardcraftNetworkPolicy(player)
         mp.log(string.format(
             "[bardcraft] runtime community mode enabled=%s hostedDownloads=%s playerUpload=%s importedRelayFallback=%s changedBy=%s notified=%d",
@@ -967,7 +960,7 @@ local function handleChat(player, data)
             return false
         end
 
-        local removedSpawners, removedPayloads = destructibleSpawners.removeInCell(cellId)
+        local removedSpawners, removedPayloads = customScripts.destructibleSpawners.removeInCell(cellId)
         if not mp.resetCell(cellId) then
             player:sendMessage("Failed to queue reset for cell " .. tostring(cellId) .. ".")
             return false
@@ -1524,7 +1517,7 @@ local function handleChat(player, data)
         return false
     end
 
-    local markRecallHandled = markRecallCommands.handleChat(player, data, {
+    local markRecallHandled = customScripts.markRecallCommands.handleChat(player, data, {
         commandPrefix = COMMAND_PREFIX,
         normalizeCellId = normalizeCellId,
     })
@@ -1556,7 +1549,7 @@ local function handleChat(player, data)
     end
 
     if msg:sub(1, #COMMAND_PREFIX) == COMMAND_PREFIX then
-        local speechHandled = speechCommands.handleChat(player, data, {
+        local speechHandled = customScripts.speechCommands.handleChat(player, data, {
             commandPrefix = COMMAND_PREFIX,
             parseCommandArgs = parseCommandArgs,
         })
@@ -1564,9 +1557,8 @@ local function handleChat(player, data)
             return speechHandled
         end
 
-        -- Keep this require local to dispatch: handleChat is already at Lua 5.1's
-        -- upvalue limit, and require caches the module after the first command.
-        local extendedSpeechHandled = require("extended_speech_commands").handleChat(player, data, {
+        -- All optional feature modules share the single customScripts upvalue.
+        local extendedSpeechHandled = customScripts.extendedSpeechCommands.handleChat(player, data, {
             commandPrefix = COMMAND_PREFIX,
             parseCommandArgs = parseCommandArgs,
         })
@@ -1574,7 +1566,7 @@ local function handleChat(player, data)
             return extendedSpeechHandled
         end
 
-        local surfHandled = surfCommands.handleChat(player, data, {
+        local surfHandled = customScripts.surfCommands.handleChat(player, data, {
             commandPrefix = COMMAND_PREFIX,
             findPlayerByName = findPlayerByName,
             isAdmin = isAdmin,
@@ -1585,7 +1577,7 @@ local function handleChat(player, data)
             return surfHandled
         end
 
-        local recordDynamicHandled = recordDynamicTest.handleChat(player, data, {
+        local recordDynamicHandled = customScripts.recordDynamicTest.handleChat(player, data, {
             commandPrefix = COMMAND_PREFIX,
             parseCommandArgs = parseCommandArgs,
             requireAdmin = requireAdmin,
@@ -1603,7 +1595,7 @@ local function handleChat(player, data)
             return recordStoreHandled
         end
 
-        local spawnerHandled = destructibleSpawners.handleChat(player, data, {
+        local spawnerHandled = customScripts.destructibleSpawners.handleChat(player, data, {
             commandPrefix = COMMAND_PREFIX,
             parseCommandArgs = parseCommandArgs,
             requireAdmin = requireAdmin,
@@ -1614,7 +1606,7 @@ local function handleChat(player, data)
             return spawnerHandled
         end
 
-        local adminUiHandled = adminUiService.handleChat(player, data, {
+        local adminUiHandled = customScripts.adminUiService.handleChat(player, data, {
             commandPrefix = COMMAND_PREFIX,
             requireAdmin = requireAdmin,
             isAdmin = isAdmin,
@@ -1638,7 +1630,7 @@ return {
             return intentPolicy.evaluate(intentName, data)
         end,
         handleAdminUiHttp = function(data)
-            return adminUiService.handleHttpRequest(data, {
+            return customScripts.adminUiService.handleHttpRequest(data, {
                 commandPrefix = COMMAND_PREFIX,
                 isAdmin = function()
                     return true
@@ -1671,10 +1663,10 @@ return {
         OnServerInit = function(_)
             admins = {}
             adminRuntimeStorage:reset()
-            markRecallCommands.onServerInit()
+            customScripts.markRecallCommands.onServerInit()
             recordStore.onServerInit()
-            recordDynamicTest.onServerInit()
-            destructibleSpawners.onServerInit()
+            customScripts.recordDynamicTest.onServerInit()
+            customScripts.destructibleSpawners.onServerInit()
             mp.log("[core] Server ready — " .. mp.getPlayerCount() .. " player(s) connected.")
         end,
 
@@ -1694,9 +1686,9 @@ return {
 
         OnPlayerDisconnect = function(data)
             setRuntimeAdmin(data.guid, false)
-            markRecallCommands.onPlayerDisconnect(data)
-            surfCommands.onPlayerDisconnect(data)
-            surfTimer.onPlayerDisconnect(data)
+            customScripts.markRecallCommands.onPlayerDisconnect(data)
+            customScripts.surfCommands.onPlayerDisconnect(data)
+            customScripts.surfTimer.onPlayerDisconnect(data)
             if ANNOUNCE_JOIN_LEAVE then
                 mp.broadcast("<< " .. data.name .. " has left.  (" .. (data.reason or "Disconnected") .. ")")
             end
@@ -1724,7 +1716,7 @@ return {
         end,
 
         SurfTimerTrigger = function(data)
-            surfTimer.handleTrigger(data)
+            customScripts.surfTimer.handleTrigger(data)
         end,
 
         Activate = function(data)
@@ -1732,7 +1724,7 @@ return {
         end,
 
         AdminUi_Request = function(data)
-            adminUiService.handleRequest(data, {
+            customScripts.adminUiService.handleRequest(data, {
                 commandPrefix = COMMAND_PREFIX,
                 isAdmin = isAdmin,
                 normalizeCellId = normalizeCellId,
@@ -1756,15 +1748,15 @@ return {
         end,
 
         OnActorSpawned = function(data)
-            destructibleSpawners.onActorSpawned(data)
+            customScripts.destructibleSpawners.onActorSpawned(data)
         end,
 
         OnActorDeath = function(data)
-            destructibleSpawners.onActorDeath(data)
+            customScripts.destructibleSpawners.onActorDeath(data)
         end,
 
         OnServerTick = function(data)
-            destructibleSpawners.onServerTick(data)
+            customScripts.destructibleSpawners.onServerTick(data)
             tickAccum = tickAccum + (data.dt or 0)
             if tickAccum >= 300 then
                 tickAccum = 0
