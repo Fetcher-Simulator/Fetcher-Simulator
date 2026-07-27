@@ -1,320 +1,312 @@
 #include "MasterServerClient.hpp"
 
-#include <cstdio>
-#include <components/debug/debuglog.hpp>
-
-// cpp-httplib vendored single-header.
-// Plain HTTP (no TLS) — BCrypt crypto backend in use on Windows, OpenSSL not available.
-// Master server operators should run behind a TLS-terminating proxy if HTTPS is needed.
-#include "httplib.h"
-
+#include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <random>
 #include <sstream>
-#include <stdexcept>
+
+#include <components/debug/debuglog.hpp>
+#include <components/openmw-mp/MasterServerProtocol.hpp>
+
+#include <httplib.h>
 
 namespace mwmp
 {
-
-// ============================================================================
-//  Internal helpers
-// ============================================================================
-
-namespace
-{
-    /// Escape a string for embedding as a JSON value.
-    /// Handles the common cases; full RFC 8259 escaping for unusual chars.
-    std::string jsonEscape(const std::string& s)
+    namespace
     {
-        std::string out;
-        out.reserve(s.size() + 4);
-        for (char c : s)
+        std::string jsonEscape(const std::string& value)
         {
-            switch (c)
+            std::string result;
+            result.reserve(value.size() + 4);
+            for (const char character : value)
             {
-                case '"':  out += "\\\""; break;
-                case '\\': out += "\\\\"; break;
-                case '\n': out += "\\n";  break;
-                case '\r': out += "\\r";  break;
-                case '\t': out += "\\t";  break;
-                default:
-                    if (static_cast<unsigned char>(c) < 0x20)
-                    {
-                        char buf[8];
-                        snprintf(buf, sizeof(buf), "\\u%04x",
-                                 static_cast<unsigned>(static_cast<unsigned char>(c)));
-                        out += buf;
-                    }
-                    else
-                        out += c;
+                switch (character)
+                {
+                    case '"':
+                        result += "\\\"";
+                        break;
+                    case '\\':
+                        result += "\\\\";
+                        break;
+                    case '\n':
+                        result += "\\n";
+                        break;
+                    case '\r':
+                        result += "\\r";
+                        break;
+                    case '\t':
+                        result += "\\t";
+                        break;
+                    default:
+                        if (static_cast<unsigned char>(character) < 0x20)
+                        {
+                            char buffer[8];
+                            std::snprintf(buffer, sizeof(buffer), "\\u%04x",
+                                static_cast<unsigned>(static_cast<unsigned char>(character)));
+                            result += buffer;
+                        }
+                        else
+                            result += character;
+                }
+            }
+            return result;
+        }
+
+        std::string registerBody(const MasterServerClient::Config& config)
+        {
+            std::ostringstream stream;
+            stream << '{' << "\"name\":\"" << jsonEscape(config.serverName) << "\","
+                   << "\"port\":" << config.port << ',' << "\"max_players\":" << config.maxPlayers << ','
+                   << "\"build_version\":\"" << jsonEscape(config.buildVersion) << "\","
+                   << "\"protocol_version\":" << config.protocolVersion << ',' << "\"game_mode\":\""
+                   << jsonEscape(config.gameMode) << "\"";
+            if (!config.lanAddress.empty())
+                stream << ",\"lan_address\":\"" << jsonEscape(config.lanAddress) << "\"";
+            stream << '}';
+            return stream.str();
+        }
+
+        std::string heartbeatBody(const std::string& token, int currentPlayers)
+        {
+            return "{\"token\":\"" + jsonEscape(token) + "\",\"current_players\":" + std::to_string(currentPlayers)
+                + '}';
+        }
+
+        std::string unregisterBody(const std::string& token)
+        {
+            return "{\"token\":\"" + jsonEscape(token) + "\"}";
+        }
+
+        httplib::Client makeClient(const std::string& url)
+        {
+            httplib::Client client(url);
+            client.set_connection_timeout(3);
+            client.set_read_timeout(5);
+            client.set_write_timeout(5);
+            client.enable_server_certificate_verification(true);
+            return client;
+        }
+
+        std::chrono::milliseconds jitteredBackoff(unsigned attempt, std::mt19937& random)
+        {
+            const auto base = std::chrono::duration_cast<std::chrono::milliseconds>(registrationRetryBackoff(attempt));
+            std::uniform_int_distribution<int> jitterPercent(-10, 10);
+            return base + base * jitterPercent(random) / 100;
+        }
+    }
+
+    MasterServerClient::~MasterServerClient()
+    {
+        unregister();
+    }
+
+    void MasterServerClient::registerAsync(const Config& config)
+    {
+        unregister();
+        if (config.masterUrl.empty())
+            return;
+
+        {
+            std::lock_guard lock(mMutex);
+            mConfig = config;
+            mToken.clear();
+            mCurrentPlayers = 0;
+            mState = State::Registering;
+        }
+        mWorker = std::jthread([this](std::stop_token stopToken) { workerLoop(stopToken); });
+    }
+
+    void MasterServerClient::tickHeartbeat(float, int currentPlayers)
+    {
+        std::lock_guard lock(mMutex);
+        mCurrentPlayers = std::max(0, currentPlayers);
+    }
+
+    void MasterServerClient::unregister()
+    {
+        if (!mWorker.joinable())
+            return;
+
+        {
+            std::lock_guard lock(mMutex);
+            mState = State::Stopping;
+        }
+        mWorker.request_stop();
+        mCondition.notify_all();
+        mWorker.join();
+    }
+
+    bool MasterServerClient::isRegistered() const
+    {
+        std::lock_guard lock(mMutex);
+        return mState == State::Registered && !mToken.empty();
+    }
+
+    MasterServerClient::State MasterServerClient::state() const
+    {
+        std::lock_guard lock(mMutex);
+        return mState;
+    }
+
+    void MasterServerClient::workerLoop(std::stop_token stopToken)
+    {
+        std::random_device randomDevice;
+        std::mt19937 random(randomDevice());
+        unsigned retryAttempt = 0;
+
+        while (!stopToken.stop_requested())
+        {
+            Config config;
+            {
+                std::lock_guard lock(mMutex);
+                config = mConfig;
+                mState = State::Registering;
+            }
+
+            std::optional<std::string> token = registerServer(config);
+            if (!token)
+            {
+                const auto delay = jitteredBackoff(retryAttempt++, random);
+                std::unique_lock lock(mMutex);
+                mState = State::RetryWaiting;
+                mCondition.wait_for(lock, stopToken, delay, [] { return false; });
+                continue;
+            }
+
+            retryAttempt = 0;
+            {
+                std::lock_guard lock(mMutex);
+                mToken = *token;
+                mState = State::Registered;
+            }
+            Log(Debug::Info) << "[MasterServer] registered \"" << config.serverName << "\" at " << config.masterUrl;
+
+            while (!stopToken.stop_requested())
+            {
+                {
+                    std::unique_lock lock(mMutex);
+                    mCondition.wait_for(
+                        lock, stopToken, std::chrono::duration<float>(HeartbeatIntervalSeconds), [] { return false; });
+                }
+                if (stopToken.stop_requested())
+                    break;
+
+                int currentPlayers = 0;
+                {
+                    std::lock_guard lock(mMutex);
+                    currentPlayers = mCurrentPlayers;
+                    token = mToken;
+                }
+
+                const HeartbeatResult result = sendHeartbeat(config, *token, currentPlayers);
+                if (result == HeartbeatResult::RegisterAgain)
+                {
+                    Log(Debug::Info) << "[MasterServer] registration expired; registering again";
+                    std::lock_guard lock(mMutex);
+                    mToken.clear();
+                    mState = State::Registering;
+                    break;
+                }
             }
         }
-        return out;
-    }
 
-    /// Build the JSON body for POST /register.
-    std::string buildRegisterBody(const MasterServerClient::Config& cfg)
-    {
-        std::ostringstream ss;
-        ss << "{"
-           << "\"name\":\""             << jsonEscape(cfg.serverName) << "\","
-           << "\"port\":"               << cfg.port                   << ","
-           << "\"max_players\":"        << cfg.maxPlayers             << ","
-           << "\"version\":\""          << jsonEscape(cfg.version)    << "\","
-           << "\"game_mode\":\""        << jsonEscape(cfg.gameMode)   << "\","
-           << "\"password_protected\":" << (cfg.passwordProtected ? "true" : "false")
-           << "}";
-        return ss.str();
-    }
-
-    /// Build the JSON body for POST /heartbeat.
-    std::string buildHeartbeatBody(const std::string& token, int players)
-    {
-        std::ostringstream ss;
-        ss << "{"
-           << "\"token\":\""          << jsonEscape(token) << "\","
-           << "\"current_players\":"  << players
-           << "}";
-        return ss.str();
-    }
-
-    /// Build the JSON body for POST /unregister.
-    std::string buildUnregisterBody(const std::string& token)
-    {
-        return "{\"token\":\"" + jsonEscape(token) + "\"}";
-    }
-
-    /// Extract a quoted string value for the given key from a flat JSON object.
-    /// e.g. jsonStringValue(body, "token") on {"token":"abc123"} returns "abc123".
-    std::string jsonStringValue(const std::string& body, const std::string& key)
-    {
-        const std::string needle = "\"" + key + "\"";
-        auto pos = body.find(needle);
-        if (pos == std::string::npos) return {};
-        pos += needle.size();
-        while (pos < body.size() && (body[pos] == ' ' || body[pos] == ':')) ++pos;
-        if (pos >= body.size() || body[pos] != '"') return {};
-        ++pos;
-        std::string val;
-        while (pos < body.size() && body[pos] != '"') val += body[pos++];
-        return val;
-    }
-
-} // anonymous namespace
-
-// ============================================================================
-//  Constructor / Destructor
-// ============================================================================
-
-MasterServerClient::MasterServerClient() = default;
-
-MasterServerClient::~MasterServerClient()
-{
-    // Worker thread must not outlive this object.
-    if (mWorker.joinable())
-        mWorker.join();
-}
-
-// ============================================================================
-//  Public API
-// ============================================================================
-
-void MasterServerClient::registerAsync(const Config& config)
-{
-    if (config.masterUrl.empty())
-        return;
-
-    // Wait for any in-flight operation before starting a new one.
-    if (mWorker.joinable())
-        mWorker.join();
-
-    {
-        std::lock_guard<std::mutex> lk(mMutex);
-        mLastConfig = config;
-        mMasterUrl  = config.masterUrl;
-        mRegistered = false;
-        mToken.clear();
-    }
-
-    mWorker = std::thread([this, config]() { doRegister(config); });
-}
-
-void MasterServerClient::tickHeartbeat(float dt, int currentPlayers)
-{
-    {
-        std::lock_guard<std::mutex> lk(mMutex);
-        if (!mRegistered || mToken.empty())
-            return;
-    }
-
-    mHeartbeatAccum += dt;
-    if (mHeartbeatAccum < HEARTBEAT_INTERVAL_S)
-        return;
-
-    mHeartbeatAccum = 0.f;
-
-    // Fire and forget — copy token under lock, then send on a detached thread.
-    std::string token;
-    {
-        std::lock_guard<std::mutex> lk(mMutex);
-        token = mToken;
-    }
-
-    std::thread([this, token, currentPlayers]()
-    {
-        doHeartbeat(currentPlayers);
-    }).detach();
-}
-
-void MasterServerClient::unregister()
-{
-    // Drain any in-flight register thread first.
-    if (mWorker.joinable())
-        mWorker.join();
-
-    doUnregister();
-}
-
-// ============================================================================
-//  Private: HTTP operations (run on background thread)
-// ============================================================================
-
-void MasterServerClient::doRegister(const Config& config)
-{
-    try
-    {
-        httplib::Client cli(config.masterUrl);
-        cli.set_connection_timeout(5);
-        cli.set_read_timeout(10);
-
-        const std::string body = buildRegisterBody(config);
-        auto res = cli.Post("/register", body, "application/json");
-
-        if (!res)
+        Config config;
+        std::string token;
         {
-            Log(Debug::Warning) << "[MasterServer] POST /register failed: no response";
-            return;
+            std::lock_guard lock(mMutex);
+            config = mConfig;
+            token = mToken;
         }
-        if (res->status != 200 && res->status != 201)
-        {
-            Log(Debug::Warning) << "[MasterServer] POST /register HTTP "
-                                 << res->status << ": " << res->body;
-            return;
-        }
-
-        const std::string token = jsonStringValue(res->body, "token");
-        if (token.empty())
-        {
-            Log(Debug::Warning) << "[MasterServer] /register: no token in response: "
-                                 << res->body;
-            return;
-        }
+        if (!token.empty())
+            sendUnregister(config, token);
 
         {
-            std::lock_guard<std::mutex> lk(mMutex);
-            mToken      = token;
-            mRegistered = true;
+            std::lock_guard lock(mMutex);
+            mToken.clear();
+            mState = State::Disabled;
         }
-
-        Log(Debug::Info) << "[MasterServer] registered as \"" << config.serverName
-                          << "\" on " << config.masterUrl;
     }
-    catch (const std::exception& e)
+
+    std::optional<std::string> MasterServerClient::registerServer(const Config& config)
     {
-        Log(Debug::Warning) << "[MasterServer] doRegister exception: " << e.what();
-    }
-}
-
-void MasterServerClient::doHeartbeat(int currentPlayers)
-{
-    std::string token;
-    std::string url;
-    {
-        std::lock_guard<std::mutex> lk(mMutex);
-        token = mToken;
-        url   = mMasterUrl;
-    }
-    if (token.empty() || url.empty()) return;
-
-    try
-    {
-        httplib::Client cli(url);
-        cli.set_connection_timeout(5);
-        cli.set_read_timeout(8);
-
-        const std::string body = buildHeartbeatBody(token, currentPlayers);
-        auto res = cli.Post("/heartbeat", body, "application/json");
-
-        if (!res)
+        try
         {
-            Log(Debug::Warning) << "[MasterServer] POST /heartbeat: no response";
-            return;
-        }
-
-        // 401 / unknown token → master server lost our registration
-        // (e.g. it restarted). Re-register.
-        if (res->status == 401 ||
-            res->body.find("unknown token") != std::string::npos)
-        {
-            Log(Debug::Info) << "[MasterServer] token expired, re-registering...";
+            auto client = makeClient(config.masterUrl);
+            const auto response = client.Post("/v1/servers/register", registerBody(config), "application/json");
+            if (!response)
             {
-                std::lock_guard<std::mutex> lk(mMutex);
-                mToken.clear();
-                mRegistered = false;
+                Log(Debug::Warning) << "[MasterServer] registration failed: " << httplib::to_string(response.error());
+                return std::nullopt;
             }
-            // Re-register synchronously on this heartbeat thread.
-            Config cfg;
+            if (response->status != 200 && response->status != 201)
             {
-                std::lock_guard<std::mutex> lk(mMutex);
-                cfg = mLastConfig;
+                Log(Debug::Warning) << "[MasterServer] registration returned HTTP " << response->status;
+                return std::nullopt;
             }
-            doRegister(cfg);
-            return;
+
+            const std::string token = parseRegistrationToken(response->body);
+            if (token.empty())
+            {
+                Log(Debug::Warning) << "[MasterServer] registration response did not "
+                                       "contain a valid token";
+                return std::nullopt;
+            }
+            return token;
         }
-
-        if (res->status != 200)
-            Log(Debug::Warning) << "[MasterServer] /heartbeat HTTP "
-                                  << res->status << ": " << res->body;
+        catch (const std::exception& error)
+        {
+            Log(Debug::Warning) << "[MasterServer] registration error: " << error.what();
+            return std::nullopt;
+        }
     }
-    catch (const std::exception& e)
+
+    MasterServerClient::HeartbeatResult MasterServerClient::sendHeartbeat(
+        const Config& config, const std::string& token, int currentPlayers)
     {
-        Log(Debug::Warning) << "[MasterServer] doHeartbeat exception: " << e.what();
+        try
+        {
+            auto client = makeClient(config.masterUrl);
+            const auto response
+                = client.Post("/v1/servers/heartbeat", heartbeatBody(token, currentPlayers), "application/json");
+            if (!response)
+            {
+                Log(Debug::Warning) << "[MasterServer] heartbeat failed: " << httplib::to_string(response.error());
+                return HeartbeatResult::RetryLater;
+            }
+            if (heartbeatStatusRequiresRegistration(response->status))
+                return HeartbeatResult::RegisterAgain;
+            if (response->status != 200)
+            {
+                Log(Debug::Warning) << "[MasterServer] heartbeat returned HTTP " << response->status;
+                return HeartbeatResult::RetryLater;
+            }
+            return HeartbeatResult::Success;
+        }
+        catch (const std::exception& error)
+        {
+            Log(Debug::Warning) << "[MasterServer] heartbeat error: " << error.what();
+            return HeartbeatResult::RetryLater;
+        }
     }
-}
 
-void MasterServerClient::doUnregister()
-{
-    std::string token;
-    std::string url;
+    void MasterServerClient::sendUnregister(const Config& config, const std::string& token)
     {
-        std::lock_guard<std::mutex> lk(mMutex);
-        token = mToken;
-        url   = mMasterUrl;
-    }
-    if (token.empty() || url.empty()) return;
-
-    try
-    {
-        httplib::Client cli(url);
-        cli.set_connection_timeout(5);
-        cli.set_read_timeout(5);
-
-        const std::string body = buildUnregisterBody(token);
-        auto res = cli.Post("/unregister", body, "application/json");
-
-        if (!res || res->status != 200)
-            Log(Debug::Warning) << "[MasterServer] /unregister HTTP "
-                                  << (res ? res->status : -1);
-        else
+        try
+        {
+            auto client = makeClient(config.masterUrl);
+            const auto response = client.Post("/v1/servers/unregister", unregisterBody(token), "application/json");
+            if (!response || response->status != 200)
+            {
+                Log(Debug::Warning) << "[MasterServer] unregistration failed"
+                                    << (response ? " with HTTP " + std::to_string(response->status) : "");
+                return;
+            }
             Log(Debug::Info) << "[MasterServer] unregistered cleanly";
+        }
+        catch (const std::exception& error)
+        {
+            Log(Debug::Warning) << "[MasterServer] unregistration error: " << error.what();
+        }
     }
-    catch (const std::exception& e)
-    {
-        Log(Debug::Warning) << "[MasterServer] doUnregister exception: " << e.what();
-    }
-
-    std::lock_guard<std::mutex> lk(mMutex);
-    mToken.clear();
-    mRegistered = false;
 }
-
-} // namespace mwmp

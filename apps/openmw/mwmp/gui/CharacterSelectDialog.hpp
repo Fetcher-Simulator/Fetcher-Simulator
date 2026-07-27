@@ -93,6 +93,7 @@ namespace mwmp
         void sendCharacterSelect(const std::string& charName, bool isNew);
         void setCharPanelBusy(bool busy);
         void enterWorld();
+        void onWindowResize(MyGUI::Window* sender);
 
         static std::string sha256hex(const std::string& input);
 
@@ -102,6 +103,7 @@ namespace mwmp
         MyGUI::Widget*  mPasswordLabel   = nullptr;
         MyGUI::EditBox* mPassword        = nullptr;
         MyGUI::TextBox* mStatusLabel     = nullptr;
+        MyGUI::Widget*  mLoginActionRow  = nullptr;
         MyGUI::Button*  mLoginBtn        = nullptr;
         MyGUI::Button*  mRegBtn          = nullptr;
         MyGUI::Button*  mLoginCancelBtn  = nullptr;
@@ -113,7 +115,8 @@ namespace mwmp
         MyGUI::Widget*  mNewCharNameRow     = nullptr;
         MyGUI::EditBox* mNewCharNameEdit    = nullptr;
         MyGUI::Button*  mNewCharNameConfirm = nullptr;
-        MyGUI::Button*  mKeyLinkBtn         = nullptr;   ///< "Link Machine" / "Machine Linked ✓"
+        MyGUI::Button*  mKeyLinkBtn         = nullptr;   ///< "Link Machine" / "Machine Linked"
+        MyGUI::Widget*  mCharActionRow      = nullptr;
         MyGUI::Button*  mEnterBtn           = nullptr;
         MyGUI::Button*  mNewCharBtn         = nullptr;
         MyGUI::Button*  mCharCancelBtn      = nullptr;

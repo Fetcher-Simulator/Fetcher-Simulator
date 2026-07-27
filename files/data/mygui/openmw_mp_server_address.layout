@@ -1,50 +1,53 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <MyGUI type="Layout">
     <!--
-        Direct Connect dialog  ~400 x 168
+        Direct Connect dialog  ~500 x 210
         Widgets consumed by ServerAddressDialog.cpp:
             Address       EditBox   - hostname / IP input
             Port          EditBox   - port number input
             ConnectButton Button    - confirm and connect
             CancelButton  Button    - dismiss
     -->
-    <Widget type="Window" skin="MW_DialogNoTransp" layer="Modal"
-            position="0 0 400 168" align="Center" name="_Main">
+    <Widget type="Window" skin="MW_Window" layer="Modal"
+            position="0 0 500 210" align="Center" name="_Main">
         <Property key="Visible"  value="false"/>
         <Property key="Caption"  value="Direct Connect"/>
+        <Property key="MinSize"  value="400 168"/>
 
         <!-- Row 1 labels -->
         <Widget type="TextBox" skin="SandText"
-                position="16 16 272 18" name="AddressLabel">
+                position="16 16 356 18" name="AddressLabel" align="Left Top HStretch">
             <Property key="Caption" value="Server address:"/>
         </Widget>
         <Widget type="TextBox" skin="SandText"
-                position="296 16 88 18" name="PortLabel">
+                position="380 16 104 18" name="PortLabel" align="Right Top">
             <Property key="Caption" value="Port:"/>
         </Widget>
 
         <!-- Row 1 inputs -->
         <Widget type="EditBox" skin="MW_TextEdit"
-                position="16 36 272 24" name="Address" align="Left Top">
+                position="16 36 356 24" name="Address" align="Left Top HStretch">
             <Property key="NeedKey"    value="true"/>
             <Property key="MaxTextLength" value="253"/>
         </Widget>
         <Widget type="EditBox" skin="MW_TextEdit"
-                position="296 36 88 24" name="Port" align="Left Top">
+                position="380 36 104 24" name="Port" align="Right Top">
             <Property key="NeedKey"       value="true"/>
             <Property key="MaxTextLength" value="5"/>
         </Widget>
 
-        <!-- Buttons - right-aligned at bottom -->
-        <Widget type="AutoSizedButton" skin="MW_Button"
-                position="216 128 80 24" name="CancelButton" align="Right Bottom">
-            <Property key="Caption"          value="#{Interface:Cancel}"/>
-            <Property key="ExpandDirection"  value="Left"/>
-        </Widget>
-        <Widget type="AutoSizedButton" skin="MW_Button"
-                position="304 128 80 24" name="ConnectButton" align="Right Bottom">
-            <Property key="Caption"          value="Connect"/>
-            <Property key="ExpandDirection"  value="Left"/>
+        <!-- Buttons - right-aligned at bottom with stable spacing. -->
+        <Widget type="HBox" skin="" position="16 142 468 24" align="Left Bottom HStretch">
+            <Property key="Spacing" value="4"/>
+            <Widget type="Spacer">
+                <UserString key="HStretch" value="true"/>
+            </Widget>
+            <Widget type="AutoSizedButton" skin="MW_Button" name="CancelButton">
+                <Property key="Caption" value="#{Interface:Cancel}"/>
+            </Widget>
+            <Widget type="AutoSizedButton" skin="MW_Button" name="ConnectButton">
+                <Property key="Caption" value="Connect"/>
+            </Widget>
         </Widget>
 
     </Widget>

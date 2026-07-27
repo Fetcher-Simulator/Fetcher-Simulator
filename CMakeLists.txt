@@ -641,6 +641,7 @@ add_subdirectory (extern/Base64)
 
 # GameNetworkingSockets (multiplayer networking)
 if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
+    find_package(OpenSSL REQUIRED)
     set(STEAMNETWORKINGSOCKETS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(STEAMNETWORKINGSOCKETS_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
     add_subdirectory(extern/GameNetworkingSockets)

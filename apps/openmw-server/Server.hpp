@@ -230,6 +230,7 @@ public:
     void setServerName       (const std::string& n) { mServerName        = n; }
     void setMasterUrl        (const std::string& u) { mMasterUrl         = u; }
     void setGameMode         (const std::string& m) { mGameMode          = m; }
+    void setLanAddress       (const std::string& a) { mLanAddress        = a; }
     void setPasswordProtected(bool v)               { mPasswordProtected = v; }
     void setDbPath           (const std::string& p) { mDbPath            = p; }
     void setSpawnCell        (const std::string& c) { mDefaultSpawnCell  = c; }
@@ -612,6 +613,7 @@ private:
     std::string        mServerName   = "OpenMW Multiplayer Server";
     std::string        mMasterUrl;   ///< empty → do not register
     std::string        mGameMode     = "Co-op";
+    std::string        mLanAddress;
     bool               mPasswordProtected = false;
 
     std::optional<PlayerDatabase> mPlayerDb;
@@ -639,8 +641,6 @@ private:
 
     // ── Config ────────────────────────────────────────────────────────────
     static constexpr float       MAX_MOVE_SPEED = 600.f;
-    static constexpr const char* SERVER_VERSION = "0.1.0";
-
     void loadPersistentWorldState();
     void sendCellStateToClient(HSteamNetConnection conn, const std::string& cellId);
     void sendCellObjectStateToClient(HSteamNetConnection conn, const std::string& cellId);

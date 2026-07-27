@@ -3,6 +3,7 @@
 
 #include <components/openmw-mp/Base/ActorSyncProtocol.hpp>
 #include <components/openmw-mp/Base/BasePlayer.hpp>
+#include <components/openmw-mp/MasterServerProtocol.hpp>
 #include <components/openmw-mp/Packets/BasePacket.hpp>
 #include <string>
 #include <vector>
@@ -19,6 +20,7 @@ namespace mwmp
     public:
         // Client fills these before encoding
         std::string clientVersion;        // e.g. "0.1.0"
+        uint32_t    protocolVersion = MultiplayerProtocolVersion;
         std::string playerName;
         std::string passwordHash;         // SHA-256(password), hex string
         bool        isRegistration = false; // true → create account, false → login
@@ -38,6 +40,7 @@ namespace mwmp
         void pack(WriteStream& ws) override
         {
             ws.writeString(clientVersion);
+            ws.write(protocolVersion);
             ws.writeString(playerName);
             ws.writeString(passwordHash);
             ws.write(isRegistration);
@@ -57,6 +60,7 @@ namespace mwmp
         void unpack(ReadStream& rs) override
         {
             clientVersion  = rs.readString();
+            rs.read(protocolVersion);
             playerName     = rs.readString();
             passwordHash   = rs.readString();
             rs.read(isRegistration);
@@ -89,6 +93,7 @@ namespace mwmp
         bool        accepted        = false;
         uint32_t    assignedGuid    = 0;
         std::string serverVersion;
+        uint32_t    protocolVersion = MultiplayerProtocolVersion;
         std::string rejectReason;
         uint32_t    actorSyncProtocolVersion = ActorSyncProtocolVersionV2;
 
@@ -109,6 +114,7 @@ namespace mwmp
             ws.write(accepted);
             ws.write(assignedGuid);
             ws.writeString(serverVersion);
+            ws.write(protocolVersion);
             ws.writeString(rejectReason);
             ws.write(actorSyncProtocolVersion);
 
@@ -128,6 +134,7 @@ namespace mwmp
             rs.read(accepted);
             rs.read(assignedGuid);
             serverVersion = rs.readString();
+            rs.read(protocolVersion);
             rejectReason  = rs.readString();
             rs.read(actorSyncProtocolVersion);
 

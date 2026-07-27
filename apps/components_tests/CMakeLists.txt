@@ -104,6 +104,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         openmw-mp/playerjournaldatabase.cpp
         openmw-mp/playerinventory.cpp
         openmw-mp/playerinventorydatabase.cpp
+        openmw-mp/masterserverprotocol.cpp
         ../openmw-server/PlayerDatabase.cpp
     )
 endif()

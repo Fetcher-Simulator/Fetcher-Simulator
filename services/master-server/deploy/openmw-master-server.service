@@ -1,0 +1,21 @@
+[Unit]
+Description=OpenMW Multiplayer Master Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=openmw-master
+Group=openmw-master
+WorkingDirectory=/opt/openmw-master
+EnvironmentFile=-/etc/openmw-master.env
+ExecStart=/opt/openmw-master/.venv/bin/uvicorn master_server:app --host 127.0.0.1 --port 8080 --workers 1 --no-proxy-headers
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

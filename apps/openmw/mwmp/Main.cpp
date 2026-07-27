@@ -14,6 +14,7 @@
 
 #include <components/debug/debuglog.hpp>
 #include <components/files/collections.hpp>
+#include <components/openmw-mp/MasterServerProtocol.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerPosition.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerCellChange.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerStatsDynamic.hpp>
@@ -484,7 +485,8 @@ void Main::onConnected()
 
     // Build and send handshake
     PacketHandshake hs;
-    hs.clientVersion   = "0.1.0";
+    hs.clientVersion   = std::string(MultiplayerBuildVersion);
+    hs.protocolVersion = MultiplayerProtocolVersion;
     hs.playerName      = mPlayerName;
     hs.passwordHash    = mPasswordHash;
     hs.isRegistration  = mIsRegistration;
@@ -868,10 +870,20 @@ void Main::registerProtocolHandlers()
                 return;
             }
 
+            if (rsp.protocolVersion != MultiplayerProtocolVersion)
+            {
+                mRejectReason = "Multiplayer protocol mismatch: server=" + std::to_string(rsp.protocolVersion)
+                    + " client=" + std::to_string(MultiplayerProtocolVersion);
+                Log(Debug::Error) << "[MP] " << mRejectReason;
+                mClient->disconnect(mRejectReason);
+                return;
+            }
+
             mPlayerSync->localPlayer().guid = rsp.assignedGuid;
 
             Log(Debug::Info) << "[MP] Handshake accepted, guid=" << rsp.assignedGuid
                              << " server=" << rsp.serverVersion
+                             << " protocol=" << rsp.protocolVersion
                              << " actorSyncProtocol=" << rsp.actorSyncProtocolVersion;
             // mWorldReady is set when PacketCharacterList arrives.
         });
@@ -922,7 +934,7 @@ void Main::registerProtocolHandlers()
                                  << " class=" << entry.className;
             }
 
-            // Signal AccountDialog that the connection is ready so it can
+            // Signal the active character-selection flow that the connection is ready so it can
             // open CharacterSelectDialog.
             mWorldReady = true;
             tryAutoSelectCharacter();

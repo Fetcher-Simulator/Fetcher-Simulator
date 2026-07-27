@@ -74,7 +74,7 @@ namespace mwmp
         bool hasChatWindow() const { return mChatWindow != nullptr; }
         GuardArrestMode getGuardArrestMode() const { return mGuardArrestMode; }
 
-        // Connection state queries (used by AccountDialog to poll results)
+        // Connection state queries used by the character-selection flow.
         bool               isWorldReady()          const { return mWorldReady; }
         const std::string& getRejectReason()        const { return mRejectReason; }
         const std::string& getPlayerName()          const { return mPlayerName; }

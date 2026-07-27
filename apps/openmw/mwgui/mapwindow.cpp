@@ -586,6 +586,9 @@ namespace MWGui
 
     void LocalMapBase::onFrame(float dt)
     {
+        if (!mActiveCell)
+            return;
+
         if (mNeedDoorMarkersUpdate)
         {
             updateDoorMarkers();

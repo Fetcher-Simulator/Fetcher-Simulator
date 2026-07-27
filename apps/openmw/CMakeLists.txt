@@ -124,9 +124,8 @@ if (BUILD_MULTIPLAYER)
         PlayerSync RemotePlayer Nameplate ActorSync CellSync ObjectSync WorldObjectSync WorldStateSync InventoryIdentity
     )
     add_openmw_dir (mwmp/gui
-        ChatWindow LoginDialog PlayerListWindow ServerBrowser
-        ServerAddressDialog ServerBrowserDialog
-        AccountDialog CharacterSelectDialog KeyLinkDialog
+        ChatWindow ServerAddressDialog ServerBrowserDialog
+        CharacterSelectDialog KeyLinkDialog
     )
     add_openmw_dir (mwmp
         Main Identity MpNetworkBridge
@@ -211,6 +210,8 @@ target_link_libraries(openmw-lib
 if (BUILD_MULTIPLAYER)
     target_link_libraries(openmw-lib
         GameNetworkingSockets::GameNetworkingSockets_s
+        OpenSSL::SSL
+        OpenSSL::Crypto
     )
     target_include_directories(openmw-lib PRIVATE
         ${GNS_INCLUDE_DIR}
@@ -219,6 +220,7 @@ if (BUILD_MULTIPLAYER)
         ${CMAKE_SOURCE_DIR}/extern/GameNetworkingSockets/src/public  # tier0/*, minbase/*
     )
     target_compile_definitions(openmw-lib PRIVATE
+        CPPHTTPLIB_OPENSSL_SUPPORT
         VALVE_CRYPTO_ENABLE_25519   # needed to expose CCrypto::GenerateSigningKeyPair etc.
     )
 endif()

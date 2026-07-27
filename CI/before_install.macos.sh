@@ -7,7 +7,7 @@ source ./CI/macos/deps_versions.sh
 brew tap --repair
 brew update --quiet
 
-brew install curl p7zip
+brew install curl openssl@3 p7zip
 
 if [[ "${MACOS_AMD64}" ]]; then
     VCPKG_FILE="vcpkg-x64-osx-dynamic"

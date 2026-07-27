@@ -23,6 +23,7 @@ CharacterSelectDialog::CharacterSelectDialog()
     getWidget(mPasswordLabel,  "PasswordLabel");
     getWidget(mPassword,       "Password");
     getWidget(mStatusLabel,    "StatusLabel");
+    getWidget(mLoginActionRow, "LoginActionRow");
     getWidget(mLoginBtn,       "LoginButton");
     getWidget(mRegBtn,         "RegisterButton");
     getWidget(mLoginCancelBtn, "LoginCancelButton");
@@ -46,6 +47,7 @@ CharacterSelectDialog::CharacterSelectDialog()
     getWidget(mNewCharNameEdit,    "NewCharNameEdit");
     getWidget(mNewCharNameConfirm, "NewCharNameConfirm");
     getWidget(mKeyLinkBtn,         "KeyLinkButton");
+    getWidget(mCharActionRow,      "CharActionRow");
     getWidget(mEnterBtn,           "EnterWorldButton");
     getWidget(mNewCharBtn,         "NewCharButton");
     getWidget(mCharCancelBtn,      "CharCancelButton");
@@ -65,6 +67,9 @@ CharacterSelectDialog::CharacterSelectDialog()
         MyGUI::newDelegate(this, &CharacterSelectDialog::onDeleteCharClicked);
     mKeyLinkBtn->eventMouseButtonClick +=
         MyGUI::newDelegate(this, &CharacterSelectDialog::onKeyLinkClicked);
+
+    mMainWidget->castType<MyGUI::Window>()->eventWindowChangeCoord
+        += MyGUI::newDelegate(this, &CharacterSelectDialog::onWindowResize);
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +108,9 @@ void CharacterSelectDialog::onOpen()
 // ---------------------------------------------------------------------------
 void CharacterSelectDialog::showLoginPanel()
 {
+    mMainWidget->setSize(520, 330);
+    center();
+
     mState = State::Login;
     mTimer = 0.f;
     mMainWidget->castType<MyGUI::Window>()->setCaption("Multiplayer Login");
@@ -112,6 +120,7 @@ void CharacterSelectDialog::showLoginPanel()
     mPasswordLabel->setVisible(true);
     mPassword->setVisible(true);
     mStatusLabel->setVisible(true);
+    mLoginActionRow->setVisible(true);
     mLoginBtn->setVisible(true);
     mRegBtn->setVisible(true);
     mLoginCancelBtn->setVisible(true);
@@ -121,6 +130,7 @@ void CharacterSelectDialog::showLoginPanel()
     mList->setVisible(false);
     mNewCharNameRow->setVisible(false);
     mKeyLinkBtn->setVisible(false);
+    mCharActionRow->setVisible(false);
     mEnterBtn->setVisible(false);
     mNewCharBtn->setVisible(false);
     mDeleteCharBtn->setVisible(false);
@@ -135,6 +145,9 @@ void CharacterSelectDialog::showLoginPanel()
 
 void CharacterSelectDialog::showCharPanel(bool resetNamingRow)
 {
+    mMainWidget->setSize(820, 520);
+    center();
+
     mMainWidget->castType<MyGUI::Window>()->setCaption("Select Character");
 
     mUsernameLabel->setVisible(false);
@@ -142,6 +155,7 @@ void CharacterSelectDialog::showCharPanel(bool resetNamingRow)
     mPasswordLabel->setVisible(false);
     mPassword->setVisible(false);
     mStatusLabel->setVisible(false);
+    mLoginActionRow->setVisible(false);
     mLoginBtn->setVisible(false);
     mRegBtn->setVisible(false);
     mLoginCancelBtn->setVisible(false);
@@ -150,6 +164,7 @@ void CharacterSelectDialog::showCharPanel(bool resetNamingRow)
     mCharSelectHint->setVisible(true);
     mList->setVisible(true);
     mKeyLinkBtn->setVisible(true);
+    mCharActionRow->setVisible(true);
     mEnterBtn->setVisible(true);
     mNewCharBtn->setVisible(true);
     mCharCancelBtn->setVisible(true);
@@ -193,7 +208,7 @@ void CharacterSelectDialog::setCharStatus(const std::string& msg)
 void CharacterSelectDialog::updateKeyLinkButton()
 {
     if (Identity::hasKeypair(mHost, mPort))
-        mKeyLinkBtn->setCaption("Machine Linked \xE2\x9C\x93"); // UTF-8 check mark
+        mKeyLinkBtn->setCaption("Machine Linked");
     else
         mKeyLinkBtn->setCaption("Link Machine");
 }
@@ -384,8 +399,8 @@ void CharacterSelectDialog::onDeleteCharClicked(MyGUI::Widget*)
         // First click — arm confirmation
         mDeletePending     = true;
         mDeletePendingName = charName;
-        mDeleteCharBtn->setCaption("Confirm Delete");
-        setCharStatus("Delete '" + charName + "'? Click Confirm Delete to proceed.");
+        mDeleteCharBtn->setCaption("Confirm");
+        setCharStatus("Delete '" + charName + "'? Click Confirm to proceed.");
         return;
     }
 
@@ -569,6 +584,11 @@ void CharacterSelectDialog::enterWorld()
     setVisible(false);
     if (Main::isInitialised())
         Main::get().enterSelectedCharacterWorld(true);
+}
+
+void CharacterSelectDialog::onWindowResize(MyGUI::Window* sender)
+{
+    MWGui::WindowBase::clampWindowCoordinates(sender);
 }
 
 // ---------------------------------------------------------------------------

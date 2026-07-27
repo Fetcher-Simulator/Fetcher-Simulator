@@ -8,6 +8,7 @@
 #include <MyGUI_EditBox.h>
 #include <MyGUI_KeyCode.h>
 #include <MyGUI_Widget.h>
+#include <MyGUI_Window.h>
 
 #include "../../mwgui/windowbase.hpp"
 
@@ -45,6 +46,7 @@ namespace mwmp
         void onConnectClicked(MyGUI::Widget* sender);
         void onCancelClicked (MyGUI::Widget* sender);
         void onKeyPress(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char ch);
+        void onWindowResize(MyGUI::Window* sender);
         void doConnect();
 
         MyGUI::EditBox* mAddress       = nullptr;

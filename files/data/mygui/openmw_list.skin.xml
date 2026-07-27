@@ -156,6 +156,27 @@
         </Widget>
     </Resource>
 
+    <!-- MultiListBox creates one synchronized sub-list per column and only
+         shows the final column's scrollbar. -->
+    <Resource type="ResourceLayout" name="MW_MultiList" size="516 516" align="Left Top">
+        <Widget type="Widget" position="0 0 516 516" name="Root">
+            <Property key="NeedKey" value="true"/>
+            <UserString key="SkinList" value="MW_MultiSubList"/>
+            <Widget type="Widget" skin="MW_Box" position="0 0 516 516" align="Stretch"/>
+            <Widget type="Widget" skin="" position="3 4 509 508" align="Stretch" name="Client"/>
+        </Widget>
+    </Resource>
+
+    <Resource type="ResourceLayout" name="MW_MultiSubList" size="516 516" align="Left Top">
+        <Widget type="Widget" position="0 0 516 516" name="Root">
+            <Property key="NeedKey" value="true"/>
+            <UserString key="SkinLine" value="MW_ListLine"/>
+            <Widget type="ScrollBar" skin="MW_VScroll" position="498 0 14 516"
+                    align="Right VStretch" name="VScroll"/>
+            <Widget type="Widget" skin="" position="0 0 496 516" align="Stretch" name="Client"/>
+        </Widget>
+    </Resource>
+
     <Resource type="ResourceLayout" name="MW_PopupList" size="516 516" align="Left Top">
         <Widget type="Widget" position="0 0 516 516" name="Root">
             <Property key="NeedKey" value="true"/>

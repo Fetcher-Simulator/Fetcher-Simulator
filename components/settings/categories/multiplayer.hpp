@@ -21,7 +21,7 @@ namespace Settings
             makeClampSanitizerInt(1, 65535) };
 
         /// Base URL of the master server polled by the Server Browser.
-        /// e.g. "https://master.openmw-mp.org"
+        /// e.g. "https://master.fetchers.org"
         SettingValue<std::string> mMasterServerUrl{ mIndex, "Multiplayer", "master server url" };
     };
 }

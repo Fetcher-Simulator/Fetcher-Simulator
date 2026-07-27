@@ -1,137 +1,121 @@
-#pragma once
+#ifndef OPENMW_APPS_OPENMW_MWMP_GUI_SERVER_BROWSER_DIALOG_HPP
+#define OPENMW_APPS_OPENMW_MWMP_GUI_SERVER_BROWSER_DIALOG_HPP
 
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
-#include <future>
+#include <mutex>
+#include <optional>
+#include <stop_token>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <MyGUI_Button.h>
 #include <MyGUI_EditBox.h>
 #include <MyGUI_KeyCode.h>
-#include <MyGUI_ListBox.h>
+#include <MyGUI_MultiListBox.h>
 #include <MyGUI_TextBox.h>
 #include <MyGUI_Widget.h>
+#include <MyGUI_Window.h>
+
+#include <components/openmw-mp/MasterServerProtocol.hpp>
 
 #include "../../mwgui/windowbase.hpp"
 
 namespace mwmp
 {
-    /// Flat description of one public game server, as returned by the master server.
-    struct ServerEntry
-    {
-        std::string host;
-        uint16_t    port             = 25565;
-        std::string name;
-        std::string version;
-        std::string gameMode;
-        std::string country;
-        int         currentPlayers   = 0;
-        int         maxPlayers       = 0;
-        int         ping             = -1;   ///< -1 = not yet measured
-        bool        passwordProtected = false;
-    };
-
-    /**
-     * ServerBrowserDialog
-     *
-     * The "Server Browser" modal shown from the main menu.
-     * Fetches the public server list from the master server on a background
-     * thread (std::async), then populates a ListBox.  Supports live name
-     * filtering and column-header sort.
-     *
-     * State machine:
-     *   Idle ──refresh()──> Loading ──success──> Loaded
-     *                                └──failure──> Error ──refresh()──> Loading
-     *
-     * Connect path:
-     *   double-click row  ─┐
-     *   Connect button     ├──> ConnectCallback(host, port) → caller handles the rest
-     *   Enter key          ┘
-     */
     class ServerBrowserDialog : public MWGui::WindowModal
     {
     public:
-        using ConnectCallback = std::function<void(const std::string& address, uint16_t port)>;
+        using ConnectCallback = std::function<void(const std::string& address, std::uint16_t port)>;
 
         ServerBrowserDialog();
+        ~ServerBrowserDialog() override;
 
-        /// Called when the user selects a server and confirms.
-        void setConnectCallback(ConnectCallback cb) { mConnectCb = std::move(cb); }
-
-        /// Begin an async fetch of the server list (non-blocking).
-        /// Safe to call while already loading — previous future is abandoned.
+        void setConnectCallback(ConnectCallback callback) { mConnectCallback = std::move(callback); }
         void refresh();
 
-        // WindowModal
         void onFrame(float dt) override;
-        void onOpen()  override;
+        void onOpen() override;
 
     private:
-        // ── Internal state ──────────────────────────────────────────────────
-        enum class State { Idle, Loading, Loaded, Error };
+        enum class State
+        {
+            Idle,
+            Loading,
+            Loaded,
+            Error,
+        };
 
-        void setState(State s);
+        enum class FetchError
+        {
+            None,
+            UnsupportedUrl,
+            Connection,
+            Timeout,
+            Tls,
+            HttpStatus,
+        };
 
-        // ── Data ─────────────────────────────────────────────────────────────
-        /// Parse the JSON body returned by GET /servers and populate mServers.
-        /// Hand-rolled to avoid introducing a JSON library dependency.
-        void parseAndPopulate(const std::string& json);
+        struct FetchResult
+        {
+            std::uint64_t generation = 0;
+            FetchError error = FetchError::None;
+            int httpStatus = 0;
+            std::string body;
+        };
 
-        /// Rebuild mFiltered from mServers applying the current search text,
-        /// then repopulate mList.
+        void setState(State state);
+        void requestLoop(std::stop_token stopToken);
+        static FetchResult fetchServerList(const std::string& masterUrl, std::uint64_t generation);
+        void consumeFetchResult(FetchResult result);
         void applyFilter();
-
-        /// Format one ServerEntry as a fixed-width display string for the ListBox.
-        std::string formatRow(const ServerEntry& e) const;
-
-        /// Connect to the server at index mSelected (in mFiltered).
+        void updateColumnLayout();
+        void updateConnectAvailability();
         void doConnect();
 
-        // ── Widget callbacks ─────────────────────────────────────────────────
-        void onRefreshClicked  (MyGUI::Widget*  sender);
-        void onConnectClicked  (MyGUI::Widget*  sender);
-        void onCancelClicked   (MyGUI::Widget*  sender);
-        void onListDoubleClick (MyGUI::ListBox* sender, size_t index);
-        void onListSelectChange(MyGUI::ListBox* sender, size_t index);
-        void onSearchChanged   (MyGUI::EditBox* sender);
-        void onKeyPress        (MyGUI::Widget*  sender, MyGUI::KeyCode key, MyGUI::Char ch);
-        void onColumnClicked   (MyGUI::Widget*  sender);
+        void onRefreshClicked(MyGUI::Widget* sender);
+        void onConnectClicked(MyGUI::Widget* sender);
+        void onCancelClicked(MyGUI::Widget* sender);
+        void onListAccept(MyGUI::MultiListBox* sender, std::size_t index);
+        void onListSelectChange(MyGUI::MultiListBox* sender, std::size_t index);
+        void onSearchChanged(MyGUI::EditBox* sender);
+        void onKeyPress(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char character);
+        void onColumnClicked(MyGUI::Widget* sender);
+        void onWindowResize(MyGUI::Window* sender);
 
-        // ── Widgets ──────────────────────────────────────────────────────────
-        MyGUI::EditBox* mSearch      = nullptr;
-        MyGUI::ListBox* mList        = nullptr;
-        MyGUI::TextBox* mStatus      = nullptr;
-        MyGUI::Button*  mRefreshBtn  = nullptr;
-        MyGUI::Button*  mConnectBtn  = nullptr;
-        MyGUI::Button*  mCancelBtn   = nullptr;
+        MyGUI::EditBox* mSearch = nullptr;
+        MyGUI::MultiListBox* mList = nullptr;
+        MyGUI::TextBox* mStatus = nullptr;
+        MyGUI::Button* mRefreshButton = nullptr;
+        MyGUI::Button* mConnectButton = nullptr;
+        MyGUI::Button* mCancelButton = nullptr;
 
-        // Column header TextBoxes (made clickable for sorting)
-        MyGUI::TextBox* mColLock    = nullptr;
-        MyGUI::TextBox* mColName    = nullptr;
-        MyGUI::TextBox* mColPlayers = nullptr;
-        MyGUI::TextBox* mColPing    = nullptr;
-        MyGUI::TextBox* mColVersion = nullptr;
-        MyGUI::TextBox* mColMode    = nullptr;
-        MyGUI::TextBox* mColCountry = nullptr;
+        MyGUI::TextBox* mColumnCompatibility = nullptr;
+        MyGUI::TextBox* mColumnName = nullptr;
+        MyGUI::TextBox* mColumnPlayers = nullptr;
+        MyGUI::TextBox* mColumnBuildVersion = nullptr;
+        MyGUI::TextBox* mColumnMode = nullptr;
+        MyGUI::TextBox* mColumnCountry = nullptr;
 
-        // ── State ────────────────────────────────────────────────────────────
-        State  mState = State::Idle;
-        std::future<std::string> mFuture;
-
-        std::vector<ServerEntry> mServers;   ///< full unfiltered result
-        std::vector<size_t>      mFiltered;  ///< indices into mServers after filter+sort
-
+        State mState = State::Idle;
+        std::vector<PublicServerEntry> mServers;
+        std::vector<std::size_t> mFiltered;
         std::string mMasterUrl;
+        ServerSortColumn mSortColumn = ServerSortColumn::Players;
+        bool mSortAscending = false;
+        std::size_t mSelected = MyGUI::ITEM_NONE;
+        ConnectCallback mConnectCallback;
 
-        // Sort state: column index (0=lock,1=name,2=players,3=ping,4=ver,5=mode,6=cc),
-        // default players descending.
-        int  mSortCol = 2;
-        bool mSortAsc = false;
-
-        size_t mSelected = MyGUI::ITEM_NONE; ///< index into mFiltered
-
-        ConnectCallback mConnectCb;
+        std::mutex mRequestMutex;
+        std::condition_variable_any mRequestCondition;
+        std::jthread mRequestWorker;
+        std::uint64_t mRequestedGeneration = 0;
+        bool mRequestPending = false;
+        std::string mRequestedUrl;
+        std::optional<FetchResult> mCompletedRequest;
     };
+}
 
-} // namespace mwmp
+#endif

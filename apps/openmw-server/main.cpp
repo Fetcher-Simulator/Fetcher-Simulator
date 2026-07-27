@@ -1,5 +1,7 @@
 #include "Server.hpp"
 
+#include <components/openmw-mp/MasterServerProtocol.hpp>
+
 #include <algorithm>
 #include <map>
 #ifdef _WIN32
@@ -214,9 +216,10 @@ static void writeDefaultConfig(const std::filesystem::path& cfgPath)
          "\n"
          "[master]\n"
          "public_listing  = false       # set true to appear in the server browser\n"
-         "master_url      = https://master.openmw-mp.org\n"
+         "master_url      = " << mwmp::DefaultMasterServerUrl << "\n"
          "server_name     = My OpenMW Server\n"
          "game_mode       = Co-op\n"
+         "lan_address     =            # optional private IP for clients behind the same NAT\n"
          "\n";
     std::cout << "[Server] Created default config: " << cfgPath.string() << "\n";
 }
@@ -265,9 +268,11 @@ int main(int argc, char* argv[])
     bool        actorAuthorityPreferExactCell = cfgBool(cfg, "server.actorAuthorityPreferExactCell",
         cfgBool(cfg, "server.actor_authority_prefer_exact_cell", true));
     bool        publicListing = cfgBool(cfg, "master.public_listing", false);
-    std::string masterUrl     = cfgStr (cfg, "master.master_url",    "");
+    std::string masterUrl     = cfgStr(
+        cfg, "master.master_url", std::string(mwmp::DefaultMasterServerUrl));
     std::string serverName    = cfgStr (cfg, "master.server_name",   "My OpenMW Server");
     std::string gameMode      = cfgStr (cfg, "master.game_mode",     "Co-op");
+    std::string lanAddress    = cfgStr (cfg, "master.lan_address",   "");
 
     // CLI overrides
     for (int i = 1; i < argc; ++i)
@@ -309,6 +314,7 @@ int main(int argc, char* argv[])
             server.setMasterUrl(masterUrl);
             server.setServerName(serverName);
             server.setGameMode(gameMode);
+            server.setLanAddress(lanAddress);
         }
         gServer = &server;
         std::cout << "[Server] Starting on port " << port << "\n";

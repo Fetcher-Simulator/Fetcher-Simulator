@@ -108,7 +108,6 @@ target_include_directories(openmw-server PRIVATE
     ${GNS_INCLUDE_DIR}
     ${CMAKE_SOURCE_DIR}/extern/sol3
     ${CMAKE_SOURCE_DIR}/extern/httplib
-    ${CMAKE_SOURCE_DIR}/extern/bcrypt
     ${CMAKE_SOURCE_DIR}/extern/GameNetworkingSockets/src/common  # crypto_25519.h, keypair.h
     ${CMAKE_SOURCE_DIR}/extern/GameNetworkingSockets/src/public  # tier0/*, minbase/*
     ${LUA_INCLUDE_DIR}
@@ -124,6 +123,7 @@ elseif(UNIX AND NOT APPLE)
 endif()
 
 target_compile_definitions(openmw-server PRIVATE
+    CPPHTTPLIB_OPENSSL_SUPPORT
     VALVE_CRYPTO_ENABLE_25519   # exposes CCrypto::GenerateSigningKeyPair, CECSigning* etc.
     OPENMW_SERVER_SOURCE_SCRIPTS_DIR="${OPENMW_SERVER_SCRIPTS_SOURCE_DIR}"
     OPENMW_SERVER_SOURCE_LUA_LIBS_DIR="${CMAKE_SOURCE_DIR}/components/lua"
@@ -139,6 +139,8 @@ endif()
 target_link_libraries(openmw-server
     components
     GameNetworkingSockets::GameNetworkingSockets_s
+    OpenSSL::SSL
+    OpenSSL::Crypto
     SQLite3::SQLite3
     ${LUA_LIBRARIES}
 )

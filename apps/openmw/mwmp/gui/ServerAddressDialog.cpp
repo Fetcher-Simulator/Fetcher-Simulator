@@ -27,6 +27,9 @@ ServerAddressDialog::ServerAddressDialog()
         MyGUI::newDelegate(this, &ServerAddressDialog::onKeyPress);
     mPort->eventKeyButtonPressed +=
         MyGUI::newDelegate(this, &ServerAddressDialog::onKeyPress);
+
+    mMainWidget->castType<MyGUI::Window>()->eventWindowChangeCoord
+        += MyGUI::newDelegate(this, &ServerAddressDialog::onWindowResize);
 }
 
 // ---------------------------------------------------------------------------
@@ -62,6 +65,11 @@ void ServerAddressDialog::onKeyPress(MyGUI::Widget* /*sender*/,
         doConnect();
     else if (key == MyGUI::KeyCode::Escape)
         setVisible(false);
+}
+
+void ServerAddressDialog::onWindowResize(MyGUI::Window* sender)
+{
+    MWGui::WindowBase::clampWindowCoordinates(sender);
 }
 
 // ---------------------------------------------------------------------------

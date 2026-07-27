@@ -267,7 +267,6 @@ namespace MWGui
                         mCharSelectDialog->setVisible(true);
                     });
             }
-            mServerBrowserDialog->refresh();
             mServerBrowserDialog->setVisible(true);
         }
 #endif

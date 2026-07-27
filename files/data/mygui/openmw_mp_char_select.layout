@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <MyGUI type="Layout">
     <!--
-        Combined Multiplayer dialog  ~520 x 330
+        Combined Multiplayer dialog  ~520 x 330 login, expanded for character selection
 
         All widgets are direct children of the Window.
         CharacterSelectDialog.cpp hides/shows the two logical groups:
@@ -29,14 +29,15 @@
             NewCharButton     Button
             EnterWorldButton  Button
     -->
-    <Widget type="Window" skin="MW_DialogNoTransp" layer="Modal"
+    <Widget type="Window" skin="MW_Window" layer="Modal"
             position="0 0 520 330" align="Center" name="_Main">
         <Property key="Visible"  value="false"/>
         <Property key="Caption"  value="Multiplayer Login"/>
+        <Property key="MinSize"  value="500 300"/>
 
         <!-- ═══ LOGIN GROUP ═══ -->
         <Widget type="TextBox" skin="SandText"
-                position="16 20 488 18" name="UsernameLabel">
+                position="16 20 488 18" name="UsernameLabel" align="Left Top HStretch">
             <Property key="Caption" value="Username:"/>
         </Widget>
         <Widget type="EditBox" skin="MW_TextEdit"
@@ -46,7 +47,7 @@
         </Widget>
 
         <Widget type="TextBox" skin="SandText"
-                position="16 78 488 18" name="PasswordLabel">
+                position="16 78 488 18" name="PasswordLabel" align="Left Top HStretch">
             <Property key="Caption" value="Password:"/>
         </Widget>
         <Widget type="EditBox" skin="MW_TextEdit"
@@ -57,26 +58,27 @@
         </Widget>
 
         <Widget type="TextBox" skin="SandText"
-                position="16 136 488 36" name="StatusLabel" align="Left Top HStretch">
+                position="16 136 488 120" name="StatusLabel" align="Left Top HStretch VStretch">
             <Property key="Caption"   value=""/>
             <Property key="TextAlign" value="Left Top"/>
             <Property key="WordWrap"  value="true"/>
         </Widget>
 
-        <Widget type="AutoSizedButton" skin="MW_Button"
-                position="16 288 88 24" name="RegisterButton" align="Left Bottom">
-            <Property key="Caption"         value="Register"/>
-            <Property key="ExpandDirection" value="Right"/>
-        </Widget>
-        <Widget type="AutoSizedButton" skin="MW_Button"
-                position="376 288 60 24" name="LoginCancelButton" align="Right Bottom">
-            <Property key="Caption"         value="#{Interface:Cancel}"/>
-            <Property key="ExpandDirection" value="Left"/>
-        </Widget>
-        <Widget type="AutoSizedButton" skin="MW_Button"
-                position="444 288 60 24" name="LoginButton" align="Right Bottom">
-            <Property key="Caption"         value="Login"/>
-            <Property key="ExpandDirection" value="Left"/>
+        <Widget type="HBox" skin="" position="16 264 480 24" align="Left Bottom HStretch"
+                name="LoginActionRow">
+            <Property key="Spacing" value="4"/>
+            <Widget type="AutoSizedButton" skin="MW_Button" name="RegisterButton">
+                <Property key="Caption" value="Register"/>
+            </Widget>
+            <Widget type="Spacer">
+                <UserString key="HStretch" value="true"/>
+            </Widget>
+            <Widget type="AutoSizedButton" skin="MW_Button" name="LoginCancelButton">
+                <Property key="Caption" value="#{Interface:Cancel}"/>
+            </Widget>
+            <Widget type="AutoSizedButton" skin="MW_Button" name="LoginButton">
+                <Property key="Caption" value="Login"/>
+            </Widget>
         </Widget>
 
         <!-- ═══ CHARSELECT GROUP ═══ -->
@@ -94,50 +96,51 @@
 
         <!-- Character list -->
         <Widget type="ListBox" skin="MW_List"
-                position="16 56 488 168" name="CharacterList" align="Left Top HStretch VStretch">
+                position="16 56 488 142" name="CharacterList" align="Left Top HStretch VStretch">
         </Widget>
 
         <!-- New-character name row — hidden until New Character is clicked -->
         <Widget type="Widget" skin=""
-                position="16 230 488 26" name="NewCharNameRow">
+                position="16 204 488 26" name="NewCharNameRow" align="Left Bottom HStretch">
             <Property key="Visible" value="false"/>
             <Widget type="EditBox" skin="MW_TextEdit"
-                    position="0 0 368 24" name="NewCharNameEdit">
+                    position="0 0 368 24" name="NewCharNameEdit" align="Left Top HStretch">
                 <Property key="NeedKey"       value="true"/>
                 <Property key="MaxTextLength" value="24"/>
                 <Property key="Caption"       value=""/>
             </Widget>
             <Widget type="AutoSizedButton" skin="MW_Button"
-                    position="376 0 112 24" name="NewCharNameConfirm">
+                    position="376 0 112 24" name="NewCharNameConfirm" align="Right Top">
                 <Property key="Caption"         value="Create"/>
                 <Property key="ExpandDirection" value="Left"/>
             </Widget>
         </Widget>
 
         <!-- Key link row -->
-        <Widget type="AutoSizedButton" skin="MW_Button"
-                position="16 262 140 24" name="KeyLinkButton" align="Left Bottom">
+        <Widget type="Button" skin="MW_Button"
+                position="16 234 156 24" name="KeyLinkButton" align="Left Bottom">
             <Property key="Caption"         value="Link Machine"/>
-            <Property key="ExpandDirection" value="Right"/>
         </Widget>
 
         <!-- Primary action row -->
-        <Widget type="AutoSizedButton" skin="MW_Button"
-                position="16 292 88 24" name="CharCancelButton" align="Left Bottom">
-            <Property key="Caption"         value="#{Interface:Cancel}"/>
-            <Property key="ExpandDirection" value="Right"/>
-        </Widget>
-        <Widget type="Button" skin="MW_Button"
-                position="112 292 104 24" name="DeleteCharButton" align="Left Bottom">
-            <Property key="Caption" value="Delete"/>
-        </Widget>
-        <Widget type="Button" skin="MW_Button"
-                position="256 292 128 24" name="NewCharButton" align="Right Bottom">
-            <Property key="Caption"         value="New Character"/>
-        </Widget>
-        <Widget type="Button" skin="MW_Button"
-                position="392 292 112 24" name="EnterWorldButton" align="Right Bottom">
-            <Property key="Caption"         value="Enter World"/>
+        <Widget type="HBox" skin="" position="16 264 480 24" align="Left Bottom HStretch"
+                name="CharActionRow">
+            <Property key="Spacing" value="4"/>
+            <Widget type="Button" skin="MW_Button" position="0 0 76 24" name="CharCancelButton">
+                <Property key="Caption" value="#{Interface:Cancel}"/>
+            </Widget>
+            <Widget type="Button" skin="MW_Button" position="0 0 76 24" name="DeleteCharButton">
+                <Property key="Caption" value="Delete"/>
+            </Widget>
+            <Widget type="Spacer">
+                <UserString key="HStretch" value="true"/>
+            </Widget>
+            <Widget type="AutoSizedButton" skin="MW_Button" name="NewCharButton">
+                <Property key="Caption" value="New Character"/>
+            </Widget>
+            <Widget type="AutoSizedButton" skin="MW_Button" name="EnterWorldButton">
+                <Property key="Caption" value="Enter World"/>
+            </Widget>
         </Widget>
 
     </Widget>

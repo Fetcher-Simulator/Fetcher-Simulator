@@ -1,6 +1,6 @@
 #include "Server.hpp"
 #include "MasterServerClient.hpp"
-#include "bcrypt.h"  // extern/bcrypt/bcrypt.h - password hashing wrapper
+#include <extern/bcrypt/bcrypt.h>
 
 // GNS C++ crypto API - CECSigningPublicKey::VerifySignature for challenge-response auth.
 // Include paths: extern/GameNetworkingSockets/src/common + src/public
@@ -34,6 +34,7 @@
 #include <components/debug/debuglog.hpp>
 #include <components/esm/refid.hpp>
 #include <components/misc/constants.hpp>
+#include <components/openmw-mp/MasterServerProtocol.hpp>
 #include <components/openmw-mp/Packets/BasePacket.hpp>
 #include <components/openmw-mp/Packets/System/PacketGameSettings.hpp>
 #include <components/openmw-mp/Packets/System/PacketHandshake.hpp>
@@ -1651,9 +1652,10 @@ void MPServer::run()
         cfg.serverName        = mServerName;
         cfg.port              = mPort;
         cfg.maxPlayers        = mMaxPlayersConfig;
-        cfg.version           = SERVER_VERSION;
+        cfg.buildVersion      = std::string(MultiplayerBuildVersion);
+        cfg.protocolVersion   = MultiplayerProtocolVersion;
         cfg.gameMode          = mGameMode;
-        cfg.passwordProtected = mPasswordProtected;
+        cfg.lanAddress        = mLanAddress;
         mMasterClient.registerAsync(cfg);
     }
 
@@ -4544,16 +4546,16 @@ void MPServer::handleHandshake(ConnectedClient& c, const uint8_t* data, size_t s
         return;
     }
 
-    // Version check
-    if (hs.clientVersion != SERVER_VERSION)
+    if (hs.protocolVersion != MultiplayerProtocolVersion)
     {
         PacketHandshakeResponse rsp;
         rsp.accepted      = false;
-        rsp.serverVersion = SERVER_VERSION;
-        rsp.rejectReason  = "Version mismatch: server=" + std::string(SERVER_VERSION)
-                          + " client=" + hs.clientVersion;
+        rsp.serverVersion = MultiplayerBuildVersion;
+        rsp.rejectReason  = "Multiplayer protocol mismatch: server="
+                          + std::to_string(MultiplayerProtocolVersion)
+                          + " client=" + std::to_string(hs.protocolVersion);
         sendTo(c.conn, rsp.encode());
-        mInterface->CloseConnection(c.conn, 0, "Version mismatch", true);
+        mInterface->CloseConnection(c.conn, 0, "Multiplayer protocol mismatch", true);
         return;
     }
 
@@ -4561,7 +4563,7 @@ void MPServer::handleHandshake(ConnectedClient& c, const uint8_t* data, size_t s
     {
         PacketHandshakeResponse rsp;
         rsp.accepted      = false;
-        rsp.serverVersion = SERVER_VERSION;
+        rsp.serverVersion = MultiplayerBuildVersion;
         rsp.rejectReason  = "ActorSync protocol mismatch: server requires v2";
         rsp.actorSyncProtocolVersion = ActorSyncProtocolVersionV2;
         sendTo(c.conn, rsp.encode());
@@ -4580,7 +4582,7 @@ void MPServer::handleHandshake(ConnectedClient& c, const uint8_t* data, size_t s
         {
             PacketHandshakeResponse rsp;
             rsp.accepted = false;
-            rsp.serverVersion = SERVER_VERSION;
+            rsp.serverVersion = MultiplayerBuildVersion;
             rsp.actorSyncProtocolVersion = ActorSyncProtocolVersionV2;
             rsp.pluginMismatches = std::move(mismatches);
             rsp.rejectReason = contentFileRejectReason(rsp.pluginMismatches, mModChecksHelpUrl);
@@ -4734,7 +4736,7 @@ void MPServer::handleHandshake(ConnectedClient& c, const uint8_t* data, size_t s
     PacketHandshakeResponse rsp;
     rsp.accepted      = true;
     rsp.assignedGuid  = c.guid;
-    rsp.serverVersion = SERVER_VERSION;
+    rsp.serverVersion = MultiplayerBuildVersion;
     rsp.actorSyncProtocolVersion = c.actorSyncProtocolVersion;
     sendTo(c.conn, rsp.encode());
 
@@ -11289,7 +11291,7 @@ void MPServer::handleChallengeResponse(ConnectedClient& c,
     PacketHandshakeResponse rsp;
     rsp.accepted      = true;
     rsp.assignedGuid  = c.guid;
-    rsp.serverVersion = SERVER_VERSION;
+    rsp.serverVersion = MultiplayerBuildVersion;
     sendTo(c.conn, rsp.encode());
 
     Log(Debug::Info) << "[Server] Keypair handshake accepted: " << c.name

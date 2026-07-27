@@ -523,6 +523,9 @@ add_component_dir(testing
 )
 
 if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
+    add_component_dir (openmw-mp
+        MasterServerProtocol
+    )
     add_component_dir (openmw-mp/Base
         BaseStructs BasePlayer BaseActor
     )
@@ -641,7 +644,10 @@ target_link_libraries(components
 
 if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
     target_link_libraries(components GameNetworkingSockets::GameNetworkingSockets_s)
-    target_include_directories(components PUBLIC ${GNS_INCLUDE_DIR})
+    target_include_directories(components PUBLIC
+        ${GNS_INCLUDE_DIR}
+        ${CMAKE_SOURCE_DIR}/extern/GameNetworkingSockets/src/external/picojson
+    )
 endif()
 
 if(yaml-cpp_VERSION VERSION_GREATER_EQUAL 0.8.0)

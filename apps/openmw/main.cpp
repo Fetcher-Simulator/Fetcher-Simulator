@@ -332,7 +332,7 @@ bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::Configurati
             const std::string characterName = variables["mp-character"].as<std::string>();
             const bool autoEnter = variables["mp-auto-enter"].as<bool>();
             const std::string passwordRaw = variables["mp-password"].as<std::string>();
-            // Hash password the same way AccountDialog does so CLI and GUI paths
+            // Hash the password the same way as the multiplayer authentication flow so CLI and GUI paths
             // always send the same credential format to the server.
             const std::string passwordHash = passwordRaw.empty()
                 ? std::string{}
