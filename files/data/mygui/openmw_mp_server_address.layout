@@ -16,22 +16,22 @@
 
         <!-- Row 1 labels -->
         <Widget type="TextBox" skin="SandText"
-                position="16 16 356 18" name="AddressLabel" align="Left Top HStretch">
+                position="16 16 340 18" name="AddressLabel" align="Left Top HStretch">
             <Property key="Caption" value="Server address:"/>
         </Widget>
         <Widget type="TextBox" skin="SandText"
-                position="380 16 104 18" name="PortLabel" align="Right Top">
+                position="364 16 104 18" name="PortLabel" align="Right Top">
             <Property key="Caption" value="Port:"/>
         </Widget>
 
         <!-- Row 1 inputs -->
         <Widget type="EditBox" skin="MW_TextEdit"
-                position="16 36 356 24" name="Address" align="Left Top HStretch">
+                position="16 36 340 24" name="Address" align="Left Top HStretch">
             <Property key="NeedKey"    value="true"/>
             <Property key="MaxTextLength" value="253"/>
         </Widget>
         <Widget type="EditBox" skin="MW_TextEdit"
-                position="380 36 104 24" name="Port" align="Right Top">
+                position="364 36 104 24" name="Port" align="Right Top">
             <Property key="NeedKey"       value="true"/>
             <Property key="MaxTextLength" value="5"/>
         </Widget>

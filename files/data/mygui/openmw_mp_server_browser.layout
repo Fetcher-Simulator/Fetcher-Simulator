@@ -28,7 +28,7 @@
             <Property key="Caption" value="Filter:"/>
         </Widget>
         <Widget type="EditBox" skin="MW_TextEdit"
-                position="72 14 832 22" name="SearchBox" align="Left Top HStretch">
+                position="72 14 816 22" name="SearchBox" align="Left Top HStretch">
             <Property key="NeedKey"       value="true"/>
             <Property key="MaxTextLength" value="128"/>
         </Widget>
@@ -61,7 +61,7 @@
 
         <!-- Server list - fills the bulk of the dialog -->
         <Widget type="MultiListBox" skin="MW_MultiList"
-                position="16 64 888 486" name="ServerList" align="Left Top HStretch VStretch">
+                position="16 64 872 486" name="ServerList" align="Left Top HStretch VStretch">
         </Widget>
 
         <!-- Status bar -->

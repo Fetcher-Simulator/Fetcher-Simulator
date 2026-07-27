@@ -37,28 +37,28 @@
 
         <!-- ═══ LOGIN GROUP ═══ -->
         <Widget type="TextBox" skin="SandText"
-                position="16 20 488 18" name="UsernameLabel" align="Left Top HStretch">
+                position="16 20 472 18" name="UsernameLabel" align="Left Top HStretch">
             <Property key="Caption" value="Username:"/>
         </Widget>
         <Widget type="EditBox" skin="MW_TextEdit"
-                position="16 40 488 24" name="Username" align="Left Top HStretch">
+                position="16 40 472 24" name="Username" align="Left Top HStretch">
             <Property key="NeedKey"       value="true"/>
             <Property key="MaxTextLength" value="32"/>
         </Widget>
 
         <Widget type="TextBox" skin="SandText"
-                position="16 78 488 18" name="PasswordLabel" align="Left Top HStretch">
+                position="16 78 472 18" name="PasswordLabel" align="Left Top HStretch">
             <Property key="Caption" value="Password:"/>
         </Widget>
         <Widget type="EditBox" skin="MW_TextEdit"
-                position="16 98 488 24" name="Password" align="Left Top HStretch">
+                position="16 98 472 24" name="Password" align="Left Top HStretch">
             <Property key="NeedKey"       value="true"/>
             <Property key="Password"      value="true"/>
             <Property key="MaxTextLength" value="128"/>
         </Widget>
 
         <Widget type="TextBox" skin="SandText"
-                position="16 136 488 120" name="StatusLabel" align="Left Top HStretch VStretch">
+                position="16 136 472 120" name="StatusLabel" align="Left Top HStretch VStretch">
             <Property key="Caption"   value=""/>
             <Property key="TextAlign" value="Left Top"/>
             <Property key="WordWrap"  value="true"/>
@@ -83,34 +83,34 @@
 
         <!-- ═══ CHARSELECT GROUP ═══ -->
         <Widget type="TextBox" skin="SandText"
-                position="16 12 488 18" name="ConnectedLabel" align="Left Top HStretch">
+                position="16 12 472 18" name="ConnectedLabel" align="Left Top HStretch">
             <Property key="Caption"   value=""/>
             <Property key="TextAlign" value="Left VCenter"/>
         </Widget>
 
         <Widget type="TextBox" skin="SandText"
-                position="16 34 488 18" name="CharSelectHint" align="Left Top HStretch">
+                position="16 34 472 18" name="CharSelectHint" align="Left Top HStretch">
             <Property key="Caption"   value="Select a character and click Enter World, or create a new one."/>
             <Property key="TextAlign" value="Left VCenter"/>
         </Widget>
 
         <!-- Character list -->
         <Widget type="ListBox" skin="MW_List"
-                position="16 56 488 142" name="CharacterList" align="Left Top HStretch VStretch">
+                position="16 56 472 142" name="CharacterList" align="Left Top HStretch VStretch">
         </Widget>
 
         <!-- New-character name row — hidden until New Character is clicked -->
         <Widget type="Widget" skin=""
-                position="16 204 488 26" name="NewCharNameRow" align="Left Bottom HStretch">
+                position="16 204 472 26" name="NewCharNameRow" align="Left Bottom HStretch">
             <Property key="Visible" value="false"/>
             <Widget type="EditBox" skin="MW_TextEdit"
-                    position="0 0 368 24" name="NewCharNameEdit" align="Left Top HStretch">
+                    position="0 0 352 24" name="NewCharNameEdit" align="Left Top HStretch">
                 <Property key="NeedKey"       value="true"/>
                 <Property key="MaxTextLength" value="24"/>
                 <Property key="Caption"       value=""/>
             </Widget>
             <Widget type="AutoSizedButton" skin="MW_Button"
-                    position="376 0 112 24" name="NewCharNameConfirm" align="Right Top">
+                    position="360 0 112 24" name="NewCharNameConfirm" align="Right Top">
                 <Property key="Caption"         value="Create"/>
                 <Property key="ExpandDirection" value="Left"/>
             </Widget>
