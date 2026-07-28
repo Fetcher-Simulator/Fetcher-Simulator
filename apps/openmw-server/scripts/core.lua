@@ -1577,6 +1577,13 @@ local function handleChat(player, data)
             return surfHandled
         end
 
+        local vehicleHandled = customScripts.vehicleCommands.handleChat(player, data, {
+            commandPrefix = COMMAND_PREFIX,
+        })
+        if vehicleHandled ~= nil then
+            return vehicleHandled
+        end
+
         local recordDynamicHandled = customScripts.recordDynamicTest.handleChat(player, data, {
             commandPrefix = COMMAND_PREFIX,
             parseCommandArgs = parseCommandArgs,

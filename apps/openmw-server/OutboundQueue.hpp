@@ -49,6 +49,7 @@ enum class OutboundLuaActionType
     RefreshPlayerGameSettings,
     RefreshAllGameSettings,
     PlaySpeech,
+    SetPlayerVehicleState,
     KillPlayer,
 };
 
@@ -61,6 +62,7 @@ struct OutboundLuaAction
     int itemCount = 0;
     bool recordPersistent = true;
     bool actorPersistent = true;
+    bool vehicleActive = false;
     uint32_t actorRefNum = 0;
     uint32_t actorMpNum = 0;
     uint32_t actorAuthorityGuid = 0;

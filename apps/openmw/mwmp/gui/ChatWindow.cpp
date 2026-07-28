@@ -1,6 +1,7 @@
 #include "ChatWindow.hpp"
 
 #include <algorithm>
+#include <sstream>
 #include <MyGUI_RenderManager.h>
 #include <components/settings/values.hpp>
 #include <components/settings/settings.hpp>
@@ -384,12 +385,290 @@ bool ChatWindow::handleCommand(const std::string& text)
         return true;
     }
 
+    // ---- /vehicleoffset ----
+    if (cmd == "/vehicleoffset" || cmd == "/voffset")
+    {
+        PlayerSync& playerSync = Main::get().getPlayerSync();
+
+        auto printOffset = [&]() {
+            const osg::Vec3f& offset = playerSync.getVehicleDriverOffset();
+            char buf[160];
+            std::snprintf(buf, sizeof(buf), "Vehicle driver offset: X=%.2f Y=%.2f Z=%.2f", offset.x(), offset.y(),
+                offset.z());
+            addMessage("", buf);
+        };
+
+        auto printUsage = [&]() {
+            addMessage("", "Usage:");
+            addMessage("", "  /vehicleoffset                 - show current offset");
+            addMessage("", "  /vehicleoffset X Y Z           - set absolute offset");
+            addMessage("", "  /vehicleoffset add dX dY dZ    - add to all axes");
+            addMessage("", "  /vehicleoffset x|y|z delta     - adjust one axis");
+            addMessage("", "  /vehicleoffset reset           - restore build default");
+        };
+
+        std::istringstream input(text);
+        std::string command;
+        std::string first;
+        input >> command;
+        if (!(input >> first) || first == "show")
+        {
+            printOffset();
+            return true;
+        }
+
+        if (first == "reset")
+        {
+            playerSync.resetVehicleDriverOffset();
+            printOffset();
+            return true;
+        }
+
+        osg::Vec3f offset = playerSync.getVehicleDriverOffset();
+        if (first == "add")
+        {
+            float dx = 0.f;
+            float dy = 0.f;
+            float dz = 0.f;
+            if (!(input >> dx >> dy >> dz))
+            {
+                printUsage();
+                return true;
+            }
+            offset += osg::Vec3f(dx, dy, dz);
+        }
+        else if (first == "x" || first == "y" || first == "z")
+        {
+            float delta = 0.f;
+            if (!(input >> delta))
+            {
+                printUsage();
+                return true;
+            }
+
+            if (first == "x")
+                offset.x() += delta;
+            else if (first == "y")
+                offset.y() += delta;
+            else
+                offset.z() += delta;
+        }
+        else
+        {
+            float x = 0.f;
+            float y = 0.f;
+            float z = 0.f;
+            try
+            {
+                std::size_t parsed = 0;
+                x = std::stof(first, &parsed);
+                if (parsed != first.size() || !(input >> y >> z))
+                {
+                    printUsage();
+                    return true;
+                }
+            }
+            catch (const std::exception&)
+            {
+                printUsage();
+                return true;
+            }
+            offset.set(x, y, z);
+        }
+
+        playerSync.setVehicleDriverOffset(offset);
+        printOffset();
+        return true;
+    }
+
+    // ---- /vehiclecameraoffset ----
+    if (cmd == "/vehiclecameraoffset" || cmd == "/vcoffset")
+    {
+        PlayerSync& playerSync = Main::get().getPlayerSync();
+
+        auto printOffset = [&]() {
+            const osg::Vec3f& offset = playerSync.getVehicleFirstPersonCameraOffset();
+            char buf[176];
+            std::snprintf(buf, sizeof(buf), "Vehicle camera offset: X=%.2f Y=%.2f Z=%.2f", offset.x(), offset.y(),
+                offset.z());
+            addMessage("", buf);
+        };
+
+        auto printUsage = [&]() {
+            addMessage("", "Usage:");
+            addMessage("", "  /vehiclecameraoffset                 - show current offset");
+            addMessage("", "  /vehiclecameraoffset X Y Z           - set absolute offset");
+            addMessage("", "  /vehiclecameraoffset add dX dY dZ    - add to all axes");
+            addMessage("", "  /vehiclecameraoffset x|y|z delta     - adjust one axis");
+            addMessage("", "  /vehiclecameraoffset reset           - restore profile default");
+        };
+
+        std::istringstream input(text);
+        std::string command;
+        std::string first;
+        input >> command;
+        if (!(input >> first) || first == "show")
+        {
+            printOffset();
+            return true;
+        }
+
+        if (first == "reset")
+        {
+            playerSync.resetVehicleFirstPersonCameraOffset();
+            printOffset();
+            return true;
+        }
+
+        osg::Vec3f offset = playerSync.getVehicleFirstPersonCameraOffset();
+        if (first == "add")
+        {
+            float dx = 0.f;
+            float dy = 0.f;
+            float dz = 0.f;
+            if (!(input >> dx >> dy >> dz))
+            {
+                printUsage();
+                return true;
+            }
+            offset += osg::Vec3f(dx, dy, dz);
+        }
+        else if (first == "x" || first == "y" || first == "z")
+        {
+            float delta = 0.f;
+            if (!(input >> delta))
+            {
+                printUsage();
+                return true;
+            }
+
+            if (first == "x")
+                offset.x() += delta;
+            else if (first == "y")
+                offset.y() += delta;
+            else
+                offset.z() += delta;
+        }
+        else
+        {
+            float x = 0.f;
+            float y = 0.f;
+            float z = 0.f;
+            try
+            {
+                std::size_t parsed = 0;
+                x = std::stof(first, &parsed);
+                if (parsed != first.size() || !(input >> y >> z))
+                {
+                    printUsage();
+                    return true;
+                }
+            }
+            catch (const std::exception&)
+            {
+                printUsage();
+                return true;
+            }
+            offset.set(x, y, z);
+        }
+
+        playerSync.setVehicleFirstPersonCameraOffset(offset);
+        printOffset();
+        return true;
+    }
+
+    // ---- /vehiclelegpose ----
+    if (cmd == "/vehiclelegpose" || cmd == "/vleg")
+    {
+        PlayerSync& playerSync = Main::get().getPlayerSync();
+
+        auto printPose = [&]() {
+            const osg::Vec3f& pose = playerSync.getVehicleLegPoseDegrees();
+            char buf[176];
+            std::snprintf(buf, sizeof(buf), "Vehicle leg pose: thigh=%.2f calf=%.2f foot=%.2f", pose.x(), pose.y(),
+                pose.z());
+            addMessage("", buf);
+        };
+
+        auto printUsage = [&]() {
+            addMessage("", "Usage:");
+            addMessage("", "  /vehiclelegpose                    - show current angles");
+            addMessage("", "  /vehiclelegpose THIGH CALF FOOT    - set absolute angles");
+            addMessage("", "  /vehiclelegpose thigh|calf|foot D  - adjust one angle");
+            addMessage("", "  /vehiclelegpose reset              - restore build default");
+        };
+
+        std::istringstream input(text);
+        std::string command;
+        std::string first;
+        input >> command;
+        if (!(input >> first) || first == "show")
+        {
+            printPose();
+            return true;
+        }
+
+        if (first == "reset")
+        {
+            playerSync.resetVehicleLegPoseDegrees();
+            printPose();
+            return true;
+        }
+
+        osg::Vec3f pose = playerSync.getVehicleLegPoseDegrees();
+        if (first == "thigh" || first == "calf" || first == "foot")
+        {
+            float delta = 0.f;
+            if (!(input >> delta))
+            {
+                printUsage();
+                return true;
+            }
+
+            if (first == "thigh")
+                pose.x() += delta;
+            else if (first == "calf")
+                pose.y() += delta;
+            else
+                pose.z() += delta;
+        }
+        else
+        {
+            float thigh = 0.f;
+            float calf = 0.f;
+            float foot = 0.f;
+            try
+            {
+                std::size_t parsed = 0;
+                thigh = std::stof(first, &parsed);
+                if (parsed != first.size() || !(input >> calf >> foot))
+                {
+                    printUsage();
+                    return true;
+                }
+            }
+            catch (const std::exception&)
+            {
+                printUsage();
+                return true;
+            }
+            pose.set(thigh, calf, foot);
+        }
+
+        playerSync.setVehicleLegPoseDegrees(pose);
+        printPose();
+        return true;
+    }
+
     // ---- /localhelp ----
     if (cmd == "/localhelp")
     {
         addMessage("", "Local chat commands:");
-        addMessage("", "  /localtime  - show the current local and last received server time");
-        addMessage("", "  /localhelp  - show this message");
+        addMessage("", "  /localtime           - show the current local and last received server time");
+        addMessage("", "  /vehicleoffset       - tune the local vehicle driver offset live");
+        addMessage("", "  /vehiclecameraoffset - tune the local vehicle camera offset live");
+        addMessage("", "  /vehiclelegpose      - tune the seated leg angles live");
+        addMessage("", "  /localhelp           - show this message");
         return true;
     }
 

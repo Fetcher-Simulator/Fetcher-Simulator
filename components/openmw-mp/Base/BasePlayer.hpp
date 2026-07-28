@@ -39,6 +39,14 @@ namespace mwmp
         uint64_t    positionSampleTimeUs = 0;
         CellId      cell;
 
+        struct VehicleState
+        {
+            bool active = false;
+            uint32_t revision = 0;
+            uint32_t parkedObjectMpNum = 0;
+            std::string profileId;
+        } vehicle;
+
         // ------------------------------------------------------------------
         // Character definition
         // ------------------------------------------------------------------

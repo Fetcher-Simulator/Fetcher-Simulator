@@ -1428,6 +1428,9 @@ namespace MWMechanics
                 }
             }
 
+            if ((soundgen == "left" || soundgen == "right") && mAnimation->isVehicleDriverPoseEnabled())
+                return;
+
             const ESM::RefId sound = charClass.getSoundIdFromSndGen(mPtr, soundgen);
             if (!sound.empty())
             {
@@ -3269,7 +3272,8 @@ namespace MWMechanics
         if (isPlayer)
         {
             bool playWolfRun = false;
-            if (movement != osg::Vec3f() && isMoving && mHitState == CharState_None)
+            const bool vehicleDriver = mAnimation->isVehicleDriverPoseEnabled();
+            if (!vehicleDriver && movement != osg::Vec3f() && isMoving && mHitState == CharState_None)
             {
                 if (mWeaponType == ESM::Weapon::None || mUpperBodyState == UpperBodyState::Unequipping)
                 {

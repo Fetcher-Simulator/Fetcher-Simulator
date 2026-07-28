@@ -5,12 +5,14 @@
 #include <cmath>
 #include <cstdio>
 #include <unordered_map>
+#include <string_view>
 
 #include <components/debug/debuglog.hpp>
 #include <components/esm/refid.hpp>
 #include <components/fallback/fallback.hpp>
 #include <components/misc/constants.hpp>
 #include <components/misc/rng.hpp>
+#include <components/openmw-mp/Base/VehicleProfiles.hpp>
 
 #include "../../mwbase/environment.hpp"
 #include "../../mwbase/luamanager.hpp"
@@ -61,6 +63,8 @@ namespace mwmp
 
     namespace
     {
+        constexpr std::string_view sVehicleVisualEffectId = "mwmp_vehicle_visual";
+
         // Shortest-path lerp between two angles (radians).
         // Ensures interpolation crosses the 0/2*pi wrap boundary via the shortest path.
         inline float lerpAngle(float current, float target, float alpha)
@@ -526,6 +530,7 @@ namespace mwmp
             applyInterpolationToWorld();
             ensureMechanicsRegistration();
             applyAnimationStateToActor();
+            applyVehiclePresentation();
 
             // Suppress AI every frame; MechanicsManager::add() reactivates
             // the AI sequence, so a one-time clear() at spawn time isn't enough.
@@ -1246,6 +1251,7 @@ namespace mwmp
         mHasAppliedInterpPos = false;
         mMechanicsRegistered = false;
         mAppliedHitFlags = 0;
+        mAppliedVehicleProfileId.clear();
         mWasJumping = false; // reset so re-spawn doesn't skip the first jump edge
         mSpawnRetryTimer = SPAWN_RETRY_RATE; // attempt immediately on next update
         Log(Debug::Info) << "[MP] RemotePlayer " << mName << ": despawned from world";
@@ -2266,6 +2272,78 @@ namespace mwmp
 
         sound->say(mNpcPtr, VFS::Path::Normalized(state.speechSound));
         Log(Debug::Verbose) << "[MP] RemotePlayer " << mName << ": speech '" << state.speechSound << "'";
+    }
+
+    // ---------------------------------------------------------------------------
+    void RemotePlayer::onVehicleState(const BasePlayer& state)
+    {
+        if (state.vehicle.revision < mState.vehicle.revision)
+            return;
+
+        mState.vehicle = state.vehicle;
+        applyVehiclePresentation();
+    }
+
+    // ---------------------------------------------------------------------------
+    void RemotePlayer::applyVehiclePresentation()
+    {
+        if (!mIsSpawned || mNpcPtr.isEmpty())
+            return;
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (!world)
+            return;
+
+        MWRender::Animation* animation = world->getAnimation(mNpcPtr);
+        if (!animation)
+            return;
+
+        const std::vector<std::string_view> effects = animation->getLoopingEffects();
+        const bool hasVehicleEffect
+            = std::find(effects.begin(), effects.end(), sVehicleVisualEffectId) != effects.end();
+
+        if (!mState.vehicle.active)
+        {
+            animation->setVehicleDriverPoseEnabled(false);
+            if (hasVehicleEffect)
+                animation->removeEffect(sVehicleVisualEffectId);
+            mAppliedVehicleProfileId.clear();
+            return;
+        }
+
+        const VehicleProfile* profile = findVehicleProfile(mState.vehicle.profileId);
+        if (!profile)
+        {
+            animation->setVehicleDriverPoseEnabled(false);
+            if (hasVehicleEffect)
+                animation->removeEffect(sVehicleVisualEffectId);
+            mAppliedVehicleProfileId.clear();
+            Log(Debug::Warning) << "[MP] RemotePlayer " << mName
+                                << ": unknown vehicle profile '" << mState.vehicle.profileId << "'";
+            return;
+        }
+
+        animation->setVehicleDriverPoseEnabled(true);
+
+        if (hasVehicleEffect && mAppliedVehicleProfileId == profile->id)
+            return;
+
+        if (hasVehicleEffect)
+            animation->removeEffect(sVehicleVisualEffectId);
+
+        try
+        {
+            animation->addEffect(profile->attachedModel, sVehicleVisualEffectId, true, {}, {}, false, false);
+            mAppliedVehicleProfileId.assign(profile->id);
+            Log(Debug::Info) << "[MP] RemotePlayer " << mName
+                             << ": applied vehicle visual profile='" << profile->id << "'";
+        }
+        catch (const std::exception& e)
+        {
+            mAppliedVehicleProfileId.clear();
+            Log(Debug::Warning) << "[MP] RemotePlayer " << mName
+                                << ": failed to apply vehicle visual: " << e.what();
+        }
     }
 
     // ---------------------------------------------------------------------------

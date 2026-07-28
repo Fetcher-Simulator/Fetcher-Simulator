@@ -150,6 +150,8 @@ public:
     void sendServerMessage(uint32_t guid, const std::string& text);
     void relayPlayerChat(uint32_t guid, const std::string& text);
     bool playSpeech(uint32_t guid, const std::string& soundPath);
+    bool setPlayerVehicleState(
+        uint32_t guid, bool active, const std::string& profileId = std::string(), uint32_t parkedObjectMpNum = 0);
     bool killPlayer(uint32_t guid, const std::string& deathMessage = std::string());
     void broadcastLuaEvent(uint32_t pid, const std::string& eventName, const std::string& eventData);
     void broadcastLuaEventToCell(

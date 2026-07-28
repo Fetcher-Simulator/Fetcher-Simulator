@@ -1114,6 +1114,41 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
         return true;
     });
 
+    mp.set_function("setPlayerVehicle",
+        [context](uint32_t guid, const std::string& profileId, const sol::optional<uint32_t>& parkedObjectMpNum) -> bool
+        {
+            if (!context || guid == 0 || profileId.empty())
+                return false;
+
+            context->queueSetPlayerVehicleState(guid, true, profileId, parkedObjectMpNum.value_or(0));
+            return true;
+        });
+    mp.set_function("SetPlayerVehicle",
+        [context](uint32_t guid, const std::string& profileId, const sol::optional<uint32_t>& parkedObjectMpNum) -> bool
+        {
+            if (!context || guid == 0 || profileId.empty())
+                return false;
+
+            context->queueSetPlayerVehicleState(guid, true, profileId, parkedObjectMpNum.value_or(0));
+            return true;
+        });
+    mp.set_function("clearPlayerVehicle", [context](uint32_t guid) -> bool
+    {
+        if (!context || guid == 0)
+            return false;
+
+        context->queueSetPlayerVehicleState(guid, false);
+        return true;
+    });
+    mp.set_function("ClearPlayerVehicle", [context](uint32_t guid) -> bool
+    {
+        if (!context || guid == 0)
+            return false;
+
+        context->queueSetPlayerVehicleState(guid, false);
+        return true;
+    });
+
     mp.set_function("killPlayer", [context](uint32_t guid, const sol::optional<std::string>& deathMessage) -> bool
     {
         if (!context || guid == 0)

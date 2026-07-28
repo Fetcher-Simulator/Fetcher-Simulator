@@ -56,6 +56,17 @@ namespace mwmp
         void queueRestoredStats(const BasePlayer& restored);
         void applyRestoredStatsToPlayer();
         void applyServerDeath(const BasePlayer& state);
+        void applyServerVehicleState(const BasePlayer& state);
+
+        const osg::Vec3f& getVehicleDriverOffset() const { return mVehicleDriverOffset; }
+        void setVehicleDriverOffset(const osg::Vec3f& offset);
+        void resetVehicleDriverOffset();
+        const osg::Vec3f& getVehicleFirstPersonCameraOffset() const { return mVehicleFirstPersonCameraOffset; }
+        void setVehicleFirstPersonCameraOffset(const osg::Vec3f& offset);
+        void resetVehicleFirstPersonCameraOffset();
+        const osg::Vec3f& getVehicleLegPoseDegrees() const { return mVehicleLegPoseDegrees; }
+        void setVehicleLegPoseDegrees(const osg::Vec3f& pose);
+        void resetVehicleLegPoseDegrees();
 
         // Accessors used by Networking dispatcher
         BasePlayer& localPlayer() { return mLocal; }
@@ -103,6 +114,7 @@ namespace mwmp
         void captureJournalSnapshot();
         std::vector<std::string> collectLoadedActorCellIds() const;
         void applyPendingAuthoritativeState(const MWWorld::Ptr& player);
+        void applyVehiclePresentation(const MWWorld::Ptr& player);
         uint32_t resolveTargetMpNum(const MWWorld::Ptr& victim) const;
         void sendCastPacket(
             const std::string& spellId, const std::string& castAnimation, bool release, const MWWorld::Ptr& target);
@@ -112,6 +124,10 @@ namespace mwmp
 
         BasePlayer     mLocal;          // live mirror of local player state
         bool           mPlayerReady = false;
+        std::string    mAppliedVehicleProfileId;
+        osg::Vec3f     mVehicleDriverOffset{ -8.01f, -26.71f, -25.81f };
+        osg::Vec3f     mVehicleFirstPersonCameraOffset{ -24.5085f, 23.8851f, 101.7932f };
+        osg::Vec3f     mVehicleLegPoseDegrees{ 97.f, -31.f, 19.f };
         BasePlayer     mPendingRestoredStats;
         bool           mHasPendingRestoredStats = false;
         int            mLastLoggedPersistentStrength = -1;

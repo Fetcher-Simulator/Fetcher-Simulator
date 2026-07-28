@@ -37,6 +37,7 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerAttack.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerCast.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerSpeech.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerVehicleState.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerInventory.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerJournal.hpp>
 #include <components/openmw-mp/Packets/Lua/PacketLuaEvent.hpp>
@@ -1319,6 +1320,26 @@ void Main::registerProtocolHandlers()
 
             auto* rp = mPlayerList->getPlayer(tmp.guid);
             if (rp) rp->onAttack(tmp);
+        });
+
+    // --- Server-authored player vehicle mode/profile state ---
+    proto.registerHandler(PacketType::PlayerVehicleState,
+        [this](const uint8_t* data, size_t size)
+        {
+            BasePlayer tmp;
+            PacketPlayerVehicleState packet;
+            packet.setPlayer(&tmp);
+            if (!packet.decode(data, size))
+                return;
+
+            if (tmp.guid == mPlayerSync->localPlayer().guid)
+            {
+                mPlayerSync->applyServerVehicleState(tmp);
+                return;
+            }
+
+            if (auto* remote = mPlayerList->getPlayer(tmp.guid))
+                remote->onVehicleState(tmp);
         });
 
     // --- Player speech event ---

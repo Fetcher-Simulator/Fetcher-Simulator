@@ -17,6 +17,7 @@
 #include <components/sceneutil/util.hpp>
 #include <components/vfs/pathutil.hpp>
 
+#include <array>
 #include <map>
 #include <optional>
 #include <span>
@@ -194,8 +195,9 @@ namespace MWRender
         // The node expected to accumulate movement during movement animations.
         osg::ref_ptr<osg::Node> mAccumRoot;
 
-        // The controller animating that node.
+        // The controller animating that node for movement extraction.
         osg::ref_ptr<SceneUtil::KeyframeController> mAccumCtrl;
+        std::shared_ptr<float> mAccumTimePtr;
 
         // Used to reset the position of the accumulation root every frame - the movement should be applied to the
         // physics system
@@ -225,6 +227,15 @@ namespace MWRender
         osg::ref_ptr<RotateController> mHeadController;
         osg::ref_ptr<RotateController> mSpineController;
         osg::ref_ptr<RotateController> mRootController;
+        osg::ref_ptr<RotateController> mVehicleDriverRootController;
+        std::array<osg::ref_ptr<RotateController>, 2> mVehicleThighControllers;
+        std::array<osg::ref_ptr<RotateController>, 2> mVehicleCalfControllers;
+        std::array<osg::ref_ptr<RotateController>, 2> mVehicleFootControllers;
+        std::vector<osg::ref_ptr<RotateController>> mVehicleDriverPoseControllers;
+        osg::Vec3f mVehicleDriverOffset{ -8.01f, -26.71f, -25.81f };
+        osg::Vec3f mVehicleFirstPersonCameraOffset{ -24.5085f, 23.8851f, 101.7932f };
+        osg::Vec3f mVehicleLegPoseDegrees{ 97.f, -31.f, 19.f };
+        bool mVehicleDriverPoseEnabled = false;
         float mHeadYawRadians;
         float mHeadPitchRadians;
         float mUpperBodyYawRadians;
@@ -232,6 +243,8 @@ namespace MWRender
         float mBodyPitchRadians;
 
         osg::ref_ptr<RotateController> addRotateController(std::string_view bone);
+        void addVehicleDriverPoseControllers();
+        void updateVehicleLegPoseControllers();
 
         bool mHasMagicEffects;
 
@@ -488,6 +501,15 @@ namespace MWRender
         virtual float getLegsYawRadians() const { return mLegsYawRadians; }
         virtual void setBodyPitchRadians(float v) { mBodyPitchRadians = v; }
         virtual float getBodyPitchRadians() const { return mBodyPitchRadians; }
+
+        void setVehicleDriverPoseEnabled(bool enabled);
+        bool isVehicleDriverPoseEnabled() const { return mVehicleDriverPoseEnabled; }
+        void setVehicleDriverOffset(const osg::Vec3f& offset);
+        const osg::Vec3f& getVehicleDriverOffset() const { return mVehicleDriverOffset; }
+        void setVehicleFirstPersonCameraOffset(const osg::Vec3f& offset) { mVehicleFirstPersonCameraOffset = offset; }
+        const osg::Vec3f& getVehicleFirstPersonCameraOffset() const { return mVehicleFirstPersonCameraOffset; }
+        void setVehicleLegPoseDegrees(const osg::Vec3f& pose);
+        const osg::Vec3f& getVehicleLegPoseDegrees() const { return mVehicleLegPoseDegrees; }
 
         virtual void setAccurateAiming(bool enabled) {}
         virtual bool canBeHarvested() const { return false; }

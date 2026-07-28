@@ -14,4 +14,5 @@ return {
     speechCommands = require("speech_commands"),
     surfCommands = require("surf_commands"),
     surfTimer = require("surf_timer"),
+    vehicleCommands = require("vehicle_commands"),
 }

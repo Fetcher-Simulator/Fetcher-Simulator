@@ -319,6 +319,9 @@ void LuaServerContext::drainOutbound()
             case OutboundLuaActionType::PlaySpeech:
                 mServer->playSpeech(action.guid, action.text);
                 break;
+            case OutboundLuaActionType::SetPlayerVehicleState:
+                mServer->setPlayerVehicleState(action.guid, action.vehicleActive, action.text, action.mpNum);
+                break;
             case OutboundLuaActionType::KillPlayer:
                 mServer->killPlayer(action.guid, action.text);
                 break;
@@ -1182,6 +1185,21 @@ void LuaServerContext::queuePlaySpeech(uint32_t guid, const std::string& soundPa
     action.type = OutboundLuaActionType::PlaySpeech;
     action.guid = guid;
     action.text = soundPath;
+    mOutboundQueue.push(std::move(action));
+}
+
+void LuaServerContext::queueSetPlayerVehicleState(
+    uint32_t guid, bool active, const std::string& profileId, uint32_t parkedObjectMpNum)
+{
+    if (guid == 0 || (active && profileId.empty()))
+        return;
+
+    OutboundLuaAction action;
+    action.type = OutboundLuaActionType::SetPlayerVehicleState;
+    action.guid = guid;
+    action.vehicleActive = active;
+    action.text = active ? profileId : std::string();
+    action.mpNum = active ? parkedObjectMpNum : 0;
     mOutboundQueue.push(std::move(action));
 }
 

@@ -15,6 +15,7 @@
 #include <components/esm3/loadinfo.hpp>
 #include <components/esm3/journalentry.hpp>
 #include <components/misc/rng.hpp>
+#include <components/openmw-mp/Base/VehicleProfiles.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerPosition.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerCellChange.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerLoadedCells.hpp>
@@ -64,6 +65,7 @@
 #include <components/esm3/loadskil.hpp>
 #include <components/esm3/loadweap.hpp>
 #include "../../mwmechanics/movement.hpp"
+#include "../../mwrender/animation.hpp"
 #include "../../mwrender/npcanimation.hpp"
 #include <components/openmw-mp/Packets/Player/PacketPlayerAnimFlags.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAttack.hpp>
@@ -77,6 +79,8 @@ namespace mwmp
 
 namespace
 {
+    constexpr std::string_view sVehicleVisualEffectId = "mwmp_vehicle_visual";
+
     uint64_t steadyTimeUs()
     {
         return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
@@ -811,6 +815,7 @@ void PlayerSync::update(float dt)
     if (player.isEmpty()) return;
 
     applyPendingAuthoritativeState(player);
+    applyVehiclePresentation(player);
 
     if (mRecentPlayerAttackerTimer > 0.f)
     {
@@ -2036,6 +2041,143 @@ void PlayerSync::applyServerDeath(const BasePlayer& state)
     mLocal.dynamicStats.health.current = stats.getHealth().getCurrent();
     mLocal.dynamicStats.health.mod = stats.getHealth().getModifier();
     snapshotDynamicStats();
+}
+
+void PlayerSync::applyServerVehicleState(const BasePlayer& state)
+{
+    if (state.vehicle.revision < mLocal.vehicle.revision)
+        return;
+
+    mLocal.vehicle = state.vehicle;
+
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    if (!world)
+        return;
+
+    const MWWorld::Ptr player = world->getPlayerPtr();
+    if (!player.isEmpty())
+        applyVehiclePresentation(player);
+}
+
+void PlayerSync::setVehicleDriverOffset(const osg::Vec3f& offset)
+{
+    mVehicleDriverOffset = offset;
+
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    if (!world)
+        return;
+
+    const MWWorld::Ptr player = world->getPlayerPtr();
+    if (player.isEmpty())
+        return;
+
+    if (MWRender::Animation* animation = world->getAnimation(player))
+        animation->setVehicleDriverOffset(offset);
+}
+
+void PlayerSync::resetVehicleDriverOffset()
+{
+    setVehicleDriverOffset(osg::Vec3f(-8.01f, -26.71f, -25.81f));
+}
+
+void PlayerSync::setVehicleFirstPersonCameraOffset(const osg::Vec3f& offset)
+{
+    mVehicleFirstPersonCameraOffset = offset;
+
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    if (!world)
+        return;
+
+    const MWWorld::Ptr player = world->getPlayerPtr();
+    if (player.isEmpty())
+        return;
+
+    if (MWRender::Animation* animation = world->getAnimation(player))
+        animation->setVehicleFirstPersonCameraOffset(offset);
+}
+
+void PlayerSync::resetVehicleFirstPersonCameraOffset()
+{
+    setVehicleFirstPersonCameraOffset(osg::Vec3f(-24.5085f, 23.8851f, 101.7932f));
+}
+
+void PlayerSync::setVehicleLegPoseDegrees(const osg::Vec3f& pose)
+{
+    mVehicleLegPoseDegrees = pose;
+
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    if (!world)
+        return;
+
+    const MWWorld::Ptr player = world->getPlayerPtr();
+    if (player.isEmpty())
+        return;
+
+    if (MWRender::Animation* animation = world->getAnimation(player))
+        animation->setVehicleLegPoseDegrees(pose);
+}
+
+void PlayerSync::resetVehicleLegPoseDegrees()
+{
+    setVehicleLegPoseDegrees(osg::Vec3f(97.f, -31.f, 19.f));
+}
+
+void PlayerSync::applyVehiclePresentation(const MWWorld::Ptr& player)
+{
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    if (!world || player.isEmpty())
+        return;
+
+    MWRender::Animation* animation = world->getAnimation(player);
+    if (!animation)
+        return;
+
+    const std::vector<std::string_view> effects = animation->getLoopingEffects();
+    const bool hasVehicleEffect
+        = std::find(effects.begin(), effects.end(), sVehicleVisualEffectId) != effects.end();
+
+    if (!mLocal.vehicle.active)
+    {
+        animation->setVehicleDriverPoseEnabled(false);
+        if (hasVehicleEffect)
+            animation->removeEffect(sVehicleVisualEffectId);
+        mAppliedVehicleProfileId.clear();
+        return;
+    }
+
+    const VehicleProfile* profile = findVehicleProfile(mLocal.vehicle.profileId);
+    if (!profile)
+    {
+        animation->setVehicleDriverPoseEnabled(false);
+        if (hasVehicleEffect)
+            animation->removeEffect(sVehicleVisualEffectId);
+        mAppliedVehicleProfileId.clear();
+        Log(Debug::Warning) << "[MP] Unknown local vehicle profile '" << mLocal.vehicle.profileId << "'";
+        return;
+    }
+
+    animation->setVehicleDriverOffset(mVehicleDriverOffset);
+    animation->setVehicleFirstPersonCameraOffset(mVehicleFirstPersonCameraOffset);
+    animation->setVehicleLegPoseDegrees(mVehicleLegPoseDegrees);
+    animation->setVehicleDriverPoseEnabled(true);
+
+    if (hasVehicleEffect && mAppliedVehicleProfileId == profile->id)
+        return;
+
+    if (hasVehicleEffect)
+        animation->removeEffect(sVehicleVisualEffectId);
+
+    try
+    {
+        animation->addEffect(profile->attachedModel, sVehicleVisualEffectId, true, {}, {}, false, false);
+        mAppliedVehicleProfileId.assign(profile->id);
+        Log(Debug::Info) << "[MP] Applied local vehicle visual profile='" << profile->id << "'";
+    }
+    catch (const std::exception& e)
+    {
+        mAppliedVehicleProfileId.clear();
+        Log(Debug::Warning) << "[MP] Failed to apply local vehicle visual: " << e.what();
+    }
 }
 
 void PlayerSync::sendResurrect()

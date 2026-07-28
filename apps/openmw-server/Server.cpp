@@ -49,6 +49,8 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerAttack.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerCast.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerSpeech.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerVehicleState.hpp>
+#include <components/openmw-mp/Base/VehicleProfiles.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerInventory.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerJournal.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerStatsDynamic.hpp>
@@ -1366,6 +1368,51 @@ bool MPServer::playSpeech(uint32_t guid, const std::string& soundPath)
         sendTo(client->conn, encoded);
 
     client->player.speechSound.clear();
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+bool MPServer::setPlayerVehicleState(
+    uint32_t guid, bool active, const std::string& profileId, uint32_t parkedObjectMpNum)
+{
+    ConnectedClient* client = findClientByGuid(guid);
+    if (!client || !client->handshakeComplete || !client->charSelectComplete)
+        return false;
+
+    if (active && !findVehicleProfile(profileId))
+    {
+        Log(Debug::Warning) << "[Server] Rejected unknown vehicle profile '" << profileId
+                            << "' for player " << client->name;
+        return false;
+    }
+
+    BasePlayer::VehicleState& state = client->player.vehicle;
+    const std::string nextProfileId = active ? profileId : std::string();
+    const uint32_t nextParkedObjectMpNum = active ? parkedObjectMpNum : 0;
+    if (state.active == active && state.profileId == nextProfileId
+        && state.parkedObjectMpNum == nextParkedObjectMpNum)
+    {
+        return true;
+    }
+
+    state.active = active;
+    state.profileId = nextProfileId;
+    state.parkedObjectMpNum = nextParkedObjectMpNum;
+    ++state.revision;
+    if (state.revision == 0)
+        ++state.revision;
+
+    PacketPlayerVehicleState packet;
+    packet.setPlayer(&client->player);
+    broadcastToAll(packet.encode());
+
+    Log(Debug::Info) << "[Server] Player vehicle state"
+                     << " player=" << client->name
+                     << " active=" << state.active
+                     << " profile='" << state.profileId << "'"
+                     << " parkedMpNum=" << state.parkedObjectMpNum
+                     << " revision=" << state.revision;
+    syncLuaPlayerSnapshot();
     return true;
 }
 
@@ -10800,6 +10847,10 @@ void MPServer::sendPlayerStateBootstrapToClient(ConnectedClient& receiver)
         PacketPlayerEquipment equipment;
         equipment.setPlayer(&client.player);
         sendTo(receiver.conn, equipment.encode());
+
+        PacketPlayerVehicleState vehicleState;
+        vehicleState.setPlayer(&client.player);
+        sendTo(receiver.conn, vehicleState.encode());
 
         if (client.player.position.pos[0] != 0.f
             || client.player.position.pos[1] != 0.f

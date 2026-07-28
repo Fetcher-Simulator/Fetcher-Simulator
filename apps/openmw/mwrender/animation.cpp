@@ -783,6 +783,7 @@ namespace MWRender
             mAnimationTimePtr[i]->setTimePtr(std::shared_ptr<float>());
 
         mAccumCtrl = nullptr;
+        mAccumTimePtr.reset();
 
         mSupportedAnimations.clear();
         mSupportedDirections.clear();
@@ -901,7 +902,11 @@ namespace MWRender
         AnimStateMap::iterator foundstateiter = mStates.find(groupname);
         if (foundstateiter != mStates.end())
         {
-            foundstateiter->second.mPriority = priority;
+            const bool preserveVehicleIdlePriority = mVehicleDriverPoseEnabled && groupname == "idle"
+                && foundstateiter->second.mPriority.contains(MWMechanics::Priority_Scripted)
+                && !priority.contains(MWMechanics::Priority_Scripted);
+            if (!preserveVehicleIdlePriority)
+                foundstateiter->second.mPriority = priority;
         }
 
         AnimStateMap::iterator stateiter = mStates.begin();
@@ -1129,20 +1134,62 @@ namespace MWRender
         mActiveControllers.clear();
 
         mAccumCtrl = nullptr;
+        mAccumTimePtr.reset();
 
         for (size_t blendMask = 0; blendMask < sNumBlendMasks; blendMask++)
         {
-            AnimStateMap::const_iterator active = mStates.end();
+            auto selectActive = [&](bool scriptedOnly, bool excludeScripted) {
+                AnimStateMap::const_iterator selected = mStates.end();
+                for (AnimStateMap::const_iterator state = mStates.begin(); state != mStates.end(); ++state)
+                {
+                    if (!state->second.blendMaskContains(blendMask))
+                        continue;
 
-            AnimStateMap::const_iterator state = mStates.begin();
-            for (; state != mStates.end(); ++state)
+                    const bool scripted = state->second.mPriority.contains(MWMechanics::Priority_Scripted);
+                    if ((scriptedOnly && !scripted) || (excludeScripted && scripted))
+                        continue;
+
+                    if (selected == mStates.end()
+                        || selected->second.mPriority[(BoneGroup)blendMask]
+                            < state->second.mPriority[(BoneGroup)blendMask])
+                    {
+                        selected = state;
+                    }
+                }
+                return selected;
+            };
+
+            // While driving, the ordinary movement state continues to advance and
+            // provide accumulation/root motion, but the scripted seated state owns
+            // the visible bone controllers.
+            AnimStateMap::const_iterator movementActive
+                = selectActive(false, mVehicleDriverPoseEnabled);
+            if (movementActive == mStates.end())
+                movementActive = selectActive(false, false);
+
+            AnimStateMap::const_iterator active = movementActive;
+            if (mVehicleDriverPoseEnabled)
             {
-                if (!state->second.blendMaskContains(blendMask))
-                    continue;
+                const AnimStateMap::const_iterator scriptedActive = selectActive(true, false);
+                if (scriptedActive != mStates.end())
+                    active = scriptedActive;
+            }
 
-                if (active == mStates.end()
-                    || active->second.mPriority[(BoneGroup)blendMask] < state->second.mPriority[(BoneGroup)blendMask])
-                    active = state;
+            if (blendMask == BoneGroup_LowerBody && movementActive != mStates.end())
+            {
+                const std::shared_ptr<AnimSource> movementSource = movementActive->second.mSource;
+                for (AnimSource::ControllerMap::const_iterator it
+                         = movementSource->mControllerMap[blendMask].begin();
+                     it != movementSource->mControllerMap[blendMask].end(); ++it)
+                {
+                    const osg::ref_ptr<osg::Node> node = getNodeMap().at(it->first);
+                    if (node == mAccumRoot)
+                    {
+                        mAccumCtrl = it->second;
+                        mAccumTimePtr = movementActive->second.mTime;
+                        break;
+                    }
+                }
             }
 
             mAnimationTimePtr[blendMask]->setTimePtr(
@@ -1181,10 +1228,8 @@ namespace MWRender
                     node->addUpdateCallback(callback);
                     mActiveControllers.emplace_back(node, callback);
 
-                    if (blendMask == 0 && node == mAccumRoot)
+                    if (blendMask == BoneGroup_LowerBody && node == mAccumRoot)
                     {
-                        mAccumCtrl = it->second;
-
                         // make sure reset is last in the chain of callbacks
                         if (!mResetAccumRootCallback)
                         {
@@ -1262,6 +1307,9 @@ namespace MWRender
 
     void Animation::disable(std::string_view groupname)
     {
+        if (mVehicleDriverPoseEnabled && groupname == "idle")
+            return;
+
         AnimStateMap::iterator iter = mStates.find(groupname);
         if (iter != mStates.end())
         {
@@ -1363,13 +1411,13 @@ namespace MWRender
                     float targetTime = state.getTime() + timepassed;
                     if (textkey == textkeys.end() || textkey->first > targetTime)
                     {
-                        if (mAccumCtrl && state.mTime == mAnimationTimePtr[0]->getTimePtr())
+                        if (mAccumCtrl && mAccumTimePtr && state.mTime == mAccumTimePtr)
                             updatePosition(state.getTime(), targetTime, movement);
                         state.setTime(std::min(targetTime, state.mStopTime));
                     }
                     else
                     {
-                        if (mAccumCtrl && state.mTime == mAnimationTimePtr[0]->getTimePtr())
+                        if (mAccumCtrl && mAccumTimePtr && state.mTime == mAccumTimePtr)
                             updatePosition(state.getTime(), textkey->first, movement);
                         state.setTime(textkey->first);
                     }
@@ -1570,6 +1618,7 @@ namespace MWRender
         mActiveControllers.clear();
         mAccumRoot = nullptr;
         mAccumCtrl = nullptr;
+        mAccumTimePtr.reset();
 
         std::string defaultSkeleton;
         bool inject = false;
@@ -1946,6 +1995,16 @@ namespace MWRender
         mHeadController = addRotateController("bip01 head");
         mSpineController = addRotateController("bip01 spine1");
         mRootController = addRotateController("bip01");
+        if (mVehicleDriverPoseEnabled)
+            addVehicleDriverPoseControllers();
+        else
+        {
+            mVehicleDriverRootController = nullptr;
+            mVehicleThighControllers.fill(nullptr);
+            mVehicleCalfControllers.fill(nullptr);
+            mVehicleFootControllers.fill(nullptr);
+            mVehicleDriverPoseControllers.clear();
+        }
     }
 
     osg::ref_ptr<RotateController> Animation::addRotateController(std::string_view bone)
@@ -1977,6 +2036,143 @@ namespace MWRender
         node->addUpdateCallback(controller);
         mActiveControllers.emplace_back(node, controller);
         return controller;
+    }
+
+    void Animation::addVehicleDriverPoseControllers()
+    {
+        mVehicleDriverRootController = nullptr;
+        mVehicleThighControllers.fill(nullptr);
+        mVehicleCalfControllers.fill(nullptr);
+        mVehicleFootControllers.fill(nullptr);
+        mVehicleDriverPoseControllers.clear();
+
+        constexpr float degreesToRadians = 3.14159265358979323846f / 180.f;
+        const osg::Vec3f xAxis(1.f, 0.f, 0.f);
+        const osg::Vec3f zAxis(0.f, 0.f, 1.f);
+
+        auto addPoseController = [&](std::string_view bone, const osg::Quat& rotation,
+                                     const osg::Vec3f& offset = osg::Vec3f()) -> osg::ref_ptr<RotateController> {
+            osg::ref_ptr<RotateController> controller = addRotateController(bone);
+            if (!controller)
+                return nullptr;
+
+            controller->setRotate(rotation);
+            controller->setOffset(offset);
+            controller->setEnabled(mVehicleDriverPoseEnabled);
+            mVehicleDriverPoseControllers.push_back(controller);
+            return controller;
+        };
+
+        // The actor root remains the network/physics transform. These offsets and
+        // rotations are applied only to the rendered skeleton after normal
+        // animation blending, producing a stable seated driver pose.
+        mVehicleDriverRootController = addPoseController("bip01", osg::Quat(), mVehicleDriverOffset);
+        addPoseController("bip01 spine1", osg::Quat(5.f * degreesToRadians, xAxis));
+
+        mVehicleThighControllers[0] = addPoseController("bip01 l thigh", osg::Quat());
+        mVehicleThighControllers[1] = addPoseController("bip01 r thigh", osg::Quat());
+        mVehicleCalfControllers[0] = addPoseController("bip01 l calf", osg::Quat());
+        mVehicleCalfControllers[1] = addPoseController("bip01 r calf", osg::Quat());
+        mVehicleFootControllers[0] = addPoseController("bip01 l foot", osg::Quat());
+        mVehicleFootControllers[1] = addPoseController("bip01 r foot", osg::Quat());
+        updateVehicleLegPoseControllers();
+
+        addPoseController("bip01 l upperarm",
+            osg::Quat(34.f * degreesToRadians, xAxis) * osg::Quat(-16.f * degreesToRadians, zAxis));
+        addPoseController("bip01 r upperarm",
+            osg::Quat(34.f * degreesToRadians, xAxis) * osg::Quat(16.f * degreesToRadians, zAxis));
+        addPoseController("bip01 l forearm",
+            osg::Quat(72.f * degreesToRadians, xAxis) * osg::Quat(12.f * degreesToRadians, zAxis));
+        addPoseController("bip01 r forearm",
+            osg::Quat(72.f * degreesToRadians, xAxis) * osg::Quat(-12.f * degreesToRadians, zAxis));
+    }
+
+    void Animation::updateVehicleLegPoseControllers()
+    {
+        constexpr float degreesToRadians = 3.14159265358979323846f / 180.f;
+        const osg::Vec3f xAxis(1.f, 0.f, 0.f);
+        const osg::Vec3f zAxis(0.f, 0.f, 1.f);
+
+        const osg::Quat leftThigh = osg::Quat(mVehicleLegPoseDegrees.x() * degreesToRadians, xAxis)
+            * osg::Quat(-5.f * degreesToRadians, zAxis);
+        const osg::Quat rightThigh = osg::Quat(mVehicleLegPoseDegrees.x() * degreesToRadians, xAxis)
+            * osg::Quat(5.f * degreesToRadians, zAxis);
+        const osg::Quat calf(mVehicleLegPoseDegrees.y() * degreesToRadians, xAxis);
+        const osg::Quat foot(mVehicleLegPoseDegrees.z() * degreesToRadians, xAxis);
+
+        if (mVehicleThighControllers[0])
+            mVehicleThighControllers[0]->setRotate(leftThigh);
+        if (mVehicleThighControllers[1])
+            mVehicleThighControllers[1]->setRotate(rightThigh);
+        for (const osg::ref_ptr<RotateController>& controller : mVehicleCalfControllers)
+        {
+            if (controller)
+                controller->setRotate(calf);
+        }
+        for (const osg::ref_ptr<RotateController>& controller : mVehicleFootControllers)
+        {
+            if (controller)
+                controller->setRotate(foot);
+        }
+    }
+
+    void Animation::setVehicleDriverPoseEnabled(bool enabled)
+    {
+        const bool stateChanged = mVehicleDriverPoseEnabled != enabled;
+        mVehicleDriverPoseEnabled = enabled;
+
+        if (enabled)
+        {
+            // Keep locomotion states alive for movement, but ensure the neutral idle
+            // remains the only scripted full-body state selected for rendering.
+            const auto idle = mStates.find("idle");
+            if (idle == mStates.end())
+            {
+                if (hasAnimation("idle"))
+                {
+                    play("idle", MWMechanics::Priority_Scripted, BlendMask_All, false, 1.f, "start", "stop", 0.f,
+                        std::numeric_limits<uint32_t>::max(), true);
+                }
+            }
+            else if (!idle->second.mPriority.contains(MWMechanics::Priority_Scripted))
+            {
+                idle->second.mPriority = MWMechanics::Priority_Scripted;
+                resetActiveGroups();
+            }
+
+            if (mVehicleDriverPoseControllers.empty())
+                addVehicleDriverPoseControllers();
+
+            for (const osg::ref_ptr<RotateController>& controller : mVehicleDriverPoseControllers)
+            {
+                if (controller)
+                    controller->setEnabled(true);
+            }
+        }
+        else
+        {
+            for (const osg::ref_ptr<RotateController>& controller : mVehicleDriverPoseControllers)
+            {
+                if (controller)
+                    controller->setEnabled(false);
+            }
+
+            if (stateChanged && isPlaying("idle"))
+                disable("idle");
+        }
+    }
+
+    void Animation::setVehicleDriverOffset(const osg::Vec3f& offset)
+    {
+        mVehicleDriverOffset = offset;
+        if (mVehicleDriverRootController)
+            mVehicleDriverRootController->setOffset(offset);
+    }
+
+    void Animation::setVehicleLegPoseDegrees(const osg::Vec3f& pose)
+    {
+        mVehicleLegPoseDegrees = pose;
+        updateVehicleLegPoseControllers();
     }
 
     void Animation::setHeadPitch(float pitchRadians)

@@ -61,6 +61,7 @@ namespace mwmp
 
         // Reliable: play a voice file on this remote player.
         void onSpeech            (const BasePlayer& state);
+        void onVehicleState      (const BasePlayer& state);
 
         // Reliable: apply spell effects to target, trigger cast anim.
         void onCast              (const BasePlayer& state);
@@ -87,6 +88,7 @@ namespace mwmp
         void applyDynamicStatsToActor();
         void applyEquipmentState(const BasePlayer& state, bool playSounds);
         void applyInventoryState(const BasePlayer& state, bool playSounds);
+        void applyVehiclePresentation();
 
         // ---- interpolation ----
         void updateInterpolation(float dt);
@@ -108,6 +110,7 @@ namespace mwmp
         bool         mEquipmentSoundReady = false;
         bool         mInventorySoundReady = false;
         std::unique_ptr<Nameplate> mNameplate;
+        std::string mAppliedVehicleProfileId;
 
         // --- trySpawn cooldown ---
         float mSpawnRetryTimer = 0.f;

@@ -153,6 +153,8 @@ public:
     void queueSendServerMessage(uint32_t guid, const std::string& text);
     void queueRelayPlayerChat(uint32_t guid, const std::string& text);
     void queuePlaySpeech(uint32_t guid, const std::string& soundPath);
+    void queueSetPlayerVehicleState(
+        uint32_t guid, bool active, const std::string& profileId = std::string(), uint32_t parkedObjectMpNum = 0);
     void queueKillPlayer(uint32_t guid, const std::string& deathMessage = std::string());
     void queuePlaceObject(const std::string& refId, int count, const std::string& cellId, const Position& position);
     void queueSpawnActor(

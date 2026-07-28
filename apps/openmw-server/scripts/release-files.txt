@@ -31,3 +31,4 @@ starwind_speech_commands.lua
 starwind_speech_data.lua
 surf_commands.lua
 surf_timer.lua
+vehicle_commands.lua

@@ -86,6 +86,17 @@ namespace MWRender
 
     osg::Vec3d Camera::calculateTrackedPosition() const
     {
+        if (mMode == Mode::FirstPerson && mAnimation && mAnimation->isVehicleDriverPoseEnabled()
+            && !mTrackingPtr.isEmpty())
+        {
+            const auto& position = mTrackingPtr.getRefData().getPosition();
+            const osg::Vec3f& localOffset = mAnimation->getVehicleFirstPersonCameraOffset();
+            const osg::Vec2f horizontalOffset
+                = Misc::rotateVec2f(osg::Vec2f(localOffset.x(), localOffset.y()), -position.rot[2]);
+            return osg::Vec3d(position.pos[0] + horizontalOffset.x(), position.pos[1] + horizontalOffset.y(),
+                position.pos[2] + localOffset.z());
+        }
+
         if (!mTrackingNode)
             return osg::Vec3d();
         osg::NodePathList nodepaths = mTrackingNode->getParentalNodePaths();
