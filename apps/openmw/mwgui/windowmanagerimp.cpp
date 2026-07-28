@@ -675,7 +675,9 @@ namespace MWGui
         // Show/hide the chat input row passively while any GUI is open.
         if (mwmp::Main::isInitialised() && !loading)
         {
-            mwmp::Main::get().getChatWindow().onGuiModeChanged(!gameMode);
+            auto& chat = mwmp::Main::get().getChatWindow();
+            chat.onConsoleModeChanged(mConsole && mConsole->isVisible());
+            chat.onGuiModeChanged(!gameMode);
         }
 #endif
 

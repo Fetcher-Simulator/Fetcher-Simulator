@@ -44,6 +44,10 @@ namespace mwmp
         // Called by WindowManager on GUI mode changes (pause menu open/close).
         void onGuiModeChanged(bool guiModeActive);
 
+        // Keep the chat window from intercepting HUD clicks used to select
+        // objects while the developer console is open.
+        void onConsoleModeChanged(bool consoleModeActive);
+
         bool isInputOpen() const { return mInputOpen; }
 
     private:
@@ -66,6 +70,7 @@ namespace mwmp
 
         bool mInputOpen      = false;
         bool mGuiInputActive = false;
+        bool mConsoleHidden  = false;
 
         // Display mode: 1=always on, 2=fade, 3=hidden
         int   mDisplayMode = 1;

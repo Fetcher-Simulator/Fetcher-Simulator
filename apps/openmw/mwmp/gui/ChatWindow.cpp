@@ -118,7 +118,7 @@ void ChatWindow::addMessage(const std::string& sender,
     mHistory->addText(line + "\n");
     scrollToBottom();
 
-    if (mDisplayMode == 2)
+    if (mDisplayMode == 2 && !mConsoleHidden)
     {
         mFadeTimer = FADE_HOLD;
         mMainWidget->setAlpha(1.f);
@@ -144,6 +144,12 @@ void ChatWindow::cycleDisplayMode()
 // ---------------------------------------------------------------------------
 void ChatWindow::applyDisplayMode()
 {
+    if (mConsoleHidden)
+    {
+        mMainWidget->setVisible(false);
+        return;
+    }
+
     switch (mDisplayMode)
     {
         case 1:
@@ -164,7 +170,7 @@ void ChatWindow::applyDisplayMode()
 // ---------------------------------------------------------------------------
 void ChatWindow::openInput()
 {
-    if (mInputOpen) return;
+    if (mInputOpen || mConsoleHidden) return;
     mInputOpen = true;
     mMainWidget->setVisible(true);
     if (mDisplayMode == 2)
@@ -194,10 +200,13 @@ void ChatWindow::onGuiModeChanged(bool guiModeActive)
     if (guiModeActive && !mGuiInputActive)
     {
         mGuiInputActive = true;
-        mMainWidget->setVisible(true);
-        if (mDisplayMode == 2)
-            mMainWidget->setAlpha(1.f);
-        mInput->setVisible(true);
+        if (!mConsoleHidden)
+        {
+            mMainWidget->setVisible(true);
+            if (mDisplayMode == 2)
+                mMainWidget->setAlpha(1.f);
+            mInput->setVisible(true);
+        }
     }
     else if (!guiModeActive && mGuiInputActive)
     {
@@ -205,6 +214,32 @@ void ChatWindow::onGuiModeChanged(bool guiModeActive)
         mInput->setVisible(false);
         applyDisplayMode();
     }
+}
+
+void ChatWindow::onConsoleModeChanged(bool consoleModeActive)
+{
+    if (consoleModeActive == mConsoleHidden)
+        return;
+
+    mConsoleHidden = consoleModeActive;
+    if (mConsoleHidden)
+    {
+        mMainWidget->setVisible(false);
+        mInput->setVisible(false);
+        return;
+    }
+
+    if (mInputOpen || mGuiInputActive)
+    {
+        mMainWidget->setVisible(true);
+        if (mDisplayMode == 2)
+            mMainWidget->setAlpha(1.f);
+        mInput->setVisible(true);
+        if (mInputOpen)
+            MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mInput);
+    }
+    else
+        applyDisplayMode();
 }
 
 // ---------------------------------------------------------------------------
