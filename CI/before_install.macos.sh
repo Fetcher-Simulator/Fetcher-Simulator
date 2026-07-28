@@ -4,7 +4,8 @@ DEPS_DIR="/tmp"
 
 source ./CI/macos/deps_versions.sh
 
-brew tap --repair
+export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
 brew update --quiet
 
 brew install curl openssl@3 p7zip

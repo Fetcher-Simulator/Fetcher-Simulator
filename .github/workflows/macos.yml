@@ -27,6 +27,8 @@ jobs:
   MacOS:
     name: ${{ inputs.image }}
     runs-on: ${{ inputs.image }}
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.1.1.app/Contents/Developer
     steps:
     - uses: actions/checkout@v6
       with:

@@ -285,7 +285,8 @@ if(APPLE AND BUILD_OPENMW)
 
     find_library(COCOA_FRAMEWORK Cocoa)
     find_library(IOKIT_FRAMEWORK IOKit)
-    target_link_libraries(openmw ${COCOA_FRAMEWORK} ${IOKIT_FRAMEWORK})
+    find_library(SECURITY_FRAMEWORK Security)
+    target_link_libraries(openmw ${COCOA_FRAMEWORK} ${IOKIT_FRAMEWORK} ${SECURITY_FRAMEWORK})
 
     if (FFmpeg_FOUND)
         target_link_options(openmw PRIVATE "LINKER:SHELL:-framework CoreVideo"
