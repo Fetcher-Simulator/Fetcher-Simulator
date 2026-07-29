@@ -6,6 +6,26 @@
 
 namespace mwmp
 {
+    struct VehicleHandlingProfile
+    {
+        float wheelbase;
+        float maxForwardSpeed;
+        float maxReverseSpeed;
+        float engineAcceleration;
+        float reverseAcceleration;
+        float serviceBrakeStrength;
+        float handbrakeStrength;
+        float rollingResistance;
+        float aerodynamicDrag;
+        float lowSpeedSteeringDegrees;
+        float highSpeedSteeringDegrees;
+        float steeringResponseDegrees;
+        float steeringReturnDegrees;
+        float lateralGrip;
+        float handbrakeLateralGrip;
+        float directionChangeSpeed;
+    };
+
     struct VehicleProfile
     {
         std::string_view id;
@@ -15,6 +35,7 @@ namespace mwmp
         std::array<float, 3> collisionHalfExtents;
         std::array<float, 3> collisionCenterFromVehicleRoot;
         std::array<float, 3> firstPersonCameraOffset;
+        VehicleHandlingProfile handling;
     };
 
     inline constexpr std::array<VehicleProfile, 1> sVehicleProfiles = { {
@@ -26,6 +47,24 @@ namespace mwmp
             { 65.1f, 159.6f, 44.8f },
             { 0.f, 0.f, 57.4f },
             { -24.5085f, 23.8851f, 101.7932f },
+            {
+                210.f,
+                1280.f,
+                360.f,
+                350.f,
+                220.f,
+                700.f,
+                850.f,
+                24.f,
+                0.0002f,
+                30.f,
+                8.f,
+                105.f,
+                140.f,
+                7.f,
+                1.4f,
+                12.f,
+            },
         },
     } };
 

@@ -56,6 +56,7 @@
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/groundcoverstore.hpp"
+#include "../mwworld/player.hpp"
 #include "../mwworld/scene.hpp"
 
 #include "../mwgui/postprocessorhud.hpp"
@@ -775,7 +776,9 @@ namespace MWRender
 
     void RenderingManager::rotateObject(const MWWorld::Ptr& ptr, const osg::Quat& rot)
     {
-        if (ptr == mCamera->getTrackingPtr() && !mCamera->isVanityOrPreviewModeEnabled())
+        const bool preserveVehicleCamera = ptr == MWMechanics::getPlayer()
+            && MWBase::Environment::get().getWorld()->getPlayer().isInVehicle();
+        if (ptr == mCamera->getTrackingPtr() && !mCamera->isVanityOrPreviewModeEnabled() && !preserveVehicleCamera)
         {
             mCamera->rotateCameraToTrackingPtr();
         }

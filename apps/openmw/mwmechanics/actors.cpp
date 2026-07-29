@@ -64,6 +64,7 @@
 #include "npcstats.hpp"
 #include "steering.hpp"
 #include "summoning.hpp"
+#include "vehiclecontroller.hpp"
 
 namespace
 {
@@ -1885,6 +1886,7 @@ namespace MWMechanics
             {
                 MWBase::Environment::get().getWorld()->applyDeferredPreviewRotationToPlayer(duration);
                 playerCharacter->update(duration);
+                updateLocalVehicle(player, duration);
                 playerCharacter->setVisibility(1.f);
                 MWBase::LuaManager::ActorControls* luaControls
                     = MWBase::Environment::get().getLuaManager()->getActorControls(player);

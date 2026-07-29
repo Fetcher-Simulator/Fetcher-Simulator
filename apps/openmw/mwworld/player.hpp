@@ -7,6 +7,8 @@
 #include <string>
 #include <string_view>
 
+#include <osg/Vec3f>
+
 #include "../mwworld/livecellref.hpp"
 
 #include "../mwmechanics/drawstate.hpp"
@@ -54,6 +56,15 @@ namespace MWWorld
         VehicleModeState mMode = VehicleModeState::Inactive;
         std::string mProfileId;
         VehicleInputState mInput;
+        osg::Vec3f mLastPosition;
+        float mMotionSampleTime = 0.f;
+        float mForwardSpeed = 0.f;
+        float mLateralSpeed = 0.f;
+        float mSteeringAngle = 0.f;
+        float mYawRate = 0.f;
+        float mLogTimer = 0.f;
+        bool mMotionInitialized = false;
+        bool mGrounded = false;
     };
 
     /// \brief NPC object representing the player and additional player data
@@ -130,6 +141,7 @@ namespace MWWorld
 
         bool setVehicleMode(bool active, std::string_view profileId = {});
         bool isInVehicle() const;
+        VehicleRuntimeState& getVehicleRuntimeState();
         const VehicleRuntimeState& getVehicleRuntimeState() const;
         void setVehicleInput(float throttle, float brake, float steering, float handbrake);
         void clearVehicleInput();

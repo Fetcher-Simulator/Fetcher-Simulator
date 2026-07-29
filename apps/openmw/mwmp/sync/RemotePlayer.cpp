@@ -622,6 +622,54 @@ namespace mwmp
             return;
         }
 
+        const bool hasVehiclePresentation
+            = mState.vehicle.active && findVehicleProfile(mState.vehicle.profileId) != nullptr;
+        if (hasVehiclePresentation)
+        {
+            // Vehicle transforms are applied by the network interpolator. Do not
+            // feed the driver's W/A/S/D or stale jump state into CharacterController,
+            // which would animate the seated proxy as a walking humanoid.
+            MWMechanics::Movement& vehicleMovement = mNpcPtr.getClass().getMovementSettings(mNpcPtr);
+            vehicleMovement.mPosition[0] = 0.f;
+            vehicleMovement.mPosition[1] = 0.f;
+            vehicleMovement.mPosition[2] = 0.f;
+            vehicleMovement.mRotation[0] = 0.f;
+            vehicleMovement.mRotation[1] = 0.f;
+            vehicleMovement.mRotation[2] = 0.f;
+            vehicleMovement.mIsStrafing = false;
+
+            MWMechanics::CreatureStats& vehicleStats
+                = mNpcPtr.getClass().getCreatureStats(mNpcPtr);
+            vehicleStats.setMovementFlag(MWMechanics::CreatureStats::Flag_ForceJump, false);
+            vehicleStats.setMovementFlag(MWMechanics::CreatureStats::Flag_ForceMoveJump, false);
+            vehicleStats.setMovementFlag(MWMechanics::CreatureStats::Flag_Run, false);
+            vehicleStats.setMovementFlag(MWMechanics::CreatureStats::Flag_Sneak, false);
+            vehicleStats.setAttackingOrSpell(false);
+            vehicleStats.setDrawState(MWMechanics::DrawState::Nothing);
+
+            if (mWasJumping || mWasFlying)
+            {
+                vehicleStats.land(false);
+                MWBase::Environment::get().getWorld()->setOnGround(mNpcPtr, true);
+            }
+            mWasJumping = false;
+            mWasFlying = false;
+            mIsStrafing = false;
+            mLocomotionVisuallySuppressed = false;
+            mBufferedAnimFwd = 0.f;
+            mBufferedAnimSide = 0.f;
+            mBufferedLocomotionSpeed = 0.f;
+            mBufferedLocomotionFlags = 0;
+
+            if (auto* baseNode = mNpcPtr.getRefData().getBaseNode())
+            {
+                baseNode->setUserValue("mp_visual_turn", 0.f);
+                baseNode->setUserValue("mp_force_grounded", false);
+                baseNode->setUserValue("mp_fly", false);
+            }
+            return;
+        }
+
         const AnimFlags& f = mState.animFlags;
 
         MWMechanics::Movement& mov = mNpcPtr.getClass().getMovementSettings(mNpcPtr);
@@ -2642,12 +2690,60 @@ namespace mwmp
             const float alpha = spanUs > 0.0
                 ? static_cast<float>((renderTimeUs - static_cast<double>(lower.senderTimeUs)) / spanUs)
                 : 1.f;
-            for (int axis = 0; axis < 3; ++axis)
+            const bool interpolateVehicleCurve
+                = mState.vehicle.active && findVehicleProfile(mState.vehicle.profileId) != nullptr;
+            if (interpolateVehicleCurve && spanUs > 0.0)
             {
-                target.pos[axis] = lower.position.pos[axis]
-                    + (upper.position.pos[axis] - lower.position.pos[axis]) * alpha;
-                target.rot[axis] = lerpAngle(lower.position.rot[axis], upper.position.rot[axis], alpha);
+                // Fast turning vehicles expose the corners between linear position
+                // samples. Use the transmitted endpoint velocities as Hermite
+                // tangents, then bound the curve away from its linear segment so a
+                // noisy velocity sample cannot create a large overshoot.
+                const float t = std::clamp(alpha, 0.f, 1.f);
+                const float t2 = t * t;
+                const float t3 = t2 * t;
+                const float h00 = 2.f * t3 - 3.f * t2 + 1.f;
+                const float h10 = t3 - 2.f * t2 + t;
+                const float h01 = -2.f * t3 + 3.f * t2;
+                const float h11 = t3 - t2;
+                const float spanSeconds = static_cast<float>(spanUs / 1000000.0);
+                float linearPosition[3];
+                float curveOffset[3];
+                float segmentLengthSquared = 0.f;
+                float curveOffsetLengthSquared = 0.f;
+
+                for (int axis = 0; axis < 3; ++axis)
+                {
+                    const float lowerPosition = lower.position.pos[axis];
+                    const float upperPosition = upper.position.pos[axis];
+                    const float segment = upperPosition - lowerPosition;
+                    linearPosition[axis] = lowerPosition + segment * t;
+                    const float curvedPosition = h00 * lowerPosition
+                        + h10 * lower.velocity.linear[axis] * spanSeconds
+                        + h01 * upperPosition
+                        + h11 * upper.velocity.linear[axis] * spanSeconds;
+                    curveOffset[axis] = curvedPosition - linearPosition[axis];
+                    segmentLengthSquared += segment * segment;
+                    curveOffsetLengthSquared += curveOffset[axis] * curveOffset[axis];
+                }
+
+                const float maxCurveOffset = std::sqrt(segmentLengthSquared) * 0.25f;
+                const float curveOffsetLength = std::sqrt(curveOffsetLengthSquared);
+                const float curveScale = curveOffsetLength > maxCurveOffset && curveOffsetLength > 0.f
+                    ? maxCurveOffset / curveOffsetLength
+                    : 1.f;
+                for (int axis = 0; axis < 3; ++axis)
+                    target.pos[axis] = linearPosition[axis] + curveOffset[axis] * curveScale;
             }
+            else
+            {
+                for (int axis = 0; axis < 3; ++axis)
+                {
+                    target.pos[axis] = lower.position.pos[axis]
+                        + (upper.position.pos[axis] - lower.position.pos[axis]) * alpha;
+                }
+            }
+            for (int axis = 0; axis < 3; ++axis)
+                target.rot[axis] = lerpAngle(lower.position.rot[axis], upper.position.rot[axis], alpha);
             ++mMovementDiagSnapshotInterpFrames;
         }
         else
@@ -2709,6 +2805,8 @@ namespace mwmp
         // and even jump arcs look noticeably laggier than flat ground movement.
         const bool isJumping = (mState.animFlags.movementFlags & AnimFlags::MF_JUMP) != 0;
         const bool isFlying = (mState.animFlags.movementFlags & AnimFlags::MF_FLY) != 0;
+        const bool hasVehiclePresentation
+            = mState.vehicle.active && findVehicleProfile(mState.vehicle.profileId) != nullptr;
         const bool hasHitState = (mState.animFlags.movementFlags
             & (AnimFlags::MF_KNOCKED_DOWN | AnimFlags::MF_KNOCKED_OUT | AnimFlags::MF_RECOVERY)) != 0;
         const bool isAirborne = isJumping || isFlying;
@@ -2719,8 +2817,12 @@ namespace mwmp
         // though their movement axes are zero. Those states can carry legitimate
         // animation-driven XY motion with no locomotion input, and routing them
         // through the fast idle snap path makes the motion look 30 Hz / choppy.
-        const bool isInputIdle = (std::abs(mState.animFlags.animFwd) < 0.1f
-            && std::abs(mState.animFlags.animSide) < 0.1f) && !isJumping && !hasHitState;
+        const float netPlanarSpeedSquared = mState.velocity.linear[0] * mState.velocity.linear[0]
+            + mState.velocity.linear[1] * mState.velocity.linear[1];
+        const bool isInputIdle = hasVehiclePresentation
+            ? netPlanarSpeedSquared < 25.f && std::abs(netVerticalSpeed) < 5.f
+            : (std::abs(mState.animFlags.animFwd) < 0.1f
+                && std::abs(mState.animFlags.animSide) < 0.1f) && !isJumping && !hasHitState;
 
         // Extrapolation Braking: if a packet is late, decay current velocity.
         // This ensures the ghost NPC 'coasts' to a halt during delay instead of
@@ -2908,6 +3010,16 @@ namespace mwmp
         // Confirmed wall-block packets are the only exception: there the sender is
         // holding movement keys but physics speed collapses toward zero, so using
         // netPlanarSpeed would play the walk cycle in extreme slow motion.
+        if (hasVehiclePresentation)
+        {
+            // Vehicle motion has no humanoid cadence. Keep this value useful for
+            // interpolation diagnostics and movement gating without allowing the
+            // sender's walk/run speed to cap it.
+            mInterpPlanarSpeed = visualPlanarSpeed;
+            Log(Debug::Verbose) << "[MP] " << mName
+                                << " Vehicle visual speed=" << mInterpPlanarSpeed;
+        }
+        else
         {
             const float absFwdAnim = std::abs(mState.animFlags.animFwd);
             const float absSideAnim = std::abs(mState.animFlags.animSide);

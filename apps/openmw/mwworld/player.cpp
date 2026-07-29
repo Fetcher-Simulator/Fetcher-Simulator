@@ -238,6 +238,7 @@ namespace MWWorld
             mVehicle.mMode = VehicleModeState::Exiting;
             clearVehicleInput();
             mVehicle.mProfileId.clear();
+            mVehicle = {};
             mVehicle.mMode = VehicleModeState::Inactive;
             return true;
         }
@@ -246,7 +247,8 @@ namespace MWWorld
             return false;
 
         mVehicle.mMode = VehicleModeState::Entering;
-        clearVehicleInput();
+        mVehicle = {};
+        mVehicle.mMode = VehicleModeState::Entering;
         mVehicle.mProfileId.assign(profileId);
         mVehicle.mMode = VehicleModeState::Active;
         return true;
@@ -256,6 +258,11 @@ namespace MWWorld
     {
         return mVehicle.mMode == VehicleModeState::Entering || mVehicle.mMode == VehicleModeState::Active
             || mVehicle.mMode == VehicleModeState::Exiting;
+    }
+
+    VehicleRuntimeState& Player::getVehicleRuntimeState()
+    {
+        return mVehicle;
     }
 
     const VehicleRuntimeState& Player::getVehicleRuntimeState() const

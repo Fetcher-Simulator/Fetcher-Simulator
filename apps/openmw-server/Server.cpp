@@ -5226,6 +5226,10 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
         equipment.setPlayer(&existingClient.player);
         sendTo(c.conn, equipment.encode());
 
+        PacketPlayerVehicleState vehicleState;
+        vehicleState.setPlayer(&existingClient.player);
+        sendTo(c.conn, vehicleState.encode());
+
         if (existingClient.player.position.pos[0] != 0.f
             || existingClient.player.position.pos[1] != 0.f
             || existingClient.player.position.pos[2] != 0.f)
@@ -5254,6 +5258,10 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
         PacketPlayerEquipment equipment;
         equipment.setPlayer(&c.player);
         sendTo(existingConn, equipment.encode());
+
+        PacketPlayerVehicleState vehicleState;
+        vehicleState.setPlayer(&c.player);
+        sendTo(existingConn, vehicleState.encode());
 
         PacketPlayerPosition positionPacket;
         positionPacket.setPlayer(&c.player);
