@@ -59,6 +59,7 @@
 #include "PlayerSync.hpp"
 #include "RemotePlayer.hpp"
 #include <components/openmw-mp/Packets/Actor/PacketActorAttackV2.hpp>
+#include <components/openmw-mp/Packets/Actor/PacketActorSpeech.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorEquipment.hpp>
 #include "../../mwworld/inventorystore.hpp"
 #include "../../mwrender/npcanimation.hpp"
@@ -565,7 +566,7 @@ namespace
         return lowerBodyGroup;
     }
 
-    constexpr bool kEnableTemporaryActorWatchLogs = false;
+    constexpr bool kEnableTemporaryActorWatchLogs = true;
 
     bool isWatchedBorderActor(const mwmp::BaseActor& actor, const std::string& packetCellId);
 
@@ -607,7 +608,9 @@ namespace
         const float velY = actor.velocity.linear[1];
         const float speedSq = velX * velX + velY * velY;
         const bool velocityLocomotion = speedSq > 20.f * 20.f;
-        const bool hasLocomotionInput = !actor.isDead && (axisLocomotion || velocityLocomotion);
+        const bool hasLocomotionInput = !actor.isDead
+            && actor.isMoving
+            && (axisLocomotion || velocityLocomotion);
 
         float animFwd = hasLocomotionInput ? actor.animFlags.animFwd : 0.f;
         float animSide = hasLocomotionInput ? actor.animFlags.animSide : 0.f;
@@ -636,7 +639,12 @@ namespace
         snapshot.presentationFlags = mwmp::makeActorPresentationFlags(presentationActor);
         snapshot.currentAnimGroup = actor.animFlags.currentAnimGroup;
         snapshot.currentAnimCompletion = actor.animFlags.currentAnimCompletion;
-        if ((actor.isDead || !hasLocomotionInput) && isLocomotionAnimGroup(snapshot.currentAnimGroup))
+        if (hasLocomotionInput && isIdleAnimGroup(snapshot.currentAnimGroup))
+        {
+            snapshot.currentAnimGroup.clear();
+            snapshot.currentAnimCompletion = -1.f;
+        }
+        else if ((actor.isDead || !hasLocomotionInput) && isLocomotionAnimGroup(snapshot.currentAnimGroup))
         {
             snapshot.currentAnimGroup.clear();
             snapshot.currentAnimCompletion = -1.f;
@@ -943,6 +951,8 @@ namespace mwmp
         mCells.clear();
         mAuthority.clear();
         mActorAuthorityGuids.clear();
+        mNextSpeechEventIds.clear();
+        mNextSpeechSequence = 1;
         mMpNumsByLocalActor.clear();
         mServerSpawnedActorsByMpNum.clear();
         mServerSpawnedActorLastTimestamps.clear();
@@ -1233,6 +1243,7 @@ namespace mwmp
     {
         ++mUpdateSerial;
         updateLocalCellBootstrapState();
+        sendPendingActorSpeechEvents();
 
         std::size_t bootstrapDeathReveals = 0;
         auto finishBootstrapDeathReveal = [&](ActorRuntime& actor)
@@ -3396,8 +3407,16 @@ namespace mwmp
             const bool incomingSpecialIdle = isIdleAnimGroup(snapshot.currentAnimGroup)
                 && isReliablePresentationAnimGroup(snapshot.currentAnimGroup)
                 && !isBaseIdleAnimGroup(snapshot.currentAnimGroup)
+                && !snapshot.isMoving
+                && snapshot.animFwd == 0
+                && snapshot.animSide == 0
                 && snapshot.currentAnimCompletion >= 0.f;
-            const bool incomingIdleClear = snapshot.currentAnimGroup.empty() || isBaseIdleAnimGroup(snapshot.currentAnimGroup);
+            const bool incomingLocomotion = snapshot.isMoving
+                || snapshot.animFwd != 0
+                || snapshot.animSide != 0;
+            const bool incomingIdleClear = incomingLocomotion
+                || snapshot.currentAnimGroup.empty()
+                || isBaseIdleAnimGroup(snapshot.currentAnimGroup);
             const bool firstPresentationForRuntime = runtime.lastPresentationServerTimestamp == 0;
             bool nodeHasSyncedIdleEvent = false;
             if (!runtime.boundActor.isEmpty())
@@ -3412,34 +3431,11 @@ namespace mwmp
                         && nodeSyncedIdleRevision > 0.0;
                 }
             }
-            bool shouldCorrectSpecialIdlePhase = false;
-            if (incomingSpecialIdle
-                && previousIsSpecialIdle
-                && previousGroup == snapshot.currentAnimGroup
-                && nodeHasSyncedIdleEvent
-                && !runtime.boundActor.isEmpty())
-            {
-                MWBase::World* world = MWBase::Environment::get().getWorld();
-                MWRender::Animation* animObj = world ? world->getAnimation(runtime.boundActor) : nullptr;
-                float localCompletion = -1.f;
-                if (animObj && animObj->getInfo(snapshot.currentAnimGroup, &localCompletion))
-                {
-                    const float rawDelta = std::abs(
-                        std::clamp(localCompletion, 0.f, 1.f)
-                        - std::clamp(snapshot.currentAnimCompletion, 0.f, 1.f));
-                    const float wrappedDelta = std::min(rawDelta, 1.f - rawDelta);
-                    static constexpr float kSpecialIdlePhaseCorrectionThreshold = 0.12f;
-                    shouldCorrectSpecialIdlePhase = wrappedDelta >= kSpecialIdlePhaseCorrectionThreshold;
-                }
-                else
-                    shouldCorrectSpecialIdlePhase = true;
-            }
             const bool acceptIncomingSpecialIdle = incomingSpecialIdle
                 && (firstPresentationForRuntime
                     || !previousIsSpecialIdle
                     || previousGroup != snapshot.currentAnimGroup
-                    || !nodeHasSyncedIdleEvent
-                    || shouldCorrectSpecialIdlePhase);
+                    || !nodeHasSyncedIdleEvent);
 
             if (acceptIncomingSpecialIdle)
             {
@@ -3539,7 +3535,12 @@ namespace mwmp
             // can finish full cycles instead of constantly clearing/restarting.
             const bool incomingIsSpecialIdle = isIdleAnimGroup(snapshot.currentAnimGroup)
                 && isReliablePresentationAnimGroup(snapshot.currentAnimGroup);
-            if (isReliablePresentationAnimGroup(snapshot.currentAnimGroup))
+            if (incomingLocomotion)
+            {
+                runtime.state.animFlags.currentAnimGroup.clear();
+                runtime.state.animFlags.currentAnimCompletion = -1.f;
+            }
+            else if (isReliablePresentationAnimGroup(snapshot.currentAnimGroup))
             {
                 if (!incomingIsSpecialIdle || acceptIncomingSpecialIdle)
                 {
@@ -3573,7 +3574,7 @@ namespace mwmp
 
             if (isWatchedPresentationActor(runtime.state, snapshot.actorNetId))
             {
-                Log(Debug::Verbose) << "[MP] ActorSync v2: presentation apply"
+                Log(Debug::Info) << "[MPWATCH] ActorSync v2: presentation apply"
                                     << " actorNetId=" << snapshot.actorNetId
                                     << " refId=" << runtime.state.refId
                                     << " refNum=" << runtime.state.refNum
@@ -3746,6 +3747,88 @@ namespace mwmp
                 << " missingIdentity=" << missingIdentity
                 << " firstMissingActorNetId=" << firstMissingActorNetId
                 << " firstMissingActorKey=" << describeActorInstanceId(firstMissingActorNetId)
+                << " duplicate=" << duplicate
+                << " deadSuppressed=" << deadSuppressed
+                << " seq=" << list.sequence;
+        }
+    }
+
+    void ActorSync::onActorSpeech(const ActorSpeechList& list)
+    {
+        if (list.protocolVersion != ActorSyncProtocolVersionV2)
+        {
+            Log(Debug::Warning) << "[MP] ActorSync: ignored unsupported ActorSpeech protocol="
+                                << list.protocolVersion;
+            return;
+        }
+
+        std::size_t applied = 0;
+        std::size_t invalid = 0;
+        std::size_t missingIdentity = 0;
+        std::size_t duplicate = 0;
+        std::size_t deadSuppressed = 0;
+
+        for (const ActorSpeechEvent& event : list.events)
+        {
+            if (!isValidActorInstanceId(event.actorNetId) || event.sound.empty())
+            {
+                ++invalid;
+                continue;
+            }
+
+            auto runtimeIt = mActorsByNetId.find(event.actorNetId);
+            if (runtimeIt == mActorsByNetId.end())
+            {
+                ++missingIdentity;
+                ++mActorV2MissingIdentityByNetIdWindow[event.actorNetId];
+                continue;
+            }
+
+            ActorRuntime& runtime = runtimeIt->second;
+            if (runtime.state.isDead || runtime.deathAlreadyApplied)
+            {
+                ++deadSuppressed;
+                continue;
+            }
+            if (!isNewerEventId(event.eventId, runtime.lastReceivedSpeechEventId))
+            {
+                ++duplicate;
+                continue;
+            }
+
+            runtime.lastReceivedSpeechEventId = event.eventId;
+            if (runtime.boundActor.isEmpty())
+                runtime.pendingSpeechSound = event.sound;
+            else if (!hasAuthorityForActor(runtime.actorNetId, runtime.state.cellId))
+            {
+                MWBase::Environment::get().getSoundManager()->say(
+                    runtime.boundActor, VFS::Path::Normalized(event.sound));
+            }
+
+            if (isWatchedPresentationActor(runtime.state, event.actorNetId))
+            {
+                Log(Debug::Info) << "[MPWATCH] ActorSync v2: speech apply"
+                                 << " actorNetId=" << event.actorNetId
+                                 << " refId=" << runtime.state.refId
+                                 << " refNum=" << runtime.state.refNum
+                                 << " mpNum=" << runtime.state.mpNum
+                                 << " eventId=" << event.eventId
+                                 << " deferred=" << runtime.boundActor.isEmpty()
+                                 << " sound='" << event.sound << "'";
+            }
+            ++applied;
+        }
+
+        if (invalid != 0 || missingIdentity != 0 || duplicate != 0 || deadSuppressed != 0 || applied != 0)
+        {
+            Log((invalid != 0 || missingIdentity != 0 || duplicate != 0 || deadSuppressed != 0)
+                    ? Debug::Info : Debug::Verbose)
+                << "[MP] ActorSync v2: speech receive"
+                << " packetCell=" << list.cellId
+                << " events=" << list.events.size()
+                << " applied=" << applied
+                << " invalid=" << invalid
+                << " missingIdentity=" << missingIdentity
                 << " duplicate=" << duplicate
                 << " deadSuppressed=" << deadSuppressed
                 << " seq=" << list.sequence;
@@ -4652,7 +4735,7 @@ namespace mwmp
 
         if (rebase && isWatchedPresentationActor(actor.state, actor.actorNetId))
         {
-            Log(Debug::Verbose) << "[MP] ActorSync v2: rebased actor after authority revoke"
+            Log(Debug::Info) << "[MPWATCH] ActorSync v2: rebased actor after authority revoke"
                                 << " actorNetId=" << actor.actorNetId
                                 << " refId=" << actor.state.refId
                                 << " mpNum=" << actor.state.mpNum
@@ -5000,7 +5083,7 @@ namespace mwmp
             actor.hasSmoothedPosition = true;
         }
 
-        const auto applySnapshotPresentation = [&actor](const BufferedSnapshot& snapshot)
+        const auto applySnapshotPresentation = [&actor, dt](const BufferedSnapshot& snapshot)
         {
             if (actor.state.isDead)
                 return;
@@ -5015,7 +5098,34 @@ namespace mwmp
             actor.state.hasSpellReadied = snapshot.hasSpellReadied;
             actor.state.animFlags.movementFlags = snapshot.movementFlags;
 
-            if (holdingSyncedSpecialIdle && !snapshotHasReliableNonIdleGroup
+            const bool snapshotHasMovementAxes = std::abs(snapshot.animFwd) > 0.1f
+                || std::abs(snapshot.animSide) > 0.1f;
+            const bool snapshotHasLocomotion = snapshot.isMoving && snapshotHasMovementAxes;
+            const bool previousHasMovementAxes = std::abs(actor.state.animFlags.animFwd) > 0.1f
+                || std::abs(actor.state.animFlags.animSide) > 0.1f;
+            const uint32_t immediateStopFlags =
+                AnimFlags::MF_KNOCKED_DOWN | AnimFlags::MF_KNOCKED_OUT | AnimFlags::MF_RECOVERY;
+            const bool immediateLocomotionStop = snapshot.isAttackingOrCasting
+                || (snapshot.movementFlags & immediateStopFlags) != 0
+                || (isIdleAnimGroup(snapshot.currentAnimGroup)
+                    && !isBaseIdleAnimGroup(snapshot.currentAnimGroup));
+
+            if (snapshotHasLocomotion)
+                actor.remoteLocomotionStopTimer = 0.f;
+            else if (!immediateLocomotionStop
+                && actor.state.isMoving
+                && previousHasMovementAxes)
+            {
+                static constexpr float kRemoteLocomotionStopGrace = 0.25f;
+                actor.remoteLocomotionStopTimer += std::max(0.f, dt);
+                if (actor.remoteLocomotionStopTimer < kRemoteLocomotionStopGrace)
+                    return;
+            }
+            else
+                actor.remoteLocomotionStopTimer = 0.f;
+
+            if (holdingSyncedSpecialIdle && !snapshotHasLocomotion
+                && !snapshotHasReliableNonIdleGroup
                 && !snapshot.isAttackingOrCasting
                 && !snapshot.hasWeaponDrawn
                 && !snapshot.hasSpellReadied
@@ -5133,13 +5243,11 @@ namespace mwmp
             return;
         }
 
-        // Match TES3MP's 25 ms actor update cadence. A 50 ms render buffer
-        // produces a visible one-frame hold after every reliable cell commit,
-        // even when the destination authority resumes immediately.
-        // Keep two 25 ms active snapshots buffered so ordinary arrival jitter does
-        // not alternate between movement and one-snapshot holds (tiny-step motion).
-        static constexpr double kInterpolationDelayMs = 50.0;
-        static constexpr double kDefaultMaxExtrapolationMs = 40.0;
+        // Dense actor scheduling produces an effective cadence near 50 ms.
+        // Keep two active snapshots buffered and bridge one additional missed
+        // interval so observer-side jitter cannot become tiny-step motion.
+        static constexpr double kInterpolationDelayMs = 100.0;
+        static constexpr double kDefaultMaxExtrapolationMs = 100.0;
         static constexpr double kCellHandoffMaxExtrapolationMs = 750.0;
         const BufferedSnapshot& latestSnapshot = actor.snapshots.back();
         const bool latestHasMovementAxes = std::abs(latestSnapshot.animFwd) > 0.1f
@@ -5233,13 +5341,11 @@ namespace mwmp
             const BufferedSnapshot& latest = actor.snapshots.back();
             const bool movementInputActive = std::abs(latest.animFwd) > 0.1f
                 || std::abs(latest.animSide) > 0.1f;
-            // Non-combat AI turns and stops frequently. Extrapolating wander/travel
-            // motion makes the first stop snapshot visibly rewind the proxy. At the
-            // 25 ms active cadence interpolation is sufficient; retain a short cap
-            // only for latency-sensitive combat movement.
-            if (latest.isMoving && movementInputActive
-                && (actor.state.ai.type == BaseActor::AIAction::Type::Combat
-                    || predictExteriorCellHandoff))
+            // Bridge short observer-side stalls for every actively moving actor.
+            // The normal 40 ms cap limits stop/turn correction, while exterior
+            // handoffs retain their larger prediction window.
+            const bool extrapolateMovement = latest.isMoving && movementInputActive;
+            if (extrapolateMovement)
             {
                 Velocity predictionVelocity = latest.velocity;
                 if (predictExteriorCellHandoff)
@@ -5276,6 +5382,38 @@ namespace mwmp
             else
                 target = actor.snapshots.back().position;
             presentationSnapshot = &latest;
+
+            if (isWatchedPresentationActor(actor.state, actor.actorNetId))
+            {
+                static std::unordered_map<ActorInstanceId, uint64_t> sLastInterpolationWatchLogMs;
+                const uint64_t nowMs = currentClientTimeMs();
+                uint64_t& lastLogMs = sLastInterpolationWatchLogMs[actor.actorNetId];
+                if (lastLogMs == 0 || nowMs - lastLogMs >= 250)
+                {
+                    lastLogMs = nowMs;
+                    const float planarSpeed = std::sqrt(
+                        latest.velocity.linear[0] * latest.velocity.linear[0]
+                        + latest.velocity.linear[1] * latest.velocity.linear[1]);
+                    Log(Debug::Info) << "[MPWATCH] Actor interpolation"
+                                     << " actorNetId=" << actor.actorNetId
+                                     << " refId=" << actor.state.refId
+                                     << " refNum=" << actor.state.refNum
+                                     << " mode="
+                                     << (extrapolateMovement
+                                             ? (extrapolationMs >= maxExtrapolationMs
+                                                     ? "extrapolate-capped" : "extrapolate")
+                                             : "hold")
+                                     << " snapshots=" << actor.snapshots.size()
+                                     << " latestAgeMs=" << actor.latestSnapshotAge * 1000.f
+                                     << " extrapolationMs=" << extrapolationMs
+                                     << " maxExtrapolationMs=" << maxExtrapolationMs
+                                     << " moving=" << latest.isMoving
+                                     << " fwd=" << latest.animFwd
+                                     << " side=" << latest.animSide
+                                     << " planarSpeed=" << planarSpeed
+                                     << " frameDtMs=" << std::max(0.f, dt) * 1000.f;
+                }
+            }
         }
 
         applyStationaryHold(target, *presentationSnapshot);
@@ -5341,7 +5479,7 @@ namespace mwmp
 
         if (isWatchedPresentationActor(actor.state, actor.actorNetId))
         {
-            Log(Debug::Verbose) << "[MP] ActorSync v2: fast-forwarded actor for " << reason
+            Log(Debug::Info) << "[MPWATCH] ActorSync v2: fast-forwarded actor for " << reason
                                 << " actorNetId=" << actor.actorNetId
                                 << " refId=" << actor.state.refId
                                 << " mpNum=" << actor.state.mpNum
@@ -5728,6 +5866,73 @@ namespace mwmp
         actor.pendingRealtimeDeathReplay = false;
         if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
             baseNode->setUserValue(BootstrapDeathAppliedUserValue, true);
+    }
+
+    void ActorSync::sendPendingActorSpeechEvents()
+    {
+        MWBase::SoundManager* soundManager = MWBase::Environment::get().getSoundManager();
+        if (soundManager == nullptr)
+            return;
+
+        const uint64_t now = actorSyncLogClockMs();
+        std::unordered_map<std::string, ActorSpeechList> speechByCell;
+        for (MWBase::PlayedActorSpeech& played : soundManager->takePlayedActorSpeech())
+        {
+            if (played.actor.isEmpty() || !played.actor.getClass().isActor())
+                continue;
+
+            static constexpr uint64_t kMaxSpeechCaptureAgeMs = 1000;
+            const uint64_t ageMs = now >= played.captureTimeMs ? now - played.captureTimeMs : 0;
+            if (ageMs > kMaxSpeechCaptureAgeMs)
+                continue;
+
+            const std::string physicalCellId = cellIdForPtr(played.actor);
+            const std::string authorityCellId = getActorAuthorityCellId(played.actor);
+            const ActorInstanceId actorNetId = actorNetIdForPtr(physicalCellId, played.actor);
+
+            if (actorNetId == 0
+                || authorityCellId.empty()
+                || !hasAuthorityForActor(actorNetId, authorityCellId))
+            {
+                continue;
+            }
+
+            uint32_t& nextEventId = mNextSpeechEventIds[actorNetId];
+            if (nextEventId == 0)
+                nextEventId = 1;
+
+            ActorSpeechEvent event;
+            event.actorNetId = actorNetId;
+            event.eventId = nextEventId++;
+            if (nextEventId == 0)
+                nextEventId = 1;
+            event.sound = std::move(played.sound);
+
+            ActorSpeechList& list = speechByCell[authorityCellId];
+            if (list.events.empty())
+            {
+                list.protocolVersion = ActorSyncProtocolVersionV2;
+                list.cellId = authorityCellId;
+                list.authorityGuid = mwmp::Main::get().getPlayerSync().localPlayer().guid;
+                const auto cellIt = mCells.find(authorityCellId);
+                if (cellIt != mCells.end())
+                    list.authorityGeneration = cellIt->second.latest.authorityGeneration;
+                list.sequence = mNextSpeechSequence++;
+                if (mNextSpeechSequence == 0)
+                    mNextSpeechSequence = 1;
+            }
+            list.events.push_back(event);
+        }
+
+        for (auto& [cellId, list] : speechByCell)
+        {
+            PacketActorSpeech packet;
+            packet.setSpeechList(&list);
+            mClient.sendReliable(packet.encode());
+            Log(Debug::Verbose) << "[MP] ActorSync: sent ActorSpeech packet"
+                                << " cell=" << cellId
+                                << " events=" << list.events.size();
+        }
     }
 
     void ActorSync::sendAuthoritativeActorUpdates(const std::string& cellId, CellRuntime& cell, float dt)
@@ -6120,12 +6325,21 @@ namespace mwmp
                     actor.ai.targetMpNum = mappedMpNumForPtr(cellIdForPtr(aiTarget), aiTarget);
                 }
             }
-            // Use 0.1f threshold to filter out head-tracking micro-inputs that
-            // would otherwise trigger locomotion animation on remote clients.
-            actor.isMoving = !actor.isDead && (std::abs(movement.mPosition[0]) > 0.1f
-                || std::abs(movement.mPosition[1]) > 0.1f
-                || std::abs(actor.velocity.linear[0]) > 1.f
-                || std::abs(actor.velocity.linear[1]) > 1.f);
+            // Match compact position/presentation locomotion classification.
+            // Tiny transform drift while an idle group is active must not become
+            // repeated one-frame forward steps on observer clients.
+            const bool axisLocomotion = std::abs(actor.animFlags.animFwd) > 0.1f
+                || std::abs(actor.animFlags.animSide) > 0.1f;
+            const float planarSpeedSq = actor.velocity.linear[0] * actor.velocity.linear[0]
+                + actor.velocity.linear[1] * actor.velocity.linear[1];
+            static constexpr float kVelocityLocomotionSpeedSq = 20.f * 20.f;
+            const bool velocityLocomotion = planarSpeedSq > kVelocityLocomotionSpeedSq;
+            actor.isMoving = !actor.isDead && (axisLocomotion || velocityLocomotion);
+            if (!actor.isDead && velocityLocomotion && !axisLocomotion)
+            {
+                actor.animFlags.animFwd = 1.f;
+                actor.animFlags.animSide = 0.f;
+            }
             actor.hasWeaponDrawn = !actor.isDead && stats.getDrawState() == MWMechanics::DrawState::Weapon;
             actor.hasSpellReadied = !actor.isDead && stats.getDrawState() == MWMechanics::DrawState::Spell;
             actor.isAttackingOrCasting = !actor.isDead && stats.getAttackingOrSpell();
@@ -6205,6 +6419,22 @@ namespace mwmp
                 }
             }
 
+            const bool sampledSpecialIdle = isIdleAnimGroup(actor.animFlags.currentAnimGroup)
+                && !isBaseIdleAnimGroup(actor.animFlags.currentAnimGroup);
+            const bool previousSpecialIdle = previousRuntime != cell.actors.end()
+                && isIdleAnimGroup(previousRuntime->second.state.animFlags.currentAnimGroup)
+                && !isBaseIdleAnimGroup(previousRuntime->second.state.animFlags.currentAnimGroup);
+            const bool specialIdleLocomotionBlock = sampledSpecialIdle || previousSpecialIdle;
+            if (actor.isMoving && specialIdleLocomotionBlock)
+            {
+                // Special-idle root motion and transient AI axes are presentation,
+                // not locomotion. Wait until the lower body leaves the special
+                // idle before publishing a moving snapshot.
+                actor.isMoving = false;
+                actor.animFlags.animFwd = 0.f;
+                actor.animFlags.animSide = 0.f;
+            }
+
             if (previousRuntime != cell.actors.end())
             {
                 static constexpr float kAuthorityLocomotionStopGrace = 0.16f;
@@ -6215,6 +6445,7 @@ namespace mwmp
                 const bool rawLocomotion = actor.isMoving;
                 const bool canDebounceStop = !actor.isDead
                     && (actor.animFlags.movementFlags & hitMovementFlags) == 0
+                    && !specialIdleLocomotionBlock
                     && previous.state.isMoving
                     && (std::abs(previous.state.animFlags.animFwd) > 0.1f
                         || std::abs(previous.state.animFlags.animSide) > 0.1f);
@@ -7272,6 +7503,7 @@ namespace mwmp
                 const bool stableIdlePresentation = !reliableSnapshot.currentAnimGroup.empty()
                     && isIdleAnimGroup(reliableSnapshot.currentAnimGroup)
                     && isReliablePresentationAnimGroup(reliableSnapshot.currentAnimGroup)
+                    && !reliableSnapshot.isMoving
                     && !reliableSnapshot.isAttackingOrCasting
                     && !reliableSnapshot.hasWeaponDrawn
                     && !reliableSnapshot.hasSpellReadied
@@ -7304,7 +7536,7 @@ namespace mwmp
 
                     if (isWatchedPresentationActor(actor, actorNetId))
                     {
-                        Log(Debug::Verbose) << "[MP] ActorSync v2: presentation send"
+                        Log(Debug::Info) << "[MPWATCH] ActorSync v2: presentation send"
                                             << " actorNetId=" << actorNetId
                                             << " refId=" << actor.refId
                                             << " mpNum=" << actor.mpNum
@@ -8445,6 +8677,16 @@ namespace mwmp
         if (!world)
             return;
 
+        if (!actor.pendingSpeechSound.empty())
+        {
+            if (!hasAuthorityForActor(actor.actorNetId, actor.state.cellId))
+            {
+                MWBase::Environment::get().getSoundManager()->say(
+                    actor.boundActor, VFS::Path::Normalized(actor.pendingSpeechSound));
+            }
+            actor.pendingSpeechSound.clear();
+        }
+
         if (actor.waitingForFreshCellBootstrap)
         {
             setHiddenUntilFreshSnapshot(actor.boundActor, true);
@@ -8726,11 +8968,59 @@ namespace mwmp
         movement.mSpeedFactor = shouldDriveLocomotion
             ? std::min(std::sqrt(drivenSide * drivenSide + drivenFwd * drivenFwd), 1.f)
             : 0.f;
-        const float synchronizedAnimationSpeed = shouldDriveLocomotion
+        const float nominalAnimationSpeed = shouldDriveLocomotion
             ? actor.boundActor.getClass().getCurrentSpeed(actor.boundActor)
             : 0.f;
+        const float synchronizedAnimationSpeed = nominalAnimationSpeed;
         if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
             baseNode->setUserValue("mp_interp_speed", synchronizedAnimationSpeed);
+
+        if (isWatchedPresentationActor(actor.state, actor.actorNetId))
+        {
+            static std::unordered_map<ActorInstanceId, uint64_t> sLastPuppetLocomotionWatchLogMs;
+            const uint64_t nowMs = currentClientTimeMs();
+            uint64_t& lastLogMs = sLastPuppetLocomotionWatchLogMs[actor.actorNetId];
+            if (lastLogMs == 0 || nowMs - lastLogMs >= 250)
+            {
+                lastLogMs = nowMs;
+                std::string activeLowerBodyGroup;
+                float activeLowerBodyCompletion = -1.f;
+                if (MWRender::Animation* animObj = world->getAnimation(actor.boundActor))
+                {
+                    activeLowerBodyGroup = animObj->getActiveGroup(MWRender::BoneGroup_LowerBody);
+                    if (!activeLowerBodyGroup.empty())
+                        animObj->getInfo(activeLowerBodyGroup, &activeLowerBodyCompletion);
+                }
+                std::string syncedIdleGroup;
+                double syncedIdleRevision = 0.0;
+                double appliedIdleRevision = 0.0;
+                if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
+                {
+                    baseNode->getUserValue("mp_synced_idle_group", syncedIdleGroup);
+                    baseNode->getUserValue("mp_synced_idle_revision", syncedIdleRevision);
+                    baseNode->getUserValue("mp_synced_idle_applied_revision", appliedIdleRevision);
+                }
+                Log(Debug::Info) << "[MPWATCH] Actor puppet locomotion"
+                                 << " actorNetId=" << actor.actorNetId
+                                 << " refId=" << actor.state.refId
+                                 << " refNum=" << actor.state.refNum
+                                 << " moving=" << actor.state.isMoving
+                                 << " drive=" << shouldDriveLocomotion
+                                 << " fwd=" << drivenFwd
+                                 << " side=" << drivenSide
+                                 << " visualSpeed=" << visualPlanarSpeed
+                                 << " nominalSpeed=" << nominalAnimationSpeed
+                                 << " animationSpeed=" << synchronizedAnimationSpeed
+                                 << " stopGraceMs=" << actor.remoteLocomotionStopTimer * 1000.f
+                                 << " stateGroup='" << actor.state.animFlags.currentAnimGroup << "'"
+                                 << " stateCompletion=" << actor.state.animFlags.currentAnimCompletion
+                                 << " syncedIdle='" << syncedIdleGroup << "'"
+                                 << " syncedRevision=" << syncedIdleRevision
+                                 << " appliedRevision=" << appliedIdleRevision
+                                 << " activeLowerBody='" << activeLowerBodyGroup << "'"
+                                 << " activeCompletion=" << activeLowerBodyCompletion;
+            }
+        }
 
         const uint32_t hitFlags = actor.state.isDead ? 0
             : (actor.state.animFlags.movementFlags
@@ -9143,7 +9433,7 @@ namespace mwmp
             {
                 if (isWatchedPresentationActor(actor.state, actor.actorNetId))
                 {
-                    Log(Debug::Verbose) << "[MP] ActorSync v2: cleared locomotion bookkeeping"
+                    Log(Debug::Info) << "[MPWATCH] ActorSync v2: cleared locomotion bookkeeping"
                                         << " actorNetId=" << actor.actorNetId
                                         << " refId=" << actor.state.refId
                                         << " mpNum=" << actor.state.mpNum

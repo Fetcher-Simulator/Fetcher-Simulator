@@ -1,5 +1,8 @@
 #include "npcanimation.hpp"
 
+#include <cmath>
+#include <cstdint>
+
 #include <osg/Depth>
 #include <osg/MatrixTransform>
 #include <osg/UserDataContainer>
@@ -8,8 +11,6 @@
 #include <osgUtil/RenderBin>
 
 #include <components/debug/debuglog.hpp>
-
-#include <components/misc/rng.hpp>
 
 #include <components/misc/resourcehelpers.hpp>
 
@@ -21,12 +22,14 @@
 #include <components/sceneutil/depth.hpp>
 #include <components/sceneutil/keyframe.hpp>
 #include <components/sceneutil/lightcommon.hpp>
+#include <components/sceneutil/positionattitudetransform.hpp>
 #include <components/sceneutil/visitor.hpp>
 #include <components/settings/values.hpp>
 
 #include <components/vfs/manager.hpp>
 
 #include "../mwworld/class.hpp"
+#include "../mwworld/datetimemanager.hpp"
 #include "../mwworld/esmstore.hpp"
 #include "../mwworld/inventorystore.hpp"
 
@@ -102,14 +105,17 @@ namespace MWRender
         float mBlinkStart;
         float mBlinkStop;
 
-        float mBlinkTimer;
+        uint64_t mBlinkSeed;
+        int mBlinkPlayerGuid;
+        bool mBlinkActive;
 
         bool mEnabled;
 
         float mValue;
 
     private:
-        void resetBlinkTimer();
+        uint64_t calculateBlinkSeed(int& playerGuid) const;
+        void resetBlinkSchedule();
 
     public:
         HeadAnimationTime(const MWWorld::Ptr& reference);
@@ -136,15 +142,19 @@ namespace MWRender
         , mTalkStop(0)
         , mBlinkStart(0)
         , mBlinkStop(0)
+        , mBlinkSeed(0)
+        , mBlinkPlayerGuid(0)
+        , mBlinkActive(false)
         , mEnabled(true)
         , mValue(0)
     {
-        resetBlinkTimer();
+        resetBlinkSchedule();
     }
 
     void HeadAnimationTime::updatePtr(const MWWorld::Ptr& updated)
     {
         mReference = updated;
+        resetBlinkSchedule();
     }
 
     void HeadAnimationTime::setEnabled(bool enabled)
@@ -152,10 +162,51 @@ namespace MWRender
         mEnabled = enabled;
     }
 
-    void HeadAnimationTime::resetBlinkTimer()
+    uint64_t HeadAnimationTime::calculateBlinkSeed(int& playerGuid) const
     {
-        auto& prng = MWBase::Environment::get().getWorld()->getPrng();
-        mBlinkTimer = -(2.0f + Misc::Rng::rollDice(6, prng));
+        static constexpr uint64_t sFnvOffset = 1469598103934665603ull;
+        static constexpr uint64_t sFnvPrime = 1099511628211ull;
+        uint64_t seed = sFnvOffset;
+        playerGuid = 0;
+        if (const auto* baseNode = mReference.getRefData().getBaseNode())
+            baseNode->getUserValue("mp_player_guid", playerGuid);
+
+        if (playerGuid > 0)
+        {
+            static constexpr char sPlayerSeedPrefix[] = "player";
+            for (const unsigned char value : sPlayerSeedPrefix)
+            {
+                seed ^= value;
+                seed *= sFnvPrime;
+            }
+            const uint32_t guid = static_cast<uint32_t>(playerGuid);
+            for (unsigned int shift = 0; shift < 32; shift += 8)
+            {
+                seed ^= static_cast<unsigned char>((guid >> shift) & 0xff);
+                seed *= sFnvPrime;
+            }
+            return seed;
+        }
+
+        const std::string identity = mReference.getCellRef().getRefId().serializeText();
+        for (const unsigned char value : identity)
+        {
+            seed ^= value;
+            seed *= sFnvPrime;
+        }
+        const uint32_t refNum = mReference.getCellRef().getRefNum().mIndex;
+        for (unsigned int shift = 0; shift < 32; shift += 8)
+        {
+            seed ^= static_cast<unsigned char>((refNum >> shift) & 0xff);
+            seed *= sFnvPrime;
+        }
+        return seed;
+    }
+
+    void HeadAnimationTime::resetBlinkSchedule()
+    {
+        mBlinkSeed = calculateBlinkSeed(mBlinkPlayerGuid);
+        mBlinkActive = false;
     }
 
     void HeadAnimationTime::update(float dt)
@@ -166,24 +217,49 @@ namespace MWRender
         if (dt == 0.f)
             return;
 
+        int playerGuid = 0;
+        const uint64_t blinkSeed = calculateBlinkSeed(playerGuid);
+        if (blinkSeed != mBlinkSeed)
+        {
+            mBlinkSeed = blinkSeed;
+            mBlinkPlayerGuid = playerGuid;
+            mBlinkActive = false;
+        }
+
         if (!MWBase::Environment::get().getSoundManager()->sayActive(mReference))
         {
-            mBlinkTimer += dt;
+            const float duration = std::max(0.f, mBlinkStop - mBlinkStart);
+            MWWorld::DateTimeManager* timeManager
+                = MWBase::Environment::get().getWorld()->getTimeManager();
+            const double gameTimeScale = timeManager != nullptr
+                ? std::max(0.001, static_cast<double>(timeManager->getGameTimeScale()))
+                : 1.0;
+            const double synchronizedSeconds = timeManager != nullptr
+                ? timeManager->getGameTime() / gameTimeScale
+                : 0.0;
+            const double period = 4.0 + static_cast<double>(mBlinkSeed % 3001) / 1000.0;
+            const double offset = static_cast<double>((mBlinkSeed >> 32) % 10000) / 10000.0 * period;
+            const double phase = std::fmod(synchronizedSeconds + offset, period);
+            const bool blinking = duration > 0.f && phase <= duration;
 
-            float duration = mBlinkStop - mBlinkStart;
-
-            if (mBlinkTimer >= 0 && mBlinkTimer <= duration)
+            mValue = blinking ? mBlinkStart + static_cast<float>(phase) : mBlinkStop;
+            if (blinking && !mBlinkActive)
             {
-                mValue = mBlinkStart + mBlinkTimer;
+                if (mBlinkPlayerGuid > 0)
+                {
+                    Log(Debug::Info) << "[MPWATCH] Player deterministic blink"
+                                     << " guid=" << mBlinkPlayerGuid
+                                     << " phase=" << phase
+                                     << " duration=" << duration
+                                     << " period=" << period
+                                     << " syncSeconds=" << synchronizedSeconds;
+                }
             }
-            else
-                mValue = mBlinkStop;
-
-            if (mBlinkTimer > duration)
-                resetBlinkTimer();
+            mBlinkActive = blinking;
         }
         else
         {
+            mBlinkActive = false;
             // FIXME: would be nice to hold on to the SoundPtr so we don't have to retrieve it every frame
             mValue = mTalkStart
                 + (mTalkStop - mTalkStart)

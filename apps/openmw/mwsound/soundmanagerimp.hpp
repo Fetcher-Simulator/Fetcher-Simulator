@@ -81,6 +81,7 @@ namespace MWSound
         typedef std::map<const MWWorld::LiveCellRefBase*, SaySound> SaySoundMap;
         SaySoundMap mSaySoundsQueue;
         SaySoundMap mActiveSaySounds;
+        std::vector<MWBase::PlayedActorSpeech> mPlayedActorSpeech;
 
         typedef std::vector<StreamPtr> TrackList;
         TrackList mActiveTracks;
@@ -181,9 +182,11 @@ namespace MWSound
         bool isMusicPlaying() override;
         ///< Returns true if music is playing
 
-        void say(const MWWorld::ConstPtr& reference, VFS::Path::NormalizedView filename) override;
+        void say(const MWWorld::Ptr& reference, VFS::Path::NormalizedView filename) override;
         ///< Make an actor say some text.
         /// \param filename name of a sound file in the VFS
+
+        std::vector<MWBase::PlayedActorSpeech> takePlayedActorSpeech() override;
 
         void say(VFS::Path::NormalizedView filename) override;
         ///< Say some text, without an actor ref

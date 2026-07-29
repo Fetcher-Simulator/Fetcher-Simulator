@@ -1,10 +1,12 @@
 #ifndef GAME_MWBASE_SOUNDMANAGER_H
 #define GAME_MWBASE_SOUNDMANAGER_H
 
+#include <cstdint>
 #include <memory>
 #include <set>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <components/vfs/pathutil.hpp>
 
@@ -88,6 +90,13 @@ namespace MWBase
     using Sound = MWSound::Sound;
     using SoundStream = MWSound::Stream;
 
+    struct PlayedActorSpeech
+    {
+        MWWorld::Ptr actor;
+        std::string sound;
+        uint64_t captureTimeMs = 0;
+    };
+
     /// \brief Interface for sound manager (implemented in MWSound)
     class SoundManager
     {
@@ -126,9 +135,11 @@ namespace MWBase
         virtual bool isMusicPlaying() = 0;
         ///< Returns true if music is playing
 
-        virtual void say(const MWWorld::ConstPtr& reference, VFS::Path::NormalizedView filename) = 0;
+        virtual void say(const MWWorld::Ptr& reference, VFS::Path::NormalizedView filename) = 0;
         ///< Make an actor say some text.
         /// \param filename name of a sound file in the VFS
+
+        virtual std::vector<PlayedActorSpeech> takePlayedActorSpeech() = 0;
 
         virtual void say(VFS::Path::NormalizedView filename) = 0;
         ///< Say some text, without an actor ref

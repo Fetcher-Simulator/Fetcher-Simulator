@@ -47,6 +47,7 @@
 #include <components/openmw-mp/Packets/Actor/PacketActorAnimPlay.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAttack.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAttackV2.hpp>
+#include <components/openmw-mp/Packets/Actor/PacketActorSpeech.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAuthority.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCast.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCellChange.hpp>
@@ -1559,6 +1560,16 @@ void Main::registerProtocolHandlers()
             pkt.setAttackList(&tmp);
             if (!pkt.decode(data, size)) return;
             mActorSync->onActorAttackV2(tmp);
+        });
+
+    proto.registerHandler(PacketType::ActorSpeech,
+        [this](const uint8_t* data, size_t size)
+        {
+            ActorSpeechList tmp;
+            PacketActorSpeech pkt;
+            pkt.setSpeechList(&tmp);
+            if (!pkt.decode(data, size)) return;
+            mActorSync->onActorSpeech(tmp);
         });
 
     proto.registerHandler(PacketType::ActorCast,

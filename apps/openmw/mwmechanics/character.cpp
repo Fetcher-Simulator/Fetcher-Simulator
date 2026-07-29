@@ -3028,22 +3028,43 @@ namespace MWMechanics
             // animation packets are independent, and a disconnected sender may never
             // provide that retiring frame at all. Explicitly discard the controller's
             // latched movement/jump states so the regular idle state is visible now.
-            if (isNetworkPlayerPuppet)
+            bool forceNetworkIdle = false;
+            if (auto* baseNode = mPtr.getRefData().getBaseNode())
             {
-                bool forceNetworkIdle = false;
-                if (auto* baseNode = mPtr.getRefData().getBaseNode())
-                {
+                if (isNetworkPlayerPuppet)
                     baseNode->getUserValue("mp_force_network_idle", forceNetworkIdle);
-                    if (forceNetworkIdle)
-                        baseNode->setUserValue("mp_force_network_idle", false);
-                }
-                if (forceNetworkIdle)
+
+                bool isRemoteActor = false;
+                baseNode->getUserValue("mp_remote_actor", isRemoteActor);
+                std::string syncedIdleGroup;
+                float syncedIdleStartPoint = 0.f;
+                uint32_t syncedIdleRevision = 0;
+                const bool hasSyncedSpecialIdle = isRemoteActor
+                    && getMpSyncedRemoteIdleGroup(
+                        mPtr, syncedIdleGroup, syncedIdleStartPoint, syncedIdleRevision);
+                const bool hasNetworkLocomotion
+                    = std::abs(movementSettings.mPosition[0]) > 0.1f
+                    || std::abs(movementSettings.mPosition[1]) > 0.1f;
+                const bool suppressRemoteSpecialIdleMovement
+                    = hasSyncedSpecialIdle && !hasNetworkLocomotion;
+
+                if (forceNetworkIdle || suppressRemoteSpecialIdleMovement)
                 {
+                    baseNode->setUserValue("mp_force_network_idle", false);
                     resetCurrentMovementState();
-                    resetCurrentJumpState();
                     mTurnAnimationThreshold = 0.f;
+                    mSmoothedSpeed = osg::Vec2f();
+                    vec.x() = 0.f;
+                    vec.y() = 0.f;
+                    rot = osg::Vec3f();
+                    effectiveRotation = 0.f;
                     movestate = CharState_None;
-                    jumpstate = JumpState_None;
+
+                    if (forceNetworkIdle)
+                    {
+                        resetCurrentJumpState();
+                        jumpstate = JumpState_None;
+                    }
                 }
             }
 #endif
