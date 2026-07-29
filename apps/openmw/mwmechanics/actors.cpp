@@ -3,6 +3,8 @@
 #include <array>
 #include <optional>
 
+#include <SDL_keyboard.h>
+
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/esmwriter.hpp>
 
@@ -29,6 +31,7 @@
 
 #include "../mwbase/dialoguemanager.hpp"
 #include "../mwbase/environment.hpp"
+#include "../mwbase/inputmanager.hpp"
 #include "../mwbase/luamanager.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/soundmanager.hpp"
@@ -392,6 +395,44 @@ namespace MWMechanics
                 stats.setAttackType(attackTypeName(controls.mUse));
 
                 controls.mChanged = false;
+            }
+            if (isPlayer)
+            {
+                MWWorld::Player& player = MWBase::Environment::get().getWorld()->getPlayer();
+                if (player.isInVehicle())
+                {
+                    const MWBase::Environment& environment = MWBase::Environment::get();
+                    const bool acceptVehicleInput = !environment.getInputManager()->controlsDisabled()
+                        && environment.getInputManager()->getControlSwitch("playercontrols")
+                        && !environment.getWindowManager()->isGuiMode()
+                        && !environment.getWindowManager()->isConsoleMode() && !SDL_IsTextInputActive();
+                    if (acceptVehicleInput)
+                    {
+                        player.setVehicleInput(controls.mVehicleThrottle, controls.mVehicleBrake,
+                            controls.mVehicleSteering, controls.mVehicleHandbrake);
+                    }
+                    else
+                        player.clearVehicleInput();
+
+                    // Vehicle input must never leak into humanoid root motion.
+                    mov.mPosition[0] = 0.f;
+                    mov.mPosition[1] = 0.f;
+                    mov.mPosition[2] = 0.f;
+                    mov.mRotation[0] = 0.f;
+                    mov.mRotation[1] = 0.f;
+                    mov.mRotation[2] = 0.f;
+                    mov.mSpeedFactor = 0.f;
+                    stats.setMovementFlag(MWMechanics::CreatureStats::Flag_Run, false);
+                    stats.setMovementFlag(MWMechanics::CreatureStats::Flag_Sneak, false);
+
+                    controls.mMovement = 0.f;
+                    controls.mSideMovement = 0.f;
+                    controls.mJump = false;
+                    controls.mRun = false;
+                    controls.mSneak = false;
+                }
+                else
+                    player.clearVehicleInput();
             }
             // For the player we don't need to copy these values to Lua because mwinput doesn't change them.
             // All handling of these player controls was moved from C++ to a built-in Lua script.

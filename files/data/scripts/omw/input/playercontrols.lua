@@ -85,7 +85,16 @@ local movementControlsOverridden = false
 
 local autoMove = false
 local attemptToJump = false
+local function clearVehicleControls()
+    self.controls.vehicleThrottle = 0
+    self.controls.vehicleBrake = 0
+    self.controls.vehicleSteering = 0
+    self.controls.vehicleHandbrake = 0
+end
+
 local function processMovement()
+    clearVehicleControls()
+
     local movement = input.getRangeActionValue('MoveForward') - input.getRangeActionValue('MoveBackward')
     local sideMovement = input.getRangeActionValue('MoveRight') - input.getRangeActionValue('MoveLeft')
     local run = input.getBooleanActionValue('Run') ~= settings:get('alwaysRun')
@@ -104,6 +113,21 @@ local function processMovement()
     if not settings:get('toggleSneak') then
         self.controls.sneak = input.getBooleanActionValue('Sneak')
     end
+end
+
+local function processVehicleMovement()
+    autoMove = false
+    self.controls.vehicleThrottle = input.getRangeActionValue('MoveForward')
+    self.controls.vehicleBrake = input.getRangeActionValue('MoveBackward')
+    self.controls.vehicleSteering =
+        input.getRangeActionValue('MoveRight') - input.getRangeActionValue('MoveLeft')
+    self.controls.vehicleHandbrake = input.isActionPressed(input.ACTION.Activate) and 1 or 0
+
+    self.controls.movement = 0
+    self.controls.sideMovement = 0
+    self.controls.run = false
+    self.controls.sneak = false
+    self.controls.jump = false
 end
 
 local function controlsAllowed()
@@ -222,11 +246,19 @@ end))
 
 local function onFrame(_)
     if movementAllowed() then
-        processMovement()
+        if Player.isInVehicle(self) then
+            processVehicleMovement()
+        else
+            processMovement()
+        end
     elseif not movementControlsOverridden then
         self.controls.movement = 0
         self.controls.sideMovement = 0
+        self.controls.run = false
         self.controls.jump = false
+        clearVehicleControls()
+    else
+        clearVehicleControls()
     end
     if combatAllowed() then
         processAttacking()

@@ -404,6 +404,9 @@ namespace MWWorld
             std::span<const MWWorld::Ptr> ignoreList) override;
 
         void setActorCollisionMode(const Ptr& ptr, bool internal, bool external) override;
+        bool setActorCollisionBox(
+            const Ptr& ptr, const osg::Vec3f& halfExtents, const osg::Vec3f& center) override;
+        bool restoreActorCollisionShape(const Ptr& ptr) override;
         bool isActorCollisionEnabled(const Ptr& ptr) override;
         void setOnGround(const Ptr& ptr, bool onGround) override;
 
@@ -464,7 +467,7 @@ namespace MWWorld
         bool toggleVanityMode(bool enable) override;
 
         MWRender::Camera* getCamera() override;
-        bool vanityRotateCamera(const float* rot) override;
+        bool rotateCameraOnly(const float* rot) override;
 
         void applyDeferredPreviewRotationToPlayer(float dt) override;
         void disableDeferredPreviewRotation() override;

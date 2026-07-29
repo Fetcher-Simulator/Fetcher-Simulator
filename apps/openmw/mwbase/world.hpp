@@ -321,6 +321,9 @@ namespace MWBase
             = 0;
 
         virtual void setActorCollisionMode(const MWWorld::Ptr& ptr, bool internal, bool external) = 0;
+        virtual bool setActorCollisionBox(
+            const MWWorld::Ptr& ptr, const osg::Vec3f& halfExtents, const osg::Vec3f& center) = 0;
+        virtual bool restoreActorCollisionShape(const MWWorld::Ptr& ptr) = 0;
         virtual bool isActorCollisionEnabled(const MWWorld::Ptr& ptr) = 0;
 
         /// Set the physics actor's on-ground flag directly.
@@ -381,7 +384,7 @@ namespace MWBase
         virtual bool isFirstPerson() const = 0;
         virtual bool isPreviewModeEnabled() const = 0;
         virtual bool toggleVanityMode(bool enable) = 0;
-        virtual bool vanityRotateCamera(const float* rot) = 0;
+        virtual bool rotateCameraOnly(const float* rot) = 0;
         virtual void applyDeferredPreviewRotationToPlayer(float dt) = 0;
         virtual void disableDeferredPreviewRotation() = 0;
 

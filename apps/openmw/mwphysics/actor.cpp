@@ -1,5 +1,6 @@
 #include "actor.hpp"
 
+#include <BulletCollision/CollisionShapes/btBoxShape.h>
 #include <BulletCollision/CollisionShapes/btCylinderShape.h>
 
 #include <components/debug/debuglog.hpp>
@@ -241,6 +242,81 @@ namespace MWPhysics
         return mRotationallyInvariant;
     }
 
+    bool Actor::hasCustomCollisionShape() const
+    {
+        std::scoped_lock lock(mPositionMutex);
+        return mCustomCollisionShape;
+    }
+
+    bool Actor::hasCustomCollisionBox(const osg::Vec3f& halfExtents, const osg::Vec3f& center) const
+    {
+        std::scoped_lock lock(mPositionMutex);
+        return mCustomCollisionShape && mOriginalHalfExtents == halfExtents && mMeshTranslation == center;
+    }
+
+    bool Actor::setCollisionBoxUnsafe(const osg::Vec3f& halfExtents, const osg::Vec3f& center)
+    {
+        auto replacement = std::make_unique<btBoxShape>(Misc::Convert::toBullet(halfExtents));
+        replacement->setMargin(0.001);
+
+        std::scoped_lock lock(mPositionMutex);
+        if (mCustomCollisionShape && mOriginalHalfExtents == halfExtents && mMeshTranslation == center)
+            return false;
+
+        if (!mCustomCollisionShape)
+        {
+            mDefaultShape = std::move(mShape);
+            mDefaultMeshTranslation = mMeshTranslation;
+            mDefaultOriginalHalfExtents = mOriginalHalfExtents;
+            mDefaultCollisionShapeType = mCollisionShapeType;
+            mDefaultRotationallyInvariant = mRotationallyInvariant;
+        }
+
+        mShape = std::move(replacement);
+        mConvexShape = static_cast<btConvexShape*>(mShape.get());
+        mMeshTranslation = center;
+        mOriginalHalfExtents = halfExtents;
+        mCollisionShapeType = DetourNavigator::CollisionShapeType::RotatingBox;
+        mRotationallyInvariant = false;
+        mCustomCollisionShape = true;
+
+        updateScaleUnsafe();
+
+        if (const SceneUtil::PositionAttitudeTransform* baseNode = mPtr.getRefData().getBaseNode())
+            mRotation = baseNode->getAttitude();
+
+        mCollisionObject->setCollisionShape(mShape.get());
+        updateCollisionObjectPositionUnsafe();
+        return true;
+    }
+
+    bool Actor::restoreCollisionShapeUnsafe()
+    {
+        std::scoped_lock lock(mPositionMutex);
+        if (!mCustomCollisionShape)
+            return false;
+
+        auto customShape = std::move(mShape);
+        mShape = std::move(mDefaultShape);
+        mConvexShape = static_cast<btConvexShape*>(mShape.get());
+        mMeshTranslation = mDefaultMeshTranslation;
+        mOriginalHalfExtents = mDefaultOriginalHalfExtents;
+        mCollisionShapeType = mDefaultCollisionShapeType;
+        mRotationallyInvariant = mDefaultRotationallyInvariant;
+        mCustomCollisionShape = false;
+
+        updateScaleUnsafe();
+        if (!mRotationallyInvariant)
+        {
+            if (const SceneUtil::PositionAttitudeTransform* baseNode = mPtr.getRefData().getBaseNode())
+                mRotation = baseNode->getAttitude();
+        }
+
+        mCollisionObject->setCollisionShape(mShape.get());
+        updateCollisionObjectPositionUnsafe();
+        return true;
+    }
+
     void Actor::updateScale()
     {
         std::scoped_lock lock(mPositionMutex);
@@ -249,6 +325,15 @@ namespace MWPhysics
 
     void Actor::updateScaleUnsafe()
     {
+        if (mCustomCollisionShape)
+        {
+            const SceneUtil::PositionAttitudeTransform* baseNode = mPtr.getRefData().getBaseNode();
+            mScale = baseNode ? baseNode->getScale() : osg::Vec3f(1.f, 1.f, 1.f);
+            mHalfExtents = osg::componentMultiply(mOriginalHalfExtents, mScale);
+            mRenderingHalfExtents = mHalfExtents;
+            return;
+        }
+
         float scale = mPtr.getCellRef().getScale();
         osg::Vec3f scaleVec(scale, scale, scale);
 

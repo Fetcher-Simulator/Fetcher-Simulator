@@ -55,15 +55,18 @@ namespace MWInput
             -gyroH * dt * Settings::input().mGyroHorizontalSensitivity,
         };
 
-        // Only actually turn player when we're not in vanity mode
         const bool playerLooking = MWBase::Environment::get().getInputManager()->getControlSwitch("playerlooking");
-        if (!MWBase::Environment::get().getWorld()->vanityRotateCamera(rot) && playerLooking)
+        if (playerLooking)
         {
-            MWWorld::Player& player = MWBase::Environment::get().getWorld()->getPlayer();
-            player.yaw(-rot[2]);
-            player.pitch(-rot[0]);
+            MWBase::World* world = MWBase::Environment::get().getWorld();
+            if (!world->rotateCameraOnly(rot))
+            {
+                MWWorld::Player& player = world->getPlayer();
+                player.yaw(-rot[2]);
+                player.pitch(-rot[0]);
+            }
         }
-        else if (!playerLooking)
+        else
             MWBase::Environment::get().getWorld()->disableDeferredPreviewRotation();
 
         MWBase::Environment::get().getInputManager()->resetIdleTime();

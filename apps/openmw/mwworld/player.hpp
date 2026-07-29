@@ -2,7 +2,10 @@
 #define GAME_MWWORLD_PLAYER_H
 
 #include <array>
+#include <cstdint>
 #include <map>
+#include <string>
+#include <string_view>
 
 #include "../mwworld/livecellref.hpp"
 
@@ -28,6 +31,30 @@ namespace MWWorld
 {
     class CellStore;
     class ConstPtr;
+
+    enum class VehicleModeState : std::uint8_t
+    {
+        Inactive,
+        Entering,
+        Active,
+        Exiting,
+        Recovery,
+    };
+
+    struct VehicleInputState
+    {
+        float mThrottle = 0.f;
+        float mBrake = 0.f;
+        float mSteering = 0.f;
+        float mHandbrake = 0.f;
+    };
+
+    struct VehicleRuntimeState
+    {
+        VehicleModeState mMode = VehicleModeState::Inactive;
+        std::string mProfileId;
+        VehicleInputState mInput;
+    };
 
     /// \brief NPC object representing the player and additional player data
     class Player
@@ -55,6 +82,8 @@ namespace MWWorld
         std::array<float, ESM::Attribute::Length> mSaveAttributes;
 
         bool mJumping;
+
+        VehicleRuntimeState mVehicle;
 
     public:
         Player(const ESM::NPC* player);
@@ -98,6 +127,12 @@ namespace MWWorld
 
         void setJumping(bool jumping);
         bool getJumping() const;
+
+        bool setVehicleMode(bool active, std::string_view profileId = {});
+        bool isInVehicle() const;
+        const VehicleRuntimeState& getVehicleRuntimeState() const;
+        void setVehicleInput(float throttle, float brake, float steering, float handbrake);
+        void clearVehicleInput();
 
         /// Checks all nearby actors to see if anyone has an aipackage against you
         bool isInCombat();

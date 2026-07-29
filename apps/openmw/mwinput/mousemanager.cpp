@@ -103,14 +103,16 @@ namespace MWInput
             rot[1] = 0.0f;
             rot[2] = -x;
 
-            // Only actually turn player when we're not in vanity mode
-            if (!world->vanityRotateCamera(rot) && input->getControlSwitch("playerlooking"))
+            if (input->getControlSwitch("playerlooking"))
             {
-                MWWorld::Player& player = world->getPlayer();
-                player.yaw(x);
-                player.pitch(y);
+                if (!world->rotateCameraOnly(rot))
+                {
+                    MWWorld::Player& player = world->getPlayer();
+                    player.yaw(x);
+                    player.pitch(y);
+                }
             }
-            else if (!input->getControlSwitch("playerlooking"))
+            else
                 MWBase::Environment::get().getWorld()->disableDeferredPreviewRotation();
         }
     }
@@ -233,15 +235,18 @@ namespace MWInput
             -xAxis * dt * 1000.0f * cameraSensitivity * (Settings::input().mInvertXAxis ? -1 : 1) / 256.f,
         };
 
-        // Only actually turn player when we're not in vanity mode
         bool playerLooking = MWBase::Environment::get().getInputManager()->getControlSwitch("playerlooking");
-        if (!MWBase::Environment::get().getWorld()->vanityRotateCamera(rot) && playerLooking)
+        if (playerLooking)
         {
-            MWWorld::Player& player = MWBase::Environment::get().getWorld()->getPlayer();
-            player.yaw(-rot[2]);
-            player.pitch(-rot[0]);
+            MWBase::World* world = MWBase::Environment::get().getWorld();
+            if (!world->rotateCameraOnly(rot))
+            {
+                MWWorld::Player& player = world->getPlayer();
+                player.yaw(-rot[2]);
+                player.pitch(-rot[0]);
+            }
         }
-        else if (!playerLooking)
+        else
             MWBase::Environment::get().getWorld()->disableDeferredPreviewRotation();
 
         MWBase::Environment::get().getInputManager()->resetIdleTime();

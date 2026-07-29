@@ -65,6 +65,9 @@ namespace MWPhysics
         void setCollisionFilterMask(btCollisionObject* collisionObject, int collisionFilterMask);
         void addCollisionObject(btCollisionObject* collisionObject, int collisionFilterGroup, int collisionFilterMask);
         void removeCollisionObject(btCollisionObject* collisionObject);
+        void setActorCollisionBox(
+            const std::shared_ptr<Actor>& actor, const osg::Vec3f& halfExtents, const osg::Vec3f& center);
+        void restoreActorCollisionShape(const std::shared_ptr<Actor>& actor);
         void updateSingleAabb(const std::shared_ptr<PtrHolder>& ptr, bool immediate = false);
         bool getLineOfSight(const std::shared_ptr<Actor>& actor1, const std::shared_ptr<Actor>& actor2);
         void debugDraw();

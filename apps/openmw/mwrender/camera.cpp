@@ -11,6 +11,7 @@
 #include "../mwbase/world.hpp"
 
 #include "../mwworld/class.hpp"
+#include "../mwworld/player.hpp"
 #include "../mwworld/ptr.hpp"
 #include "../mwworld/refdata.hpp"
 
@@ -383,6 +384,13 @@ namespace MWRender
     {
         if (mMode != Mode::ThirdPerson || mTrackingPtr.isEmpty())
             return;
+
+        if (MWBase::Environment::get().getWorld()->getPlayer().isInVehicle())
+        {
+            mDeferredRotation = osg::Vec3f();
+            mDeferredRotationDisabled = false;
+            return;
+        }
 
         osg::Vec3f rot = mDeferredRotation;
         float delta = rot.normalize();

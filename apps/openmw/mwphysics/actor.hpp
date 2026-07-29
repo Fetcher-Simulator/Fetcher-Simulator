@@ -148,7 +148,12 @@ namespace MWPhysics
 
         DetourNavigator::CollisionShapeType getCollisionShapeType() const { return mCollisionShapeType; }
 
+        bool hasCustomCollisionShape() const;
+        bool hasCustomCollisionBox(const osg::Vec3f& halfExtents, const osg::Vec3f& center) const;
+
     private:
+        friend class PhysicsTaskScheduler;
+
         MWWorld::Ptr mStandingOnPtr;
         /// Removes then re-adds the collision object to the dynamics world
         void updateCollisionMask();
@@ -167,6 +172,13 @@ namespace MWPhysics
 
         std::unique_ptr<btCollisionShape> mShape;
         btConvexShape* mConvexShape;
+
+        std::unique_ptr<btCollisionShape> mDefaultShape;
+        osg::Vec3f mDefaultMeshTranslation;
+        osg::Vec3f mDefaultOriginalHalfExtents;
+        DetourNavigator::CollisionShapeType mDefaultCollisionShapeType;
+        bool mDefaultRotationallyInvariant = true;
+        bool mCustomCollisionShape = false;
 
         osg::Vec3f mMeshTranslation;
         osg::Vec3f mOriginalHalfExtents;
@@ -194,6 +206,9 @@ namespace MWPhysics
         inline void updateScaleUnsafe();
 
         inline void updateCollisionObjectPositionUnsafe();
+
+        bool setCollisionBoxUnsafe(const osg::Vec3f& halfExtents, const osg::Vec3f& center);
+        bool restoreCollisionShapeUnsafe();
     };
 
 }

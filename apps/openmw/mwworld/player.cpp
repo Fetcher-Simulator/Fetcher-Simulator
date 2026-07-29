@@ -1,5 +1,6 @@
 #include "player.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 
 #include <components/debug/debuglog.hpp>
@@ -227,6 +228,60 @@ namespace MWWorld
         return mJumping;
     }
 
+    bool Player::setVehicleMode(bool active, std::string_view profileId)
+    {
+        if (!active || profileId.empty())
+        {
+            if (mVehicle.mMode == VehicleModeState::Inactive && mVehicle.mProfileId.empty())
+                return false;
+
+            mVehicle.mMode = VehicleModeState::Exiting;
+            clearVehicleInput();
+            mVehicle.mProfileId.clear();
+            mVehicle.mMode = VehicleModeState::Inactive;
+            return true;
+        }
+
+        if (mVehicle.mMode == VehicleModeState::Active && mVehicle.mProfileId == profileId)
+            return false;
+
+        mVehicle.mMode = VehicleModeState::Entering;
+        clearVehicleInput();
+        mVehicle.mProfileId.assign(profileId);
+        mVehicle.mMode = VehicleModeState::Active;
+        return true;
+    }
+
+    bool Player::isInVehicle() const
+    {
+        return mVehicle.mMode == VehicleModeState::Entering || mVehicle.mMode == VehicleModeState::Active
+            || mVehicle.mMode == VehicleModeState::Exiting;
+    }
+
+    const VehicleRuntimeState& Player::getVehicleRuntimeState() const
+    {
+        return mVehicle;
+    }
+
+    void Player::setVehicleInput(float throttle, float brake, float steering, float handbrake)
+    {
+        if (mVehicle.mMode != VehicleModeState::Active)
+        {
+            clearVehicleInput();
+            return;
+        }
+
+        mVehicle.mInput.mThrottle = std::clamp(throttle, 0.f, 1.f);
+        mVehicle.mInput.mBrake = std::clamp(brake, 0.f, 1.f);
+        mVehicle.mInput.mSteering = std::clamp(steering, -1.f, 1.f);
+        mVehicle.mInput.mHandbrake = std::clamp(handbrake, 0.f, 1.f);
+    }
+
+    void Player::clearVehicleInput()
+    {
+        mVehicle.mInput = {};
+    }
+
     bool Player::isInCombat()
     {
         return MWBase::Environment::get().getMechanicsManager()->getActorsFighting(getPlayer()).size() != 0;
@@ -262,6 +317,7 @@ namespace MWWorld
         mMarkedCell = nullptr;
         mTeleported = false;
         mJumping = false;
+        mVehicle = {};
         mCurrentCrimeId = -1;
         mPaidCrimeId = -1;
         mPreviousItems.clear();

@@ -62,6 +62,7 @@
 #include "../mwworld/failedaction.hpp"
 #include "../mwworld/inventorystore.hpp"
 #include "../mwworld/localscripts.hpp"
+#include "../mwworld/player.hpp"
 #include "../mwworld/ptr.hpp"
 #include <components/sceneutil/positionattitudetransform.hpp>
 #include "../mwworld/worldmodel.hpp"
@@ -1285,7 +1286,9 @@ namespace MWClass
 
         // Race weight should not affect 1st-person meshes, otherwise it will change hand proportions and can break
         // aiming.
-        if (ptr == MWMechanics::getPlayer() && ptr.isInCell() && MWBase::Environment::get().getWorld()->isFirstPerson())
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (ptr == MWMechanics::getPlayer() && ptr.isInCell() && world->isFirstPerson()
+            && !world->getPlayer().isInVehicle())
         {
             if (ref->mBase->isMale())
                 scale *= race->mData.mMaleHeight;

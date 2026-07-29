@@ -392,6 +392,10 @@ namespace MWLua
             verifyPlayer(object);
             return input->getControlSwitch(key);
         };
+        player["isInVehicle"] = [](const Object& object) {
+            verifyPlayer(object);
+            return MWBase::Environment::get().getWorld()->getPlayer().isInVehicle();
+        };
         player["setControlSwitch"] = [input](const Object& object, std::string_view key, bool v) {
             verifyPlayer(object);
             if (object.isLObject() && !object.isSelfObject())

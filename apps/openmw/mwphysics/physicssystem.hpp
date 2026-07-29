@@ -166,6 +166,9 @@ namespace MWPhysics
         void addObject(const MWWorld::Ptr& ptr, VFS::Path::NormalizedView mesh, osg::Quat rotation,
             int collisionType = CollisionType_World);
         void addActor(const MWWorld::Ptr& ptr, VFS::Path::NormalizedView mesh);
+        bool queueActorCollisionBox(
+            const MWWorld::Ptr& ptr, const osg::Vec3f& halfExtents, const osg::Vec3f& center);
+        bool queueRestoreActorCollisionShape(const MWWorld::Ptr& ptr);
 
         int addProjectile(
             const MWWorld::Ptr& caster, const osg::Vec3f& position, VFS::Path::NormalizedView mesh, bool computeRadius);
@@ -292,8 +295,17 @@ namespace MWPhysics
         float mPhysicsDt;
 
     private:
+        struct PendingActorCollisionShape
+        {
+            MWWorld::Ptr mPtr;
+            osg::Vec3f mHalfExtents;
+            osg::Vec3f mCenter;
+            bool mRestore = false;
+        };
+
         void updateWater();
 
+        void applyPendingActorCollisionShapes();
         void prepareSimulation(bool willSimulate, std::vector<Simulation>& simulations);
 
         std::unique_ptr<btBroadphaseInterface> mBroadphase;
@@ -311,6 +323,7 @@ namespace MWPhysics
         std::map<Object*, bool> mAnimatedObjects; // stores pointers to elements in mObjects
 
         ActorMap mActors;
+        std::unordered_map<const MWWorld::LiveCellRefBase*, PendingActorCollisionShape> mPendingActorCollisionShapes;
 
         using ProjectileMap = std::map<int, std::shared_ptr<Projectile>>;
         ProjectileMap mProjectiles;

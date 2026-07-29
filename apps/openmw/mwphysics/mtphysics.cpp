@@ -666,6 +666,49 @@ namespace MWPhysics
         mCollisionWorld->removeCollisionObject(collisionObject);
     }
 
+    void PhysicsTaskScheduler::setActorCollisionBox(
+        const std::shared_ptr<Actor>& actor, const osg::Vec3f& halfExtents, const osg::Vec3f& center)
+    {
+        waitForWorkers();
+        MaybeExclusiveLock simulationLock(mSimulationMutex, mLockingPolicy);
+        MaybeExclusiveLock worldLock(mCollisionWorldMutex, mLockingPolicy);
+
+        btCollisionObject* collisionObject = actor->getCollisionObject();
+        const btBroadphaseProxy* proxy = collisionObject->getBroadphaseHandle();
+        const int collisionGroup = proxy->m_collisionFilterGroup;
+        const int collisionMask = proxy->m_collisionFilterMask;
+
+        mCollisionWorld->removeCollisionObject(collisionObject);
+        try
+        {
+            actor->setCollisionBoxUnsafe(halfExtents, center);
+        }
+        catch (...)
+        {
+            mCollisionWorld->addCollisionObject(collisionObject, collisionGroup, collisionMask);
+            throw;
+        }
+        mCollisionWorld->addCollisionObject(collisionObject, collisionGroup, collisionMask);
+        mCollisionWorld->updateSingleAabb(collisionObject);
+    }
+
+    void PhysicsTaskScheduler::restoreActorCollisionShape(const std::shared_ptr<Actor>& actor)
+    {
+        waitForWorkers();
+        MaybeExclusiveLock simulationLock(mSimulationMutex, mLockingPolicy);
+        MaybeExclusiveLock worldLock(mCollisionWorldMutex, mLockingPolicy);
+
+        btCollisionObject* collisionObject = actor->getCollisionObject();
+        const btBroadphaseProxy* proxy = collisionObject->getBroadphaseHandle();
+        const int collisionGroup = proxy->m_collisionFilterGroup;
+        const int collisionMask = proxy->m_collisionFilterMask;
+
+        mCollisionWorld->removeCollisionObject(collisionObject);
+        actor->restoreCollisionShapeUnsafe();
+        mCollisionWorld->addCollisionObject(collisionObject, collisionGroup, collisionMask);
+        mCollisionWorld->updateSingleAabb(collisionObject);
+    }
+
     void PhysicsTaskScheduler::updateSingleAabb(const std::shared_ptr<PtrHolder>& ptr, bool immediate)
     {
         if (immediate || mNumThreads == 0)

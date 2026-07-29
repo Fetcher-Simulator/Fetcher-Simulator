@@ -1560,6 +1560,17 @@ namespace MWWorld
         }
     }
 
+    bool World::setActorCollisionBox(
+        const MWWorld::Ptr& ptr, const osg::Vec3f& halfExtents, const osg::Vec3f& center)
+    {
+        return mPhysics->queueActorCollisionBox(ptr, halfExtents, center);
+    }
+
+    bool World::restoreActorCollisionShape(const MWWorld::Ptr& ptr)
+    {
+        return mPhysics->queueRestoreActorCollisionShape(ptr);
+    }
+
     bool World::isActorCollisionEnabled(const MWWorld::Ptr& ptr)
     {
         MWPhysics::Actor* physicActor = mPhysics->getActor(ptr);
@@ -2291,10 +2302,10 @@ namespace MWWorld
         return mRendering->getCamera();
     }
 
-    bool World::vanityRotateCamera(const float* rot)
+    bool World::rotateCameraOnly(const float* rot)
     {
         auto* camera = mRendering->getCamera();
-        if (!camera->isVanityOrPreviewModeEnabled())
+        if (!camera->isVanityOrPreviewModeEnabled() && !mPlayer->isInVehicle())
             return false;
 
         camera->setPitch(camera->getPitch() + rot[0]);

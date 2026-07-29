@@ -114,6 +114,7 @@ namespace mwmp
         void captureJournalSnapshot();
         std::vector<std::string> collectLoadedActorCellIds() const;
         void applyPendingAuthoritativeState(const MWWorld::Ptr& player);
+        void applyVehicleRuntimeState();
         void applyVehiclePresentation(const MWWorld::Ptr& player);
         uint32_t resolveTargetMpNum(const MWWorld::Ptr& victim) const;
         void sendCastPacket(

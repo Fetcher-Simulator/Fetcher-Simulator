@@ -1,6 +1,7 @@
 #include "physicssystem.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <vector>
 
@@ -441,6 +442,8 @@ namespace MWPhysics
 
     void PhysicsSystem::remove(const MWWorld::Ptr& ptr)
     {
+        mPendingActorCollisionShapes.erase(ptr.mRef);
+
         if (auto foundObject = mObjects.find(ptr.mRef); foundObject != mObjects.end())
         {
             mAnimatedObjects.erase(foundObject->second.get());
@@ -586,6 +589,48 @@ namespace MWPhysics
         mActors.emplace(ptr.mRef, std::move(actor));
     }
 
+    bool PhysicsSystem::queueActorCollisionBox(
+        const MWWorld::Ptr& ptr, const osg::Vec3f& halfExtents, const osg::Vec3f& center)
+    {
+        const bool validExtents = halfExtents.x() > 0.f && halfExtents.y() > 0.f && halfExtents.z() > 0.f
+            && std::isfinite(halfExtents.x()) && std::isfinite(halfExtents.y()) && std::isfinite(halfExtents.z());
+        const bool validCenter
+            = std::isfinite(center.x()) && std::isfinite(center.y()) && std::isfinite(center.z());
+        if (!validExtents || !validCenter)
+            return false;
+
+        const auto found = mActors.find(ptr.mRef);
+        if (found == mActors.end())
+            return false;
+
+        if (found->second->hasCustomCollisionBox(halfExtents, center))
+        {
+            mPendingActorCollisionShapes.erase(ptr.mRef);
+            return true;
+        }
+
+        mPendingActorCollisionShapes.insert_or_assign(
+            ptr.mRef, PendingActorCollisionShape{ ptr, halfExtents, center, false });
+        return true;
+    }
+
+    bool PhysicsSystem::queueRestoreActorCollisionShape(const MWWorld::Ptr& ptr)
+    {
+        const auto found = mActors.find(ptr.mRef);
+        if (found == mActors.end())
+            return false;
+
+        if (!found->second->hasCustomCollisionShape())
+        {
+            mPendingActorCollisionShapes.erase(ptr.mRef);
+            return true;
+        }
+
+        mPendingActorCollisionShapes.insert_or_assign(
+            ptr.mRef, PendingActorCollisionShape{ ptr, {}, {}, true });
+        return true;
+    }
+
     int PhysicsSystem::addProjectile(
         const MWWorld::Ptr& caster, const osg::Vec3f& position, VFS::Path::NormalizedView mesh, bool computeRadius)
     {
@@ -695,6 +740,8 @@ namespace MWPhysics
     void PhysicsSystem::stepSimulation(
         float dt, bool skipSimulation, osg::Timer_t frameStart, unsigned int frameNumber, osg::Stats& stats)
     {
+        applyPendingActorCollisionShapes();
+
         for (auto& [animatedObject, changed] : mAnimatedObjects)
         {
             if (animatedObject->animateCollisionShapes())
@@ -727,6 +774,50 @@ namespace MWPhysics
             prepareSimulation(mTimeAccum >= mPhysicsDt, simulations);
             // modifies mTimeAccum
             mTaskScheduler->applyQueuedMovements(mTimeAccum, simulations, frameStart, frameNumber, stats);
+        }
+    }
+
+    void PhysicsSystem::applyPendingActorCollisionShapes()
+    {
+        if (mPendingActorCollisionShapes.empty())
+            return;
+
+        auto pending = std::move(mPendingActorCollisionShapes);
+        mPendingActorCollisionShapes.clear();
+
+        for (const auto& [ref, request] : pending)
+        {
+            const auto found = mActors.find(ref);
+            if (found == mActors.end())
+                continue;
+
+            try
+            {
+                if (request.mRestore)
+                {
+                    if (found->second->hasCustomCollisionShape())
+                    {
+                        mTaskScheduler->restoreActorCollisionShape(found->second);
+                        Log(Debug::Info) << "[Physics] Restored actor collision shape ref="
+                                         << request.mPtr.getCellRef().getRefId();
+                    }
+                }
+                else if (!found->second->hasCustomCollisionBox(request.mHalfExtents, request.mCenter))
+                {
+                    mTaskScheduler->setActorCollisionBox(
+                        found->second, request.mHalfExtents, request.mCenter);
+                    Log(Debug::Info) << "[Physics] Applied actor collision box ref="
+                                     << request.mPtr.getCellRef().getRefId() << " halfExtents=("
+                                     << request.mHalfExtents.x() << ", " << request.mHalfExtents.y() << ", "
+                                     << request.mHalfExtents.z() << ") center=(" << request.mCenter.x() << ", "
+                                     << request.mCenter.y() << ", " << request.mCenter.z() << ")";
+                }
+            }
+            catch (const std::exception& e)
+            {
+                Log(Debug::Error) << "[Physics] Failed to replace actor collision shape ref="
+                                  << request.mPtr.getCellRef().getRefId() << ": " << e.what();
+            }
         }
     }
 

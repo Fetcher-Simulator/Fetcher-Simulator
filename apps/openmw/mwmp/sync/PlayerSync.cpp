@@ -43,6 +43,7 @@
 #include "../../mwbase/statemanager.hpp"
 #include "../../mwbase/windowmanager.hpp"
 #include "../../mwworld/worldmodel.hpp"
+#include "../../mwworld/player.hpp"
 #include "../../mwrender/camera.hpp"
 #include "../../mwinput/actions.hpp"
 #include "../../mwgui/mode.hpp"
@@ -815,6 +816,7 @@ void PlayerSync::update(float dt)
     if (player.isEmpty()) return;
 
     applyPendingAuthoritativeState(player);
+    applyVehicleRuntimeState();
     applyVehiclePresentation(player);
 
     if (mRecentPlayerAttackerTimer > 0.f)
@@ -2059,7 +2061,10 @@ void PlayerSync::applyServerVehicleState(const BasePlayer& state)
 
     const MWWorld::Ptr player = world->getPlayerPtr();
     if (!player.isEmpty())
+    {
+        applyVehicleRuntimeState();
         applyVehiclePresentation(player);
+    }
 }
 
 void PlayerSync::setVehicleDriverOffset(const osg::Vec3f& offset)
@@ -2123,6 +2128,34 @@ void PlayerSync::setVehicleLegPoseDegrees(const osg::Vec3f& pose)
 void PlayerSync::resetVehicleLegPoseDegrees()
 {
     setVehicleLegPoseDegrees(osg::Vec3f(97.f, -31.f, 19.f));
+}
+
+void PlayerSync::applyVehicleRuntimeState()
+{
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    if (!world)
+        return;
+
+    const MWWorld::Ptr player = world->getPlayerPtr();
+    if (player.isEmpty())
+        return;
+
+    const VehicleProfile* profile
+        = mLocal.vehicle.active ? findVehicleProfile(mLocal.vehicle.profileId) : nullptr;
+    const bool vehicleModeChanged
+        = world->getPlayer().setVehicleMode(profile != nullptr, profile ? profile->id : std::string_view{});
+    if (vehicleModeChanged)
+        world->scaleObject(player, player.getCellRef().getScale(), true);
+    if (profile)
+    {
+        world->setActorCollisionBox(player,
+            osg::Vec3f(profile->collisionHalfExtents[0], profile->collisionHalfExtents[1],
+                profile->collisionHalfExtents[2]),
+            osg::Vec3f(profile->collisionCenterFromVehicleRoot[0], profile->collisionCenterFromVehicleRoot[1],
+                profile->collisionCenterFromVehicleRoot[2]));
+    }
+    else
+        world->restoreActorCollisionShape(player);
 }
 
 void PlayerSync::applyVehiclePresentation(const MWWorld::Ptr& player)

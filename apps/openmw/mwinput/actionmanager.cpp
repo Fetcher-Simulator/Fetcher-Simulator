@@ -281,7 +281,8 @@ namespace MWInput
         else if (MWBase::Environment::get().getInputManager()->getControlSwitch("playercontrols"))
         {
             MWWorld::Player& player = MWBase::Environment::get().getWorld()->getPlayer();
-            player.activate();
+            if (!player.isInVehicle())
+                player.activate();
         }
     }
 

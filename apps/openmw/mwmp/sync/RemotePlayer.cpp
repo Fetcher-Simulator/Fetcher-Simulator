@@ -2294,6 +2294,19 @@ namespace mwmp
         if (!world)
             return;
 
+        const VehicleProfile* profile
+            = mState.vehicle.active ? findVehicleProfile(mState.vehicle.profileId) : nullptr;
+        if (profile)
+        {
+            world->setActorCollisionBox(mNpcPtr,
+                osg::Vec3f(profile->collisionHalfExtents[0], profile->collisionHalfExtents[1],
+                    profile->collisionHalfExtents[2]),
+                osg::Vec3f(profile->collisionCenterFromVehicleRoot[0], profile->collisionCenterFromVehicleRoot[1],
+                    profile->collisionCenterFromVehicleRoot[2]));
+        }
+        else
+            world->restoreActorCollisionShape(mNpcPtr);
+
         MWRender::Animation* animation = world->getAnimation(mNpcPtr);
         if (!animation)
             return;
@@ -2311,7 +2324,6 @@ namespace mwmp
             return;
         }
 
-        const VehicleProfile* profile = findVehicleProfile(mState.vehicle.profileId);
         if (!profile)
         {
             animation->setVehicleDriverPoseEnabled(false);

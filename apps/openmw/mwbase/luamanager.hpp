@@ -152,6 +152,10 @@ namespace MWBase
             float mSideMovement = 0;
             float mPitchChange = 0;
             float mYawChange = 0;
+            float mVehicleThrottle = 0;
+            float mVehicleBrake = 0;
+            float mVehicleSteering = 0;
+            float mVehicleHandbrake = 0;
             MWMechanics::AttackType mUse = MWMechanics::AttackType::NoAttack;
         };
 

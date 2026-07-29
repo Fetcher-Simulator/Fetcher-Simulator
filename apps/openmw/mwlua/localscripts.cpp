@@ -63,6 +63,10 @@ namespace MWLua
         controls["sideMovement"] = CONTROL(float, mSideMovement);
         controls["pitchChange"] = CONTROL(float, mPitchChange);
         controls["yawChange"] = CONTROL(float, mYawChange);
+        controls["vehicleThrottle"] = CONTROL(float, mVehicleThrottle);
+        controls["vehicleBrake"] = CONTROL(float, mVehicleBrake);
+        controls["vehicleSteering"] = CONTROL(float, mVehicleSteering);
+        controls["vehicleHandbrake"] = CONTROL(float, mVehicleHandbrake);
         controls["run"] = CONTROL(bool, mRun);
         controls["sneak"] = CONTROL(bool, mSneak);
         controls["jump"] = CONTROL(bool, mJump);
