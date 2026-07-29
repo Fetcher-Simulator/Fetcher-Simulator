@@ -294,10 +294,11 @@ namespace mwmp
         const bool axisLocomotion = std::abs(actor.animFlags.animFwd) > 0.1f
             || std::abs(actor.animFlags.animSide) > 0.1f;
         const float speedSq = actor.velocity.linear[0] * actor.velocity.linear[0]
-            + actor.velocity.linear[1] * actor.velocity.linear[1]
-            + actor.velocity.linear[2] * actor.velocity.linear[2];
+            + actor.velocity.linear[1] * actor.velocity.linear[1];
         const bool velocityLocomotion = speedSq > 20.f * 20.f;
-        const bool hasLocomotionInput = !actor.isDead && (axisLocomotion || velocityLocomotion);
+        const bool hasLocomotionInput = !actor.isDead
+            && actor.isMoving
+            && (axisLocomotion || velocityLocomotion);
 
         float animFwd = hasLocomotionInput ? actor.animFlags.animFwd : 0.f;
         float animSide = hasLocomotionInput ? actor.animFlags.animSide : 0.f;

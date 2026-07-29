@@ -183,6 +183,10 @@ namespace mwmp
             // stream does not alternate walk/stop while the actor is still
             // visibly chasing.
             float authorityLocomotionStopTimer = 0.f;
+            // Observer side: retain established locomotion across a brief stopped
+            // position sample so CharacterController does not restart the walk
+            // cycle from its first step on every packet-state fluctuation.
+            float remoteLocomotionStopTimer = 0.f;
             // Authority side: special idle groups can briefly disappear from
             // animation sampling at loop/key transitions. Hold the last reliable
             // group briefly so receivers see a stable event stream instead of

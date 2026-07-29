@@ -1090,7 +1090,9 @@ namespace
         const float velY = actor.velocity.linear[1];
         const float speedSq = velX * velX + velY * velY;
         const bool velocityLocomotion = speedSq > 20.f * 20.f;
-        const bool hasLocomotionInput = !actor.isDead && (axisLocomotion || velocityLocomotion);
+        const bool hasLocomotionInput = !actor.isDead
+            && actor.isMoving
+            && (axisLocomotion || velocityLocomotion);
 
         float animFwd = hasLocomotionInput ? actor.animFlags.animFwd : 0.f;
         float animSide = hasLocomotionInput ? actor.animFlags.animSide : 0.f;
@@ -7628,7 +7630,17 @@ void MPServer::handleActorPresentationV2(ConnectedClient& c, const uint8_t* data
             outgoing.snapshotSequence = cellState->nextSnapshotSequence++;
             outgoing.serverTimestamp = timestamp;
         }
-        outgoing.actors.push_back(actor);
+        // Relay this event's own presentation state. The registry actor also
+        // contains the latest continuous position state; rebuilding a presentation
+        // packet from that cached movement can mark a stationary idle as moving.
+        BaseActor presentationActor = actor;
+        presentationActor.isMoving = snapshot.isMoving;
+        presentationActor.velocity = Velocity {};
+        presentationActor.animFlags.animFwd = dequantizeActorAxis(snapshot.animFwd);
+        presentationActor.animFlags.animSide = dequantizeActorAxis(snapshot.animSide);
+        presentationActor.animFlags.currentAnimGroup = snapshot.currentAnimGroup;
+        presentationActor.animFlags.currentAnimCompletion = snapshot.currentAnimCompletion;
+        outgoing.actors.push_back(std::move(presentationActor));
         ++accepted;
     }
 
