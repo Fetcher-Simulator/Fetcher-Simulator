@@ -53,6 +53,7 @@ namespace mwmp
         void onActorAnimPlay(const ActorList& list);
         void onActorAttack(const ActorList& list);
         void onActorAttackV2(const ActorAttackV2List& list);
+        void onActorSpeech(const ActorSpeechList& list);
         void onActorCast(const ActorList& list);
         void onActorDeath(const ActorList& list);
         void onActorEquipment(const ActorList& list);
@@ -174,6 +175,8 @@ namespace mwmp
             bool lastAttackPressed = false;
             uint32_t nextAttackEventId = 1;
             uint32_t lastReceivedAttackEventId = 0;
+            uint32_t lastReceivedSpeechEventId = 0;
+            std::string pendingSpeechSound;
             uint32_t nextDeathEventId = 1;
             uint32_t lastReceivedDeathEventId = 0;
             // Briefly suppress authoritative lower-body group sync so local hit/attack
@@ -318,6 +321,7 @@ namespace mwmp
             const ActorRuntime* runtime, const MWWorld::Ptr& resolvedPtr, const char* source) const;
         void advanceSmoothing(ActorRuntime& actor, float dt);
         void fastForwardRuntimeToLatestSnapshot(ActorRuntime& actor, const char* reason, uint64_t eventTimestamp);
+        void sendPendingActorSpeechEvents();
         void sendAuthoritativeActorUpdates(const std::string& cellId, CellRuntime& cell, float dt);
         bool shouldAcceptSnapshot(CellRuntime& cell, const ActorList& list, const char* packetName,
             bool isPositionSnapshot = false);
@@ -352,6 +356,8 @@ namespace mwmp
             mChanceNoneLeveledSpawnersByCell;
         std::unordered_map<ActorInstanceId, ActorRuntime>   mActorsByNetId;
         std::unordered_map<ActorInstanceId, uint32_t>       mActorAuthorityGuids;
+        std::unordered_map<ActorInstanceId, uint32_t>       mNextSpeechEventIds;
+        uint32_t mNextSpeechSequence = 1;
         std::unordered_set<ActorInstanceId> mPendingPresentationSampleRequests;
         std::unordered_map<std::string, std::unordered_set<ActorInstanceId>> mCellActorIds;
         std::unordered_map<std::string, ActorInstanceId>    mActorNetIdsByKey;

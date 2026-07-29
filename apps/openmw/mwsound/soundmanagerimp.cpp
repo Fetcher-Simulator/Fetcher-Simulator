@@ -1,6 +1,7 @@
 #include "soundmanagerimp.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <map>
 #include <numeric>
 #include <sstream>
@@ -41,6 +42,13 @@ namespace MWSound
         constexpr float sSfxFadeInDuration = 1.0f;
         constexpr float sSfxFadeOutDuration = 1.0f;
         constexpr float sSoundCullDistance = 2000.f;
+
+        uint64_t speechCaptureClockMs()
+        {
+            using Clock = std::chrono::steady_clock;
+            return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                Clock::now().time_since_epoch()).count());
+        }
 
         WaterSoundUpdaterSettings makeWaterSoundUpdaterSettings()
         {
@@ -313,7 +321,7 @@ namespace MWSound
         advanceMusic(filename, fade);
     }
 
-    void SoundManager::say(const MWWorld::ConstPtr& ptr, VFS::Path::NormalizedView filename)
+    void SoundManager::say(const MWWorld::Ptr& ptr, VFS::Path::NormalizedView filename)
     {
         if (!mOutput->isInitialized())
             return;
@@ -330,7 +338,20 @@ namespace MWSound
         if (!sound)
             return;
 
+        static constexpr std::size_t sMaxPlayedActorSpeech = 64;
+        if (mPlayedActorSpeech.size() >= sMaxPlayedActorSpeech)
+            mPlayedActorSpeech.erase(mPlayedActorSpeech.begin());
+        mPlayedActorSpeech.push_back(
+            MWBase::PlayedActorSpeech{ ptr, std::string(filename.value()), speechCaptureClockMs() });
+
         mSaySoundsQueue.emplace(ptr.mRef, SaySound{ ptr.mCell, std::move(sound) });
+    }
+
+    std::vector<MWBase::PlayedActorSpeech> SoundManager::takePlayedActorSpeech()
+    {
+        std::vector<MWBase::PlayedActorSpeech> result;
+        result.swap(mPlayedActorSpeech);
+        return result;
     }
 
     float SoundManager::getSaySoundLoudness(const MWWorld::ConstPtr& ptr) const

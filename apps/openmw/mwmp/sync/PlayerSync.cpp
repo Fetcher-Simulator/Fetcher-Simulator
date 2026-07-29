@@ -828,6 +828,9 @@ void PlayerSync::update(float dt)
     if (mLocal.guid == 0)
         return;
 
+    if (auto* baseNode = player.getRefData().getBaseNode())
+        baseNode->setUserValue("mp_player_guid", static_cast<int>(mLocal.guid));
+
     const float safeDt = std::max(0.f, dt);
     mPositionDiagTimer += safeDt;
     mPositionDiagFrameDtMax = std::max(mPositionDiagFrameDtMax, safeDt);

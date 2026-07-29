@@ -68,6 +68,7 @@
 #include <components/openmw-mp/Packets/Actor/PacketActorAnimPlay.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAttack.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAttackV2.hpp>
+#include <components/openmw-mp/Packets/Actor/PacketActorSpeech.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAuthority.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCast.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCellChange.hpp>
@@ -3790,6 +3791,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::ActorAnimPlay:    handleActorAnimPlay(client, data, size);      break;
         case PacketType::ActorAttack:      handleActorAttack(client, data, size);        break;
         case PacketType::ActorAttackV2:    handleActorAttackV2(client, data, size);      break;
+        case PacketType::ActorSpeech:      handleActorSpeech(client, data, size);        break;
         case PacketType::ActorCast:        handleActorCast(client, data, size);          break;
         case PacketType::ActorCellChange:  handleActorCellChange(client, data, size);    break;
         case PacketType::ActorDeath:       handleActorDeath(client, data, size);         break;
@@ -8125,6 +8127,172 @@ void MPServer::handleActorAttackV2(ConnectedClient& c, const uint8_t* data, size
         << " deadVanillaSuppressed=" << deadVanillaSuppressed
         << " firstDeadVanillaActorNetId=" << firstDeadVanillaActorNetId
         << " firstDeadVanillaActorKey=" << describeActorInstanceId(firstDeadVanillaActorNetId)
+        << " suppressedUntilIdentityKnown=" << suppressedUntilIdentityKnown;
+}
+
+// ---------------------------------------------------------------------------
+void MPServer::handleActorSpeech(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    ActorSpeechList incoming;
+    PacketActorSpeech pkt;
+    pkt.setSpeechList(&incoming);
+    if (!pkt.decode(data, size))
+        return;
+    if (incoming.protocolVersion != ActorSyncProtocolVersionV2)
+    {
+        Log(Debug::Warning) << "[Server] Rejecting ActorSpeech from " << c.name
+                            << " unsupported protocol=" << incoming.protocolVersion;
+        return;
+    }
+
+    const uint64_t timestamp = currentServerTimeMs();
+    std::unordered_map<std::string, ActorSpeechList> updatesByCell;
+    std::size_t accepted = 0;
+    std::size_t invalid = 0;
+    std::size_t missingIdentity = 0;
+    std::size_t wrongAuthority = 0;
+    std::size_t unloadedCell = 0;
+    std::size_t deadSuppressed = 0;
+
+    for (const ActorSpeechEvent& event : incoming.events)
+    {
+        if (!isValidActorInstanceId(event.actorNetId)
+            || event.eventId == 0
+            || event.sound.empty()
+            || event.sound.size() > 1024
+            || event.sound.rfind("sound/", 0) != 0)
+        {
+            ++invalid;
+            continue;
+        }
+
+        auto keyIt = mWorld.actorKeysByNetId.find(event.actorNetId);
+        if (keyIt == mWorld.actorKeysByNetId.end())
+        {
+            ++missingIdentity;
+            continue;
+        }
+
+        const std::string& actorKey = keyIt->second;
+        std::string cellId;
+        CellActorState* cellState = nullptr;
+        ActorRegistryRecord* record = nullptr;
+
+        auto locationIt = mWorld.actorLocations.find(actorKey);
+        if (locationIt != mWorld.actorLocations.end())
+        {
+            auto cellIt = mWorld.actorCells.find(locationIt->second);
+            if (cellIt != mWorld.actorCells.end())
+            {
+                auto actorIt = cellIt->second.actors.find(actorKey);
+                if (actorIt != cellIt->second.actors.end())
+                {
+                    cellId = cellIt->first;
+                    cellState = &cellIt->second;
+                    record = &actorIt->second;
+                }
+            }
+        }
+
+        if (!record)
+        {
+            for (auto& [candidateCellId, candidateCellState] : mWorld.actorCells)
+            {
+                auto actorIt = candidateCellState.actors.find(actorKey);
+                if (actorIt == candidateCellState.actors.end())
+                    continue;
+
+                cellId = candidateCellId;
+                cellState = &candidateCellState;
+                record = &actorIt->second;
+                rememberActorLocation(record->actor, cellId);
+                break;
+            }
+        }
+
+        if (!record || !cellState)
+        {
+            ++missingIdentity;
+            continue;
+        }
+        if (!clientEligibleForActorCell(c, cellId))
+        {
+            ++unloadedCell;
+            continue;
+        }
+        if (!isAllowedActorSender(c, *record, cellId))
+        {
+            ++wrongAuthority;
+            continue;
+        }
+        if (record->actor.isDead)
+        {
+            ++deadSuppressed;
+            continue;
+        }
+
+        ActorSpeechList& outgoing = updatesByCell[cellId];
+        if (outgoing.events.empty())
+        {
+            outgoing.protocolVersion = ActorSyncProtocolVersionV2;
+            outgoing.cellId = cellId;
+            outgoing.authorityGuid = cellState->authorityGuid;
+            outgoing.authorityGeneration = cellState->authorityGeneration;
+            outgoing.sequence = cellState->nextSnapshotSequence++;
+            outgoing.serverTimestamp = timestamp;
+        }
+        outgoing.events.push_back(event);
+        ++accepted;
+    }
+
+    std::size_t sent = 0;
+    std::size_t suppressedUntilIdentityKnown = 0;
+    for (auto& [cellId, speechList] : updatesByCell)
+    {
+        for (auto& [conn, client] : mClients)
+        {
+            if (conn == c.conn
+                || !clientHasActorCellLoaded(client, cellId)
+                || client.actorSyncProtocolVersion < ActorSyncProtocolVersionV2)
+                continue;
+
+            ActorSpeechList filtered = speechList;
+            filtered.events.clear();
+            filtered.events.reserve(speechList.events.size());
+            for (const ActorSpeechEvent& event : speechList.events)
+            {
+                if (client.actorV2IdentitySent.count(event.actorNetId) == 0
+                    || client.actorV2IdentityAcked.count(event.actorNetId) == 0)
+                {
+                    ++suppressedUntilIdentityKnown;
+                    continue;
+                }
+                filtered.events.push_back(event);
+            }
+
+            if (filtered.events.empty())
+                continue;
+
+            PacketActorSpeech out;
+            out.setSpeechList(&filtered);
+            sendTo(conn, out.encode(), /*reliable=*/true);
+            sent += filtered.events.size();
+        }
+    }
+
+    Log((invalid != 0 || missingIdentity != 0 || wrongAuthority != 0 || unloadedCell != 0
+            || deadSuppressed != 0 || suppressedUntilIdentityKnown != 0) ? Debug::Info : Debug::Verbose)
+        << "[Server] ActorSpeech"
+        << " from=" << c.name
+        << " packetCell=" << incoming.cellId
+        << " events=" << incoming.events.size()
+        << " accepted=" << accepted
+        << " sent=" << sent
+        << " invalid=" << invalid
+        << " missingIdentity=" << missingIdentity
+        << " wrongAuthority=" << wrongAuthority
+        << " unloadedCell=" << unloadedCell
+        << " deadSuppressed=" << deadSuppressed
         << " suppressedUntilIdentityKnown=" << suppressedUntilIdentityKnown;
 }
 

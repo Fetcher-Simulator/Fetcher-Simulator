@@ -278,6 +278,24 @@ namespace mwmp
         std::vector<ActorAttackV2Event> events;
     };
 
+    struct ActorSpeechEvent
+    {
+        ActorInstanceId actorNetId = 0;
+        uint32_t eventId = 0;
+        std::string sound;
+    };
+
+    struct ActorSpeechList
+    {
+        uint32_t protocolVersion = ActorSyncProtocolVersionV2;
+        std::string cellId;
+        uint32_t authorityGuid = 0;
+        uint32_t authorityGeneration = 0;
+        uint32_t sequence = 0;
+        uint64_t serverTimestamp = 0;
+        std::vector<ActorSpeechEvent> events;
+    };
+
     inline int8_t quantizeActorAxis(float value)
     {
         value = std::clamp(value, -1.f, 1.f);

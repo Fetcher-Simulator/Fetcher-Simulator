@@ -303,6 +303,7 @@ private:
     void handleActorAnimPlay    (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorAttack      (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorAttackV2    (ConnectedClient& c, const uint8_t* data, size_t size);
+    void handleActorSpeech      (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorCast        (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorCellChange  (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorDeath       (ConnectedClient& c, const uint8_t* data, size_t size);

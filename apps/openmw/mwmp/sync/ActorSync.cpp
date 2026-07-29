@@ -59,6 +59,7 @@
 #include "PlayerSync.hpp"
 #include "RemotePlayer.hpp"
 #include <components/openmw-mp/Packets/Actor/PacketActorAttackV2.hpp>
+#include <components/openmw-mp/Packets/Actor/PacketActorSpeech.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorEquipment.hpp>
 #include "../../mwworld/inventorystore.hpp"
 #include "../../mwrender/npcanimation.hpp"
@@ -574,8 +575,7 @@ namespace
         if (!kEnableTemporaryActorWatchLogs)
             return false;
 
-        return actor.refNum == 91706
-            || actor.refId == "heddvild" || actor.mpNum == 2601
+        return actor.refId == "heddvild" || actor.mpNum == 2601
             || actor.refId == "breton dancer girl"
             || actor.refId == "nord dancer girl"
             || actor.refId == "redguard dancer girl"
@@ -951,6 +951,8 @@ namespace mwmp
         mCells.clear();
         mAuthority.clear();
         mActorAuthorityGuids.clear();
+        mNextSpeechEventIds.clear();
+        mNextSpeechSequence = 1;
         mMpNumsByLocalActor.clear();
         mServerSpawnedActorsByMpNum.clear();
         mServerSpawnedActorLastTimestamps.clear();
@@ -1241,6 +1243,7 @@ namespace mwmp
     {
         ++mUpdateSerial;
         updateLocalCellBootstrapState();
+        sendPendingActorSpeechEvents();
 
         std::size_t bootstrapDeathReveals = 0;
         auto finishBootstrapDeathReveal = [&](ActorRuntime& actor)
@@ -3428,34 +3431,11 @@ namespace mwmp
                         && nodeSyncedIdleRevision > 0.0;
                 }
             }
-            bool shouldCorrectSpecialIdlePhase = false;
-            if (incomingSpecialIdle
-                && previousIsSpecialIdle
-                && previousGroup == snapshot.currentAnimGroup
-                && nodeHasSyncedIdleEvent
-                && !runtime.boundActor.isEmpty())
-            {
-                MWBase::World* world = MWBase::Environment::get().getWorld();
-                MWRender::Animation* animObj = world ? world->getAnimation(runtime.boundActor) : nullptr;
-                float localCompletion = -1.f;
-                if (animObj && animObj->getInfo(snapshot.currentAnimGroup, &localCompletion))
-                {
-                    const float rawDelta = std::abs(
-                        std::clamp(localCompletion, 0.f, 1.f)
-                        - std::clamp(snapshot.currentAnimCompletion, 0.f, 1.f));
-                    const float wrappedDelta = std::min(rawDelta, 1.f - rawDelta);
-                    static constexpr float kSpecialIdlePhaseCorrectionThreshold = 0.12f;
-                    shouldCorrectSpecialIdlePhase = wrappedDelta >= kSpecialIdlePhaseCorrectionThreshold;
-                }
-                else
-                    shouldCorrectSpecialIdlePhase = true;
-            }
             const bool acceptIncomingSpecialIdle = incomingSpecialIdle
                 && (firstPresentationForRuntime
                     || !previousIsSpecialIdle
                     || previousGroup != snapshot.currentAnimGroup
-                    || !nodeHasSyncedIdleEvent
-                    || shouldCorrectSpecialIdlePhase);
+                    || !nodeHasSyncedIdleEvent);
 
             if (acceptIncomingSpecialIdle)
             {
@@ -3767,6 +3747,88 @@ namespace mwmp
                 << " missingIdentity=" << missingIdentity
                 << " firstMissingActorNetId=" << firstMissingActorNetId
                 << " firstMissingActorKey=" << describeActorInstanceId(firstMissingActorNetId)
+                << " duplicate=" << duplicate
+                << " deadSuppressed=" << deadSuppressed
+                << " seq=" << list.sequence;
+        }
+    }
+
+    void ActorSync::onActorSpeech(const ActorSpeechList& list)
+    {
+        if (list.protocolVersion != ActorSyncProtocolVersionV2)
+        {
+            Log(Debug::Warning) << "[MP] ActorSync: ignored unsupported ActorSpeech protocol="
+                                << list.protocolVersion;
+            return;
+        }
+
+        std::size_t applied = 0;
+        std::size_t invalid = 0;
+        std::size_t missingIdentity = 0;
+        std::size_t duplicate = 0;
+        std::size_t deadSuppressed = 0;
+
+        for (const ActorSpeechEvent& event : list.events)
+        {
+            if (!isValidActorInstanceId(event.actorNetId) || event.sound.empty())
+            {
+                ++invalid;
+                continue;
+            }
+
+            auto runtimeIt = mActorsByNetId.find(event.actorNetId);
+            if (runtimeIt == mActorsByNetId.end())
+            {
+                ++missingIdentity;
+                ++mActorV2MissingIdentityByNetIdWindow[event.actorNetId];
+                continue;
+            }
+
+            ActorRuntime& runtime = runtimeIt->second;
+            if (runtime.state.isDead || runtime.deathAlreadyApplied)
+            {
+                ++deadSuppressed;
+                continue;
+            }
+            if (!isNewerEventId(event.eventId, runtime.lastReceivedSpeechEventId))
+            {
+                ++duplicate;
+                continue;
+            }
+
+            runtime.lastReceivedSpeechEventId = event.eventId;
+            if (runtime.boundActor.isEmpty())
+                runtime.pendingSpeechSound = event.sound;
+            else if (!hasAuthorityForActor(runtime.actorNetId, runtime.state.cellId))
+            {
+                MWBase::Environment::get().getSoundManager()->say(
+                    runtime.boundActor, VFS::Path::Normalized(event.sound));
+            }
+
+            if (isWatchedPresentationActor(runtime.state, event.actorNetId))
+            {
+                Log(Debug::Info) << "[MPWATCH] ActorSync v2: speech apply"
+                                 << " actorNetId=" << event.actorNetId
+                                 << " refId=" << runtime.state.refId
+                                 << " refNum=" << runtime.state.refNum
+                                 << " mpNum=" << runtime.state.mpNum
+                                 << " eventId=" << event.eventId
+                                 << " deferred=" << runtime.boundActor.isEmpty()
+                                 << " sound='" << event.sound << "'";
+            }
+            ++applied;
+        }
+
+        if (invalid != 0 || missingIdentity != 0 || duplicate != 0 || deadSuppressed != 0 || applied != 0)
+        {
+            Log((invalid != 0 || missingIdentity != 0 || duplicate != 0 || deadSuppressed != 0)
+                    ? Debug::Info : Debug::Verbose)
+                << "[MP] ActorSync v2: speech receive"
+                << " packetCell=" << list.cellId
+                << " events=" << list.events.size()
+                << " applied=" << applied
+                << " invalid=" << invalid
+                << " missingIdentity=" << missingIdentity
                 << " duplicate=" << duplicate
                 << " deadSuppressed=" << deadSuppressed
                 << " seq=" << list.sequence;
@@ -5806,6 +5868,73 @@ namespace mwmp
             baseNode->setUserValue(BootstrapDeathAppliedUserValue, true);
     }
 
+    void ActorSync::sendPendingActorSpeechEvents()
+    {
+        MWBase::SoundManager* soundManager = MWBase::Environment::get().getSoundManager();
+        if (soundManager == nullptr)
+            return;
+
+        const uint64_t now = actorSyncLogClockMs();
+        std::unordered_map<std::string, ActorSpeechList> speechByCell;
+        for (MWBase::PlayedActorSpeech& played : soundManager->takePlayedActorSpeech())
+        {
+            if (played.actor.isEmpty() || !played.actor.getClass().isActor())
+                continue;
+
+            static constexpr uint64_t kMaxSpeechCaptureAgeMs = 1000;
+            const uint64_t ageMs = now >= played.captureTimeMs ? now - played.captureTimeMs : 0;
+            if (ageMs > kMaxSpeechCaptureAgeMs)
+                continue;
+
+            const std::string physicalCellId = cellIdForPtr(played.actor);
+            const std::string authorityCellId = getActorAuthorityCellId(played.actor);
+            const ActorInstanceId actorNetId = actorNetIdForPtr(physicalCellId, played.actor);
+
+            if (actorNetId == 0
+                || authorityCellId.empty()
+                || !hasAuthorityForActor(actorNetId, authorityCellId))
+            {
+                continue;
+            }
+
+            uint32_t& nextEventId = mNextSpeechEventIds[actorNetId];
+            if (nextEventId == 0)
+                nextEventId = 1;
+
+            ActorSpeechEvent event;
+            event.actorNetId = actorNetId;
+            event.eventId = nextEventId++;
+            if (nextEventId == 0)
+                nextEventId = 1;
+            event.sound = std::move(played.sound);
+
+            ActorSpeechList& list = speechByCell[authorityCellId];
+            if (list.events.empty())
+            {
+                list.protocolVersion = ActorSyncProtocolVersionV2;
+                list.cellId = authorityCellId;
+                list.authorityGuid = mwmp::Main::get().getPlayerSync().localPlayer().guid;
+                const auto cellIt = mCells.find(authorityCellId);
+                if (cellIt != mCells.end())
+                    list.authorityGeneration = cellIt->second.latest.authorityGeneration;
+                list.sequence = mNextSpeechSequence++;
+                if (mNextSpeechSequence == 0)
+                    mNextSpeechSequence = 1;
+            }
+            list.events.push_back(event);
+        }
+
+        for (auto& [cellId, list] : speechByCell)
+        {
+            PacketActorSpeech packet;
+            packet.setSpeechList(&list);
+            mClient.sendReliable(packet.encode());
+            Log(Debug::Verbose) << "[MP] ActorSync: sent ActorSpeech packet"
+                                << " cell=" << cellId
+                                << " events=" << list.events.size();
+        }
+    }
+
     void ActorSync::sendAuthoritativeActorUpdates(const std::string& cellId, CellRuntime& cell, float dt)
     {
         MWBase::World* world = MWBase::Environment::get().getWorld();
@@ -6296,11 +6425,11 @@ namespace mwmp
                 && isIdleAnimGroup(previousRuntime->second.state.animFlags.currentAnimGroup)
                 && !isBaseIdleAnimGroup(previousRuntime->second.state.animFlags.currentAnimGroup);
             const bool specialIdleLocomotionBlock = sampledSpecialIdle || previousSpecialIdle;
-            if (actor.isMoving && !velocityLocomotion && specialIdleLocomotionBlock)
+            if (actor.isMoving && specialIdleLocomotionBlock)
             {
-                // AI can briefly publish a forward axis while a special idle is
-                // still active. It has no planar displacement and must not become
-                // a one-packet walk/footstep event on observer clients.
+                // Special-idle root motion and transient AI axes are presentation,
+                // not locomotion. Wait until the lower body leaves the special
+                // idle before publishing a moving snapshot.
                 actor.isMoving = false;
                 actor.animFlags.animFwd = 0.f;
                 actor.animFlags.animSide = 0.f;
@@ -8548,6 +8677,16 @@ namespace mwmp
         if (!world)
             return;
 
+        if (!actor.pendingSpeechSound.empty())
+        {
+            if (!hasAuthorityForActor(actor.actorNetId, actor.state.cellId))
+            {
+                MWBase::Environment::get().getSoundManager()->say(
+                    actor.boundActor, VFS::Path::Normalized(actor.pendingSpeechSound));
+            }
+            actor.pendingSpeechSound.clear();
+        }
+
         if (actor.waitingForFreshCellBootstrap)
         {
             setHiddenUntilFreshSnapshot(actor.boundActor, true);
@@ -8844,6 +8983,23 @@ namespace mwmp
             if (lastLogMs == 0 || nowMs - lastLogMs >= 250)
             {
                 lastLogMs = nowMs;
+                std::string activeLowerBodyGroup;
+                float activeLowerBodyCompletion = -1.f;
+                if (MWRender::Animation* animObj = world->getAnimation(actor.boundActor))
+                {
+                    activeLowerBodyGroup = animObj->getActiveGroup(MWRender::BoneGroup_LowerBody);
+                    if (!activeLowerBodyGroup.empty())
+                        animObj->getInfo(activeLowerBodyGroup, &activeLowerBodyCompletion);
+                }
+                std::string syncedIdleGroup;
+                double syncedIdleRevision = 0.0;
+                double appliedIdleRevision = 0.0;
+                if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
+                {
+                    baseNode->getUserValue("mp_synced_idle_group", syncedIdleGroup);
+                    baseNode->getUserValue("mp_synced_idle_revision", syncedIdleRevision);
+                    baseNode->getUserValue("mp_synced_idle_applied_revision", appliedIdleRevision);
+                }
                 Log(Debug::Info) << "[MPWATCH] Actor puppet locomotion"
                                  << " actorNetId=" << actor.actorNetId
                                  << " refId=" << actor.state.refId
@@ -8855,7 +9011,14 @@ namespace mwmp
                                  << " visualSpeed=" << visualPlanarSpeed
                                  << " nominalSpeed=" << nominalAnimationSpeed
                                  << " animationSpeed=" << synchronizedAnimationSpeed
-                                 << " stopGraceMs=" << actor.remoteLocomotionStopTimer * 1000.f;
+                                 << " stopGraceMs=" << actor.remoteLocomotionStopTimer * 1000.f
+                                 << " stateGroup='" << actor.state.animFlags.currentAnimGroup << "'"
+                                 << " stateCompletion=" << actor.state.animFlags.currentAnimCompletion
+                                 << " syncedIdle='" << syncedIdleGroup << "'"
+                                 << " syncedRevision=" << syncedIdleRevision
+                                 << " appliedRevision=" << appliedIdleRevision
+                                 << " activeLowerBody='" << activeLowerBodyGroup << "'"
+                                 << " activeCompletion=" << activeLowerBodyCompletion;
             }
         }
 
