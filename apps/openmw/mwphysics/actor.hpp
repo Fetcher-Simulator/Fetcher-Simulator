@@ -52,6 +52,7 @@ namespace MWPhysics
 
         void updateScale();
         void setRotation(osg::Quat quat);
+        void setCollisionTransform(osg::Quat rotation, const osg::Vec3f& positionOffset);
 
         /**
          * Return true if the collision shape looks the same no matter how its Z rotated.
@@ -70,6 +71,9 @@ namespace MWPhysics
          * Returns the half extents of the collision body (scaled according to collision scale)
          */
         osg::Vec3f getHalfExtents() const;
+        osg::Vec3f getMovementCollisionOffset() const;
+        osg::Quat getMovementCollisionRotation() const;
+        float getMovementHalfExtentsZ() const;
 
         /**
          * Returns the half extents of the collision body (not scaled)
@@ -185,6 +189,8 @@ namespace MWPhysics
         osg::Vec3f mHalfExtents;
         osg::Vec3f mRenderingHalfExtents;
         osg::Quat mRotation;
+        osg::Quat mMovementRotation;
+        osg::Vec3f mCollisionPositionOffset{ 0.f, 0.f, 0.f };
 
         osg::Vec3f mScale;
         osg::Vec3f mPositionOffset;

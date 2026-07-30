@@ -13,11 +13,17 @@ namespace MWPhysics
 {
 
     ActorConvexCallback sweepHelper(const btCollisionObject* actor, const btVector3& from, const btVector3& to,
-        const btCollisionWorld* world, bool actorFilter)
+        const btCollisionWorld* world, bool actorFilter, const osg::Quat* rotation = nullptr)
     {
         const btTransform& trans = actor->getWorldTransform();
         btTransform transFrom(trans);
         btTransform transTo(trans);
+        if (rotation)
+        {
+            const btQuaternion sweepRotation = Misc::Convert::toBullet(*rotation);
+            transFrom.setRotation(sweepRotation);
+            transTo.setRotation(sweepRotation);
+        }
         transFrom.setOrigin(from);
         transTo.setOrigin(to);
 
@@ -38,7 +44,7 @@ namespace MWPhysics
     }
 
     void ActorTracer::doTrace(const btCollisionObject* actor, const osg::Vec3f& start, const osg::Vec3f& end,
-        const btCollisionWorld* world, bool attemptShortTrace)
+        const btCollisionWorld* world, const osg::Quat& rotation, bool attemptShortTrace)
     {
         const btVector3 btstart = Misc::Convert::toBullet(start);
         btVector3 btend = Misc::Convert::toBullet(end);
@@ -62,7 +68,7 @@ namespace MWPhysics
             doingShortTrace = true;
         }
 
-        const auto traceCallback = sweepHelper(actor, btstart, btend, world, false);
+        const auto traceCallback = sweepHelper(actor, btstart, btend, world, false, &rotation);
 
         // Copy the hit data over to our trace results struct:
         if (traceCallback.hasHit())
@@ -81,7 +87,7 @@ namespace MWPhysics
             if (doingShortTrace)
             {
                 btend = Misc::Convert::toBullet(end);
-                const auto newTraceCallback = sweepHelper(actor, btstart, btend, world, false);
+                const auto newTraceCallback = sweepHelper(actor, btstart, btend, world, false, &rotation);
 
                 if (newTraceCallback.hasHit())
                 {
@@ -105,8 +111,9 @@ namespace MWPhysics
     void ActorTracer::findGround(
         const Actor* actor, const osg::Vec3f& start, const osg::Vec3f& end, const btCollisionWorld* world)
     {
-        const auto traceCallback = sweepHelper(
-            actor->getCollisionObject(), Misc::Convert::toBullet(start), Misc::Convert::toBullet(end), world, true);
+        const osg::Quat rotation = actor->getMovementCollisionRotation();
+        const auto traceCallback = sweepHelper(actor->getCollisionObject(), Misc::Convert::toBullet(start),
+            Misc::Convert::toBullet(end), world, true, &rotation);
         if (traceCallback.hasHit())
         {
             mFraction = static_cast<float>(traceCallback.m_closestHitFraction);

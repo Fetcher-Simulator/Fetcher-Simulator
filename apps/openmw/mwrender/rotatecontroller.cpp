@@ -14,6 +14,8 @@ namespace MWRender
 
     void RotateController::setEnabled(bool enabled)
     {
+        if (mEnabled != enabled)
+            mFrozenTranslationInitialized = false;
         mEnabled = enabled;
     }
 
@@ -48,8 +50,21 @@ namespace MWRender
         osg::Quat worldOrientInverse = worldOrient.inverse();
 
         osg::Quat orient = worldOrient * mRotate * worldOrientInverse * matrix.getRotate();
+        osg::Vec3f translation = matrix.getTrans();
+        if (mFreezeTranslation)
+        {
+            if (!mFrozenTranslationInitialized)
+            {
+                mFrozenTranslation = translation;
+                mFrozenTranslationInitialized = true;
+            }
+            else
+                translation = mFrozenTranslation;
+        }
+        if (mRotateTranslation)
+            translation = worldOrientInverse * (mRotate * (worldOrient * translation));
         matrix.setRotate(orient);
-        matrix.setTrans(matrix.getTrans() + worldOrientInverse * mOffset);
+        matrix.setTrans(translation + worldOrientInverse * mOffset);
 
         node->setMatrix(matrix);
 

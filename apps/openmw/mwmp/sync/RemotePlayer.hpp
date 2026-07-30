@@ -9,6 +9,7 @@
 
 #include <components/openmw-mp/Base/BasePlayer.hpp>
 
+#include "../../mwmechanics/vehiclecontroller.hpp"
 #include "../../mwworld/ptr.hpp"
 
 #include "Nameplate.hpp"
@@ -111,6 +112,7 @@ namespace mwmp
         bool         mInventorySoundReady = false;
         std::unique_ptr<Nameplate> mNameplate;
         std::string mAppliedVehicleProfileId;
+        MWMechanics::VehicleSuspensionState mVehicleSuspensionState;
 
         // --- trySpawn cooldown ---
         float mSpawnRetryTimer = 0.f;

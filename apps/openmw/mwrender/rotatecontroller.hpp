@@ -23,6 +23,12 @@ namespace MWRender
         void setEnabled(bool enabled);
         void setOffset(const osg::Vec3f& offset);
         void setRotate(const osg::Quat& rotate);
+        void setRotateTranslation(bool enabled) { mRotateTranslation = enabled; }
+        void setFreezeTranslation(bool enabled)
+        {
+            mFreezeTranslation = enabled;
+            mFrozenTranslationInitialized = false;
+        }
 
         const osg::Vec3f& getOffset() const { return mOffset; }
 
@@ -37,6 +43,10 @@ namespace MWRender
         osg::Vec3f mOffset;
         osg::Quat mRotate;
         osg::Node* mRelativeTo;
+        bool mRotateTranslation = false;
+        bool mFreezeTranslation = false;
+        bool mFrozenTranslationInitialized = false;
+        osg::Vec3f mFrozenTranslation;
     };
 
 }

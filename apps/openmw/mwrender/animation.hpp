@@ -17,6 +17,8 @@
 #include <components/sceneutil/util.hpp>
 #include <components/vfs/pathutil.hpp>
 
+#include <osg/Quat>
+
 #include <array>
 #include <map>
 #include <optional>
@@ -233,6 +235,8 @@ namespace MWRender
         std::array<osg::ref_ptr<RotateController>, 2> mVehicleFootControllers;
         std::vector<osg::ref_ptr<RotateController>> mVehicleDriverPoseControllers;
         osg::Vec3f mVehicleDriverOffset{ -8.01f, -26.71f, -25.81f };
+        osg::Vec3f mVehicleDriverSuspensionPosition;
+        osg::Quat mVehicleDriverSuspensionAttitude;
         osg::Vec3f mVehicleFirstPersonCameraOffset{ -24.5085f, 23.8851f, 101.7932f };
         osg::Vec3f mVehicleLegPoseDegrees{ 97.f, -31.f, 19.f };
         bool mVehicleDriverPoseEnabled = false;
@@ -244,6 +248,7 @@ namespace MWRender
 
         osg::ref_ptr<RotateController> addRotateController(std::string_view bone);
         void addVehicleDriverPoseControllers();
+        void updateVehicleDriverRootController();
         void updateVehicleLegPoseControllers();
 
         bool mHasMagicEffects;
@@ -373,6 +378,10 @@ namespace MWRender
         void removeEffect(std::string_view effectId);
         void removeEffects();
         std::vector<std::string_view> getLoopingEffects() const;
+        bool setEffectTransform(
+            std::string_view effectId, const osg::Vec3f& position, const osg::Quat& attitude);
+        bool setEffectNodeOffset(
+            std::string_view effectId, std::string_view nodeName, const osg::Vec3f& offset);
 
         // Add a spell casting glow to an object. From measuring video taken from the original engine,
         // the glow seems to be about 1.5 seconds except for telekinesis, which is 1 second.
@@ -505,6 +514,8 @@ namespace MWRender
         void setVehicleDriverPoseEnabled(bool enabled);
         bool isVehicleDriverPoseEnabled() const { return mVehicleDriverPoseEnabled; }
         void setVehicleDriverOffset(const osg::Vec3f& offset);
+        void setVehicleDriverSuspensionTransform(
+            const osg::Vec3f& position, const osg::Quat& attitude);
         const osg::Vec3f& getVehicleDriverOffset() const { return mVehicleDriverOffset; }
         void setVehicleFirstPersonCameraOffset(const osg::Vec3f& offset) { mVehicleFirstPersonCameraOffset = offset; }
         const osg::Vec3f& getVehicleFirstPersonCameraOffset() const { return mVehicleFirstPersonCameraOffset; }

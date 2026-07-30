@@ -490,6 +490,45 @@ namespace mwmp
                               << " animVelocity=" << animVelocity
                               << " animSpeedMult=" << animSpeedMult
                               << " animWorldScale=" << animWorldScale
+                              << " vehicleWheels=" << mVehicleSuspensionState.mSupportedWheels
+                              << " vehicleTerrain=("
+                              << mVehicleSuspensionState.mWheels[0].mTerrainHit << ","
+                              << mVehicleSuspensionState.mWheels[1].mTerrainHit << ","
+                              << mVehicleSuspensionState.mWheels[2].mTerrainHit << ","
+                              << mVehicleSuspensionState.mWheels[3].mTerrainHit << ")"
+                              << " vehiclePitchDeg=" << osg::RadiansToDegrees(mVehicleSuspensionState.mPitch)
+                              << " vehiclePitchRateDeg="
+                              << osg::RadiansToDegrees(mVehicleSuspensionState.mPitchVelocity)
+                              << " vehicleGroundPitchRateDeg="
+                              << osg::RadiansToDegrees(mVehicleSuspensionState.mGroundPitchVelocity)
+                              << " vehicleTerrainNormalPitchDeg="
+                              << osg::RadiansToDegrees(mVehicleSuspensionState.mTerrainNormalPitch)
+                              << " vehicleTerrainNormalRollDeg="
+                              << osg::RadiansToDegrees(mVehicleSuspensionState.mTerrainNormalRoll)
+                              << " vehicleAirborneTime=" << mVehicleSuspensionState.mAirborneTime
+                              << " vehicleAirborne=" << mVehicleSuspensionState.mAirborne
+                              << " vehicleTakeoffDirection=" << mVehicleSuspensionState.mTakeoffDirection
+                              << " vehicleLandingSupportTime="
+                              << mVehicleSuspensionState.mLandingSupportTime
+                              << " vehicleUnsupportedTime="
+                              << mVehicleSuspensionState.mUnsupportedTime
+                              << " vehicleRollDeg=" << osg::RadiansToDegrees(mVehicleSuspensionState.mRoll)
+                              << " vehicleSuspensionZ=" << mVehicleSuspensionState.mVerticalOffset
+                              << " vehicleRequiredLength=("
+                              << mVehicleSuspensionState.mWheels[0].mRequiredSuspensionLength << ","
+                              << mVehicleSuspensionState.mWheels[1].mRequiredSuspensionLength << ","
+                              << mVehicleSuspensionState.mWheels[2].mRequiredSuspensionLength << ","
+                              << mVehicleSuspensionState.mWheels[3].mRequiredSuspensionLength << ")"
+                              << " vehicleWheelVisual=("
+                              << mVehicleSuspensionState.mWheels[0].mVisualOffset << ","
+                              << mVehicleSuspensionState.mWheels[1].mVisualOffset << ","
+                              << mVehicleSuspensionState.mWheels[2].mVisualOffset << ","
+                              << mVehicleSuspensionState.mWheels[3].mVisualOffset << ")"
+                              << " vehicleWheelGroundZ=("
+                              << mVehicleSuspensionState.mWheels[0].mContactPoint.z() << ","
+                              << mVehicleSuspensionState.mWheels[1].mContactPoint.z() << ","
+                              << mVehicleSuspensionState.mWheels[2].mContactPoint.z() << ","
+                              << mVehicleSuspensionState.mWheels[3].mContactPoint.z() << ")"
                               << " lowerAnim='" << lowerBodyAnimation << "'";
             mMovementDiagTimer = 0.f;
             mMovementDiagFrames = 0;
@@ -528,9 +567,28 @@ namespace mwmp
         if (mIsSpawned)
         {
             applyInterpolationToWorld();
+            // A cell transition can despawn the proxy while applying interpolation.
+            // Do not continue this frame with the Ptr that despawnFromWorld cleared.
+            if (!mIsSpawned || mNpcPtr.isEmpty())
+                return;
+
             ensureMechanicsRegistration();
             applyAnimationStateToActor();
             applyVehiclePresentation();
+            const VehicleProfile* vehicleProfile
+                = mState.vehicle.active ? findVehicleProfile(mState.vehicle.profileId) : nullptr;
+            if (vehicleProfile)
+            {
+                const osg::Quat vehicleYaw(
+                    mNpcPtr.getRefData().getPosition().rot[2], osg::Vec3f(0.f, 0.f, -1.f));
+                const osg::Vec3f localVelocity = vehicleYaw.inverse()
+                    * osg::Vec3f(
+                        mState.velocity.linear[0], mState.velocity.linear[1], 0.f);
+                MWMechanics::updateVehicleSuspension(
+                    mNpcPtr, *vehicleProfile, safeDt, localVelocity.y(), mVehicleSuspensionState);
+            }
+            else
+                mVehicleSuspensionState = {};
 
             // Suppress AI every frame; MechanicsManager::add() reactivates
             // the AI sequence, so a one-time clear() at spawn time isn't enough.
@@ -1300,6 +1358,7 @@ namespace mwmp
         mMechanicsRegistered = false;
         mAppliedHitFlags = 0;
         mAppliedVehicleProfileId.clear();
+        mVehicleSuspensionState = {};
         mWasJumping = false; // reset so re-spawn doesn't skip the first jump edge
         mSpawnRetryTimer = SPAWN_RETRY_RATE; // attempt immediately on next update
         Log(Debug::Info) << "[MP] RemotePlayer " << mName << ": despawned from world";

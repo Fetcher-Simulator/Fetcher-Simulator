@@ -406,6 +406,8 @@ namespace MWWorld
         void setActorCollisionMode(const Ptr& ptr, bool internal, bool external) override;
         bool setActorCollisionBox(
             const Ptr& ptr, const osg::Vec3f& halfExtents, const osg::Vec3f& center) override;
+        void setActorCollisionTransform(
+            const Ptr& ptr, const osg::Quat& rotation, const osg::Vec3f& positionOffset) override;
         bool restoreActorCollisionShape(const Ptr& ptr) override;
         bool isActorCollisionEnabled(const Ptr& ptr) override;
         void setOnGround(const Ptr& ptr, bool onGround) override;

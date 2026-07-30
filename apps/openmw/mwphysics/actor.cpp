@@ -109,7 +109,10 @@ namespace MWPhysics
         {
             const SceneUtil::PositionAttitudeTransform* baseNode = mPtr.getRefData().getBaseNode();
             if (baseNode)
+            {
                 mRotation = baseNode->getAttitude();
+                mMovementRotation = mRotation;
+            }
         }
 
         addCollisionMask(getCollisionMask());
@@ -187,7 +190,7 @@ namespace MWPhysics
     void Actor::updateCollisionObjectPositionUnsafe()
     {
         mShape->setLocalScaling(Misc::Convert::toBullet(mScale));
-        osg::Vec3f newPosition = getScaledMeshTranslation() + mPosition;
+        osg::Vec3f newPosition = getScaledMeshTranslation() + mCollisionPositionOffset + mPosition;
 
         auto& trans = mCollisionObject->getWorldTransform();
         trans.setOrigin(Misc::Convert::toBullet(newPosition));
@@ -198,7 +201,7 @@ namespace MWPhysics
     osg::Vec3f Actor::getCollisionObjectPosition() const
     {
         std::scoped_lock lock(mPositionMutex);
-        return getScaledMeshTranslation() + mPosition;
+        return getScaledMeshTranslation() + mCollisionPositionOffset + mPosition;
     }
 
     bool Actor::setPosition(const osg::Vec3f& position)
@@ -235,6 +238,41 @@ namespace MWPhysics
     {
         std::scoped_lock lock(mPositionMutex);
         mRotation = quat;
+        mMovementRotation = quat;
+    }
+
+    void Actor::setCollisionTransform(osg::Quat rotation, const osg::Vec3f& positionOffset)
+    {
+        std::scoped_lock lock(mPositionMutex);
+        mRotation = rotation;
+        mCollisionPositionOffset = positionOffset;
+        updateCollisionObjectPositionUnsafe();
+    }
+
+    osg::Vec3f Actor::getMovementCollisionOffset() const
+    {
+        std::scoped_lock lock(mPositionMutex);
+        if (mCustomCollisionShape)
+            return mMovementRotation * osg::componentMultiply(mMeshTranslation, mScale);
+        return osg::Vec3f(0.f, 0.f, mHalfExtents.z());
+    }
+
+    osg::Quat Actor::getMovementCollisionRotation() const
+    {
+        std::scoped_lock lock(mPositionMutex);
+        return mCustomCollisionShape ? mMovementRotation : mRotation;
+    }
+
+    float Actor::getMovementHalfExtentsZ() const
+    {
+        std::scoped_lock lock(mPositionMutex);
+        if (!mCustomCollisionShape)
+            return mHalfExtents.z();
+
+        const osg::Vec3f localX = mMovementRotation * osg::Vec3f(mHalfExtents.x(), 0.f, 0.f);
+        const osg::Vec3f localY = mMovementRotation * osg::Vec3f(0.f, mHalfExtents.y(), 0.f);
+        const osg::Vec3f localZ = mMovementRotation * osg::Vec3f(0.f, 0.f, mHalfExtents.z());
+        return std::abs(localX.z()) + std::abs(localY.z()) + std::abs(localZ.z());
     }
 
     bool Actor::isRotationallyInvariant() const
@@ -279,11 +317,15 @@ namespace MWPhysics
         mCollisionShapeType = DetourNavigator::CollisionShapeType::RotatingBox;
         mRotationallyInvariant = false;
         mCustomCollisionShape = true;
+        mCollisionPositionOffset = osg::Vec3f();
 
         updateScaleUnsafe();
 
         if (const SceneUtil::PositionAttitudeTransform* baseNode = mPtr.getRefData().getBaseNode())
+        {
             mRotation = baseNode->getAttitude();
+            mMovementRotation = mRotation;
+        }
 
         mCollisionObject->setCollisionShape(mShape.get());
         updateCollisionObjectPositionUnsafe();
@@ -304,12 +346,16 @@ namespace MWPhysics
         mCollisionShapeType = mDefaultCollisionShapeType;
         mRotationallyInvariant = mDefaultRotationallyInvariant;
         mCustomCollisionShape = false;
+        mCollisionPositionOffset = osg::Vec3f();
 
         updateScaleUnsafe();
         if (!mRotationallyInvariant)
         {
             if (const SceneUtil::PositionAttitudeTransform* baseNode = mPtr.getRefData().getBaseNode())
+            {
                 mRotation = baseNode->getAttitude();
+                mMovementRotation = mRotation;
+            }
         }
 
         mCollisionObject->setCollisionShape(mShape.get());
@@ -414,7 +460,8 @@ namespace MWPhysics
         const osg::Vec3f startingPosition(actorPosition.x(), actorPosition.y(), actorPosition.z() + halfZ);
         const osg::Vec3f destinationPosition(actorPosition.x(), actorPosition.y(), waterlevel + halfZ);
         MWPhysics::ActorTracer tracer;
-        tracer.doTrace(getCollisionObject(), startingPosition, destinationPosition, world);
+        tracer.doTrace(
+            getCollisionObject(), startingPosition, destinationPosition, world, getMovementCollisionRotation());
         return (tracer.mFraction >= 1.0f);
     }
 

@@ -210,8 +210,8 @@ namespace MWPhysics
                 return;
             }
 
-            actor.mPosition.z() += actor.mHalfExtentsZ;
-            const float swimlevel = actor.mSwimLevel + actor.mHalfExtentsZ;
+            actor.mPosition += actor.mCollisionOffset;
+            const float swimlevel = actor.mSwimLevel + actor.mCollisionOffset.z();
             const bool underwater = actor.mPosition.z() < swimlevel;
 
             osg::Vec3f velocity = actor.mInertia;
@@ -298,7 +298,7 @@ namespace MWPhysics
 
             applyStormVelocity(worldData, velocity);
 
-            Stepper stepper(collisionWorld, actor.mCollisionObject);
+            Stepper stepper(collisionWorld, actor.mCollisionObject, actor.mCollisionRotation);
             ActorTracer tracer;
             osg::Vec3f newPosition = actor.mPosition;
             float remainingTime = time;
@@ -318,7 +318,7 @@ namespace MWPhysics
                 if ((newPosition - nextpos).length2() <= 0.0001f)
                     break;
 
-                tracer.doTrace(actor.mCollisionObject, newPosition, nextpos, collisionWorld);
+                tracer.doTrace(actor.mCollisionObject, newPosition, nextpos, collisionWorld, actor.mCollisionRotation);
                 if (tracer.mFraction >= 1.f)
                 {
                     if (actor.mIsOnSlope)
@@ -402,7 +402,7 @@ namespace MWPhysics
                 const osg::Vec3f from = newPosition;
                 const auto dropDistance = 2 * sGroundOffset + (actor.mIsOnGround ? sStepSizeDown : 0);
                 const osg::Vec3f to = newPosition - osg::Vec3f(0.f, 0.f, dropDistance);
-                tracer.doTrace(actor.mCollisionObject, from, to, collisionWorld);
+                tracer.doTrace(actor.mCollisionObject, from, to, collisionWorld, actor.mCollisionRotation);
                 if (tracer.mFraction < 1.f)
                 {
                     if (!isActor(tracer.mHitObject))
@@ -428,7 +428,8 @@ namespace MWPhysics
                             {
                                 newPosition.z() = tracer.mEndPos.z();
                                 tracer.doTrace(actor.mCollisionObject, newPosition,
-                                    newPosition + osg::Vec3f(0.f, 0.f, 2 * sGroundOffset), collisionWorld);
+                                    newPosition + osg::Vec3f(0.f, 0.f, 2 * sGroundOffset), collisionWorld,
+                                    actor.mCollisionRotation);
                                 newPosition = (newPosition + tracer.mEndPos) / 2.f;
                             }
                         }
@@ -468,7 +469,7 @@ namespace MWPhysics
             actor.mIsOnGround = isOnGround;
             actor.mIsOnSlope = isOnSlope;
             actor.mPosition = newPosition;
-            actor.mPosition.z() -= actor.mHalfExtentsZ;
+            actor.mPosition -= actor.mCollisionOffset;
         }
 
         class ContactCollectionCallback : public btCollisionWorld::ContactResultCallback
@@ -525,7 +526,7 @@ namespace MWPhysics
     osg::Vec3f MovementSolver::traceDown(const MWWorld::Ptr& ptr, const osg::Vec3f& position, Actor* actor,
         btCollisionWorld* collisionWorld, float maxHeight)
     {
-        osg::Vec3f offset = actor->getCollisionObjectPosition() - ptr.getRefData().getPosition().asVec3();
+        osg::Vec3f offset = actor->getMovementCollisionOffset();
 
         ActorTracer tracer;
         tracer.findGround(actor, position + offset, position + offset - osg::Vec3f(0, 0, maxHeight), collisionWorld);
@@ -583,14 +584,11 @@ namespace MWPhysics
             return;
         }
 
-        // Adjust for collision mesh offset relative to actor's "location"
-        // (doTrace doesn't take local/interior collision shape translation into account, so we have to do it on our
-        // own) for compatibility with vanilla assets, we have to derive this from the vertical half extent instead of
-        // from internal hull translation if not for this hack, the "correct" collision hull position would be
-        // physicActor->getScaledMeshTranslation()
-        actor.mPosition.z() += actor.mHalfExtentsZ; // vanilla-accurate
+        // doTrace replaces the collision object's origin, so apply its local center offset explicitly.
+        // Ordinary actors retain the vanilla vertical-half-extent offset.
+        actor.mPosition += actor.mCollisionOffset;
 
-        float swimlevel = actor.mSwimLevel + actor.mHalfExtentsZ;
+        float swimlevel = actor.mSwimLevel + actor.mCollisionOffset.z();
 
         ActorTracer tracer;
 
@@ -628,7 +626,7 @@ namespace MWPhysics
             velocity *= 1.f + fStromWalkMult * angleCos;
         }
 
-        Stepper stepper(collisionWorld, actor.mCollisionObject);
+        Stepper stepper(collisionWorld, actor.mCollisionObject, actor.mCollisionRotation);
         osg::Vec3f origVelocity = velocity;
         osg::Vec3f newPosition = actor.mPosition;
         /*
@@ -660,7 +658,8 @@ namespace MWPhysics
             if ((newPosition - nextpos).length2() > 0.0001)
             {
                 // trace to where character would go if there were no obstructions
-                tracer.doTrace(actor.mCollisionObject, newPosition, nextpos, collisionWorld, actor.mIsOnGround);
+                tracer.doTrace(actor.mCollisionObject, newPosition, nextpos, collisionWorld,
+                    actor.mCollisionRotation, actor.mIsOnGround);
 
                 // check for obstructions
                 if (tracer.mFraction >= 1.0f)
@@ -771,7 +770,8 @@ namespace MWPhysics
                             auto averageNormal = bestNormal + origPlaneNormal;
                             averageNormal.normalize();
                             tracer.doTrace(actor.mCollisionObject, newPosition,
-                                newPosition + averageNormal * (sCollisionMargin * 2.0), collisionWorld);
+                                newPosition + averageNormal * (sCollisionMargin * 2.0), collisionWorld,
+                                actor.mCollisionRotation);
                             newPosition = (newPosition + tracer.mEndPos) / 2.0;
 
                             usedSeamLogic = true;
@@ -787,7 +787,8 @@ namespace MWPhysics
                 if (!usedSeamLogic)
                 {
                     tracer.doTrace(actor.mCollisionObject, newPosition,
-                        newPosition + planeNormal * (sCollisionMargin * 2.0), collisionWorld);
+                        newPosition + planeNormal * (sCollisionMargin * 2.0), collisionWorld,
+                        actor.mCollisionRotation);
                     newPosition = (newPosition + tracer.mEndPos) / 2.0;
                 }
 
@@ -826,7 +827,8 @@ namespace MWPhysics
             osg::Vec3f from = newPosition;
             auto dropDistance = 2 * sGroundOffset + (actor.mIsOnGround ? sStepSizeDown : 0);
             osg::Vec3f to = newPosition - osg::Vec3f(0, 0, dropDistance);
-            tracer.doTrace(actor.mCollisionObject, from, to, collisionWorld, actor.mIsOnGround);
+            tracer.doTrace(actor.mCollisionObject, from, to, collisionWorld,
+                actor.mCollisionRotation, actor.mIsOnGround);
             if (tracer.mFraction < 1.0f)
             {
                 if (!isActor(tracer.mHitObject))
@@ -845,7 +847,8 @@ namespace MWPhysics
                         {
                             newPosition.z() = tracer.mEndPos.z();
                             tracer.doTrace(actor.mCollisionObject, newPosition,
-                                newPosition + osg::Vec3f(0, 0, 2 * sGroundOffset), collisionWorld);
+                                newPosition + osg::Vec3f(0, 0, 2 * sGroundOffset), collisionWorld,
+                                actor.mCollisionRotation);
                             newPosition = (newPosition + tracer.mEndPos) / 2.0;
                         }
                     }
@@ -886,8 +889,7 @@ namespace MWPhysics
         actor.mIsOnSlope = isOnSlope;
 
         actor.mPosition = newPosition;
-        // remove what was added earlier in compensating for doTrace not taking interior transformation into account
-        actor.mPosition.z() -= actor.mHalfExtentsZ; // vanilla-accurate
+        actor.mPosition -= actor.mCollisionOffset;
     }
 
     void MovementSolver::move(ProjectileFrameData& projectile, float time, const btCollisionWorld* collisionWorld)
@@ -944,10 +946,7 @@ namespace MWPhysics
             }
         }
 
-        // use vanilla-accurate collision hull position hack (do same hitbox offset hack as movement solver)
-        // if vanilla compatibility didn't matter, the "correct" collision hull position would be
-        // physicActor->getScaledMeshTranslation()
-        const auto verticalHalfExtent = osg::Vec3f(0.0, 0.0, actor.mHalfExtentsZ);
+        const osg::Vec3f collisionOffset = actor.mCollisionOffset;
 
         // use a 3d approximation of the movement vector to better judge player intent
         auto velocity = (osg::Quat(actor.mRotation.x(), osg::Vec3f(-1, 0, 0))
@@ -959,10 +958,11 @@ namespace MWPhysics
 
         // because of the internal collision box offset hack, and the fact that we're moving the collision box manually,
         // we need to replicate part of the collision box's transform process from scratch
-        osg::Vec3f refPosition = tempPosition + verticalHalfExtent;
+        osg::Vec3f refPosition = tempPosition + collisionOffset;
         osg::Vec3f goodPosition = refPosition;
         const btTransform oldTransform = actor.mCollisionObject->getWorldTransform();
         btTransform newTransform = oldTransform;
+        newTransform.setRotation(Misc::Convert::toBullet(actor.mCollisionRotation));
 
         auto gatherContacts = [&](btVector3 newOffset) -> ContactCollectionCallback {
             goodPosition = refPosition + Misc::Convert::toOsg(addMarginToDelta(newOffset));
@@ -995,7 +995,7 @@ namespace MWPhysics
             // successfully moved further out from contact (does not have to be in open space, just less inside of
             // things)
             if (contactCallback2.mDistance > contactCallback.mDistance)
-                tempPosition = goodPosition - verticalHalfExtent;
+                tempPosition = goodPosition - collisionOffset;
             // try again but only upwards (fixes some bad coc floors)
             else
             {
@@ -1003,14 +1003,14 @@ namespace MWPhysics
                 auto contactCallback3 = gatherContacts({ 0.0, 0.0, std::abs(positionDelta.z()) });
                 // success
                 if (contactCallback3.mDistance > contactCallback.mDistance)
-                    tempPosition = goodPosition - verticalHalfExtent;
+                    tempPosition = goodPosition - collisionOffset;
                 else
                 // try again but fixed distance up
                 {
                     auto contactCallback4 = gatherContacts({ 0.0, 0.0, 10.0 });
                     // success
                     if (contactCallback4.mDistance > contactCallback.mDistance)
-                        tempPosition = goodPosition - verticalHalfExtent;
+                        tempPosition = goodPosition - collisionOffset;
                 }
             }
         }

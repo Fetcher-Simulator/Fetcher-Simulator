@@ -1566,6 +1566,12 @@ namespace MWWorld
         return mPhysics->queueActorCollisionBox(ptr, halfExtents, center);
     }
 
+    void World::setActorCollisionTransform(
+        const MWWorld::Ptr& ptr, const osg::Quat& rotation, const osg::Vec3f& positionOffset)
+    {
+        mPhysics->updateActorCollisionTransform(ptr, rotation, positionOffset);
+    }
+
     bool World::restoreActorCollisionShape(const MWWorld::Ptr& ptr)
     {
         return mPhysics->queueRestoreActorCollisionShape(ptr);

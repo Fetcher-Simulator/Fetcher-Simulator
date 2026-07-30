@@ -335,6 +335,7 @@ namespace
     {
     public:
         std::vector<MWRender::UpdateVfxCallback*> mCallbacks;
+        std::vector<SceneUtil::PositionAttitudeTransform*> mTransforms;
 
         FindVfxCallbacksVisitor()
             : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
@@ -360,6 +361,7 @@ namespace
                     if (mEffectId == "" || vfxCallback->mParams.mEffectId == mEffectId)
                     {
                         mCallbacks.push_back(vfxCallback);
+                        mTransforms.push_back(dynamic_cast<SceneUtil::PositionAttitudeTransform*>(&group));
                     }
                 }
             }
@@ -372,6 +374,44 @@ namespace
 
     private:
         std::string_view mEffectId;
+    };
+
+    class OffsetNamedTransformVisitor : public osg::NodeVisitor
+    {
+    public:
+        OffsetNamedTransformVisitor(std::string_view nodeName, const osg::Vec3f& offset)
+            : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
+            , mNodeName(nodeName)
+            , mOffset(offset)
+        {
+        }
+
+        void apply(osg::Node& node) override { traverse(node); }
+
+        void apply(osg::MatrixTransform& transform) override
+        {
+            if (transform.getName() == mNodeName)
+            {
+                osg::Vec3f baseTranslation;
+                if (!transform.getUserValue("mwmp_effect_base_translation", baseTranslation))
+                {
+                    baseTranslation = transform.getMatrix().getTrans();
+                    transform.setUserValue("mwmp_effect_base_translation", baseTranslation);
+                }
+
+                osg::Matrix matrix = transform.getMatrix();
+                matrix.setTrans(baseTranslation + mOffset);
+                transform.setMatrix(matrix);
+                mUpdated = true;
+            }
+            traverse(transform);
+        }
+
+        bool mUpdated = false;
+
+    private:
+        std::string_view mNodeName;
+        osg::Vec3f mOffset;
     };
 
     void assignBoneBlendCallbackRecursive(MWRender::BoneAnimBlendController* controller, osg::Node* parent, bool isRoot)
@@ -1850,6 +1890,42 @@ namespace MWRender
         overrideFirstRootTexture(VFS::Path::toNormalized(texture), mResourceSystem, *node);
     }
 
+    bool Animation::setEffectTransform(
+        std::string_view effectId, const osg::Vec3f& position, const osg::Quat& attitude)
+    {
+        FindVfxCallbacksVisitor visitor(effectId);
+        mInsert->accept(visitor);
+
+        bool updated = false;
+        for (SceneUtil::PositionAttitudeTransform* transform : visitor.mTransforms)
+        {
+            if (!transform)
+                continue;
+            transform->setPosition(position);
+            transform->setAttitude(attitude);
+            updated = true;
+        }
+        return updated;
+    }
+
+    bool Animation::setEffectNodeOffset(
+        std::string_view effectId, std::string_view nodeName, const osg::Vec3f& offset)
+    {
+        FindVfxCallbacksVisitor effectVisitor(effectId);
+        mInsert->accept(effectVisitor);
+
+        bool updated = false;
+        for (SceneUtil::PositionAttitudeTransform* effectTransform : effectVisitor.mTransforms)
+        {
+            if (!effectTransform)
+                continue;
+            OffsetNamedTransformVisitor nodeVisitor(nodeName, offset);
+            effectTransform->accept(nodeVisitor);
+            updated = updated || nodeVisitor.mUpdated;
+        }
+        return updated;
+    }
+
     void Animation::removeEffect(std::string_view effectId)
     {
         RemoveCallbackVisitor visitor(effectId);
@@ -2066,7 +2142,13 @@ namespace MWRender
         // The actor root remains the network/physics transform. These offsets and
         // rotations are applied only to the rendered skeleton after normal
         // animation blending, producing a stable seated driver pose.
-        mVehicleDriverRootController = addPoseController("bip01", osg::Quat(), mVehicleDriverOffset);
+        mVehicleDriverRootController = addPoseController("bip01", osg::Quat(), osg::Vec3f());
+        if (mVehicleDriverRootController)
+        {
+            mVehicleDriverRootController->setRotateTranslation(true);
+            mVehicleDriverRootController->setFreezeTranslation(true);
+        }
+        updateVehicleDriverRootController();
         addPoseController("bip01 spine1", osg::Quat(5.f * degreesToRadians, xAxis));
 
         mVehicleThighControllers[0] = addPoseController("bip01 l thigh", osg::Quat());
@@ -2151,6 +2233,9 @@ namespace MWRender
         }
         else
         {
+            mVehicleDriverSuspensionPosition = osg::Vec3f();
+            mVehicleDriverSuspensionAttitude = osg::Quat();
+            updateVehicleDriverRootController();
             for (const osg::ref_ptr<RotateController>& controller : mVehicleDriverPoseControllers)
             {
                 if (controller)
@@ -2165,8 +2250,26 @@ namespace MWRender
     void Animation::setVehicleDriverOffset(const osg::Vec3f& offset)
     {
         mVehicleDriverOffset = offset;
+        updateVehicleDriverRootController();
+    }
+
+    void Animation::setVehicleDriverSuspensionTransform(
+        const osg::Vec3f& position, const osg::Quat& attitude)
+    {
+        mVehicleDriverSuspensionPosition = position;
+        mVehicleDriverSuspensionAttitude = attitude;
+        updateVehicleDriverRootController();
+    }
+
+    void Animation::updateVehicleDriverRootController()
+    {
         if (mVehicleDriverRootController)
-            mVehicleDriverRootController->setOffset(offset);
+        {
+            mVehicleDriverRootController->setRotate(mVehicleDriverSuspensionAttitude);
+            mVehicleDriverRootController->setOffset(
+                mVehicleDriverSuspensionAttitude * mVehicleDriverOffset
+                + mVehicleDriverSuspensionPosition);
+        }
     }
 
     void Animation::setVehicleLegPoseDegrees(const osg::Vec3f& pose)

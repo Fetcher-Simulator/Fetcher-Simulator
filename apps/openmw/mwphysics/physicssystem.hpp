@@ -97,6 +97,8 @@ namespace MWPhysics
         osg::Vec3f mMovement;
         osg::Vec3f mLastStuckPosition;
         const float mWaterlevel;
+        const osg::Vec3f mCollisionOffset;
+        const osg::Quat mCollisionRotation;
         const float mHalfExtentsZ;
         float mOldHeight;
         unsigned int mStuckFrames;
@@ -189,6 +191,8 @@ namespace MWPhysics
 
         void updateScale(const MWWorld::Ptr& ptr);
         void updateRotation(const MWWorld::Ptr& ptr, osg::Quat rotate);
+        void updateActorCollisionTransform(
+            const MWWorld::Ptr& ptr, osg::Quat rotation, const osg::Vec3f& positionOffset);
         void updatePosition(const MWWorld::Ptr& ptr);
 
         void addHeightField(const float* heights, int x, int y, int size, int verts, float minH, float maxH,

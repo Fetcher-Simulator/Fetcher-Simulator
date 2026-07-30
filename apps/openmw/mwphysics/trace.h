@@ -1,6 +1,7 @@
 #ifndef OENGINE_BULLET_TRACE_H
 #define OENGINE_BULLET_TRACE_H
 
+#include <osg/Quat>
 #include <osg/Vec3f>
 
 class btCollisionObject;
@@ -20,7 +21,7 @@ namespace MWPhysics
         float mFraction;
 
         void doTrace(const btCollisionObject* actor, const osg::Vec3f& start, const osg::Vec3f& end,
-            const btCollisionWorld* world, bool attemptShortTrace = false);
+            const btCollisionWorld* world, const osg::Quat& rotation, bool attemptShortTrace = false);
         void findGround(
             const Actor* actor, const osg::Vec3f& start, const osg::Vec3f& end, const btCollisionWorld* world);
     };

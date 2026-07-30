@@ -323,6 +323,8 @@ namespace MWBase
         virtual void setActorCollisionMode(const MWWorld::Ptr& ptr, bool internal, bool external) = 0;
         virtual bool setActorCollisionBox(
             const MWWorld::Ptr& ptr, const osg::Vec3f& halfExtents, const osg::Vec3f& center) = 0;
+        virtual void setActorCollisionTransform(
+            const MWWorld::Ptr& ptr, const osg::Quat& rotation, const osg::Vec3f& positionOffset) = 0;
         virtual bool restoreActorCollisionShape(const MWWorld::Ptr& ptr) = 0;
         virtual bool isActorCollisionEnabled(const MWWorld::Ptr& ptr) = 0;
 

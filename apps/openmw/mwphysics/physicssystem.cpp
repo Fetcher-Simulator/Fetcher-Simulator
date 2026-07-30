@@ -777,6 +777,17 @@ namespace MWPhysics
         }
     }
 
+    void PhysicsSystem::updateActorCollisionTransform(
+        const MWWorld::Ptr& ptr, osg::Quat rotation, const osg::Vec3f& positionOffset)
+    {
+        if (auto foundActor = mActors.find(ptr.mRef); foundActor != mActors.end()
+            && foundActor->second->hasCustomCollisionShape())
+        {
+            foundActor->second->setCollisionTransform(rotation, positionOffset);
+            mTaskScheduler->updateSingleAabb(foundActor->second);
+        }
+    }
+
     void PhysicsSystem::applyPendingActorCollisionShapes()
     {
         if (mPendingActorCollisionShapes.empty())
@@ -990,7 +1001,9 @@ namespace MWPhysics
         , mRotation()
         , mMovement(actor.velocity())
         , mWaterlevel(waterlevel)
-        , mHalfExtentsZ(actor.getHalfExtents().z())
+        , mCollisionOffset(actor.getMovementCollisionOffset())
+        , mCollisionRotation(actor.getMovementCollisionRotation())
+        , mHalfExtentsZ(actor.getMovementHalfExtentsZ())
         , mOldHeight(0)
         , mStuckFrames(0)
         , mFlying(MWBase::Environment::get().getWorld()->isFlying(actor.getPtr()))
