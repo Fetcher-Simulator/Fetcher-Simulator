@@ -33,6 +33,7 @@
 #include "../../mwrender/npcanimation.hpp"
 #include "../../mwrender/animationpriority.hpp"
 #include "../../mwrender/blendmask.hpp"
+#include "../../mwsound/sound.hpp"
 #include "../../mwworld/cell.hpp"
 #include "../../mwworld/cellstore.hpp"
 #include "../../mwworld/class.hpp"
@@ -603,15 +604,41 @@ namespace mwmp
                         sVehicleVisualEffectId, osg::Vec3f(), relativeAttitude);
                     animation->setVehicleDriverSuspensionTransform(
                         osg::Vec3f(), relativeAttitude);
+
+                    const osg::Vec3f linearVelocity(mState.velocity.linear[0],
+                        mState.velocity.linear[1], mState.velocity.linear[2]);
+                    const osg::Vec3f localVelocity = bodyOrientation.inverse() * linearVelocity;
+                    const float scaledWheelRadius
+                        = std::max(vehicleProfile->suspension.wheelRadius * presentationScale, 0.001f);
+                    for (std::size_t index = 0; index < mVehicleWheelRollAngles.size(); ++index)
+                    {
+                        mVehicleWheelRollAngles[index] = std::remainder(
+                            mVehicleWheelRollAngles[index] - localVelocity.y() / scaledWheelRadius * safeDt,
+                            static_cast<float>(osg::PI * 2.0));
+                    }
+
+                    const osg::Vec3f wheelRollAxis(1.f, 0.f, 0.f);
+                    const osg::Vec3f steeringAxis(0.f, 0.f, 1.f);
                     for (std::size_t index = 0; index < vehicleProfile->suspension.wheels.size(); ++index)
                     {
-                        animation->setEffectNodeOffset(sVehicleVisualEffectId,
-                            vehicleProfile->suspension.wheels[index].visualNode,
+                        const VehicleWheelProfile& wheel = vehicleProfile->suspension.wheels[index];
+                        const osg::Vec3f pivot(wheel.mountPosition[0], wheel.mountPosition[1],
+                            wheel.mountPosition[2] - vehicleProfile->suspension.restLength);
+                        const float visualSteeringAngle
+                            = index < 2 ? -mInterpolatedVehicleSteeringAngle : 0.f;
+                        const osg::Quat wheelAttitude
+                            = osg::Quat(mVehicleWheelRollAngles[index], wheelRollAxis)
+                            * osg::Quat(visualSteeringAngle, steeringAxis);
+                        animation->setEffectNodeTransform(sVehicleVisualEffectId, wheel.visualNode,
+                            pivot,
                             osg::Vec3f(0.f, 0.f,
-                                (vehicleProfile->suspension.wheels[index].visualContactPlaneOffset
+                                (wheel.visualContactPlaneOffset
                                     + mInterpolatedVehicleSuspensionCompression[index])
-                                    / presentationScale));
+                                    / presentationScale),
+                            wheelAttitude);
                     }
+                    updateVehicleAudio(safeDt, *vehicleProfile, bodyOrientation, linearVelocity,
+                        mInterpolatedVehicleSuspensionCompression);
                 }
                 mVehicleSuspensionState = {};
             }
@@ -631,7 +658,10 @@ namespace mwmp
             {
                 mHasInterpolatedVehicleRigidBodyPose = false;
                 mInterpolatedVehicleSuspensionCompression.fill(0.f);
+                mInterpolatedVehicleSteeringAngle = 0.f;
+                mVehicleWheelRollAngles.fill(0.f);
                 mVehicleSuspensionState = {};
+                stopVehicleAudio();
             }
 
             // Suppress AI every frame; MechanicsManager::add() reactivates
@@ -1367,6 +1397,7 @@ namespace mwmp
     // ---------------------------------------------------------------------------
     void RemotePlayer::despawnFromWorld()
     {
+        stopVehicleAudio();
         if (!mIsSpawned)
             return;
 
@@ -1403,6 +1434,8 @@ namespace mwmp
         mAppliedHitFlags = 0;
         mAppliedVehicleProfileId.clear();
         mVehicleSuspensionState = {};
+        mVehicleWheelRollAngles.fill(0.f);
+        mInterpolatedVehicleSteeringAngle = 0.f;
         mWasJumping = false; // reset so re-spawn doesn't skip the first jump edge
         mSpawnRetryTimer = SPAWN_RETRY_RATE; // attempt immediately on next update
         Log(Debug::Info) << "[MP] RemotePlayer " << mName << ": despawned from world";
@@ -1622,8 +1655,10 @@ namespace mwmp
         mState.positionSampleTimeUs = state.positionSampleTimeUs;
         mState.vehicle.hasRigidBodyPose = state.vehicle.hasRigidBodyPose;
         mState.vehicle.suspensionCompression = state.vehicle.suspensionCompression;
+        mState.vehicle.steeringAngle = state.vehicle.steeringAngle;
         mHasInterpolatedVehicleRigidBodyPose = state.vehicle.hasRigidBodyPose;
         mInterpolatedVehicleSuspensionCompression = state.vehicle.suspensionCompression;
+        mInterpolatedVehicleSteeringAngle = state.vehicle.steeringAngle;
 
         auto hardSnapPosition = [&](const char* reason) {
             clearPositionSnapshots();
@@ -1725,6 +1760,7 @@ namespace mwmp
             snapshot.velocity = state.velocity;
             snapshot.hasVehicleRigidBodyPose = state.vehicle.hasRigidBodyPose;
             snapshot.vehicleSuspensionCompression = state.vehicle.suspensionCompression;
+            snapshot.vehicleSteeringAngle = state.vehicle.steeringAngle;
             snapshot.senderTimeUs = state.positionSampleTimeUs;
             snapshot.receiveTimeUs = receiveUs;
             snapshot.sequence = sequence;
@@ -2431,6 +2467,111 @@ namespace mwmp
         Log(Debug::Verbose) << "[MP] RemotePlayer " << mName << ": speech '" << state.speechSound << "'";
     }
 
+    void RemotePlayer::stopVehicleAudio()
+    {
+        MWBase::SoundManager* soundManager = MWBase::Environment::get().getSoundManager();
+        if (soundManager)
+        {
+            if (mVehicleEngineSound)
+                soundManager->stopSound(mVehicleEngineSound);
+            if (mVehicleTireSound)
+                soundManager->stopSound(mVehicleTireSound);
+        }
+        mVehicleEngineSound = nullptr;
+        mVehicleTireSound = nullptr;
+        mVehicleSkidCooldown = 0.f;
+        mVehicleImpactCooldown = 0.f;
+        mVehicleAudioInitialized = false;
+        mPreviousVehicleSuspensionTravel.fill(0.f);
+    }
+
+    void RemotePlayer::updateVehicleAudio(float dt, const VehicleProfile& profile,
+        const osg::Quat& bodyOrientation, const osg::Vec3f& linearVelocity,
+        const std::array<float, 4>& suspensionTravel)
+    {
+        MWBase::SoundManager* soundManager = MWBase::Environment::get().getSoundManager();
+        if (!soundManager || mNpcPtr.isEmpty())
+            return;
+
+        const osg::Vec3f localVelocity = bodyOrientation.inverse() * linearVelocity;
+        const float forwardSpeed = std::abs(localVelocity.y());
+        const float lateralSpeed = std::abs(localVelocity.x());
+        const float speedRatio = std::clamp(
+            forwardSpeed / std::max(profile.handling.maxForwardSpeed, 1.f), 0.f, 1.f);
+        const float engineResponse = std::clamp(speedRatio * 0.85f, 0.f, 1.f);
+        const float enginePitch = profile.audio.engineIdlePitch
+            + (profile.audio.engineMaximumPitch - profile.audio.engineIdlePitch) * engineResponse;
+        const float engineVolume = profile.audio.engineIdleVolume
+            + profile.audio.engineLoadVolume * std::clamp(speedRatio, 0.f, 1.f);
+
+        if (!mVehicleEngineSound && !profile.audio.engineLoop.empty())
+        {
+            mVehicleEngineSound = soundManager->playSound3D(mNpcPtr,
+                VFS::Path::Normalized(profile.audio.engineLoop), engineVolume, enginePitch,
+                MWSound::Type::Sfx, MWSound::PlayMode::Loop);
+        }
+        if (mVehicleEngineSound)
+        {
+            mVehicleEngineSound->setVolume(engineVolume);
+            mVehicleEngineSound->setPitch(enginePitch);
+            mVehicleEngineSound->setVelocity(linearVelocity);
+        }
+
+        const float tireAudibility = std::clamp((forwardSpeed - 20.f) / 520.f, 0.f, 1.f);
+        const float tirePitch = profile.audio.tireMinimumPitch
+            + (profile.audio.tireMaximumPitch - profile.audio.tireMinimumPitch) * speedRatio;
+        const float tireVolume = profile.audio.tireMaximumVolume * tireAudibility;
+        if (!mVehicleTireSound && !profile.audio.tireRollLoop.empty())
+        {
+            mVehicleTireSound = soundManager->playSound3D(mNpcPtr,
+                VFS::Path::Normalized(profile.audio.tireRollLoop), tireVolume, tirePitch,
+                MWSound::Type::Sfx, MWSound::PlayMode::Loop);
+        }
+        if (mVehicleTireSound)
+        {
+            mVehicleTireSound->setVolume(tireVolume);
+            mVehicleTireSound->setPitch(tirePitch);
+            mVehicleTireSound->setVelocity(linearVelocity);
+        }
+
+        const float safeDt = std::max(dt, 0.f);
+        mVehicleSkidCooldown = std::max(mVehicleSkidCooldown - safeDt, 0.f);
+        mVehicleImpactCooldown = std::max(mVehicleImpactCooldown - safeDt, 0.f);
+        const float skidIntensity = std::clamp((lateralSpeed - 55.f) / 260.f, 0.f, 1.f);
+        if (skidIntensity > 0.22f && mVehicleSkidCooldown <= 0.f
+            && !profile.audio.skidSound.empty())
+        {
+            soundManager->playSound3D(mNpcPtr, VFS::Path::Normalized(profile.audio.skidSound),
+                profile.audio.skidVolume * skidIntensity, 0.85f + skidIntensity * 0.25f);
+            mVehicleSkidCooldown = 0.32f;
+        }
+
+        if (!mVehicleAudioInitialized)
+        {
+            mPreviousVehicleSuspensionTravel = suspensionTravel;
+            mVehicleAudioInitialized = true;
+            return;
+        }
+
+        float maximumCompressionSpeed = 0.f;
+        const float derivativeDt = std::max(safeDt, 0.001f);
+        for (std::size_t index = 0; index < suspensionTravel.size(); ++index)
+        {
+            maximumCompressionSpeed = std::max(maximumCompressionSpeed,
+                (suspensionTravel[index] - mPreviousVehicleSuspensionTravel[index]) / derivativeDt);
+        }
+        mPreviousVehicleSuspensionTravel = suspensionTravel;
+        if (maximumCompressionSpeed > 170.f && mVehicleImpactCooldown <= 0.f
+            && !profile.audio.suspensionImpactSound.empty())
+        {
+            const float impact = std::clamp((maximumCompressionSpeed - 170.f) / 500.f, 0.f, 1.f);
+            soundManager->playSound3D(mNpcPtr,
+                VFS::Path::Normalized(profile.audio.suspensionImpactSound),
+                profile.audio.suspensionImpactVolume * impact, 0.9f + impact * 0.18f);
+            mVehicleImpactCooldown = 0.18f;
+        }
+    }
+
     // ---------------------------------------------------------------------------
     void RemotePlayer::onVehicleState(const BasePlayer& state)
     {
@@ -2440,6 +2581,10 @@ namespace mwmp
         mState.vehicle = state.vehicle;
         mHasInterpolatedVehicleRigidBodyPose = false;
         mInterpolatedVehicleSuspensionCompression.fill(0.f);
+        mInterpolatedVehicleSteeringAngle = 0.f;
+        mVehicleWheelRollAngles.fill(0.f);
+        if (!mState.vehicle.active)
+            stopVehicleAudio();
         applyVehiclePresentation();
     }
 
@@ -2480,6 +2625,8 @@ namespace mwmp
             if (hasVehicleEffect)
                 animation->removeEffect(sVehicleVisualEffectId);
             mAppliedVehicleProfileId.clear();
+            mVehicleWheelRollAngles.fill(0.f);
+            stopVehicleAudio();
             return;
         }
 
@@ -2489,6 +2636,8 @@ namespace mwmp
             if (hasVehicleEffect)
                 animation->removeEffect(sVehicleVisualEffectId);
             mAppliedVehicleProfileId.clear();
+            mVehicleWheelRollAngles.fill(0.f);
+            stopVehicleAudio();
             Log(Debug::Warning) << "[MP] RemotePlayer " << mName
                                 << ": unknown vehicle profile '" << mState.vehicle.profileId << "'";
             return;
@@ -2756,6 +2905,9 @@ namespace mwmp
         mPositionClockOffsetUs = 0.0;
         mHasPositionClockOffset = false;
         mLastPositionSampleTimeUs = 0;
+        mHasInterpolatedVehicleRigidBodyPose = false;
+        mInterpolatedVehicleSuspensionCompression.fill(0.f);
+        mInterpolatedVehicleSteeringAngle = 0.f;
     }
 
     bool RemotePlayer::updateSnapshotTarget()
@@ -2785,6 +2937,7 @@ namespace mwmp
         bool hasVehicleRigidBodyPose = oldest.hasVehicleRigidBodyPose;
         std::array<float, 4> vehicleSuspensionCompression
             = oldest.vehicleSuspensionCompression;
+        float vehicleSteeringAngle = oldest.vehicleSteeringAngle;
 
         if (renderTimeUs <= static_cast<double>(oldest.senderTimeUs))
         {
@@ -2868,6 +3021,8 @@ namespace mwmp
                     + (upper.vehicleSuspensionCompression[index]
                         - lower.vehicleSuspensionCompression[index]) * alpha;
             }
+            vehicleSteeringAngle = lower.vehicleSteeringAngle
+                + (upper.vehicleSteeringAngle - lower.vehicleSteeringAngle) * alpha;
             ++mMovementDiagSnapshotInterpFrames;
         }
         else
@@ -2875,6 +3030,7 @@ namespace mwmp
             target = newest.position;
             hasVehicleRigidBodyPose = newest.hasVehicleRigidBodyPose;
             vehicleSuspensionCompression = newest.vehicleSuspensionCompression;
+            vehicleSteeringAngle = newest.vehicleSteeringAngle;
             const double rawExtrapolationUs = renderTimeUs - static_cast<double>(newest.senderTimeUs);
             const uint64_t extrapolationUs = static_cast<uint64_t>(std::clamp(rawExtrapolationUs, 0.0,
                 static_cast<double>(POSITION_EXTRAPOLATION_LIMIT_US)));
@@ -2902,6 +3058,7 @@ namespace mwmp
 
         mHasInterpolatedVehicleRigidBodyPose = hasVehicleRigidBodyPose;
         mInterpolatedVehicleSuspensionCompression = vehicleSuspensionCompression;
+        mInterpolatedVehicleSteeringAngle = vehicleSteeringAngle;
         mInterp.tx = target.pos[0];
         mInterp.ty = target.pos[1];
         mInterp.tz = target.pos[2];

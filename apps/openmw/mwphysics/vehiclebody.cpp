@@ -279,6 +279,19 @@ namespace MWPhysics
             || std::abs(input.mSteering) > 0.001f || input.mHandbrake > 0.001f;
         if (hasInput)
             body->activate(true);
+
+        const btMatrix3x3& basis = transform.getBasis();
+        const btVector3 linearVelocity = body->getLinearVelocity();
+        const btVector3 localVelocity = basis.transpose() * linearVelocity;
+        const btScalar forwardSpeed = localVelocity.y();
+        const btScalar speedRatio
+            = std::clamp(std::abs(forwardSpeed) / mConfig.mMaxForwardSpeed, btScalar(0), btScalar(1));
+        const btScalar steeringDegrees = mConfig.mLowSpeedSteeringDegrees
+            + (mConfig.mHighSpeedSteeringDegrees - mConfig.mLowSpeedSteeringDegrees) * speedRatio;
+        const btScalar steeringAngle
+            = input.mSteering * steeringDegrees * static_cast<btScalar>(osg::PI / 180.0);
+        mSteeringAngle = static_cast<float>(steeringAngle);
+
         if (groundedWheels == 0)
             return;
 
@@ -289,15 +302,11 @@ namespace MWPhysics
         else
             averageContactNormal = upDirection;
 
-        const btMatrix3x3& basis = transform.getBasis();
         const btVector3 forward = basis * btVector3(0, 1, 0);
         const btVector3 right = basis * btVector3(1, 0, 0);
-        const btVector3 linearVelocity = body->getLinearVelocity();
         const btVector3 tangentVelocity
             = linearVelocity - averageContactNormal * linearVelocity.dot(averageContactNormal);
         const btScalar tangentSpeed = tangentVelocity.length();
-        const btVector3 localVelocity = basis.transpose() * linearVelocity;
-        const btScalar forwardSpeed = localVelocity.y();
         const btScalar lateralSpeed = localVelocity.x();
         const bool parkingBrakeHold = input.mHandbrake > 0.f
             && input.mThrottle <= 0.001f && input.mBrake <= 0.001f
@@ -371,12 +380,6 @@ namespace MWPhysics
             body->applyCentralForce(right * (mMass * lateralAcceleration * traction));
         }
 
-        const btScalar speedRatio
-            = std::clamp(std::abs(forwardSpeed) / mConfig.mMaxForwardSpeed, btScalar(0), btScalar(1));
-        const btScalar steeringDegrees = mConfig.mLowSpeedSteeringDegrees
-            + (mConfig.mHighSpeedSteeringDegrees - mConfig.mLowSpeedSteeringDegrees) * speedRatio;
-        const btScalar steeringAngle
-            = input.mSteering * steeringDegrees * static_cast<btScalar>(osg::PI / 180.0);
         // OpenMW actor yaw increases around -Z, while Bullet torque uses +Z.
         // Negate the bicycle-model yaw rate so negative steering (A/left)
         // turns the vehicle left in OpenMW world space.
@@ -401,6 +404,7 @@ namespace MWPhysics
             = Misc::Convert::toOsg(transform.getOrigin()) - orientation * mScaledCenterOfMassFromRoot;
         state.mLinearVelocity = Misc::Convert::toOsg(body->getLinearVelocity());
         state.mAngularVelocity = Misc::Convert::toOsg(body->getAngularVelocity());
+        state.mSteeringAngle = mSteeringAngle;
         state.mSuspensionCompression = mSuspensionCompression;
         state.mSuspensionLength = mSuspensionLength;
         state.mWheelGrounded = mWheelGrounded;

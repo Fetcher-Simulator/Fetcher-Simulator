@@ -870,6 +870,7 @@ void PlayerSync::update(float dt)
     mLocal.position.rot[2] = pos.rot[2];
     mLocal.vehicle.hasRigidBodyPose = false;
     mLocal.vehicle.suspensionCompression.fill(0.f);
+    mLocal.vehicle.steeringAngle = 0.f;
     if (mLocal.vehicle.active)
     {
         MWPhysics::VehicleBodyState bodyState;
@@ -880,6 +881,7 @@ void PlayerSync::update(float dt)
             mLocal.position.rot[1] = angles.y();
             mLocal.position.rot[2] = angles.z();
             mLocal.vehicle.hasRigidBodyPose = true;
+            mLocal.vehicle.steeringAngle = bodyState.mSteeringAngle;
             float presentationScale = 1.f;
             if (const SceneUtil::PositionAttitudeTransform* baseNode = player.getRefData().getBaseNode())
                 presentationScale = std::max(std::abs(baseNode->getScale().y()), 0.001f);

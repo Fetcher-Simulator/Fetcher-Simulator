@@ -70,6 +70,7 @@ namespace MWPhysics
         osg::Quat mOrientation;
         osg::Vec3f mLinearVelocity;
         osg::Vec3f mAngularVelocity;
+        float mSteeringAngle = 0.f;
         std::array<float, 4> mSuspensionCompression{};
         std::array<float, 4> mSuspensionLength{};
         std::array<bool, 4> mWheelGrounded{};
@@ -110,6 +111,7 @@ namespace MWPhysics
 
         std::mutex mInputMutex;
         VehicleBodyInput mInput;
+        float mSteeringAngle = 0.f;
         std::array<float, 4> mSuspensionCompression{};
         std::array<float, 4> mSuspensionLength{};
         std::array<bool, 4> mWheelGrounded{};

@@ -64,6 +64,7 @@ namespace MWWorld
         float mYawRate = 0.f;
         float mLogTimer = 0.f;
         std::array<float, 4> mVisualSuspensionTravel{};
+        std::array<float, 4> mWheelRollAngles{};
         bool mVisualSuspensionInitialized = false;
         bool mMotionInitialized = false;
         bool mGrounded = false;

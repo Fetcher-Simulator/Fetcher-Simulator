@@ -385,6 +385,8 @@ namespace MWRender
             std::string_view effectId, const osg::Vec3f& position, const osg::Quat& attitude);
         bool setEffectNodeOffset(
             std::string_view effectId, std::string_view nodeName, const osg::Vec3f& offset);
+        bool setEffectNodeTransform(std::string_view effectId, std::string_view nodeName,
+            const osg::Vec3f& pivot, const osg::Vec3f& offset, const osg::Quat& attitude);
 
         // Add a spell casting glow to an object. From measuring video taken from the original engine,
         // the glow seems to be about 1.5 seconds except for telekinesis, which is 1 second.

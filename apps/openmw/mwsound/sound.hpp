@@ -63,6 +63,7 @@ namespace MWSound
         void setVelocity(const osg::Vec3f& vel) { mParams.mVel = vel; }
         void setVolume(float volume) { mParams.mVolume = volume; }
         void setBaseVolume(float volume) { mParams.mBaseVolume = volume; }
+        void setPitch(float pitch) { mParams.mPitch = pitch; }
         void setFadeout(float duration) { setFade(duration, 0.0, Play_StopAtFadeEnd); }
 
         /// Fade to the given linear gain within the specified amount of time.

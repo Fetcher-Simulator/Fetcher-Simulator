@@ -5423,6 +5423,7 @@ void MPServer::handlePlayerPosition(ConnectedClient& c, const uint8_t* data, siz
     c.player.positionSampleTimeUs = proposed.positionSampleTimeUs;
     c.player.vehicle.hasRigidBodyPose = proposed.vehicle.hasRigidBodyPose;
     c.player.vehicle.suspensionCompression = proposed.vehicle.suspensionCompression;
+    c.player.vehicle.steeringAngle = proposed.vehicle.steeringAngle;
 
     // Relay to all other clients (unreliable is fine - we use raw broadcast)
     if (forceReliableTeleportRelay)

@@ -23,6 +23,7 @@ namespace mwmp
             ws.write(mPlayer->vehicle.hasRigidBodyPose);
             for (float compression : mPlayer->vehicle.suspensionCompression)
                 ws.write(compression);
+            ws.write(mPlayer->vehicle.steeringAngle);
         }
 
         void unpack(ReadStream& rs) override
@@ -42,12 +43,15 @@ namespace mwmp
 
             mPlayer->vehicle.hasRigidBodyPose = false;
             mPlayer->vehicle.suspensionCompression.fill(0.f);
+            mPlayer->vehicle.steeringAngle = 0.f;
             constexpr std::size_t rigidBodyPoseBytes = sizeof(bool) + sizeof(float) * 4;
             if (rs.remaining() >= rigidBodyPoseBytes)
             {
                 rs.read(mPlayer->vehicle.hasRigidBodyPose);
                 for (float& compression : mPlayer->vehicle.suspensionCompression)
                     rs.read(compression);
+                if (rs.remaining() >= sizeof(float))
+                    rs.read(mPlayer->vehicle.steeringAngle);
             }
         }
     };

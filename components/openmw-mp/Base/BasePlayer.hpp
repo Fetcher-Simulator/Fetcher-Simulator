@@ -54,6 +54,7 @@ namespace mwmp
             // Historical field name retained for packet compatibility. Values
             // are signed visual travel: positive compression, negative droop.
             std::array<float, 4> suspensionCompression{};
+            float steeringAngle = 0.f;
         } vehicle;
 
         // ------------------------------------------------------------------

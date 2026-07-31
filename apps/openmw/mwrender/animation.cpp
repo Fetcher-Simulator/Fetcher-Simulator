@@ -404,13 +404,16 @@ namespace
         std::string_view mNodeName;
     };
 
-    class OffsetNamedTransformVisitor : public osg::NodeVisitor
+    class TransformNamedNodeVisitor : public osg::NodeVisitor
     {
     public:
-        OffsetNamedTransformVisitor(std::string_view nodeName, const osg::Vec3f& offset)
+        TransformNamedNodeVisitor(std::string_view nodeName, const osg::Vec3f& pivot,
+            const osg::Vec3f& offset, const osg::Quat& attitude)
             : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
             , mNodeName(nodeName)
+            , mPivot(pivot)
             , mOffset(offset)
+            , mAttitude(attitude)
         {
         }
 
@@ -418,24 +421,22 @@ namespace
 
         void apply(osg::MatrixTransform& transform) override
         {
-            bool isOffsetWrapper = false;
-            if (transform.getName() == mNodeName
-                && transform.getUserValue("mwmp_effect_offset_wrapper", isOffsetWrapper)
-                && isOffsetWrapper)
+            bool isNodeWrapper = false;
+            bool isLegacyOffsetWrapper = false;
+            transform.getUserValue("mwmp_effect_node_wrapper", isNodeWrapper);
+            transform.getUserValue("mwmp_effect_offset_wrapper", isLegacyOffsetWrapper);
+            if (transform.getName() == mNodeName && (isNodeWrapper || isLegacyOffsetWrapper))
             {
-                osg::Vec3f baseTranslation;
-                if (!transform.getUserValue("mwmp_effect_base_translation", baseTranslation))
-                {
-                    baseTranslation = transform.getMatrix().getTrans();
-                    transform.setUserValue("mwmp_effect_base_translation", baseTranslation);
-                }
-
-                osg::Matrix matrix = transform.getMatrix();
-                matrix.setTrans(baseTranslation + mOffset);
-                transform.setMatrix(matrix);
+                // NIF wheel geometry is authored directly in vehicle model space.
+                // Rotate around its measured model-space center, then apply the
+                // suspension translation without orbiting around the vehicle root.
+                transform.setMatrix(osg::Matrix::translate(-mPivot)
+                    * osg::Matrix::rotate(mAttitude)
+                    * osg::Matrix::translate(mPivot + mOffset));
+                transform.setUserValue("mwmp_effect_node_wrapper", true);
                 mUpdated = true;
-                // An offset wrapper owns the whole named subtree. Do not apply
-                // the same offset again to an accidentally nested duplicate.
+                // A node wrapper owns the whole named subtree. Do not transform an
+                // accidentally nested duplicate a second time.
                 return;
             }
             traverse(transform);
@@ -445,7 +446,9 @@ namespace
 
     private:
         std::string_view mNodeName;
+        osg::Vec3f mPivot;
         osg::Vec3f mOffset;
+        osg::Quat mAttitude;
     };
 
     void assignBoneBlendCallbackRecursive(MWRender::BoneAnimBlendController* controller, osg::Node* parent, bool isRoot)
@@ -1967,6 +1970,12 @@ namespace MWRender
     bool Animation::setEffectNodeOffset(
         std::string_view effectId, std::string_view nodeName, const osg::Vec3f& offset)
     {
+        return setEffectNodeTransform(effectId, nodeName, osg::Vec3f(), offset, osg::Quat());
+    }
+
+    bool Animation::setEffectNodeTransform(std::string_view effectId, std::string_view nodeName,
+        const osg::Vec3f& pivot, const osg::Vec3f& offset, const osg::Quat& attitude)
+    {
         FindVfxCallbacksVisitor effectVisitor(effectId);
         mInsert->accept(effectVisitor);
 
@@ -1976,7 +1985,7 @@ namespace MWRender
             if (!effectTransform)
                 continue;
 
-            OffsetNamedTransformVisitor nodeVisitor(nodeName, offset);
+            TransformNamedNodeVisitor nodeVisitor(nodeName, pivot, offset, attitude);
             effectTransform->accept(nodeVisitor);
             if (nodeVisitor.mUpdated)
             {
@@ -1986,8 +1995,8 @@ namespace MWRender
 
             // Static model optimization can flatten a named NIF transform into a
             // plain Group or Geode. Preserve the named node by inserting a dynamic
-            // MatrixTransform above it, so subsequent suspension updates can use
-            // the normal fast path without modifying shared vertex data.
+            // MatrixTransform above it, so subsequent wheel updates can translate
+            // and rotate the geometry without modifying shared vertex data.
             FindNamedNodeVisitor findVisitor(nodeName);
             effectTransform->accept(findVisitor);
             for (const osg::ref_ptr<osg::Node>& namedNode : findVisitor.mNodes)
@@ -1999,7 +2008,7 @@ namespace MWRender
                 if (parents.empty())
                     continue;
 
-                namedNode->setName(std::string(nodeName) + " [offset child]");
+                namedNode->setName(std::string(nodeName) + " [transform child]");
                 for (osg::Group* parent : parents)
                 {
                     if (!parent)
@@ -2008,9 +2017,10 @@ namespace MWRender
                     osg::ref_ptr<osg::MatrixTransform> wrapper = new osg::MatrixTransform;
                     wrapper->setName(std::string(nodeName));
                     wrapper->setDataVariance(osg::Object::DYNAMIC);
-                    wrapper->setMatrix(osg::Matrix::translate(offset));
-                    wrapper->setUserValue("mwmp_effect_offset_wrapper", true);
-                    wrapper->setUserValue("mwmp_effect_base_translation", osg::Vec3f());
+                    wrapper->setMatrix(osg::Matrix::translate(-pivot)
+                        * osg::Matrix::rotate(attitude)
+                        * osg::Matrix::translate(pivot + offset));
+                    wrapper->setUserValue("mwmp_effect_node_wrapper", true);
                     if (!parent->replaceChild(namedNode, wrapper))
                         continue;
                     wrapper->addChild(namedNode);

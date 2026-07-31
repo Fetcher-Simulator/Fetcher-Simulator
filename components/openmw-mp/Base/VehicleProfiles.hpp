@@ -72,6 +72,23 @@ namespace mwmp
         float angularDamping;
     };
 
+    struct VehicleAudioProfile
+    {
+        std::string_view engineLoop;
+        std::string_view tireRollLoop;
+        std::string_view skidSound;
+        std::string_view suspensionImpactSound;
+        float engineIdleVolume;
+        float engineLoadVolume;
+        float engineIdlePitch;
+        float engineMaximumPitch;
+        float tireMaximumVolume;
+        float tireMinimumPitch;
+        float tireMaximumPitch;
+        float skidVolume;
+        float suspensionImpactVolume;
+    };
+
     struct VehicleProfile
     {
         std::string_view id;
@@ -82,6 +99,7 @@ namespace mwmp
         std::array<float, 3> collisionCenterFromVehicleRoot;
         std::array<float, 3> firstPersonCameraOffset;
         VehicleRigidBodyProfile rigidBody;
+        VehicleAudioProfile audio;
         VehicleSuspensionProfile suspension;
         VehicleHandlingProfile handling;
     };
@@ -114,6 +132,21 @@ namespace mwmp
                 0.05f,
                 0.04f,
                 0.12f,
+            },
+            {
+                "sound/fetcher/vehicles/pickup_engine_idle.ogg",
+                "sound/fetcher/vehicles/pickup_gravel_roll.ogg",
+                "sound/fetcher/vehicles/pickup_gravel_skid.ogg",
+                "sound/fetcher/vehicles/pickup_suspension_thump.ogg",
+                0.32f,
+                0.38f,
+                0.78f,
+                1.48f,
+                0.52f,
+                0.78f,
+                1.32f,
+                0.72f,
+                0.68f,
             },
             {
                 { {

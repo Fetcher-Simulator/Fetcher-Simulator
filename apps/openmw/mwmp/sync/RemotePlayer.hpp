@@ -15,8 +15,15 @@
 
 #include "Nameplate.hpp"
 
+namespace MWSound
+{
+    class Sound;
+}
+
 namespace mwmp
 {
+    struct VehicleProfile;
+
     // -----------------------------------------------------------------------
     // RemotePlayer - represents one other connected player in our game world.
     //
@@ -91,6 +98,10 @@ namespace mwmp
         void applyEquipmentState(const BasePlayer& state, bool playSounds);
         void applyInventoryState(const BasePlayer& state, bool playSounds);
         void applyVehiclePresentation();
+        void updateVehicleAudio(float dt, const VehicleProfile& profile,
+            const osg::Quat& bodyOrientation, const osg::Vec3f& linearVelocity,
+            const std::array<float, 4>& suspensionTravel);
+        void stopVehicleAudio();
 
         // ---- interpolation ----
         void updateInterpolation(float dt);
@@ -114,6 +125,13 @@ namespace mwmp
         std::unique_ptr<Nameplate> mNameplate;
         std::string mAppliedVehicleProfileId;
         MWMechanics::VehicleSuspensionState mVehicleSuspensionState;
+        std::array<float, 4> mVehicleWheelRollAngles{};
+        std::array<float, 4> mPreviousVehicleSuspensionTravel{};
+        MWSound::Sound* mVehicleEngineSound = nullptr;
+        MWSound::Sound* mVehicleTireSound = nullptr;
+        float mVehicleSkidCooldown = 0.f;
+        float mVehicleImpactCooldown = 0.f;
+        bool mVehicleAudioInitialized = false;
 
         // --- trySpawn cooldown ---
         float mSpawnRetryTimer = 0.f;
@@ -144,6 +162,7 @@ namespace mwmp
             Velocity velocity;
             bool hasVehicleRigidBodyPose = false;
             std::array<float, 4> vehicleSuspensionCompression{};
+            float vehicleSteeringAngle = 0.f;
             uint64_t senderTimeUs = 0;
             uint64_t receiveTimeUs = 0;
             uint32_t sequence = 0;
@@ -151,6 +170,7 @@ namespace mwmp
         std::deque<PositionSnapshot> mPositionSnapshots;
         bool mHasInterpolatedVehicleRigidBodyPose = false;
         std::array<float, 4> mInterpolatedVehicleSuspensionCompression{};
+        float mInterpolatedVehicleSteeringAngle = 0.f;
         double mPositionClockOffsetUs = 0.0;
         bool mHasPositionClockOffset = false;
         uint64_t mLastPositionSampleTimeUs = 0;
