@@ -22,6 +22,7 @@
 
 #include "collisiontype.hpp"
 #include "raycasting.hpp"
+#include "vehiclebody.hpp"
 
 namespace osg
 {
@@ -47,6 +48,8 @@ class btDefaultCollisionConfiguration;
 class btCollisionDispatcher;
 class btCollisionObject;
 class btCollisionShape;
+class btConstraintSolver;
+class btDiscreteDynamicsWorld;
 class btVector3;
 
 namespace MWPhysics
@@ -171,6 +174,10 @@ namespace MWPhysics
         bool queueActorCollisionBox(
             const MWWorld::Ptr& ptr, const osg::Vec3f& halfExtents, const osg::Vec3f& center);
         bool queueRestoreActorCollisionShape(const MWWorld::Ptr& ptr);
+        bool queueVehicleBody(const MWWorld::Ptr& ptr, const VehicleBodyConfig& config);
+        bool queueRemoveVehicleBody(const MWWorld::Ptr& ptr);
+        bool setVehicleBodyInput(const MWWorld::Ptr& ptr, const VehicleBodyInput& input);
+        bool getVehicleBodyState(const MWWorld::ConstPtr& ptr, VehicleBodyState& state) const;
 
         int addProjectile(
             const MWWorld::Ptr& caster, const osg::Vec3f& position, VFS::Path::NormalizedView mesh, bool computeRadius);
@@ -307,15 +314,24 @@ namespace MWPhysics
             bool mRestore = false;
         };
 
+        struct PendingVehicleBody
+        {
+            MWWorld::Ptr mPtr;
+            VehicleBodyConfig mConfig;
+            bool mRemove = false;
+        };
+
         void updateWater();
 
         void applyPendingActorCollisionShapes();
+        void applyPendingVehicleBodies();
         void prepareSimulation(bool willSimulate, std::vector<Simulation>& simulations);
 
         std::unique_ptr<btBroadphaseInterface> mBroadphase;
         std::unique_ptr<btDefaultCollisionConfiguration> mCollisionConfiguration;
         std::unique_ptr<btCollisionDispatcher> mDispatcher;
-        std::unique_ptr<btCollisionWorld> mCollisionWorld;
+        std::unique_ptr<btConstraintSolver> mConstraintSolver;
+        std::unique_ptr<btDiscreteDynamicsWorld> mCollisionWorld;
         std::unique_ptr<PhysicsTaskScheduler> mTaskScheduler;
 
         std::unique_ptr<Resource::BulletShapeManager> mShapeManager;
@@ -328,6 +344,11 @@ namespace MWPhysics
 
         ActorMap mActors;
         std::unordered_map<const MWWorld::LiveCellRefBase*, PendingActorCollisionShape> mPendingActorCollisionShapes;
+        std::unordered_map<const MWWorld::LiveCellRefBase*, PendingVehicleBody> mPendingVehicleBodies;
+
+        using VehicleBodyMap
+            = std::unordered_map<const MWWorld::LiveCellRefBase*, std::shared_ptr<VehicleBody>>;
+        VehicleBodyMap mVehicleBodies;
 
         using ProjectileMap = std::map<int, std::shared_ptr<Projectile>>;
         ProjectileMap mProjectiles;

@@ -1577,6 +1577,29 @@ namespace MWWorld
         return mPhysics->queueRestoreActorCollisionShape(ptr);
     }
 
+    bool World::setVehicleRigidBody(
+        const MWWorld::Ptr& ptr, const MWPhysics::VehicleBodyConfig& config)
+    {
+        return mPhysics->queueVehicleBody(ptr, config);
+    }
+
+    bool World::removeVehicleRigidBody(const MWWorld::Ptr& ptr)
+    {
+        return mPhysics->queueRemoveVehicleBody(ptr);
+    }
+
+    bool World::setVehicleRigidBodyInput(
+        const MWWorld::Ptr& ptr, const MWPhysics::VehicleBodyInput& input)
+    {
+        return mPhysics->setVehicleBodyInput(ptr, input);
+    }
+
+    bool World::getVehicleRigidBodyState(
+        const MWWorld::ConstPtr& ptr, MWPhysics::VehicleBodyState& state) const
+    {
+        return mPhysics->getVehicleBodyState(ptr, state);
+    }
+
     bool World::isActorCollisionEnabled(const MWWorld::Ptr& ptr)
     {
         MWPhysics::Actor* physicActor = mPhysics->getActor(ptr);

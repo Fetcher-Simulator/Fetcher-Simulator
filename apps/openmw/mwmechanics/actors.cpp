@@ -426,11 +426,6 @@ namespace MWMechanics
                     stats.setMovementFlag(MWMechanics::CreatureStats::Flag_Run, false);
                     stats.setMovementFlag(MWMechanics::CreatureStats::Flag_Sneak, false);
 
-                    controls.mMovement = 0.f;
-                    controls.mSideMovement = 0.f;
-                    controls.mJump = false;
-                    controls.mRun = false;
-                    controls.mSneak = false;
                 }
                 else
                     player.clearVehicleInput();

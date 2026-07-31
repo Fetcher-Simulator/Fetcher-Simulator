@@ -376,6 +376,34 @@ namespace
         std::string_view mEffectId;
     };
 
+    class FindNamedNodeVisitor : public osg::NodeVisitor
+    {
+    public:
+        explicit FindNamedNodeVisitor(std::string_view nodeName)
+            : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
+            , mNodeName(nodeName)
+        {
+        }
+
+        void apply(osg::Node& node) override
+        {
+            if (node.getName() == mNodeName)
+            {
+                // NiGeometry names are copied to both the outer scene node and
+                // its drawable. Stop at the outermost match so suspension does
+                // not wrap and translate the same tire twice.
+                mNodes.emplace_back(&node);
+                return;
+            }
+            traverse(node);
+        }
+
+        std::vector<osg::ref_ptr<osg::Node>> mNodes;
+
+    private:
+        std::string_view mNodeName;
+    };
+
     class OffsetNamedTransformVisitor : public osg::NodeVisitor
     {
     public:
@@ -390,7 +418,10 @@ namespace
 
         void apply(osg::MatrixTransform& transform) override
         {
-            if (transform.getName() == mNodeName)
+            bool isOffsetWrapper = false;
+            if (transform.getName() == mNodeName
+                && transform.getUserValue("mwmp_effect_offset_wrapper", isOffsetWrapper)
+                && isOffsetWrapper)
             {
                 osg::Vec3f baseTranslation;
                 if (!transform.getUserValue("mwmp_effect_base_translation", baseTranslation))
@@ -403,6 +434,9 @@ namespace
                 matrix.setTrans(baseTranslation + mOffset);
                 transform.setMatrix(matrix);
                 mUpdated = true;
+                // An offset wrapper owns the whole named subtree. Do not apply
+                // the same offset again to an accidentally nested duplicate.
+                return;
             }
             traverse(transform);
         }
@@ -609,6 +643,14 @@ namespace MWRender
             mAnimationTimePtr[i] = std::make_shared<AnimationTime>();
 
         mLightListCallback = new SceneUtil::LightListCallback;
+
+        // Vehicle pitch and roll belong in actor-model space, not Bip01 bone
+        // space. Keep a dedicated identity wrapper around the rendered actor so
+        // seated occupants can share the chassis transform without rotating an
+        // animation-authored root translation around the actor origin.
+        mVehicleDriverTransform = new SceneUtil::PositionAttitudeTransform;
+        mVehicleDriverTransform->setName("Vehicle Driver Transform");
+        mInsert->addChild(mVehicleDriverTransform);
     }
 
     Animation::~Animation()
@@ -1509,7 +1551,10 @@ namespace MWRender
         float yawOffset = 0;
         if (mRootController)
         {
-            bool enable = std::abs(mLegsYawRadians) > epsilon || std::abs(mBodyPitchRadians) > epsilon;
+            // The seated pose owns the skeleton root. Remote look/body values
+            // must not add another root transform on top of the chassis pose.
+            bool enable = !mVehicleDriverPoseEnabled
+                && (std::abs(mLegsYawRadians) > epsilon || std::abs(mBodyPitchRadians) > epsilon);
             mRootController->setEnabled(enable);
             if (enable)
             {
@@ -1523,7 +1568,8 @@ namespace MWRender
         if (mSpineController)
         {
             float yaw = mUpperBodyYawRadians - yawOffset;
-            bool enable = std::abs(yaw) > epsilon;
+            // VehicleDriverPose supplies its own fixed seated spine pose.
+            bool enable = !mVehicleDriverPoseEnabled && std::abs(yaw) > epsilon;
             mSpineController->setEnabled(enable);
             if (enable)
             {
@@ -1534,7 +1580,10 @@ namespace MWRender
         if (mHeadController)
         {
             float yaw = mHeadYawRadians - yawOffset;
-            bool enable = (std::abs(mHeadPitchRadians) > epsilon || std::abs(yaw) > epsilon);
+            // Do not let client-specific head-look input lift/tilt a remote
+            // driver's head through the roof while the seated pose is active.
+            bool enable = !mVehicleDriverPoseEnabled
+                && (std::abs(mHeadPitchRadians) > epsilon || std::abs(yaw) > epsilon);
             mHeadController->setEnabled(enable);
             if (enable)
                 mHeadController->setRotate(
@@ -1703,14 +1752,14 @@ namespace MWRender
         {
             osg::ref_ptr<osg::Node> created
                 = getModelInstance(mResourceSystem, model, baseonly, inject, defaultSkeleton);
-            mInsert->addChild(created);
+            mVehicleDriverTransform->addChild(created);
             mObjectRoot = created->asGroup();
             if (!mObjectRoot)
             {
-                mInsert->removeChild(created);
+                mVehicleDriverTransform->removeChild(created);
                 mObjectRoot = new osg::Group;
                 mObjectRoot->addChild(created);
-                mInsert->addChild(mObjectRoot);
+                mVehicleDriverTransform->addChild(mObjectRoot);
             }
             osg::ref_ptr<SceneUtil::Skeleton> skel = dynamic_cast<SceneUtil::Skeleton*>(mObjectRoot.get());
             if (skel)
@@ -1728,7 +1777,7 @@ namespace MWRender
             }
             mSkeleton = skel.get();
             mObjectRoot = skel;
-            mInsert->addChild(mObjectRoot);
+            mVehicleDriverTransform->addChild(mObjectRoot);
         }
 
         // osgAnimation formats with skeletons should have their nodemap be bone instances
@@ -1763,7 +1812,7 @@ namespace MWRender
             return mObjectRoot.get();
 
         mObjectRoot = new osg::Group;
-        mInsert->addChild(mObjectRoot);
+        mVehicleDriverTransform->addChild(mObjectRoot);
         return mObjectRoot.get();
     }
 
@@ -1793,7 +1842,8 @@ namespace MWRender
     }
 
     void Animation::addEffect(std::string_view model, std::string_view effectId, bool loop, std::string_view bonename,
-        std::string_view texture, bool useAmbientLight, bool autoTransform, const std::optional<osg::Matrix>& transform)
+        std::string_view texture, bool useAmbientLight, bool autoTransform, const std::optional<osg::Matrix>& transform,
+        bool preserveNodeStructure)
     {
         if (!mObjectRoot.get())
             return;
@@ -1857,8 +1907,14 @@ namespace MWRender
 
         parentNode->addChild(trans);
 
-        osg::ref_ptr<osg::Node> node
-            = mResourceSystem->getSceneManager()->getInstance(VFS::Path::toNormalized(model), trans);
+        Resource::SceneManager* sceneManager = mResourceSystem->getSceneManager();
+        osg::ref_ptr<osg::Node> node;
+        if (preserveNodeStructure)
+        {
+            node = sceneManager->getInstancePreservingNodeStructure(VFS::Path::toNormalized(model), trans);
+        }
+        else
+            node = sceneManager->getInstance(VFS::Path::toNormalized(model), trans);
 
         if (useAmbientLight)
         {
@@ -1919,9 +1975,48 @@ namespace MWRender
         {
             if (!effectTransform)
                 continue;
+
             OffsetNamedTransformVisitor nodeVisitor(nodeName, offset);
             effectTransform->accept(nodeVisitor);
-            updated = updated || nodeVisitor.mUpdated;
+            if (nodeVisitor.mUpdated)
+            {
+                updated = true;
+                continue;
+            }
+
+            // Static model optimization can flatten a named NIF transform into a
+            // plain Group or Geode. Preserve the named node by inserting a dynamic
+            // MatrixTransform above it, so subsequent suspension updates can use
+            // the normal fast path without modifying shared vertex data.
+            FindNamedNodeVisitor findVisitor(nodeName);
+            effectTransform->accept(findVisitor);
+            for (const osg::ref_ptr<osg::Node>& namedNode : findVisitor.mNodes)
+            {
+                if (!namedNode || namedNode == effectTransform)
+                    continue;
+
+                const osg::Node::ParentList parents = namedNode->getParents();
+                if (parents.empty())
+                    continue;
+
+                namedNode->setName(std::string(nodeName) + " [offset child]");
+                for (osg::Group* parent : parents)
+                {
+                    if (!parent)
+                        continue;
+
+                    osg::ref_ptr<osg::MatrixTransform> wrapper = new osg::MatrixTransform;
+                    wrapper->setName(std::string(nodeName));
+                    wrapper->setDataVariance(osg::Object::DYNAMIC);
+                    wrapper->setMatrix(osg::Matrix::translate(offset));
+                    wrapper->setUserValue("mwmp_effect_offset_wrapper", true);
+                    wrapper->setUserValue("mwmp_effect_base_translation", osg::Vec3f());
+                    if (!parent->replaceChild(namedNode, wrapper))
+                        continue;
+                    wrapper->addChild(namedNode);
+                    updated = true;
+                }
+            }
         }
         return updated;
     }
@@ -2139,14 +2234,21 @@ namespace MWRender
             return controller;
         };
 
-        // The actor root remains the network/physics transform. These offsets and
-        // rotations are applied only to the rendered skeleton after normal
-        // animation blending, producing a stable seated driver pose.
+        // Chassis pitch, roll, and seat placement are applied by the actor-model
+        // wrapper. The Bip01 controller only freezes animation root drift while
+        // seated; applying the chassis attitude here would transform the same
+        // skeleton twice in incompatible bone and model coordinate spaces.
         mVehicleDriverRootController = addPoseController("bip01", osg::Quat(), osg::Vec3f());
         if (mVehicleDriverRootController)
         {
-            mVehicleDriverRootController->setRotateTranslation(true);
-            mVehicleDriverRootController->setFreezeTranslation(true);
+            mVehicleDriverRootController->setRotateTranslation(false);
+
+            // The TES3 base animation authors Bip01 at this neutral translation.
+            // Inverse skin-bind data does not contain this animated root height and
+            // resolves to zero, which places the entire driver below the vehicle.
+            // Freezing the asset's neutral root is deterministic across local and
+            // remote clients while preserving the calibrated seat offset.
+            mVehicleDriverRootController->setFrozenTranslation(osg::Vec3f(0.016f, 1.797f, 76.369f));
         }
         updateVehicleDriverRootController();
         addPoseController("bip01 spine1", osg::Quat(5.f * degreesToRadians, xAxis));
@@ -2230,6 +2332,7 @@ namespace MWRender
                 if (controller)
                     controller->setEnabled(true);
             }
+            updateVehicleDriverRootController();
         }
         else
         {
@@ -2263,12 +2366,31 @@ namespace MWRender
 
     void Animation::updateVehicleDriverRootController()
     {
+        if (mVehicleDriverTransform)
+        {
+            if (mVehicleDriverPoseEnabled)
+            {
+                // The wrapper owns the chassis transform for the entire rendered
+                // actor. Keep its translation limited to the rigid-body root;
+                // mVehicleDriverOffset was calibrated in Bip01/model space and
+                // must still pass through RotateController's basis conversion.
+                mVehicleDriverTransform->setAttitude(mVehicleDriverSuspensionAttitude);
+                mVehicleDriverTransform->setPosition(mVehicleDriverSuspensionPosition);
+            }
+            else
+            {
+                mVehicleDriverTransform->setAttitude(osg::Quat());
+                mVehicleDriverTransform->setPosition(osg::Vec3f());
+            }
+        }
+
         if (mVehicleDriverRootController)
         {
-            mVehicleDriverRootController->setRotate(mVehicleDriverSuspensionAttitude);
+            // Chassis pitch and roll are already inherited from the model wrapper.
+            // Bip01 only supplies the previously calibrated local seat translation.
+            mVehicleDriverRootController->setRotate(osg::Quat());
             mVehicleDriverRootController->setOffset(
-                mVehicleDriverSuspensionAttitude * mVehicleDriverOffset
-                + mVehicleDriverSuspensionPosition);
+                mVehicleDriverPoseEnabled ? mVehicleDriverOffset : osg::Vec3f());
         }
     }
 
@@ -2308,7 +2430,13 @@ namespace MWRender
         if (mGlowLight != nullptr)
             mInsert->removeChild(mGlowLight);
 
-        if (mObjectRoot != nullptr)
+        if (mVehicleDriverTransform != nullptr)
+        {
+            if (mObjectRoot != nullptr)
+                mVehicleDriverTransform->removeChild(mObjectRoot);
+            mInsert->removeChild(mVehicleDriverTransform);
+        }
+        else if (mObjectRoot != nullptr)
             mInsert->removeChild(mObjectRoot);
     }
 

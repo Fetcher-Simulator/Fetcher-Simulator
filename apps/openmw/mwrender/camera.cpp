@@ -91,11 +91,14 @@ namespace MWRender
             && !mTrackingPtr.isEmpty())
         {
             const auto& position = mTrackingPtr.getRefData().getPosition();
-            const osg::Vec3f& localOffset = mAnimation->getVehicleFirstPersonCameraOffset();
-            const osg::Vec2f horizontalOffset
-                = Misc::rotateVec2f(osg::Vec2f(localOffset.x(), localOffset.y()), -position.rot[2]);
-            return osg::Vec3d(position.pos[0] + horizontalOffset.x(), position.pos[1] + horizontalOffset.y(),
-                position.pos[2] + localOffset.z());
+            const osg::Quat yawRotation(position.rot[2], osg::Vec3f(0.f, 0.f, -1.f));
+            const osg::Vec3f localTrackedPosition
+                = mAnimation->getVehicleDriverSuspensionPosition()
+                + mAnimation->getVehicleDriverSuspensionAttitude()
+                    * mAnimation->getVehicleFirstPersonCameraOffset();
+            const osg::Vec3f worldOffset = yawRotation * localTrackedPosition;
+            return osg::Vec3d(position.pos[0] + worldOffset.x(), position.pos[1] + worldOffset.y(),
+                position.pos[2] + worldOffset.z());
         }
 
         if (!mTrackingNode)

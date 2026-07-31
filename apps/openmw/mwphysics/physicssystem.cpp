@@ -16,6 +16,8 @@
 #include <BulletCollision/CollisionShapes/btConeShape.h>
 #include <BulletCollision/CollisionShapes/btSphereShape.h>
 #include <BulletCollision/CollisionShapes/btStaticPlaneShape.h>
+#include <BulletDynamics/ConstraintSolver/btSequentialImpulseConstraintSolver.h>
+#include <BulletDynamics/Dynamics/btDiscreteDynamicsWorld.h>
 
 #include <LinearMath/btQuickprof.h>
 #include <LinearMath/btVector3.h>
@@ -24,6 +26,7 @@
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadmgef.hpp>
 #include <components/misc/convert.hpp>
+#include <components/misc/constants.hpp>
 #include <components/misc/resourcehelpers.hpp>
 #include <components/misc/strings/conversion.hpp>
 #include <components/resource/bulletshapemanager.hpp>
@@ -54,6 +57,7 @@
 #include "heightfield.hpp"
 #include "movementsolver.hpp"
 #include "mtphysics.hpp"
+#include "vehiclebody.hpp"
 #include "object.hpp"
 #include "projectile.hpp"
 
@@ -111,9 +115,12 @@ namespace MWPhysics
         mCollisionConfiguration = std::make_unique<btDefaultCollisionConfiguration>();
         mDispatcher = std::make_unique<btCollisionDispatcher>(mCollisionConfiguration.get());
         mBroadphase = std::make_unique<btDbvtBroadphase>();
+        mConstraintSolver = std::make_unique<btSequentialImpulseConstraintSolver>();
 
-        mCollisionWorld
-            = std::make_unique<btCollisionWorld>(mDispatcher.get(), mBroadphase.get(), mCollisionConfiguration.get());
+        mCollisionWorld = std::make_unique<btDiscreteDynamicsWorld>(mDispatcher.get(), mBroadphase.get(),
+            mConstraintSolver.get(), mCollisionConfiguration.get());
+        mCollisionWorld->setGravity(
+            btVector3(0, 0, -Constants::GravityConst * Constants::UnitsPerMeter));
 
         // Don't update AABBs of all objects every frame. Most objects in MW are static, so we don't need this.
         // Should a "static" object ever be moved, we have to update its AABB manually using
@@ -143,6 +150,7 @@ namespace MWPhysics
             mTaskScheduler->removeCollisionObject(mWaterCollisionObject.get());
 
         mTaskScheduler->releaseSharedStates();
+        mVehicleBodies.clear();
         mHeightFields.clear();
         mObjects.clear();
         mActors.clear();
@@ -380,6 +388,16 @@ namespace MWPhysics
         ActorMap::iterator found = mActors.find(ptr.mRef);
         if (found == mActors.end())
             return ptr.getRefData().getPosition().asVec3();
+
+        // Native vehicle mode keeps the Actor entry but temporarily suspends its
+        // normal collision object. Cell-changing teleports (for example, a
+        // hookshot script) still call traceDown while that object is null. Do not
+        // pass it to sweepHelper; preserve the requested destination and let the
+        // vehicle lifecycle reconcile the body on the following update.
+        const btCollisionObject* collisionObject = found->second->getCollisionObject();
+        if (!collisionObject || !collisionObject->getCollisionShape())
+            return position;
+
         return MovementSolver::traceDown(ptr, position, found->second.get(), mCollisionWorld.get(), maxHeight);
     }
 
@@ -443,6 +461,8 @@ namespace MWPhysics
     void PhysicsSystem::remove(const MWWorld::Ptr& ptr)
     {
         mPendingActorCollisionShapes.erase(ptr.mRef);
+        mPendingVehicleBodies.erase(ptr.mRef);
+        mVehicleBodies.erase(ptr.mRef);
 
         if (auto foundObject = mObjects.find(ptr.mRef); foundObject != mObjects.end())
         {
@@ -465,6 +485,14 @@ namespace MWPhysics
 
     void PhysicsSystem::updatePtr(const MWWorld::Ptr& old, const MWWorld::Ptr& updated)
     {
+        if (auto foundVehicle = mVehicleBodies.find(old.mRef); foundVehicle != mVehicleBodies.end())
+        {
+            auto vehicle = std::move(foundVehicle->second);
+            mVehicleBodies.erase(foundVehicle);
+            vehicle->updatePtr(updated);
+            mVehicleBodies.emplace(updated.mRef, std::move(vehicle));
+        }
+
         if (auto foundObject = mObjects.find(old.mRef); foundObject != mObjects.end())
             foundObject->second->updatePtr(updated);
         else if (auto foundActor = mActors.find(old.mRef); foundActor != mActors.end())
@@ -631,6 +659,55 @@ namespace MWPhysics
         return true;
     }
 
+    bool PhysicsSystem::queueVehicleBody(const MWWorld::Ptr& ptr, const VehicleBodyConfig& config)
+    {
+        if (mActors.find(ptr.mRef) == mActors.end())
+            return false;
+
+        mPendingVehicleBodies.insert_or_assign(
+            ptr.mRef, PendingVehicleBody{ ptr, config, false });
+        return true;
+    }
+
+    bool PhysicsSystem::queueRemoveVehicleBody(const MWWorld::Ptr& ptr)
+    {
+        const auto foundPending = mPendingVehicleBodies.find(ptr.mRef);
+        if (mVehicleBodies.find(ptr.mRef) == mVehicleBodies.end()
+            && foundPending == mPendingVehicleBodies.end())
+        {
+            // Removing an already-absent body is a successful no-op. In
+            // particular, do not queue work that would reset the ordinary
+            // actor controller every frame while the player is on foot.
+            return true;
+        }
+
+        mPendingVehicleBodies.insert_or_assign(
+            ptr.mRef, PendingVehicleBody{ ptr, {}, true });
+        return true;
+    }
+
+    bool PhysicsSystem::setVehicleBodyInput(
+        const MWWorld::Ptr& ptr, const VehicleBodyInput& input)
+    {
+        const auto found = mVehicleBodies.find(ptr.mRef);
+        if (found == mVehicleBodies.end())
+            return false;
+
+        found->second->setInput(input);
+        return true;
+    }
+
+    bool PhysicsSystem::getVehicleBodyState(
+        const MWWorld::ConstPtr& ptr, VehicleBodyState& state) const
+    {
+        const auto found = mVehicleBodies.find(ptr.mRef);
+        if (found == mVehicleBodies.end())
+            return false;
+
+        state = found->second->getState();
+        return true;
+    }
+
     int PhysicsSystem::addProjectile(
         const MWWorld::Ptr& caster, const osg::Vec3f& position, VFS::Path::NormalizedView mesh, bool computeRadius)
     {
@@ -693,6 +770,9 @@ namespace MWPhysics
         const MWBase::World* world = MWBase::Environment::get().getWorld();
         for (const auto& [ref, physicActor] : mActors)
         {
+            if (mVehicleBodies.contains(ref))
+                continue;
+
             if (!physicActor->isActive())
                 continue;
 
@@ -740,6 +820,7 @@ namespace MWPhysics
     void PhysicsSystem::stepSimulation(
         float dt, bool skipSimulation, osg::Timer_t frameStart, unsigned int frameNumber, osg::Stats& stats)
     {
+        applyPendingVehicleBodies();
         applyPendingActorCollisionShapes();
 
         for (auto& [animatedObject, changed] : mAnimatedObjects)
@@ -799,7 +880,7 @@ namespace MWPhysics
         for (const auto& [ref, request] : pending)
         {
             const auto found = mActors.find(ref);
-            if (found == mActors.end())
+            if (found == mActors.end() || mVehicleBodies.contains(ref))
                 continue;
 
             try
@@ -832,6 +913,75 @@ namespace MWPhysics
         }
     }
 
+    void PhysicsSystem::applyPendingVehicleBodies()
+    {
+        if (mPendingVehicleBodies.empty())
+            return;
+
+        auto pending = std::move(mPendingVehicleBodies);
+        mPendingVehicleBodies.clear();
+
+        for (const auto& [ref, request] : pending)
+        {
+            const auto foundActor = mActors.find(ref);
+
+            if (request.mRemove)
+            {
+                const bool removed = mVehicleBodies.erase(ref) != 0;
+                if (!removed)
+                    continue;
+
+                if (foundActor != mActors.end())
+                {
+                    foundActor->second->enableCollisionMode(true);
+                    foundActor->second->enableCollisionBody(true);
+                    if (foundActor->second->hasCustomCollisionShape())
+                        mTaskScheduler->restoreActorCollisionShape(foundActor->second);
+                    mTaskScheduler->resumeActorCollision(foundActor->second);
+                    if (removed && request.mPtr == MWMechanics::getPlayer())
+                    {
+                        // A vehicle root can be below an inclined contact plane. Snap the
+                        // restored humanoid capsule to walkable ground instead of leaving
+                        // it intersecting terrain and unable to move.
+                        MWBase::Environment::get().getWorld()->adjustPosition(request.mPtr, true);
+                    }
+                }
+                if (removed)
+                {
+                    Log(Debug::Info) << "[VehicleBody] Removed ref="
+                                     << request.mPtr.getCellRef().getRefId();
+                }
+                continue;
+            }
+
+            if (foundActor == mActors.end() || mVehicleBodies.find(ref) != mVehicleBodies.end())
+                continue;
+
+            try
+            {
+                if (foundActor->second->hasCustomCollisionShape())
+                    mTaskScheduler->restoreActorCollisionShape(foundActor->second);
+                foundActor->second->enableCollisionMode(false);
+                foundActor->second->enableCollisionBody(false);
+
+                auto body
+                    = std::make_shared<VehicleBody>(request.mPtr, request.mConfig, mTaskScheduler.get());
+                mVehicleBodies.emplace(ref, std::move(body));
+                mTaskScheduler->suspendActorCollision(foundActor->second);
+                Log(Debug::Info) << "[VehicleBody] Created ref="
+                                 << request.mPtr.getCellRef().getRefId()
+                                 << " mass=" << request.mConfig.mMass;
+            }
+            catch (const std::exception& e)
+            {
+                foundActor->second->enableCollisionMode(true);
+                foundActor->second->enableCollisionBody(true);
+                Log(Debug::Error) << "[VehicleBody] Failed to create ref="
+                                  << request.mPtr.getCellRef().getRefId() << ": " << e.what();
+            }
+        }
+    }
+
     void PhysicsSystem::moveActors()
     {
         auto* player = getActor(MWMechanics::getPlayer());
@@ -844,7 +994,7 @@ namespace MWPhysics
             mActorsPositions.reserve(mActors.size() - 1);
         for (const auto& [ptr, physicActor] : mActors)
         {
-            if (physicActor.get() == player)
+            if (physicActor.get() == player || mVehicleBodies.contains(ptr))
                 continue;
             mActorsPositions.emplace_back(physicActor->getPtr(), physicActor->getSimulationPosition());
         }
@@ -852,7 +1002,7 @@ namespace MWPhysics
         for (const auto& [ptr, pos] : mActorsPositions)
             world->moveObject(ptr, pos, false, false);
 
-        if (player != nullptr)
+        if (player != nullptr && !mVehicleBodies.contains(player->getPtr().mRef))
             world->moveObject(player->getPtr(), player->getSimulationPosition(), false, false);
     }
 

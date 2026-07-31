@@ -15,6 +15,7 @@
 #include <components/esm3/loadinfo.hpp>
 #include <components/esm3/journalentry.hpp>
 #include <components/misc/rng.hpp>
+#include <components/misc/mathutil.hpp>
 #include <components/openmw-mp/Base/VehicleProfiles.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerPosition.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerCellChange.hpp>
@@ -57,6 +58,7 @@
 #include "../../mwworld/globals.hpp"
 #include "../../mwworld/inventorystore.hpp"
 #include "../../mwmechanics/creaturestats.hpp"
+#include "../../mwphysics/vehiclebody.hpp"
 #include "../../mwmechanics/npcstats.hpp"
 #include "../../mwmechanics/weapontype.hpp"
 #include "../../mwworld/player.hpp"
@@ -866,6 +868,34 @@ void PlayerSync::update(float dt)
     mLocal.position.rot[0] = pos.rot[0];
     mLocal.position.rot[1] = pos.rot[1];
     mLocal.position.rot[2] = pos.rot[2];
+    mLocal.vehicle.hasRigidBodyPose = false;
+    mLocal.vehicle.suspensionCompression.fill(0.f);
+    if (mLocal.vehicle.active)
+    {
+        MWPhysics::VehicleBodyState bodyState;
+        if (world->getVehicleRigidBodyState(player, bodyState))
+        {
+            const osg::Vec3f angles = Misc::toEulerAnglesZYX(bodyState.mOrientation);
+            mLocal.position.rot[0] = angles.x();
+            mLocal.position.rot[1] = angles.y();
+            mLocal.position.rot[2] = angles.z();
+            mLocal.vehicle.hasRigidBodyPose = true;
+            float presentationScale = 1.f;
+            if (const SceneUtil::PositionAttitudeTransform* baseNode = player.getRefData().getBaseNode())
+                presentationScale = std::max(std::abs(baseNode->getScale().y()), 0.001f);
+            if (const VehicleProfile* profile = findVehicleProfile(mLocal.vehicle.profileId))
+            {
+                const float scaledRestLength = profile->suspension.restLength * presentationScale;
+                for (std::size_t index = 0; index < mLocal.vehicle.suspensionCompression.size(); ++index)
+                {
+                    // This legacy field is presentation travel on the wire:
+                    // positive is compression and negative is suspension droop.
+                    mLocal.vehicle.suspensionCompression[index]
+                        = scaledRestLength - bodyState.mSuspensionLength[index];
+                }
+            }
+        }
+    }
 
     // Capture teleport flag from OpenMW engine (coc, scripts, doors)
     // We bitwise-OR it so if a teleport happens between 33ms network ticks, 
@@ -2145,17 +2175,69 @@ void PlayerSync::applyVehicleRuntimeState()
     const bool vehicleModeChanged
         = world->getPlayer().setVehicleMode(profile != nullptr, profile ? profile->id : std::string_view{});
     if (vehicleModeChanged)
+    {
         world->scaleObject(player, player.getCellRef().getScale(), true);
+        if (!profile)
+        {
+            if (MWBase::LuaManager::ActorControls* controls
+                = MWBase::Environment::get().getLuaManager()->getActorControls(player))
+            {
+                // Vehicle mode suppresses humanoid output, but the live Lua key
+                // state must be applied immediately when the actor is restored.
+                controls->mChanged = true;
+            }
+        }
+    }
     if (profile)
     {
-        world->setActorCollisionBox(player,
-            osg::Vec3f(profile->collisionHalfExtents[0], profile->collisionHalfExtents[1],
-                profile->collisionHalfExtents[2]),
-            osg::Vec3f(profile->collisionCenterFromVehicleRoot[0], profile->collisionCenterFromVehicleRoot[1],
-                profile->collisionCenterFromVehicleRoot[2]));
+        MWPhysics::VehicleBodyConfig config;
+        config.mCollisionHalfExtents = osg::Vec3f(profile->rigidBody.chassisHalfExtents[0],
+            profile->rigidBody.chassisHalfExtents[1], profile->rigidBody.chassisHalfExtents[2]);
+        config.mCollisionCenterFromRoot = osg::Vec3f(profile->rigidBody.chassisCenterFromVehicleRoot[0],
+            profile->rigidBody.chassisCenterFromVehicleRoot[1],
+            profile->rigidBody.chassisCenterFromVehicleRoot[2]);
+        config.mChassisLowerInsetX = profile->rigidBody.chassisLowerInset[0];
+        config.mChassisLowerInsetY = profile->rigidBody.chassisLowerInset[1];
+        config.mChassisLowerChamferHeight = profile->rigidBody.chassisLowerChamferHeight;
+        config.mCenterOfMassFromRoot = osg::Vec3f(profile->rigidBody.centerOfMassFromVehicleRoot[0],
+            profile->rigidBody.centerOfMassFromVehicleRoot[1],
+            profile->rigidBody.centerOfMassFromVehicleRoot[2]);
+        for (std::size_t index = 0; index < config.mWheelMountPositions.size(); ++index)
+        {
+            const auto& mount = profile->suspension.wheels[index].mountPosition;
+            config.mWheelMountPositions[index] = osg::Vec3f(mount[0], mount[1], mount[2]);
+        }
+        config.mWheelRadius = profile->suspension.wheelRadius;
+        config.mSuspensionRestLength = profile->suspension.restLength;
+        config.mSuspensionMaxCompression = profile->suspension.maxCompression;
+        config.mSuspensionMaxDroop = profile->suspension.maxDroop;
+        config.mSuspensionSpringRate = profile->suspension.springRate;
+        config.mSuspensionDampingRate = profile->suspension.dampingRate;
+        config.mInertiaScale = osg::Vec3f(profile->rigidBody.inertiaScale[0],
+            profile->rigidBody.inertiaScale[1], profile->rigidBody.inertiaScale[2]);
+        config.mMass = profile->rigidBody.mass;
+        config.mFriction = profile->rigidBody.friction;
+        config.mRestitution = profile->rigidBody.restitution;
+        config.mLinearDamping = profile->rigidBody.linearDamping;
+        config.mAngularDamping = profile->rigidBody.angularDamping;
+        config.mWheelbase = profile->handling.wheelbase;
+        config.mMaxForwardSpeed = profile->handling.maxForwardSpeed;
+        config.mMaxReverseSpeed = profile->handling.maxReverseSpeed;
+        config.mEngineAcceleration = profile->handling.engineAcceleration;
+        config.mReverseAcceleration = profile->handling.reverseAcceleration;
+        config.mServiceBrakeStrength = profile->handling.serviceBrakeStrength;
+        config.mHandbrakeStrength = profile->handling.handbrakeStrength;
+        config.mRollingResistance = profile->handling.rollingResistance;
+        config.mAerodynamicDrag = profile->handling.aerodynamicDrag;
+        config.mLowSpeedSteeringDegrees = profile->handling.lowSpeedSteeringDegrees;
+        config.mHighSpeedSteeringDegrees = profile->handling.highSpeedSteeringDegrees;
+        config.mLateralGrip = profile->handling.lateralGrip;
+        config.mHandbrakeLateralGrip = profile->handling.handbrakeLateralGrip;
+        config.mDirectionChangeSpeed = profile->handling.directionChangeSpeed;
+        world->setVehicleRigidBody(player, config);
     }
     else
-        world->restoreActorCollisionShape(player);
+        world->removeVehicleRigidBody(player);
 }
 
 void PlayerSync::applyVehiclePresentation(const MWWorld::Ptr& player)
@@ -2205,7 +2287,8 @@ void PlayerSync::applyVehiclePresentation(const MWWorld::Ptr& player)
 
     try
     {
-        animation->addEffect(profile->attachedModel, sVehicleVisualEffectId, true, {}, {}, false, false);
+        animation->addEffect(
+            profile->attachedModel, sVehicleVisualEffectId, true, {}, {}, false, false, std::nullopt, true);
         mAppliedVehicleProfileId.assign(profile->id);
         Log(Debug::Info) << "[MP] Applied local vehicle visual profile='" << profile->id << "'";
     }

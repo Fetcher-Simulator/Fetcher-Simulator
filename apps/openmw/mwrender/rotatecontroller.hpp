@@ -29,6 +29,12 @@ namespace MWRender
             mFreezeTranslation = enabled;
             mFrozenTranslationInitialized = false;
         }
+        void setFrozenTranslation(const osg::Vec3f& translation)
+        {
+            mFreezeTranslation = true;
+            mFrozenTranslation = translation;
+            mFrozenTranslationInitialized = true;
+        }
 
         const osg::Vec3f& getOffset() const { return mOffset; }
 

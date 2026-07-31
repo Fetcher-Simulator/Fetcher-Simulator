@@ -949,59 +949,74 @@ namespace Resource
 
     osg::ref_ptr<const osg::Node> SceneManager::getTemplate(VFS::Path::NormalizedView path, bool compile)
     {
-        osg::ref_ptr<osg::Object> obj = mCache->getRefFromObjectCache(path);
+        return getTemplateImpl(path, compile, true, std::string(path.value()));
+    }
+
+    osg::ref_ptr<const osg::Node> SceneManager::getTemplatePreservingNodeStructure(
+        VFS::Path::NormalizedView path, bool compile)
+    {
+        return getTemplateImpl(path, compile, false, "preserve-nodes:" + std::string(path.value()));
+    }
+
+    osg::ref_ptr<const osg::Node> SceneManager::getTemplateImpl(
+        VFS::Path::NormalizedView path, bool compile, bool optimize, std::string cacheKey)
+    {
+        osg::ref_ptr<osg::Object> obj = mCache->getRefFromObjectCache(cacheKey);
         if (obj)
             return osg::ref_ptr<const osg::Node>(static_cast<osg::Node*>(obj.get()));
-        else
+
+        osg::ref_ptr<osg::Node> loaded;
+        try
         {
-            osg::ref_ptr<osg::Node> loaded;
-            try
-            {
-                loaded = load(path, mVFS, mImageManager, mNifFileManager, mBgsmFileManager);
-            }
-            catch (const std::exception& e)
-            {
-                Log(Debug::Error) << "Failed to load '" << path << "': " << e.what() << ", using marker_error instead";
-                loaded = cloneErrorMarker();
-            }
-
-            // set filtering settings
-            SetFilterSettingsVisitor setFilterSettingsVisitor(mMinFilter, mMagFilter, mMaxAnisotropy);
-            loaded->accept(setFilterSettingsVisitor);
-            SetFilterSettingsControllerVisitor setFilterSettingsControllerVisitor(
-                mMinFilter, mMagFilter, mMaxAnisotropy);
-            loaded->accept(setFilterSettingsControllerVisitor);
-
-            osg::ref_ptr<Shader::ShaderVisitor> shaderVisitor(createShaderVisitor());
-            loaded->accept(*shaderVisitor);
-
-            if (canOptimize(path.value()))
-            {
-                SceneUtil::Optimizer optimizer;
-                optimizer.setSharedStateManager(mSharedStateManager, &mSharedStateMutex);
-                optimizer.setIsOperationPermissibleForObjectCallback(new CanOptimizeCallback);
-
-                static const unsigned int options
-                    = getOptimizationOptions() | SceneUtil::Optimizer::SHARE_DUPLICATE_STATE;
-
-                optimizer.optimize(loaded, options);
-            }
-            else
-                shareState(loaded);
-
-            if (compile && mIncrementalCompileOperation)
-                mIncrementalCompileOperation->add(loaded);
-            else
-                loaded->getBound();
-
-            mCache->addEntryToObjectCache(path.value(), loaded);
-            return loaded;
+            loaded = load(path, mVFS, mImageManager, mNifFileManager, mBgsmFileManager);
         }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Error) << "Failed to load '" << path << "': " << e.what() << ", using marker_error instead";
+            loaded = cloneErrorMarker();
+        }
+
+        // Set filtering settings.
+        SetFilterSettingsVisitor setFilterSettingsVisitor(mMinFilter, mMagFilter, mMaxAnisotropy);
+        loaded->accept(setFilterSettingsVisitor);
+        SetFilterSettingsControllerVisitor setFilterSettingsControllerVisitor(
+            mMinFilter, mMagFilter, mMaxAnisotropy);
+        loaded->accept(setFilterSettingsControllerVisitor);
+
+        osg::ref_ptr<Shader::ShaderVisitor> shaderVisitor(createShaderVisitor());
+        loaded->accept(*shaderVisitor);
+
+        if (optimize && canOptimize(path.value()))
+        {
+            SceneUtil::Optimizer optimizer;
+            optimizer.setSharedStateManager(mSharedStateManager, &mSharedStateMutex);
+            optimizer.setIsOperationPermissibleForObjectCallback(new CanOptimizeCallback);
+
+            static const unsigned int options
+                = getOptimizationOptions() | SceneUtil::Optimizer::SHARE_DUPLICATE_STATE;
+
+            optimizer.optimize(loaded, options);
+        }
+        else
+            shareState(loaded);
+
+        if (compile && mIncrementalCompileOperation)
+            mIncrementalCompileOperation->add(loaded);
+        else
+            loaded->getBound();
+
+        mCache->addEntryToObjectCache(std::move(cacheKey), loaded);
+        return loaded;
     }
 
     osg::ref_ptr<osg::Node> SceneManager::getInstance(VFS::Path::NormalizedView path)
     {
         return getInstance(getTemplate(path));
+    }
+
+    osg::ref_ptr<osg::Node> SceneManager::getInstancePreservingNodeStructure(VFS::Path::NormalizedView path)
+    {
+        return getInstance(getTemplatePreservingNodeStructure(path));
     }
 
     osg::ref_ptr<osg::Node> SceneManager::cloneNode(const osg::Node* base)
@@ -1042,6 +1057,14 @@ namespace Resource
     osg::ref_ptr<osg::Node> SceneManager::getInstance(VFS::Path::NormalizedView path, osg::Group* parentNode)
     {
         osg::ref_ptr<osg::Node> cloned = getInstance(path);
+        attachTo(cloned, parentNode);
+        return cloned;
+    }
+
+    osg::ref_ptr<osg::Node> SceneManager::getInstancePreservingNodeStructure(
+        VFS::Path::NormalizedView path, osg::Group* parentNode)
+    {
+        osg::ref_ptr<osg::Node> cloned = getInstancePreservingNodeStructure(path);
         attachTo(cloned, parentNode);
         return cloned;
     }

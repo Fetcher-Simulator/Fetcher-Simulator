@@ -17,6 +17,7 @@
 
 #include "../mwphysics/collisiontype.hpp"
 #include "../mwphysics/raycasting.hpp"
+#include "../mwphysics/vehiclebody.hpp"
 
 #include "../mwrender/animation.hpp"
 
@@ -37,6 +38,7 @@ namespace
     constexpr float sAirbornePitchAccelerationBase = 20.f;
     constexpr float sAirbornePitchAccelerationSpeed = 55.f;
     constexpr float sMotionFeedbackImpulseFraction = 0.02f;
+    constexpr float sVisualSuspensionResponse = 18.f;
     constexpr std::string_view sVehicleVisualEffectId = "mwmp_vehicle_visual";
 
     MWMechanics::VehicleSuspensionState sLocalSuspensionState;
@@ -623,6 +625,8 @@ namespace MWMechanics
         if (state.mMode != MWWorld::VehicleModeState::Active)
         {
             sLocalSuspensionState = {};
+            state.mVisualSuspensionInitialized = false;
+            state.mVisualSuspensionTravel.fill(0.f);
             return;
         }
 
@@ -630,108 +634,121 @@ namespace MWMechanics
         if (!profile)
         {
             sLocalSuspensionState = {};
+            state.mVisualSuspensionInitialized = false;
+            state.mVisualSuspensionTravel.fill(0.f);
             world->queueMovement(player, osg::Vec3f());
             return;
         }
 
-        updateVehicleSuspension(
-            player, *profile, duration, state.mForwardSpeed, sLocalSuspensionState);
-        const ESM::Position& refPosition = player.getRefData().getPosition();
-        const osg::Vec3f position = refPosition.asVec3();
-        const float yaw = refPosition.rot[2];
-        updateMotionFeedback(state, position, yaw, duration, profile->handling);
-        state.mGrounded = sLocalSuspensionState.mSupportedWheels >= 2;
-        const float tractionFactor
-            = static_cast<float>(sLocalSuspensionState.mSupportedWheels) / 4.f;
-        const float frontSteeringSupport = (static_cast<float>(sLocalSuspensionState.mWheels[0].mGrounded)
-            + static_cast<float>(sLocalSuspensionState.mWheels[1].mGrounded)) / 2.f;
-        const float steeringSupport = std::max(frontSteeringSupport, tractionFactor);
+        MWPhysics::VehicleBodyState bodyState;
+        world->setVehicleRigidBodyInput(player,
+            MWPhysics::VehicleBodyInput{ state.mInput.mThrottle, state.mInput.mBrake,
+                state.mInput.mSteering, state.mInput.mHandbrake });
+        if (!world->getVehicleRigidBodyState(player, bodyState))
+        {
+            world->queueMovement(player, osg::Vec3f());
+            return;
+        }
 
-        float scale = 1.f;
+        float presentationScale = 1.f;
         if (const SceneUtil::PositionAttitudeTransform* baseNode = player.getRefData().getBaseNode())
-            scale = baseNode->getScale().y();
-        const float effectiveWheelbase = profile->handling.wheelbase * scale;
+            presentationScale = std::max(std::abs(baseNode->getScale().y()), 0.001f);
 
-        float remaining = std::clamp(duration, 0.f, sMaxSolverDuration);
-        float yawDelta = 0.f;
-        while (remaining > 0.f)
+        std::array<float, 4> suspensionTravel{};
+        const float scaledRestLength = profile->suspension.restLength * presentationScale;
+        for (std::size_t index = 0; index < suspensionTravel.size(); ++index)
+            suspensionTravel[index] = scaledRestLength - bodyState.mSuspensionLength[index];
+
+        // A wheel moving upward must follow the contact immediately; delaying
+        // compression lets the visible tire enter rising terrain. Smooth only
+        // extension/droop so contact loss cannot flicker the tire downward.
+        if (!state.mVisualSuspensionInitialized)
         {
-            const float step = std::min(remaining, sSolverStep);
-            integrateLongitudinalSpeed(state, profile->handling, tractionFactor, step);
-            yawDelta += integrateSteering(
-                state, profile->handling, effectiveWheelbase, steeringSupport, step);
-
-            const float grip = state.mInput.mHandbrake > 0.f ? profile->handling.handbrakeLateralGrip
-                                                             : profile->handling.lateralGrip;
-            state.mLateralSpeed *= std::exp(-grip * tractionFactor * step);
-            remaining -= step;
+            state.mVisualSuspensionTravel = suspensionTravel;
+            state.mVisualSuspensionInitialized = true;
+        }
+        else
+        {
+            const float visualDt = std::clamp(duration, 0.f, sMaxSolverDuration);
+            const float extensionAlpha = 1.f - std::exp(-sVisualSuspensionResponse * visualDt);
+            for (std::size_t index = 0; index < state.mVisualSuspensionTravel.size(); ++index)
+            {
+                if (suspensionTravel[index] >= state.mVisualSuspensionTravel[index])
+                    state.mVisualSuspensionTravel[index] = suspensionTravel[index];
+                else
+                {
+                    state.mVisualSuspensionTravel[index] +=
+                        (suspensionTravel[index] - state.mVisualSuspensionTravel[index]) * extensionAlpha;
+                }
+            }
         }
 
-        // Ground-contact correction can appear in displacement feedback as a few
-        // units per second of planar motion. Without a rest dead zone that noise
-        // is re-queued indefinitely and makes a parked vehicle creep.
-        if (state.mInput.mThrottle == 0.f && state.mInput.mBrake == 0.f
-            && std::abs(state.mForwardSpeed) < sRestSpeedThreshold
-            && std::abs(state.mLateralSpeed) < sRestSpeedThreshold)
-        {
-            state.mForwardSpeed = 0.f;
-            state.mLateralSpeed = 0.f;
-        }
+        world->moveObject(player, bodyState.mRootPosition, false);
 
-        if (yawDelta != 0.f)
+        const osg::Vec3f forward = bodyState.mOrientation * osg::Vec3f(0.f, 1.f, 0.f);
+        const float yaw = std::atan2(forward.x(), forward.y());
+        const float currentYaw = player.getRefData().getPosition().rot[2];
+        const float yawDelta
+            = std::atan2(std::sin(yaw - currentYaw), std::cos(yaw - currentYaw));
+        if (std::abs(yawDelta) > std::numeric_limits<float>::epsilon())
             world->rotateObject(player, osg::Vec3f(0.f, 0.f, yawDelta), true);
-        world->queueMovement(player, osg::Vec3f(state.mLateralSpeed, state.mForwardSpeed, 0.f));
+
+        const osg::Quat yawRotation(yaw, osg::Vec3f(0.f, 0.f, -1.f));
+        // The actor scene node already applies vehicle yaw. OSG quaternion
+        // multiplication composes left-to-right, so remove that parent yaw on
+        // the right. This preserves yaw * (relative * v) == body * v for the
+        // truck visual, seated driver, and camera anchor.
+        const osg::Quat relativeAttitude = bodyState.mOrientation * yawRotation.inverse();
+        std::array<bool, 4> visualNodeUpdated{};
+        if (MWRender::Animation* animation = world->getAnimation(player))
+        {
+            animation->setEffectTransform(
+                sVehicleVisualEffectId, osg::Vec3f(), relativeAttitude);
+            animation->setVehicleDriverSuspensionTransform(osg::Vec3f(), relativeAttitude);
+            for (std::size_t index = 0; index < profile->suspension.wheels.size(); ++index)
+            {
+                visualNodeUpdated[index] = animation->setEffectNodeOffset(
+                    sVehicleVisualEffectId, profile->suspension.wheels[index].visualNode,
+                    osg::Vec3f(0.f, 0.f,
+                        (profile->suspension.wheels[index].visualContactPlaneOffset
+                            + state.mVisualSuspensionTravel[index]) / presentationScale));
+            }
+        }
+
+        const osg::Vec3f localVelocity = bodyState.mOrientation.inverse() * bodyState.mLinearVelocity;
+        state.mLateralSpeed = localVelocity.x();
+        state.mForwardSpeed = localVelocity.y();
+        state.mYawRate = bodyState.mAngularVelocity.z();
+        state.mGrounded = false;
+        state.mMotionInitialized = false;
+        world->queueMovement(player, osg::Vec3f());
 
         state.mLogTimer += std::max(duration, 0.f);
         if (state.mLogTimer >= 1.f)
         {
             state.mLogTimer = 0.f;
-            Log(Debug::Info) << "[Vehicle] solver speed=" << state.mForwardSpeed
-                             << " lateral=" << state.mLateralSpeed
-                             << " steeringDeg=" << osg::RadiansToDegrees(state.mSteeringAngle)
-                             << " yawRate=" << state.mYawRate << " grounded=" << state.mGrounded
-                             << " steeringSupport=" << steeringSupport
-                             << " wheels=" << sLocalSuspensionState.mSupportedWheels
-                             << " terrain=(" << sLocalSuspensionState.mWheels[0].mTerrainHit << ","
-                             << sLocalSuspensionState.mWheels[1].mTerrainHit << ","
-                             << sLocalSuspensionState.mWheels[2].mTerrainHit << ","
-                             << sLocalSuspensionState.mWheels[3].mTerrainHit << ")"
-                             << " support=(" << sLocalSuspensionState.mWheels[0].mGrounded << ","
-                             << sLocalSuspensionState.mWheels[1].mGrounded << ","
-                             << sLocalSuspensionState.mWheels[2].mGrounded << ","
-                             << sLocalSuspensionState.mWheels[3].mGrounded << ")"
-                             << " requiredLength=("
-                             << sLocalSuspensionState.mWheels[0].mRequiredSuspensionLength << ","
-                             << sLocalSuspensionState.mWheels[1].mRequiredSuspensionLength << ","
-                             << sLocalSuspensionState.mWheels[2].mRequiredSuspensionLength << ","
-                             << sLocalSuspensionState.mWheels[3].mRequiredSuspensionLength << ")"
-                             << " pitchDeg=" << osg::RadiansToDegrees(sLocalSuspensionState.mPitch)
-                             << " pitchRateDeg="
-                             << osg::RadiansToDegrees(sLocalSuspensionState.mPitchVelocity)
-                             << " groundPitchRateDeg="
-                             << osg::RadiansToDegrees(sLocalSuspensionState.mGroundPitchVelocity)
-                             << " terrainNormalPitchDeg="
-                             << osg::RadiansToDegrees(sLocalSuspensionState.mTerrainNormalPitch)
-                             << " terrainNormalRollDeg="
-                             << osg::RadiansToDegrees(sLocalSuspensionState.mTerrainNormalRoll)
-                             << " airborneTime=" << sLocalSuspensionState.mAirborneTime
-                             << " airborne=" << sLocalSuspensionState.mAirborne
-                             << " takeoffDirection=" << sLocalSuspensionState.mTakeoffDirection
-                             << " landingSupportTime=" << sLocalSuspensionState.mLandingSupportTime
-                             << " unsupportedTime=" << sLocalSuspensionState.mUnsupportedTime
-                             << " terrainBridge=" << sLocalSuspensionState.mTerrainBridge
-                             << " terrainCrossBridge=" << sLocalSuspensionState.mTerrainCrossBridge
-                             << " rollDeg=" << osg::RadiansToDegrees(sLocalSuspensionState.mRoll)
-                             << " suspensionZ=" << sLocalSuspensionState.mVerticalOffset
-                             << " wheelVisual=(" << sLocalSuspensionState.mWheels[0].mVisualOffset << ", "
-                             << sLocalSuspensionState.mWheels[1].mVisualOffset << ", "
-                             << sLocalSuspensionState.mWheels[2].mVisualOffset << ", "
-                             << sLocalSuspensionState.mWheels[3].mVisualOffset << ")"
-                             << " wheelGroundZ=(" << sLocalSuspensionState.mWheels[0].mContactPoint.z() << ", "
-                             << sLocalSuspensionState.mWheels[1].mContactPoint.z() << ", "
-                             << sLocalSuspensionState.mWheels[2].mContactPoint.z() << ", "
-                             << sLocalSuspensionState.mWheels[3].mContactPoint.z() << ")"
-                             << " input=(" << state.mInput.mThrottle << ", " << state.mInput.mBrake << ", "
+            Log(Debug::Info) << "[VehicleBody] state root=(" << bodyState.mRootPosition.x() << ", "
+                             << bodyState.mRootPosition.y() << ", " << bodyState.mRootPosition.z()
+                             << ") linear=(" << bodyState.mLinearVelocity.x() << ", "
+                             << bodyState.mLinearVelocity.y() << ", " << bodyState.mLinearVelocity.z()
+                             << ") angular=(" << bodyState.mAngularVelocity.x() << ", "
+                             << bodyState.mAngularVelocity.y() << ", " << bodyState.mAngularVelocity.z()
+                             << ") grounded=(" << bodyState.mWheelGrounded[0] << ", "
+                             << bodyState.mWheelGrounded[1] << ", " << bodyState.mWheelGrounded[2] << ", "
+                             << bodyState.mWheelGrounded[3] << ") compression=("
+                             << bodyState.mSuspensionCompression[0] << ", "
+                             << bodyState.mSuspensionCompression[1] << ", "
+                             << bodyState.mSuspensionCompression[2] << ", "
+                             << bodyState.mSuspensionCompression[3]
+                             << ") travel=(" << suspensionTravel[0] << ", " << suspensionTravel[1] << ", "
+                             << suspensionTravel[2] << ", " << suspensionTravel[3]
+                             << ") visualTravel=(" << state.mVisualSuspensionTravel[0] << ", "
+                             << state.mVisualSuspensionTravel[1] << ", "
+                             << state.mVisualSuspensionTravel[2] << ", "
+                             << state.mVisualSuspensionTravel[3]
+                             << ") visualNodes=(" << visualNodeUpdated[0] << ", " << visualNodeUpdated[1] << ", "
+                             << visualNodeUpdated[2] << ", " << visualNodeUpdated[3]
+                             << ") input=(" << state.mInput.mThrottle << ", " << state.mInput.mBrake << ", "
                              << state.mInput.mSteering << ", " << state.mInput.mHandbrake << ")";
         }
     }

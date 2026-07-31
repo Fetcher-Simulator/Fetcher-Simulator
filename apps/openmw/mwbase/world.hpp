@@ -63,6 +63,9 @@ namespace MWPhysics
 {
     class RayCastingResult;
     class RayCastingInterface;
+    struct VehicleBodyConfig;
+    struct VehicleBodyInput;
+    struct VehicleBodyState;
 }
 
 namespace MWRender
@@ -326,6 +329,13 @@ namespace MWBase
         virtual void setActorCollisionTransform(
             const MWWorld::Ptr& ptr, const osg::Quat& rotation, const osg::Vec3f& positionOffset) = 0;
         virtual bool restoreActorCollisionShape(const MWWorld::Ptr& ptr) = 0;
+        virtual bool setVehicleRigidBody(
+            const MWWorld::Ptr& ptr, const MWPhysics::VehicleBodyConfig& config) = 0;
+        virtual bool removeVehicleRigidBody(const MWWorld::Ptr& ptr) = 0;
+        virtual bool setVehicleRigidBodyInput(
+            const MWWorld::Ptr& ptr, const MWPhysics::VehicleBodyInput& input) = 0;
+        virtual bool getVehicleRigidBodyState(
+            const MWWorld::ConstPtr& ptr, MWPhysics::VehicleBodyState& state) const = 0;
         virtual bool isActorCollisionEnabled(const MWWorld::Ptr& ptr) = 0;
 
         /// Set the physics actor's on-ground flag directly.

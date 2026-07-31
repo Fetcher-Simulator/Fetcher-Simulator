@@ -20,6 +20,9 @@ namespace mwmp
             ws.write(mPlayer->velocity.linear[1]);
             ws.write(mPlayer->velocity.linear[2]);
             ws.write(mPlayer->positionSampleTimeUs);
+            ws.write(mPlayer->vehicle.hasRigidBodyPose);
+            for (float compression : mPlayer->vehicle.suspensionCompression)
+                ws.write(compression);
         }
 
         void unpack(ReadStream& rs) override
@@ -36,6 +39,16 @@ namespace mwmp
                 rs.read(mPlayer->positionSampleTimeUs);
             else
                 mPlayer->positionSampleTimeUs = 0;
+
+            mPlayer->vehicle.hasRigidBodyPose = false;
+            mPlayer->vehicle.suspensionCompression.fill(0.f);
+            constexpr std::size_t rigidBodyPoseBytes = sizeof(bool) + sizeof(float) * 4;
+            if (rs.remaining() >= rigidBodyPoseBytes)
+            {
+                rs.read(mPlayer->vehicle.hasRigidBodyPose);
+                for (float& compression : mPlayer->vehicle.suspensionCompression)
+                    rs.read(compression);
+            }
         }
     };
 

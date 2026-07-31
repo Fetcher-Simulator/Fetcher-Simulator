@@ -45,6 +45,7 @@ namespace SceneUtil
     class KeyframeController;
     class LightSource;
     class LightListCallback;
+    class PositionAttitudeTransform;
     class Skeleton;
     struct LightCommon;
 }
@@ -192,6 +193,7 @@ namespace MWRender
         osg::ref_ptr<osg::Group> mInsert;
 
         osg::ref_ptr<osg::Group> mObjectRoot;
+        osg::ref_ptr<SceneUtil::PositionAttitudeTransform> mVehicleDriverTransform;
         SceneUtil::Skeleton* mSkeleton;
 
         // The node expected to accumulate movement during movement animations.
@@ -373,7 +375,8 @@ namespace MWRender
          */
         void addEffect(std::string_view model, std::string_view effectId, bool loop = false,
             std::string_view bonename = {}, std::string_view texture = {}, bool useAmbientLight = true,
-            bool autoTransform = true, const std::optional<osg::Matrix>& transform = std::nullopt);
+            bool autoTransform = true, const std::optional<osg::Matrix>& transform = std::nullopt,
+            bool preserveNodeStructure = false);
 
         void removeEffect(std::string_view effectId);
         void removeEffects();
@@ -517,6 +520,14 @@ namespace MWRender
         void setVehicleDriverSuspensionTransform(
             const osg::Vec3f& position, const osg::Quat& attitude);
         const osg::Vec3f& getVehicleDriverOffset() const { return mVehicleDriverOffset; }
+        const osg::Vec3f& getVehicleDriverSuspensionPosition() const
+        {
+            return mVehicleDriverSuspensionPosition;
+        }
+        const osg::Quat& getVehicleDriverSuspensionAttitude() const
+        {
+            return mVehicleDriverSuspensionAttitude;
+        }
         void setVehicleFirstPersonCameraOffset(const osg::Vec3f& offset) { mVehicleFirstPersonCameraOffset = offset; }
         const osg::Vec3f& getVehicleFirstPersonCameraOffset() const { return mVehicleFirstPersonCameraOffset; }
         void setVehicleLegPoseDegrees(const osg::Vec3f& pose);

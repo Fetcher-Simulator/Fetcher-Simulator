@@ -30,6 +30,7 @@ namespace mwmp
     {
         std::string_view visualNode;
         std::array<float, 3> mountPosition;
+        float visualContactPlaneOffset;
     };
 
     struct VehicleSuspensionProfile
@@ -56,6 +57,21 @@ namespace mwmp
         float edgeTipResponseDegrees;
     };
 
+    struct VehicleRigidBodyProfile
+    {
+        float mass;
+        std::array<float, 3> centerOfMassFromVehicleRoot;
+        std::array<float, 3> inertiaScale;
+        std::array<float, 3> chassisHalfExtents;
+        std::array<float, 3> chassisCenterFromVehicleRoot;
+        std::array<float, 2> chassisLowerInset;
+        float chassisLowerChamferHeight;
+        float friction;
+        float restitution;
+        float linearDamping;
+        float angularDamping;
+    };
+
     struct VehicleProfile
     {
         std::string_view id;
@@ -65,6 +81,7 @@ namespace mwmp
         std::array<float, 3> collisionHalfExtents;
         std::array<float, 3> collisionCenterFromVehicleRoot;
         std::array<float, 3> firstPersonCameraOffset;
+        VehicleRigidBodyProfile rigidBody;
         VehicleSuspensionProfile suspension;
         VehicleHandlingProfile handling;
     };
@@ -79,13 +96,36 @@ namespace mwmp
             { 0.f, 0.f, 57.4f },
             { -24.5085f, 23.8851f, 101.7932f },
             {
+                1900.f,
+                { 0.f, -8.f, 42.f },
+                { 1.f, 1.f, 1.f },
+                // Keep the physical chassis above the suspension-supported tire
+                // contact plane. The larger profile collision box remains the
+                // remote targeting proxy and includes the visual undercarriage.
+                { 65.1f, 159.6f, 36.f },
+                { 0.f, 0.f, 66.f },
+                // Chamfer the long lower perimeter so box corners do not hook
+                // heightfield triangle seams or small terrain ridges.
+                { 8.f, 28.f },
+                12.f,
+                // Tire forces own vehicle grip. Low chassis friction prevents
+                // the body from sticking to terrain when the underside contacts.
+                0.05f,
+                0.05f,
+                0.04f,
+                0.12f,
+            },
+            {
                 { {
-                    { "FV_Pickup85_WheelStock_FL.001", { -50.f, 102.f, 58.f } },
-                    { "FV_Pickup85_WheelStock_FR.001", { 50.f, 102.f, 58.f } },
-                    { "FV_Pickup85_WheelStock_RL.001", { -50.f, -100.f, 58.f } },
-                    { "FV_Pickup85_WheelStock_RR.001", { 50.f, -100.f, 58.f } },
+                    // Measured directly from the attached NIF. The suspension
+                    // mount is one rest length above each authored wheel center,
+                    // so the physical ray and visible tire sample the same terrain.
+                    { "FV_Pickup85_WheelStock_FL.001", { -54.63913f, 110.99693f, 51.39135f }, 0.f },
+                    { "FV_Pickup85_WheelStock_FR.001", { 54.56343f, 110.99697f, 51.39135f }, 0.f },
+                    { "FV_Pickup85_WheelStock_RL.001", { -54.63913f, -92.05150f, 51.39135f }, 0.f },
+                    { "FV_Pickup85_WheelStock_RR.001", { 54.56341f, -92.05148f, 51.39135f }, 0.f },
                 } },
-                27.5f,
+                24.39135f,
                 27.f,
                 14.f,
                 18.f,

@@ -11,6 +11,7 @@
 #include <unordered_set>
 
 #include <BulletCollision/CollisionDispatch/btCollisionWorld.h>
+#include <BulletDynamics/Dynamics/btDiscreteDynamicsWorld.h>
 
 #include <osg/Timer>
 
@@ -30,6 +31,7 @@ namespace MWRender
 
 namespace MWPhysics
 {
+    class VehicleBody;
     enum class LockingPolicy
     {
         NoLocks,
@@ -40,7 +42,8 @@ namespace MWPhysics
     class PhysicsTaskScheduler
     {
     public:
-        PhysicsTaskScheduler(float physicsDt, btCollisionWorld* collisionWorld, MWRender::DebugDrawer* debugDrawer);
+        PhysicsTaskScheduler(
+            float physicsDt, btDiscreteDynamicsWorld* collisionWorld, MWRender::DebugDrawer* debugDrawer);
         ~PhysicsTaskScheduler();
 
         /// @brief move actors taking into account desired movements and collisions
@@ -65,6 +68,10 @@ namespace MWPhysics
         void setCollisionFilterMask(btCollisionObject* collisionObject, int collisionFilterMask);
         void addCollisionObject(btCollisionObject* collisionObject, int collisionFilterGroup, int collisionFilterMask);
         void removeCollisionObject(btCollisionObject* collisionObject);
+        void addVehicleBody(VehicleBody* vehicleBody, int collisionFilterGroup, int collisionFilterMask);
+        void removeVehicleBody(VehicleBody* vehicleBody);
+        void suspendActorCollision(const std::shared_ptr<Actor>& actor);
+        void resumeActorCollision(const std::shared_ptr<Actor>& actor);
         void setActorCollisionBox(
             const std::shared_ptr<Actor>& actor, const osg::Vec3f& halfExtents, const osg::Vec3f& center);
         void restoreActorCollisionShape(const std::shared_ptr<Actor>& actor);
@@ -86,6 +93,7 @@ namespace MWPhysics
         void updateAabbs();
         void updatePtrAabb(const std::shared_ptr<PtrHolder>& ptr);
         void updateStats(osg::Timer_t frameStart, unsigned int frameNumber, osg::Stats& stats);
+        void stepDynamicBodies();
         std::tuple<unsigned, float> calculateStepConfig(float timeAccum) const;
         void afterPreStep();
         void afterPostStep();
@@ -101,7 +109,8 @@ namespace MWPhysics
         float mDefaultPhysicsDt;
         float mPhysicsDt;
         float mTimeAccum;
-        btCollisionWorld* mCollisionWorld;
+        btDiscreteDynamicsWorld* mCollisionWorld;
+        std::unordered_set<VehicleBody*> mVehicleBodies;
         MWRender::DebugDrawer* mDebugDrawer;
         std::vector<LOSRequest> mLOSCache;
         std::set<std::weak_ptr<PtrHolder>, std::owner_less<std::weak_ptr<PtrHolder>>> mUpdateAabb;

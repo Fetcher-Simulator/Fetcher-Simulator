@@ -1430,6 +1430,11 @@ bool MPServer::killPlayer(uint32_t guid, const std::string& deathMessage)
     client->player.deathAnimationGroup = "death1";
     client->player.dynamicStats.health.current = 0.f;
 
+    // A dead player cannot continue owning an active native vehicle body. Clear
+    // the authoritative state before broadcasting death so every client removes
+    // the rigid body and seated presentation before respawn.
+    setPlayerVehicleState(guid, false, std::string(), 0);
+
     PacketPlayerDeath pkt;
     pkt.setPlayer(&client->player);
     const auto encoded = pkt.encode();
@@ -5416,6 +5421,8 @@ void MPServer::handlePlayerPosition(ConnectedClient& c, const uint8_t* data, siz
     c.player.position = proposed.position;
     c.player.velocity = proposed.velocity;
     c.player.positionSampleTimeUs = proposed.positionSampleTimeUs;
+    c.player.vehicle.hasRigidBodyPose = proposed.vehicle.hasRigidBodyPose;
+    c.player.vehicle.suspensionCompression = proposed.vehicle.suspensionCompression;
 
     // Relay to all other clients (unreliable is fine - we use raw broadcast)
     if (forceReliableTeleportRelay)
@@ -6170,6 +6177,12 @@ void MPServer::handlePlayerDeath(ConnectedClient& c, const uint8_t* data, size_t
     c.playerDeathRestoreGuardUntilMs = 0;
     c.player.isDead = true;
     c.player.deathAnimationGroup = incoming.deathAnimationGroup;
+
+    // Clear authoritative vehicle ownership as part of death handling. This
+    // ensures the driver, observers, and later respawn all agree that the old
+    // rigid body no longer exists at the death location.
+    setPlayerVehicleState(c.player.guid, false, std::string(), 0);
+
     broadcastToAll(std::vector<uint8_t>(data, data + size), c.conn);
 
     Log(Debug::Info) << "[Server] Relayed PlayerDeath for " << c.name

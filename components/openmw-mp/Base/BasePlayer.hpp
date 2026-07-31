@@ -45,6 +45,15 @@ namespace mwmp
             uint32_t revision = 0;
             uint32_t parkedObjectMpNum = 0;
             std::string profileId;
+
+            // High-rate presentation data carried by PlayerPosition while a
+            // native rigid body owns the vehicle. The full orientation is stored
+            // in Position::rot; these fields complete the wheel presentation and
+            // identify snapshots that should bypass the legacy terrain solver.
+            bool hasRigidBodyPose = false;
+            // Historical field name retained for packet compatibility. Values
+            // are signed visual travel: positive compression, negative droop.
+            std::array<float, 4> suspensionCompression{};
         } vehicle;
 
         // ------------------------------------------------------------------

@@ -1,4 +1,5 @@
 #include "mtphysics.hpp"
+#include "vehiclebody.hpp"
 
 #include <cassert>
 #include <functional>
@@ -10,6 +11,7 @@
 
 #include <BulletCollision/BroadphaseCollision/btDbvtBroadphase.h>
 #include <BulletCollision/CollisionShapes/btCollisionShape.h>
+#include <BulletDynamics/Dynamics/btRigidBody.h>
 #include <LinearMath/btThreads.h>
 
 #include <osg/Stats>
@@ -40,6 +42,9 @@ namespace MWPhysics
 {
     namespace
     {
+        constexpr unsigned int sMaxVehicleRigidBodySubsteps = 8;
+        constexpr float sMinimumVehicleRigidBodyStep = 0.0001f;
+
         template <class Mutex>
         std::optional<std::unique_lock<Mutex>> makeExclusiveLock(Mutex& mutex, LockingPolicy lockingPolicy)
         {
@@ -401,7 +406,7 @@ namespace MWPhysics
     };
 
     PhysicsTaskScheduler::PhysicsTaskScheduler(
-        float physicsDt, btCollisionWorld* collisionWorld, MWRender::DebugDrawer* debugDrawer)
+        float physicsDt, btDiscreteDynamicsWorld* collisionWorld, MWRender::DebugDrawer* debugDrawer)
         : mDefaultPhysicsDt(physicsDt)
         , mPhysicsDt(physicsDt)
         , mTimeAccum(0.f)
@@ -648,7 +653,8 @@ namespace MWPhysics
     void PhysicsTaskScheduler::setCollisionFilterMask(btCollisionObject* collisionObject, int collisionFilterMask)
     {
         MaybeExclusiveLock lock(mCollisionWorldMutex, mLockingPolicy);
-        collisionObject->getBroadphaseHandle()->m_collisionFilterMask = collisionFilterMask;
+        if (btBroadphaseProxy* proxy = collisionObject->getBroadphaseHandle())
+            proxy->m_collisionFilterMask = collisionFilterMask;
     }
 
     void PhysicsTaskScheduler::addCollisionObject(
@@ -664,6 +670,68 @@ namespace MWPhysics
         MaybeExclusiveLock lock(mCollisionWorldMutex, mLockingPolicy);
         mCollisionObjects.erase(collisionObject);
         mCollisionWorld->removeCollisionObject(collisionObject);
+    }
+
+    void PhysicsTaskScheduler::addVehicleBody(
+        VehicleBody* vehicleBody, int collisionFilterGroup, int collisionFilterMask)
+    {
+        waitForWorkers();
+        MaybeExclusiveLock simulationLock(mSimulationMutex, mLockingPolicy);
+        MaybeExclusiveLock worldLock(mCollisionWorldMutex, mLockingPolicy);
+
+        btRigidBody* rigidBody = vehicleBody->getRigidBody();
+        mVehicleBodies.insert(vehicleBody);
+        mCollisionObjects.insert(rigidBody);
+        mCollisionWorld->addRigidBody(rigidBody, collisionFilterGroup, collisionFilterMask);
+    }
+
+    void PhysicsTaskScheduler::removeVehicleBody(VehicleBody* vehicleBody)
+    {
+        waitForWorkers();
+        MaybeExclusiveLock simulationLock(mSimulationMutex, mLockingPolicy);
+        MaybeExclusiveLock worldLock(mCollisionWorldMutex, mLockingPolicy);
+
+        btRigidBody* rigidBody = vehicleBody->getRigidBody();
+        mVehicleBodies.erase(vehicleBody);
+        mCollisionObjects.erase(rigidBody);
+        mCollisionWorld->removeRigidBody(rigidBody);
+    }
+
+    void PhysicsTaskScheduler::suspendActorCollision(const std::shared_ptr<Actor>& actor)
+    {
+        waitForWorkers();
+        {
+            MaybeExclusiveLock updateLock(mUpdateAabbMutex, mLockingPolicy);
+            mUpdateAabb.erase(std::weak_ptr<PtrHolder>(actor));
+        }
+
+        MaybeExclusiveLock simulationLock(mSimulationMutex, mLockingPolicy);
+        MaybeExclusiveLock worldLock(mCollisionWorldMutex, mLockingPolicy);
+
+        btCollisionObject* collisionObject = actor->getCollisionObject();
+        if (!collisionObject->getBroadphaseHandle())
+            return;
+
+        mCollisionObjects.erase(collisionObject);
+        mCollisionWorld->removeCollisionObject(collisionObject);
+    }
+
+    void PhysicsTaskScheduler::resumeActorCollision(const std::shared_ptr<Actor>& actor)
+    {
+        waitForWorkers();
+        actor->updatePosition();
+        actor->updateCollisionObjectPosition();
+
+        MaybeExclusiveLock simulationLock(mSimulationMutex, mLockingPolicy);
+        MaybeExclusiveLock worldLock(mCollisionWorldMutex, mLockingPolicy);
+
+        btCollisionObject* collisionObject = actor->getCollisionObject();
+        if (collisionObject->getBroadphaseHandle())
+            return;
+
+        mCollisionObjects.insert(collisionObject);
+        mCollisionWorld->addCollisionObject(
+            collisionObject, CollisionType_Actor, actor->getCollisionMask());
     }
 
     void PhysicsTaskScheduler::setActorCollisionBox(
@@ -774,7 +842,9 @@ namespace MWPhysics
         if (const auto actor = std::dynamic_pointer_cast<Actor>(ptr))
         {
             actor->updateCollisionObjectPosition();
-            mCollisionWorld->updateSingleAabb(actor->getCollisionObject());
+            btCollisionObject* collisionObject = actor->getCollisionObject();
+            if (collisionObject->getBroadphaseHandle())
+                mCollisionWorld->updateSingleAabb(collisionObject);
         }
         else if (const auto object = std::dynamic_pointer_cast<Object>(ptr))
         {
@@ -899,8 +969,31 @@ namespace MWPhysics
         {
             --mRemainingSteps;
             updateActorsPositions();
+            stepDynamicBodies();
         }
         mNextJob.store(0, std::memory_order_release);
+    }
+
+    void PhysicsTaskScheduler::stepDynamicBodies()
+    {
+        if (mVehicleBodies.empty())
+            return;
+
+        const float targetStep = std::max(mDefaultPhysicsDt, sMinimumVehicleRigidBodyStep);
+        const unsigned int substeps = std::clamp(
+            static_cast<unsigned int>(std::ceil(mPhysicsDt / targetStep)), 1u,
+            sMaxVehicleRigidBodySubsteps);
+        const float substepDt = mPhysicsDt / static_cast<float>(substeps);
+
+        MaybeExclusiveLock lock(mCollisionWorldMutex, mLockingPolicy);
+        for (unsigned int step = 0; step < substeps; ++step)
+        {
+            for (VehicleBody* vehicleBody : mVehicleBodies)
+                vehicleBody->applyForces(mCollisionWorld, substepDt);
+            mCollisionWorld->stepSimulation(substepDt, 0, substepDt);
+        }
+        for (VehicleBody* vehicleBody : mVehicleBodies)
+            vehicleBody->captureState();
     }
 
     void PhysicsTaskScheduler::afterPostSim()

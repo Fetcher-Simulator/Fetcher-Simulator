@@ -11,6 +11,7 @@
 #include <components/esm/refid.hpp>
 #include <components/fallback/fallback.hpp>
 #include <components/misc/constants.hpp>
+#include <components/misc/convert.hpp>
 #include <components/misc/rng.hpp>
 #include <components/openmw-mp/Base/VehicleProfiles.hpp>
 
@@ -575,10 +576,49 @@ namespace mwmp
             ensureMechanicsRegistration();
             applyAnimationStateToActor();
             applyVehiclePresentation();
+            MWBase::World* world = MWBase::Environment::get().getWorld();
             const VehicleProfile* vehicleProfile
                 = mState.vehicle.active ? findVehicleProfile(mState.vehicle.profileId) : nullptr;
-            if (vehicleProfile)
+            if (vehicleProfile && mHasInterpolatedVehicleRigidBodyPose)
             {
+                // The driving client owns the native Bullet body. Reconstruct its
+                // interpolated full orientation from PlayerPosition instead of
+                // running a second terrain solver that can disagree with it.
+                const ESM::Position& position = mNpcPtr.getRefData().getPosition();
+                const osg::Quat bodyOrientation = Misc::Convert::makeOsgQuat(position);
+                const osg::Quat vehicleYaw(
+                    position.rot[2], osg::Vec3f(0.f, 0.f, -1.f));
+                const osg::Quat relativeAttitude
+                    = bodyOrientation * vehicleYaw.inverse();
+                float presentationScale = 1.f;
+                if (const SceneUtil::PositionAttitudeTransform* baseNode
+                    = mNpcPtr.getRefData().getBaseNode())
+                {
+                    presentationScale = std::max(std::abs(baseNode->getScale().y()), 0.001f);
+                }
+                if (MWRender::Animation* animation
+                    = world ? world->getAnimation(mNpcPtr) : nullptr)
+                {
+                    animation->setEffectTransform(
+                        sVehicleVisualEffectId, osg::Vec3f(), relativeAttitude);
+                    animation->setVehicleDriverSuspensionTransform(
+                        osg::Vec3f(), relativeAttitude);
+                    for (std::size_t index = 0; index < vehicleProfile->suspension.wheels.size(); ++index)
+                    {
+                        animation->setEffectNodeOffset(sVehicleVisualEffectId,
+                            vehicleProfile->suspension.wheels[index].visualNode,
+                            osg::Vec3f(0.f, 0.f,
+                                (vehicleProfile->suspension.wheels[index].visualContactPlaneOffset
+                                    + mInterpolatedVehicleSuspensionCompression[index])
+                                    / presentationScale));
+                    }
+                }
+                mVehicleSuspensionState = {};
+            }
+            else if (vehicleProfile)
+            {
+                // Compatibility fallback for position packets from clients that
+                // predate authoritative rigid-body presentation data.
                 const osg::Quat vehicleYaw(
                     mNpcPtr.getRefData().getPosition().rot[2], osg::Vec3f(0.f, 0.f, -1.f));
                 const osg::Vec3f localVelocity = vehicleYaw.inverse()
@@ -588,7 +628,11 @@ namespace mwmp
                     mNpcPtr, *vehicleProfile, safeDt, localVelocity.y(), mVehicleSuspensionState);
             }
             else
+            {
+                mHasInterpolatedVehicleRigidBodyPose = false;
+                mInterpolatedVehicleSuspensionCompression.fill(0.f);
                 mVehicleSuspensionState = {};
+            }
 
             // Suppress AI every frame; MechanicsManager::add() reactivates
             // the AI sequence, so a one-time clear() at spawn time isn't enough.
@@ -1576,6 +1620,10 @@ namespace mwmp
         mState.position = state.position;
         mState.velocity = state.velocity;
         mState.positionSampleTimeUs = state.positionSampleTimeUs;
+        mState.vehicle.hasRigidBodyPose = state.vehicle.hasRigidBodyPose;
+        mState.vehicle.suspensionCompression = state.vehicle.suspensionCompression;
+        mHasInterpolatedVehicleRigidBodyPose = state.vehicle.hasRigidBodyPose;
+        mInterpolatedVehicleSuspensionCompression = state.vehicle.suspensionCompression;
 
         auto hardSnapPosition = [&](const char* reason) {
             clearPositionSnapshots();
@@ -1675,6 +1723,8 @@ namespace mwmp
             PositionSnapshot snapshot;
             snapshot.position = state.position;
             snapshot.velocity = state.velocity;
+            snapshot.hasVehicleRigidBodyPose = state.vehicle.hasRigidBodyPose;
+            snapshot.vehicleSuspensionCompression = state.vehicle.suspensionCompression;
             snapshot.senderTimeUs = state.positionSampleTimeUs;
             snapshot.receiveTimeUs = receiveUs;
             snapshot.sequence = sequence;
@@ -2388,6 +2438,8 @@ namespace mwmp
             return;
 
         mState.vehicle = state.vehicle;
+        mHasInterpolatedVehicleRigidBodyPose = false;
+        mInterpolatedVehicleSuspensionCompression.fill(0.f);
         applyVehiclePresentation();
     }
 
@@ -2452,7 +2504,8 @@ namespace mwmp
 
         try
         {
-            animation->addEffect(profile->attachedModel, sVehicleVisualEffectId, true, {}, {}, false, false);
+            animation->addEffect(
+                profile->attachedModel, sVehicleVisualEffectId, true, {}, {}, false, false, std::nullopt, true);
             mAppliedVehicleProfileId.assign(profile->id);
             Log(Debug::Info) << "[MP] RemotePlayer " << mName
                              << ": applied vehicle visual profile='" << profile->id << "'";
@@ -2729,6 +2782,9 @@ namespace mwmp
         const PositionSnapshot& oldest = mPositionSnapshots.front();
         const PositionSnapshot& newest = mPositionSnapshots.back();
         Position target = oldest.position;
+        bool hasVehicleRigidBodyPose = oldest.hasVehicleRigidBodyPose;
+        std::array<float, 4> vehicleSuspensionCompression
+            = oldest.vehicleSuspensionCompression;
 
         if (renderTimeUs <= static_cast<double>(oldest.senderTimeUs))
         {
@@ -2803,11 +2859,22 @@ namespace mwmp
             }
             for (int axis = 0; axis < 3; ++axis)
                 target.rot[axis] = lerpAngle(lower.position.rot[axis], upper.position.rot[axis], alpha);
+            hasVehicleRigidBodyPose
+                = lower.hasVehicleRigidBodyPose && upper.hasVehicleRigidBodyPose;
+            for (std::size_t index = 0; index < vehicleSuspensionCompression.size(); ++index)
+            {
+                vehicleSuspensionCompression[index]
+                    = lower.vehicleSuspensionCompression[index]
+                    + (upper.vehicleSuspensionCompression[index]
+                        - lower.vehicleSuspensionCompression[index]) * alpha;
+            }
             ++mMovementDiagSnapshotInterpFrames;
         }
         else
         {
             target = newest.position;
+            hasVehicleRigidBodyPose = newest.hasVehicleRigidBodyPose;
+            vehicleSuspensionCompression = newest.vehicleSuspensionCompression;
             const double rawExtrapolationUs = renderTimeUs - static_cast<double>(newest.senderTimeUs);
             const uint64_t extrapolationUs = static_cast<uint64_t>(std::clamp(rawExtrapolationUs, 0.0,
                 static_cast<double>(POSITION_EXTRAPOLATION_LIMIT_US)));
@@ -2833,6 +2900,8 @@ namespace mwmp
                 ++mMovementDiagSnapshotHoldFrames;
         }
 
+        mHasInterpolatedVehicleRigidBodyPose = hasVehicleRigidBodyPose;
+        mInterpolatedVehicleSuspensionCompression = vehicleSuspensionCompression;
         mInterp.tx = target.pos[0];
         mInterp.ty = target.pos[1];
         mInterp.tz = target.pos[2];

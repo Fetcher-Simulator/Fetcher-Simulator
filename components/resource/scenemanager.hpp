@@ -152,6 +152,11 @@ namespace Resource
         /// @note Thread safe.
         osg::ref_ptr<const osg::Node> getTemplate(VFS::Path::NormalizedView path, bool compile = true);
 
+        /// Get a separately cached template without flattening or merging its named nodes.
+        /// Use this for articulated scene instances that will animate named model parts at runtime.
+        osg::ref_ptr<const osg::Node> getTemplatePreservingNodeStructure(
+            VFS::Path::NormalizedView path, bool compile = true);
+
         /// Clone osg::Node safely.
         /// @note Thread safe.
         static osg::ref_ptr<osg::Node> cloneNode(const osg::Node* base);
@@ -167,10 +172,17 @@ namespace Resource
         /// @note Thread safe.
         osg::ref_ptr<osg::Node> getInstance(VFS::Path::NormalizedView path);
 
+        /// Instance a separately cached template whose named nodes were preserved for runtime articulation.
+        osg::ref_ptr<osg::Node> getInstancePreservingNodeStructure(VFS::Path::NormalizedView path);
+
         /// Instance the given scene template and immediately attach it to a parent node
         /// @see getTemplate
         /// @note Not thread safe, unless parentNode is not part of the main scene graph yet.
         osg::ref_ptr<osg::Node> getInstance(VFS::Path::NormalizedView path, osg::Group* parentNode);
+
+        /// Instance a preserved-node template and immediately attach it to a parent node.
+        osg::ref_ptr<osg::Node> getInstancePreservingNodeStructure(
+            VFS::Path::NormalizedView path, osg::Group* parentNode);
 
         /// Attach the given scene instance to the given parent node
         /// @note You should have the parentNode in its intended position before calling this method,
@@ -222,6 +234,8 @@ namespace Resource
         void setWeatherParticleOcclusion(bool value) { mWeatherParticleOcclusion = value; }
 
     private:
+        osg::ref_ptr<const osg::Node> getTemplateImpl(
+            VFS::Path::NormalizedView path, bool compile, bool optimize, std::string cacheKey);
         osg::ref_ptr<Shader::ShaderVisitor> createShaderVisitor(const std::string& shaderPrefix = "objects");
         osg::ref_ptr<osg::Node> loadErrorMarker();
         osg::ref_ptr<osg::Node> cloneErrorMarker();

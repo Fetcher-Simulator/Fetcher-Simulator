@@ -1,6 +1,7 @@
 #ifndef OPENMW_MWMP_SYNC_REMOTEPLAYER_HPP
 #define OPENMW_MWMP_SYNC_REMOTEPLAYER_HPP
 
+#include <array>
 #include <cstdint>
 #include <deque>
 #include <memory>
@@ -141,11 +142,15 @@ namespace mwmp
         {
             Position position;
             Velocity velocity;
+            bool hasVehicleRigidBodyPose = false;
+            std::array<float, 4> vehicleSuspensionCompression{};
             uint64_t senderTimeUs = 0;
             uint64_t receiveTimeUs = 0;
             uint32_t sequence = 0;
         };
         std::deque<PositionSnapshot> mPositionSnapshots;
+        bool mHasInterpolatedVehicleRigidBodyPose = false;
+        std::array<float, 4> mInterpolatedVehicleSuspensionCompression{};
         double mPositionClockOffsetUs = 0.0;
         bool mHasPositionClockOffset = false;
         uint64_t mLastPositionSampleTimeUs = 0;

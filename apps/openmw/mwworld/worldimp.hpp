@@ -409,6 +409,13 @@ namespace MWWorld
         void setActorCollisionTransform(
             const Ptr& ptr, const osg::Quat& rotation, const osg::Vec3f& positionOffset) override;
         bool restoreActorCollisionShape(const Ptr& ptr) override;
+        bool setVehicleRigidBody(
+            const Ptr& ptr, const MWPhysics::VehicleBodyConfig& config) override;
+        bool removeVehicleRigidBody(const Ptr& ptr) override;
+        bool setVehicleRigidBodyInput(
+            const Ptr& ptr, const MWPhysics::VehicleBodyInput& input) override;
+        bool getVehicleRigidBodyState(
+            const ConstPtr& ptr, MWPhysics::VehicleBodyState& state) const override;
         bool isActorCollisionEnabled(const Ptr& ptr) override;
         void setOnGround(const Ptr& ptr, bool onGround) override;
 
