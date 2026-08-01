@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #include <components/debug/debuglog.hpp>
 
@@ -31,6 +32,7 @@ namespace MWLua
         };
 
         std::unordered_map<std::string, AuditEntry> sRecent;
+        std::unordered_set<std::string> sReportedCategories;
 
         struct TargetDescription
         {
@@ -86,22 +88,33 @@ namespace MWLua
             if (script.empty())
                 script = "<unknown-script>";
 
+            std::string categoryKey;
+            categoryKey.reserve(script.size() + operation.size() + 1);
+            categoryKey.append(script).push_back('|');
+            categoryKey.append(operation);
+            if (sReportedCategories.insert(categoryKey).second)
+            {
+                Log(Debug::Info) << "[MPAUDIT] native Lua mutation category script=" << script
+                                 << " context=" << context.typeName()
+                                 << " operation=" << operation
+                                 << " route=audit-only details=verbose";
+            }
+
             std::string key;
-            key.reserve(script.size() + operation.size() + target.size() + 3);
-            key.append(script).push_back('|');
-            key.append(operation).push_back('|');
+            key.reserve(categoryKey.size() + target.size() + 1);
+            key.append(categoryKey).push_back('|');
             key.append(target);
 
             const auto now = std::chrono::steady_clock::now();
             AuditEntry& entry = sRecent[key];
-            constexpr auto window = std::chrono::seconds(1);
+            constexpr auto window = std::chrono::seconds(10);
             if (entry.mLast.time_since_epoch().count() != 0 && now - entry.mLast < window)
             {
                 ++entry.mSuppressed;
                 return;
             }
 
-            Log(Debug::Warning) << "[MPAUDIT] native Lua mutation script=" << script
+            Log(Debug::Verbose) << "[MPAUDIT] native Lua mutation script=" << script
                                 << " context=" << context.typeName() << " operation=" << operation
                                 << " target=" << target << " authority=" << authority
                                 << " route=audit-only"
