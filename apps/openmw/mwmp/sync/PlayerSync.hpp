@@ -150,7 +150,14 @@ namespace mwmp
         static constexpr float STATS_RATE    = 0.25f;  // 4 Hz on change
 
         // --- last-sent snapshots for delta detection ---
-        struct PositionSnapshot { float pos[3]; float rot[3]; float velocity[3]; };
+        struct PositionSnapshot
+        {
+            float pos[3];
+            float rot[3];
+            float velocity[3];
+            bool hasVehicleRigidBodyPose = false;
+            float vehicleSteeringAngle = 0.f;
+        };
         PositionSnapshot mLastPos{};
 
         struct CellSnapshot { std::string cellName; bool isExterior; int gx; int gy; };

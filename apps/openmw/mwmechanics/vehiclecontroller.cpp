@@ -65,6 +65,18 @@ namespace
         return std::max(value - maxDelta, target);
     }
 
+    float updateVisualSteeringAngle(float current, float target,
+        const mwmp::VehicleHandlingProfile& handling, float duration)
+    {
+        const bool increasingAwayFromCenter
+            = current * target >= 0.f && std::abs(target) > std::abs(current);
+        const float rateDegrees = increasingAwayFromCenter
+            ? handling.steeringResponseDegrees
+            : handling.steeringReturnDegrees;
+        const float maxDelta = osg::DegreesToRadians(rateDegrees) * std::max(duration, 0.f);
+        return moveTowards(current, target, maxDelta);
+    }
+
     float limitFeedbackMagnitudeIncrease(float measured, float current, float maxIncrease)
     {
         if (measured * current <= 0.f)
@@ -749,6 +761,7 @@ namespace MWMechanics
             state.mVisualSuspensionInitialized = false;
             state.mVisualSuspensionTravel.fill(0.f);
             state.mWheelRollAngles.fill(0.f);
+            state.mVisualSteeringAngle = 0.f;
             stopVehicleAudio();
             return;
         }
@@ -760,6 +773,7 @@ namespace MWMechanics
             state.mVisualSuspensionInitialized = false;
             state.mVisualSuspensionTravel.fill(0.f);
             state.mWheelRollAngles.fill(0.f);
+            state.mVisualSteeringAngle = 0.f;
             stopVehicleAudio();
             world->queueMovement(player, osg::Vec3f());
             return;
@@ -821,6 +835,8 @@ namespace MWMechanics
                 static_cast<float>(osg::PI * 2.0));
         }
         state.mSteeringAngle = bodyState.mSteeringAngle;
+        state.mVisualSteeringAngle = updateVisualSteeringAngle(
+            state.mVisualSteeringAngle, state.mSteeringAngle, profile->handling, visualDt);
         updateVehicleAudio(player, state, *profile, bodyState, suspensionTravel, visualDt);
 
         world->moveObject(player, bodyState.mRootPosition, false);
@@ -852,7 +868,7 @@ namespace MWMechanics
                 const mwmp::VehicleWheelProfile& wheel = profile->suspension.wheels[index];
                 const osg::Vec3f pivot(wheel.mountPosition[0], wheel.mountPosition[1],
                     wheel.mountPosition[2] - profile->suspension.restLength);
-                const float visualSteeringAngle = index < 2 ? -state.mSteeringAngle : 0.f;
+                const float visualSteeringAngle = index < 2 ? -state.mVisualSteeringAngle : 0.f;
                 // OSG quaternion multiplication composes left-to-right. Roll the wheel
                 // around its own axle first, then steer that rotating wheel around Z.
                 // Steering first would leave rolling on the truck's fixed X axis and

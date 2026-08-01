@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <string_view>
 
+#include <osg/Math>
+
 #include <components/debug/debuglog.hpp>
 #include <components/esm/refid.hpp>
 #include <components/fallback/fallback.hpp>
@@ -79,6 +81,25 @@ namespace mwmp
             while (diff < -PI)
                 diff += TWO_PI;
             return current + diff * alpha;
+        }
+
+        float moveTowards(float value, float target, float maxDelta)
+        {
+            if (value < target)
+                return std::min(value + maxDelta, target);
+            return std::max(value - maxDelta, target);
+        }
+
+        float updateVisualSteeringAngle(float current, float target,
+            const VehicleHandlingProfile& handling, float duration)
+        {
+            const bool increasingAwayFromCenter
+                = current * target >= 0.f && std::abs(target) > std::abs(current);
+            const float rateDegrees = increasingAwayFromCenter
+                ? handling.steeringResponseDegrees
+                : handling.steeringReturnDegrees;
+            const float maxDelta = osg::DegreesToRadians(rateDegrees) * std::max(duration, 0.f);
+            return moveTowards(current, target, maxDelta);
         }
 
         float distanceSquared3(float ax, float ay, float az, const Position& position)
@@ -607,15 +628,18 @@ namespace mwmp
 
                     const osg::Vec3f linearVelocity(mState.velocity.linear[0],
                         mState.velocity.linear[1], mState.velocity.linear[2]);
-                    const osg::Vec3f localVelocity = bodyOrientation.inverse() * linearVelocity;
                     const float scaledWheelRadius
                         = std::max(vehicleProfile->suspension.wheelRadius * presentationScale, 0.001f);
                     for (std::size_t index = 0; index < mVehicleWheelRollAngles.size(); ++index)
                     {
                         mVehicleWheelRollAngles[index] = std::remainder(
-                            mVehicleWheelRollAngles[index] - localVelocity.y() / scaledWheelRadius * safeDt,
+                            mVehicleWheelRollAngles[index]
+                                - mVehicleVisualLongitudinalSpeed / scaledWheelRadius * safeDt,
                             static_cast<float>(osg::PI * 2.0));
                     }
+                    mVehicleVisualSteeringAngle = updateVisualSteeringAngle(
+                        mVehicleVisualSteeringAngle, mInterpolatedVehicleSteeringAngle,
+                        vehicleProfile->handling, safeDt);
 
                     const osg::Vec3f wheelRollAxis(1.f, 0.f, 0.f);
                     const osg::Vec3f steeringAxis(0.f, 0.f, 1.f);
@@ -625,7 +649,7 @@ namespace mwmp
                         const osg::Vec3f pivot(wheel.mountPosition[0], wheel.mountPosition[1],
                             wheel.mountPosition[2] - vehicleProfile->suspension.restLength);
                         const float visualSteeringAngle
-                            = index < 2 ? -mInterpolatedVehicleSteeringAngle : 0.f;
+                            = index < 2 ? -mVehicleVisualSteeringAngle : 0.f;
                         const osg::Quat wheelAttitude
                             = osg::Quat(mVehicleWheelRollAngles[index], wheelRollAxis)
                             * osg::Quat(visualSteeringAngle, steeringAxis);
@@ -659,6 +683,8 @@ namespace mwmp
                 mHasInterpolatedVehicleRigidBodyPose = false;
                 mInterpolatedVehicleSuspensionCompression.fill(0.f);
                 mInterpolatedVehicleSteeringAngle = 0.f;
+                mVehicleVisualSteeringAngle = 0.f;
+                mVehicleVisualLongitudinalSpeed = 0.f;
                 mVehicleWheelRollAngles.fill(0.f);
                 mVehicleSuspensionState = {};
                 stopVehicleAudio();
@@ -1436,6 +1462,8 @@ namespace mwmp
         mVehicleSuspensionState = {};
         mVehicleWheelRollAngles.fill(0.f);
         mInterpolatedVehicleSteeringAngle = 0.f;
+        mVehicleVisualSteeringAngle = 0.f;
+        mVehicleVisualLongitudinalSpeed = 0.f;
         mWasJumping = false; // reset so re-spawn doesn't skip the first jump edge
         mSpawnRetryTimer = SPAWN_RETRY_RATE; // attempt immediately on next update
         Log(Debug::Info) << "[MP] RemotePlayer " << mName << ": despawned from world";
@@ -2582,6 +2610,8 @@ namespace mwmp
         mHasInterpolatedVehicleRigidBodyPose = false;
         mInterpolatedVehicleSuspensionCompression.fill(0.f);
         mInterpolatedVehicleSteeringAngle = 0.f;
+        mVehicleVisualSteeringAngle = 0.f;
+        mVehicleVisualLongitudinalSpeed = 0.f;
         mVehicleWheelRollAngles.fill(0.f);
         if (!mState.vehicle.active)
             stopVehicleAudio();
@@ -2626,6 +2656,8 @@ namespace mwmp
                 animation->removeEffect(sVehicleVisualEffectId);
             mAppliedVehicleProfileId.clear();
             mVehicleWheelRollAngles.fill(0.f);
+            mVehicleVisualSteeringAngle = 0.f;
+            mVehicleVisualLongitudinalSpeed = 0.f;
             stopVehicleAudio();
             return;
         }
@@ -2637,6 +2669,8 @@ namespace mwmp
                 animation->removeEffect(sVehicleVisualEffectId);
             mAppliedVehicleProfileId.clear();
             mVehicleWheelRollAngles.fill(0.f);
+            mVehicleVisualSteeringAngle = 0.f;
+            mVehicleVisualLongitudinalSpeed = 0.f;
             stopVehicleAudio();
             Log(Debug::Warning) << "[MP] RemotePlayer " << mName
                                 << ": unknown vehicle profile '" << mState.vehicle.profileId << "'";
@@ -2908,6 +2942,8 @@ namespace mwmp
         mHasInterpolatedVehicleRigidBodyPose = false;
         mInterpolatedVehicleSuspensionCompression.fill(0.f);
         mInterpolatedVehicleSteeringAngle = 0.f;
+        mVehicleVisualSteeringAngle = 0.f;
+        mVehicleVisualLongitudinalSpeed = 0.f;
     }
 
     bool RemotePlayer::updateSnapshotTarget()
@@ -3301,11 +3337,29 @@ namespace mwmp
             // interpolation diagnostics and movement gating without allowing the
             // sender's walk/run speed to cap it.
             mInterpPlanarSpeed = visualPlanarSpeed;
+            if (dt > 0.f)
+            {
+                const float forwardX = std::sin(mInterp.crz);
+                const float forwardY = std::cos(mInterp.crz);
+                mVehicleVisualLongitudinalSpeed
+                    = (interpStepX * forwardX + interpStepY * forwardY) / dt;
+                if (std::abs(mVehicleVisualLongitudinalSpeed) <= 0.5f)
+                    mVehicleVisualLongitudinalSpeed = 0.f;
+                else
+                {
+                    mVehicleVisualLongitudinalSpeed
+                        = std::clamp(mVehicleVisualLongitudinalSpeed, -4000.f, 4000.f);
+                }
+            }
+            else
+                mVehicleVisualLongitudinalSpeed = 0.f;
             Log(Debug::Verbose) << "[MP] " << mName
-                                << " Vehicle visual speed=" << mInterpPlanarSpeed;
+                                << " Vehicle visual speed=" << mInterpPlanarSpeed
+                                << " longitudinal=" << mVehicleVisualLongitudinalSpeed;
         }
         else
         {
+            mVehicleVisualLongitudinalSpeed = 0.f;
             const float absFwdAnim = std::abs(mState.animFlags.animFwd);
             const float absSideAnim = std::abs(mState.animFlags.animSide);
             const bool hasBufferedMoveAnim

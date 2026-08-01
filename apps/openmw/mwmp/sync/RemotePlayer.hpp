@@ -126,6 +126,8 @@ namespace mwmp
         std::string mAppliedVehicleProfileId;
         MWMechanics::VehicleSuspensionState mVehicleSuspensionState;
         std::array<float, 4> mVehicleWheelRollAngles{};
+        float mVehicleVisualSteeringAngle = 0.f;
+        float mVehicleVisualLongitudinalSpeed = 0.f;
         std::array<float, 4> mPreviousVehicleSuspensionTravel{};
         MWSound::Sound* mVehicleEngineSound = nullptr;
         MWSound::Sound* mVehicleTireSound = nullptr;

@@ -1046,8 +1046,21 @@ void PlayerSync::tickPosition(float dt)
     const bool nowMovingVel = (mLocal.velocity.linear[0] != 0.f || mLocal.velocity.linear[1] != 0.f || mLocal.velocity.linear[2] != 0.f);
     const bool reliableStop = wasMovingVel && !nowMovingVel;
 
+    constexpr float steeringThreshold = 0.0025f;
+    const bool vehicleSteeringChanged
+        = mLocal.vehicle.hasRigidBodyPose
+        && (!mLastPos.hasVehicleRigidBodyPose
+            || std::abs(mLocal.vehicle.steeringAngle - mLastPos.vehicleSteeringAngle)
+                > steeringThreshold);
+    const float planarSpeedSquared
+        = mLocal.velocity.linear[0] * mLocal.velocity.linear[0]
+        + mLocal.velocity.linear[1] * mLocal.velocity.linear[1];
+    const bool reliableStationarySteering
+        = vehicleSteeringChanged && planarSpeedSquared < 25.f
+        && std::abs(mLocal.velocity.linear[2]) < 5.f;
+
     snapshotPosition();
-    sendPosition(reliableStop);
+    sendPosition(reliableStop || reliableStationarySteering);
 }
 
 // ---------------------------------------------------------------------------
@@ -2463,6 +2476,16 @@ bool PlayerSync::positionChanged() const
             return true;
     }
 
+    constexpr float steeringThreshold = 0.0025f;
+    if (mLocal.vehicle.hasRigidBodyPose != mLastPos.hasVehicleRigidBodyPose)
+        return true;
+    if (mLocal.vehicle.hasRigidBodyPose
+        && std::abs(mLocal.vehicle.steeringAngle - mLastPos.vehicleSteeringAngle)
+            > steeringThreshold)
+    {
+        return true;
+    }
+
     // Velocity-Delta Sync: force a sync if the velocity dropped to zero, even if
     // the position change is below the threshold. This ensures the "Stop" signal
     // is broadcast immediately, preventing remote NPC overshoot drift.
@@ -2598,6 +2621,8 @@ void PlayerSync::snapshotPosition()
     std::memcpy(mLastPos.pos, mLocal.position.pos, sizeof(mLastPos.pos));
     std::memcpy(mLastPos.rot, mLocal.position.rot, sizeof(mLastPos.rot));
     std::memcpy(mLastPos.velocity, mLocal.velocity.linear, sizeof(mLastPos.velocity));
+    mLastPos.hasVehicleRigidBodyPose = mLocal.vehicle.hasRigidBodyPose;
+    mLastPos.vehicleSteeringAngle = mLocal.vehicle.steeringAngle;
 }
 void PlayerSync::snapshotCell()
 {

@@ -61,6 +61,7 @@ namespace MWWorld
         float mForwardSpeed = 0.f;
         float mLateralSpeed = 0.f;
         float mSteeringAngle = 0.f;
+        float mVisualSteeringAngle = 0.f;
         float mYawRate = 0.f;
         float mLogTimer = 0.f;
         std::array<float, 4> mVisualSuspensionTravel{};
