@@ -47,12 +47,16 @@ namespace MWPhysics
         float mReverseAcceleration = 0.f;
         float mServiceBrakeStrength = 0.f;
         float mHandbrakeStrength = 0.f;
+        float mParkingBrakeCaptureSpeed = 0.f;
+        float mParkingBrakeMaxSlopeDegrees = 0.f;
         float mRollingResistance = 0.f;
         float mAerodynamicDrag = 0.f;
         float mLowSpeedSteeringDegrees = 0.f;
         float mHighSpeedSteeringDegrees = 0.f;
         float mLateralGrip = 0.f;
         float mHandbrakeLateralGrip = 0.f;
+        float mHandbrakeSlipStartSpeed = 0.f;
+        float mHandbrakeSlipFullSpeed = 0.f;
         float mDirectionChangeSpeed = 0.f;
     };
 
@@ -71,6 +75,9 @@ namespace MWPhysics
         osg::Vec3f mLinearVelocity;
         osg::Vec3f mAngularVelocity;
         float mSteeringAngle = 0.f;
+        float mHandbrakeSlipFactor = 0.f;
+        float mGroundSlopeDegrees = 0.f;
+        bool mParkingBrakeHolding = false;
         std::array<float, 4> mSuspensionCompression{};
         std::array<float, 4> mSuspensionLength{};
         std::array<bool, 4> mWheelGrounded{};
@@ -112,6 +119,9 @@ namespace MWPhysics
         std::mutex mInputMutex;
         VehicleBodyInput mInput;
         float mSteeringAngle = 0.f;
+        float mHandbrakeSlipFactor = 0.f;
+        float mGroundSlopeDegrees = 0.f;
+        bool mParkingBrakeHolding = false;
         std::array<float, 4> mSuspensionCompression{};
         std::array<float, 4> mSuspensionLength{};
         std::array<bool, 4> mWheelGrounded{};

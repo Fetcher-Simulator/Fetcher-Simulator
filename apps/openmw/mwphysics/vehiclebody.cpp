@@ -57,6 +57,13 @@ namespace MWPhysics
             || config.mWheelbase <= 0.f || !std::isfinite(config.mWheelbase)
             || config.mMaxForwardSpeed <= 0.f || !std::isfinite(config.mMaxForwardSpeed)
             || config.mMaxReverseSpeed <= 0.f || !std::isfinite(config.mMaxReverseSpeed)
+            || config.mParkingBrakeCaptureSpeed < 0.f || !std::isfinite(config.mParkingBrakeCaptureSpeed)
+            || config.mParkingBrakeMaxSlopeDegrees <= 0.f
+            || config.mParkingBrakeMaxSlopeDegrees >= 89.f
+            || !std::isfinite(config.mParkingBrakeMaxSlopeDegrees)
+            || config.mHandbrakeSlipStartSpeed < 0.f || !std::isfinite(config.mHandbrakeSlipStartSpeed)
+            || config.mHandbrakeSlipFullSpeed <= config.mHandbrakeSlipStartSpeed
+            || !std::isfinite(config.mHandbrakeSlipFullSpeed)
             || !std::all_of(config.mWheelMountPositions.begin(), config.mWheelMountPositions.end(), isFinite))
         {
             throw std::invalid_argument("Invalid vehicle rigid-body configuration");
@@ -293,7 +300,12 @@ namespace MWPhysics
         mSteeringAngle = static_cast<float>(steeringAngle);
 
         if (groundedWheels == 0)
+        {
+            mParkingBrakeHolding = false;
+            mHandbrakeSlipFactor = 0.f;
+            mGroundSlopeDegrees = 0.f;
             return;
+        }
 
         const btScalar traction = static_cast<btScalar>(groundedWheels) * 0.25f;
         btVector3 averageContactNormal = contactNormalSum;
@@ -307,10 +319,40 @@ namespace MWPhysics
         const btVector3 tangentVelocity
             = linearVelocity - averageContactNormal * linearVelocity.dot(averageContactNormal);
         const btScalar tangentSpeed = tangentVelocity.length();
-        const btScalar lateralSpeed = localVelocity.x();
-        const bool parkingBrakeHold = input.mHandbrake > 0.f
-            && input.mThrottle <= 0.001f && input.mBrake <= 0.001f
-            && tangentSpeed < mConfig.mDirectionChangeSpeed;
+        const btVector3 gravity = world->getGravity();
+        const btScalar gravityMagnitude = gravity.length();
+        const btVector3 gravityUp = gravityMagnitude > SIMD_EPSILON
+            ? -gravity / gravityMagnitude : btVector3(0, 0, 1);
+        const btScalar slopeCosine
+            = std::clamp(averageContactNormal.dot(gravityUp), btScalar(0), btScalar(1));
+        const btScalar slopeDegrees = std::acos(slopeCosine)
+            * static_cast<btScalar>(180.0 / osg::PI);
+        const btScalar maximumParkingSlopeRadians
+            = mConfig.mParkingBrakeMaxSlopeDegrees * static_cast<btScalar>(osg::PI / 180.0);
+        const bool rearWheelGrounded = mWheelGrounded[2] || mWheelGrounded[3];
+        const bool parkingBrakeRequested = input.mHandbrake > 0.001f
+            && input.mThrottle <= 0.001f && input.mBrake <= 0.001f;
+        const bool parkingSlopeHoldable
+            = slopeDegrees <= mConfig.mParkingBrakeMaxSlopeDegrees;
+
+        if (!parkingBrakeRequested || !rearWheelGrounded || !parkingSlopeHoldable)
+            mParkingBrakeHolding = false;
+        else if (!mParkingBrakeHolding
+            && tangentSpeed <= mConfig.mParkingBrakeCaptureSpeed)
+            mParkingBrakeHolding = true;
+
+        const bool parkingBrakeHold = mParkingBrakeHolding;
+        const btScalar slipRange = std::max<btScalar>(
+            mConfig.mHandbrakeSlipFullSpeed - mConfig.mHandbrakeSlipStartSpeed, 0.001f);
+        btScalar handbrakeSpeedFactor = std::clamp(
+            (std::abs(forwardSpeed) - mConfig.mHandbrakeSlipStartSpeed) / slipRange,
+            btScalar(0), btScalar(1));
+        handbrakeSpeedFactor
+            = handbrakeSpeedFactor * handbrakeSpeedFactor * (3.f - 2.f * handbrakeSpeedFactor);
+        const btScalar handbrakeSlipFactor
+            = parkingBrakeHold ? 0.f : input.mHandbrake * handbrakeSpeedFactor;
+        mHandbrakeSlipFactor = static_cast<float>(handbrakeSlipFactor);
+        mGroundSlopeDegrees = static_cast<float>(slopeDegrees);
 
         btScalar longitudinalAcceleration = 0.f;
         if (input.mThrottle > 0.f && forwardSpeed < mConfig.mMaxForwardSpeed)
@@ -326,8 +368,19 @@ namespace MWPhysics
 
         if (!parkingBrakeHold && input.mHandbrake > 0.f && std::abs(forwardSpeed) > 0.01f)
         {
-            const btScalar braking = std::min<btScalar>(
-                mConfig.mHandbrakeStrength * input.mHandbrake, std::abs(forwardSpeed) / dt);
+            btScalar maximumBraking = mConfig.mHandbrakeStrength * input.mHandbrake;
+            const bool overLimitParkingAttempt = parkingBrakeRequested
+                && !parkingSlopeHoldable
+                && tangentSpeed <= mConfig.mParkingBrakeCaptureSpeed;
+            if (overLimitParkingAttempt)
+            {
+                const btVector3 gravityTangent
+                    = gravity - averageContactNormal * gravity.dot(averageContactNormal);
+                maximumBraking = std::min<btScalar>(
+                    maximumBraking, gravityTangent.length() * 0.85f);
+            }
+            const btScalar braking
+                = std::min<btScalar>(maximumBraking, std::abs(forwardSpeed) / dt);
             longitudinalAcceleration -= std::copysign(braking, forwardSpeed);
         }
 
@@ -344,40 +397,63 @@ namespace MWPhysics
 
         if (parkingBrakeHold)
         {
-            // Static tire friction must oppose both existing motion and the
-            // component of gravity that lies along the supporting surface. Pure
-            // velocity damping repeatedly slows a parked vehicle but allows slope
-            // gravity to recreate the slide on the following substep.
-            const btScalar maxAcceleration
-                = mConfig.mHandbrakeStrength * input.mHandbrake;
+            // Model the parking brake as static tire friction. It latches only
+            // after the truck is nearly stopped, cancels surface gravity and
+            // residual tangent velocity, and is capped by the configured hill
+            // angle so extremely steep terrain still wins.
+            const btScalar maximumHoldAcceleration = gravityMagnitude * slopeCosine
+                * std::tan(maximumParkingSlopeRadians) * input.mHandbrake;
             btVector3 holdAcceleration
-                = -(world->getGravity()
-                    - averageContactNormal * world->getGravity().dot(averageContactNormal));
-            if (tangentSpeed > 0.01f)
-            {
-                const btScalar stopAcceleration
-                    = std::min<btScalar>(maxAcceleration, tangentSpeed / dt);
-                holdAcceleration -= tangentVelocity * (stopAcceleration / tangentSpeed);
-            }
+                = -(gravity - averageContactNormal * gravity.dot(averageContactNormal));
+            if (tangentSpeed > 0.001f)
+                holdAcceleration -= tangentVelocity / dt;
 
             const btScalar holdAcceleration2 = holdAcceleration.length2();
-            if (maxAcceleration > 0.f
-                && holdAcceleration2 > maxAcceleration * maxAcceleration)
+            if (maximumHoldAcceleration > 0.f
+                && holdAcceleration2 > maximumHoldAcceleration * maximumHoldAcceleration)
             {
-                holdAcceleration *= maxAcceleration / std::sqrt(holdAcceleration2);
+                holdAcceleration *= maximumHoldAcceleration / std::sqrt(holdAcceleration2);
             }
-            body->applyCentralForce(holdAcceleration * (mMass * traction));
+            body->applyCentralForce(holdAcceleration * mMass);
         }
         else
         {
-            const btScalar grip = std::max<btScalar>(0.f,
+            // Equal front/rear grip must not create a yaw moment. Distribute
+            // lateral force according to axle distance from the center of mass;
+            // then reduce only rear grip under a speed-dependent handbrake.
+            const btScalar frontAxleY
+                = (mScaledWheelMounts[0].y() + mScaledWheelMounts[1].y()) * 0.5f
+                - mScaledCenterOfMassFromRoot.y();
+            const btScalar rearAxleY
+                = (mScaledWheelMounts[2].y() + mScaledWheelMounts[3].y()) * 0.5f
+                - mScaledCenterOfMassFromRoot.y();
+            const btScalar frontDistance = std::max(frontAxleY, btScalar(0));
+            const btScalar rearDistance = std::max(-rearAxleY, btScalar(0));
+            const btScalar axleDistanceSum
+                = std::max(frontDistance + rearDistance, btScalar(0.001f));
+            const btScalar frontMassFraction = rearDistance / axleDistanceSum;
+            const btScalar rearMassFraction = frontDistance / axleDistanceSum;
+            const btScalar frontGrip = std::max<btScalar>(mConfig.mLateralGrip, 0.f);
+            const btScalar rearGrip = std::max<btScalar>(0.f,
                 mConfig.mLateralGrip
-                    + (mConfig.mHandbrakeLateralGrip - mConfig.mLateralGrip) * input.mHandbrake);
-            const btScalar lateralAcceleration
-                = -std::copysign(std::min<btScalar>(std::abs(lateralSpeed) / dt,
-                                     std::abs(lateralSpeed) * grip),
-                    lateralSpeed);
-            body->applyCentralForce(right * (mMass * lateralAcceleration * traction));
+                    + (mConfig.mHandbrakeLateralGrip - mConfig.mLateralGrip)
+                        * handbrakeSlipFactor);
+
+            auto applyAxleLateralForce = [&](btScalar axleY, btScalar massFraction, btScalar grip)
+            {
+                const btVector3 relativePosition = basis * btVector3(0, axleY, 0);
+                const btScalar axleLateralSpeed
+                    = body->getVelocityInLocalPoint(relativePosition).dot(right);
+                const btScalar lateralAcceleration
+                    = -std::copysign(std::min<btScalar>(std::abs(axleLateralSpeed) / dt,
+                                         std::abs(axleLateralSpeed) * grip),
+                        axleLateralSpeed);
+                body->applyForce(right * (mMass * massFraction * lateralAcceleration * traction),
+                    relativePosition);
+            };
+
+            applyAxleLateralForce(frontAxleY, frontMassFraction, frontGrip);
+            applyAxleLateralForce(rearAxleY, rearMassFraction, rearGrip);
         }
 
         // OpenMW actor yaw increases around -Z, while Bullet torque uses +Z.
@@ -386,7 +462,9 @@ namespace MWPhysics
         const btScalar targetYawRate
             = -forwardSpeed / mConfig.mWheelbase * std::tan(steeringAngle);
         const btVector3 localAngularVelocity = basis.transpose() * body->getAngularVelocity();
-        const btScalar yawAcceleration = (targetYawRate - localAngularVelocity.z()) * 8.f * traction;
+        const btScalar yawControlFactor = 1.f - 0.72f * handbrakeSlipFactor;
+        const btScalar yawAcceleration
+            = (targetYawRate - localAngularVelocity.z()) * 8.f * yawControlFactor * traction;
         const btScalar inverseYawInertia = body->getInvInertiaDiagLocal().z();
         if (inverseYawInertia > SIMD_EPSILON)
             body->applyTorque(basis * btVector3(0, 0, yawAcceleration / inverseYawInertia));
@@ -405,6 +483,9 @@ namespace MWPhysics
         state.mLinearVelocity = Misc::Convert::toOsg(body->getLinearVelocity());
         state.mAngularVelocity = Misc::Convert::toOsg(body->getAngularVelocity());
         state.mSteeringAngle = mSteeringAngle;
+        state.mHandbrakeSlipFactor = mHandbrakeSlipFactor;
+        state.mGroundSlopeDegrees = mGroundSlopeDegrees;
+        state.mParkingBrakeHolding = mParkingBrakeHolding;
         state.mSuspensionCompression = mSuspensionCompression;
         state.mSuspensionLength = mSuspensionLength;
         state.mWheelGrounded = mWheelGrounded;

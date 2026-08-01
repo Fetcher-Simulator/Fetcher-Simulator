@@ -918,7 +918,10 @@ namespace MWMechanics
                              << ") visualNodes=(" << visualNodeUpdated[0] << ", " << visualNodeUpdated[1] << ", "
                              << visualNodeUpdated[2] << ", " << visualNodeUpdated[3]
                              << ") input=(" << state.mInput.mThrottle << ", " << state.mInput.mBrake << ", "
-                             << state.mInput.mSteering << ", " << state.mInput.mHandbrake << ")";
+                             << state.mInput.mSteering << ", " << state.mInput.mHandbrake << ")"
+                             << " parkingHold=" << bodyState.mParkingBrakeHolding
+                             << " slopeDeg=" << bodyState.mGroundSlopeDegrees
+                             << " handbrakeSlip=" << bodyState.mHandbrakeSlipFactor;
         }
     }
 }

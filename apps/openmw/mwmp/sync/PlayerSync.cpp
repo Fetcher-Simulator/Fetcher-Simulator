@@ -2242,12 +2242,16 @@ void PlayerSync::applyVehicleRuntimeState()
         config.mReverseAcceleration = profile->handling.reverseAcceleration;
         config.mServiceBrakeStrength = profile->handling.serviceBrakeStrength;
         config.mHandbrakeStrength = profile->handling.handbrakeStrength;
+        config.mParkingBrakeCaptureSpeed = profile->handling.parkingBrakeCaptureSpeed;
+        config.mParkingBrakeMaxSlopeDegrees = profile->handling.parkingBrakeMaxSlopeDegrees;
         config.mRollingResistance = profile->handling.rollingResistance;
         config.mAerodynamicDrag = profile->handling.aerodynamicDrag;
         config.mLowSpeedSteeringDegrees = profile->handling.lowSpeedSteeringDegrees;
         config.mHighSpeedSteeringDegrees = profile->handling.highSpeedSteeringDegrees;
         config.mLateralGrip = profile->handling.lateralGrip;
         config.mHandbrakeLateralGrip = profile->handling.handbrakeLateralGrip;
+        config.mHandbrakeSlipStartSpeed = profile->handling.handbrakeSlipStartSpeed;
+        config.mHandbrakeSlipFullSpeed = profile->handling.handbrakeSlipFullSpeed;
         config.mDirectionChangeSpeed = profile->handling.directionChangeSpeed;
         world->setVehicleRigidBody(player, config);
     }

@@ -15,6 +15,8 @@ namespace mwmp
         float reverseAcceleration;
         float serviceBrakeStrength;
         float handbrakeStrength;
+        float parkingBrakeCaptureSpeed;
+        float parkingBrakeMaxSlopeDegrees;
         float rollingResistance;
         float aerodynamicDrag;
         float lowSpeedSteeringDegrees;
@@ -23,6 +25,8 @@ namespace mwmp
         float steeringReturnDegrees;
         float lateralGrip;
         float handbrakeLateralGrip;
+        float handbrakeSlipStartSpeed;
+        float handbrakeSlipFullSpeed;
         float directionChangeSpeed;
     };
 
@@ -186,6 +190,8 @@ namespace mwmp
                 220.f,
                 700.f,
                 850.f,
+                35.f,
+                28.f,
                 24.f,
                 0.0002f,
                 30.f,
@@ -193,7 +199,9 @@ namespace mwmp
                 105.f,
                 140.f,
                 7.f,
-                1.4f,
+                0.8f,
+                180.f,
+                700.f,
                 12.f,
             },
         },
