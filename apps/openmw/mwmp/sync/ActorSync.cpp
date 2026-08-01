@@ -566,7 +566,7 @@ namespace
         return lowerBodyGroup;
     }
 
-    constexpr bool kEnableTemporaryActorWatchLogs = true;
+    constexpr bool kEnableTemporaryActorWatchLogs = false;
 
     bool isWatchedBorderActor(const mwmp::BaseActor& actor, const std::string& packetCellId);
 
@@ -1299,11 +1299,26 @@ namespace mwmp
                 // an authority bootstrap condition too. Otherwise this branch
                 // only restores AI on the stale source-cell Ptr and the actor
                 // remains invisible until authority changes again.
+                bool authorityCellRebindHeldByBorderHysteresis = false;
+                if (!actor.boundActor.isEmpty() && actor.state.mpNum == 0
+                    && actor.hasAuthoritativeTransform
+                    && actor.previousCellChangeCellId.empty()
+                    && isExteriorActorCellId(actor.state.cellId)
+                    && isExteriorActorCellId(boundCellId))
+                {
+                    const std::string positionCellId
+                        = exteriorCellIdForPosition(actor.state.position);
+                    authorityCellRebindHeldByBorderHysteresis
+                        = positionCellId == boundCellId
+                        && positionCellId != actor.state.cellId
+                        && exteriorCellBorderDistance(actor.state.position) <= 64.f;
+                }
                 const bool needsAuthorityCellRebind = !actor.boundActor.isEmpty()
                     && !boundCellId.empty()
                     && boundCellId != actor.state.cellId
                     && actor.hasAuthoritativeTransform
-                    && (actor.state.mpNum != 0 || actor.actorNetId != 0);
+                    && (actor.state.mpNum != 0 || actor.actorNetId != 0)
+                    && !authorityCellRebindHeldByBorderHysteresis;
                 const bool needsAuthorityDeathApply = actor.state.isDead
                     && !actor.boundActor.isEmpty()
                     && (!actor.deathAlreadyApplied || actor.deathFromRealtimePacket);
@@ -1783,7 +1798,25 @@ namespace mwmp
             if (record.teleport)
                 actorState.position.isTeleporting = true;
             if (!record.removed)
+            {
                 rememberActorNetId(record.actorNetId, actorState);
+                if (actorState.mpNum == 0 && actorState.refNum != 0)
+                {
+                    // A live vanilla actor can migrate away from the cell that
+                    // owns its placed leveled-list spawner. Any prior Chance None
+                    // decision for that stable actor identity is stale as soon as
+                    // an authoritative identity record exists in any cell.
+                    for (auto chanceNoneIt = mChanceNoneLeveledSpawnersByCell.begin();
+                         chanceNoneIt != mChanceNoneLeveledSpawnersByCell.end();)
+                    {
+                        chanceNoneIt->second.erase(record.actorNetId);
+                        if (chanceNoneIt->second.empty())
+                            chanceNoneIt = mChanceNoneLeveledSpawnersByCell.erase(chanceNoneIt);
+                        else
+                            ++chanceNoneIt;
+                    }
+                }
+            }
             ackedActorNetIds.push_back(record.actorNetId);
 
             if (record.removed)
@@ -2101,7 +2134,16 @@ namespace mwmp
                         const uint32_t spawnerRefNum = ptr.getCellRef().getRefNum().mIndex;
                         const ActorInstanceId actorNetId = packActorInstanceKey(
                             { ActorKeyKind::VanillaRefNum, spawnerRefNum });
-                        if (authoritativeVanillaRefNums.count(spawnerRefNum) != 0)
+                        const auto knownActorIt = mActorsByNetId.find(actorNetId);
+                        const bool authoritativeActorMigrated
+                            = knownActorIt != mActorsByNetId.end()
+                            && knownActorIt->second.state.mpNum == 0
+                            && knownActorIt->second.state.refNum == spawnerRefNum
+                            && !knownActorIt->second.state.refId.empty()
+                            && !knownActorIt->second.state.cellId.empty()
+                            && knownActorIt->second.state.cellId != list.cellId;
+                        if (authoritativeVanillaRefNums.count(spawnerRefNum) != 0
+                            || authoritativeActorMigrated)
                         {
                             chanceNoneSpawners.erase(actorNetId);
                             return true;

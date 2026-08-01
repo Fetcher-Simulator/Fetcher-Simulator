@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <limits>
+#include <mutex>
+#include <unordered_set>
 
 #include <osg/BlendFunc>
 #include <osg/Material>
@@ -67,6 +69,22 @@
 
 namespace
 {
+    bool shouldLogMissingAnimationBone(
+        std::string_view baseModel, VFS::Path::NormalizedView keyframe, std::string_view bone)
+    {
+        static std::mutex mutex;
+        static std::unordered_set<std::string> logged;
+
+        std::string key;
+        key.reserve(baseModel.size() + keyframe.value().size() + bone.size() + 2);
+        key.append(baseModel).push_back('|');
+        key.append(keyframe.value()).push_back('|');
+        key.append(bone);
+
+        std::scoped_lock lock(mutex);
+        return logged.insert(std::move(key)).second;
+    }
+
     /// Removes all particle systems and related nodes in a subgraph.
     class RemoveParticlesVisitor : public osg::NodeVisitor
     {
@@ -690,8 +708,11 @@ namespace MWRender
             NodeMap::const_iterator found = nodeMap.find(bonename);
             if (found == nodeMap.end())
             {
-                Log(Debug::Warning) << "Warning: addAnimSource: can't find bone '" + bonename << "' in " << baseModel
-                                    << " (referenced by " << kfname << ")";
+                if (shouldLogMissingAnimationBone(baseModel, kfname, bonename))
+                {
+                    Log(Debug::Warning) << "Warning: addAnimSource: can't find bone '" + bonename
+                                        << "' in " << baseModel << " (referenced by " << kfname << ")";
+                }
                 continue;
             }
 
