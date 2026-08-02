@@ -1332,7 +1332,22 @@ namespace MWClass
                 return (name == "left") ? npcParts.mSwimLeft : npcParts.mSwimRight;
             if (world->isUnderwater(ptr.getCell(), pos) || world->isWalkingOnWater(ptr))
                 return (name == "left") ? npcParts.mFootWaterLeft : npcParts.mFootWaterRight;
-            if (world->isOnGround(ptr))
+            bool isGrounded = world->isOnGround(ptr);
+#ifdef BUILD_MULTIPLAYER
+            // Remote player puppets intentionally have no ordinary physical actor
+            // collision body. Their locomotion animation is driven from network
+            // interpolation, so World::isOnGround() remains false even while they
+            // are visibly walking on terrain. Treat those puppets as grounded for
+            // footstep material/boot selection; flying, swimming, water walking,
+            // and seated vehicle footsteps have already been handled above or by
+            // CharacterController's vehicle-pose suppression.
+            if (!isGrounded && ptr.getClass().getCreatureStats(ptr).getMovementFlag(
+                    MWMechanics::CreatureStats::Flag_NetworkPlayerNpc))
+            {
+                isGrounded = true;
+            }
+#endif
+            if (isGrounded)
             {
                 const MWWorld::InventoryStore& inv = Npc::getInventoryStore(ptr);
                 MWWorld::ConstContainerStoreIterator boots = inv.getSlot(MWWorld::InventoryStore::Slot_Boots);
