@@ -27,6 +27,9 @@ namespace MWPhysics
         float mChassisLowerInsetX = 0.f;
         float mChassisLowerInsetY = 0.f;
         float mChassisLowerChamferHeight = 0.f;
+        float mChassisUpperInsetX = 0.f;
+        float mChassisUpperInsetY = 0.f;
+        float mChassisUpperChamferHeight = 0.f;
         std::array<osg::Vec3f, 4> mWheelMountPositions;
         osg::Vec3f mInertiaScale = osg::Vec3f(1.f, 1.f, 1.f);
         float mWheelRadius = 1.f;
@@ -35,6 +38,7 @@ namespace MWPhysics
         float mSuspensionMaxDroop = 0.f;
         float mSuspensionSpringRate = 0.f;
         float mSuspensionDampingRate = 0.f;
+        float mMaximumSupportSlopeDegrees = 0.f;
         float mMass = 1.f;
         float mFriction = 0.9f;
         float mRestitution = 0.f;
@@ -54,6 +58,8 @@ namespace MWPhysics
         float mLowSpeedSteeringDegrees = 0.f;
         float mHighSpeedSteeringDegrees = 0.f;
         float mLateralGrip = 0.f;
+        float mStaticLateralFriction = 0.f;
+        float mStaticLateralCaptureSpeed = 0.f;
         float mHandbrakeLateralGrip = 0.f;
         float mHandbrakeSlipStartSpeed = 0.f;
         float mHandbrakeSlipFullSpeed = 0.f;
@@ -76,6 +82,7 @@ namespace MWPhysics
         osg::Vec3f mAngularVelocity;
         float mSteeringAngle = 0.f;
         float mHandbrakeSlipFactor = 0.f;
+        float mStaticLateralFrictionUsage = 0.f;
         float mGroundSlopeDegrees = 0.f;
         bool mParkingBrakeHolding = false;
         std::array<float, 4> mSuspensionCompression{};
@@ -120,6 +127,7 @@ namespace MWPhysics
         VehicleBodyInput mInput;
         float mSteeringAngle = 0.f;
         float mHandbrakeSlipFactor = 0.f;
+        float mStaticLateralFrictionUsage = 0.f;
         float mGroundSlopeDegrees = 0.f;
         bool mParkingBrakeHolding = false;
         std::array<float, 4> mSuspensionCompression{};

@@ -621,15 +621,18 @@ namespace mwmp
                 if (MWRender::Animation* animation
                     = world ? world->getAnimation(mNpcPtr) : nullptr)
                 {
-                    animation->setEffectTransform(
-                        sVehicleVisualEffectId, osg::Vec3f(), relativeAttitude);
+                    const float inverseParentScale = 1.f / presentationScale;
+                    animation->setEffectTransform(sVehicleVisualEffectId,
+                        osg::Vec3f(), relativeAttitude, inverseParentScale);
+                    animation->setVehicleDriverScale(
+                        vehicleProfile->seatedDriverVisualScale * inverseParentScale);
                     animation->setVehicleDriverSuspensionTransform(
                         osg::Vec3f(), relativeAttitude);
 
                     const osg::Vec3f linearVelocity(mState.velocity.linear[0],
                         mState.velocity.linear[1], mState.velocity.linear[2]);
                     const float scaledWheelRadius
-                        = std::max(vehicleProfile->suspension.wheelRadius * presentationScale, 0.001f);
+                        = std::max(vehicleProfile->suspension.wheelRadius, 0.001f);
                     for (std::size_t index = 0; index < mVehicleWheelRollAngles.size(); ++index)
                     {
                         mVehicleWheelRollAngles[index] = std::remainder(
@@ -656,9 +659,8 @@ namespace mwmp
                         animation->setEffectNodeTransform(sVehicleVisualEffectId, wheel.visualNode,
                             pivot,
                             osg::Vec3f(0.f, 0.f,
-                                (wheel.visualContactPlaneOffset
-                                    + mInterpolatedVehicleSuspensionCompression[index])
-                                    / presentationScale),
+                                wheel.visualContactPlaneOffset
+                                    + mInterpolatedVehicleSuspensionCompression[index]),
                             wheelAttitude);
                     }
                     updateVehicleAudio(safeDt, *vehicleProfile, bodyOrientation, linearVelocity,
@@ -2504,10 +2506,13 @@ namespace mwmp
                 soundManager->stopSound(mVehicleEngineSound);
             if (mVehicleTireSound)
                 soundManager->stopSound(mVehicleTireSound);
+            if (mVehicleSkidSound)
+                soundManager->stopSound(mVehicleSkidSound);
         }
         mVehicleEngineSound = nullptr;
         mVehicleTireSound = nullptr;
-        mVehicleSkidCooldown = 0.f;
+        mVehicleSkidSound = nullptr;
+        mVehicleSkidVolume = 0.f;
         mVehicleImpactCooldown = 0.f;
         mVehicleAudioInitialized = false;
         mPreviousVehicleSuspensionTravel.fill(0.f);
@@ -2563,15 +2568,24 @@ namespace mwmp
         }
 
         const float safeDt = std::max(dt, 0.f);
-        mVehicleSkidCooldown = std::max(mVehicleSkidCooldown - safeDt, 0.f);
         mVehicleImpactCooldown = std::max(mVehicleImpactCooldown - safeDt, 0.f);
         const float skidIntensity = std::clamp((lateralSpeed - 55.f) / 260.f, 0.f, 1.f);
-        if (skidIntensity > 0.22f && mVehicleSkidCooldown <= 0.f
-            && !profile.audio.skidSound.empty())
+        const float targetSkidVolume
+            = skidIntensity > 0.12f ? profile.audio.skidVolume * skidIntensity : 0.f;
+        const float skidVolumeRate = targetSkidVolume > mVehicleSkidVolume ? 4.f : 2.5f;
+        mVehicleSkidVolume = moveTowards(
+            mVehicleSkidVolume, targetSkidVolume, skidVolumeRate * safeDt);
+        if (!mVehicleSkidSound && !profile.audio.skidSound.empty())
         {
-            soundManager->playSound3D(mNpcPtr, VFS::Path::Normalized(profile.audio.skidSound),
-                profile.audio.skidVolume * skidIntensity, 0.85f + skidIntensity * 0.25f);
-            mVehicleSkidCooldown = 0.32f;
+            mVehicleSkidSound = soundManager->playSound3D(mNpcPtr,
+                VFS::Path::Normalized(profile.audio.skidSound), 0.f, 0.85f,
+                MWSound::Type::Sfx, MWSound::PlayMode::Loop);
+        }
+        if (mVehicleSkidSound)
+        {
+            mVehicleSkidSound->setVolume(mVehicleSkidVolume);
+            mVehicleSkidSound->setPitch(0.85f + skidIntensity * 0.25f);
+            mVehicleSkidSound->setVelocity(linearVelocity);
         }
 
         if (!mVehicleAudioInitialized)
@@ -2630,13 +2644,19 @@ namespace mwmp
 
         const VehicleProfile* profile
             = mState.vehicle.active ? findVehicleProfile(mState.vehicle.profileId) : nullptr;
+        float parentScale = 1.f;
+        if (const SceneUtil::PositionAttitudeTransform* baseNode = mNpcPtr.getRefData().getBaseNode())
+            parentScale = std::max(std::abs(baseNode->getScale().y()), 0.001f);
         if (profile)
         {
+            // Custom actor collision boxes normally inherit race scale. Supply
+            // inverse-scaled profile dimensions so the remote vehicle proxy has
+            // the same fixed world size as the authoritative rigid body.
             world->setActorCollisionBox(mNpcPtr,
                 osg::Vec3f(profile->collisionHalfExtents[0], profile->collisionHalfExtents[1],
-                    profile->collisionHalfExtents[2]),
+                    profile->collisionHalfExtents[2]) / parentScale,
                 osg::Vec3f(profile->collisionCenterFromVehicleRoot[0], profile->collisionCenterFromVehicleRoot[1],
-                    profile->collisionCenterFromVehicleRoot[2]));
+                    profile->collisionCenterFromVehicleRoot[2]) / parentScale);
         }
         else
             world->restoreActorCollisionShape(mNpcPtr);
@@ -2677,6 +2697,7 @@ namespace mwmp
             return;
         }
 
+        animation->setVehicleDriverScale(profile->seatedDriverVisualScale / parentScale);
         animation->setVehicleDriverPoseEnabled(true);
 
         if (hasVehicleEffect && mAppliedVehicleProfileId == profile->id)

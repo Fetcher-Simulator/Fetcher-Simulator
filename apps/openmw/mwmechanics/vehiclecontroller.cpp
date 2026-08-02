@@ -51,7 +51,8 @@ namespace
         std::array<float, 4> mPreviousSuspensionTravel{};
         MWBase::Sound* mEngineSound = nullptr;
         MWBase::Sound* mTireSound = nullptr;
-        float mSkidCooldown = 0.f;
+        MWBase::Sound* mSkidSound = nullptr;
+        float mSkidVolume = 0.f;
         float mSuspensionImpactCooldown = 0.f;
         bool mInitialized = false;
     };
@@ -95,6 +96,8 @@ namespace
                 soundManager->stopSound(sLocalVehicleAudioState.mEngineSound);
             if (sLocalVehicleAudioState.mTireSound)
                 soundManager->stopSound(sLocalVehicleAudioState.mTireSound);
+            if (sLocalVehicleAudioState.mSkidSound)
+                soundManager->stopSound(sLocalVehicleAudioState.mSkidSound);
         }
         sLocalVehicleAudioState = {};
     }
@@ -151,19 +154,30 @@ namespace
         }
 
         const float safeDt = std::max(duration, 0.f);
-        sLocalVehicleAudioState.mSkidCooldown = std::max(sLocalVehicleAudioState.mSkidCooldown - safeDt, 0.f);
-        sLocalVehicleAudioState.mSuspensionImpactCooldown = std::max(sLocalVehicleAudioState.mSuspensionImpactCooldown - safeDt, 0.f);
+        sLocalVehicleAudioState.mSuspensionImpactCooldown = std::max(
+            sLocalVehicleAudioState.mSuspensionImpactCooldown - safeDt, 0.f);
 
         const float skidIntensity = std::clamp(
             (lateralSpeed - 55.f) / 260.f
                 + state.mInput.mHandbrake * std::clamp(forwardSpeed / 300.f, 0.f, 1.f),
             0.f, 1.f);
-        if (skidIntensity > 0.22f && sLocalVehicleAudioState.mSkidCooldown <= 0.f
-            && !profile.audio.skidSound.empty())
+        const float targetSkidVolume
+            = skidIntensity > 0.12f ? profile.audio.skidVolume * skidIntensity : 0.f;
+        const float skidVolumeRate
+            = targetSkidVolume > sLocalVehicleAudioState.mSkidVolume ? 4.f : 2.5f;
+        sLocalVehicleAudioState.mSkidVolume = moveTowards(
+            sLocalVehicleAudioState.mSkidVolume, targetSkidVolume, skidVolumeRate * safeDt);
+        if (!sLocalVehicleAudioState.mSkidSound && !profile.audio.skidSound.empty())
         {
-            soundManager->playSound3D(player, VFS::Path::Normalized(profile.audio.skidSound),
-                profile.audio.skidVolume * skidIntensity, 0.85f + skidIntensity * 0.25f);
-            sLocalVehicleAudioState.mSkidCooldown = 0.32f;
+            sLocalVehicleAudioState.mSkidSound = soundManager->playSound3D(player,
+                VFS::Path::Normalized(profile.audio.skidSound), 0.f, 0.85f,
+                MWSound::Type::Sfx, MWSound::PlayMode::Loop);
+        }
+        if (sLocalVehicleAudioState.mSkidSound)
+        {
+            sLocalVehicleAudioState.mSkidSound->setVolume(sLocalVehicleAudioState.mSkidVolume);
+            sLocalVehicleAudioState.mSkidSound->setPitch(0.85f + skidIntensity * 0.25f);
+            sLocalVehicleAudioState.mSkidSound->setVelocity(bodyState.mLinearVelocity);
         }
 
         if (!sLocalVehicleAudioState.mInitialized)
@@ -794,7 +808,7 @@ namespace MWMechanics
             presentationScale = std::max(std::abs(baseNode->getScale().y()), 0.001f);
 
         std::array<float, 4> suspensionTravel{};
-        const float scaledRestLength = profile->suspension.restLength * presentationScale;
+        const float scaledRestLength = profile->suspension.restLength;
         for (std::size_t index = 0; index < suspensionTravel.size(); ++index)
             suspensionTravel[index] = scaledRestLength - bodyState.mSuspensionLength[index];
 
@@ -825,10 +839,10 @@ namespace MWMechanics
         const float visualDt = std::clamp(duration, 0.f, sMaxSolverDuration);
         const osg::Vec3f localVelocity = bodyState.mOrientation.inverse() * bodyState.mLinearVelocity;
         const osg::Vec3f localAngularVelocity = bodyState.mOrientation.inverse() * bodyState.mAngularVelocity;
-        const float scaledWheelRadius = std::max(profile->suspension.wheelRadius * presentationScale, 0.001f);
+        const float scaledWheelRadius = std::max(profile->suspension.wheelRadius, 0.001f);
         for (std::size_t index = 0; index < state.mWheelRollAngles.size(); ++index)
         {
-            const float wheelX = profile->suspension.wheels[index].mountPosition[0] * presentationScale;
+            const float wheelX = profile->suspension.wheels[index].mountPosition[0];
             const float wheelLongitudinalSpeed = localVelocity.y() + localAngularVelocity.z() * wheelX;
             state.mWheelRollAngles[index] = std::remainder(
                 state.mWheelRollAngles[index] - wheelLongitudinalSpeed / scaledWheelRadius * visualDt,
@@ -858,8 +872,11 @@ namespace MWMechanics
         std::array<bool, 4> visualNodeUpdated{};
         if (MWRender::Animation* animation = world->getAnimation(player))
         {
+            const float inverseParentScale = 1.f / presentationScale;
             animation->setEffectTransform(
-                sVehicleVisualEffectId, osg::Vec3f(), relativeAttitude);
+                sVehicleVisualEffectId, osg::Vec3f(), relativeAttitude, inverseParentScale);
+            animation->setVehicleDriverScale(
+                profile->seatedDriverVisualScale * inverseParentScale);
             animation->setVehicleDriverSuspensionTransform(osg::Vec3f(), relativeAttitude);
             const osg::Vec3f wheelRollAxis(1.f, 0.f, 0.f);
             const osg::Vec3f steeringAxis(0.f, 0.f, 1.f);
@@ -879,8 +896,7 @@ namespace MWMechanics
                 visualNodeUpdated[index] = animation->setEffectNodeTransform(
                     sVehicleVisualEffectId, wheel.visualNode, pivot,
                     osg::Vec3f(0.f, 0.f,
-                        (wheel.visualContactPlaneOffset + state.mVisualSuspensionTravel[index])
-                            / presentationScale),
+                        wheel.visualContactPlaneOffset + state.mVisualSuspensionTravel[index]),
                     wheelAttitude);
             }
         }
@@ -896,6 +912,8 @@ namespace MWMechanics
         if (state.mLogTimer >= 1.f)
         {
             state.mLogTimer = 0.f;
+            const osg::Vec3f bodyUp
+                = bodyState.mOrientation * osg::Vec3f(0.f, 0.f, 1.f);
             Log(Debug::Info) << "[VehicleBody] state root=(" << bodyState.mRootPosition.x() << ", "
                              << bodyState.mRootPosition.y() << ", " << bodyState.mRootPosition.z()
                              << ") linear=(" << bodyState.mLinearVelocity.x() << ", "
@@ -921,7 +939,10 @@ namespace MWMechanics
                              << state.mInput.mSteering << ", " << state.mInput.mHandbrake << ")"
                              << " parkingHold=" << bodyState.mParkingBrakeHolding
                              << " slopeDeg=" << bodyState.mGroundSlopeDegrees
-                             << " handbrakeSlip=" << bodyState.mHandbrakeSlipFactor;
+                             << " handbrakeSlip=" << bodyState.mHandbrakeSlipFactor
+                             << " staticLateral=" << bodyState.mStaticLateralFrictionUsage
+                             << " bodyUpDot=" << bodyUp.z()
+                             << " localRollRate=" << localAngularVelocity.y();
         }
     }
 }

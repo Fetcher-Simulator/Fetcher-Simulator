@@ -24,6 +24,8 @@ namespace mwmp
         float steeringResponseDegrees;
         float steeringReturnDegrees;
         float lateralGrip;
+        float staticLateralFriction;
+        float staticLateralCaptureSpeed;
         float handbrakeLateralGrip;
         float handbrakeSlipStartSpeed;
         float handbrakeSlipFullSpeed;
@@ -48,6 +50,7 @@ namespace mwmp
         float probeBelowMount;
         float tireContactPatchFraction;
         float supportProbeSlack;
+        float maximumSupportSlopeDegrees;
         float springRate;
         float dampingRate;
         float maxCompressionSpeed;
@@ -70,6 +73,8 @@ namespace mwmp
         std::array<float, 3> chassisCenterFromVehicleRoot;
         std::array<float, 2> chassisLowerInset;
         float chassisLowerChamferHeight;
+        std::array<float, 2> chassisUpperInset;
+        float chassisUpperChamferHeight;
         float friction;
         float restitution;
         float linearDamping;
@@ -102,6 +107,7 @@ namespace mwmp
         std::array<float, 3> collisionHalfExtents;
         std::array<float, 3> collisionCenterFromVehicleRoot;
         std::array<float, 3> firstPersonCameraOffset;
+        float seatedDriverVisualScale;
         VehicleRigidBodyProfile rigidBody;
         VehicleAudioProfile audio;
         VehicleSuspensionProfile suspension;
@@ -117,10 +123,11 @@ namespace mwmp
             { 65.1f, 159.6f, 44.8f },
             { 0.f, 0.f, 57.4f },
             { -24.5085f, 23.8851f, 101.7932f },
+            1.f,
             {
                 1900.f,
-                { 0.f, -8.f, 42.f },
-                { 1.f, 1.f, 1.f },
+                { 0.f, -8.f, 52.f },
+                { 0.90f, 0.78f, 1.f },
                 // Keep the physical chassis above the suspension-supported tire
                 // contact plane. The larger profile collision box remains the
                 // remote targeting proxy and includes the visual undercarriage.
@@ -130,12 +137,17 @@ namespace mwmp
                 // heightfield triangle seams or small terrain ridges.
                 { 8.f, 28.f },
                 12.f,
+                // Chamfer the upper perimeter as well. The pickup is not a full-
+                // height rectangular slab, and sloped roof/bed edges produce
+                // smoother, less abruptly arrested rollover contacts.
+                { 18.f, 48.f },
+                20.f,
                 // Tire forces own vehicle grip. Low chassis friction prevents
                 // the body from sticking to terrain when the underside contacts.
                 0.05f,
-                0.05f,
-                0.04f,
                 0.12f,
+                0.04f,
+                0.02f,
             },
             {
                 "sound/fetcher/vehicles/pickup_engine_idle.ogg",
@@ -170,6 +182,7 @@ namespace mwmp
                 150.f,
                 0.65f,
                 25.f,
+                60.f,
                 80.f,
                 18.f,
                 80.f,
@@ -189,19 +202,21 @@ namespace mwmp
                 350.f,
                 220.f,
                 700.f,
-                850.f,
+                420.f,
                 35.f,
                 28.f,
                 24.f,
                 0.0002f,
-                30.f,
-                8.f,
+                34.f,
+                9.5f,
                 105.f,
                 140.f,
                 7.f,
-                0.8f,
-                180.f,
-                700.f,
+                0.85f,
+                120.f,
+                0.1f,
+                120.f,
+                500.f,
                 12.f,
             },
         },

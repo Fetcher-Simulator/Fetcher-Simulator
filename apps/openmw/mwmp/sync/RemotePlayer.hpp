@@ -131,7 +131,8 @@ namespace mwmp
         std::array<float, 4> mPreviousVehicleSuspensionTravel{};
         MWSound::Sound* mVehicleEngineSound = nullptr;
         MWSound::Sound* mVehicleTireSound = nullptr;
-        float mVehicleSkidCooldown = 0.f;
+        MWSound::Sound* mVehicleSkidSound = nullptr;
+        float mVehicleSkidVolume = 0.f;
         float mVehicleImpactCooldown = 0.f;
         bool mVehicleAudioInitialized = false;
 

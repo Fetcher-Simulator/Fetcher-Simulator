@@ -882,18 +882,15 @@ void PlayerSync::update(float dt)
             mLocal.position.rot[2] = angles.z();
             mLocal.vehicle.hasRigidBodyPose = true;
             mLocal.vehicle.steeringAngle = bodyState.mSteeringAngle;
-            float presentationScale = 1.f;
-            if (const SceneUtil::PositionAttitudeTransform* baseNode = player.getRefData().getBaseNode())
-                presentationScale = std::max(std::abs(baseNode->getScale().y()), 0.001f);
             if (const VehicleProfile* profile = findVehicleProfile(mLocal.vehicle.profileId))
             {
-                const float scaledRestLength = profile->suspension.restLength * presentationScale;
                 for (std::size_t index = 0; index < mLocal.vehicle.suspensionCompression.size(); ++index)
                 {
                     // This legacy field is presentation travel on the wire:
                     // positive is compression and negative is suspension droop.
+                    // Vehicle dimensions are fixed profile-owned world units.
                     mLocal.vehicle.suspensionCompression[index]
-                        = scaledRestLength - bodyState.mSuspensionLength[index];
+                        = profile->suspension.restLength - bodyState.mSuspensionLength[index];
                 }
             }
         }
@@ -2214,6 +2211,9 @@ void PlayerSync::applyVehicleRuntimeState()
         config.mChassisLowerInsetX = profile->rigidBody.chassisLowerInset[0];
         config.mChassisLowerInsetY = profile->rigidBody.chassisLowerInset[1];
         config.mChassisLowerChamferHeight = profile->rigidBody.chassisLowerChamferHeight;
+        config.mChassisUpperInsetX = profile->rigidBody.chassisUpperInset[0];
+        config.mChassisUpperInsetY = profile->rigidBody.chassisUpperInset[1];
+        config.mChassisUpperChamferHeight = profile->rigidBody.chassisUpperChamferHeight;
         config.mCenterOfMassFromRoot = osg::Vec3f(profile->rigidBody.centerOfMassFromVehicleRoot[0],
             profile->rigidBody.centerOfMassFromVehicleRoot[1],
             profile->rigidBody.centerOfMassFromVehicleRoot[2]);
@@ -2228,6 +2228,7 @@ void PlayerSync::applyVehicleRuntimeState()
         config.mSuspensionMaxDroop = profile->suspension.maxDroop;
         config.mSuspensionSpringRate = profile->suspension.springRate;
         config.mSuspensionDampingRate = profile->suspension.dampingRate;
+        config.mMaximumSupportSlopeDegrees = profile->suspension.maximumSupportSlopeDegrees;
         config.mInertiaScale = osg::Vec3f(profile->rigidBody.inertiaScale[0],
             profile->rigidBody.inertiaScale[1], profile->rigidBody.inertiaScale[2]);
         config.mMass = profile->rigidBody.mass;
@@ -2249,6 +2250,8 @@ void PlayerSync::applyVehicleRuntimeState()
         config.mLowSpeedSteeringDegrees = profile->handling.lowSpeedSteeringDegrees;
         config.mHighSpeedSteeringDegrees = profile->handling.highSpeedSteeringDegrees;
         config.mLateralGrip = profile->handling.lateralGrip;
+        config.mStaticLateralFriction = profile->handling.staticLateralFriction;
+        config.mStaticLateralCaptureSpeed = profile->handling.staticLateralCaptureSpeed;
         config.mHandbrakeLateralGrip = profile->handling.handbrakeLateralGrip;
         config.mHandbrakeSlipStartSpeed = profile->handling.handbrakeSlipStartSpeed;
         config.mHandbrakeSlipFullSpeed = profile->handling.handbrakeSlipFullSpeed;
@@ -2293,6 +2296,10 @@ void PlayerSync::applyVehiclePresentation(const MWWorld::Ptr& player)
         return;
     }
 
+    float parentScale = 1.f;
+    if (const SceneUtil::PositionAttitudeTransform* baseNode = player.getRefData().getBaseNode())
+        parentScale = std::max(std::abs(baseNode->getScale().y()), 0.001f);
+    animation->setVehicleDriverScale(profile->seatedDriverVisualScale / parentScale);
     animation->setVehicleDriverOffset(mVehicleDriverOffset);
     animation->setVehicleFirstPersonCameraOffset(mVehicleFirstPersonCameraOffset);
     animation->setVehicleLegPoseDegrees(mVehicleLegPoseDegrees);

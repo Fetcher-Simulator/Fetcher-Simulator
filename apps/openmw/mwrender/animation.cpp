@@ -1970,8 +1970,8 @@ namespace MWRender
         overrideFirstRootTexture(VFS::Path::toNormalized(texture), mResourceSystem, *node);
     }
 
-    bool Animation::setEffectTransform(
-        std::string_view effectId, const osg::Vec3f& position, const osg::Quat& attitude)
+    bool Animation::setEffectTransform(std::string_view effectId, const osg::Vec3f& position,
+        const osg::Quat& attitude, float scale)
     {
         FindVfxCallbacksVisitor visitor(effectId);
         mInsert->accept(visitor);
@@ -1983,6 +1983,7 @@ namespace MWRender
                 continue;
             transform->setPosition(position);
             transform->setAttitude(attitude);
+            transform->setScale(osg::Vec3f(scale, scale, scale));
             updated = true;
         }
         return updated;
@@ -2387,6 +2388,12 @@ namespace MWRender
         updateVehicleDriverRootController();
     }
 
+    void Animation::setVehicleDriverScale(float scale)
+    {
+        mVehicleDriverScale = std::max(scale, 0.001f);
+        updateVehicleDriverRootController();
+    }
+
     void Animation::setVehicleDriverSuspensionTransform(
         const osg::Vec3f& position, const osg::Quat& attitude)
     {
@@ -2407,11 +2414,14 @@ namespace MWRender
                 // must still pass through RotateController's basis conversion.
                 mVehicleDriverTransform->setAttitude(mVehicleDriverSuspensionAttitude);
                 mVehicleDriverTransform->setPosition(mVehicleDriverSuspensionPosition);
+                mVehicleDriverTransform->setScale(
+                    osg::Vec3f(mVehicleDriverScale, mVehicleDriverScale, mVehicleDriverScale));
             }
             else
             {
                 mVehicleDriverTransform->setAttitude(osg::Quat());
                 mVehicleDriverTransform->setPosition(osg::Vec3f());
+                mVehicleDriverTransform->setScale(osg::Vec3f(1.f, 1.f, 1.f));
             }
         }
 
