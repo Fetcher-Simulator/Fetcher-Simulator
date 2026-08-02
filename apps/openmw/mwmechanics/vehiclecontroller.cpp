@@ -792,6 +792,12 @@ namespace MWMechanics
             return;
         }
 
+        if (!state.mIsDriver)
+        {
+            stopVehicleAudio();
+            return;
+        }
+
         const mwmp::VehicleProfile* profile = mwmp::findVehicleProfile(state.mProfileId);
         if (!profile)
         {

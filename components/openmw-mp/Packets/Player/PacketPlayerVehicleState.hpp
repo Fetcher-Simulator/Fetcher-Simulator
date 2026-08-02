@@ -21,6 +21,9 @@ namespace mwmp
             ws.write(mPlayer->vehicle.revision);
             ws.write(mPlayer->vehicle.parkedObjectMpNum);
             ws.writeString(mPlayer->vehicle.profileId);
+            ws.write(static_cast<uint8_t>(mPlayer->vehicle.occupantRole));
+            ws.write(mPlayer->vehicle.driverGuid);
+            ws.write(mPlayer->vehicle.seatIndex);
         }
 
         void unpack(ReadStream& rs) override
@@ -30,6 +33,20 @@ namespace mwmp
             rs.read(mPlayer->vehicle.revision);
             rs.read(mPlayer->vehicle.parkedObjectMpNum);
             mPlayer->vehicle.profileId = rs.readString();
+            if (rs.remaining() >= sizeof(uint8_t) + sizeof(uint32_t) + sizeof(uint8_t))
+            {
+                uint8_t occupantRole = 0;
+                rs.read(occupantRole);
+                mPlayer->vehicle.occupantRole = static_cast<VehicleOccupantRole>(occupantRole);
+                rs.read(mPlayer->vehicle.driverGuid);
+                rs.read(mPlayer->vehicle.seatIndex);
+            }
+            else if (mPlayer->vehicle.active)
+            {
+                mPlayer->vehicle.occupantRole = VehicleOccupantRole::Driver;
+                mPlayer->vehicle.driverGuid = mPlayer->guid;
+                mPlayer->vehicle.seatIndex = 0;
+            }
         }
     };
 }

@@ -188,6 +188,7 @@ namespace MWPhysics
 
         Actor* getActor(const MWWorld::Ptr& ptr);
         const Actor* getActor(const MWWorld::ConstPtr& ptr) const;
+        void setActorCollisionSuspended(const MWWorld::Ptr& ptr, bool suspended);
 
         const Object* getObject(const MWWorld::ConstPtr& ptr) const;
 

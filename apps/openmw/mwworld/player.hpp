@@ -55,6 +55,7 @@ namespace MWWorld
     {
         VehicleModeState mMode = VehicleModeState::Inactive;
         std::string mProfileId;
+        bool mIsDriver = false;
         VehicleInputState mInput;
         osg::Vec3f mLastPosition;
         float mMotionSampleTime = 0.f;
@@ -143,7 +144,7 @@ namespace MWWorld
         void setJumping(bool jumping);
         bool getJumping() const;
 
-        bool setVehicleMode(bool active, std::string_view profileId = {});
+        bool setVehicleMode(bool active, std::string_view profileId = {}, bool isDriver = true);
         bool isInVehicle() const;
         VehicleRuntimeState& getVehicleRuntimeState();
         const VehicleRuntimeState& getVehicleRuntimeState() const;

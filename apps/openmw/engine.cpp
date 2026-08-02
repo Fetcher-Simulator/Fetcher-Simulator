@@ -421,6 +421,14 @@ bool OMW::Engine::frame(unsigned frameNumber, float frametime)
             }
         }
 #ifdef BUILD_MULTIPLAYER
+        // VehicleController has now applied the latest completed rigid-body
+        // sample to the visible local truck. Anchor remote passengers to that
+        // same sample before physics advances the body for the next frame.
+        if (mStateManager->getState() != MWBase::StateManager::State_NoGame
+            && mwmp::Main::isInitialised())
+        {
+            mwmp::Main::get().postMechanicsUpdate();
+        }
         markHitchPhase(hitchTimings.mechanics);
 #endif
 

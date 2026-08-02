@@ -15,6 +15,13 @@
 
 namespace mwmp
 {
+    enum class VehicleOccupantRole : uint8_t
+    {
+        None = 0,
+        Driver = 1,
+        Passenger = 2,
+    };
+
     // -----------------------------------------------------------------------
     // All state that can be synchronised for a player.
     // Both LocalPlayer (client) and ConnectedClient (server) embed this.
@@ -45,6 +52,9 @@ namespace mwmp
             uint32_t revision = 0;
             uint32_t parkedObjectMpNum = 0;
             std::string profileId;
+            VehicleOccupantRole occupantRole = VehicleOccupantRole::None;
+            uint32_t driverGuid = 0;
+            uint8_t seatIndex = 0;
 
             // High-rate presentation data carried by PlayerPosition while a
             // native rigid body owns the vehicle. The full orientation is stored

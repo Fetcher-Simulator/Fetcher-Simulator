@@ -1867,7 +1867,7 @@ namespace MWRender
 
     void Animation::addEffect(std::string_view model, std::string_view effectId, bool loop, std::string_view bonename,
         std::string_view texture, bool useAmbientLight, bool autoTransform, const std::optional<osg::Matrix>& transform,
-        bool preserveNodeStructure)
+        bool preserveNodeStructure, unsigned int nodeMask)
     {
         if (!mObjectRoot.get())
             return;
@@ -1951,7 +1951,7 @@ namespace MWRender
         SceneUtil::FindMaxControllerLengthVisitor findMaxLengthVisitor;
         node->accept(findMaxLengthVisitor);
 
-        node->setNodeMask(Mask_Effect);
+        node->setNodeMask(nodeMask);
 
         params.mMaxControllerLength = findMaxLengthVisitor.getMaxLength();
         params.mLoop = loop;

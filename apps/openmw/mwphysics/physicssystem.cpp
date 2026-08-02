@@ -389,13 +389,13 @@ namespace MWPhysics
         if (found == mActors.end())
             return ptr.getRefData().getPosition().asVec3();
 
-        // Native vehicle mode keeps the Actor entry but temporarily suspends its
-        // normal collision object. Cell-changing teleports (for example, a
-        // hookshot script) still call traceDown while that object is null. Do not
-        // pass it to sweepHelper; preserve the requested destination and let the
-        // vehicle lifecycle reconcile the body on the following update.
+        // Native vehicle mode keeps the Actor and its collision shape but removes
+        // the collision object from the Bullet world. Cell-changing teleports and
+        // enabling collision through TCL can still call traceDown in that state.
+        // sweepHelper inherits its filters from the broadphase proxy, so do not
+        // call it until the actor collision object has been resumed.
         const btCollisionObject* collisionObject = found->second->getCollisionObject();
-        if (!collisionObject || !collisionObject->getCollisionShape())
+        if (!collisionObject || !collisionObject->getCollisionShape() || !collisionObject->getBroadphaseHandle())
             return position;
 
         return MovementSolver::traceDown(ptr, position, found->second.get(), mCollisionWorld.get(), maxHeight);
@@ -525,6 +525,23 @@ namespace MWPhysics
         if (found != mActors.end())
             return found->second.get();
         return nullptr;
+    }
+
+    void PhysicsSystem::setActorCollisionSuspended(const MWWorld::Ptr& ptr, bool suspended)
+    {
+        const auto found = mActors.find(ptr.mRef);
+        if (found == mActors.end())
+            return;
+
+        const bool isSuspended
+            = found->second->getCollisionObject()->getBroadphaseHandle() == nullptr;
+        if (isSuspended == suspended)
+            return;
+
+        if (suspended)
+            mTaskScheduler->suspendActorCollision(found->second);
+        else
+            mTaskScheduler->resumeActorCollision(found->second);
     }
 
     const Object* PhysicsSystem::getObject(const MWWorld::ConstPtr& ptr) const
@@ -774,6 +791,12 @@ namespace MWPhysics
                 continue;
 
             if (!physicActor->isActive())
+                continue;
+
+            // Seated passengers are deliberately removed from the Bullet world.
+            // Do not hand their actors to the movement workers: updateSingleAabb
+            // requires a broadphase proxy and Bullet clears it on removal.
+            if (!physicActor->getCollisionObject()->getBroadphaseHandle())
                 continue;
 
             auto ptr = physicActor->getPtr();

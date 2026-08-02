@@ -77,6 +77,7 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerCast.hpp>
 
 #include "WorldObjectSync.hpp"
+#include "RemotePlayer.hpp"
 #include "InventoryIdentity.hpp"
 
 namespace mwmp
@@ -616,6 +617,24 @@ void PlayerSync::applyServerCellChange(const BasePlayer& auth)
         return;
     }
 
+    const MWWorld::Cell* currentCell = player.getCell() ? player.getCell()->getCell() : nullptr;
+    const bool isPassenger = mLocal.vehicle.active
+        && mLocal.vehicle.occupantRole == VehicleOccupantRole::Passenger;
+    const bool seamlessPassengerExteriorCrossing = isPassenger && currentCell
+        && currentCell->isExterior() && auth.cell.isExterior
+        && std::abs(auth.cell.gridX - currentCell->getGridX()) <= 1
+        && std::abs(auth.cell.gridY - currentCell->getGridY()) <= 1;
+    if (seamlessPassengerExteriorCrossing)
+    {
+        // The local passenger root already follows the driver's interpolated root
+        // through the exterior grid. Treat the server's propagated driver cell as
+        // acknowledgement only; objectTeleported() resets the third-person camera.
+        mLocal.cell = auth.cell;
+        snapshotCell();
+        Log(Debug::Info) << "[Vehicle] Preserved passenger camera across exterior cell boundary";
+        return;
+    }
+
     auto& stats = player.getClass().getCreatureStats(player);
     stats.land(true);
     stats.setTeleported(true);
@@ -821,6 +840,7 @@ void PlayerSync::update(float dt)
 
     applyPendingAuthoritativeState(player);
     applyVehicleRuntimeState();
+    applyPassengerVehicleTransform(player);
     applyVehiclePresentation(player);
 
     if (mRecentPlayerAttackerTimer > 0.f)
@@ -1001,7 +1021,9 @@ void PlayerSync::update(float dt)
     sendCast();
 
     // --- on-change checks ---
-    if (cellChanged())
+    if (cellChanged()
+        && !(mLocal.vehicle.active
+            && mLocal.vehicle.occupantRole == VehicleOccupantRole::Passenger))
     {
         snapshotCell();
         sendCellChange();
@@ -1025,6 +1047,12 @@ void PlayerSync::update(float dt)
 // Position — unreliable, rate-limited
 void PlayerSync::tickPosition(float dt)
 {
+    if (mLocal.vehicle.active
+        && mLocal.vehicle.occupantRole == VehicleOccupantRole::Passenger)
+    {
+        return;
+    }
+
     mPositionTimer += dt;
     if (mPositionTimer < POSITION_RATE)
         return;
@@ -2116,6 +2144,40 @@ bool PlayerSync::requestVehicleEntry(const MWWorld::Ptr& parkedObject)
     if (parkedObject.isEmpty() || mLocal.guid == 0 || mLocal.vehicle.active)
         return false;
 
+    PlayerList& playerList = Main::get().getPlayerList();
+    RemotePlayer* occupant = playerList.getPlayer(parkedObject);
+    if (!occupant)
+    {
+        if (const auto* baseNode = parkedObject.getRefData().getBaseNode())
+        {
+            int focusedPlayerGuid = 0;
+            if (baseNode->getUserValue("mp_player_guid", focusedPlayerGuid) && focusedPlayerGuid > 0)
+                occupant = playerList.getPlayer(static_cast<uint32_t>(focusedPlayerGuid));
+        }
+    }
+
+    if (occupant)
+    {
+        const BasePlayer::VehicleState& vehicle = occupant->getState().vehicle;
+        const uint32_t driverGuid = vehicle.occupantRole == VehicleOccupantRole::Driver
+            ? occupant->getGuid() : vehicle.driverGuid;
+        RemotePlayer* driver = playerList.getPlayer(driverGuid);
+        if (driver && driver->getState().vehicle.active
+            && driver->getState().vehicle.occupantRole == VehicleOccupantRole::Driver)
+        {
+            PacketPlayerVehicleRequest request;
+            request.action = VehicleRequestAction::EnterPassenger;
+            request.parkedObjectMpNum = driver->getState().vehicle.parkedObjectMpNum;
+            request.driverGuid = driverGuid;
+            request.seatIndex = sAutomaticVehicleSeat;
+            mClient.sendReliable(request.encode());
+            Log(Debug::Info) << "[Vehicle] Requested passenger entry"
+                             << " driverGuid=" << driverGuid
+                             << " parkedMpNum=" << request.parkedObjectMpNum;
+            return true;
+        }
+    }
+
     const std::string refId = parkedObject.getCellRef().getRefId().serializeText();
     const VehicleProfile* profile = findVehicleProfileByParkedRefId(refId);
     if (!profile)
@@ -2136,6 +2198,53 @@ bool PlayerSync::requestVehicleEntry(const MWWorld::Ptr& parkedObject)
     Log(Debug::Info) << "[Vehicle] Requested entry"
                      << " profile='" << profile->id << "'"
                      << " parkedMpNum=" << mpNum;
+    return true;
+}
+
+bool PlayerSync::getVehicleRootState(Position& position, Velocity& velocity, bool& hasRigidBodyPose,
+    std::array<float, 4>& suspensionCompression, float& steeringAngle) const
+{
+    if (!mLocal.vehicle.active
+        || mLocal.vehicle.occupantRole != VehicleOccupantRole::Driver)
+    {
+        return false;
+    }
+
+    position = mLocal.position;
+    velocity = mLocal.velocity;
+    hasRigidBodyPose = mLocal.vehicle.hasRigidBodyPose;
+    suspensionCompression = mLocal.vehicle.suspensionCompression;
+    steeringAngle = mLocal.vehicle.steeringAngle;
+
+    // This accessor is also used after VehicleController has updated the visible
+    // local truck. Prefer its live completed body sample so render-time passenger
+    // attachment observes the same root instead of the earlier PlayerSync mirror.
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    const MWWorld::Ptr player = world ? world->getPlayerPtr() : MWWorld::Ptr{};
+    MWPhysics::VehicleBodyState bodyState;
+    if (world && !player.isEmpty() && world->getVehicleRigidBodyState(player, bodyState))
+    {
+        position.pos[0] = bodyState.mRootPosition.x();
+        position.pos[1] = bodyState.mRootPosition.y();
+        position.pos[2] = bodyState.mRootPosition.z();
+        const osg::Vec3f angles = Misc::toEulerAnglesZYX(bodyState.mOrientation);
+        position.rot[0] = angles.x();
+        position.rot[1] = angles.y();
+        position.rot[2] = angles.z();
+        velocity.linear[0] = bodyState.mLinearVelocity.x();
+        velocity.linear[1] = bodyState.mLinearVelocity.y();
+        velocity.linear[2] = bodyState.mLinearVelocity.z();
+        hasRigidBodyPose = true;
+        steeringAngle = bodyState.mSteeringAngle;
+        if (const VehicleProfile* profile = findVehicleProfile(mLocal.vehicle.profileId))
+        {
+            for (std::size_t index = 0; index < suspensionCompression.size(); ++index)
+            {
+                suspensionCompression[index]
+                    = profile->suspension.restLength - bodyState.mSuspensionLength[index];
+            }
+        }
+    }
     return true;
 }
 
@@ -2229,8 +2338,13 @@ void PlayerSync::applyVehicleRuntimeState()
 
     const VehicleProfile* profile
         = mLocal.vehicle.active ? findVehicleProfile(mLocal.vehicle.profileId) : nullptr;
+    const bool isDriver = profile
+        && mLocal.vehicle.occupantRole == VehicleOccupantRole::Driver;
+    const bool isPassenger = profile
+        && mLocal.vehicle.occupantRole == VehicleOccupantRole::Passenger;
     const bool vehicleModeChanged
-        = world->getPlayer().setVehicleMode(profile != nullptr, profile ? profile->id : std::string_view{});
+        = world->getPlayer().setVehicleMode(
+            profile != nullptr, profile ? profile->id : std::string_view{}, isDriver);
     if (vehicleModeChanged)
     {
         world->scaleObject(player, player.getCellRef().getScale(), true);
@@ -2245,7 +2359,21 @@ void PlayerSync::applyVehicleRuntimeState()
             }
         }
     }
-    if (profile)
+    if (isPassenger)
+    {
+        world->removeVehicleRigidBody(player);
+        world->setActorCollisionMode(player, false, false);
+        mPassengerCollisionDisabled = true;
+        return;
+    }
+
+    if (mPassengerCollisionDisabled)
+    {
+        world->setActorCollisionMode(player, true, true);
+        mPassengerCollisionDisabled = false;
+    }
+
+    if (isDriver)
     {
         MWPhysics::VehicleBodyConfig config;
         config.mCollisionHalfExtents = osg::Vec3f(profile->rigidBody.chassisHalfExtents[0],
@@ -2309,6 +2437,59 @@ void PlayerSync::applyVehicleRuntimeState()
         world->removeVehicleRigidBody(player);
 }
 
+void PlayerSync::applyPassengerVehicleTransform(const MWWorld::Ptr& player)
+{
+    if (player.isEmpty() || !mLocal.vehicle.active
+        || mLocal.vehicle.occupantRole != VehicleOccupantRole::Passenger
+        || mLocal.vehicle.driverGuid == 0)
+    {
+        return;
+    }
+
+    RemotePlayer* driver = Main::get().getPlayerList().getPlayer(mLocal.vehicle.driverGuid);
+    if (!driver)
+        return;
+
+    Position rootPosition;
+    Velocity rootVelocity;
+    bool hasRigidBodyPose = false;
+    std::array<float, 4> suspensionCompression{};
+    float steeringAngle = 0.f;
+    if (!driver->getVehicleRootState(rootPosition, rootVelocity, hasRigidBodyPose,
+            suspensionCompression, steeringAngle))
+    {
+        return;
+    }
+
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    if (!world)
+        return;
+
+    MWWorld::Ptr moved = world->moveObject(player,
+        osg::Vec3f(rootPosition.pos[0], rootPosition.pos[1], rootPosition.pos[2]),
+        /*movePhysics=*/true, /*moveToActive=*/true);
+    const MWWorld::Ptr& passenger = moved.isEmpty() ? player : moved;
+    world->rotateObject(passenger,
+        osg::Vec3f(0.f, 0.f, rootPosition.rot[2]), MWBase::RotationFlag_none);
+
+    mLocal.position = rootPosition;
+    mLocal.velocity = rootVelocity;
+    mLocal.vehicle.hasRigidBodyPose = hasRigidBodyPose;
+    mLocal.vehicle.suspensionCompression = suspensionCompression;
+    mLocal.vehicle.steeringAngle = steeringAngle;
+
+    if (hasRigidBodyPose)
+    {
+        ESM::Position bodyPosition = toEsmPosition(rootPosition);
+        const osg::Quat bodyOrientation = Misc::Convert::makeOsgQuat(bodyPosition);
+        const osg::Quat vehicleYaw(
+            rootPosition.rot[2], osg::Vec3f(0.f, 0.f, -1.f));
+        const osg::Quat relativeAttitude = bodyOrientation * vehicleYaw.inverse();
+        if (MWRender::Animation* animation = world->getAnimation(passenger))
+            animation->setVehicleDriverSuspensionTransform(osg::Vec3f(), relativeAttitude);
+    }
+}
+
 void PlayerSync::applyVehiclePresentation(const MWWorld::Ptr& player)
 {
     MWBase::World* world = MWBase::Environment::get().getWorld();
@@ -2333,7 +2514,8 @@ void PlayerSync::applyVehiclePresentation(const MWWorld::Ptr& player)
     }
 
     const VehicleProfile* profile = findVehicleProfile(mLocal.vehicle.profileId);
-    if (!profile)
+    const uint8_t seatIndex = mLocal.vehicle.seatIndex;
+    if (!profile || seatIndex >= profile->seatCount || seatIndex >= profile->seats.size())
     {
         animation->setVehicleDriverPoseEnabled(false);
         if (hasVehicleEffect)
@@ -2342,6 +2524,13 @@ void PlayerSync::applyVehiclePresentation(const MWWorld::Ptr& player)
         Log(Debug::Warning) << "[MP] Unknown local vehicle profile '" << mLocal.vehicle.profileId << "'";
         return;
     }
+
+    const bool isDriver
+        = mLocal.vehicle.occupantRole == VehicleOccupantRole::Driver;
+    const VehicleSeatProfile& seat = profile->seats[seatIndex];
+    const std::string presentationKey = std::string(profile->id) + ':'
+        + std::to_string(static_cast<int>(mLocal.vehicle.occupantRole)) + ':'
+        + std::to_string(seatIndex);
 
     osg::Vec3f parentScale(1.f, 1.f, 1.f);
     if (const SceneUtil::PositionAttitudeTransform* baseNode = player.getRefData().getBaseNode())
@@ -2372,12 +2561,32 @@ void PlayerSync::applyVehiclePresentation(const MWWorld::Ptr& player)
 
     animation->setVehicleDriverScale(
         inverseParentScale * profile->seatedDriverVisualScale);
-    animation->setVehicleDriverOffset(mVehicleDriverOffset);
-    animation->setVehicleFirstPersonCameraOffset(mVehicleFirstPersonCameraOffset);
+    animation->setVehicleDriverOffset(isDriver ? mVehicleDriverOffset
+        : osg::Vec3f(seat.poseOffset[0], seat.poseOffset[1], seat.poseOffset[2]));
+    animation->setVehicleFirstPersonCameraOffset(isDriver ? mVehicleFirstPersonCameraOffset
+        : osg::Vec3f(seat.firstPersonCameraOffset[0], seat.firstPersonCameraOffset[1],
+            seat.firstPersonCameraOffset[2]));
     animation->setVehicleLegPoseDegrees(mVehicleLegPoseDegrees);
     animation->setVehicleDriverPoseEnabled(true);
 
-    if (hasVehicleEffect && mAppliedVehicleProfileId == profile->id)
+    if (!isDriver)
+    {
+        if (hasVehicleEffect)
+            animation->removeEffect(sVehicleVisualEffectId);
+        animation->setVehicleDriverSuspensionTransform(
+            osg::Vec3f(), initialRelativeAttitude);
+        if (mAppliedVehicleProfileId != presentationKey)
+        {
+            Log(Debug::Info) << "[Vehicle] Applied local passenger presentation"
+                             << " profile='" << profile->id << "' seat=" << static_cast<int>(seatIndex)
+                             << " offset=(" << seat.poseOffset[0] << ", " << seat.poseOffset[1]
+                             << ", " << seat.poseOffset[2] << ")";
+        }
+        mAppliedVehicleProfileId = presentationKey;
+        return;
+    }
+
+    if (hasVehicleEffect && mAppliedVehicleProfileId == presentationKey)
         return;
 
     if (hasVehicleEffect)
@@ -2393,7 +2602,7 @@ void PlayerSync::applyVehiclePresentation(const MWWorld::Ptr& player)
             inverseParentScale * profile->seatedDriverVisualScale);
         animation->setVehicleDriverSuspensionTransform(
             osg::Vec3f(), initialRelativeAttitude);
-        mAppliedVehicleProfileId.assign(profile->id);
+        mAppliedVehicleProfileId = presentationKey;
         Log(Debug::Info) << "[MP] Applied local vehicle visual profile='" << profile->id << "'"
                          << " parentScale=(" << parentScale.x() << "," << parentScale.y() << ","
                          << parentScale.z() << ")"

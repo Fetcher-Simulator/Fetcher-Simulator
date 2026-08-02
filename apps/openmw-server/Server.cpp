@@ -1244,6 +1244,10 @@ bool MPServer::teleportPlayer(uint32_t guid, const std::string& cellId, const Po
     client->player.position = position;
     client->player.position.isTeleporting = true;
     client->player.velocity = {};
+    // The timestamp belongs to the sending client's steady clock. Server-authored
+    // discontinuities start a new interpolation timeline and must not reuse a
+    // timestamp copied from another occupant (for example, a vehicle driver).
+    client->player.positionSampleTimeUs = 0;
     client->pendingScriptedTeleportAck = true;
     client->scriptedTeleportTarget = client->player.position;
     client->scriptedTeleportGuardUntilMs = currentServerTimeMs() + 3000;
@@ -1452,9 +1456,52 @@ bool MPServer::restoreActiveVehicleObject(ConnectedClient& client)
     return true;
 }
 
+void MPServer::releaseVehiclePassengers(ConnectedClient& driver)
+{
+    std::vector<uint32_t> passengerGuids;
+    for (const auto& [connection, client] : mClients)
+    {
+        if (client.player.vehicle.active
+            && client.player.vehicle.occupantRole == VehicleOccupantRole::Passenger
+            && client.player.vehicle.driverGuid == driver.guid)
+        {
+            passengerGuids.push_back(client.guid);
+        }
+    }
+
+    const std::string cellId = makeCellKey(driver.player.cell);
+    for (uint32_t passengerGuid : passengerGuids)
+    {
+        ConnectedClient* passenger = findClientByGuid(passengerGuid);
+        if (!passenger)
+            continue;
+
+        Position exitPosition = driver.player.position;
+        if (const VehicleProfile* profile = findVehicleProfile(passenger->player.vehicle.profileId))
+        {
+            const uint8_t seatIndex = passenger->player.vehicle.seatIndex;
+            if (seatIndex < profile->seatCount && seatIndex < profile->seats.size())
+            {
+                const auto& offset = profile->seats[seatIndex].exitOffset;
+                const float yaw = exitPosition.rot[2];
+                exitPosition.pos[0] += std::cos(yaw) * offset[0] + std::sin(yaw) * offset[1];
+                exitPosition.pos[1] += -std::sin(yaw) * offset[0] + std::cos(yaw) * offset[1];
+                exitPosition.pos[2] += offset[2];
+            }
+        }
+        exitPosition.rot[0] = 0.f;
+        exitPosition.rot[1] = 0.f;
+
+        setPlayerVehicleState(passengerGuid, false, std::string(), 0);
+        if (!cellId.empty())
+            teleportPlayer(passengerGuid, cellId, exitPosition);
+    }
+}
+
 // ---------------------------------------------------------------------------
 bool MPServer::setPlayerVehicleState(
-    uint32_t guid, bool active, const std::string& profileId, uint32_t parkedObjectMpNum)
+    uint32_t guid, bool active, const std::string& profileId, uint32_t parkedObjectMpNum,
+    VehicleOccupantRole occupantRole, uint32_t driverGuid, uint8_t seatIndex)
 {
     ConnectedClient* client = findClientByGuid(guid);
     if (!client || !client->handshakeComplete || !client->charSelectComplete)
@@ -1467,11 +1514,31 @@ bool MPServer::setPlayerVehicleState(
         return false;
     }
 
+    if (active && occupantRole == VehicleOccupantRole::None)
+        return false;
+
+    if (active && occupantRole == VehicleOccupantRole::Driver)
+    {
+        driverGuid = guid;
+        seatIndex = 0;
+    }
+    else if (active && (driverGuid == 0 || driverGuid == guid))
+        return false;
+
     BasePlayer::VehicleState& state = client->player.vehicle;
+    const VehicleOccupantRole previousRole = state.occupantRole;
+    if (!active && state.active && previousRole == VehicleOccupantRole::Driver)
+        releaseVehiclePassengers(*client);
+
     const std::string nextProfileId = active ? profileId : std::string();
     const uint32_t nextParkedObjectMpNum = active ? parkedObjectMpNum : 0;
+    const VehicleOccupantRole nextRole = active ? occupantRole : VehicleOccupantRole::None;
+    const uint32_t nextDriverGuid = active ? driverGuid : 0;
+    const uint8_t nextSeatIndex = active ? seatIndex : 0;
     if (state.active == active && state.profileId == nextProfileId
-        && state.parkedObjectMpNum == nextParkedObjectMpNum)
+        && state.parkedObjectMpNum == nextParkedObjectMpNum
+        && state.occupantRole == nextRole && state.driverGuid == nextDriverGuid
+        && state.seatIndex == nextSeatIndex)
     {
         return active || restoreActiveVehicleObject(*client);
     }
@@ -1479,6 +1546,9 @@ bool MPServer::setPlayerVehicleState(
     state.active = active;
     state.profileId = nextProfileId;
     state.parkedObjectMpNum = nextParkedObjectMpNum;
+    state.occupantRole = nextRole;
+    state.driverGuid = nextDriverGuid;
+    state.seatIndex = nextSeatIndex;
     ++state.revision;
     if (state.revision == 0)
         ++state.revision;
@@ -1492,8 +1562,12 @@ bool MPServer::setPlayerVehicleState(
                      << " active=" << state.active
                      << " profile='" << state.profileId << "'"
                      << " parkedMpNum=" << state.parkedObjectMpNum
+                     << " role=" << static_cast<int>(state.occupantRole)
+                     << " driverGuid=" << state.driverGuid
+                     << " seat=" << static_cast<int>(state.seatIndex)
                      << " revision=" << state.revision;
-    const bool restored = active || restoreActiveVehicleObject(*client);
+    const bool restored = active || previousRole != VehicleOccupantRole::Driver
+        || restoreActiveVehicleObject(*client);
     syncLuaPlayerSnapshot();
     return restored;
 }
@@ -5495,6 +5569,14 @@ void MPServer::handlePlayerPosition(ConnectedClient& c, const uint8_t* data, siz
         }
     }
 
+    // A passenger's world transform is derived from the driver's replicated
+    // vehicle root. Ignore stale or malicious independent movement samples.
+    if (c.player.vehicle.active
+        && c.player.vehicle.occupantRole == VehicleOccupantRole::Passenger)
+    {
+        return;
+    }
+
     if (!validateMovement(c, proposed))
     {
         // Send correction back
@@ -5510,6 +5592,30 @@ void MPServer::handlePlayerPosition(ConnectedClient& c, const uint8_t* data, siz
     c.player.vehicle.hasRigidBodyPose = proposed.vehicle.hasRigidBodyPose;
     c.player.vehicle.suspensionCompression = proposed.vehicle.suspensionCompression;
     c.player.vehicle.steeringAngle = proposed.vehicle.steeringAngle;
+
+    if (c.player.vehicle.active
+        && c.player.vehicle.occupantRole == VehicleOccupantRole::Driver)
+    {
+        for (auto& [connection, passenger] : mClients)
+        {
+            if (!passenger.player.vehicle.active
+                || passenger.player.vehicle.occupantRole != VehicleOccupantRole::Passenger
+                || passenger.player.vehicle.driverGuid != c.guid)
+            {
+                continue;
+            }
+            passenger.player.position = c.player.position;
+            passenger.player.velocity = c.player.velocity;
+            // This pose is derived from the driver, not sampled by the passenger.
+            // Never put one process's steady-clock timestamp on another player.
+            passenger.player.positionSampleTimeUs = 0;
+            passenger.player.cell = c.player.cell;
+            passenger.player.vehicle.hasRigidBodyPose = c.player.vehicle.hasRigidBodyPose;
+            passenger.player.vehicle.suspensionCompression
+                = c.player.vehicle.suspensionCompression;
+            passenger.player.vehicle.steeringAngle = c.player.vehicle.steeringAngle;
+        }
+    }
 
     // Relay to all other clients (unreliable is fine - we use raw broadcast)
     if (forceReliableTeleportRelay)
@@ -5527,11 +5633,25 @@ void MPServer::handlePlayerPosition(ConnectedClient& c, const uint8_t* data, siz
 void MPServer::handlePlayerCellChange(ConnectedClient& c, const uint8_t* data, size_t size)
 {
     const CellId oldCellState = c.player.cell;
+    const Position oldPositionState = c.player.position;
+    const Velocity oldVelocityState = c.player.velocity;
     std::string oldCell = makeCellKey(c.player.cell);
     PacketPlayerCellChange pkt;
     pkt.setPlayer(&c.player);
     if (!pkt.decode(data, size)) return;
     const uint32_t cellChangeSequence = pkt.getSequence();
+
+    if (c.player.vehicle.active
+        && c.player.vehicle.occupantRole == VehicleOccupantRole::Passenger)
+    {
+        c.player.cell = oldCellState;
+        c.player.position = oldPositionState;
+        c.player.velocity = oldVelocityState;
+        PacketPlayerCellChange correction;
+        correction.setPlayer(&c.player);
+        sendTo(c.conn, correction.encode(cellChangeSequence));
+        return;
+    }
 
     const std::string newCell = makeCellKey(c.player.cell);
     const int exteriorDx = oldCellState.isExterior && c.player.cell.isExterior
@@ -5590,6 +5710,30 @@ void MPServer::handlePlayerCellChange(ConnectedClient& c, const uint8_t* data, s
         PacketPlayerPosition positionPacket;
         positionPacket.setPlayer(&c.player);
         broadcastToAll(positionPacket.encode(cellChangeSequence), c.conn);
+    }
+
+    if (c.player.vehicle.active
+        && c.player.vehicle.occupantRole == VehicleOccupantRole::Driver)
+    {
+        for (auto& [connection, passenger] : mClients)
+        {
+            if (!passenger.player.vehicle.active
+                || passenger.player.vehicle.occupantRole != VehicleOccupantRole::Passenger
+                || passenger.player.vehicle.driverGuid != c.guid)
+            {
+                continue;
+            }
+
+            passenger.player.cell = c.player.cell;
+            passenger.player.position = c.player.position;
+            passenger.player.velocity = c.player.velocity;
+
+            PacketPlayerCellChange passengerCell;
+            passengerCell.setPlayer(&passenger.player);
+            broadcastToAll(passengerCell.encode(cellChangeSequence));
+            if (!newCell.empty())
+                sendCellStateToClient(passenger.conn, newCell);
+        }
     }
     const std::string cellKey = makeCellKey(c.player.cell);
     if (!cellKey.empty() && c.loadedActorCells.find(cellKey) == c.loadedActorCells.end())
@@ -6337,7 +6481,7 @@ void MPServer::handlePlayerVehicleRequest(ConnectedClient& c, const uint8_t* dat
     {
         if (!c.player.vehicle.active)
         {
-            reject("not currently driving");
+            reject("not currently occupying a vehicle");
             return;
         }
 
@@ -6351,11 +6495,16 @@ void MPServer::handlePlayerVehicleRequest(ConnectedClient& c, const uint8_t* dat
 
         Position exitPosition = c.player.position;
         const float yaw = exitPosition.rot[2];
-        const float localX = profile->driverExitOffset[0];
-        const float localY = profile->driverExitOffset[1];
+        const bool isPassenger
+            = c.player.vehicle.occupantRole == VehicleOccupantRole::Passenger;
+        const uint8_t seatIndex = c.player.vehicle.seatIndex;
+        const auto& exitOffset = seatIndex < profile->seatCount && seatIndex < profile->seats.size()
+            ? profile->seats[seatIndex].exitOffset : profile->driverExitOffset;
+        const float localX = exitOffset[0];
+        const float localY = exitOffset[1];
         exitPosition.pos[0] += std::cos(yaw) * localX + std::sin(yaw) * localY;
         exitPosition.pos[1] += -std::sin(yaw) * localX + std::cos(yaw) * localY;
-        exitPosition.pos[2] += profile->driverExitOffset[2];
+        exitPosition.pos[2] += exitOffset[2];
         exitPosition.rot[0] = 0.f;
         exitPosition.rot[1] = 0.f;
 
@@ -6373,9 +6522,102 @@ void MPServer::handlePlayerVehicleRequest(ConnectedClient& c, const uint8_t* dat
 
         Log(Debug::Info) << "[Server] Vehicle exit accepted"
                          << " player=" << c.name
+                         << " role=" << (isPassenger ? "passenger" : "driver")
                          << " cell=" << cellId
                          << " exit=(" << exitPosition.pos[0] << ","
                          << exitPosition.pos[1] << "," << exitPosition.pos[2] << ")";
+        return;
+    }
+
+    if (request.action == VehicleRequestAction::EnterPassenger)
+    {
+        if (c.player.vehicle.active || c.player.isDead)
+        {
+            reject("player is not available for a passenger seat");
+            return;
+        }
+
+        ConnectedClient* driver = findClientByGuid(request.driverGuid);
+        if (!driver || !driver->player.vehicle.active
+            || driver->player.vehicle.occupantRole != VehicleOccupantRole::Driver)
+        {
+            reject("active driver is unavailable");
+            return;
+        }
+
+        const VehicleProfile* profile = findVehicleProfile(driver->player.vehicle.profileId);
+        if (!profile || profile->seatCount <= 1 || profile->seatCount > profile->seats.size())
+        {
+            reject("vehicle has no passenger seats");
+            return;
+        }
+        if (!cellMatches(c.player.cell, makeCellKey(driver->player.cell)))
+        {
+            reject("vehicle is in another cell");
+            return;
+        }
+
+        const float dx = c.player.position.pos[0] - driver->player.position.pos[0];
+        const float dy = c.player.position.pos[1] - driver->player.position.pos[1];
+        const float dz = c.player.position.pos[2] - driver->player.position.pos[2];
+        const float maximumDistance = std::max(profile->entryActivationDistance, 0.f);
+        if (dx * dx + dy * dy + dz * dz > maximumDistance * maximumDistance)
+        {
+            reject("too far from vehicle");
+            return;
+        }
+
+        auto seatIsAvailable = [&](uint8_t seatIndex) {
+            if (seatIndex == 0 || seatIndex >= profile->seatCount)
+                return false;
+            for (const auto& [connection, other] : mClients)
+            {
+                if (other.player.vehicle.active
+                    && other.player.vehicle.occupantRole == VehicleOccupantRole::Passenger
+                    && other.player.vehicle.driverGuid == driver->guid
+                    && other.player.vehicle.seatIndex == seatIndex)
+                {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        uint8_t seatIndex = request.seatIndex;
+        if (seatIndex == sAutomaticVehicleSeat)
+        {
+            for (uint8_t candidate = 1; candidate < profile->seatCount; ++candidate)
+            {
+                if (seatIsAvailable(candidate))
+                {
+                    seatIndex = candidate;
+                    break;
+                }
+            }
+        }
+        if (!seatIsAvailable(seatIndex))
+        {
+            reject("no requested passenger seat is available");
+            return;
+        }
+
+        const std::string driverCellId = makeCellKey(driver->player.cell);
+        if (driverCellId.empty()
+            || !teleportPlayer(c.guid, driverCellId, driver->player.position)
+            || !setPlayerVehicleState(c.guid, true, driver->player.vehicle.profileId,
+                driver->player.vehicle.parkedObjectMpNum, VehicleOccupantRole::Passenger,
+                driver->guid, seatIndex))
+        {
+            reject("could not enter passenger seat");
+            return;
+        }
+
+        Log(Debug::Info) << "[Server] Passenger entry accepted"
+                         << " player=" << c.name
+                         << " driver=" << driver->name
+                         << " profile='" << profile->id << "'"
+                         << " seat=" << static_cast<int>(seatIndex)
+                         << " parkedMpNum=" << driver->player.vehicle.parkedObjectMpNum;
         return;
     }
 

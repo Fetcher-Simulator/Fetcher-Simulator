@@ -208,14 +208,14 @@ namespace MWWorld
         if (toActivate.isEmpty())
             return;
 
-        if (!toActivate.getClass().hasToolTip(toActivate))
-            return;
-
         if (mwmp::Main::isConnected()
             && mwmp::Main::get().getPlayerSync().requestVehicleEntry(toActivate))
         {
             return;
         }
+
+        if (!toActivate.getClass().hasToolTip(toActivate))
+            return;
 
         MWBase::Environment::get().getLuaManager()->objectActivated(toActivate, player);
     }
@@ -240,7 +240,7 @@ namespace MWWorld
         return mJumping;
     }
 
-    bool Player::setVehicleMode(bool active, std::string_view profileId)
+    bool Player::setVehicleMode(bool active, std::string_view profileId, bool isDriver)
     {
         if (!active || profileId.empty())
         {
@@ -255,13 +255,15 @@ namespace MWWorld
             return true;
         }
 
-        if (mVehicle.mMode == VehicleModeState::Active && mVehicle.mProfileId == profileId)
+        if (mVehicle.mMode == VehicleModeState::Active && mVehicle.mProfileId == profileId
+            && mVehicle.mIsDriver == isDriver)
             return false;
 
         mVehicle.mMode = VehicleModeState::Entering;
         mVehicle = {};
         mVehicle.mMode = VehicleModeState::Entering;
         mVehicle.mProfileId.assign(profileId);
+        mVehicle.mIsDriver = isDriver;
         mVehicle.mMode = VehicleModeState::Active;
         return true;
     }

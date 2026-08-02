@@ -1178,7 +1178,13 @@ namespace MWClass
         bool fullHelp = MWBase::Environment::get().getWindowManager()->getFullHelp();
         MWGui::ToolTipInfo info;
 
+        std::string vehicleName;
         std::string_view name = getName(ptr);
+        if (const auto* baseNode = ptr.getRefData().getBaseNode();
+            baseNode && baseNode->getUserValue("mp_vehicle_tooltip", vehicleName) && !vehicleName.empty())
+        {
+            name = vehicleName;
+        }
         info.caption = MyGUI::TextIterator::toTagsString(MyGUI::UString(name));
         if (fullHelp && !ref->mBase->mName.empty() && ptr.getRefData().getCustomData()
             && ptr.getRefData().getCustomData()->asNpcCustomData().mNpcStats.isWerewolf())

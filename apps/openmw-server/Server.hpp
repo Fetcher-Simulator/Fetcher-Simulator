@@ -151,7 +151,9 @@ public:
     void relayPlayerChat(uint32_t guid, const std::string& text);
     bool playSpeech(uint32_t guid, const std::string& soundPath);
     bool setPlayerVehicleState(
-        uint32_t guid, bool active, const std::string& profileId = std::string(), uint32_t parkedObjectMpNum = 0);
+        uint32_t guid, bool active, const std::string& profileId = std::string(), uint32_t parkedObjectMpNum = 0,
+        mwmp::VehicleOccupantRole occupantRole = mwmp::VehicleOccupantRole::Driver,
+        uint32_t driverGuid = 0, uint8_t seatIndex = 0);
     bool killPlayer(uint32_t guid, const std::string& deathMessage = std::string());
     void broadcastLuaEvent(uint32_t pid, const std::string& eventName, const std::string& eventData);
     void broadcastLuaEventToCell(
@@ -365,6 +367,7 @@ private:
     bool acceptPlacedObject(PlacedObject& object, ConnectedClient* source = nullptr);
     bool suspendPlacedVehicleObject(uint32_t mpNum, PlacedObject& object);
     bool restoreActiveVehicleObject(ConnectedClient& client);
+    void releaseVehiclePassengers(ConnectedClient& driver);
     bool reconcileInventoryInstanceIds(ConnectedClient& c, std::vector<Item>& items);
     bool reconcileEquipmentInstanceIds(ConnectedClient& c);
     bool grantInventoryItem(ConnectedClient& c, const std::string& refId, int count);

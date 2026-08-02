@@ -11,15 +11,21 @@ namespace mwmp
     {
         Enter = 0,
         Exit = 1,
+        EnterPassenger = 2,
     };
 
-    // Client -> server request. The server derives and validates the vehicle
-    // profile from the parked object's authoritative refId.
+    inline constexpr uint8_t sAutomaticVehicleSeat = 0xff;
+
+    // Client -> server request. Parked entry derives the profile from the
+    // authoritative world object; passenger entry names an active driver and
+    // lets the server validate and allocate the requested profile seat.
     class PacketPlayerVehicleRequest : public BasePacket
     {
     public:
         VehicleRequestAction action = VehicleRequestAction::Enter;
         uint32_t parkedObjectMpNum = 0;
+        uint32_t driverGuid = 0;
+        uint8_t seatIndex = sAutomaticVehicleSeat;
 
         PacketPlayerVehicleRequest()
             : BasePacket(PacketType::PlayerVehicleRequest)
@@ -31,6 +37,8 @@ namespace mwmp
         {
             ws.write(static_cast<uint8_t>(action));
             ws.write(parkedObjectMpNum);
+            ws.write(driverGuid);
+            ws.write(seatIndex);
         }
 
         void unpack(ReadStream& rs) override
@@ -39,6 +47,11 @@ namespace mwmp
             rs.read(rawAction);
             action = static_cast<VehicleRequestAction>(rawAction);
             rs.read(parkedObjectMpNum);
+            if (rs.remaining() >= sizeof(driverGuid) + sizeof(seatIndex))
+            {
+                rs.read(driverGuid);
+                rs.read(seatIndex);
+            }
         }
     };
 }

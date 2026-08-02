@@ -86,14 +86,24 @@ namespace mwmp
         bool               isDead()      const { return mIsDead; }
         bool               isSpawned()   const { return mIsSpawned; }
         const MWWorld::Ptr& getNpcPtr()  const { return mNpcPtr; }
+        bool isVehiclePassenger() const;
+        bool getVehicleRootState(Position& position, Velocity& velocity, bool& hasRigidBodyPose,
+            std::array<float, 4>& suspensionCompression, float& steeringAngle) const;
+        void setPassengerVehicleRootState(const Position& position, const Velocity& velocity,
+            bool hasRigidBodyPose, const std::array<float, 4>& suspensionCompression,
+            float steeringAngle);
+        void refreshPassengerVehicleAttachment(const Position& position, const Velocity& velocity,
+            bool hasRigidBodyPose, const std::array<float, 4>& suspensionCompression,
+            float steeringAngle);
 
     private:
         // ---- world interaction ----
         void trySpawn();
         void despawnFromWorld();
         void ensureMechanicsRegistration();
-        void applyInterpolationToWorld();
+        void applyInterpolationToWorld(bool forceMove = false);
         void applyAnimationStateToActor();
+        void applyPassengerVehicleSuspensionTransform();
         void applyDynamicStatsToActor();
         void applyEquipmentState(const BasePlayer& state, bool playSounds);
         void applyInventoryState(const BasePlayer& state, bool playSounds);
@@ -271,8 +281,11 @@ namespace mwmp
         void removePlayer(uint32_t guid);
 
         RemotePlayer* getPlayer(uint32_t guid);
+        RemotePlayer* getPlayer(const MWWorld::Ptr& ptr);
 
-        void updateAll(float dt);
+        void updateNonPassengers(float dt);
+        void updatePassengers(float dt);
+        void refreshLocalDriverPassengerAttachments();
 
         size_t count() const { return mPlayers.size(); }
 

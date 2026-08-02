@@ -221,7 +221,10 @@ namespace
                 {
                     frameData.mPosition = actor->getPosition(); // account for potential position change made by script
                     actor->updateCollisionObjectPosition();
-                    mCollisionWorld->updateSingleAabb(actor->getCollisionObject());
+                    // Collision can be suspended while an actor is seated in a
+                    // vehicle. A removed object has no broadphase proxy.
+                    if (actor->getCollisionObject()->getBroadphaseHandle())
+                        mCollisionWorld->updateSingleAabb(actor->getCollisionObject());
                 }
             }
             void operator()(const LockedProjectileSimulation& sim) const

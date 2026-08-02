@@ -5,6 +5,7 @@
 #include "animblendcontroller.hpp"
 #include "blendmask.hpp"
 #include "bonegroup.hpp"
+#include "vismask.hpp"
 
 #include "../mwworld/movementdirection.hpp"
 #include "../mwworld/ptr.hpp"
@@ -372,12 +373,13 @@ namespace MWRender
          * @param useAmbientLight attach white ambient light to the root VFX node of the scenegraph (Morrowind default)
          * @param autoTransform auto-calculate vfx transform
          * @param transform apply a relative transform
+         * @param nodeMask scene traversal mask for the attached model
          * @note Will not add an effect twice.
          */
         void addEffect(std::string_view model, std::string_view effectId, bool loop = false,
             std::string_view bonename = {}, std::string_view texture = {}, bool useAmbientLight = true,
             bool autoTransform = true, const std::optional<osg::Matrix>& transform = std::nullopt,
-            bool preserveNodeStructure = false);
+            bool preserveNodeStructure = false, unsigned int nodeMask = Mask_Effect);
 
         void removeEffect(std::string_view effectId);
         void removeEffects();

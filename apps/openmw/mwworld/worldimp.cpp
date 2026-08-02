@@ -1553,10 +1553,15 @@ namespace MWWorld
     void World::setActorCollisionMode(const MWWorld::Ptr& ptr, bool internal, bool external)
     {
         MWPhysics::Actor* physicActor = mPhysics->getActor(ptr);
-        if (physicActor && physicActor->getCollisionMode() != internal)
+        if (physicActor)
         {
             physicActor->enableCollisionMode(internal);
             physicActor->enableCollisionBody(external);
+            // A seated vehicle passenger is moved directly onto the driver's
+            // rigid-body root. Merely clearing the actor collision mask leaves
+            // the kinematic body in Bullet's broadphase and can generate a huge
+            // separation impulse against the vehicle during that snap.
+            mPhysics->setActorCollisionSuspended(ptr, !internal && !external);
         }
     }
 

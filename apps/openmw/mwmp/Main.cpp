@@ -289,9 +289,14 @@ void Main::frame(float dt)
     const auto autoEnterFinished = std::chrono::steady_clock::now();
     if (!mClient->isConnected()) return;
 
+    // Advance remote vehicle roots first so a local passenger and the rendered
+    // truck consume the same interpolation sample in this frame. Follow remote
+    // passengers after local driver state has been captured for the same reason.
+    mPlayerList->updateNonPassengers(dt);
+    const auto playerListPreFinished = std::chrono::steady_clock::now();
     mPlayerSync->update(dt);
     const auto playerSyncFinished = std::chrono::steady_clock::now();
-    mPlayerList->updateAll(dt);
+    mPlayerList->updatePassengers(dt);
     const auto playerListFinished = std::chrono::steady_clock::now();
     mActorSync->update(dt);
     const auto actorSyncFinished = std::chrono::steady_clock::now();
@@ -318,9 +323,12 @@ void Main::frame(float dt)
             << " autoEnterMs=" << std::chrono::duration<double, std::milli>(
                 autoEnterFinished - bridgeFinished).count()
             << " playerSyncMs=" << std::chrono::duration<double, std::milli>(
-                playerSyncFinished - autoEnterFinished).count()
-            << " playerListMs=" << std::chrono::duration<double, std::milli>(
-                playerListFinished - playerSyncFinished).count()
+                playerSyncFinished - playerListPreFinished).count()
+            << " playerListMs="
+            << (std::chrono::duration<double, std::milli>(
+                    playerListPreFinished - autoEnterFinished).count()
+                + std::chrono::duration<double, std::milli>(
+                    playerListFinished - playerSyncFinished).count())
             << " actorSyncMs=" << std::chrono::duration<double, std::milli>(
                 actorSyncFinished - playerListFinished).count()
             << " worldSyncMs=" << std::chrono::duration<double, std::milli>(
@@ -360,9 +368,19 @@ void Main::frame(float dt)
 }
 
 // ---------------------------------------------------------------------------
+void Main::postMechanicsUpdate()
+{
+    if (mClient && mClient->isConnected() && mPlayerList)
+        mPlayerList->refreshLocalDriverPassengerAttachments();
+}
+
+// ---------------------------------------------------------------------------
 void Main::postWorldUpdate()
 {
-    if (mClient && mClient->isConnected() && mActorSync)
+    if (!mClient || !mClient->isConnected())
+        return;
+
+    if (mActorSync)
         mActorSync->updateLoadedCellBootstrapVisuals();
 }
 

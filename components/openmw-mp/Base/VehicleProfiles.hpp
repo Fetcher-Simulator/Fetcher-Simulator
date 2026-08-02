@@ -2,6 +2,7 @@
 #define OPENMW_MP_VEHICLEPROFILES_HPP
 
 #include <array>
+#include <cstdint>
 #include <string_view>
 
 namespace mwmp
@@ -98,6 +99,13 @@ namespace mwmp
         float suspensionImpactVolume;
     };
 
+    struct VehicleSeatProfile
+    {
+        std::array<float, 3> poseOffset;
+        std::array<float, 3> firstPersonCameraOffset;
+        std::array<float, 3> exitOffset;
+    };
+
     struct VehicleProfile
     {
         std::string_view id;
@@ -110,6 +118,8 @@ namespace mwmp
         float entryActivationDistance;
         std::array<float, 3> driverExitOffset;
         float seatedDriverVisualScale;
+        uint8_t seatCount;
+        std::array<VehicleSeatProfile, 4> seats;
         VehicleRigidBodyProfile rigidBody;
         VehicleAudioProfile audio;
         VehicleSuspensionProfile suspension;
@@ -128,6 +138,24 @@ namespace mwmp
             220.f,
             { -112.f, 0.f, 12.f },
             1.f,
+            2,
+            { {
+                {
+                    { -8.01f, -26.71f, -25.81f },
+                    { -24.5085f, 23.8851f, 101.7932f },
+                    { -112.f, 0.f, 12.f },
+                },
+                {
+                    // Bip01/model space maps its Y axis across the cab. Keep the
+                    // driver's longitudinal calibration and add the same 49.017
+                    // units of lateral separation as the calibrated cameras.
+                    { -8.01f, 22.307f, -25.81f },
+                    { 24.5085f, 23.8851f, 101.7932f },
+                    { 112.f, 0.f, 12.f },
+                },
+                {},
+                {},
+            } },
             {
                 1900.f,
                 { 0.f, -8.f, 52.f },

@@ -59,6 +59,8 @@ namespace mwmp
         void applyServerVehicleState(const BasePlayer& state);
         bool requestVehicleEntry(const MWWorld::Ptr& parkedObject);
         bool requestVehicleExit();
+        bool getVehicleRootState(Position& position, Velocity& velocity, bool& hasRigidBodyPose,
+            std::array<float, 4>& suspensionCompression, float& steeringAngle) const;
 
         const osg::Vec3f& getVehicleDriverOffset() const { return mVehicleDriverOffset; }
         void setVehicleDriverOffset(const osg::Vec3f& offset);
@@ -117,6 +119,7 @@ namespace mwmp
         std::vector<std::string> collectLoadedActorCellIds() const;
         void applyPendingAuthoritativeState(const MWWorld::Ptr& player);
         void applyVehicleRuntimeState();
+        void applyPassengerVehicleTransform(const MWWorld::Ptr& player);
         void applyVehiclePresentation(const MWWorld::Ptr& player);
         uint32_t resolveTargetMpNum(const MWWorld::Ptr& victim) const;
         void sendCastPacket(
@@ -131,6 +134,7 @@ namespace mwmp
         osg::Vec3f     mVehicleDriverOffset{ -8.01f, -26.71f, -25.81f };
         osg::Vec3f     mVehicleFirstPersonCameraOffset{ -24.5085f, 23.8851f, 101.7932f };
         osg::Vec3f     mVehicleLegPoseDegrees{ 97.f, -31.f, 19.f };
+        bool           mPassengerCollisionDisabled = false;
         BasePlayer     mPendingRestoredStats;
         bool           mHasPendingRestoredStats = false;
         int            mLastLoggedPersistentStrength = -1;
