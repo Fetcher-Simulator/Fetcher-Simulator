@@ -29,6 +29,9 @@
 #include "../mwmechanics/npcstats.hpp"
 #include "../mwmechanics/spellutil.hpp"
 
+#include "../mwmp/Main.hpp"
+#include "../mwmp/sync/PlayerSync.hpp"
+
 #include "../mwrender/camera.hpp"
 #include "../mwrender/renderingmanager.hpp"
 
@@ -197,6 +200,9 @@ namespace MWWorld
         if (playerStats.isParalyzed() || playerStats.getKnockedDown() || playerStats.isDead())
             return;
 
+        if (isInVehicle())
+            return;
+
         MWWorld::Ptr toActivate = MWBase::Environment::get().getWorld()->getFocusObject();
 
         if (toActivate.isEmpty())
@@ -204,6 +210,12 @@ namespace MWWorld
 
         if (!toActivate.getClass().hasToolTip(toActivate))
             return;
+
+        if (mwmp::Main::isConnected()
+            && mwmp::Main::get().getPlayerSync().requestVehicleEntry(toActivate))
+        {
+            return;
+        }
 
         MWBase::Environment::get().getLuaManager()->objectActivated(toActivate, player);
     }

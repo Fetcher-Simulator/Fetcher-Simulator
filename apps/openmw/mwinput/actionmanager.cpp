@@ -23,6 +23,7 @@
 #ifdef BUILD_MULTIPLAYER
 #include "../mwmp/Main.hpp"
 #include "../mwmp/gui/ChatWindow.hpp"
+#include "../mwmp/sync/PlayerSync.hpp"
 #endif
 #include "../mwmechanics/npcstats.hpp"
 
@@ -96,6 +97,15 @@ namespace MWInput
                 inputManager->resetIdleTime();
                 activate();
                 break;
+#ifdef BUILD_MULTIPLAYER
+            case A_Jump:
+            {
+                MWWorld::Player& player = MWBase::Environment::get().getWorld()->getPlayer();
+                if (mwmp::Main::isConnected() && player.isInVehicle())
+                    mwmp::Main::get().getPlayerSync().requestVehicleExit();
+                break;
+            }
+#endif
             case A_MoveLeft:
             case A_MoveRight:
             case A_MoveForward:

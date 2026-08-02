@@ -239,7 +239,7 @@ namespace MWRender
         osg::Vec3f mVehicleDriverOffset{ -8.01f, -26.71f, -25.81f };
         osg::Vec3f mVehicleDriverSuspensionPosition;
         osg::Quat mVehicleDriverSuspensionAttitude;
-        float mVehicleDriverScale = 1.f;
+        osg::Vec3f mVehicleDriverScale{ 1.f, 1.f, 1.f };
         osg::Vec3f mVehicleFirstPersonCameraOffset{ -24.5085f, 23.8851f, 101.7932f };
         osg::Vec3f mVehicleLegPoseDegrees{ 97.f, -31.f, 19.f };
         bool mVehicleDriverPoseEnabled = false;
@@ -384,6 +384,8 @@ namespace MWRender
         std::vector<std::string_view> getLoopingEffects() const;
         bool setEffectTransform(std::string_view effectId, const osg::Vec3f& position,
             const osg::Quat& attitude, float scale = 1.f);
+        bool setEffectTransform(std::string_view effectId, const osg::Vec3f& position,
+            const osg::Quat& attitude, const osg::Vec3f& scale);
         bool setEffectNodeOffset(
             std::string_view effectId, std::string_view nodeName, const osg::Vec3f& offset);
         bool setEffectNodeTransform(std::string_view effectId, std::string_view nodeName,
@@ -521,6 +523,7 @@ namespace MWRender
         bool isVehicleDriverPoseEnabled() const { return mVehicleDriverPoseEnabled; }
         void setVehicleDriverOffset(const osg::Vec3f& offset);
         void setVehicleDriverScale(float scale);
+        void setVehicleDriverScale(const osg::Vec3f& scale);
         void setVehicleDriverSuspensionTransform(
             const osg::Vec3f& position, const osg::Quat& attitude);
         const osg::Vec3f& getVehicleDriverOffset() const { return mVehicleDriverOffset; }

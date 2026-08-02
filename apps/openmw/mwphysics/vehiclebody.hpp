@@ -32,6 +32,8 @@ namespace MWPhysics
         float mChassisUpperChamferHeight = 0.f;
         std::array<osg::Vec3f, 4> mWheelMountPositions;
         osg::Vec3f mInertiaScale = osg::Vec3f(1.f, 1.f, 1.f);
+        bool mHasInitialOrientation = false;
+        osg::Quat mInitialOrientation;
         float mWheelRadius = 1.f;
         float mSuspensionRestLength = 0.f;
         float mSuspensionMaxCompression = 0.f;

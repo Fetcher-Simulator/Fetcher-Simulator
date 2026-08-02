@@ -91,6 +91,7 @@ namespace mwmp
         // --- lookup ---
         MWWorld::Ptr getObjectByMpNum(uint32_t mpNum) const;
         uint32_t getMpNumForObject(const MWWorld::Ptr& ptr) const;
+        bool getObjectLastKnownPosition(uint32_t mpNum, Position& position) const;
 
     private:
         // ---- world helpers ----
@@ -108,6 +109,10 @@ namespace mwmp
         // mpNum → live world Ptr
         std::unordered_map<uint32_t, MWWorld::Ptr> mObjects;
         std::unordered_map<ESM::RefNum, uint32_t> mMpNumsByObjectId;
+        // Preserves the transform of a server-deleted placed object long enough
+        // for presentation transitions (such as parked vehicle entry) to seed
+        // their replacement visual without an empty frame or stale actor pose.
+        std::unordered_map<uint32_t, Position> mLastKnownObjectPositions;
 
         // Pending operations that arrived before the target cell was loaded
         struct PendingPlace  { uint32_t mpNum; std::string refId; int count;

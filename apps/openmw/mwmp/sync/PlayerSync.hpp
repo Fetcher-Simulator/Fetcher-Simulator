@@ -57,6 +57,8 @@ namespace mwmp
         void applyRestoredStatsToPlayer();
         void applyServerDeath(const BasePlayer& state);
         void applyServerVehicleState(const BasePlayer& state);
+        bool requestVehicleEntry(const MWWorld::Ptr& parkedObject);
+        bool requestVehicleExit();
 
         const osg::Vec3f& getVehicleDriverOffset() const { return mVehicleDriverOffset; }
         void setVehicleDriverOffset(const osg::Vec3f& offset);

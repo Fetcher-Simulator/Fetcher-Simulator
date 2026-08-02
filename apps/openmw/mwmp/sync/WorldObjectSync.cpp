@@ -612,12 +612,35 @@ uint32_t WorldObjectSync::getMpNumForObject(const MWWorld::Ptr& ptr) const
     return it != mMpNumsByObjectId.end() ? it->second : 0;
 }
 
+bool WorldObjectSync::getObjectLastKnownPosition(uint32_t mpNum, Position& position) const
+{
+    const auto live = mObjects.find(mpNum);
+    if (live != mObjects.end() && !live->second.isEmpty())
+    {
+        const ESM::Position& esmPosition = live->second.getRefData().getPosition();
+        for (int index = 0; index < 3; ++index)
+        {
+            position.pos[index] = esmPosition.pos[index];
+            position.rot[index] = esmPosition.rot[index];
+        }
+        return true;
+    }
+
+    const auto cached = mLastKnownObjectPositions.find(mpNum);
+    if (cached == mLastKnownObjectPositions.end())
+        return false;
+
+    position = cached->second;
+    return true;
+}
+
 void WorldObjectSync::registerObject(uint32_t mpNum, const MWWorld::Ptr& ptr)
 {
     if (ptr.isEmpty())
         return;
 
     unregisterObject(mpNum);
+    mLastKnownObjectPositions.erase(mpNum);
     mObjects[mpNum] = ptr;
     mMpNumsByObjectId[ptr.getCellRef().getRefNum()] = mpNum;
 }
@@ -702,6 +725,17 @@ bool WorldObjectSync::tryDeleteObject(uint32_t mpNum)
     if (!world) return false;
 
     MWWorld::Ptr object = it->second;
+    if (!object.isEmpty())
+    {
+        Position lastKnownPosition;
+        const ESM::Position& esmPosition = object.getRefData().getPosition();
+        for (int index = 0; index < 3; ++index)
+        {
+            lastKnownPosition.pos[index] = esmPosition.pos[index];
+            lastKnownPosition.rot[index] = esmPosition.rot[index];
+        }
+        mLastKnownObjectPositions[mpNum] = lastKnownPosition;
+    }
     unregisterObject(mpNum);
 
     if (!object.isEmpty())

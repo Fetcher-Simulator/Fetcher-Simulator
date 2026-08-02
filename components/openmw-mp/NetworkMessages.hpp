@@ -78,6 +78,7 @@ namespace mwmp
         PlayerMiscellaneous = 46,
         ChatMessage         = 47,
         PlayerVehicleState  = 48,  // Reliable server-authored vehicle mode/profile state
+        PlayerVehicleRequest= 49,  // Reliable client request to enter/exit a parked vehicle
 
         // --- Actor ---
         ActorList           = 50,

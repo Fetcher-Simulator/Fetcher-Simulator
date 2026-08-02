@@ -87,7 +87,9 @@ namespace MWPhysics
         }
 
         osg::Quat orientation;
-        if (const SceneUtil::PositionAttitudeTransform* baseNode = ptr.getRefData().getBaseNode())
+        if (config.mHasInitialOrientation)
+            orientation = config.mInitialOrientation;
+        else if (const SceneUtil::PositionAttitudeTransform* baseNode = ptr.getRefData().getBaseNode())
             orientation = baseNode->getAttitude();
         else
         {

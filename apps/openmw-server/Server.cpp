@@ -50,6 +50,7 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerCast.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerSpeech.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerVehicleState.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerVehicleRequest.hpp>
 #include <components/openmw-mp/Base/VehicleProfiles.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerInventory.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerJournal.hpp>
@@ -1375,6 +1376,83 @@ bool MPServer::playSpeech(uint32_t guid, const std::string& soundPath)
 }
 
 // ---------------------------------------------------------------------------
+bool MPServer::suspendPlacedVehicleObject(uint32_t mpNum, PlacedObject& object)
+{
+    if (mpNum == 0)
+        return false;
+
+    for (auto cellIt = mWorld.placedObjects.begin(); cellIt != mWorld.placedObjects.end(); ++cellIt)
+    {
+        auto& objects = cellIt->second;
+        const auto objectIt = std::find_if(objects.begin(), objects.end(),
+            [&](const PlacedObject& candidate) { return candidate.mpNum == mpNum; });
+        if (objectIt == objects.end())
+            continue;
+
+        object = *objectIt;
+        const std::string cellId = cellIt->first;
+        mLua.removePlacedObject(mpNum);
+        objects.erase(objectIt);
+        if (objects.empty())
+            mWorld.placedObjects.erase(cellIt);
+
+        // Keep the database row while the vehicle is active. If the server
+        // stops unexpectedly, the parked object reappears at its last durable
+        // location instead of being lost permanently.
+        PacketObjectDelete packet;
+        packet.mpNum = mpNum;
+        packet.cellId = cellId;
+        broadcastToCell(cellId, packet.encode());
+        return true;
+    }
+
+    return false;
+}
+
+bool MPServer::restoreActiveVehicleObject(ConnectedClient& client)
+{
+    const auto activeIt = mActiveVehiclesByDriver.find(client.guid);
+    if (activeIt == mActiveVehiclesByDriver.end())
+        return true;
+
+    const std::string cellId = makeCellKey(client.player.cell);
+    if (cellId.empty())
+        return false;
+
+    PlacedObject object = activeIt->second.parkedObject;
+    object.cellId = cellId;
+    object.position = client.player.position;
+    object.position.isTeleporting = false;
+
+    if (worldMpNumInUse(object.mpNum))
+    {
+        Log(Debug::Warning) << "[Server] Cannot restore active vehicle because mpNum is already in use"
+                            << " player=" << client.name
+                            << " mpNum=" << object.mpNum;
+        return false;
+    }
+
+    mWorld.placedObjects[object.cellId].push_back(object);
+    mLua.upsertPlacedObject(object);
+    if (mPlayerDb)
+        mPlayerDb->upsertWorldObject(object);
+
+    PacketObjectPlace packet;
+    packet.object = object;
+    broadcastToCell(object.cellId, packet.encode());
+
+    Log(Debug::Info) << "[Server] Restored parked vehicle"
+                     << " player=" << client.name
+                     << " profile='" << activeIt->second.profileId << "'"
+                     << " mpNum=" << object.mpNum
+                     << " cell=" << object.cellId
+                     << " pos=(" << object.position.pos[0] << ","
+                     << object.position.pos[1] << "," << object.position.pos[2] << ")";
+    mActiveVehiclesByDriver.erase(activeIt);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 bool MPServer::setPlayerVehicleState(
     uint32_t guid, bool active, const std::string& profileId, uint32_t parkedObjectMpNum)
 {
@@ -1395,7 +1473,7 @@ bool MPServer::setPlayerVehicleState(
     if (state.active == active && state.profileId == nextProfileId
         && state.parkedObjectMpNum == nextParkedObjectMpNum)
     {
-        return true;
+        return active || restoreActiveVehicleObject(*client);
     }
 
     state.active = active;
@@ -1415,8 +1493,9 @@ bool MPServer::setPlayerVehicleState(
                      << " profile='" << state.profileId << "'"
                      << " parkedMpNum=" << state.parkedObjectMpNum
                      << " revision=" << state.revision;
+    const bool restored = active || restoreActiveVehicleObject(*client);
     syncLuaPlayerSnapshot();
-    return true;
+    return restored;
 }
 
 // ---------------------------------------------------------------------------
@@ -1954,11 +2033,17 @@ void MPServer::onClientDisconnected(HSteamNetConnection conn, const std::string&
     auto it = mClients.find(conn);
     if (it == mClients.end()) return;
 
-    const auto& client = it->second;
+    auto& client = it->second;
     const std::string actorCell = makeCellKey(client.player.cell);
     const std::unordered_set<std::string> actorInterestCells = actorInterestCellsForClient(client);
     Log(Debug::Info) << "[Server] Client disconnected: "
                      << client.name << " (" << reason << ")";
+
+    if (client.player.vehicle.active
+        || mActiveVehiclesByDriver.find(client.guid) != mActiveVehiclesByDriver.end())
+    {
+        setPlayerVehicleState(client.guid, false, std::string(), 0);
+    }
 
     // Persist last known position before removing the client.
     if (mPlayerDb && client.dbCharacterId != 0 && client.charSelectComplete)
@@ -3826,6 +3911,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::PlayerStatsDynamic: handlePlayerStatsDynamic(client, data, size); break;
         case PacketType::PlayerDeath:      handlePlayerDeath(client, data, size);        break;
         case PacketType::PlayerResurrect:  handlePlayerResurrect(client, data, size);    break;
+        case PacketType::PlayerVehicleRequest: handlePlayerVehicleRequest(client, data, size); break;
         case PacketType::ChatMessage:      handleChatMessage(client, data, size);        break;
         case PacketType::PacketLuaEvent:   handleLuaEvent(client, data, size);           break;
         case PacketType::ObjectPlace:      handleObjectPlace(client, data, size);        break;
@@ -6229,6 +6315,159 @@ void MPServer::handlePlayerResurrect(ConnectedClient& c, const uint8_t* data, si
 
     Log(Debug::Info) << "[Server] Relayed PlayerResurrect for " << c.name;
     syncLuaPlayerSnapshot();
+}
+
+// ---------------------------------------------------------------------------
+void MPServer::handlePlayerVehicleRequest(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    PacketPlayerVehicleRequest request;
+    if (!request.decode(data, size))
+        return;
+
+    auto reject = [&](std::string_view reason) {
+        Log(Debug::Info) << "[Server] Vehicle request rejected"
+                         << " player=" << c.name
+                         << " action=" << static_cast<int>(request.action)
+                         << " parkedMpNum=" << request.parkedObjectMpNum
+                         << " reason=" << reason;
+        sendServerMessage(c.guid, std::string("Vehicle request denied: ") + std::string(reason));
+    };
+
+    if (request.action == VehicleRequestAction::Exit)
+    {
+        if (!c.player.vehicle.active)
+        {
+            reject("not currently driving");
+            return;
+        }
+
+        const VehicleProfile* profile = findVehicleProfile(c.player.vehicle.profileId);
+        const std::string cellId = makeCellKey(c.player.cell);
+        if (!profile || cellId.empty())
+        {
+            reject("invalid active vehicle state");
+            return;
+        }
+
+        Position exitPosition = c.player.position;
+        const float yaw = exitPosition.rot[2];
+        const float localX = profile->driverExitOffset[0];
+        const float localY = profile->driverExitOffset[1];
+        exitPosition.pos[0] += std::cos(yaw) * localX + std::sin(yaw) * localY;
+        exitPosition.pos[1] += -std::sin(yaw) * localX + std::cos(yaw) * localY;
+        exitPosition.pos[2] += profile->driverExitOffset[2];
+        exitPosition.rot[0] = 0.f;
+        exitPosition.rot[1] = 0.f;
+
+        if (!setPlayerVehicleState(c.guid, false, std::string(), 0))
+        {
+            reject("could not restore parked vehicle");
+            return;
+        }
+        if (!teleportPlayer(c.guid, cellId, exitPosition))
+        {
+            Log(Debug::Warning) << "[Server] Vehicle exit restored the parked object but failed to move driver"
+                                << " player=" << c.name;
+            return;
+        }
+
+        Log(Debug::Info) << "[Server] Vehicle exit accepted"
+                         << " player=" << c.name
+                         << " cell=" << cellId
+                         << " exit=(" << exitPosition.pos[0] << ","
+                         << exitPosition.pos[1] << "," << exitPosition.pos[2] << ")";
+        return;
+    }
+
+    if (request.action != VehicleRequestAction::Enter)
+    {
+        reject("unknown request action");
+        return;
+    }
+    if (c.player.vehicle.active)
+    {
+        reject("already driving");
+        return;
+    }
+    if (c.player.isDead || request.parkedObjectMpNum == 0)
+    {
+        reject("invalid driver or parked object");
+        return;
+    }
+
+    const PlacedObject* parkedObject = nullptr;
+    for (const auto& [cellId, objects] : mWorld.placedObjects)
+    {
+        const auto objectIt = std::find_if(objects.begin(), objects.end(),
+            [&](const PlacedObject& object) { return object.mpNum == request.parkedObjectMpNum; });
+        if (objectIt != objects.end())
+        {
+            parkedObject = &*objectIt;
+            break;
+        }
+    }
+    if (!parkedObject)
+    {
+        reject("parked vehicle is unavailable");
+        return;
+    }
+
+    const VehicleProfile* profile = findVehicleProfileByParkedRefId(parkedObject->refId);
+    if (!profile)
+    {
+        reject("object is not a registered vehicle");
+        return;
+    }
+    if (!cellMatches(c.player.cell, parkedObject->cellId))
+    {
+        reject("vehicle is in another cell");
+        return;
+    }
+
+    const float dx = c.player.position.pos[0] - parkedObject->position.pos[0];
+    const float dy = c.player.position.pos[1] - parkedObject->position.pos[1];
+    const float dz = c.player.position.pos[2] - parkedObject->position.pos[2];
+    const float maximumDistance = std::max(profile->entryActivationDistance, 0.f);
+    if (dx * dx + dy * dy + dz * dz > maximumDistance * maximumDistance)
+    {
+        reject("too far from vehicle");
+        return;
+    }
+
+    for (const auto& [connection, other] : mClients)
+    {
+        if (other.guid != c.guid && other.player.vehicle.active
+            && other.player.vehicle.parkedObjectMpNum == request.parkedObjectMpNum)
+        {
+            reject("vehicle is already occupied");
+            return;
+        }
+    }
+
+    const Position parkedPosition = parkedObject->position;
+    const std::string parkedCellId = parkedObject->cellId;
+    PlacedObject suspendedObject;
+    if (!suspendPlacedVehicleObject(request.parkedObjectMpNum, suspendedObject))
+    {
+        reject("could not reserve parked vehicle");
+        return;
+    }
+
+    mActiveVehiclesByDriver[c.guid]
+        = ActiveVehicleRecord{ suspendedObject, std::string(profile->id) };
+    if (!teleportPlayer(c.guid, parkedCellId, parkedPosition)
+        || !setPlayerVehicleState(c.guid, true, std::string(profile->id), suspendedObject.mpNum))
+    {
+        restoreActiveVehicleObject(c);
+        reject("could not enter vehicle");
+        return;
+    }
+
+    Log(Debug::Info) << "[Server] Vehicle entry accepted"
+                     << " player=" << c.name
+                     << " profile='" << profile->id << "'"
+                     << " parkedMpNum=" << suspendedObject.mpNum
+                     << " cell=" << parkedCellId;
 }
 
 // ---------------------------------------------------------------------------

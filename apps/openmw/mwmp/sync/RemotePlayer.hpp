@@ -124,6 +124,10 @@ namespace mwmp
         bool         mInventorySoundReady = false;
         std::unique_ptr<Nameplate> mNameplate;
         std::string mAppliedVehicleProfileId;
+        bool mHasVehicleEntryHoldPosition = false;
+        bool mVehicleEntryBlendActive = false;
+        float mVehicleEntryBlendTime = 0.f;
+        Position mVehicleEntryHoldPosition;
         MWMechanics::VehicleSuspensionState mVehicleSuspensionState;
         std::array<float, 4> mVehicleWheelRollAngles{};
         float mVehicleVisualSteeringAngle = 0.f;

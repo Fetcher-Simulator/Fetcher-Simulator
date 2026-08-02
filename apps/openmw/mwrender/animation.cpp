@@ -1973,6 +1973,13 @@ namespace MWRender
     bool Animation::setEffectTransform(std::string_view effectId, const osg::Vec3f& position,
         const osg::Quat& attitude, float scale)
     {
+        return setEffectTransform(
+            effectId, position, attitude, osg::Vec3f(scale, scale, scale));
+    }
+
+    bool Animation::setEffectTransform(std::string_view effectId, const osg::Vec3f& position,
+        const osg::Quat& attitude, const osg::Vec3f& scale)
+    {
         FindVfxCallbacksVisitor visitor(effectId);
         mInsert->accept(visitor);
 
@@ -1983,7 +1990,7 @@ namespace MWRender
                 continue;
             transform->setPosition(position);
             transform->setAttitude(attitude);
-            transform->setScale(osg::Vec3f(scale, scale, scale));
+            transform->setScale(scale);
             updated = true;
         }
         return updated;
@@ -2390,7 +2397,15 @@ namespace MWRender
 
     void Animation::setVehicleDriverScale(float scale)
     {
-        mVehicleDriverScale = std::max(scale, 0.001f);
+        setVehicleDriverScale(osg::Vec3f(scale, scale, scale));
+    }
+
+    void Animation::setVehicleDriverScale(const osg::Vec3f& scale)
+    {
+        mVehicleDriverScale.set(
+            std::max(std::abs(scale.x()), 0.001f),
+            std::max(std::abs(scale.y()), 0.001f),
+            std::max(std::abs(scale.z()), 0.001f));
         updateVehicleDriverRootController();
     }
 
@@ -2414,8 +2429,7 @@ namespace MWRender
                 // must still pass through RotateController's basis conversion.
                 mVehicleDriverTransform->setAttitude(mVehicleDriverSuspensionAttitude);
                 mVehicleDriverTransform->setPosition(mVehicleDriverSuspensionPosition);
-                mVehicleDriverTransform->setScale(
-                    osg::Vec3f(mVehicleDriverScale, mVehicleDriverScale, mVehicleDriverScale));
+                mVehicleDriverTransform->setScale(mVehicleDriverScale);
             }
             else
             {

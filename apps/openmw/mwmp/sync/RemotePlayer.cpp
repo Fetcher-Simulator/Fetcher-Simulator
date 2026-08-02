@@ -61,6 +61,7 @@
 #include "../Main.hpp"
 #include "ActorSync.hpp"
 #include "PlayerSync.hpp"
+#include "WorldObjectSync.hpp"
 
 namespace mwmp
 {
@@ -81,6 +82,14 @@ namespace mwmp
             while (diff < -PI)
                 diff += TWO_PI;
             return current + diff * alpha;
+        }
+
+        constexpr float sVehicleEntryBlendDuration = 0.16f;
+
+        float smoothStep01(float value)
+        {
+            const float t = std::clamp(value, 0.f, 1.f);
+            return t * t * (3.f - 2.f * t);
         }
 
         float moveTowards(float value, float target, float maxDelta)
@@ -417,6 +426,29 @@ namespace mwmp
             ++mMovementDiagFrameStalls;
 
         updateInterpolation(dt);
+        if (mHasVehicleEntryHoldPosition && mHasInterpolatedVehicleRigidBodyPose
+            && !mVehicleEntryBlendActive)
+        {
+            mVehicleEntryBlendActive = true;
+            mVehicleEntryBlendTime = 0.f;
+            Log(Debug::Info) << "[MP] RemotePlayer " << mName
+                             << ": blending parked hold into live vehicle suspension"
+                             << " compression=(" << mInterpolatedVehicleSuspensionCompression[0] << ","
+                             << mInterpolatedVehicleSuspensionCompression[1] << ","
+                             << mInterpolatedVehicleSuspensionCompression[2] << ","
+                             << mInterpolatedVehicleSuspensionCompression[3] << ")";
+        }
+        if (mVehicleEntryBlendActive)
+        {
+            mVehicleEntryBlendTime += safeDt;
+            if (mVehicleEntryBlendTime >= sVehicleEntryBlendDuration)
+            {
+                mVehicleEntryBlendActive = false;
+                mHasVehicleEntryHoldPosition = false;
+                Log(Debug::Info) << "[MP] RemotePlayer " << mName
+                                 << ": transitioned from parked hold to interpolated vehicle pose";
+            }
+        }
         mJumpLandingTimer = std::max(0.f, mJumpLandingTimer - dt);
         mMovementDiagTimer += safeDt;
         ++mMovementDiagFrames;
@@ -606,26 +638,46 @@ namespace mwmp
                 // The driving client owns the native Bullet body. Reconstruct its
                 // interpolated full orientation from PlayerPosition instead of
                 // running a second terrain solver that can disagree with it.
-                const ESM::Position& position = mNpcPtr.getRefData().getPosition();
-                const osg::Quat bodyOrientation = Misc::Convert::makeOsgQuat(position);
+                float vehicleEntryBlend = 1.f;
+                if (mVehicleEntryBlendActive && mHasVehicleEntryHoldPosition)
+                    vehicleEntryBlend = smoothStep01(
+                        mVehicleEntryBlendTime / sVehicleEntryBlendDuration);
+
+                ESM::Position bodyPosition = mNpcPtr.getRefData().getPosition();
+                bodyPosition.rot[0] = vehicleEntryBlend < 1.f
+                    ? lerpAngle(mVehicleEntryHoldPosition.rot[0], mInterp.crx, vehicleEntryBlend)
+                    : mInterp.crx;
+                bodyPosition.rot[1] = vehicleEntryBlend < 1.f
+                    ? lerpAngle(mVehicleEntryHoldPosition.rot[1], mInterp.cry, vehicleEntryBlend)
+                    : mInterp.cry;
+                bodyPosition.rot[2] = vehicleEntryBlend < 1.f
+                    ? lerpAngle(mVehicleEntryHoldPosition.rot[2], mInterp.crz, vehicleEntryBlend)
+                    : mInterp.crz;
+                const osg::Quat bodyOrientation = Misc::Convert::makeOsgQuat(bodyPosition);
                 const osg::Quat vehicleYaw(
-                    position.rot[2], osg::Vec3f(0.f, 0.f, -1.f));
+                    bodyPosition.rot[2], osg::Vec3f(0.f, 0.f, -1.f));
                 const osg::Quat relativeAttitude
                     = bodyOrientation * vehicleYaw.inverse();
-                float presentationScale = 1.f;
+                osg::Vec3f presentationScale(1.f, 1.f, 1.f);
                 if (const SceneUtil::PositionAttitudeTransform* baseNode
                     = mNpcPtr.getRefData().getBaseNode())
                 {
-                    presentationScale = std::max(std::abs(baseNode->getScale().y()), 0.001f);
+                    const osg::Vec3f nodeScale = baseNode->getScale();
+                    presentationScale.set(
+                        std::max(std::abs(nodeScale.x()), 0.001f),
+                        std::max(std::abs(nodeScale.y()), 0.001f),
+                        std::max(std::abs(nodeScale.z()), 0.001f));
                 }
                 if (MWRender::Animation* animation
                     = world ? world->getAnimation(mNpcPtr) : nullptr)
                 {
-                    const float inverseParentScale = 1.f / presentationScale;
+                    const osg::Vec3f inverseParentScale(
+                        1.f / presentationScale.x(), 1.f / presentationScale.y(),
+                        1.f / presentationScale.z());
                     animation->setEffectTransform(sVehicleVisualEffectId,
                         osg::Vec3f(), relativeAttitude, inverseParentScale);
                     animation->setVehicleDriverScale(
-                        vehicleProfile->seatedDriverVisualScale * inverseParentScale);
+                        inverseParentScale * vehicleProfile->seatedDriverVisualScale);
                     animation->setVehicleDriverSuspensionTransform(
                         osg::Vec3f(), relativeAttitude);
 
@@ -644,6 +696,14 @@ namespace mwmp
                         mVehicleVisualSteeringAngle, mInterpolatedVehicleSteeringAngle,
                         vehicleProfile->handling, safeDt);
 
+                    std::array<float, 4> visualSuspensionCompression
+                        = mInterpolatedVehicleSuspensionCompression;
+                    if (vehicleEntryBlend < 1.f)
+                    {
+                        for (float& compression : visualSuspensionCompression)
+                            compression *= vehicleEntryBlend;
+                    }
+
                     const osg::Vec3f wheelRollAxis(1.f, 0.f, 0.f);
                     const osg::Vec3f steeringAxis(0.f, 0.f, 1.f);
                     for (std::size_t index = 0; index < vehicleProfile->suspension.wheels.size(); ++index)
@@ -660,11 +720,11 @@ namespace mwmp
                             pivot,
                             osg::Vec3f(0.f, 0.f,
                                 wheel.visualContactPlaneOffset
-                                    + mInterpolatedVehicleSuspensionCompression[index]),
+                                    + visualSuspensionCompression[index]),
                             wheelAttitude);
                     }
                     updateVehicleAudio(safeDt, *vehicleProfile, bodyOrientation, linearVelocity,
-                        mInterpolatedVehicleSuspensionCompression);
+                        visualSuspensionCompression);
                 }
                 mVehicleSuspensionState = {};
             }
@@ -1461,6 +1521,9 @@ namespace mwmp
         mMechanicsRegistered = false;
         mAppliedHitFlags = 0;
         mAppliedVehicleProfileId.clear();
+        mHasVehicleEntryHoldPosition = false;
+        mVehicleEntryBlendActive = false;
+        mVehicleEntryBlendTime = 0.f;
         mVehicleSuspensionState = {};
         mVehicleWheelRollAngles.fill(0.f);
         mInterpolatedVehicleSteeringAngle = 0.f;
@@ -1501,7 +1564,18 @@ namespace mwmp
             // Move to current interpolated position.
             // movePhysics=true updates the physics actor as well as the scene node.
             // moveToActive=true permits movement into another currently active cell.
+            float vehicleEntryBlend = 1.f;
+            if (mVehicleEntryBlendActive && mHasVehicleEntryHoldPosition)
+                vehicleEntryBlend = smoothStep01(
+                    mVehicleEntryBlendTime / sVehicleEntryBlendDuration);
+
             osg::Vec3f newPos(mInterp.cx, mInterp.cy, mInterp.cz);
+            if (vehicleEntryBlend < 1.f)
+            {
+                const osg::Vec3f parkedPosition(mVehicleEntryHoldPosition.pos[0],
+                    mVehicleEntryHoldPosition.pos[1], mVehicleEntryHoldPosition.pos[2]);
+                newPos = parkedPosition + (newPos - parkedPosition) * vehicleEntryBlend;
+            }
             // Don't attempt to move until the OSG base node is attached (it arrives
             // one frame after placeObject returns). More critically: movePhysics=true
             // is required because the physics task scheduler runs UpdatePosition every frame
@@ -1547,8 +1621,16 @@ namespace mwmp
             else
                 ++mMovementDiagApplySkips;
 
-            // Apply rotation (Z = yaw is the important one for humanoids)
-            world->rotateObject(mNpcPtr, osg::Vec3f(mInterp.crx, mInterp.cry, mInterp.crz), MWBase::RotationFlag_none);
+            // Vehicle pitch/roll are rendered by the attached chassis effect.
+            // Keep the actor root yaw-only or those axes are applied twice.
+            float actorYaw = mInterp.crz;
+            if (vehicleEntryBlend < 1.f)
+                actorYaw = lerpAngle(
+                    mVehicleEntryHoldPosition.rot[2], mInterp.crz, vehicleEntryBlend);
+            const osg::Vec3f actorRotation = mState.vehicle.active
+                ? osg::Vec3f(0.f, 0.f, actorYaw)
+                : osg::Vec3f(mInterp.crx, mInterp.cry, mInterp.crz);
+            world->rotateObject(mNpcPtr, actorRotation, MWBase::RotationFlag_none);
         }
         catch (const std::exception& e)
         {
@@ -2620,7 +2702,53 @@ namespace mwmp
         if (state.vehicle.revision < mState.vehicle.revision)
             return;
 
+        const bool wasActive = mState.vehicle.active;
+        const std::string previousProfileId = mState.vehicle.profileId;
         mState.vehicle = state.vehicle;
+
+        const bool presentationBoundary = wasActive != mState.vehicle.active
+            || previousProfileId != mState.vehicle.profileId;
+        if (presentationBoundary)
+        {
+            // PlayerVehicleState is reliable, while PlayerPosition is a separate
+            // stream. Discard the pre-entry humanoid interpolation timeline while
+            // preserving the last accepted sender timestamp, so older in-flight
+            // position packets remain rejected by the monotonicity gate.
+            mPositionSnapshots.clear();
+            mPositionClockOffsetUs = 0.0;
+            mHasPositionClockOffset = false;
+            mInterp.hasTarget = false;
+            mInterp.hasSnapped = false;
+            mInterpPlanarSpeed = 0.f;
+            mHasAppliedInterpPos = false;
+            mHasVehicleEntryHoldPosition = false;
+            mVehicleEntryBlendActive = false;
+            mVehicleEntryBlendTime = 0.f;
+
+            // ObjectDelete normally arrives immediately before VehicleState.
+            // WorldObjectSync caches the parked object's exact transform before
+            // removing it. Use that transform as a frozen hand-off pose until the
+            // first rigid-body PlayerPosition sample becomes the interpolation
+            // target, keeping the truck continuously visible without borrowing the
+            // stale humanoid orientation.
+            Position parkedPosition;
+            if (mState.vehicle.active && mState.vehicle.parkedObjectMpNum != 0
+                && Main::isInitialised()
+                && Main::get().getWorldObjectSync().getObjectLastKnownPosition(
+                    mState.vehicle.parkedObjectMpNum, parkedPosition))
+            {
+                mVehicleEntryHoldPosition = parkedPosition;
+                mHasVehicleEntryHoldPosition = true;
+                mState.position = parkedPosition;
+                mInterp.cx = mInterp.tx = parkedPosition.pos[0];
+                mInterp.cy = mInterp.ty = parkedPosition.pos[1];
+                mInterp.cz = mInterp.tz = parkedPosition.pos[2];
+                mInterp.crx = mInterp.trx = parkedPosition.rot[0];
+                mInterp.cry = mInterp.try_ = parkedPosition.rot[1];
+                mInterp.crz = mInterp.trz = parkedPosition.rot[2];
+            }
+        }
+
         mHasInterpolatedVehicleRigidBodyPose = false;
         mInterpolatedVehicleSuspensionCompression.fill(0.f);
         mInterpolatedVehicleSteeringAngle = 0.f;
@@ -2628,7 +2756,21 @@ namespace mwmp
         mVehicleVisualLongitudinalSpeed = 0.f;
         mVehicleWheelRollAngles.fill(0.f);
         if (!mState.vehicle.active)
+        {
+            mHasVehicleEntryHoldPosition = false;
+            mVehicleEntryBlendActive = false;
+            mVehicleEntryBlendTime = 0.f;
             stopVehicleAudio();
+        }
+        else if (presentationBoundary)
+        {
+            Log(Debug::Info) << "[MP] RemotePlayer " << mName
+                             << (mHasVehicleEntryHoldPosition
+                                     ? ": holding parked transform until first vehicle rigid-body pose"
+                                     : ": waiting for first vehicle rigid-body pose without parked transform")
+                             << " profile='" << mState.vehicle.profileId << "'"
+                             << " parkedMpNum=" << mState.vehicle.parkedObjectMpNum;
+        }
         applyVehiclePresentation();
     }
 
@@ -2644,19 +2786,36 @@ namespace mwmp
 
         const VehicleProfile* profile
             = mState.vehicle.active ? findVehicleProfile(mState.vehicle.profileId) : nullptr;
-        float parentScale = 1.f;
+
+        if (profile && !mHasInterpolatedVehicleRigidBodyPose && mHasVehicleEntryHoldPosition)
+        {
+            MWWorld::Ptr moved = world->moveObject(mNpcPtr,
+                osg::Vec3f(mVehicleEntryHoldPosition.pos[0], mVehicleEntryHoldPosition.pos[1],
+                    mVehicleEntryHoldPosition.pos[2]));
+            if (!moved.isEmpty())
+                mNpcPtr = moved;
+        }
+
+        osg::Vec3f parentScale(1.f, 1.f, 1.f);
         if (const SceneUtil::PositionAttitudeTransform* baseNode = mNpcPtr.getRefData().getBaseNode())
-            parentScale = std::max(std::abs(baseNode->getScale().y()), 0.001f);
+        {
+            const osg::Vec3f nodeScale = baseNode->getScale();
+            parentScale.set(
+                std::max(std::abs(nodeScale.x()), 0.001f),
+                std::max(std::abs(nodeScale.y()), 0.001f),
+                std::max(std::abs(nodeScale.z()), 0.001f));
+        }
+        const osg::Vec3f inverseParentScale(
+            1.f / parentScale.x(), 1.f / parentScale.y(), 1.f / parentScale.z());
         if (profile)
         {
-            // Custom actor collision boxes normally inherit race scale. Supply
-            // inverse-scaled profile dimensions so the remote vehicle proxy has
-            // the same fixed world size as the authoritative rigid body.
+            // Actor collision shapes do not inherit NPC race rendering scale.
+            // Supply the profile's fixed world dimensions directly.
             world->setActorCollisionBox(mNpcPtr,
                 osg::Vec3f(profile->collisionHalfExtents[0], profile->collisionHalfExtents[1],
-                    profile->collisionHalfExtents[2]) / parentScale,
+                    profile->collisionHalfExtents[2]),
                 osg::Vec3f(profile->collisionCenterFromVehicleRoot[0], profile->collisionCenterFromVehicleRoot[1],
-                    profile->collisionCenterFromVehicleRoot[2]) / parentScale);
+                    profile->collisionCenterFromVehicleRoot[2]));
         }
         else
             world->restoreActorCollisionShape(mNpcPtr);
@@ -2697,7 +2856,20 @@ namespace mwmp
             return;
         }
 
-        animation->setVehicleDriverScale(profile->seatedDriverVisualScale / parentScale);
+        if (!mHasInterpolatedVehicleRigidBodyPose && !mHasVehicleEntryHoldPosition)
+        {
+            // A parked transform was unavailable and the rigid-body stream has
+            // not selected a pose yet. Avoid constructing from stale humanoid
+            // orientation; this is only a fallback for unusual packet ordering.
+            animation->setVehicleDriverPoseEnabled(false);
+            if (hasVehicleEffect)
+                animation->removeEffect(sVehicleVisualEffectId);
+            mAppliedVehicleProfileId.clear();
+            return;
+        }
+
+        animation->setVehicleDriverScale(
+            inverseParentScale * profile->seatedDriverVisualScale);
         animation->setVehicleDriverPoseEnabled(true);
 
         if (hasVehicleEffect && mAppliedVehicleProfileId == profile->id)
@@ -2706,13 +2878,44 @@ namespace mwmp
         if (hasVehicleEffect)
             animation->removeEffect(sVehicleVisualEffectId);
 
+        ESM::Position initialBodyPosition = mNpcPtr.getRefData().getPosition();
+        const Position& presentationPosition = mHasVehicleEntryHoldPosition
+            ? mVehicleEntryHoldPosition
+            : mState.position;
+        std::memcpy(initialBodyPosition.pos, presentationPosition.pos, sizeof(presentationPosition.pos));
+        std::memcpy(initialBodyPosition.rot, presentationPosition.rot, sizeof(presentationPosition.rot));
+        const osg::Quat initialBodyOrientation
+            = Misc::Convert::makeOsgQuat(initialBodyPosition);
+        const osg::Vec3f initialForward
+            = initialBodyOrientation * osg::Vec3f(0.f, 1.f, 0.f);
+        const float initialYaw = std::atan2(initialForward.x(), initialForward.y());
+        const osg::Quat initialYawRotation(
+            initialYaw, osg::Vec3f(0.f, 0.f, -1.f));
+        const osg::Quat initialRelativeAttitude
+            = initialBodyOrientation * initialYawRotation.inverse();
+
+        // Present the transition in the same yaw-root/relative-chassis split
+        // used by steady-state interpolation, avoiding a one-frame double tilt.
+        world->rotateObject(
+            mNpcPtr, osg::Vec3f(0.f, 0.f, initialYaw), MWBase::RotationFlag_none);
+
         try
         {
             animation->addEffect(
                 profile->attachedModel, sVehicleVisualEffectId, true, {}, {}, false, false, std::nullopt, true);
+            animation->setEffectTransform(
+                sVehicleVisualEffectId, osg::Vec3f(), initialRelativeAttitude, inverseParentScale);
+            animation->setVehicleDriverScale(
+                inverseParentScale * profile->seatedDriverVisualScale);
+            animation->setVehicleDriverSuspensionTransform(
+                osg::Vec3f(), initialRelativeAttitude);
             mAppliedVehicleProfileId.assign(profile->id);
             Log(Debug::Info) << "[MP] RemotePlayer " << mName
-                             << ": applied vehicle visual profile='" << profile->id << "'";
+                             << ": applied vehicle visual profile='" << profile->id << "'"
+                             << " parentScale=(" << parentScale.x() << "," << parentScale.y() << ","
+                             << parentScale.z() << ")"
+                             << " effectScale=(" << inverseParentScale.x() << ","
+                             << inverseParentScale.y() << "," << inverseParentScale.z() << ")";
         }
         catch (const std::exception& e)
         {

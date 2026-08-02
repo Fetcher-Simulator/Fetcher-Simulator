@@ -16,7 +16,9 @@
 #include <components/esm3/journalentry.hpp>
 #include <components/misc/rng.hpp>
 #include <components/misc/mathutil.hpp>
+#include <components/misc/convert.hpp>
 #include <components/openmw-mp/Base/VehicleProfiles.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerVehicleRequest.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerPosition.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerCellChange.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerLoadedCells.hpp>
@@ -2109,6 +2111,49 @@ void PlayerSync::applyServerVehicleState(const BasePlayer& state)
     }
 }
 
+bool PlayerSync::requestVehicleEntry(const MWWorld::Ptr& parkedObject)
+{
+    if (parkedObject.isEmpty() || mLocal.guid == 0 || mLocal.vehicle.active)
+        return false;
+
+    const std::string refId = parkedObject.getCellRef().getRefId().serializeText();
+    const VehicleProfile* profile = findVehicleProfileByParkedRefId(refId);
+    if (!profile)
+        return false;
+
+    const uint32_t mpNum = Main::get().getWorldObjectSync().getMpNumForObject(parkedObject);
+    if (mpNum == 0)
+    {
+        Log(Debug::Warning) << "[Vehicle] Cannot enter parked vehicle without authoritative mpNum"
+                            << " refId=" << refId;
+        return true;
+    }
+
+    PacketPlayerVehicleRequest request;
+    request.action = VehicleRequestAction::Enter;
+    request.parkedObjectMpNum = mpNum;
+    mClient.sendReliable(request.encode());
+    Log(Debug::Info) << "[Vehicle] Requested entry"
+                     << " profile='" << profile->id << "'"
+                     << " parkedMpNum=" << mpNum;
+    return true;
+}
+
+bool PlayerSync::requestVehicleExit()
+{
+    if (mLocal.guid == 0 || !mLocal.vehicle.active)
+        return false;
+
+    PacketPlayerVehicleRequest request;
+    request.action = VehicleRequestAction::Exit;
+    request.parkedObjectMpNum = mLocal.vehicle.parkedObjectMpNum;
+    mClient.sendReliable(request.encode());
+    Log(Debug::Info) << "[Vehicle] Requested exit"
+                     << " profile='" << mLocal.vehicle.profileId << "'"
+                     << " parkedMpNum=" << mLocal.vehicle.parkedObjectMpNum;
+    return true;
+}
+
 void PlayerSync::setVehicleDriverOffset(const osg::Vec3f& offset)
 {
     mVehicleDriverOffset = offset;
@@ -2231,6 +2276,8 @@ void PlayerSync::applyVehicleRuntimeState()
         config.mMaximumSupportSlopeDegrees = profile->suspension.maximumSupportSlopeDegrees;
         config.mInertiaScale = osg::Vec3f(profile->rigidBody.inertiaScale[0],
             profile->rigidBody.inertiaScale[1], profile->rigidBody.inertiaScale[2]);
+        config.mHasInitialOrientation = true;
+        config.mInitialOrientation = Misc::Convert::makeOsgQuat(toEsmPosition(mLocal.position));
         config.mMass = profile->rigidBody.mass;
         config.mFriction = profile->rigidBody.friction;
         config.mRestitution = profile->rigidBody.restitution;
@@ -2296,10 +2343,35 @@ void PlayerSync::applyVehiclePresentation(const MWWorld::Ptr& player)
         return;
     }
 
-    float parentScale = 1.f;
+    osg::Vec3f parentScale(1.f, 1.f, 1.f);
     if (const SceneUtil::PositionAttitudeTransform* baseNode = player.getRefData().getBaseNode())
-        parentScale = std::max(std::abs(baseNode->getScale().y()), 0.001f);
-    animation->setVehicleDriverScale(profile->seatedDriverVisualScale / parentScale);
+    {
+        const osg::Vec3f nodeScale = baseNode->getScale();
+        parentScale.set(
+            std::max(std::abs(nodeScale.x()), 0.001f),
+            std::max(std::abs(nodeScale.y()), 0.001f),
+            std::max(std::abs(nodeScale.z()), 0.001f));
+    }
+    const osg::Vec3f inverseParentScale(
+        1.f / parentScale.x(), 1.f / parentScale.y(), 1.f / parentScale.z());
+
+    const osg::Quat initialBodyOrientation
+        = Misc::Convert::makeOsgQuat(toEsmPosition(mLocal.position));
+    const osg::Vec3f initialForward
+        = initialBodyOrientation * osg::Vec3f(0.f, 1.f, 0.f);
+    const float initialYaw = std::atan2(initialForward.x(), initialForward.y());
+    const osg::Quat initialYawRotation(
+        initialYaw, osg::Vec3f(0.f, 0.f, -1.f));
+    const osg::Quat initialRelativeAttitude
+        = initialBodyOrientation * initialYawRotation.inverse();
+
+    // Keep the actor root yaw-only. The truck effect and seated-driver wrapper
+    // own chassis pitch/roll; leaving it on the actor root applies it twice.
+    world->rotateObject(
+        player, osg::Vec3f(0.f, 0.f, initialYaw), MWBase::RotationFlag_none);
+
+    animation->setVehicleDriverScale(
+        inverseParentScale * profile->seatedDriverVisualScale);
     animation->setVehicleDriverOffset(mVehicleDriverOffset);
     animation->setVehicleFirstPersonCameraOffset(mVehicleFirstPersonCameraOffset);
     animation->setVehicleLegPoseDegrees(mVehicleLegPoseDegrees);
@@ -2315,8 +2387,18 @@ void PlayerSync::applyVehiclePresentation(const MWWorld::Ptr& player)
     {
         animation->addEffect(
             profile->attachedModel, sVehicleVisualEffectId, true, {}, {}, false, false, std::nullopt, true);
+        animation->setEffectTransform(
+            sVehicleVisualEffectId, osg::Vec3f(), initialRelativeAttitude, inverseParentScale);
+        animation->setVehicleDriverScale(
+            inverseParentScale * profile->seatedDriverVisualScale);
+        animation->setVehicleDriverSuspensionTransform(
+            osg::Vec3f(), initialRelativeAttitude);
         mAppliedVehicleProfileId.assign(profile->id);
-        Log(Debug::Info) << "[MP] Applied local vehicle visual profile='" << profile->id << "'";
+        Log(Debug::Info) << "[MP] Applied local vehicle visual profile='" << profile->id << "'"
+                         << " parentScale=(" << parentScale.x() << "," << parentScale.y() << ","
+                         << parentScale.z() << ")"
+                         << " effectScale=(" << inverseParentScale.x() << ","
+                         << inverseParentScale.y() << "," << inverseParentScale.z() << ")";
     }
     catch (const std::exception& e)
     {

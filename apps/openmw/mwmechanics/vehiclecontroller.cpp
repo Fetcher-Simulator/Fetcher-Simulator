@@ -339,9 +339,15 @@ namespace MWMechanics
             state.mProfileId.assign(profile.id);
         }
 
-        float scale = 1.f;
+        osg::Vec3f presentationScale(1.f, 1.f, 1.f);
         if (const SceneUtil::PositionAttitudeTransform* baseNode = actor.getRefData().getBaseNode())
-            scale = std::max(baseNode->getScale().y(), 0.01f);
+        {
+            const osg::Vec3f nodeScale = baseNode->getScale();
+            presentationScale.set(
+                std::max(std::abs(nodeScale.x()), 0.01f),
+                std::max(std::abs(nodeScale.y()), 0.01f),
+                std::max(std::abs(nodeScale.z()), 0.01f));
+        }
 
         const mwmp::VehicleSuspensionProfile& suspension = profile.suspension;
         const ESM::Position& refPosition = actor.getRefData().getPosition();
@@ -349,15 +355,15 @@ namespace MWMechanics
         const osg::Quat yawRotation(refPosition.rot[2], osg::Vec3f(0.f, 0.f, -1.f));
         const osg::Quat probeAttitude(state.mPitch, osg::Vec3f(1.f, 0.f, 0.f),
             state.mRoll, osg::Vec3f(0.f, 1.f, 0.f), 0.f, osg::Vec3f(0.f, 0.f, 1.f));
-        const float wheelRadius = suspension.wheelRadius * scale;
-        const float restLength = suspension.restLength * scale;
-        const float maxCompression = suspension.maxCompression * scale;
-        const float maxDroop = suspension.maxDroop * scale;
-        const float probeAboveMount = suspension.probeAboveMount * scale;
-        const float probeBelowMount = suspension.probeBelowMount * scale;
+        const float wheelRadius = suspension.wheelRadius;
+        const float restLength = suspension.restLength;
+        const float maxCompression = suspension.maxCompression;
+        const float maxDroop = suspension.maxDroop;
+        const float probeAboveMount = suspension.probeAboveMount;
+        const float probeBelowMount = suspension.probeBelowMount;
         const float contactPatchOffset
             = wheelRadius * std::clamp(suspension.tireContactPatchFraction, 0.f, 0.95f);
-        const float supportSlack = suspension.supportProbeSlack * scale;
+        const float supportSlack = suspension.supportProbeSlack;
         const float terrainMinimumLength
             = restLength - maxCompression - supportSlack;
         const osg::Vec3f chassisOffset(0.f, 0.f, state.mVerticalOffset);
@@ -369,7 +375,7 @@ namespace MWMechanics
         for (std::size_t index = 0; index < state.mWheels.size(); ++index)
         {
             const std::array<float, 3>& mount = suspension.wheels[index].mountPosition;
-            const osg::Vec3f localMount(mount[0] * scale, mount[1] * scale, mount[2] * scale);
+            const osg::Vec3f localMount(mount[0], mount[1], mount[2]);
             wheelMounts[index]
                 = rootPosition + chassisOffset + yawRotation * (probeAttitude * localMount);
 
@@ -446,9 +452,9 @@ namespace MWMechanics
         const bool hasLeftSupport = state.mWheels[0].mGrounded || state.mWheels[2].mGrounded;
         const bool hasRightSupport = state.mWheels[1].mGrounded || state.mWheels[3].mGrounded;
         const float effectiveWheelbase = std::max(
-            std::abs(suspension.wheels[0].mountPosition[1] - suspension.wheels[2].mountPosition[1]) * scale, 1.f);
+            std::abs(suspension.wheels[0].mountPosition[1] - suspension.wheels[2].mountPosition[1]), 1.f);
         const float effectiveTrack = std::max(
-            std::abs(suspension.wheels[1].mountPosition[0] - suspension.wheels[0].mountPosition[0]) * scale, 1.f);
+            std::abs(suspension.wheels[1].mountPosition[0] - suspension.wheels[0].mountPosition[0]), 1.f);
         const float maxAirbornePitch
             = osg::DegreesToRadians(suspension.maxAirbornePitchDegrees);
         const float terrainPitchLimit = osg::DegreesToRadians(suspension.maxPitchDegrees);
@@ -664,8 +670,8 @@ namespace MWMechanics
             if ((!state.mAirborne && state.mWheels[index].mGrounded) || terrainPoseAnchor)
             {
                 const std::array<float, 3>& mount = suspension.wheels[index].mountPosition;
-                const osg::Vec3f nominalContact(mount[0] * scale, mount[1] * scale,
-                    (mount[2] - suspension.restLength - suspension.wheelRadius) * scale);
+                const osg::Vec3f nominalContact(mount[0], mount[1],
+                    mount[2] - suspension.restLength - suspension.wheelRadius);
                 supportedHeightTotal += state.mWheels[index].mContactPoint.z() - rootPosition.z()
                     - (targetAttitude * nominalContact).z();
                 ++supportedHeightCount;
@@ -688,7 +694,7 @@ namespace MWMechanics
             state.mPitch = moveTowards(state.mPitch, targetPitch, maxPoseDelta);
             state.mRoll = moveTowards(state.mRoll, targetRoll, maxPoseDelta);
             state.mVerticalOffset = moveTowards(state.mVerticalOffset, targetVerticalOffset,
-                suspension.maxVerticalPoseSpeed * scale * safeDuration);
+                suspension.maxVerticalPoseSpeed * safeDuration);
         }
 
         const osg::Quat chassisAttitude(state.mPitch, osg::Vec3f(1.f, 0.f, 0.f),
@@ -702,7 +708,7 @@ namespace MWMechanics
         {
             const std::array<float, 3>& mount = suspension.wheels[index].mountPosition;
             const osg::Vec3f nominalCenter(
-                mount[0] * scale, mount[1] * scale, (mount[2] - suspension.restLength) * scale);
+                mount[0], mount[1], mount[2] - suspension.restLength);
             const float transformedCenterZ = rootPosition.z() + state.mVerticalOffset
                 + (chassisAttitude * nominalCenter).z();
             targetCompression[index] = state.mWheels[index].mGrounded
@@ -733,7 +739,7 @@ namespace MWMechanics
                         - suspension.dampingRate * wheel.mCompressionVelocity;
                     wheel.mCompressionVelocity += acceleration * step;
                     wheel.mCompressionVelocity = std::clamp(wheel.mCompressionVelocity,
-                        -suspension.maxCompressionSpeed * scale, suspension.maxCompressionSpeed * scale);
+                        -suspension.maxCompressionSpeed, suspension.maxCompressionSpeed);
                     wheel.mCompression += wheel.mCompressionVelocity * step;
                     wheel.mCompression = std::clamp(wheel.mCompression, -maxDroop, maxCompression);
                 }
@@ -750,16 +756,22 @@ namespace MWMechanics
 
         if (MWRender::Animation* animation = world->getAnimation(actor))
         {
-            const osg::Vec3f chassisPosition(0.f, 0.f, state.mVerticalOffset / scale);
+            const osg::Vec3f inverseParentScale(
+                1.f / presentationScale.x(), 1.f / presentationScale.y(),
+                1.f / presentationScale.z());
+            const osg::Vec3f chassisPosition(
+                0.f, 0.f, state.mVerticalOffset * inverseParentScale.z());
             animation->setEffectTransform(sVehicleVisualEffectId,
-                chassisPosition, chassisAttitude);
+                chassisPosition, chassisAttitude, inverseParentScale);
+            animation->setVehicleDriverScale(
+                inverseParentScale * profile.seatedDriverVisualScale);
             animation->setVehicleDriverSuspensionTransform(chassisPosition, chassisAttitude);
 
             for (std::size_t index = 0; index < state.mWheels.size(); ++index)
             {
                 animation->setEffectNodeOffset(sVehicleVisualEffectId,
                     suspension.wheels[index].visualNode,
-                    osg::Vec3f(0.f, 0.f, state.mWheels[index].mVisualOffset / scale));
+                    osg::Vec3f(0.f, 0.f, state.mWheels[index].mVisualOffset));
             }
         }
     }
@@ -803,9 +815,15 @@ namespace MWMechanics
             return;
         }
 
-        float presentationScale = 1.f;
+        osg::Vec3f presentationScale(1.f, 1.f, 1.f);
         if (const SceneUtil::PositionAttitudeTransform* baseNode = player.getRefData().getBaseNode())
-            presentationScale = std::max(std::abs(baseNode->getScale().y()), 0.001f);
+        {
+            const osg::Vec3f nodeScale = baseNode->getScale();
+            presentationScale.set(
+                std::max(std::abs(nodeScale.x()), 0.001f),
+                std::max(std::abs(nodeScale.y()), 0.001f),
+                std::max(std::abs(nodeScale.z()), 0.001f));
+        }
 
         std::array<float, 4> suspensionTravel{};
         const float scaledRestLength = profile->suspension.restLength;
@@ -857,11 +875,11 @@ namespace MWMechanics
 
         const osg::Vec3f forward = bodyState.mOrientation * osg::Vec3f(0.f, 1.f, 0.f);
         const float yaw = std::atan2(forward.x(), forward.y());
-        const float currentYaw = player.getRefData().getPosition().rot[2];
-        const float yawDelta
-            = std::atan2(std::sin(yaw - currentYaw), std::cos(yaw - currentYaw));
-        if (std::abs(yawDelta) > std::numeric_limits<float>::epsilon())
-            world->rotateObject(player, osg::Vec3f(0.f, 0.f, yawDelta), true);
+        // The actor root carries yaw only. Chassis pitch and roll are applied
+        // by the vehicle effect and seated-driver wrapper below. Preserving the
+        // entry pitch/roll here applies them twice and causes the visible snap.
+        world->rotateObject(
+            player, osg::Vec3f(0.f, 0.f, yaw), MWBase::RotationFlag_none);
 
         const osg::Quat yawRotation(yaw, osg::Vec3f(0.f, 0.f, -1.f));
         // The actor scene node already applies vehicle yaw. OSG quaternion
@@ -872,11 +890,13 @@ namespace MWMechanics
         std::array<bool, 4> visualNodeUpdated{};
         if (MWRender::Animation* animation = world->getAnimation(player))
         {
-            const float inverseParentScale = 1.f / presentationScale;
+            const osg::Vec3f inverseParentScale(
+                1.f / presentationScale.x(), 1.f / presentationScale.y(),
+                1.f / presentationScale.z());
             animation->setEffectTransform(
                 sVehicleVisualEffectId, osg::Vec3f(), relativeAttitude, inverseParentScale);
             animation->setVehicleDriverScale(
-                profile->seatedDriverVisualScale * inverseParentScale);
+                inverseParentScale * profile->seatedDriverVisualScale);
             animation->setVehicleDriverSuspensionTransform(osg::Vec3f(), relativeAttitude);
             const osg::Vec3f wheelRollAxis(1.f, 0.f, 0.f);
             const osg::Vec3f steeringAxis(0.f, 0.f, 1.f);

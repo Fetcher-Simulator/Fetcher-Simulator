@@ -107,6 +107,8 @@ namespace mwmp
         std::array<float, 3> collisionHalfExtents;
         std::array<float, 3> collisionCenterFromVehicleRoot;
         std::array<float, 3> firstPersonCameraOffset;
+        float entryActivationDistance;
+        std::array<float, 3> driverExitOffset;
         float seatedDriverVisualScale;
         VehicleRigidBodyProfile rigidBody;
         VehicleAudioProfile audio;
@@ -123,6 +125,8 @@ namespace mwmp
             { 65.1f, 159.6f, 44.8f },
             { 0.f, 0.f, 57.4f },
             { -24.5085f, 23.8851f, 101.7932f },
+            220.f,
+            { -112.f, 0.f, 12.f },
             1.f,
             {
                 1900.f,
@@ -227,6 +231,16 @@ namespace mwmp
         for (const VehicleProfile& profile : sVehicleProfiles)
         {
             if (profile.id == id)
+                return &profile;
+        }
+        return nullptr;
+    }
+
+    constexpr const VehicleProfile* findVehicleProfileByParkedRefId(std::string_view refId) noexcept
+    {
+        for (const VehicleProfile& profile : sVehicleProfiles)
+        {
+            if (profile.parkedRefId == refId)
                 return &profile;
         }
         return nullptr;

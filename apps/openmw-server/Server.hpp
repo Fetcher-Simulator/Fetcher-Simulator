@@ -287,6 +287,7 @@ private:
     void handlePlayerStatsDynamic(ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerDeath      (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerResurrect  (ConnectedClient& c, const uint8_t* data, size_t size);
+    void handlePlayerVehicleRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void announcePlayerDeath(const ConnectedClient& victim, const PacketPlayerDeath& pkt);
     void handleChatMessage      (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleLuaEvent         (ConnectedClient& c, const uint8_t* data, size_t size);
@@ -362,6 +363,8 @@ private:
     AdminHttpServer::Response handleAdminHttpRequest(
         std::string_view action, const std::map<std::string, std::string>& query);
     bool acceptPlacedObject(PlacedObject& object, ConnectedClient* source = nullptr);
+    bool suspendPlacedVehicleObject(uint32_t mpNum, PlacedObject& object);
+    bool restoreActiveVehicleObject(ConnectedClient& client);
     bool reconcileInventoryInstanceIds(ConnectedClient& c, std::vector<Item>& items);
     bool reconcileEquipmentInstanceIds(ConnectedClient& c);
     bool grantInventoryItem(ConnectedClient& c, const std::string& refId, int count);
@@ -526,7 +529,14 @@ private:
     HSteamListenSocket       mListenSocket = k_HSteamListenSocket_Invalid;
     HSteamNetPollGroup       mPollGroup    = k_HSteamNetPollGroup_Invalid;
 
+    struct ActiveVehicleRecord
+    {
+        PlacedObject parkedObject;
+        std::string profileId;
+    };
+
     std::unordered_map<HSteamNetConnection, ConnectedClient> mClients;
+    std::unordered_map<uint32_t, ActiveVehicleRecord> mActiveVehiclesByDriver;
     uint32_t    mNextGuid  = 1;
     uint16_t    mPort;
     std::atomic<bool> mRunning { false };
