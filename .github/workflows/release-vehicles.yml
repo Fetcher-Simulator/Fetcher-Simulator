@@ -1,0 +1,27 @@
+name: Fetcher Simulator Vehicles prerelease
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fetcher-simulator-vehicles-release
+  cancel-in-progress: false
+
+jobs:
+  Windows:
+    if: ${{ github.ref == 'refs/heads/experimental/vehicles-rigidbody' }}
+    uses: ./.github/workflows/windows.yml
+    with:
+      image: "2022"
+      build-type: RelWithDebInfo
+      package: true
+      release: true
+      release-tag: Fetcher-Simulator-Vehicles
+      release-name: Fetcher Simulator Vehicles Public Test
+      release-zip-name: fetcher-simulator.zip
+      release-include-installer: false
+      embed-fetcher-tester-tools: true
+    secrets: inherit
