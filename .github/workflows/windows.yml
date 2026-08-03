@@ -32,6 +32,9 @@ on:
       release-include-installer:
         default: true
         type: boolean
+      embed-fetcher-tester-tools:
+        default: false
+        type: boolean
 
 jobs:
   Windows:
@@ -330,9 +333,54 @@ jobs:
         if [ -d pdb ]; then cp install/CI-ID.txt pdb/CI-ID.txt; fi
         if [ -d SymStore ]; then cp install/CI-ID.txt SymStore/CI-ID.txt; fi
 
+    - name: Check out Fetcher updater package source
+      if: ${{ inputs.package && inputs.embed-fetcher-tester-tools }}
+      uses: actions/checkout@v6
+      with:
+        repository: Skooma-Breath/Fetcher-Updater
+        ref: 22b71d280f4ceda58642e7214e07a1ebd2dd5c7d
+        path: fetcher-updater
+
+    - name: Embed Fetcher tester tools
+      if: ${{ inputs.package && inputs.embed-fetcher-tester-tools }}
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+        $updaterRoot = "${{ github.workspace }}\fetcher-updater"
+        $packageRoot = "${{ github.workspace }}\fetcher-tester-tools-package"
+        & "$updaterRoot\scripts\Build-FetcherTesterTools.ps1" `
+          -OutputDir $packageRoot `
+          -SourceCommit "22b71d280f4ceda58642e7214e07a1ebd2dd5c7d"
+        if (-not $?) {
+          throw "Building Fetcher tester tools failed."
+        }
+
+        & "$updaterRoot\release-root\Install-Fetcher-Tester-Tools.ps1" `
+          -InstallRoot "${{ github.workspace }}\portable-install" `
+          -ToolsArchivePath (Join-Path $packageRoot "fetcher-tester-tools.zip") `
+          -SkipClientModBundle `
+          -SkipUpdater
+        if (-not $?) {
+          throw "Embedding Fetcher tester tools failed."
+        }
+
+        Set-Content `
+          -LiteralPath "${{ github.workspace }}\portable-install\VEHICLE_TEST_README.txt" `
+          -Encoding ASCII `
+          -Value @(
+            "Fetcher Simulator Vehicles Public Test",
+            "",
+            "1. Run openmw-wizard.exe and select your Morrowind installation.",
+            "2. Run Update-Fetcher-Simulator.bat and leave it open until it succeeds.",
+            "3. Launch openmw.exe.",
+            "4. Direct connect to 164.152.19.250 port 25564.",
+            "",
+            "Run Update-Fetcher-Simulator.bat before future test sessions."
+          )
+
     - name: Generate Fetcher client update inventory
-      if: ${{ inputs.package && inputs.release && inputs.release-tag == 'Fetcher-Simulator' }}
-      uses: Skooma-Breath/Fetcher-Updater/.github/actions/build-client-inventory@b3cef2e373fd7b1423bbbd04b0e0bc64fa286ca9
+      if: ${{ inputs.package && inputs.release && (inputs.release-tag == 'Fetcher-Simulator' || inputs.release-tag == 'Fetcher-Simulator-Vehicles') }}
+      uses: Skooma-Breath/Fetcher-Updater/.github/actions/build-client-inventory@22b71d280f4ceda58642e7214e07a1ebd2dd5c7d
       with:
         install-dir: ${{ github.workspace }}\portable-install
         client-commit: ${{ github.sha }}
