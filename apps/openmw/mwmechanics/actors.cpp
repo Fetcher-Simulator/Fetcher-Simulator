@@ -1,7 +1,9 @@
 #include "actors.hpp"
 
 #include <array>
+#include <chrono>
 #include <optional>
+#include <unordered_map>
 
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/esmwriter.hpp>
@@ -64,6 +66,50 @@
 
 namespace
 {
+    struct MissingAnimationControllerWarning
+    {
+        std::chrono::steady_clock::time_point mLast;
+        std::size_t mSuppressed = 0;
+    };
+
+    void logMissingAnimationController(const MWWorld::Ptr& ptr, std::string_view groupName)
+    {
+        static std::unordered_map<std::string, MissingAnimationControllerWarning> warnings;
+
+        const auto now = std::chrono::steady_clock::now();
+        constexpr auto window = std::chrono::seconds(2);
+        constexpr auto retention = std::chrono::minutes(1);
+        constexpr std::size_t maxEntries = 4096;
+
+        if (warnings.size() >= maxEntries)
+        {
+            std::erase_if(warnings, [now](const auto& entry) {
+                return entry.second.mLast.time_since_epoch().count() != 0
+                    && now - entry.second.mLast >= retention;
+            });
+            if (warnings.size() >= maxEntries)
+                warnings.erase(warnings.begin());
+        }
+
+        const auto refNum = ptr.getCellRef().getRefNum();
+        std::string key = ptr.getCellRef().getRefId().serializeText() + '@'
+            + std::to_string(refNum.mContentFile) + ':' + std::to_string(refNum.mIndex) + '|'
+            + std::string(groupName);
+        MissingAnimationControllerWarning& warning = warnings[key];
+        if (warning.mLast.time_since_epoch().count() != 0 && now - warning.mLast < window)
+        {
+            ++warning.mSuppressed;
+            return;
+        }
+
+        Log(Debug::Warning) << "Warning: Actors::playAnimationGroup: Unable to find "
+                            << ptr.getCellRef().getRefId() << " for animation group \"" << groupName << "\""
+                            << (warning.mSuppressed == 0 ? "" : " [rate-limited; suppressed ")
+                            << (warning.mSuppressed == 0 ? std::string() : std::to_string(warning.mSuppressed))
+                            << (warning.mSuppressed == 0 ? "" : " repeats]");
+        warning.mLast = now;
+        warning.mSuppressed = 0;
+    }
 
     bool isConscious(const MWWorld::Ptr& ptr)
     {
@@ -2171,8 +2217,15 @@ namespace MWMechanics
         }
         else
         {
-            Log(Debug::Warning) << "Warning: Actors::playAnimationGroup: Unable to find "
-                                << ptr.getCellRef().getRefId();
+            // Disabled, removed, and inactive-cell actors intentionally have no
+            // CharacterController. Legacy local scripts can still issue PlayGroup
+            // while an actor is in one of these lifecycle states, so this is not
+            // evidence of a mechanics registration failure.
+            if (ptr.getCellRef().getCount() == 0 || !ptr.getRefData().isEnabled()
+                || ptr.getRefData().getBaseNode() == nullptr)
+                return false;
+
+            logMissingAnimationController(ptr, groupName);
             return false;
         }
     }
