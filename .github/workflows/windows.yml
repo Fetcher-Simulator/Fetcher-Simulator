@@ -333,35 +333,28 @@ jobs:
         if [ -d pdb ]; then cp install/CI-ID.txt pdb/CI-ID.txt; fi
         if [ -d SymStore ]; then cp install/CI-ID.txt SymStore/CI-ID.txt; fi
 
-    - name: Check out Fetcher updater package source
-      if: ${{ inputs.package && inputs.embed-fetcher-tester-tools }}
-      uses: actions/checkout@v6
-      with:
-        repository: Skooma-Breath/Fetcher-Updater
-        ref: 22b71d280f4ceda58642e7214e07a1ebd2dd5c7d
-        path: fetcher-updater
-
-    - name: Embed Fetcher tester tools
+    - name: Test Fetcher tester-tools release embedding
       if: ${{ inputs.package && inputs.embed-fetcher-tester-tools }}
       shell: pwsh
       run: |
-        $ErrorActionPreference = "Stop"
-        $updaterRoot = "${{ github.workspace }}\fetcher-updater"
-        $packageRoot = "${{ github.workspace }}\fetcher-tester-tools-package"
-        & "$updaterRoot\scripts\Build-FetcherTesterTools.ps1" `
-          -OutputDir $packageRoot `
-          -SourceCommit "22b71d280f4ceda58642e7214e07a1ebd2dd5c7d"
+        & "${{ github.workspace }}\CI\Test-FetcherTesterToolsEmbedding.ps1"
         if (-not $?) {
-          throw "Building Fetcher tester tools failed."
+          throw "Fetcher tester-tools embedding tests failed."
         }
 
-        & "$updaterRoot\release-root\Install-Fetcher-Tester-Tools.ps1" `
-          -InstallRoot "${{ github.workspace }}\portable-install" `
-          -ToolsArchivePath (Join-Path $packageRoot "fetcher-tester-tools.zip") `
-          -SkipClientModBundle `
-          -SkipUpdater
+    - name: Embed verified Fetcher tester tools release
+      if: ${{ inputs.package && inputs.embed-fetcher-tester-tools }}
+      shell: pwsh
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        $ErrorActionPreference = "Stop"
+        $receiptPath = "${{ github.workspace }}\fetcher-tester-tools-verification.json"
+        & "${{ github.workspace }}\CI\Install-FetcherTesterToolsRelease.ps1" `
+          -InstallDir "${{ github.workspace }}\portable-install" `
+          -VerificationReceiptPath $receiptPath
         if (-not $?) {
-          throw "Embedding Fetcher tester tools failed."
+          throw "Embedding the verified Fetcher tester-tools release failed."
         }
 
         Set-Content `
@@ -370,12 +363,15 @@ jobs:
           -Value @(
             "Fetcher Simulator Vehicles Public Test",
             "",
-            "1. Run openmw-wizard.exe and select your Morrowind installation.",
-            "2. Run Update-Fetcher-Simulator.bat and leave it open until it succeeds.",
-            "3. Launch openmw.exe.",
-            "4. Direct connect to 164.152.19.250 port 25564.",
+            "1. Extract this archive somewhere simple, such as C:\Games\Fetcher-Simulator-Test.",
+            "2. Run openmw-wizard.exe, select the Morrowind installation, and complete the wizard.",
+            "3. Run FetcherLauncher.exe.",
+            "4. Click Check for Updates and follow any Nexus or UMO prompts.",
+            "5. When the launcher says the installation is current, click Play.",
             "",
-            "Run Update-Fetcher-Simulator.bat before future test sessions."
+            "Direct-connect server: 164.152.19.250 port 25564.",
+            "Future updates should be handled by FetcherLauncher.exe.",
+            "Update-Fetcher-Simulator.bat remains available as a fallback."
           )
 
     - name: Generate Fetcher client update inventory
@@ -491,21 +487,6 @@ jobs:
         if-no-files-found: ignore
         retention-days: 14
 
-    - name: Retarget explicit release tag
-      if: ${{ inputs.release && inputs.release-tag != '' }}
-      shell: bash
-      run: |
-        git tag -f "${{ inputs.release-tag }}" "${{ github.sha }}"
-        git push origin "refs/tags/${{ inputs.release-tag }}" --force
-
-    - name: Remove existing explicit prerelease
-      if: ${{ inputs.release && inputs.release-tag != '' }}
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        gh release delete "${{ inputs.release-tag }}" --repo "${{ github.repository }}" --yes || true
-
     - name: Stage OpenMW release assets
       if: ${{ inputs.release }}
       shell: pwsh
@@ -525,6 +506,36 @@ jobs:
         }
         $zip = Join-Path $assets $zipName
         Compress-Archive -Path "$portableRoot\*" -DestinationPath $zip -CompressionLevel Optimal -Force
+
+    - name: Validate Fetcher Vehicles release archive
+      if: ${{ inputs.package && inputs.release && inputs.embed-fetcher-tester-tools && inputs.release-tag == 'Fetcher-Simulator-Vehicles' }}
+      shell: pwsh
+      run: |
+        $zipName = "${{ inputs.release-zip-name }}"
+        if ([string]::IsNullOrWhiteSpace($zipName)) {
+          $zipName = "openmw-windows-${{ inputs.msvc }}-${{ github.sha }}.zip"
+        }
+        & "${{ github.workspace }}\CI\Test-FetcherVehiclesArchive.ps1" `
+          -ArchivePath (Join-Path "${{ github.workspace }}\release-assets" $zipName) `
+          -VerificationReceiptPath "${{ github.workspace }}\fetcher-tester-tools-verification.json"
+        if (-not $?) {
+          throw "Fetcher Vehicles release archive validation failed."
+        }
+
+    - name: Retarget explicit release tag
+      if: ${{ inputs.release && inputs.release-tag != '' }}
+      shell: bash
+      run: |
+        git tag -f "${{ inputs.release-tag }}" "${{ github.sha }}"
+        git push origin "refs/tags/${{ inputs.release-tag }}" --force
+
+    - name: Remove existing explicit prerelease
+      if: ${{ inputs.release && inputs.release-tag != '' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release delete "${{ inputs.release-tag }}" --repo "${{ github.repository }}" --yes || true
 
     - name: Create OpenMW client prerelease
       if: ${{ inputs.release }}
