@@ -187,7 +187,7 @@ namespace mwmp
                 {
                     std::unique_lock lock(mMutex);
                     mCondition.wait_for(
-                        lock, stopToken, std::chrono::duration<float>(HeartbeatIntervalSeconds), [] { return false; });
+                        lock, stopToken, std::chrono::seconds(HeartbeatIntervalSeconds), [] { return false; });
                 }
                 if (stopToken.stop_requested())
                     break;
