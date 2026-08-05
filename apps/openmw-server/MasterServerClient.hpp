@@ -14,7 +14,7 @@ namespace mwmp
     class MasterServerClient
     {
     public:
-        static constexpr float HeartbeatIntervalSeconds = 30.f;
+        static constexpr int HeartbeatIntervalSeconds = 30;
 
         enum class State
         {
