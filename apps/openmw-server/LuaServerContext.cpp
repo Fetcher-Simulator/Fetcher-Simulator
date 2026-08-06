@@ -380,6 +380,9 @@ void LuaServerContext::drainOutbound()
             case OutboundLuaActionType::ResetCellState:
                 mServer->resetCellStateForTesting(action.cellId);
                 break;
+            case OutboundLuaActionType::ResetAllCellStates:
+                mServer->resetAllCellStatesForTesting();
+                break;
             case OutboundLuaActionType::UpsertDynamicRecord:
                 mServer->upsertDynamicRecord(
                     action.recordType, action.recordId, action.recordData, action.recordScope, action.recordPersistent);
@@ -1336,6 +1339,13 @@ void LuaServerContext::queueResetCellState(const std::string& cellId)
     OutboundLuaAction action;
     action.type = OutboundLuaActionType::ResetCellState;
     action.cellId = cellId;
+    mOutboundQueue.push(std::move(action));
+}
+
+void LuaServerContext::queueResetAllCellStates()
+{
+    OutboundLuaAction action;
+    action.type = OutboundLuaActionType::ResetAllCellStates;
     mOutboundQueue.push(std::move(action));
 }
 

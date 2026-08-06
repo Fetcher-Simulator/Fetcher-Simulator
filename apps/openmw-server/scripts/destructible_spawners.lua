@@ -688,6 +688,37 @@ local function removeSpawnersInCell(cellId)
     return removedSpawners, removedPayloads
 end
 
+local function removeAllSpawners()
+    local state = loadState()
+    local removedSpawners = 0
+    local removedPayloads = 0
+    local changed = false
+
+    for name, spawner in pairs(state) do
+        if type(spawner) == "table" then
+            normalizeSpawnerState(spawner)
+            removedPayloads = removedPayloads + purgeSpawnedActors(spawner)
+            if spawner.actorMpNum and spawner.actorMpNum ~= 0 then
+                mp.removeGameObject(spawner.actorMpNum, spawner.cellId or "")
+            end
+            recordStore.remove("creature", spawner.recordId, { force = true })
+            removedSpawners = removedSpawners + 1
+        end
+        state[name] = nil
+        changed = true
+    end
+
+    if changed then
+        saveState(state)
+        mp.log(string.format("[spawner] reset all cells removed spawners=%d payloads=%d",
+            removedSpawners,
+            removedPayloads
+        ))
+    end
+
+    return removedSpawners, removedPayloads
+end
+
 local function resetSpawner(name, count)
     name = normalizeName(name)
     if not name then
@@ -1055,6 +1086,10 @@ end
 
 function M.removeInCell(cellId)
     return removeSpawnersInCell(cellId)
+end
+
+function M.removeAll()
+    return removeAllSpawners()
 end
 
 function M.onActorSpawned(data)

@@ -10469,6 +10469,75 @@ bool MPServer::resetCellStateForTesting(const std::string& cellId)
     return true;
 }
 
+std::size_t MPServer::resetAllCellStatesForTesting()
+{
+    std::unordered_set<std::string> uniqueCellIds;
+    auto rememberCell = [&](const std::string& cellId) {
+        if (!cellId.empty())
+            uniqueCellIds.insert(cellId);
+    };
+
+    for (const auto& [cellId, cellState] : mWorld.actorCells)
+    {
+        (void)cellState;
+        rememberCell(cellId);
+    }
+    for (const auto& [cellId, actors] : mWorld.deadVanillaActorCells)
+    {
+        (void)actors;
+        rememberCell(cellId);
+    }
+    for (const auto& [actorKey, actor] : mWorld.disposedVanillaActors)
+    {
+        (void)actorKey;
+        rememberCell(actor.cellId);
+    }
+    for (const auto& [cellId, objects] : mWorld.placedObjects)
+    {
+        (void)objects;
+        rememberCell(cellId);
+    }
+    for (const auto& [containerKey, container] : mWorld.containers)
+    {
+        (void)containerKey;
+        rememberCell(container.cellId);
+    }
+    for (const auto& [cellId, doors] : mWorld.doorStates)
+    {
+        (void)doors;
+        rememberCell(cellId);
+    }
+
+    if (mPlayerDb)
+    {
+        for (const PlacedObject& object : mPlayerDb->loadWorldObjects())
+            rememberCell(object.cellId);
+        for (const PersistedSpawnedActor& record : mPlayerDb->loadSpawnedActors())
+            rememberCell(record.actor.cellId);
+        for (const BaseActor& actor : mPlayerDb->loadDeadVanillaActors())
+            rememberCell(actor.cellId);
+        for (const BaseActor& actor : mPlayerDb->loadDisposedVanillaActors())
+            rememberCell(actor.cellId);
+        for (const ContainerRecord& container : mPlayerDb->loadContainerRecords())
+            rememberCell(container.cellId);
+        for (const DoorEntry& door : mPlayerDb->loadDoorStates())
+            rememberCell(door.cellId);
+    }
+
+    std::vector<std::string> cellIds(uniqueCellIds.begin(), uniqueCellIds.end());
+    std::sort(cellIds.begin(), cellIds.end());
+
+    std::size_t resetCells = 0;
+    for (const std::string& cellId : cellIds)
+    {
+        if (resetCellStateForTesting(cellId))
+            ++resetCells;
+    }
+
+    Log(Debug::Info) << "[Server] Reset all cell state cells=" << resetCells;
+    return resetCells;
+}
+
 bool MPServer::upsertDynamicRecord(const std::string& recordType, const std::string& recordId, const std::string& data,
     const std::string& recordScope, bool persistent)
 {
@@ -11176,6 +11245,14 @@ AdminHttpServer::Response MPServer::handleAdminHttpRequest(
 
         Log(Debug::Info) << "[Server] Admin HTTP reset cell requested cell=" << cellId;
         response.body = "{\"ok\":true,\"status\":\"reset\",\"cell\":\"" + cellId + "\"}";
+        return response;
+    }
+
+    if (action == "reset_all_cells")
+    {
+        const std::size_t resetCells = resetAllCellStatesForTesting();
+        Log(Debug::Info) << "[Server] Admin HTTP reset all cells requested cells=" << resetCells;
+        response.body = "{\"ok\":true,\"status\":\"reset\",\"cells\":" + std::to_string(resetCells) + "}";
         return response;
     }
 

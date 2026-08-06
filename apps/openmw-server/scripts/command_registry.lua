@@ -261,6 +261,13 @@ local COMMANDS = {
         adminOnly = true,
     },
     {
+        id = "resetallcells",
+        category = "Admin",
+        usage = "/resetallcells",
+        summary = "Clear server test state and destructible spawners from every tracked cell.",
+        adminOnly = true,
+    },
+    {
         id = "mpwhere",
         category = "Admin",
         usage = "/mpwhere <mpNum>",
