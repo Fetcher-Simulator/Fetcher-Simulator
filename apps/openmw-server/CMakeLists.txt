@@ -5,6 +5,7 @@ set(OPENMW_SERVER_SOURCES
     LuaServerContext.cpp
     MasterServerClient.cpp
     PlayerDatabase.cpp
+    DynamicRecordService.cpp
     bindings/PlayerBindings.cpp
     bindings/ServerBindings.cpp
     bindings/TypesStubBindings.cpp

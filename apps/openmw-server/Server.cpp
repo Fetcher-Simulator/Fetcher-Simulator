@@ -1,4 +1,5 @@
 #include "Server.hpp"
+#include "DynamicRecordService.hpp"
 #include "MasterServerClient.hpp"
 #include <extern/bcrypt/bcrypt.h>
 
@@ -63,6 +64,12 @@
 #include <components/openmw-mp/Packets/Object/PacketContainer.hpp>
 #include <components/openmw-mp/Packets/Object/PacketDoorState.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketRecordDynamic.hpp>
+#include <components/openmw-mp/Packets/Records/PacketRecordCreateRequest.hpp>
+#include <components/openmw-mp/Packets/Records/PacketRecordCreateResult.hpp>
+#include <components/openmw-mp/Records/DynamicRecordCodec.hpp>
+#include <components/openmw-mp/Records/DynamicRecordFingerprint.hpp>
+#include <components/openmw-mp/Records/DynamicRecordValidation.hpp>
+#include <components/openmw-mp/Sha256.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAI.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAnimFlags.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAnimPlay.hpp>
@@ -95,6 +102,26 @@ namespace
         std::transform(out.begin(), out.end(), out.begin(),
             [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         return out;
+    }
+
+    std::string normalizeRuntimeAsset(std::string_view value)
+    {
+        std::string out = lowerAscii(value);
+        std::replace(out.begin(), out.end(), '\\', '/');
+        return out;
+    }
+
+    std::optional<mwmp::records::RecordType> parseRuntimeRecordType(std::string_view value)
+    {
+        const std::string normalized = lowerAscii(value);
+        using Type = mwmp::records::RecordType;
+        if (normalized == "potion") return Type::Potion;
+        if (normalized == "enchantment") return Type::Enchantment;
+        if (normalized == "weapon") return Type::Weapon;
+        if (normalized == "armor") return Type::Armor;
+        if (normalized == "clothing") return Type::Clothing;
+        if (normalized == "book") return Type::Book;
+        return std::nullopt;
     }
 
     bool isSha256(std::string_view value)
@@ -1600,6 +1627,43 @@ void MPServer::run()
     mModChecksRequireExactList = mLua.getBool("Config", "MOD_CHECKS_REQUIRE_EXACT_LIST", false);
     mModChecksHelpUrl = mLua.getString("Config", "MOD_CHECKS_HELP_URL", "");
     mRequiredContentFiles = mLua.getConfigContentFileRules("REQUIRED_CONTENT_FILES");
+    mRequiredLuaScripts = mLua.getConfigContentFileRules("REQUIRED_LUA_SCRIPTS");
+    mResolvedContentFingerprint
+        = lowerAscii(mLua.getString("Config", "RESOLVED_CONTENT_FINGERPRINT", ""));
+    mRuntimeRecordContentIds.clear();
+    for (const std::string& id : mLua.getConfigStringList("RUNTIME_RECORD_CONTENT_IDS"))
+        mRuntimeRecordContentIds.insert(lowerAscii(id));
+    mRuntimeRecordAssets.clear();
+    for (const std::string& asset : mLua.getConfigStringList("RUNTIME_RECORD_ASSETS"))
+        mRuntimeRecordAssets.insert(normalizeRuntimeAsset(asset));
+    mRuntimeRecordRequestsPerMinute = static_cast<std::size_t>(
+        std::max(0, mLua.getInt("Config", "RUNTIME_RECORD_REQUESTS_PER_MINUTE", 30)));
+    mRuntimeRecordMaxPerCharacter = static_cast<std::size_t>(
+        std::max(0, mLua.getInt("Config", "RUNTIME_RECORD_MAX_PER_CHARACTER", 2048)));
+    mRuntimeRecordCapabilities.clear();
+    for (const RuntimeRecordCapability& capability
+        : mLua.getConfigRuntimeRecordCapabilities("RUNTIME_RECORD_CAPABILITIES"))
+    {
+        auto& permitted = mRuntimeRecordCapabilities[lowerAscii(capability.packageId)];
+        for (const std::string& typeName : capability.recordTypes)
+        {
+            if (const auto type = parseRuntimeRecordType(typeName))
+                permitted.insert(*type);
+            else
+                Log(Debug::Warning) << "[Server] Ignored unsupported runtime-record capability type='"
+                                    << typeName << "' package='" << capability.packageId << "'";
+        }
+        if (permitted.empty())
+            mRuntimeRecordCapabilities.erase(lowerAscii(capability.packageId));
+    }
+    Log(Debug::Info) << "[Server] Runtime record client capabilities: packages="
+                     << mRuntimeRecordCapabilities.size() << " (default deny)";
+    if (!mRuntimeRecordCapabilities.empty() && mResolvedContentFingerprint.empty())
+    {
+        Log(Debug::Warning) << "[Server] Disabling client runtime-record capabilities: "
+                               "Config.RESOLVED_CONTENT_FINGERPRINT is required";
+        mRuntimeRecordCapabilities.clear();
+    }
 
     const std::string journalSharing = lowerAscii(mLua.getString("Config", "JOURNAL_SHARING", "player"));
     if (journalSharing == "server")
@@ -1621,6 +1685,7 @@ void MPServer::run()
     Log(Debug::Info) << "[Server] Content-file checks: "
                      << (mModChecksEnabled ? "enabled" : "disabled")
                      << " required=" << mRequiredContentFiles.size()
+                     << " luaScripts=" << mRequiredLuaScripts.size()
                      << " strictOrder=" << (mModChecksStrictOrder ? "true" : "false")
                      << " exactList=" << (mModChecksRequireExactList ? "true" : "false");
     if (mModChecksEnabled && mRequiredContentFiles.empty())
@@ -3770,6 +3835,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::PlayerAttack:     handlePlayerAttack(client, data, size);       break;
         case PacketType::PlayerCast:       handlePlayerCast(client, data, size);         break;
         case PacketType::PlayerInventory:  handlePlayerInventory(client, data, size);    break;
+        case PacketType::RecordCreateRequest: handleRecordCreateRequest(client, data, size); break;
         case PacketType::PlayerJournal:    handlePlayerJournal(client, data, size);      break;
         case PacketType::PlayerStatsDynamic: handlePlayerStatsDynamic(client, data, size); break;
         case PacketType::PlayerDeath:      handlePlayerDeath(client, data, size);        break;
@@ -3870,8 +3936,45 @@ void MPServer::loadPersistentWorldState()
 
     dynamicRecordCatalog = mPlayerDb->loadDynamicRecordCatalog();
 
-    for (const auto& record : mPlayerDb->loadDynamicRecords())
+    for (auto record : mPlayerDb->loadDynamicRecords())
     {
+        DynamicRecordCatalogEntry migratedCatalog;
+        if (record.data.size() >= 4 && std::string_view(record.data).starts_with("OMDR"))
+        {
+            // Canonical typed payloads are transactionally rewritten when the
+            // stored schema/fingerprint predates the current validator. An
+            // unsupported future payload is fatal: serving it would let
+            // clients interpret persistence under different semantics.
+            records::DynamicRecordDefinition definition = records::decodeDefinition(record.data);
+            const auto errors = records::validate(definition);
+            if (!errors.empty())
+                throw std::runtime_error("Invalid persisted typed dynamic record " + record.recordId
+                    + ": " + errors.front().code + " at " + errors.front().path);
+            definition = records::canonicalize(std::move(definition));
+            record.data = records::encodeDefinition(definition);
+            record.schemaVersion = records::CurrentSchemaVersion;
+            mPlayerDb->upsertDynamicRecord(record);
+
+            migratedCatalog.definitionFingerprint = records::fingerprint(definition);
+            migratedCatalog.schemaVersion = records::CurrentSchemaVersion;
+            migratedCatalog.validationVersion = 1;
+
+            std::vector<std::string> dependencies;
+            std::visit([&](const auto& value) {
+                using Record = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<Record, records::Weapon>
+                    || std::is_same_v<Record, records::Armor>
+                    || std::is_same_v<Record, records::Clothing>
+                    || std::is_same_v<Record, records::Book>)
+                {
+                    if (value.enchantment.kind == records::ReferenceKind::ContentId
+                        && !value.enchantment.value.empty())
+                        dependencies.push_back(value.enchantment.value);
+                }
+            }, definition.data);
+            mPlayerDb->replaceDynamicRecordDependencies(record.recordType, record.recordId, dependencies);
+        }
+
         WorldState::StoredDynamicRecord stored;
         stored.recordType = record.recordType;
         stored.recordId = record.recordId;
@@ -3891,6 +3994,9 @@ void MPServer::loadPersistentWorldState()
         catalogEntry.persistent = true;
         catalogEntry.createdAt = record.createdAt;
         catalogEntry.updatedAt = record.updatedAt;
+        catalogEntry.definitionFingerprint = migratedCatalog.definitionFingerprint;
+        catalogEntry.schemaVersion = migratedCatalog.schemaVersion;
+        catalogEntry.validationVersion = migratedCatalog.validationVersion;
         mPlayerDb->upsertDynamicRecordCatalog(catalogEntry);
     }
 
@@ -4449,9 +4555,12 @@ MPServer::DynamicReferenceCleanupStats MPServer::cleanupDynamicReferences(
 
         ++stats.characters;
         client.player.inventoryChanges.action = BasePlayer::InventoryChanges::Action::Set;
+        ++client.inventoryRevision;
+        client.player.inventoryChanges.revision = client.inventoryRevision;
         if (mPlayerDb && client.dbCharacterId != 0)
         {
-            mPlayerDb->saveCharacterInventory(client.dbCharacterId, client.player.inventoryChanges.items, false);
+            mPlayerDb->saveCharacterInventory(client.dbCharacterId, client.player.inventoryChanges.items, false,
+                client.inventoryRevision);
             std::vector<EquipmentItem> equipment(client.player.equipment.begin(), client.player.equipment.end());
             mPlayerDb->saveCharacterEquipment(client.dbCharacterId, equipment, false);
         }
@@ -4495,7 +4604,8 @@ MPServer::DynamicReferenceCleanupStats MPServer::cleanupDynamicReferences(
             stats.inventoryItems += removedInventory;
             stats.equipmentItems += removedEquipment;
             ++stats.characters;
-            mPlayerDb->saveCharacterInventory(characterId, inventory, false);
+            const uint64_t revision = mPlayerDb->loadInventoryRevision(characterId) + 1;
+            mPlayerDb->saveCharacterInventory(characterId, inventory, false, revision);
             mPlayerDb->saveCharacterEquipment(characterId, equipment, false);
         }
     }
@@ -4540,6 +4650,23 @@ void MPServer::sendGameSettingsToClient(HSteamNetConnection conn, const std::str
     sendTo(conn, pkt.encode());
 }
 
+void MPServer::populateRuntimeManifest(PacketHandshakeResponse& response) const
+{
+    response.resolvedContentFingerprint = mResolvedContentFingerprint;
+    std::unordered_set<uint8_t> seen;
+    for (const auto& [packageId, types] : mRuntimeRecordCapabilities)
+    {
+        static_cast<void>(packageId);
+        for (records::RecordType type : types)
+        {
+            const uint8_t value = static_cast<uint8_t>(type);
+            if (seen.insert(value).second)
+                response.supportedRuntimeRecordTypes.push_back(value);
+        }
+    }
+    std::sort(response.supportedRuntimeRecordTypes.begin(), response.supportedRuntimeRecordTypes.end());
+}
+
 // ---------------------------------------------------------------------------
 void MPServer::handleHandshake(ConnectedClient& c, const uint8_t* data, size_t size)
 {
@@ -4576,6 +4703,43 @@ void MPServer::handleHandshake(ConnectedClient& c, const uint8_t* data, size_t s
     }
     c.actorSyncProtocolVersion = ActorSyncProtocolVersionV2;
 
+    if (hs.contentManifestVersion != ContentManifestVersion)
+    {
+        PacketHandshakeResponse rsp;
+        rsp.rejectReason = "Content manifest version mismatch: server="
+            + std::to_string(ContentManifestVersion) + " client=" + std::to_string(hs.contentManifestVersion);
+        sendTo(c.conn, rsp.encode());
+        mInterface->CloseConnection(c.conn, 0, "Content manifest version mismatch", true);
+        return;
+    }
+    if (hs.contentApiVersion != ContentApiVersion)
+    {
+        PacketHandshakeResponse rsp;
+        rsp.rejectReason = "Content API version mismatch: server=" + std::to_string(ContentApiVersion)
+            + " client=" + std::to_string(hs.contentApiVersion);
+        sendTo(c.conn, rsp.encode());
+        mInterface->CloseConnection(c.conn, 0, "Content API version mismatch", true);
+        return;
+    }
+    if (hs.dynamicRecordWireVersion != records::CurrentWireVersion)
+    {
+        PacketHandshakeResponse rsp;
+        rsp.rejectReason = "Runtime record schema mismatch: server="
+            + std::to_string(records::CurrentWireVersion) + " client="
+            + std::to_string(hs.dynamicRecordWireVersion);
+        sendTo(c.conn, rsp.encode());
+        mInterface->CloseConnection(c.conn, 0, "Runtime record schema mismatch", true);
+        return;
+    }
+    if (hs.capabilityManifestVersion != RuntimeRecordCapabilityManifestVersion)
+    {
+        PacketHandshakeResponse rsp;
+        rsp.rejectReason = "Runtime capability manifest version mismatch";
+        sendTo(c.conn, rsp.encode());
+        mInterface->CloseConnection(c.conn, 0, "Capability manifest version mismatch", true);
+        return;
+    }
+
     // Validate content before any password/key lookup so incompatible clients
     // cannot create accounts or spend authentication work.
     if (mModChecksEnabled)
@@ -4595,6 +4759,35 @@ void MPServer::handleHandshake(ConnectedClient& c, const uint8_t* data, size_t s
             mInterface->CloseConnection(c.conn, 0, "Content-file mismatch", true);
             return;
         }
+
+        if (!mRequiredLuaScripts.empty())
+        {
+            auto luaMismatches = validateContentFiles(hs.luaScripts, mRequiredLuaScripts, true, true);
+            if (!luaMismatches.empty())
+            {
+                PacketHandshakeResponse rsp;
+                rsp.pluginMismatches = std::move(luaMismatches);
+                rsp.rejectReason = "Lua content mismatch: "
+                    + contentFileRejectReason(rsp.pluginMismatches, mModChecksHelpUrl);
+                Log(Debug::Warning) << "[Handshake] Rejecting " << hs.playerName << ": " << rsp.rejectReason;
+                sendTo(c.conn, rsp.encode());
+                mInterface->CloseConnection(c.conn, 0, "Lua content mismatch", true);
+                return;
+            }
+        }
+    }
+
+    if (!mResolvedContentFingerprint.empty()
+        && lowerAscii(hs.resolvedContentFingerprint) != mResolvedContentFingerprint)
+    {
+        PacketHandshakeResponse rsp;
+        rsp.rejectReason = hs.resolvedContentFingerprint.empty()
+            ? "Resolved content fingerprint is missing"
+            : "Resolved content fingerprint mismatch";
+        Log(Debug::Warning) << "[Handshake] Rejecting " << hs.playerName << ": " << rsp.rejectReason;
+        sendTo(c.conn, rsp.encode());
+        mInterface->CloseConnection(c.conn, 0, "Resolved content mismatch", true);
+        return;
     }
 
     // -- Ed25519 keypair path --------------------------------------------------
@@ -4742,6 +4935,7 @@ void MPServer::handleHandshake(ConnectedClient& c, const uint8_t* data, size_t s
     rsp.assignedGuid  = c.guid;
     rsp.serverVersion = MultiplayerBuildVersion;
     rsp.actorSyncProtocolVersion = c.actorSyncProtocolVersion;
+    populateRuntimeManifest(rsp);
     sendTo(c.conn, rsp.encode());
 
     Log(Debug::Info) << "[Server] Handshake accepted: " << c.name
@@ -5053,6 +5247,8 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
                                      << " birthSign=" << rec->birthSign;
                 }
             }
+            c.inventoryRevision = mPlayerDb->loadInventoryRevision(c.dbCharacterId);
+            c.player.inventoryChanges.revision = c.inventoryRevision;
             mPlayerDb->touch(c.dbCharacterId);
             mLua.setPlayerMarks(c.guid, mPlayerDb->loadCharacterMarks(c.dbCharacterId));
         }
@@ -5566,6 +5762,17 @@ void MPServer::handlePlayerEquipment(ConnectedClient& c, const uint8_t* data, si
     pkt.setPlayer(&incoming);
     if (!pkt.decode(data, size)) return;
 
+    for (const EquipmentItem& entry : incoming.equipment)
+    {
+        if (!entry.item.refId.empty() && !isAuthoritativeRecordReference(entry.item.refId))
+        {
+            Log(Debug::Warning) << "[Server] Rejected PlayerEquipment unknown generated record from=" << c.name
+                                << " refId=" << entry.item.refId;
+            sendAuthoritativeEquipment(c, true, true);
+            return;
+        }
+    }
+
     const uint64_t nowMs = currentServerTimeMs();
     if (c.hasRestoredEquipmentSnapshot
         && !c.acceptedPlayerEquipmentThisSession
@@ -5841,6 +6048,26 @@ void MPServer::handlePlayerInventory(ConnectedClient& c, const uint8_t* data, si
     pkt.setPlayer(&incoming);
     if (!pkt.decode(data, size)) return;
 
+    if (incoming.inventoryChanges.revision != c.inventoryRevision)
+    {
+        Log(Debug::Info) << "[Server] Rejected stale PlayerInventory from=" << c.name
+                         << " expectedRevision=" << c.inventoryRevision
+                         << " receivedRevision=" << incoming.inventoryChanges.revision;
+        sendAuthoritativeInventory(c);
+        return;
+    }
+
+    for (const Item& item : incoming.inventoryChanges.items)
+    {
+        if (!item.refId.empty() && !isAuthoritativeRecordReference(item.refId))
+        {
+            Log(Debug::Warning) << "[Server] Rejected PlayerInventory unknown generated record from=" << c.name
+                                << " refId=" << item.refId;
+            sendAuthoritativeInventory(c);
+            return;
+        }
+    }
+
     using InventoryAction = BasePlayer::InventoryChanges::Action;
     auto sameStack = [](const Item& left, const Item& right) {
         return left.refId == right.refId
@@ -5912,9 +6139,11 @@ void MPServer::handlePlayerInventory(ConnectedClient& c, const uint8_t* data, si
         }
     }
 
-    const bool correctedInstanceIds = reconcileInventoryInstanceIds(c, nextItems);
+    reconcileInventoryInstanceIds(c, nextItems);
     c.player.inventoryChanges.action = InventoryAction::Set;
     c.player.inventoryChanges.items = std::move(nextItems);
+    ++c.inventoryRevision;
+    c.player.inventoryChanges.revision = c.inventoryRevision;
 
     c.acceptedPlayerInventoryThisSession = true;
     c.restoredInventorySnapshot = c.player.inventoryChanges.items;
@@ -5925,7 +6154,8 @@ void MPServer::handlePlayerInventory(ConnectedClient& c, const uint8_t* data, si
     {
         try
         {
-            mPlayerDb->saveCharacterInventory(c.dbCharacterId, c.player.inventoryChanges.items);
+            mPlayerDb->saveCharacterInventory(
+                c.dbCharacterId, c.player.inventoryChanges.items, true, c.inventoryRevision);
         }
         catch (const std::exception& e)
         {
@@ -5943,9 +6173,190 @@ void MPServer::handlePlayerInventory(ConnectedClient& c, const uint8_t* data, si
     // stack for routine mutations such as consuming one arrow. Only return a
     // snapshot when the server actually assigned or corrected hidden identity
     // metadata; peers still receive the accepted authoritative state.
-    if (correctedInstanceIds)
-        sendTo(c.conn, encoded);
+    // The self reply acknowledges the new optimistic concurrency revision.
+    // Client-side application already coalesces authoritative snapshots.
+    sendTo(c.conn, encoded);
     broadcastToAll(encoded, c.conn);
+}
+
+// ---------------------------------------------------------------------------
+void MPServer::handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    PacketRecordCreateRequest packet;
+    if (!packet.decode(data, size))
+    {
+        PacketRecordCreateResult errorPacket;
+        errorPacket.result = DynamicRecordService::makeError(
+            {}, records::CreateError::InvalidRequest, c.inventoryRevision);
+        sendTo(c.conn, errorPacket.encode());
+        return;
+    }
+
+    if (!mPlayerDb || c.dbAccountId <= 0 || c.dbCharacterId <= 0)
+    {
+        PacketRecordCreateResult errorPacket;
+        errorPacket.result = DynamicRecordService::makeError(packet.request.requestId,
+            records::CreateError::ServerError, c.inventoryRevision);
+        sendTo(c.conn, errorPacket.encode());
+        return;
+    }
+
+    // Hash the decoded application payload with a neutral packet sequence. A
+    // transport retry may legitimately use another packet sequence while still
+    // representing the same idempotent request.
+    const std::vector<uint8_t> canonicalRequest = packet.encode();
+    const std::string requestHash = crypto::sha256hex(std::string_view(
+        reinterpret_cast<const char*>(canonicalRequest.data()), canonicalRequest.size()));
+
+    DynamicRecordService::Context context;
+    context.accountId = c.dbAccountId;
+    context.characterId = c.dbCharacterId;
+    context.inventoryRevision = c.inventoryRevision;
+    context.creationSource = "client_lua";
+    bool isReplay = false;
+    try
+    {
+        isReplay = mPlayerDb->loadCraftRequest(
+            c.dbAccountId, c.dbCharacterId, packet.request.requestId).has_value();
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[Server] RecordCreate journal lookup failed: " << e.what();
+        PacketRecordCreateResult errorPacket;
+        errorPacket.result = DynamicRecordService::makeError(packet.request.requestId,
+            records::CreateError::ServerError, c.inventoryRevision);
+        sendTo(c.conn, errorPacket.encode());
+        return;
+    }
+    if (!isReplay)
+    {
+        const uint64_t now = currentServerTimeMs();
+        if (c.runtimeRecordRateWindowStartMs == 0
+            || now - c.runtimeRecordRateWindowStartMs >= 60000)
+        {
+            c.runtimeRecordRateWindowStartMs = now;
+            c.runtimeRecordRequestsInWindow = 0;
+        }
+        if (mRuntimeRecordRequestsPerMinute == 0
+            || c.runtimeRecordRequestsInWindow >= mRuntimeRecordRequestsPerMinute)
+            context.admissionError = records::CreateError::RateLimited;
+        else
+            ++c.runtimeRecordRequestsInWindow;
+    }
+    const std::string packageId = lowerAscii(packet.request.scriptPackageId);
+    auto capability = mRuntimeRecordCapabilities.find(packageId);
+    if (capability != mRuntimeRecordCapabilities.end())
+    {
+        context.allowCustomDefinitions = true;
+        context.permittedTypes = capability->second;
+        context.creationSource += ":" + packageId;
+    }
+
+    try
+    {
+        const std::vector<DynamicRecordCatalogEntry> catalog = mPlayerDb->loadDynamicRecordCatalog();
+        const std::size_t owned = static_cast<std::size_t>(std::count_if(catalog.begin(), catalog.end(),
+            [&](const DynamicRecordCatalogEntry& entry) {
+                return entry.creatorCharacterId == c.dbCharacterId;
+            }));
+        context.maximumNewRecords = owned >= mRuntimeRecordMaxPerCharacter
+            ? 0
+            : mRuntimeRecordMaxPerCharacter - owned;
+        context.isAssetAllowed = [&](std::string_view asset) {
+            return mRuntimeRecordAssets.contains(normalizeRuntimeAsset(asset));
+        };
+        context.isContentIdAllowed = [&](std::string_view id) {
+            const std::string normalized = lowerAscii(id);
+            if (mRuntimeRecordContentIds.contains(normalized))
+                return true;
+            if (!normalized.starts_with(lowerAscii(mGeneratedRecordIdPrefix) + "_"))
+                return false;
+            return std::any_of(catalog.begin(), catalog.end(), [&](const DynamicRecordCatalogEntry& entry) {
+                return lowerAscii(entry.recordId) == normalized;
+            });
+        };
+
+        DynamicRecordService service(*mPlayerDb);
+        auto outcome = service.execute(packet.request, requestHash, context,
+            [&](records::RecordType type, std::string_view fingerprint)
+                -> std::optional<DynamicRecordService::CatalogRecord> {
+                const std::string typeName(records::getRecordTypeName(type));
+                for (const DynamicRecordCatalogEntry& catalogEntry : catalog)
+                {
+                    if (catalogEntry.recordType != typeName
+                        || catalogEntry.definitionFingerprint != fingerprint)
+                        continue;
+                    auto stored = mWorld.dynamicRecords.find(
+                        makeDynamicRecordKey(typeName, catalogEntry.recordId));
+                    if (stored == mWorld.dynamicRecords.end())
+                        continue;
+                    return DynamicRecordService::CatalogRecord{ typeName, catalogEntry.recordId,
+                        catalogEntry.definitionFingerprint, stored->second.data };
+                }
+                return std::nullopt;
+            },
+            [&](records::RecordType type) {
+                return mLua.generateDynamicRecordId(std::string(records::getRecordTypeName(type)));
+            },
+            [&]() { return mWorld.nextDynamicRecordSequence++; });
+
+        if (outcome.result.accepted && !outcome.replayed)
+        {
+            for (const DynamicRecordService::CommittedRecord& created : outcome.newRecords)
+            {
+                WorldState::StoredDynamicRecord stored;
+                stored.recordType = created.recordType;
+                stored.recordId = created.recordId;
+                stored.data = created.definition;
+                stored.recordScope = "generated";
+                stored.persistent = true;
+                stored.sequence = outcome.result.commitSequence;
+                mWorld.dynamicRecords[makeDynamicRecordKey(stored.recordType, stored.recordId)] = std::move(stored);
+
+                PacketRecordDynamic definitionPacket;
+                definitionPacket.action = DynamicRecordAction::Upsert;
+                definitionPacket.recordType = created.recordType;
+                definitionPacket.entries.push_back({ created.recordId, created.definition });
+                broadcastToAll(definitionPacket.encode());
+            }
+        }
+
+        // Re-send every mapping to the requester before publishing the result.
+        // This makes replay and deduplication safe even if the local store missed
+        // an earlier broadcast; the client still enforces a local visibility barrier.
+        if (outcome.result.accepted)
+        {
+            for (const records::CreatedRecord& created : outcome.result.records)
+            {
+                const records::DynamicRecordDefinition definition = records::decodeDefinition(created.definition);
+                PacketRecordDynamic definitionPacket;
+                definitionPacket.action = DynamicRecordAction::Upsert;
+                definitionPacket.recordType
+                    = std::string(records::getRecordTypeName(records::getRecordType(definition)));
+                definitionPacket.entries.push_back({ created.recordId, created.definition });
+                sendTo(c.conn, definitionPacket.encode());
+            }
+        }
+
+        sendTo(c.conn, outcome.encodedResult);
+        Log(outcome.result.accepted ? Debug::Info : Debug::Warning)
+            << "[Server] RecordCreate " << (outcome.result.accepted ? "accepted" : "rejected")
+            << " player=" << c.slotName
+            << " requestId=" << outcome.result.requestId
+            << " operation=" << static_cast<int>(packet.request.operation)
+            << " records=" << outcome.result.records.size()
+            << " replayed=" << (outcome.replayed ? "true" : "false")
+            << " error=" << records::getCreateErrorCode(outcome.result.error);
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[Server] RecordCreate internal error player=" << c.slotName
+                          << " requestId=" << packet.request.requestId << " error=" << e.what();
+        PacketRecordCreateResult errorPacket;
+        errorPacket.result = DynamicRecordService::makeError(packet.request.requestId,
+            records::CreateError::ServerError, c.inventoryRevision);
+        sendTo(c.conn, errorPacket.encode());
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -6269,6 +6680,16 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
 
     for (auto& actor : incoming.actors)
     {
+        const bool hasUnknownGeneratedEquipment
+            = std::any_of(actor.equipment.begin(), actor.equipment.end(), [&](const EquipmentItem& entry) {
+                  return !entry.item.refId.empty() && !isAuthoritativeRecordReference(entry.item.refId);
+              });
+        if (hasUnknownGeneratedEquipment)
+        {
+            Log(Debug::Warning) << "[Server] Rejected ActorList unknown generated equipment from=" << c.name
+                                << " actor=" << actor.refId;
+            continue;
+        }
         actor.cellId = incoming.cellId;
         if (normalizeActorIdentity(actor))
             ++ambiguousIdentityNormalized;
@@ -8861,6 +9282,16 @@ void MPServer::handleActorEquipment(ConnectedClient& c, const uint8_t* data, siz
 
     for (auto& actor : incoming.actors)
     {
+        const bool hasUnknownGeneratedEquipment
+            = std::any_of(actor.equipment.begin(), actor.equipment.end(), [&](const EquipmentItem& entry) {
+                  return !entry.item.refId.empty() && !isAuthoritativeRecordReference(entry.item.refId);
+              });
+        if (hasUnknownGeneratedEquipment)
+        {
+            Log(Debug::Warning) << "[Server] Rejected ActorEquipment unknown generated record from=" << c.name
+                                << " actor=" << actor.refId;
+            continue;
+        }
         actor.cellId = incoming.cellId;
         normalizeActorIdentity(actor);
         if (rejectStaleAliveVanillaActor(actor, incoming.cellId, c, "ActorEquipment"))
@@ -9629,6 +10060,16 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
     PacketContainer pkt;
     if (!pkt.decode(data, size)) return;
 
+    for (const ContainerItem& item : pkt.container.items)
+    {
+        if (!item.refId.empty() && !isAuthoritativeRecordReference(item.refId))
+        {
+            Log(Debug::Warning) << "[Server] Rejected Container unknown generated record from=" << c.name
+                                << " refId=" << item.refId;
+            return;
+        }
+    }
+
     const auto action = static_cast<ContainerAction>(pkt.mAction);
     if (action != ContainerAction::Set
         && action != ContainerAction::Add
@@ -9893,6 +10334,17 @@ bool MPServer::grantPlayerInventoryItem(uint32_t guid, const std::string& refId,
     return client ? grantInventoryItem(*client, refId, count) : false;
 }
 
+bool MPServer::isAuthoritativeRecordReference(std::string_view refId) const
+{
+    const std::string generatedPrefix = mGeneratedRecordIdPrefix + "_";
+    if (!refId.starts_with(generatedPrefix))
+        return true;
+
+    return std::any_of(mWorld.dynamicRecords.begin(), mWorld.dynamicRecords.end(), [&](const auto& entry) {
+        return entry.second.recordId == refId;
+    });
+}
+
 bool MPServer::ensurePlayerInventoryItem(uint32_t guid, const std::string& refId)
 {
     ConnectedClient* client = findClientByGuid(guid);
@@ -9915,6 +10367,8 @@ bool MPServer::ensurePlayerInventoryItem(uint32_t guid, const std::string& refId
 
 bool MPServer::placeObject(const std::string& refId, int count, const std::string& cellId, const Position& position)
 {
+    if (!isAuthoritativeRecordReference(refId))
+        return false;
     PlacedObject object;
     object.refId = refId;
     object.count = count;
@@ -10038,7 +10492,7 @@ bool MPServer::spawnActor(
     const std::string& refId, uint32_t refNum, uint32_t mpNum, const std::string& cellId, const Position& position,
     bool persistent, uint32_t authorityGuid)
 {
-    if (refId.empty() || cellId.empty())
+    if (refId.empty() || cellId.empty() || !isAuthoritativeRecordReference(refId))
         return false;
 
     const WorldState::StoredDynamicRecord* dynamicActorRecord = nullptr;
@@ -10716,6 +11170,11 @@ int MPServer::getPlayerCount() const
 
 bool MPServer::acceptPlacedObject(PlacedObject& object, ConnectedClient* source)
 {
+    if (!isAuthoritativeRecordReference(object.refId))
+    {
+        Log(Debug::Warning) << "[Server] Rejecting ObjectPlace unknown generated record id=" << object.refId;
+        return false;
+    }
     if (object.refId.empty() || object.cellId.empty() || object.count <= 0)
         return false;
 
@@ -11073,7 +11532,7 @@ void MPServer::sendPlayerStateBootstrapToClient(ConnectedClient& receiver)
 // ---------------------------------------------------------------------------
 bool MPServer::grantInventoryItem(ConnectedClient& c, const std::string& refId, int count)
 {
-    if (refId.empty() || count <= 0)
+    if (refId.empty() || count <= 0 || !isAuthoritativeRecordReference(refId))
         return false;
 
     auto& items = c.player.inventoryChanges.items;
@@ -11097,9 +11556,12 @@ bool MPServer::grantInventoryItem(ConnectedClient& c, const std::string& refId, 
 
     c.player.inventoryChanges.action = BasePlayer::InventoryChanges::Action::Set;
     reconcileInventoryInstanceIds(c, c.player.inventoryChanges.items);
+    ++c.inventoryRevision;
+    c.player.inventoryChanges.revision = c.inventoryRevision;
 
     if (mPlayerDb && c.dbCharacterId != 0)
-        mPlayerDb->saveCharacterInventory(c.dbCharacterId, c.player.inventoryChanges.items);
+        mPlayerDb->saveCharacterInventory(c.dbCharacterId, c.player.inventoryChanges.items, true,
+            c.inventoryRevision);
 
     sendAuthoritativeInventory(c);
     syncLuaPlayerSnapshot();
@@ -11549,6 +12011,8 @@ void MPServer::handleChallengeResponse(ConnectedClient& c,
     rsp.accepted      = true;
     rsp.assignedGuid  = c.guid;
     rsp.serverVersion = MultiplayerBuildVersion;
+    rsp.actorSyncProtocolVersion = c.actorSyncProtocolVersion;
+    populateRuntimeManifest(rsp);
     sendTo(c.conn, rsp.encode());
 
     Log(Debug::Info) << "[Server] Keypair handshake accepted: " << c.name

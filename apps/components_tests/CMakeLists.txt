@@ -105,7 +105,11 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         openmw-mp/playerinventory.cpp
         openmw-mp/playerinventorydatabase.cpp
         openmw-mp/masterserverprotocol.cpp
+        openmw-mp/dynamicrecord.cpp
+        openmw-mp/dynamicrecorddatabase.cpp
+        openmw-mp/dynamicrecordservice.cpp
         ../openmw-server/PlayerDatabase.cpp
+        ../openmw-server/DynamicRecordService.cpp
     )
 endif()
 

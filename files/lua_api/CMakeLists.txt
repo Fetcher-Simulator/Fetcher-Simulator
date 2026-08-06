@@ -20,6 +20,7 @@ set(LUA_API_FILES
     openmw/interfaces.lua
     openmw/markup.lua
     openmw/menu.lua
+    openmw/mp.lua
     openmw/nearby.lua
     openmw/postprocessing.lua
     openmw/self.lua

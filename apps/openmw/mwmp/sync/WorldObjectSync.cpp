@@ -789,6 +789,15 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
 
     auto& cstore = target.getClass().getContainerStore(target);
     const MWWorld::ESMStore& esmStore = world->getStore();
+    for (const ContainerItem& item : record.items)
+    {
+        if (item.refId.empty() || item.count <= 0
+            || esmStore.find(ESM::RefId::stringRefId(item.refId)) != 0)
+            continue;
+        Log(Debug::Verbose) << "[MP] WorldObjectSync: staging container until record is present refId="
+                            << item.refId;
+        return false;
+    }
 
     bool preservedSetHandles = false;
     if (action == ContainerAction::Set)

@@ -154,6 +154,9 @@ namespace MWGui
                 winMgr->messageBox("#{sNotifyMessage8}");
                 winMgr->playSound(ESM::RefId::stringRefId("potion fail"));
                 break;
+            case MWMechanics::Alchemy::Result_ServerAuthorityRequired:
+                winMgr->messageBox("Alchemy is unavailable until this server enables authoritative crafting.");
+                break;
         }
 
         // remove ingredient slots that have been fully used up

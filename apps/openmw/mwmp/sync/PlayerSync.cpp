@@ -748,6 +748,18 @@ void PlayerSync::queueAuthoritativeInventory(const BasePlayer& authoritative)
     applyPendingAuthoritativeState(player);
 }
 
+void PlayerSync::onDynamicRecordsChanged()
+{
+    if (!mPendingInventoryRestore && !mPendingEquipmentRestore)
+        return;
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    if (world == nullptr)
+        return;
+    const MWWorld::Ptr player = world->getPlayerPtr();
+    if (!player.isEmpty())
+        applyPendingAuthoritativeState(player);
+}
+
 void PlayerSync::queueAuthoritativeJournal(const BasePlayer& authoritative)
 {
     const BasePlayer::JournalChanges& incoming = authoritative.journalChanges;
@@ -2591,6 +2603,21 @@ void PlayerSync::applyPendingAuthoritativeState(const MWWorld::Ptr& player)
 
     if (mPendingInventoryRestore)
     {
+        // Stage the whole authoritative snapshot until every referenced record
+        // exists. Clearing first and skipping unknown rows permanently loses
+        // items when RecordDynamic and inventory processing interleave.
+        for (const Item& item : mAuthoritativeInventory.items)
+        {
+            if (item.refId.empty() || item.count <= 0 || hasRecordId(store, item.refId))
+                continue;
+            if (mLastPendingInventoryMissingRefId != item.refId)
+            {
+                Log(Debug::Verbose) << "[MP] Delaying inventory restore until record is present: " << item.refId;
+                mLastPendingInventoryMissingRefId = item.refId;
+            }
+            return;
+        }
+
         std::size_t skippedMissingInventory = 0;
         std::string firstMissingInventoryRefId;
         std::optional<Item> selectedEnchantItemBeforeRestore;

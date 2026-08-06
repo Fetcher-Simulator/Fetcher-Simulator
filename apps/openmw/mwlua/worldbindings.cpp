@@ -35,6 +35,7 @@
 
 #include "luamanagerimp.hpp"
 #include "mutationaudit.hpp"
+#include "runtimerecordcreation.hpp"
 
 #include "animationbindings.hpp"
 #include "context.hpp"
@@ -188,93 +189,55 @@ namespace MWLua
         // Creates a new record in the world database.
         api["createRecord"] = sol::overload(
             [context](const ESM::Activator& activator) -> const ESM::Activator* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "Activator");
-                return MWBase::Environment::get().getESMStore()->insert(activator);
+                return createRuntimeRecord(context, activator);
             },
             [context](const ESM::Armor& armor) -> const ESM::Armor* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "Armor");
-                return MWBase::Environment::get().getESMStore()->insert(armor);
+                return createRuntimeRecord(context, armor);
             },
             [context](const ESM::Clothing& clothing) -> const ESM::Clothing* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "Clothing");
-                return MWBase::Environment::get().getESMStore()->insert(clothing);
+                return createRuntimeRecord(context, clothing);
             },
             [context](const ESM::Book& book) -> const ESM::Book* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "Book");
-                return MWBase::Environment::get().getESMStore()->insert(book);
+                return createRuntimeRecord(context, book);
             },
             [context](const ESM::Enchantment& enchantment) -> const ESM::Enchantment* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "Enchantment");
-                return MWBase::Environment::get().getESMStore()->insert(enchantment);
+                return createRuntimeRecord(context, enchantment);
             },
             [context](const ESM::Ingredient& ingred) -> const ESM::Ingredient* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "Ingredient");
-                return MWBase::Environment::get().getESMStore()->insert(ingred);
+                return createRuntimeRecord(context, ingred);
             },
             [context](const ESM::Miscellaneous& misc) -> const ESM::Miscellaneous* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "Miscellaneous");
-                return MWBase::Environment::get().getESMStore()->insert(misc);
+                return createRuntimeRecord(context, misc);
             },
             [context](const ESM::Potion& potion) -> const ESM::Potion* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "Potion");
-                return MWBase::Environment::get().getESMStore()->insert(potion);
+                return createRuntimeRecord(context, potion);
             },
             [context](const ESM::Probe& probe) -> const ESM::Probe* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "Probe");
-                return MWBase::Environment::get().getESMStore()->insert(probe);
+                return createRuntimeRecord(context, probe);
             },
             [context](const ESM::Spell& spell) -> const ESM::Spell* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "Spell");
-                return MWBase::Environment::get().getESMStore()->insert(spell);
+                return createRuntimeRecord(context, spell);
             },
             [context](const ESM::Static& stat) -> const ESM::Static* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "Static");
-                return MWBase::Environment::get().getESMStore()->insert(stat);
+                return createRuntimeRecord(context, stat);
             },
             [context](const ESM::NPC& npc) -> const ESM::NPC* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "NPC");
-                if (npc.mId.empty())
-                    return MWBase::Environment::get().getESMStore()->insert(npc);
-                ESM::NPC copy = npc;
-                copy.mId = {};
-                return MWBase::Environment::get().getESMStore()->insert(copy);
+                return createRuntimeRecord(context, npc);
             },
             [context](const ESM::Creature& crea) -> const ESM::Creature* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "Creature");
-                return MWBase::Environment::get().getESMStore()->insert(crea);
+                return createRuntimeRecord(context, crea);
             },
             [context](const ESM::Container& cont) -> const ESM::Container* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "Container");
-                return MWBase::Environment::get().getESMStore()->insert(cont);
+                return createRuntimeRecord(context, cont);
             },
             [context](const ESM::Door& cont) -> const ESM::Door* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "Door");
-                return MWBase::Environment::get().getESMStore()->insert(cont);
+                return createRuntimeRecord(context, cont);
             },
             [context](const ESM::Weapon& weapon) -> const ESM::Weapon* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "Weapon");
-                return MWBase::Environment::get().getESMStore()->insert(weapon);
+                return createRuntimeRecord(context, weapon);
             },
             [context](const ESM::Light& light) -> const ESM::Light* {
-                checkGameInitialized(context.mLua);
-                auditNativeMutation(context, "world.createRecord", "record-definition", "Light");
-                return MWBase::Environment::get().getESMStore()->insert(light);
+                return createRuntimeRecord(context, light);
             });
 
         api["_runStandardActivationAction"] = [context](const GObject& object, const GObject& actor) {

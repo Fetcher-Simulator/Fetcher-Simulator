@@ -167,6 +167,11 @@
 
 ---
 -- Creates a custom record in the world database; string IDs that came from ESM3 content files are lower-cased.
+-- This API is synchronous and preserves its normal behavior in single-player.
+-- It is unavailable while connected to multiplayer because a client-local
+-- generated ID cannot be authoritative. Record drafts remain local and safe
+-- for previews; authorized multiplayer scripts should use
+-- @{openmw.mp#Records.request} and wait for its callback.
 -- Eventually meant to support all records, but the current
 -- set of supported types is limited to:
 --

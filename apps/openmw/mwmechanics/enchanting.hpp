@@ -46,6 +46,7 @@ namespace MWMechanics
         void setEffect(const ESM::EffectList& effectList);
         void setSoulGem(const MWWorld::Ptr& soulGem);
         bool create(); // Return true if created, false if failed.
+        bool requiresServerAuthority() const;
         void nextCastStyle(); // Set enchant type to next possible type (for mOldItemPtr object)
         int getCastStyle() const;
         float getEnchantPoints(bool precise = true) const;

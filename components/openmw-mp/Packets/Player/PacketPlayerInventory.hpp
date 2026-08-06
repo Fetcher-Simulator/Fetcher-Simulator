@@ -52,6 +52,7 @@ namespace mwmp
             ws.write(mPlayer->guid);
             auto action = static_cast<uint8_t>(mPlayer->inventoryChanges.action);
             ws.write(action);
+            ws.write(mPlayer->inventoryChanges.revision);
             auto count = static_cast<uint16_t>(mPlayer->inventoryChanges.items.size());
             ws.write(count);
             for (const auto& item : mPlayer->inventoryChanges.items)
@@ -65,6 +66,7 @@ namespace mwmp
             rs.read(action);
             mPlayer->inventoryChanges.action =
                 static_cast<BasePlayer::InventoryChanges::Action>(action);
+            rs.read(mPlayer->inventoryChanges.revision);
             uint16_t count = 0;
             rs.read(count);
             mPlayer->inventoryChanges.items.resize(count);

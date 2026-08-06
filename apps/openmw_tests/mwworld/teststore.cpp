@@ -378,6 +378,71 @@ TEST(StoreTest, eachRecordTypeShouldHaveUniqueRecordId)
     testAllRecNameIntUnique(MWWorld::ESMStore::StoreTuple());
 }
 
+namespace
+{
+    template <class T>
+    struct DynamicRecordEraseTest : public ::testing::Test
+    {
+    };
+
+    using DynamicRecordTypes = ::testing::Types<ESM::Activator, ESM::Armor, ESM::Book, ESM::Clothing, ESM::Container,
+        ESM::Creature, ESM::Door, ESM::Enchantment, ESM::Light, ESM::Miscellaneous, ESM::NPC, ESM::Potion,
+        ESM::Spell, ESM::Static, ESM::Weapon>;
+
+    TYPED_TEST_SUITE(DynamicRecordEraseTest, DynamicRecordTypes);
+
+    TYPED_TEST(DynamicRecordEraseTest, removesDynamicRecordAndRestoresUnderlyingStaticRecord)
+    {
+        using Record = TypeParam;
+        const ESM::RefId id = ESM::RefId::stringRefId("authoritative_dynamic_record");
+
+        Record staticRecord;
+        if constexpr (hasBlankFunction<Record>)
+            staticRecord.blank();
+        staticRecord.mId = id;
+
+        MWWorld::ESMStore store;
+        const Record* original = store.insertStatic(staticRecord);
+        ASSERT_NE(original, nullptr);
+        store.setUp();
+
+        Record dynamicRecord = staticRecord;
+        const Record* override = store.overrideRecord(dynamicRecord);
+        ASSERT_NE(override, nullptr);
+        ASSERT_NE(override, original);
+        ASSERT_TRUE(store.get<Record>().isDynamic(id));
+        ASSERT_EQ(store.get<Record>().search(id), override);
+        ASSERT_EQ(store.get<Record>().getSize(), 2);
+
+        EXPECT_TRUE(store.eraseDynamic<Record>(id));
+        EXPECT_FALSE(store.get<Record>().isDynamic(id));
+        EXPECT_EQ(store.get<Record>().search(id), original);
+        EXPECT_EQ(store.get<Record>().getSize(), 1);
+        EXPECT_FALSE(store.eraseDynamic<Record>(id));
+    }
+
+    TYPED_TEST(DynamicRecordEraseTest, removesDynamicOnlyRecordFromStoreAndGlobalIdIndex)
+    {
+        using Record = TypeParam;
+        const ESM::RefId id = ESM::RefId::stringRefId("$custom_test_record_1");
+
+        MWWorld::ESMStore store;
+        store.setUp();
+
+        Record dynamicRecord;
+        if constexpr (hasBlankFunction<Record>)
+            dynamicRecord.blank();
+        dynamicRecord.mId = id;
+        ASSERT_NE(store.overrideRecord(dynamicRecord), nullptr);
+        ASSERT_TRUE(store.get<Record>().isDynamic(id));
+
+        EXPECT_TRUE(store.eraseDynamic<Record>(id));
+        EXPECT_EQ(store.get<Record>().search(id), nullptr);
+        EXPECT_EQ(store.find(id), 0);
+        EXPECT_EQ(store.get<Record>().getSize(), 0);
+    }
+}
+
 /// Tests overwriting of records.
 TYPED_TEST_P(StoreTest, overwrite_test)
 {

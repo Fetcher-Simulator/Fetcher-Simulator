@@ -1,5 +1,6 @@
 #ifndef OPENMW_MWMP_SYNC_WORLDSTATESYNC_HPP
 #define OPENMW_MWMP_SYNC_WORLDSTATESYNC_HPP
+#include <functional>
 #include <string>
 #include <vector>
 #include <components/openmw-mp/Base/DynamicRecord.hpp>
@@ -18,6 +19,10 @@ namespace mwmp
                                    const std::string& regionName);
         void onServerRecordDynamic(
             DynamicRecordAction action, const std::string& recordType, std::vector<DynamicRecordEntry> entries);
+        void setDynamicRecordChangeCallback(std::function<void()> callback)
+        {
+            mDynamicRecordChangeCallback = std::move(callback);
+        }
 
         // Diagnostic accessors — used by /time chat command
         bool        hasServerTime()  const { return mHasServerTime; }
@@ -58,6 +63,7 @@ namespace mwmp
         bool applyDynamicRecord(const PendingDynamicRecord& record, std::string* error = nullptr);
         void processPendingDynamicRecords();
         std::vector<PendingDynamicRecord> mPendingDynamicRecords;
+        std::function<void()> mDynamicRecordChangeCallback;
 
         static constexpr float SYNC_RATE           = 5.f;
         static constexpr float WEATHER_REPORT_RATE = 30.f; // host reports every 30 real-seconds

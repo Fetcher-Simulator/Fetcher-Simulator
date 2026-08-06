@@ -67,6 +67,12 @@ struct ContentFileRule
     std::string sha256;
 };
 
+struct RuntimeRecordCapability
+{
+    std::string packageId;
+    std::vector<std::string> recordTypes;
+};
+
 struct JournalGroupMember
 {
     std::string account;
@@ -124,6 +130,8 @@ public:
     std::optional<PlayerMark> getConfigPlayerMark(const std::string& key) const;
     std::vector<PlayerMark> getConfigPlayerMarks(const std::string& key) const;
     std::vector<ContentFileRule> getConfigContentFileRules(const std::string& key) const;
+    std::vector<std::string> getConfigStringList(const std::string& key) const;
+    std::vector<RuntimeRecordCapability> getConfigRuntimeRecordCapabilities(const std::string& key) const;
     std::vector<JournalSharingGroup> getConfigJournalGroups(const std::string& key) const;
     std::optional<LuaPlayerSnapshot> getPlayer(uint32_t guid) const;
     std::vector<LuaPlayerSnapshot> getPlayers() const;

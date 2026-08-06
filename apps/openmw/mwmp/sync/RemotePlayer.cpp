@@ -95,6 +95,25 @@ namespace mwmp
                 std::chrono::steady_clock::now().time_since_epoch()).count());
         }
 
+        bool recordReferencesAvailable(const BasePlayer& state, bool inventory, bool equipment)
+        {
+            MWBase::World* world = MWBase::Environment::get().getWorld();
+            if (world == nullptr)
+                return false;
+            const MWWorld::ESMStore& store = world->getStore();
+            auto available = [&](const Item& item) {
+                return item.refId.empty() || item.count <= 0
+                    || store.find(ESM::RefId::stringRefId(item.refId)) != 0;
+            };
+            if (inventory)
+                for (const Item& item : state.inventoryChanges.items)
+                    if (!available(item)) return false;
+            if (equipment)
+                for (const EquipmentItem& item : state.equipment)
+                    if (!available(item.item)) return false;
+            return true;
+        }
+
         void clearTransientLocomotion(AnimFlags& flags)
         {
             flags.animFwd = 0.f;
@@ -1691,6 +1710,14 @@ namespace mwmp
     // ---------------------------------------------------------------------------
     void RemotePlayer::onEquipmentUpdate(const BasePlayer& state)
     {
+        if (!recordReferencesAvailable(state, false, true))
+        {
+            mPendingRecordEquipment = state;
+            Log(Debug::Verbose) << "[MP] RemotePlayer " << mName
+                                << ": staged equipment pending dynamic records";
+            return;
+        }
+        mPendingRecordEquipment.reset();
         applyEquipmentState(state, mEquipmentSoundReady && mIsSpawned && !mNpcPtr.isEmpty());
         if (mIsSpawned && !mNpcPtr.isEmpty())
             mEquipmentSoundReady = true;
@@ -2385,9 +2412,33 @@ namespace mwmp
     // ---------------------------------------------------------------------------
     void RemotePlayer::onInventoryUpdate(const BasePlayer& state)
     {
+        if (!recordReferencesAvailable(state, true, false))
+        {
+            mPendingRecordInventory = state;
+            Log(Debug::Verbose) << "[MP] RemotePlayer " << mName
+                                << ": staged inventory pending dynamic records";
+            return;
+        }
+        mPendingRecordInventory.reset();
         applyInventoryState(state, mInventorySoundReady && mIsSpawned && !mNpcPtr.isEmpty());
         if (mIsSpawned && !mNpcPtr.isEmpty())
             mInventorySoundReady = true;
+    }
+
+    void RemotePlayer::onDynamicRecordsChanged()
+    {
+        if (mPendingRecordInventory)
+        {
+            BasePlayer pending = *mPendingRecordInventory;
+            if (recordReferencesAvailable(pending, true, false))
+                onInventoryUpdate(pending);
+        }
+        if (mPendingRecordEquipment)
+        {
+            BasePlayer pending = *mPendingRecordEquipment;
+            if (recordReferencesAvailable(pending, false, true))
+                onEquipmentUpdate(pending);
+        }
     }
 
     void RemotePlayer::applyInventoryState(const BasePlayer& state, bool playSounds)
@@ -2990,6 +3041,15 @@ namespace mwmp
     {
         for (auto& [guid, rp] : mPlayers)
             rp->update(dt);
+    }
+
+    void PlayerList::onDynamicRecordsChanged()
+    {
+        for (auto& [guid, player] : mPlayers)
+        {
+            (void)guid;
+            player->onDynamicRecordsChanged();
+        }
     }
 
 } // namespace mwmp
