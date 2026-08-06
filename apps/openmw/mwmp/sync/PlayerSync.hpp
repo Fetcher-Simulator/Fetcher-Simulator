@@ -52,6 +52,7 @@ namespace mwmp
         void applyServerCellChange(const BasePlayer& authoritative);
         void queueAuthoritativeEquipment(const BasePlayer& authoritative);
         void queueAuthoritativeInventory(const BasePlayer& authoritative);
+        void onDynamicRecordsChanged();
         void queueAuthoritativeJournal(const BasePlayer& authoritative);
         void queueRestoredStats(const BasePlayer& restored);
         void applyRestoredStatsToPlayer();

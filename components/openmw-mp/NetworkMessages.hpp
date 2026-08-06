@@ -143,6 +143,8 @@ namespace mwmp
         ClientScriptSettings= 137,
         CellReset           = 138,
         RecordDynamic       = 139,
+        RecordCreateRequest = 140,
+        RecordCreateResult  = 141,
 
         // --- Lua bridge (7C+) ---
         // IDs 150-199 reserved; exact assignments TBD in Phase 7C/7D.

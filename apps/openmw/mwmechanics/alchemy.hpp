@@ -39,7 +39,8 @@ namespace MWMechanics
             Result_LessThanTwoIngredients,
             Result_NoName,
             Result_NoEffects,
-            Result_RandomFailure
+            Result_RandomFailure,
+            Result_ServerAuthorityRequired
         };
 
     private:

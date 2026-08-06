@@ -371,6 +371,13 @@ namespace MWGui
             }
         }
 
+        if (mEnchanting.requiresServerAuthority())
+        {
+            MWBase::Environment::get().getWindowManager()->messageBox(
+                "Enchanting is unavailable until this server enables authoritative crafting.");
+            return;
+        }
+
         if (mEnchanting.create())
         {
             MWBase::Environment::get().getWindowManager()->playSound(ESM::RefId::stringRefId("enchant success"));

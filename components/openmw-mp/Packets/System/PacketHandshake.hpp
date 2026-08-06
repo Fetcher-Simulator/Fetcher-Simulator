@@ -3,7 +3,9 @@
 
 #include <components/openmw-mp/Base/ActorSyncProtocol.hpp>
 #include <components/openmw-mp/Base/BasePlayer.hpp>
+#include <components/openmw-mp/ContentManifest.hpp>
 #include <components/openmw-mp/MasterServerProtocol.hpp>
+#include <components/openmw-mp/Records/DynamicRecordTypes.hpp>
 #include <components/openmw-mp/Packets/BasePacket.hpp>
 #include <string>
 #include <vector>
@@ -26,6 +28,11 @@ namespace mwmp
         bool        isRegistration = false; // true → create account, false → login
         std::string publicKey;             // base64 Ed25519 public key; non-empty = try keypair auth
         uint32_t    actorSyncProtocolVersion = ActorSyncProtocolVersionV2;
+        uint16_t    contentManifestVersion = ContentManifestVersion;
+        uint16_t    contentApiVersion = ContentApiVersion;
+        uint16_t    dynamicRecordWireVersion = records::CurrentWireVersion;
+        uint16_t    capabilityManifestVersion = RuntimeRecordCapabilityManifestVersion;
+        std::string resolvedContentFingerprint;
 
         struct PluginEntry
         {
@@ -33,6 +40,7 @@ namespace mwmp
             std::string sha256;
         };
         std::vector<PluginEntry> plugins;
+        std::vector<PluginEntry> luaScripts;
 
         PacketHandshake() : BasePacket(PacketType::Handshake) {}
 
@@ -46,6 +54,11 @@ namespace mwmp
             ws.write(isRegistration);
             ws.writeString(publicKey);
             ws.write(actorSyncProtocolVersion);
+            ws.write(contentManifestVersion);
+            ws.write(contentApiVersion);
+            ws.write(dynamicRecordWireVersion);
+            ws.write(capabilityManifestVersion);
+            ws.writeString(resolvedContentFingerprint);
 
             // Plugin list — not yet populated by the client, but must be
             // symmetric with unpack() so the server can read the count (0).
@@ -54,6 +67,13 @@ namespace mwmp
             {
                 ws.writeString(p.filename);
                 ws.writeString(p.sha256);
+            }
+
+            ws.write(static_cast<uint32_t>(luaScripts.size()));
+            for (const auto& script : luaScripts)
+            {
+                ws.writeString(script.filename);
+                ws.writeString(script.sha256);
             }
         }
 
@@ -66,6 +86,11 @@ namespace mwmp
             rs.read(isRegistration);
             publicKey      = rs.readString();
             rs.read(actorSyncProtocolVersion);
+            rs.read(contentManifestVersion);
+            rs.read(contentApiVersion);
+            rs.read(dynamicRecordWireVersion);
+            rs.read(capabilityManifestVersion);
+            resolvedContentFingerprint = rs.readString();
 
             uint32_t count = 0;
             rs.read(count);
@@ -76,6 +101,16 @@ namespace mwmp
             {
                 p.filename = rs.readString();
                 p.sha256 = rs.readString();
+            }
+
+            rs.read(count);
+            if (count > 4096 || count > rs.remaining() / (sizeof(uint16_t) * 2))
+                throw std::runtime_error("PacketHandshake: invalid Lua script count");
+            luaScripts.resize(count);
+            for (auto& script : luaScripts)
+            {
+                script.filename = rs.readString();
+                script.sha256 = rs.readString();
             }
         }
     };
@@ -96,6 +131,12 @@ namespace mwmp
         uint32_t    protocolVersion = MultiplayerProtocolVersion;
         std::string rejectReason;
         uint32_t    actorSyncProtocolVersion = ActorSyncProtocolVersionV2;
+        uint16_t    contentManifestVersion = ContentManifestVersion;
+        uint16_t    contentApiVersion = ContentApiVersion;
+        uint16_t    dynamicRecordWireVersion = records::CurrentWireVersion;
+        uint16_t    capabilityManifestVersion = RuntimeRecordCapabilityManifestVersion;
+        std::string resolvedContentFingerprint;
+        std::vector<uint8_t> supportedRuntimeRecordTypes;
 
         struct PluginMismatch
         {
@@ -117,6 +158,14 @@ namespace mwmp
             ws.write(protocolVersion);
             ws.writeString(rejectReason);
             ws.write(actorSyncProtocolVersion);
+            ws.write(contentManifestVersion);
+            ws.write(contentApiVersion);
+            ws.write(dynamicRecordWireVersion);
+            ws.write(capabilityManifestVersion);
+            ws.writeString(resolvedContentFingerprint);
+            ws.write(static_cast<uint32_t>(supportedRuntimeRecordTypes.size()));
+            for (uint8_t type : supportedRuntimeRecordTypes)
+                ws.write(type);
 
             auto count = static_cast<uint32_t>(pluginMismatches.size());
             ws.write(count);
@@ -137,9 +186,23 @@ namespace mwmp
             rs.read(protocolVersion);
             rejectReason  = rs.readString();
             rs.read(actorSyncProtocolVersion);
+            rs.read(contentManifestVersion);
+            rs.read(contentApiVersion);
+            rs.read(dynamicRecordWireVersion);
+            rs.read(capabilityManifestVersion);
+            resolvedContentFingerprint = rs.readString();
+            uint32_t typeCount = 0;
+            rs.read(typeCount);
+            if (typeCount > 64 || typeCount > rs.remaining())
+                throw std::runtime_error("PacketHandshakeResponse: invalid runtime record type count");
+            supportedRuntimeRecordTypes.resize(typeCount);
+            for (uint8_t& type : supportedRuntimeRecordTypes)
+                rs.read(type);
 
             uint32_t count = 0;
             rs.read(count);
+            if (count > 4096 || count > rs.remaining() / (sizeof(uint16_t) * 4))
+                throw std::runtime_error("PacketHandshakeResponse: invalid plugin mismatch count");
             pluginMismatches.resize(count);
             for (auto& m : pluginMismatches)
             {

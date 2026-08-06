@@ -74,6 +74,7 @@ namespace mwmp
         std::string recordScope = "permanent";
         int64_t createdAt = 0;
         int64_t updatedAt = 0;
+        uint16_t schemaVersion = 0;
     };
 
     struct DynamicRecordCatalogEntry
@@ -86,6 +87,52 @@ namespace mwmp
         int64_t updatedAt = 0;
         int64_t linkCount = 0;
         bool loaded = false;
+        std::string definitionFingerprint;
+        int64_t creatorAccountId = 0;
+        int64_t creatorCharacterId = 0;
+        std::string creationSource;
+        uint16_t schemaVersion = 0;
+        uint16_t validationVersion = 0;
+    };
+
+    struct CraftRequestRecord
+    {
+        int64_t accountId = 0;
+        int64_t characterId = 0;
+        std::string requestId;
+        std::string requestHash;
+        std::string status;
+        std::string resultPayload;
+        int64_t createdAt = 0;
+        int64_t updatedAt = 0;
+    };
+
+    struct DynamicRecordCommitEntry
+    {
+        PersistedDynamicRecord record;
+        DynamicRecordCatalogEntry catalog;
+        std::vector<std::string> dependencyRecordIds;
+    };
+
+    enum class DynamicRecordCommitStatus
+    {
+        Committed,
+        DuplicateRequest,
+        DuplicateRequestConflict,
+        StaleInventoryRevision,
+    };
+
+    struct DynamicRecordCommit
+    {
+        int64_t accountId = 0;
+        int64_t characterId = 0;
+        std::string requestId;
+        std::string requestHash;
+        std::string resultPayload;
+        uint64_t expectedInventoryRevision = 0;
+        uint64_t resultingInventoryRevision = 0;
+        std::vector<DynamicRecordCommitEntry> records;
+        std::optional<std::vector<Item>> inventory;
     };
 
     struct DatabaseTableInfo
@@ -205,7 +252,8 @@ namespace mwmp
         std::vector<Item> loadCharacterInventory(int64_t characterId);
 
         /// Replace the persisted inventory snapshot for a character.
-        void saveCharacterInventory(int64_t characterId, const std::vector<Item>& items, bool touchLastSeen = true);
+        void saveCharacterInventory(int64_t characterId, const std::vector<Item>& items, bool touchLastSeen = true,
+            std::optional<uint64_t> inventoryRevision = std::nullopt);
 
         /// Load the last persisted equipment snapshot for a character.
         std::vector<EquipmentItem> loadCharacterEquipment(int64_t characterId);
@@ -310,6 +358,19 @@ namespace mwmp
 
         /// Delete one persisted dynamic record by (recordType, recordId).
         void deleteDynamicRecord(std::string_view recordType, std::string_view recordId);
+
+        std::optional<CraftRequestRecord> loadCraftRequest(
+            int64_t accountId, int64_t characterId, std::string_view requestId);
+        bool insertPendingCraftRequest(const CraftRequestRecord& request);
+        bool insertRejectedCraftRequest(
+            const CraftRequestRecord& request, std::string_view resultPayload);
+        void completeCraftRequest(int64_t accountId, int64_t characterId, std::string_view requestId,
+            std::string_view requestHash, std::string_view status, std::string_view resultPayload);
+
+        /// Atomically persists a terminal idempotency result, canonical record
+        /// bundle, dependencies, and (when supplied) the resulting inventory.
+        DynamicRecordCommitStatus commitDynamicRecordRequest(const DynamicRecordCommit& commit);
+        uint64_t loadInventoryRevision(int64_t characterId);
 
         /// Load dynamic-record catalog metadata for both persistent and session-only ids.
         std::vector<DynamicRecordCatalogEntry> loadDynamicRecordCatalog();

@@ -1,6 +1,8 @@
 #include "Main.hpp"
 #include "Identity.hpp"
 #include "MpNetworkBridge.hpp"
+#include "records/RecordCreationManager.hpp"
+#include "records/ResolvedContentFingerprint.hpp"
 #include "sha256.hpp"
 #include <algorithm>
 #include <cctype>
@@ -14,6 +16,8 @@
 
 #include <components/debug/debuglog.hpp>
 #include <components/files/collections.hpp>
+#include <components/resource/resourcesystem.hpp>
+#include <components/vfs/manager.hpp>
 #include <components/openmw-mp/MasterServerProtocol.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerPosition.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerCellChange.hpp>
@@ -26,6 +30,7 @@
 #include <components/openmw-mp/Packets/System/PacketGameSettings.hpp>
 #include <components/openmw-mp/Packets/System/PacketHandshake.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketRecordDynamic.hpp>
+#include <components/openmw-mp/Packets/Records/PacketRecordCreateResult.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketWorldTime.hpp>
 #include <components/openmw-mp/Packets/Object/PacketDoorState.hpp>
 #include <components/openmw-mp/Packets/Object/PacketObjectPlace.hpp>
@@ -247,6 +252,14 @@ Main::Main()
     mObjectSync    = std::make_unique<ObjectSync>(*mClient);
     mWorldObjectSync = std::make_unique<WorldObjectSync>(*mClient);
     mWorldStateSync= std::make_unique<WorldStateSync>(*mClient);
+    mRecordCreationManager = std::make_unique<RecordCreationManager>(*mClient);
+    mWorldStateSync->setDynamicRecordChangeCallback(
+        [this] {
+            mRecordCreationManager->notifyRecordStoreChanged();
+            mPlayerSync->onDynamicRecordsChanged();
+            mPlayerList->onDynamicRecordsChanged();
+            mWorldObjectSync->onDynamicRecordsChanged();
+        });
     mChatWindow = std::make_unique<ChatWindow>(*mClient);
     mNetworkBridge = std::make_unique<MpNetworkBridge>();
 }
@@ -303,6 +316,7 @@ void Main::frame(float dt)
     mObjectSync->update(dt);
     mWorldObjectSync->update(dt);
     mWorldStateSync->update(dt);
+    mRecordCreationManager->update();
     const auto worldSyncFinished = std::chrono::steady_clock::now();
 
     mChatWindow->update(dt);
@@ -512,6 +526,16 @@ void Main::onConnected()
     hs.isRegistration  = mIsRegistration;
     hs.actorSyncProtocolVersion = ActorSyncProtocolVersionV2;
 
+    try
+    {
+        hs.resolvedContentFingerprint
+            = MWMP::resolvedContentFingerprint(*MWBase::Environment::get().getESMStore());
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[MP] Failed to fingerprint resolved content: " << e.what();
+    }
+
     const auto& contentFiles = MWBase::Environment::get().getWorld()->getContentFiles();
     hs.plugins.reserve(contentFiles.size());
     for (const std::string& filename : contentFiles)
@@ -538,6 +562,30 @@ void Main::onConnected()
         hs.plugins.push_back(std::move(plugin));
     }
     Log(Debug::Info) << "[MP] Handshake includes " << hs.plugins.size() << " content-file SHA-256 checksums";
+
+    try
+    {
+        const VFS::Manager& vfs = *MWBase::Environment::get().getResourceSystem()->getVFS();
+        const ESM::LuaScriptsCfg scripts = MWBase::Environment::get().getESMStore()->getLuaScriptsCfg();
+        hs.luaScripts.reserve(scripts.mScripts.size());
+        for (const ESM::LuaScriptCfg& script : scripts.mScripts)
+        {
+            PacketHandshake::PluginEntry entry;
+            entry.filename = script.mScriptPath.value();
+            Files::IStreamPtr stream = vfs.get(script.mScriptPath);
+            entry.sha256 = crypto::sha256hex(*stream);
+            if (!stream->eof())
+                throw std::runtime_error("error while reading Lua script '" + entry.filename + "'");
+            hs.luaScripts.push_back(std::move(entry));
+        }
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[MP] Failed to build Lua content manifest: " << e.what();
+        hs.luaScripts.clear();
+    }
+    Log(Debug::Info) << "[MP] Resolved content fingerprint=" << hs.resolvedContentFingerprint
+                     << " Lua scripts=" << hs.luaScripts.size();
     
     if (mUseKeypair)
     {
@@ -564,6 +612,8 @@ void Main::onConnected()
 void Main::onDisconnected()
 {
     Log(Debug::Warning) << "[MP] Disconnected from server";
+    if (mRecordCreationManager)
+        mRecordCreationManager->cancelAll();
     // If we were already in-world, request a main-menu return on the next frame.
     // Do NOT touch engine state here - this fires inside mClient->update() and
     // must remain engine-API-free to stay thread-safe.
@@ -894,6 +944,28 @@ void Main::registerProtocolHandlers()
             {
                 mRejectReason = "Multiplayer protocol mismatch: server=" + std::to_string(rsp.protocolVersion)
                     + " client=" + std::to_string(MultiplayerProtocolVersion);
+                Log(Debug::Error) << "[MP] " << mRejectReason;
+                mClient->disconnect(mRejectReason);
+                return;
+            }
+
+            if (rsp.contentManifestVersion != ContentManifestVersion
+                || rsp.contentApiVersion != ContentApiVersion
+                || rsp.dynamicRecordWireVersion != records::CurrentWireVersion
+                || rsp.capabilityManifestVersion != RuntimeRecordCapabilityManifestVersion)
+            {
+                mRejectReason = "Server content/runtime manifest versions are incompatible";
+                Log(Debug::Error) << "[MP] " << mRejectReason;
+                mClient->disconnect(mRejectReason);
+                return;
+            }
+
+            const std::string localFingerprint
+                = MWMP::resolvedContentFingerprint(*MWBase::Environment::get().getESMStore());
+            if (!rsp.resolvedContentFingerprint.empty()
+                && rsp.resolvedContentFingerprint != localFingerprint)
+            {
+                mRejectReason = "Resolved content changed during connection setup";
                 Log(Debug::Error) << "[MP] " << mRejectReason;
                 mClient->disconnect(mRejectReason);
                 return;
@@ -1262,6 +1334,15 @@ void Main::registerProtocolHandlers()
             mWorldStateSync->onServerRecordDynamic(pkt.action, pkt.recordType, std::move(pkt.entries));
         });
 
+    proto.registerHandler(PacketType::RecordCreateResult,
+        [this](const uint8_t* data, size_t size)
+        {
+            PacketRecordCreateResult packet;
+            if (!packet.decode(data, size))
+                return;
+            mRecordCreationManager->onResult(std::move(packet.result));
+        });
+
     // --- Persisted / relayed world objects ---
     proto.registerHandler(PacketType::ObjectPlace,
         [this](const uint8_t* data, size_t size)
@@ -1413,7 +1494,10 @@ void Main::registerProtocolHandlers()
 
             const bool localInventory = tmp.guid == mPlayerSync->localPlayer().guid;
             if (localInventory)
+            {
+                mRecordCreationManager->setInventoryRevision(tmp.inventoryChanges.revision);
                 mPlayerSync->queueAuthoritativeInventory(tmp);
+            }
             else
             {
                 auto* rp = mPlayerList->getPlayer(tmp.guid);

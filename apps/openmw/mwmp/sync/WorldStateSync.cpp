@@ -19,6 +19,9 @@
 #include <components/esm3/loadweap.hpp>
 #include <components/lua/serialization.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketWorldTime.hpp>
+#include <components/openmw-mp/Records/DynamicRecordCodec.hpp>
+#include <components/openmw-mp/Records/DynamicRecordValidation.hpp>
+#include <components/openmw-mp/Records/EsmDynamicRecordConversion.hpp>
 #include <sol/sol.hpp>
 
 #include "../../mwbase/environment.hpp"
@@ -74,10 +77,34 @@ static void applyDynamicRecordUpsert(
     store.overrideRecord(record);
 }
 
+static bool isTypedDynamicRecordPayload(const LuaUtil::BinaryData& data)
+{
+    // The canonical codec starts with "OMDR". Legacy server-Lua records remain
+    // Lua-serialized tables and continue through the parser below.
+    return data.size() >= 4 && data[0] == 'O' && data[1] == 'M' && data[2] == 'D' && data[3] == 'R';
+}
+
+static void applyTypedDynamicRecordUpsert(
+    MWWorld::ESMStore& store, const std::string& recordId, const LuaUtil::BinaryData& data)
+{
+    records::DynamicRecordDefinition definition = records::decodeDefinition(data);
+    const auto errors = records::validate(definition);
+    if (!errors.empty())
+        throw std::runtime_error("typed_record_invalid:" + errors.front().code + ":" + errors.front().path);
+
+    records::EsmDynamicRecord esm = records::toEsmRecord(definition);
+    std::visit(
+        [&](auto& record) {
+            record.mId = ESM::RefId::stringRefId(recordId);
+            store.overrideRecord(record);
+        },
+        esm);
+}
+
 template <class Record>
 static bool eraseDynamicRecord(MWWorld::ESMStore& store, const std::string& recordId)
 {
-    return store.getWritable<Record>().eraseStatic(ESM::RefId::stringRefId(recordId));
+    return store.eraseDynamic<Record>(ESM::RefId::stringRefId(recordId));
 }
 
 // ===========================================================================
@@ -284,6 +311,8 @@ void WorldStateSync::processPendingDynamicRecords()
         if (applyDynamicRecord(pending, &error))
         {
             mPendingDynamicRecords.erase(mPendingDynamicRecords.begin() + i);
+            if (mDynamicRecordChangeCallback)
+                mDynamicRecordChangeCallback();
             continue;
         }
 
@@ -360,7 +389,9 @@ bool WorldStateSync::applyDynamicRecord(const PendingDynamicRecord& record, std:
             }
             else
             {
-                if (record.recordType == "activator")
+                if (isTypedDynamicRecordPayload(entry.data))
+                    applyTypedDynamicRecordUpsert(store, entry.recordId, entry.data);
+                else if (record.recordType == "activator")
                     applyDynamicRecordUpsert<ESM::Activator>(store, entry.recordId, entry.data, MWLua::tableToActivator);
                 else if (record.recordType == "armor")
                     applyDynamicRecordUpsert<ESM::Armor>(store, entry.recordId, entry.data, MWLua::tableToArmor);

@@ -57,6 +57,28 @@ Config.MOD_CHECKS_REQUIRE_EXACT_LIST = false
 Config.MOD_CHECKS_HELP_URL = ""
 Config.REQUIRED_CONTENT_FILES = require("mod_manifest")
 
+-- Exact, ordered VFS paths and SHA-256 hashes for the resolved OpenMW Lua
+-- script configuration. Load-time script output is covered separately below.
+Config.REQUIRED_LUA_SCRIPTS = {}
+
+-- Canonical post-load-script fingerprint printed by a matching client during
+-- connection. Required before client runtime-record capabilities are enabled.
+Config.RESOLVED_CONTENT_FINGERPRINT = ""
+
+-- Generic client proposals are default-deny. Keys are exact synchronized Lua
+-- script paths; values are the only record types that script may propose.
+Config.RUNTIME_RECORD_CAPABILITIES = {
+    -- ["scripts/example.lua"] = { "potion" },
+}
+
+-- Exact normalized IDs and VFS paths generic client proposals may reference.
+-- Generated $custom_* references are admitted only when present in the
+-- authoritative dynamic-record catalog.
+Config.RUNTIME_RECORD_CONTENT_IDS = {}
+Config.RUNTIME_RECORD_ASSETS = {}
+Config.RUNTIME_RECORD_REQUESTS_PER_MINUTE = 30
+Config.RUNTIME_RECORD_MAX_PER_CHARACTER = 2048
+
 ------------------------------------------------------------------------
 -- Characters
 ------------------------------------------------------------------------

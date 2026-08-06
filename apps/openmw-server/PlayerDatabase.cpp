@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS characters (
     equipment_saved INTEGER NOT NULL DEFAULT 0,
     stats_saved INTEGER NOT NULL DEFAULT 0,
     level INTEGER NOT NULL DEFAULT 1,
-    level_progress REAL NOT NULL DEFAULT 0
+    level_progress REAL NOT NULL DEFAULT 0,
+    inventory_revision INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_chars_account ON characters(account_id);
@@ -199,6 +200,7 @@ CREATE TABLE IF NOT EXISTS world_dynamic_records (
     record_id     TEXT    NOT NULL,
     record_scope  TEXT    NOT NULL DEFAULT 'permanent',
     record_data   BLOB    NOT NULL,
+    schema_version INTEGER NOT NULL DEFAULT 0,
     created_at    INTEGER NOT NULL DEFAULT 0,
     updated_at    INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(record_type, record_id)
@@ -212,6 +214,12 @@ CREATE TABLE IF NOT EXISTS world_dynamic_record_catalog (
     record_id      TEXT    NOT NULL,
     record_scope   TEXT    NOT NULL DEFAULT 'permanent',
     is_persistent  INTEGER NOT NULL DEFAULT 1,
+    definition_fingerprint TEXT NOT NULL DEFAULT '',
+    creator_account_id INTEGER NOT NULL DEFAULT 0,
+    creator_character_id INTEGER NOT NULL DEFAULT 0,
+    creation_source TEXT NOT NULL DEFAULT '',
+    schema_version INTEGER NOT NULL DEFAULT 0,
+    validation_version INTEGER NOT NULL DEFAULT 0,
     created_at     INTEGER NOT NULL DEFAULT 0,
     updated_at     INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(record_type, record_id)
@@ -232,6 +240,21 @@ CREATE TABLE IF NOT EXISTS world_dynamic_record_links (
 
 CREATE INDEX IF NOT EXISTS idx_world_dynamic_record_links_record
     ON world_dynamic_record_links(record_id);
+
+CREATE TABLE IF NOT EXISTS craft_requests (
+    account_id      INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    character_id    INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    request_id      TEXT    NOT NULL,
+    request_hash    TEXT    NOT NULL,
+    status          TEXT    NOT NULL DEFAULT 'pending',
+    result_payload  BLOB    NOT NULL DEFAULT '',
+    created_at      INTEGER NOT NULL DEFAULT 0,
+    updated_at      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(account_id, character_id, request_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_craft_requests_updated
+    ON craft_requests(updated_at);
 
 CREATE TABLE IF NOT EXISTS character_inventory (
     character_id          INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
@@ -471,6 +494,25 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         "  PRIMARY KEY(record_id, link_kind, owner_a, owner_b, owner_c, owner_index))",
         "CREATE INDEX IF NOT EXISTS idx_world_dynamic_record_links_record"
         " ON world_dynamic_record_links(record_id)",
+        "ALTER TABLE characters ADD COLUMN inventory_revision INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE world_dynamic_records ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE world_dynamic_record_catalog ADD COLUMN definition_fingerprint TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE world_dynamic_record_catalog ADD COLUMN creator_account_id INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE world_dynamic_record_catalog ADD COLUMN creator_character_id INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE world_dynamic_record_catalog ADD COLUMN creation_source TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE world_dynamic_record_catalog ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE world_dynamic_record_catalog ADD COLUMN validation_version INTEGER NOT NULL DEFAULT 0",
+        "CREATE TABLE IF NOT EXISTS craft_requests ("
+        "  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,"
+        "  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,"
+        "  request_id TEXT NOT NULL,"
+        "  request_hash TEXT NOT NULL,"
+        "  status TEXT NOT NULL DEFAULT 'pending',"
+        "  result_payload BLOB NOT NULL DEFAULT '',"
+        "  created_at INTEGER NOT NULL DEFAULT 0,"
+        "  updated_at INTEGER NOT NULL DEFAULT 0,"
+        "  PRIMARY KEY(account_id, character_id, request_id))",
+        "CREATE INDEX IF NOT EXISTS idx_craft_requests_updated ON craft_requests(updated_at)",
         "CREATE TABLE IF NOT EXISTS world_metadata ("
         "  key TEXT PRIMARY KEY,"
         "  value INTEGER NOT NULL DEFAULT 0)",
@@ -557,6 +599,7 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
             { "world_dynamic_records", "created_at, record_type, record_id" },
             { "world_dynamic_record_catalog", "created_at, record_type, record_id" },
             { "world_dynamic_record_links", "record_id, link_kind, owner_a, owner_b, owner_c, owner_index" },
+            { "craft_requests", "updated_at, account_id, character_id, request_id" },
             { "character_inventory", "character_id, item_index" },
             { "character_equipment", "character_id, slot" },
             { "character_dynamic_stats", "character_id" },
@@ -1003,7 +1046,8 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         return items;
     }
 
-    void PlayerDatabase::saveCharacterInventory(int64_t characterId, const std::vector<Item>& items, bool touchLastSeen)
+    void PlayerDatabase::saveCharacterInventory(int64_t characterId, const std::vector<Item>& items,
+        bool touchLastSeen, std::optional<uint64_t> inventoryRevision)
     {
         exec("BEGIN");
         try
@@ -1052,17 +1096,37 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
                     items[i].instanceId != 0 ? items[i].instanceId : static_cast<int64_t>(i));
             sqlite3_finalize(insertLink);
 
-            sqlite3_stmt* mark
-                = prepare(touchLastSeen ? "UPDATE characters SET inventory_saved=1, last_seen=?1 WHERE id=?2"
-                                        : "UPDATE characters SET inventory_saved=1 WHERE id=?1");
+            sqlite3_stmt* mark = prepare(
+                touchLastSeen
+                    ? (inventoryRevision
+                        ? "UPDATE characters SET inventory_saved=1, inventory_revision=?1, last_seen=?2 WHERE id=?3"
+                        : "UPDATE characters SET inventory_saved=1, last_seen=?1 WHERE id=?2")
+                    : (inventoryRevision
+                        ? "UPDATE characters SET inventory_saved=1, inventory_revision=?1 WHERE id=?2"
+                        : "UPDATE characters SET inventory_saved=1 WHERE id=?1"));
             if (touchLastSeen)
             {
-                sqlite3_bind_int64(mark, 1, static_cast<int64_t>(std::time(nullptr)));
-                sqlite3_bind_int64(mark, 2, characterId);
+                if (inventoryRevision)
+                {
+                    sqlite3_bind_int64(mark, 1, static_cast<sqlite3_int64>(*inventoryRevision));
+                    sqlite3_bind_int64(mark, 2, static_cast<int64_t>(std::time(nullptr)));
+                    sqlite3_bind_int64(mark, 3, characterId);
+                }
+                else
+                {
+                    sqlite3_bind_int64(mark, 1, static_cast<int64_t>(std::time(nullptr)));
+                    sqlite3_bind_int64(mark, 2, characterId);
+                }
             }
             else
             {
-                sqlite3_bind_int64(mark, 1, characterId);
+                if (inventoryRevision)
+                {
+                    sqlite3_bind_int64(mark, 1, static_cast<sqlite3_int64>(*inventoryRevision));
+                    sqlite3_bind_int64(mark, 2, characterId);
+                }
+                else
+                    sqlite3_bind_int64(mark, 1, characterId);
             }
             checkSqlite(sqlite3_step(mark), mDb, "markCharacterInventorySaved");
             sqlite3_finalize(mark);
@@ -2476,7 +2540,7 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
     std::vector<PersistedDynamicRecord> PlayerDatabase::loadDynamicRecords()
     {
         sqlite3_stmt* s = prepare(
-            "SELECT record_type, record_id, record_scope, record_data, created_at, updated_at"
+            "SELECT record_type, record_id, record_scope, record_data, created_at, updated_at, schema_version"
             " FROM world_dynamic_records ORDER BY created_at, record_type, record_id");
 
         std::vector<PersistedDynamicRecord> records;
@@ -2499,6 +2563,7 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
 
             record.createdAt = sqlite3_column_int64(s, 4);
             record.updatedAt = sqlite3_column_int64(s, 5);
+            record.schemaVersion = static_cast<uint16_t>(sqlite3_column_int(s, 6));
             records.push_back(std::move(record));
         }
 
@@ -2510,12 +2575,13 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
     {
         sqlite3_stmt* s = prepare(
             "INSERT INTO world_dynamic_records(record_type, record_id, record_scope, record_data, created_at, "
-            "updated_at)"
-            " VALUES(?1, ?2, ?3, ?4, COALESCE(?5, strftime('%s', 'now')), ?6)"
+            "updated_at, schema_version)"
+            " VALUES(?1, ?2, ?3, ?4, COALESCE(?5, strftime('%s', 'now')), ?6, ?7)"
             " ON CONFLICT(record_type, record_id) DO UPDATE SET"
             " record_scope=excluded.record_scope,"
             " record_data=excluded.record_data,"
-            " updated_at=excluded.updated_at");
+            " updated_at=excluded.updated_at,"
+            " schema_version=excluded.schema_version");
 
         const int64_t createdAt = record.createdAt != 0 ? record.createdAt : static_cast<int64_t>(std::time(nullptr));
         const int64_t updatedAt = record.updatedAt != 0 ? record.updatedAt : static_cast<int64_t>(std::time(nullptr));
@@ -2526,6 +2592,7 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         sqlite3_bind_blob(s, 4, record.data.data(), static_cast<int>(record.data.size()), SQLITE_TRANSIENT);
         sqlite3_bind_int64(s, 5, createdAt);
         sqlite3_bind_int64(s, 6, updatedAt);
+        sqlite3_bind_int(s, 7, record.schemaVersion);
         checkSqlite(sqlite3_step(s), mDb, "upsertDynamicRecord");
         sqlite3_finalize(s);
     }
@@ -2539,10 +2606,342 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         sqlite3_finalize(s);
     }
 
+    std::optional<CraftRequestRecord> PlayerDatabase::loadCraftRequest(
+        int64_t accountId, int64_t characterId, std::string_view requestId)
+    {
+        sqlite3_stmt* s = prepare(
+            "SELECT request_hash, status, result_payload, created_at, updated_at"
+            " FROM craft_requests WHERE account_id=?1 AND character_id=?2 AND request_id=?3 LIMIT 1");
+        sqlite3_bind_int64(s, 1, accountId);
+        sqlite3_bind_int64(s, 2, characterId);
+        sqlite3_bind_text(s, 3, requestId.data(), static_cast<int>(requestId.size()), SQLITE_TRANSIENT);
+
+        std::optional<CraftRequestRecord> result;
+        if (sqlite3_step(s) == SQLITE_ROW)
+        {
+            CraftRequestRecord record;
+            record.accountId = accountId;
+            record.characterId = characterId;
+            record.requestId = std::string(requestId);
+            auto textColumn = [&](int index) {
+                const auto* text = reinterpret_cast<const char*>(sqlite3_column_text(s, index));
+                return text ? std::string(text, static_cast<std::size_t>(sqlite3_column_bytes(s, index)))
+                            : std::string{};
+            };
+            record.requestHash = textColumn(0);
+            record.status = textColumn(1);
+            const void* payload = sqlite3_column_blob(s, 2);
+            const int payloadSize = sqlite3_column_bytes(s, 2);
+            if (payload != nullptr && payloadSize > 0)
+                record.resultPayload.assign(static_cast<const char*>(payload), static_cast<std::size_t>(payloadSize));
+            record.createdAt = sqlite3_column_int64(s, 3);
+            record.updatedAt = sqlite3_column_int64(s, 4);
+            result = std::move(record);
+        }
+        sqlite3_finalize(s);
+        return result;
+    }
+
+    bool PlayerDatabase::insertPendingCraftRequest(const CraftRequestRecord& request)
+    {
+        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        sqlite3_stmt* s = prepare(
+            "INSERT OR IGNORE INTO craft_requests(account_id, character_id, request_id, request_hash, status,"
+            " result_payload, created_at, updated_at) VALUES(?1, ?2, ?3, ?4, 'pending', '', ?5, ?5)");
+        sqlite3_bind_int64(s, 1, request.accountId);
+        sqlite3_bind_int64(s, 2, request.characterId);
+        sqlite3_bind_text(s, 3, request.requestId.c_str(), static_cast<int>(request.requestId.size()), SQLITE_TRANSIENT);
+        sqlite3_bind_text(
+            s, 4, request.requestHash.c_str(), static_cast<int>(request.requestHash.size()), SQLITE_TRANSIENT);
+        sqlite3_bind_int64(s, 5, request.createdAt != 0 ? request.createdAt : now);
+        checkSqlite(sqlite3_step(s), mDb, "insertPendingCraftRequest");
+        const bool inserted = sqlite3_changes(mDb) != 0;
+        sqlite3_finalize(s);
+        return inserted;
+    }
+
+    bool PlayerDatabase::insertRejectedCraftRequest(
+        const CraftRequestRecord& request, std::string_view resultPayload)
+    {
+        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        sqlite3_stmt* s = prepare(
+            "INSERT OR IGNORE INTO craft_requests(account_id, character_id, request_id, request_hash, status,"
+            " result_payload, created_at, updated_at) VALUES(?1, ?2, ?3, ?4, 'rejected', ?5, ?6, ?6)");
+        sqlite3_bind_int64(s, 1, request.accountId);
+        sqlite3_bind_int64(s, 2, request.characterId);
+        sqlite3_bind_text(s, 3, request.requestId.c_str(), static_cast<int>(request.requestId.size()), SQLITE_TRANSIENT);
+        sqlite3_bind_text(
+            s, 4, request.requestHash.c_str(), static_cast<int>(request.requestHash.size()), SQLITE_TRANSIENT);
+        sqlite3_bind_blob(s, 5, resultPayload.data(), static_cast<int>(resultPayload.size()), SQLITE_TRANSIENT);
+        sqlite3_bind_int64(s, 6, request.createdAt != 0 ? request.createdAt : now);
+        checkSqlite(sqlite3_step(s), mDb, "insertRejectedCraftRequest");
+        const bool inserted = sqlite3_changes(mDb) != 0;
+        sqlite3_finalize(s);
+        return inserted;
+    }
+
+    void PlayerDatabase::completeCraftRequest(int64_t accountId, int64_t characterId, std::string_view requestId,
+        std::string_view requestHash, std::string_view status, std::string_view resultPayload)
+    {
+        if (status != "accepted" && status != "rejected")
+            throw std::invalid_argument("[PlayerDB] craft request terminal status must be accepted or rejected");
+
+        sqlite3_stmt* s = prepare(
+            "UPDATE craft_requests SET status=?1, result_payload=?2, updated_at=?3"
+            " WHERE account_id=?4 AND character_id=?5 AND request_id=?6 AND request_hash=?7 AND status='pending'");
+        sqlite3_bind_text(s, 1, status.data(), static_cast<int>(status.size()), SQLITE_TRANSIENT);
+        sqlite3_bind_blob(s, 2, resultPayload.data(), static_cast<int>(resultPayload.size()), SQLITE_TRANSIENT);
+        sqlite3_bind_int64(s, 3, static_cast<int64_t>(std::time(nullptr)));
+        sqlite3_bind_int64(s, 4, accountId);
+        sqlite3_bind_int64(s, 5, characterId);
+        sqlite3_bind_text(s, 6, requestId.data(), static_cast<int>(requestId.size()), SQLITE_TRANSIENT);
+        sqlite3_bind_text(s, 7, requestHash.data(), static_cast<int>(requestHash.size()), SQLITE_TRANSIENT);
+        checkSqlite(sqlite3_step(s), mDb, "completeCraftRequest");
+        const bool updated = sqlite3_changes(mDb) != 0;
+        sqlite3_finalize(s);
+        if (!updated)
+            throw std::runtime_error("[PlayerDB] craft request completion did not match one pending request");
+    }
+
+    uint64_t PlayerDatabase::loadInventoryRevision(int64_t characterId)
+    {
+        sqlite3_stmt* s = prepare("SELECT inventory_revision FROM characters WHERE id=?1");
+        sqlite3_bind_int64(s, 1, characterId);
+        const int rc = sqlite3_step(s);
+        if (rc != SQLITE_ROW)
+        {
+            sqlite3_finalize(s);
+            throw std::runtime_error("[PlayerDB] character not found while loading inventory revision");
+        }
+        const uint64_t revision = static_cast<uint64_t>(sqlite3_column_int64(s, 0));
+        sqlite3_finalize(s);
+        return revision;
+    }
+
+    DynamicRecordCommitStatus PlayerDatabase::commitDynamicRecordRequest(const DynamicRecordCommit& commit)
+    {
+        if (commit.accountId <= 0 || commit.characterId <= 0 || commit.requestId.empty()
+            || commit.requestHash.empty() || commit.resultPayload.empty())
+            throw std::invalid_argument("[PlayerDB] invalid dynamic record commit identity");
+
+        exec("BEGIN IMMEDIATE");
+        try
+        {
+            sqlite3_stmt* existing = prepare(
+                "SELECT request_hash FROM craft_requests"
+                " WHERE account_id=?1 AND character_id=?2 AND request_id=?3");
+            sqlite3_bind_int64(existing, 1, commit.accountId);
+            sqlite3_bind_int64(existing, 2, commit.characterId);
+            sqlite3_bind_text(existing, 3, commit.requestId.c_str(), -1, SQLITE_TRANSIENT);
+            const int existingRc = sqlite3_step(existing);
+            if (existingRc == SQLITE_ROW)
+            {
+                const char* hash = reinterpret_cast<const char*>(sqlite3_column_text(existing, 0));
+                const bool sameHash = hash != nullptr && commit.requestHash == hash;
+                sqlite3_finalize(existing);
+                exec("ROLLBACK");
+                return sameHash ? DynamicRecordCommitStatus::DuplicateRequest
+                                : DynamicRecordCommitStatus::DuplicateRequestConflict;
+            }
+            checkSqlite(existingRc, mDb, "commitDynamicRecordRequest(existing)");
+            sqlite3_finalize(existing);
+
+            sqlite3_stmt* revisionStmt = prepare(
+                "SELECT inventory_revision FROM characters WHERE id=?1 AND account_id=?2");
+            sqlite3_bind_int64(revisionStmt, 1, commit.characterId);
+            sqlite3_bind_int64(revisionStmt, 2, commit.accountId);
+            const int revisionRc = sqlite3_step(revisionStmt);
+            if (revisionRc != SQLITE_ROW)
+            {
+                sqlite3_finalize(revisionStmt);
+                if (revisionRc == SQLITE_DONE)
+                    throw std::runtime_error("[PlayerDB] dynamic record commit character/account mismatch");
+                checkSqlite(revisionRc, mDb, "commitDynamicRecordRequest(revision)");
+            }
+            const uint64_t currentRevision = static_cast<uint64_t>(sqlite3_column_int64(revisionStmt, 0));
+            sqlite3_finalize(revisionStmt);
+            if (currentRevision != commit.expectedInventoryRevision)
+            {
+                exec("ROLLBACK");
+                return DynamicRecordCommitStatus::StaleInventoryRevision;
+            }
+
+            const int64_t now = static_cast<int64_t>(std::time(nullptr));
+            sqlite3_stmt* persisted = prepare(
+                "INSERT INTO world_dynamic_records(record_type, record_id, record_scope, record_data, created_at,"
+                " updated_at, schema_version) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)"
+                " ON CONFLICT(record_type, record_id) DO UPDATE SET"
+                " record_scope=excluded.record_scope, record_data=excluded.record_data,"
+                " updated_at=excluded.updated_at, schema_version=excluded.schema_version");
+            sqlite3_stmt* catalog = prepare(
+                "INSERT INTO world_dynamic_record_catalog(record_type, record_id, record_scope, is_persistent,"
+                " created_at, updated_at, definition_fingerprint, creator_account_id, creator_character_id,"
+                " creation_source, schema_version, validation_version)"
+                " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
+                " ON CONFLICT(record_type, record_id) DO NOTHING");
+            sqlite3_stmt* clearDependencies = prepare(
+                "DELETE FROM world_dynamic_record_links"
+                " WHERE link_kind='record_dependency' AND owner_a=?1 AND owner_b=?2 AND owner_c=''");
+            sqlite3_stmt* dependency = prepare(
+                "INSERT OR REPLACE INTO world_dynamic_record_links(record_id, link_kind, owner_a, owner_b, owner_c,"
+                " owner_index) VALUES(?1, 'record_dependency', ?2, ?3, '', ?4)");
+
+            for (const DynamicRecordCommitEntry& entry : commit.records)
+            {
+                const PersistedDynamicRecord& record = entry.record;
+                const DynamicRecordCatalogEntry& metadata = entry.catalog;
+                if (record.recordType.empty() || record.recordId.empty() || !metadata.persistent)
+                    throw std::invalid_argument("[PlayerDB] atomic record commits require persistent identified records");
+
+                sqlite3_bind_text(persisted, 1, record.recordType.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(persisted, 2, record.recordId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(persisted, 3, record.recordScope.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_blob(persisted, 4, record.data.data(), static_cast<int>(record.data.size()), SQLITE_TRANSIENT);
+                sqlite3_bind_int64(persisted, 5, record.createdAt != 0 ? record.createdAt : now);
+                sqlite3_bind_int64(persisted, 6, record.updatedAt != 0 ? record.updatedAt : now);
+                sqlite3_bind_int(persisted, 7, record.schemaVersion);
+                checkSqlite(sqlite3_step(persisted), mDb, "commitDynamicRecordRequest(record)");
+                sqlite3_reset(persisted);
+                sqlite3_clear_bindings(persisted);
+
+                sqlite3_bind_text(catalog, 1, metadata.recordType.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(catalog, 2, metadata.recordId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(catalog, 3, metadata.recordScope.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int(catalog, 4, metadata.persistent ? 1 : 0);
+                sqlite3_bind_int64(catalog, 5, metadata.createdAt != 0 ? metadata.createdAt : now);
+                sqlite3_bind_int64(catalog, 6, metadata.updatedAt != 0 ? metadata.updatedAt : now);
+                sqlite3_bind_text(catalog, 7, metadata.definitionFingerprint.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int64(catalog, 8, metadata.creatorAccountId);
+                sqlite3_bind_int64(catalog, 9, metadata.creatorCharacterId);
+                sqlite3_bind_text(catalog, 10, metadata.creationSource.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int(catalog, 11, metadata.schemaVersion);
+                sqlite3_bind_int(catalog, 12, metadata.validationVersion);
+                checkSqlite(sqlite3_step(catalog), mDb, "commitDynamicRecordRequest(catalog)");
+                sqlite3_reset(catalog);
+                sqlite3_clear_bindings(catalog);
+
+                sqlite3_bind_text(clearDependencies, 1, record.recordType.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(clearDependencies, 2, record.recordId.c_str(), -1, SQLITE_TRANSIENT);
+                checkSqlite(sqlite3_step(clearDependencies), mDb, "commitDynamicRecordRequest(clearDependencies)");
+                sqlite3_reset(clearDependencies);
+                sqlite3_clear_bindings(clearDependencies);
+
+                int64_t dependencyIndex = 0;
+                for (const std::string& dependencyId : entry.dependencyRecordIds)
+                {
+                    sqlite3_bind_text(dependency, 1, dependencyId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(dependency, 2, record.recordType.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(dependency, 3, record.recordId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int64(dependency, 4, dependencyIndex++);
+                    checkSqlite(sqlite3_step(dependency), mDb, "commitDynamicRecordRequest(dependency)");
+                    sqlite3_reset(dependency);
+                    sqlite3_clear_bindings(dependency);
+                }
+            }
+            sqlite3_finalize(persisted);
+            sqlite3_finalize(catalog);
+            sqlite3_finalize(clearDependencies);
+            sqlite3_finalize(dependency);
+
+            if (commit.inventory)
+            {
+                const std::string characterKey = std::to_string(commit.characterId);
+                sqlite3_stmt* clearInventory = prepare("DELETE FROM character_inventory WHERE character_id=?1");
+                sqlite3_bind_int64(clearInventory, 1, commit.characterId);
+                checkSqlite(sqlite3_step(clearInventory), mDb, "commitDynamicRecordRequest(clearInventory)");
+                sqlite3_finalize(clearInventory);
+
+                sqlite3_stmt* insertInventory = prepare(
+                    "INSERT INTO character_inventory(character_id, item_index, ref_id, item_count, charge,"
+                    " enchantment_charge, soul, instance_id) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)");
+                for (std::size_t i = 0; i < commit.inventory->size(); ++i)
+                {
+                    const Item& item = (*commit.inventory)[i];
+                    sqlite3_bind_int64(insertInventory, 1, commit.characterId);
+                    sqlite3_bind_int(insertInventory, 2, static_cast<int>(i));
+                    sqlite3_bind_text(insertInventory, 3, item.refId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int(insertInventory, 4, item.count);
+                    sqlite3_bind_int(insertInventory, 5, item.charge);
+                    sqlite3_bind_double(insertInventory, 6, item.enchantmentCharge);
+                    sqlite3_bind_text(insertInventory, 7, item.soul.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int64(insertInventory, 8, item.instanceId);
+                    checkSqlite(sqlite3_step(insertInventory), mDb, "commitDynamicRecordRequest(inventory)");
+                    sqlite3_reset(insertInventory);
+                    sqlite3_clear_bindings(insertInventory);
+                }
+                sqlite3_finalize(insertInventory);
+
+                sqlite3_stmt* clearLinks = prepare(
+                    "DELETE FROM world_dynamic_record_links"
+                    " WHERE link_kind='inventory_item' AND owner_a=?1 AND owner_b='' AND owner_c=''");
+                sqlite3_bind_text(clearLinks, 1, characterKey.c_str(), -1, SQLITE_TRANSIENT);
+                checkSqlite(sqlite3_step(clearLinks), mDb, "commitDynamicRecordRequest(clearInventoryLinks)");
+                sqlite3_finalize(clearLinks);
+
+                sqlite3_stmt* insertLink = prepare(
+                    "INSERT OR REPLACE INTO world_dynamic_record_links(record_id, link_kind, owner_a, owner_b, owner_c,"
+                    " owner_index) VALUES(?1, 'inventory_item', ?2, '', '', ?3)");
+                for (std::size_t i = 0; i < commit.inventory->size(); ++i)
+                {
+                    const Item& item = (*commit.inventory)[i];
+                    sqlite3_bind_text(insertLink, 1, item.refId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(insertLink, 2, characterKey.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int64(insertLink, 3, item.instanceId != 0 ? item.instanceId : static_cast<int64_t>(i));
+                    checkSqlite(sqlite3_step(insertLink), mDb, "commitDynamicRecordRequest(inventoryLink)");
+                    sqlite3_reset(insertLink);
+                    sqlite3_clear_bindings(insertLink);
+                }
+                sqlite3_finalize(insertLink);
+            }
+
+            sqlite3_stmt* updateRevision = prepare(
+                "UPDATE characters SET inventory_revision=?1, inventory_saved=MAX(inventory_saved, ?2),"
+                " last_seen=?3 WHERE id=?4 AND account_id=?5 AND inventory_revision=?6");
+            sqlite3_bind_int64(updateRevision, 1, static_cast<sqlite3_int64>(commit.resultingInventoryRevision));
+            sqlite3_bind_int(updateRevision, 2, commit.inventory ? 1 : 0);
+            sqlite3_bind_int64(updateRevision, 3, now);
+            sqlite3_bind_int64(updateRevision, 4, commit.characterId);
+            sqlite3_bind_int64(updateRevision, 5, commit.accountId);
+            sqlite3_bind_int64(updateRevision, 6, static_cast<sqlite3_int64>(commit.expectedInventoryRevision));
+            checkSqlite(sqlite3_step(updateRevision), mDb, "commitDynamicRecordRequest(updateRevision)");
+            if (sqlite3_changes(mDb) != 1)
+                throw std::runtime_error("[PlayerDB] inventory revision changed during dynamic record commit");
+            sqlite3_finalize(updateRevision);
+
+            sqlite3_stmt* request = prepare(
+                "INSERT INTO craft_requests(account_id, character_id, request_id, request_hash, status,"
+                " result_payload, created_at, updated_at) VALUES(?1, ?2, ?3, ?4, 'accepted', ?5, ?6, ?6)");
+            sqlite3_bind_int64(request, 1, commit.accountId);
+            sqlite3_bind_int64(request, 2, commit.characterId);
+            sqlite3_bind_text(request, 3, commit.requestId.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(request, 4, commit.requestHash.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_blob(request, 5, commit.resultPayload.data(), static_cast<int>(commit.resultPayload.size()), SQLITE_TRANSIENT);
+            sqlite3_bind_int64(request, 6, now);
+            checkSqlite(sqlite3_step(request), mDb, "commitDynamicRecordRequest(request)");
+            sqlite3_finalize(request);
+
+            exec("COMMIT");
+            return DynamicRecordCommitStatus::Committed;
+        }
+        catch (...)
+        {
+            try
+            {
+                exec("ROLLBACK");
+            }
+            catch (...)
+            {
+            }
+            throw;
+        }
+    }
+
     std::vector<DynamicRecordCatalogEntry> PlayerDatabase::loadDynamicRecordCatalog()
     {
         sqlite3_stmt* s = prepare(
             "SELECT c.record_type, c.record_id, c.record_scope, c.is_persistent, c.created_at, c.updated_at,"
+            " c.definition_fingerprint, c.creator_account_id, c.creator_character_id, c.creation_source,"
+            " c.schema_version, c.validation_version,"
             " COALESCE(("
             "   SELECT COUNT(*) FROM world_dynamic_record_links l WHERE l.record_id = c.record_id"
             " ), 0)"
@@ -2563,7 +2962,13 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
             record.persistent = sqlite3_column_int(s, 3) != 0;
             record.createdAt = sqlite3_column_int64(s, 4);
             record.updatedAt = sqlite3_column_int64(s, 5);
-            record.linkCount = sqlite3_column_int64(s, 6);
+            record.definitionFingerprint = textCol(6);
+            record.creatorAccountId = sqlite3_column_int64(s, 7);
+            record.creatorCharacterId = sqlite3_column_int64(s, 8);
+            record.creationSource = textCol(9);
+            record.schemaVersion = static_cast<uint16_t>(sqlite3_column_int(s, 10));
+            record.validationVersion = static_cast<uint16_t>(sqlite3_column_int(s, 11));
+            record.linkCount = sqlite3_column_int64(s, 12);
             records.push_back(std::move(record));
         }
 
@@ -2575,12 +2980,23 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
     {
         sqlite3_stmt* s = prepare(
             "INSERT INTO world_dynamic_record_catalog(record_type, record_id, record_scope, is_persistent, created_at, "
-            "updated_at)"
-            " VALUES(?1, ?2, ?3, ?4, COALESCE(?5, strftime('%s', 'now')), ?6)"
+            "updated_at, definition_fingerprint, creator_account_id, creator_character_id, creation_source,"
+            "schema_version, validation_version)"
+            " VALUES(?1, ?2, ?3, ?4, COALESCE(?5, strftime('%s', 'now')), ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
             " ON CONFLICT(record_type, record_id) DO UPDATE SET"
             " record_scope=excluded.record_scope,"
             " is_persistent=excluded.is_persistent,"
-            " updated_at=excluded.updated_at");
+            " updated_at=excluded.updated_at,"
+            " definition_fingerprint=CASE WHEN excluded.definition_fingerprint=''"
+            "   THEN world_dynamic_record_catalog.definition_fingerprint ELSE excluded.definition_fingerprint END,"
+            " creator_account_id=CASE WHEN world_dynamic_record_catalog.creator_account_id=0"
+            "   THEN excluded.creator_account_id ELSE world_dynamic_record_catalog.creator_account_id END,"
+            " creator_character_id=CASE WHEN world_dynamic_record_catalog.creator_character_id=0"
+            "   THEN excluded.creator_character_id ELSE world_dynamic_record_catalog.creator_character_id END,"
+            " creation_source=CASE WHEN world_dynamic_record_catalog.creation_source=''"
+            "   THEN excluded.creation_source ELSE world_dynamic_record_catalog.creation_source END,"
+            " schema_version=MAX(world_dynamic_record_catalog.schema_version, excluded.schema_version),"
+            " validation_version=MAX(world_dynamic_record_catalog.validation_version, excluded.validation_version)");
 
         const int64_t createdAt = record.createdAt != 0 ? record.createdAt : static_cast<int64_t>(std::time(nullptr));
         const int64_t updatedAt = record.updatedAt != 0 ? record.updatedAt : static_cast<int64_t>(std::time(nullptr));
@@ -2591,6 +3007,12 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         sqlite3_bind_int(s, 4, record.persistent ? 1 : 0);
         sqlite3_bind_int64(s, 5, createdAt);
         sqlite3_bind_int64(s, 6, updatedAt);
+        sqlite3_bind_text(s, 7, record.definitionFingerprint.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(s, 8, record.creatorAccountId);
+        sqlite3_bind_int64(s, 9, record.creatorCharacterId);
+        sqlite3_bind_text(s, 10, record.creationSource.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(s, 11, record.schemaVersion);
+        sqlite3_bind_int(s, 12, record.validationVersion);
         checkSqlite(sqlite3_step(s), mDb, "upsertDynamicRecordCatalog");
         sqlite3_finalize(s);
     }

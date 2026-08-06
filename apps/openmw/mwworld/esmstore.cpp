@@ -486,6 +486,15 @@ namespace MWWorld
         mStoreImp->mIds[id] = type;
     }
 
+    void ESMStore::restoreIdTypeAfterDynamicErase(const ESM::RefId& id)
+    {
+        const auto staticIt = mStoreImp->mStaticIds.find(id);
+        if (staticIt != mStoreImp->mStaticIds.end())
+            mStoreImp->mIds[id] = staticIt->second;
+        else
+            mStoreImp->mIds.erase(id);
+    }
+
     ESM::LuaScriptsCfg ESMStore::getLuaScriptsCfg() const
     {
         ESM::LuaScriptsCfg cfg;

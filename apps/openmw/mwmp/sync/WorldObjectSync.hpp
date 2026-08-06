@@ -87,6 +87,7 @@ namespace mwmp
                                   const Position& pos);
 
         void onServerContainer   (const ContainerRecord& record, ContainerAction action);
+        void onDynamicRecordsChanged() { update(RETRY_RATE); }
 
         // --- lookup ---
         MWWorld::Ptr getObjectByMpNum(uint32_t mpNum) const;

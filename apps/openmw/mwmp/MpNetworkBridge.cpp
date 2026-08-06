@@ -3,13 +3,18 @@
 #include <components/debug/debuglog.hpp>
 #include <components/openmw-mp/Packets/Lua/PacketLuaEvent.hpp>
 #include <components/openmw-mp/Packets/Lua/PacketLuaStorage.hpp>
+#include <components/openmw-mp/Records/EsmDynamicRecordConversion.hpp>
+#include <components/lua/scriptscontainer.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
 #include "../mwlua/context.hpp"
 #include "../mwlua/object.hpp"
+#include "../mwlua/magictypebindings.hpp"
+#include "../mwlua/types/types.hpp"
 #include "Main.hpp"
 #include "network/Client.hpp"
+#include "records/RecordCreationManager.hpp"
 #include "sync/ActorSync.hpp"
 #include "sync/WorldObjectSync.hpp"
 
@@ -32,6 +37,146 @@ namespace mwmp
                 return sol::nullopt;
 
             return mpNum;
+        }
+
+        records::CreateOperation parseCreateOperation(std::string_view value)
+        {
+            if (value.empty() || value == "custom")
+                return records::CreateOperation::CustomRecord;
+            if (value == "alchemy")
+                return records::CreateOperation::Alchemy;
+            if (value == "enchanting")
+                return records::CreateOperation::Enchanting;
+            throw std::invalid_argument("Unsupported multiplayer record operation: " + std::string(value));
+        }
+
+        records::DynamicRecordDefinition parseRecordDefinition(
+            std::string_view type, const sol::object& value)
+        {
+            if (type == "potion")
+            {
+                if (value.is<ESM::Potion>()) return records::fromEsmRecord(value.as<ESM::Potion>());
+                if (value.is<sol::table>()) return records::fromEsmRecord(MWLua::tableToPotion(value.as<sol::table>()));
+            }
+            else if (type == "enchantment")
+            {
+                if (value.is<ESM::Enchantment>()) return records::fromEsmRecord(value.as<ESM::Enchantment>());
+                if (value.is<sol::table>())
+                    return records::fromEsmRecord(MWLua::tableToEnchantment(value.as<sol::table>()));
+            }
+            else if (type == "weapon")
+            {
+                if (value.is<ESM::Weapon>()) return records::fromEsmRecord(value.as<ESM::Weapon>());
+                if (value.is<sol::table>()) return records::fromEsmRecord(MWLua::tableToWeapon(value.as<sol::table>()));
+            }
+            else if (type == "armor")
+            {
+                if (value.is<ESM::Armor>()) return records::fromEsmRecord(value.as<ESM::Armor>());
+                if (value.is<sol::table>()) return records::fromEsmRecord(MWLua::tableToArmor(value.as<sol::table>()));
+            }
+            else if (type == "clothing")
+            {
+                if (value.is<ESM::Clothing>()) return records::fromEsmRecord(value.as<ESM::Clothing>());
+                if (value.is<sol::table>())
+                    return records::fromEsmRecord(MWLua::tableToClothing(value.as<sol::table>()));
+            }
+            else if (type == "book")
+            {
+                if (value.is<ESM::Book>()) return records::fromEsmRecord(value.as<ESM::Book>());
+                if (value.is<sol::table>()) return records::fromEsmRecord(MWLua::tableToBook(value.as<sol::table>()));
+            }
+            throw std::invalid_argument("Record definition does not match supported type '" + std::string(type) + "'");
+        }
+
+        void setTemporaryEnchantmentReference(
+            records::DynamicRecordDefinition& definition, const std::string& temporaryKey)
+        {
+            if (temporaryKey.empty())
+                return;
+            std::visit(
+                [&](auto& record) {
+                    using Record = std::decay_t<decltype(record)>;
+                    if constexpr (std::is_same_v<Record, records::Weapon> || std::is_same_v<Record, records::Armor>
+                        || std::is_same_v<Record, records::Clothing> || std::is_same_v<Record, records::Book>)
+                    {
+                        record.enchantment.kind = records::ReferenceKind::TemporaryKey;
+                        record.enchantment.value = temporaryKey;
+                    }
+                    else
+                        throw std::invalid_argument("enchantmentKey is valid only for enchantable item records");
+                },
+                definition.data);
+        }
+
+        records::RecordCreateRequest parseCreateRequest(
+            const sol::table& proposal, const std::string& scriptPackageId)
+        {
+            records::RecordCreateRequest request;
+            request.requestId = proposal.get_or("requestId", std::string{});
+            request.operation = parseCreateOperation(proposal.get_or("operation", std::string("custom")));
+            request.scriptPackageId = scriptPackageId;
+            request.evidence = proposal.get_or("evidence", std::string{});
+
+            sol::object recordsObject = proposal["records"];
+            if (!recordsObject.is<sol::table>())
+                throw std::invalid_argument("mp.records.request requires an array field named 'records'");
+            sol::table draftRecords = recordsObject.as<sol::table>();
+            for (std::size_t index = 1; index <= draftRecords.size(); ++index)
+            {
+                sol::object draftObject = draftRecords[index];
+                if (!draftObject.is<sol::table>())
+                    throw std::invalid_argument("Each mp.records record draft must be a table");
+                const sol::table draftTable = draftObject.as<sol::table>();
+                records::RecordDraft draft;
+                draft.temporaryKey = draftTable.get_or("key", std::string{});
+                const std::string type = draftTable.get_or("type", std::string{});
+                sol::object definition = draftTable["definition"];
+                if (draft.temporaryKey.empty() || type.empty() || definition == sol::nil)
+                    throw std::invalid_argument("Each record draft requires key, type, and definition");
+                draft.definition = parseRecordDefinition(type, definition);
+                const std::string enchantmentKey = draftTable.get_or("enchantmentKey", std::string{});
+                setTemporaryEnchantmentReference(draft.definition, enchantmentKey);
+                request.bundle.records.push_back(std::move(draft));
+                if (!enchantmentKey.empty())
+                    request.bundle.dependencies.push_back(
+                        { request.bundle.records.back().temporaryKey, enchantmentKey });
+            }
+
+            sol::object dependenciesObject = proposal["dependencies"];
+            if (dependenciesObject.is<sol::table>())
+            {
+                sol::table dependencies = dependenciesObject.as<sol::table>();
+                for (std::size_t index = 1; index <= dependencies.size(); ++index)
+                {
+                    sol::object edgeObject = dependencies[index];
+                    if (!edgeObject.is<sol::table>())
+                        throw std::invalid_argument("Each record dependency must be a table");
+                    const sol::table edge = edgeObject.as<sol::table>();
+                    request.bundle.dependencies.push_back(
+                        { edge.get_or("owner", std::string{}), edge.get_or("dependency", std::string{}) });
+                }
+            }
+            return request;
+        }
+
+        sol::table makeLuaCreateResult(sol::state_view lua, const records::RecordCreateResult& result)
+        {
+            sol::table value(lua, sol::create);
+            value["requestId"] = result.requestId;
+            value["accepted"] = result.accepted;
+            value["error"] = std::string(records::getCreateErrorCode(result.error));
+            value["inventoryRevision"] = result.inventoryRevision;
+            value["commitSequence"] = result.commitSequence;
+            sol::table created(lua, sol::create);
+            for (const records::CreatedRecord& record : result.records)
+            {
+                sol::table mapping(lua, sol::create);
+                mapping["id"] = record.recordId;
+                mapping["reused"] = record.reused;
+                created[record.temporaryKey] = LuaUtil::makeReadOnly(mapping);
+            }
+            value["records"] = LuaUtil::makeReadOnly(created);
+            return LuaUtil::makeReadOnly(value);
         }
     }
 
@@ -120,10 +265,19 @@ namespace mwmp
         }
     }
 
-    sol::table initClientMpPackage(const MWLua::Context& context)
+    sol::object initClientMpPackage(const MWLua::Context& context)
     {
         sol::state_view lua = context.sol();
+        return sol::make_object(lua, sol::as_function([context](const sol::table& hiddenData) {
+        sol::state_view lua = context.sol();
         sol::table mp(lua, sol::create);
+
+        std::string scriptPackageId;
+        const sol::optional<LuaUtil::ScriptId> scriptId
+            = hiddenData.get<sol::optional<LuaUtil::ScriptId>>(LuaUtil::ScriptsContainer::sScriptIdKey);
+        if (scriptId && scriptId->mIndex >= 0
+            && scriptId->mIndex < static_cast<int>(context.mLua->getConfiguration().size()))
+            scriptPackageId = context.mLua->getConfiguration()[scriptId->mIndex].mScriptPath.value();
 
         mp.set_function("sendToServer", [context](std::string eventName, const sol::object& eventData) {
             if (!Main::isInitialised() || !Main::isConnected())
@@ -140,6 +294,33 @@ namespace mwmp
         mp.set_function("isServer", []() -> bool {
             return false;
         });
+
+        sol::table recordApi(lua, sol::create);
+        recordApi.set_function("isAvailable", [] { return Main::isInitialised() && Main::isConnected(); });
+        recordApi.set_function("request",
+            [scriptPackageId, lua](const sol::table& proposal, sol::main_protected_function callback) {
+                if (!Main::isInitialised() || !Main::isConnected())
+                    throw std::runtime_error("mp.records.request requires an active multiplayer connection");
+                records::RecordCreateRequest request = parseCreateRequest(proposal, scriptPackageId);
+                if (request.requestId.empty())
+                    request.requestId = Main::get().getRecordCreationManager().nextRequestId();
+                const std::string requestId = request.requestId;
+                Main::get().getRecordCreationManager().request(std::move(request),
+                    [lua, callback = std::move(callback), scriptPackageId](
+                        const records::RecordCreateResult& result) mutable {
+                        try
+                        {
+                            LuaUtil::call(callback, makeLuaCreateResult(lua, result));
+                        }
+                        catch (const std::exception& e)
+                        {
+                            Log(Debug::Error) << "[MP] mp.records callback failed script="
+                                              << scriptPackageId << " error=" << e.what();
+                        }
+                    });
+                return requestId;
+            });
+        mp["records"] = LuaUtil::makeReadOnly(recordApi);
 
         mp.set_function("hasActorAuthority", [](const std::string& cellId) -> bool {
             return Main::isInitialised() && Main::isConnected()
@@ -185,5 +366,6 @@ namespace mwmp
             }));
 
         return LuaUtil::makeReadOnly(mp);
+        }));
     }
 }

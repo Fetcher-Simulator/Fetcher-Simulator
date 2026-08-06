@@ -1,0 +1,52 @@
+--- Multiplayer integration. This package is present in multiplayer-enabled
+-- builds. Runtime record creation is asynchronous and server-authoritative.
+-- @module mp
+-- @usage local mp = require('openmw.mp')
+
+--- @{#Records}: Server-authoritative runtime records.
+-- @field [parent=#mp] #Records records
+
+--- Whether a multiplayer connection is currently active.
+-- @function [parent=#Records] isAvailable
+-- @return #boolean
+
+--- Submit an atomic bundle of record drafts. The server derives the caller's
+-- script identity from synchronized configuration; a proposal cannot spoof it.
+-- Generic proposals are default-deny and require an exact server capability
+-- for both the script path and every record type.
+--
+-- Supported framework types are `potion`, `enchantment`, `weapon`, `armor`,
+-- `clothing`, and `book`. A server can enable only a subset. Each `definition`
+-- may be an upstream typed record draft or its record-definition table. Drafts
+-- have no authoritative ID and cannot be placed, equipped, or saved.
+--
+-- The callback receives a read-only table with `requestId`, `accepted`,
+-- machine-readable `error`, `inventoryRevision`, `commitSequence`, and a
+-- `records` map. Each mapping contains canonical `id` and `reused`. An accepted
+-- callback is delayed until every returned ID resolves in the local record
+-- store and the associated inventory revision has been observed.
+-- @function [parent=#Records] request
+-- @param #table proposal Optional `requestId`, `operation` (`custom` by
+-- default), `records`, optional `dependencies`, and optional opaque `evidence`.
+-- A record is `{ key=..., type=..., definition=..., enchantmentKey=... }`.
+-- A dependency is `{ owner=..., dependency=... }`.
+-- @param #function callback Called exactly once for a result or disconnect.
+-- @return #string Stable request ID.
+-- @usage
+-- local mp = require('openmw.mp')
+-- local types = require('openmw.types')
+-- local draft = types.Potion.createRecordDraft({
+--     name = 'Example', model = 'm\\misc_potion_standard_01.nif',
+--     icon = 'm\\tx_potion_standard_01.dds', weight = 1, value = 10,
+--     effects = { { id = 'restorehealth', magnitudeMin = 1, magnitudeMax = 1 } },
+-- })
+-- mp.records.request({
+--     records = { { key = 'potion', type = 'potion', definition = draft } },
+-- }, function(result)
+--     if result.accepted then
+--         local record = types.Potion.records[result.records.potion.id]
+--         -- `record` is guaranteed to be resolvable here.
+--     end
+-- end)
+
+return nil

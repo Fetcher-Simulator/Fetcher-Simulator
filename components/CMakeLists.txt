@@ -524,13 +524,16 @@ add_component_dir(testing
 
 if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
     add_component_dir (openmw-mp
-        MasterServerProtocol
+        MasterServerProtocol ContentManifest
     )
     add_component_dir (openmw-mp/Base
         BaseStructs BasePlayer BaseActor
     )
     add_component_dir (openmw-mp/Packets
         BasePacket Serialization
+    )
+    add_component_dir (openmw-mp/Records
+        DynamicRecordCodec DynamicRecordFingerprint DynamicRecordValidation EsmDynamicRecordConversion RecordCreateProtocol
     )
 endif()
 

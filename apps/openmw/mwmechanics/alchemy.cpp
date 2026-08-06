@@ -25,6 +25,10 @@
 #include "creaturestats.hpp"
 #include "magiceffects.hpp"
 
+#ifdef BUILD_MULTIPLAYER
+#include "../mwmp/Main.hpp"
+#endif
+
 namespace
 {
     constexpr size_t sNumEffects = 4;
@@ -544,6 +548,13 @@ MWMechanics::Alchemy::Result MWMechanics::Alchemy::getReadyStatus() const
 
 MWMechanics::Alchemy::Result MWMechanics::Alchemy::create(const std::string& name, int& count)
 {
+#ifdef BUILD_MULTIPLAYER
+    if (mwmp::Main::isConnected())
+    {
+        count = 0;
+        return Result_ServerAuthorityRequired;
+    }
+#endif
     setPotionName(name);
     Result readyStatus = getReadyStatus();
 

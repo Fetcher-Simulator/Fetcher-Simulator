@@ -125,6 +125,9 @@ namespace mwmp
             std::vector<Item> items;
             enum class Action { Set = 0, Add, Remove };
             Action action = Action::Set;
+            // Server-observed optimistic concurrency token. Client mutations
+            // carry the last acknowledged value; authoritative replies advance it.
+            uint64_t revision = 0;
         } inventoryChanges;
 
         // ------------------------------------------------------------------

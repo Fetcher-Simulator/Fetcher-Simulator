@@ -180,6 +180,7 @@ namespace MWWorld
         void removeMissingObjects(Store<T>& store);
 
         void setIdType(const ESM::RefId& id, ESM::RecNameInts type);
+        void restoreIdTypeAfterDynamicErase(const ESM::RefId& id);
 
         using LuaContent = std::variant<ESM::LuaScriptsCfg, // data from an omwaddon
             std::filesystem::path>; // path to an omwscripts file
@@ -264,6 +265,19 @@ namespace MWWorld
                 setIdType(ptr->mId, T::sRecordId);
             }
             return ptr;
+        }
+
+        /// Remove a record from dynamic storage and restore the global ID index
+        /// to any underlying static record with the same ID.
+        template <class T>
+        bool eraseDynamic(const ESM::RefId& id)
+        {
+            Store<T>& store = getWritable<T>();
+            if (!store.erase(id))
+                return false;
+
+            restoreIdTypeAfterDynamicErase(id);
+            return true;
         }
 
         template <class T>

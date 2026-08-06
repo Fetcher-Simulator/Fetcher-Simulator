@@ -25,6 +25,7 @@
 #include <components/openmw-mp/Base/DynamicRecord.hpp>
 #include <components/openmw-mp/NetworkMessages.hpp>
 #include <components/openmw-mp/Packets/Object/PacketDoorState.hpp>
+#include <components/openmw-mp/Records/DynamicRecordTypes.hpp>
 
 #include "LuaServerContext.hpp"
 #include "AdminHttpServer.hpp"
@@ -62,6 +63,9 @@ struct ConnectedClient
     bool                hasRestoredInventorySnapshot = false;
     bool                hasRestoredEquipmentSnapshot = false;
     bool                acceptedPlayerInventoryThisSession = false;
+    uint64_t            inventoryRevision = 0;
+    uint64_t            runtimeRecordRateWindowStartMs = 0;
+    std::size_t         runtimeRecordRequestsInWindow = 0;
     bool                acceptedPlayerEquipmentThisSession = false;
     uint64_t            playerInventoryRestoreGuardUntilMs = 0;
     uint64_t            playerEquipmentRestoreGuardUntilMs = 0;
@@ -115,6 +119,7 @@ struct ConnectedClient
 };
 
 class PacketPlayerDeath;
+class PacketHandshakeResponse;
 
 // ---------------------------------------------------------------------------
 // MPServer — dedicated multiplayer server.
@@ -270,6 +275,7 @@ private:
 
     // ── Packet handlers ───────────────────────────────────────────────────
     void handleHandshake          (ConnectedClient& c, const uint8_t* data, size_t size);
+    void populateRuntimeManifest  (PacketHandshakeResponse& response) const;
     void handleCharacterSelect    (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleChallengeResponse  (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleLinkKeyRequest     (ConnectedClient& c, const uint8_t* data, size_t size);
@@ -286,6 +292,7 @@ private:
     void handlePlayerAttack     (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerCast       (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerInventory  (ConnectedClient& c, const uint8_t* data, size_t size);
+    void handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerJournal    (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerStatsDynamic(ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerDeath      (ConnectedClient& c, const uint8_t* data, size_t size);
@@ -372,6 +379,7 @@ private:
     bool reconcileInventoryInstanceIds(ConnectedClient& c, std::vector<Item>& items);
     bool reconcileEquipmentInstanceIds(ConnectedClient& c);
     bool grantInventoryItem(ConnectedClient& c, const std::string& refId, int count);
+    bool isAuthoritativeRecordReference(std::string_view refId) const;
     struct CellActorState;
     bool worldMpNumInUse(uint32_t mpNum) const;
     std::optional<uint32_t> reserveWorldMpNum();
@@ -652,6 +660,13 @@ private:
     bool                          mModChecksRequireExactList = false;
     std::string                   mModChecksHelpUrl;
     std::vector<ContentFileRule>  mRequiredContentFiles;
+    std::vector<ContentFileRule>  mRequiredLuaScripts;
+    std::string                   mResolvedContentFingerprint;
+    std::unordered_map<std::string, std::unordered_set<records::RecordType>> mRuntimeRecordCapabilities;
+    std::unordered_set<std::string> mRuntimeRecordContentIds;
+    std::unordered_set<std::string> mRuntimeRecordAssets;
+    std::size_t                   mRuntimeRecordRequestsPerMinute = 30;
+    std::size_t                   mRuntimeRecordMaxPerCharacter = 2048;
     enum class JournalSharingMode { Player, Group, Server };
     JournalSharingMode             mJournalSharingMode = JournalSharingMode::Player;
     std::vector<JournalSharingGroup> mJournalSharingGroups;

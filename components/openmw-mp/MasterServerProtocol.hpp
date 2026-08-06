@@ -10,7 +10,7 @@
 
 namespace mwmp
 {
-    inline constexpr int MultiplayerProtocolVersion = 1;
+    inline constexpr int MultiplayerProtocolVersion = 2;
     inline constexpr std::string_view MultiplayerBuildVersion = "0.1.0";
     inline constexpr std::string_view DefaultMasterServerUrl = "https://master.fetchers.org";
 

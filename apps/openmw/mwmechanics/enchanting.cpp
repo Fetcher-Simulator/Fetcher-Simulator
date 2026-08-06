@@ -18,6 +18,10 @@
 #include "spellutil.hpp"
 #include "weapontype.hpp"
 
+#ifdef BUILD_MULTIPLAYER
+#include "../mwmp/Main.hpp"
+#endif
+
 namespace MWMechanics
 {
     Enchanting::Enchanting()
@@ -63,6 +67,9 @@ namespace MWMechanics
 
     bool Enchanting::create()
     {
+        if (requiresServerAuthority())
+            return false;
+
         const MWWorld::Ptr& player = getPlayer();
         MWWorld::ContainerStore& store = player.getClass().getContainerStore(player);
         ESM::Enchantment enchantment;
@@ -114,6 +121,15 @@ namespace MWMechanics
         store.add(newItemId, count);
 
         return true;
+    }
+
+    bool Enchanting::requiresServerAuthority() const
+    {
+#ifdef BUILD_MULTIPLAYER
+        return mwmp::Main::isConnected();
+#else
+        return false;
+#endif
     }
 
     void Enchanting::nextCastStyle()

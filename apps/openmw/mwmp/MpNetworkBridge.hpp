@@ -56,7 +56,7 @@ namespace mwmp
         std::vector<LuaEvent> mOutboundEvents;
     };
 
-    sol::table initClientMpPackage(const MWLua::Context& context);
+    sol::object initClientMpPackage(const MWLua::Context& context);
 }
 
 #endif // OPENMW_MWMP_MPNETWORKBRIDGE_HPP

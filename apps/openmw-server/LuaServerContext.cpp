@@ -764,6 +764,66 @@ std::vector<ContentFileRule> LuaServerContext::getConfigContentFileRules(const s
     return rules;
 }
 
+std::vector<std::string> LuaServerContext::getConfigStringList(const std::string& key) const
+{
+    std::vector<std::string> values;
+    if (!mLoaded)
+        return values;
+    const std::optional<sol::table> config = loadConfigTable(*mLua);
+    if (!config)
+        return values;
+    sol::object object = (*config)[key];
+    if (!object.is<sol::table>())
+        return values;
+    const sol::table entries = object.as<sol::table>();
+    for (std::size_t index = 1; index <= entries.size(); ++index)
+    {
+        const sol::optional<std::string> value = entries.get<sol::optional<std::string>>(index);
+        if (value && !value->empty())
+            values.push_back(*value);
+        else
+            Log(Debug::Warning) << "[LuaServerContext] Ignored invalid Config." << key
+                                << " entry at index " << index;
+    }
+    return values;
+}
+
+std::vector<RuntimeRecordCapability> LuaServerContext::getConfigRuntimeRecordCapabilities(
+    const std::string& key) const
+{
+    std::vector<RuntimeRecordCapability> capabilities;
+    if (!mLoaded)
+        return capabilities;
+
+    const std::optional<sol::table> config = loadConfigTable(*mLua);
+    if (!config)
+        return capabilities;
+    sol::object value = (*config)[key];
+    if (!value.is<sol::table>())
+        return capabilities;
+
+    for (const auto& packageEntry : value.as<sol::table>())
+    {
+        if (!packageEntry.first.is<std::string>() || !packageEntry.second.is<sol::table>())
+        {
+            Log(Debug::Warning) << "[LuaServerContext] Ignored invalid Config." << key << " entry";
+            continue;
+        }
+        RuntimeRecordCapability capability;
+        capability.packageId = packageEntry.first.as<std::string>();
+        const sol::table types = packageEntry.second.as<sol::table>();
+        for (std::size_t index = 1; index <= types.size(); ++index)
+        {
+            const sol::optional<std::string> type = types.get<sol::optional<std::string>>(index);
+            if (type && !type->empty())
+                capability.recordTypes.push_back(*type);
+        }
+        if (!capability.packageId.empty() && !capability.recordTypes.empty())
+            capabilities.push_back(std::move(capability));
+    }
+    return capabilities;
+}
+
 std::vector<JournalSharingGroup> LuaServerContext::getConfigJournalGroups(const std::string& key) const
 {
     std::vector<JournalSharingGroup> groups;

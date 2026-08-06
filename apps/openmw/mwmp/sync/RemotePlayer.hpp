@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -78,6 +79,7 @@ namespace mwmp
         // Cosmetic inventory delta: keep remote NPC ContainerStore consistent
         // with what they're carrying so equipment renders correctly.
         void onInventoryUpdate   (const BasePlayer& state);
+        void onDynamicRecordsChanged();
 
         // Accessors
         uint32_t           getGuid()     const { return mGuid; }
@@ -132,6 +134,8 @@ namespace mwmp
         bool         mMechanicsRegistered = false;
         bool         mEquipmentSoundReady = false;
         bool         mInventorySoundReady = false;
+        std::optional<BasePlayer> mPendingRecordInventory;
+        std::optional<BasePlayer> mPendingRecordEquipment;
         std::unique_ptr<Nameplate> mNameplate;
         std::string mAppliedVehicleProfileId;
         bool mHasVehicleEntryHoldPosition = false;
@@ -285,6 +289,7 @@ namespace mwmp
 
         void updateNonPassengers(float dt);
         void updatePassengers(float dt);
+        void onDynamicRecordsChanged();
         void refreshLocalDriverPassengerAttachments();
 
         size_t count() const { return mPlayers.size(); }

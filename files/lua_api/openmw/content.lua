@@ -1,6 +1,10 @@
 ---
 -- Allows for manipulation of the data loaded from content files while the game is first started.
 -- Records can be created and deleted using this package as if a content file had done so.
+-- In multiplayer this remains a deterministic load-time content operation. It
+-- never allocates a `$custom_*` runtime ID or sends a per-player request. The
+-- resolved record view and configured Lua sources are compared during the
+-- connection handshake; incompatible peers are rejected.
 -- @context load
 -- @module content
 -- @usage local content = require('openmw.content')

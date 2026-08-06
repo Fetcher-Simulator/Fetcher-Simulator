@@ -28,6 +28,7 @@ namespace mwmp
     class WorldStateSync;
     class ChatWindow;
     class MpNetworkBridge;
+    class RecordCreationManager;
 
     // -----------------------------------------------------------------------
     // Main — singleton that owns every multiplayer subsystem.
@@ -72,6 +73,7 @@ namespace mwmp
         WorldStateSync& getWorldStateSync() { return *mWorldStateSync; }
         ChatWindow& getChatWindow() { return *mChatWindow; }
         MpNetworkBridge& getNetworkBridge() { return *mNetworkBridge; }
+        RecordCreationManager& getRecordCreationManager() { return *mRecordCreationManager; }
         bool hasChatWindow() const { return mChatWindow != nullptr; }
         GuardArrestMode getGuardArrestMode() const { return mGuardArrestMode; }
 
@@ -156,6 +158,7 @@ namespace mwmp
         std::unique_ptr<WorldStateSync> mWorldStateSync;
         std::unique_ptr<ChatWindow> mChatWindow;
         std::unique_ptr<MpNetworkBridge> mNetworkBridge;
+        std::unique_ptr<RecordCreationManager> mRecordCreationManager;
 
         std::string mPlayerName;
         bool        mWorldReady           = false;
