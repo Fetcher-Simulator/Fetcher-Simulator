@@ -164,6 +164,12 @@ local COMMANDS = {
         summary = "Inspect or edit your surf settings.",
     },
     {
+        id = "vehicle",
+        category = "Travel",
+        usage = "/vehicle <spawn [distance] [direction]|on|off>",
+        summary = "Spawn the parked pickup or toggle the vehicle visual test.",
+    },
+    {
         id = "recordtest",
         category = "Records",
         usage = "/recordtest ...",

@@ -1604,6 +1604,8 @@ local function handleChat(player, data)
 
         local vehicleHandled = customScripts.vehicleCommands.handleChat(player, data, {
             commandPrefix = COMMAND_PREFIX,
+            normalizeCellId = normalizeCellId,
+            placeAtPosition = placeAtPosition,
         })
         if vehicleHandled ~= nil then
             return vehicleHandled
