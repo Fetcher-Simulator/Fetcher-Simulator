@@ -555,6 +555,22 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
         context->queueResetCellState(cellId);
         return true;
     });
+    mp.set_function("resetAllCells", [context]() -> bool
+    {
+        if (!context)
+            return false;
+
+        context->queueResetAllCellStates();
+        return true;
+    });
+    mp.set_function("ResetAllCells", [context]() -> bool
+    {
+        if (!context)
+            return false;
+
+        context->queueResetAllCellStates();
+        return true;
+    });
 
     auto resolveActorPersistent = [context](const sol::optional<sol::table>& options) -> bool
     {

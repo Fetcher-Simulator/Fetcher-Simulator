@@ -1150,6 +1150,9 @@ bool AdminHttpServer::start(const std::string& host, int port, std::string* erro
     server.Post("/api/admin/reset-cell", [this](const httplib::Request& req, httplib::Response& res) {
         applyResponse(mImpl->handler("reset_cell", copyQueryParams(req)), res);
     });
+    server.Post("/api/admin/reset-all-cells", [this](const httplib::Request& req, httplib::Response& res) {
+        applyResponse(mImpl->handler("reset_all_cells", copyQueryParams(req)), res);
+    });
     server.Post("/api/admin/bardcraft-command", [this](const httplib::Request& req, httplib::Response& res) {
         applyResponse(mImpl->handler("bardcraft_command", copyQueryParams(req)), res);
     });

@@ -42,6 +42,7 @@ enum class OutboundLuaActionType
     RemovePlacedObject,
     RemoveGameObject,
     ResetCellState,
+    ResetAllCellStates,
     UpsertDynamicRecord,
     RemoveDynamicRecord,
     SetDynamicRecordDependencies,

@@ -197,6 +197,7 @@ public:
     bool removeActor(uint32_t mpNum, const std::string& cellId);
     bool removeGameObject(uint32_t mpNum, const std::string& cellId);
     bool resetCellStateForTesting(const std::string& cellId);
+    std::size_t resetAllCellStatesForTesting();
     bool upsertDynamicRecord(const std::string& recordType, const std::string& recordId, const std::string& data,
         const std::string& recordScope, bool persistent);
     bool removeDynamicRecord(const std::string& recordType, const std::string& recordId);

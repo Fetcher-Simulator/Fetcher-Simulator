@@ -20,6 +20,7 @@ local LOGIN_PREFIX = COMMAND_PREFIX .. "login "
 local KICK_PREFIX = COMMAND_PREFIX .. "kick "
 local DELETE_PREFIX = COMMAND_PREFIX .. "delete "
 local RESETCELL_PREFIX = COMMAND_PREFIX .. "resetcell "
+local RESETALLCELLS_COMMAND = COMMAND_PREFIX .. "resetallcells"
 local MPWHERE_PREFIX = COMMAND_PREFIX .. "mpwhere "
 local TOMP_PREFIX = COMMAND_PREFIX .. "tomp "
 local BRINGMP_PREFIX = COMMAND_PREFIX .. "bringmp "
@@ -975,6 +976,30 @@ local function handleChat(player, data)
         mp.log(string.format("[core] /resetcell by %s cell=%s spawners=%d payloads=%d",
             player.name,
             cellId,
+            removedSpawners or 0,
+            removedPayloads or 0
+        ))
+        return false
+    end
+
+    if msg == RESETALLCELLS_COMMAND then
+        if not requireAdmin(player) then
+            return false
+        end
+
+        local removedSpawners, removedPayloads = customScripts.destructibleSpawners.removeAll()
+        if not mp.resetAllCells() then
+            player:sendMessage("Failed to queue reset for all cells.")
+            return false
+        end
+
+        player:sendMessage(string.format(
+            "Queued reset for all tracked cells. Removed spawners=%d payloads=%d. Relog or reload cells before retesting.",
+            removedSpawners or 0,
+            removedPayloads or 0
+        ))
+        mp.log(string.format("[core] /resetallcells by %s spawners=%d payloads=%d",
+            player.name,
             removedSpawners or 0,
             removedPayloads or 0
         ))
