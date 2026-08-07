@@ -1,6 +1,7 @@
 #include "Server.hpp"
 #include "DynamicRecordService.hpp"
 #include "MasterServerClient.hpp"
+#include "ServerLuaRecordParser.hpp"
 #include <extern/bcrypt/bcrypt.h>
 
 // GNS C++ crypto API - CECSigningPublicKey::VerifySignature for challenge-response auth.
@@ -96,6 +97,8 @@
 // Format: specialization, attr[0], attr[1], skills[0..4][0..1], isPlayable, services
 namespace
 {
+    constexpr std::uint16_t ServerLuaValidationVersion = 3;
+
     std::string lowerAscii(std::string_view value)
     {
         std::string out(value);
@@ -3984,6 +3987,51 @@ void MPServer::loadPersistentWorldState()
             }, definition.data);
             mPlayerDb->replaceDynamicRecordDependencies(record.recordType, record.recordId, dependencies);
         }
+        else if (isCanonicalServerLuaRecordType(record.recordType))
+        {
+            // Preserve the original bytes before replacing the historical Lua
+            // table with an OMDR definition. A failed conversion leaves the
+            // live row untouched and records a durable diagnostic.
+            try
+            {
+                mPlayerDb->backupLegacyDynamicRecord(record);
+                records::DynamicRecordDefinition definition
+                    = records::canonicalize(parseServerLuaRecord(record.recordType, record.data));
+                const auto errors = records::validate(definition);
+                if (!errors.empty())
+                    throw std::runtime_error(errors.front().code + " at " + errors.front().path);
+                const std::string canonicalData = records::encodeDefinition(definition);
+                if (!upsertDynamicRecord(record.recordType, record.recordId, canonicalData,
+                        record.recordScope, true))
+                    throw std::runtime_error("canonical DynamicRecordService transaction was rejected");
+
+                record.data = canonicalData;
+                record.schemaVersion = records::CurrentSchemaVersion;
+                migratedCatalog.definitionFingerprint = records::fingerprint(definition);
+                migratedCatalog.schemaVersion = records::CurrentSchemaVersion;
+                migratedCatalog.validationVersion = ServerLuaValidationVersion;
+                mPlayerDb->clearLegacyDynamicRecordMigrationFailure(record.recordType, record.recordId);
+                Log(Debug::Info) << "[Server] Migrated legacy server-Lua record type=" << record.recordType
+                                 << " id=" << record.recordId << " to OMDR";
+            }
+            catch (const std::exception& e)
+            {
+                mPlayerDb->recordLegacyDynamicRecordMigrationFailure(
+                    record.recordType, record.recordId, e.what());
+                Log(Debug::Warning) << "[Server] Legacy dynamic record migration skipped type="
+                                    << record.recordType << " id=" << record.recordId
+                                    << " reason=" << e.what();
+            }
+        }
+        else
+        {
+            const std::string reason = "record type is outside the canonical OMDR schema";
+            mPlayerDb->recordLegacyDynamicRecordMigrationFailure(
+                record.recordType, record.recordId, reason);
+            Log(Debug::Warning) << "[Server] Retaining readable legacy dynamic record type="
+                                << record.recordType << " id=" << record.recordId
+                                << " reason=" << reason;
+        }
 
         WorldState::StoredDynamicRecord stored;
         stored.recordType = record.recordType;
@@ -6309,6 +6357,12 @@ void MPServer::handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data
             : mRuntimeRecordMaxPerCharacter - owned;
         context.isAssetAllowed = [&](std::string_view asset) {
             return mContentRegistry->hasAsset(normalizeRuntimeAsset(asset));
+        };
+        context.isModelAllowed = [&](std::string_view asset) {
+            return mContentRegistry->hasModel(normalizeRuntimeAsset(asset));
+        };
+        context.isIconAllowed = [&](std::string_view asset) {
+            return mContentRegistry->hasIcon(normalizeRuntimeAsset(asset));
         };
         context.isContentIdAllowed = [&](std::string_view id) {
             const std::string normalized = lowerAscii(id);
@@ -11042,57 +11096,125 @@ bool MPServer::upsertDynamicRecord(const std::string& recordType, const std::str
 {
     const std::string normalizedType = normalizeDynamicRecordType(recordType);
     const std::string normalizedScope = normalizeDynamicRecordScope(recordScope);
-    if (normalizedType.empty() || recordId.empty())
+    if (normalizedType.empty() || recordId.empty() || !mPlayerDb)
         return false;
     if (normalizedScope.empty())
         return false;
-
-    auto& record = mWorld.dynamicRecords[makeDynamicRecordKey(normalizedType, recordId)];
-    record.recordType = normalizedType;
-    record.recordId = recordId;
-    record.data = data;
-    record.recordScope = normalizedScope;
-    record.persistent = persistent;
-    record.sequence = mWorld.nextDynamicRecordSequence++;
-
-    if (normalizedScope == "generated")
-        mLua.observeGeneratedRecordId(normalizedType, recordId);
-
-    if (mPlayerDb)
+    if (!isCanonicalServerLuaRecordType(normalizedType))
     {
-        DynamicRecordCatalogEntry catalogRecord;
-        catalogRecord.recordType = normalizedType;
-        catalogRecord.recordId = recordId;
-        catalogRecord.recordScope = normalizedScope;
-        catalogRecord.persistent = persistent;
-        mPlayerDb->upsertDynamicRecordCatalog(catalogRecord);
-
-        if (persistent)
-        {
-            PersistedDynamicRecord persisted;
-            persisted.recordType = normalizedType;
-            persisted.recordId = recordId;
-            persisted.recordScope = normalizedScope;
-            persisted.data = data;
-            mPlayerDb->upsertDynamicRecord(persisted);
-        }
-        else
-        {
-            mPlayerDb->deleteDynamicRecord(normalizedType, recordId);
-        }
+        Log(Debug::Warning) << "[Server] Rejected server-Lua dynamic record type=" << normalizedType
+                            << " id=" << recordId
+                            << ": canonical DTO support is limited to potion, enchantment, weapon, armor, clothing, and book";
+        return false;
     }
 
-    PacketRecordDynamic pkt;
-    pkt.action = DynamicRecordAction::Upsert;
-    pkt.recordType = normalizedType;
-    pkt.entries.push_back({ recordId, data });
-    broadcastToAll(pkt.encode());
+    try
+    {
+        records::DynamicRecordDefinition definition = data.starts_with("OMDR")
+            ? records::decodeDefinition(data)
+            : parseServerLuaRecord(normalizedType, data);
+        if (records::getRecordTypeName(records::getRecordType(definition)) != normalizedType)
+            throw std::runtime_error("record type does not match the typed definition");
 
-    Log(Debug::Info) << "[Server] Upserted dynamic record type=" << normalizedType
-                     << " id=" << recordId
-                     << " scope=" << normalizedScope
-                     << " persistent=" << (persistent ? "true" : "false");
-    return true;
+        records::RecordCreateRequest request;
+        request.operation = records::CreateOperation::ServerScript;
+        request.scriptPackageId = "server_lua";
+        request.bundle.records.push_back({ "record", std::move(definition) });
+
+        const std::string identityMaterial = "server-lua-validation-v"
+            + std::to_string(ServerLuaValidationVersion) + '\0' + normalizedType + '\0' + recordId + '\0'
+            + normalizedScope + '\0' + (persistent ? "1" : "0") + '\0' + data;
+        const std::string identityHash = crypto::sha256hex(identityMaterial);
+        request.requestId = "server-lua:" + identityHash;
+        const std::string requestHash = identityHash;
+
+        const std::vector<DynamicRecordCatalogEntry> catalog = mPlayerDb->loadDynamicRecordCatalog();
+        DynamicRecordService::Context context;
+        context.trustedServerRequest = true;
+        context.creationSource = "server_lua";
+        context.validationVersion = ServerLuaValidationVersion;
+        context.serverRequestSource = "server_lua";
+        context.recordScope = normalizedScope;
+        context.persistent = persistent;
+        context.fixedRecordIds.emplace("record", recordId);
+        context.isAssetAllowed = [&](std::string_view asset) {
+            return mContentRegistry->hasAsset(normalizeRuntimeAsset(asset));
+        };
+        context.isModelAllowed = [&](std::string_view asset) {
+            return mContentRegistry->hasModel(normalizeRuntimeAsset(asset));
+        };
+        context.isIconAllowed = [&](std::string_view asset) {
+            return mContentRegistry->hasIcon(normalizeRuntimeAsset(asset));
+        };
+        context.isContentIdAllowed = [&](std::string_view id) {
+            if (mContentRegistry->hasContentId(lowerAscii(id)))
+                return true;
+            return std::any_of(catalog.begin(), catalog.end(), [&](const DynamicRecordCatalogEntry& entry) {
+                return lowerAscii(entry.recordId) == lowerAscii(id);
+            });
+        };
+
+        DynamicRecordService service(*mPlayerDb);
+        auto outcome = service.execute(request, requestHash, context,
+            [&](records::RecordType type, std::string_view fingerprint)
+                -> std::optional<DynamicRecordService::CatalogRecord> {
+                const std::string typeName(records::getRecordTypeName(type));
+                for (const DynamicRecordCatalogEntry& entry : catalog)
+                {
+                    if (entry.recordType != typeName || entry.recordId != recordId
+                        || entry.definitionFingerprint != fingerprint)
+                        continue;
+                    auto stored = mWorld.dynamicRecords.find(makeDynamicRecordKey(typeName, entry.recordId));
+                    if (stored != mWorld.dynamicRecords.end())
+                        return DynamicRecordService::CatalogRecord{
+                            typeName, entry.recordId, entry.definitionFingerprint, stored->second.data };
+                }
+                return std::nullopt;
+            },
+            [&](records::RecordType) { return recordId; },
+            [&]() { return mWorld.nextDynamicRecordSequence++; });
+
+        if (!outcome.result.accepted)
+        {
+            Log(Debug::Warning) << "[Server] Rejected server-Lua dynamic record type=" << normalizedType
+                                << " id=" << recordId
+                                << " error=" << records::getCreateErrorCode(outcome.result.error);
+            return false;
+        }
+
+        for (const records::CreatedRecord& created : outcome.result.records)
+        {
+            WorldState::StoredDynamicRecord stored;
+            stored.recordType = normalizedType;
+            stored.recordId = created.recordId;
+            stored.data = created.definition;
+            stored.recordScope = normalizedScope;
+            stored.persistent = persistent;
+            stored.sequence = outcome.result.commitSequence;
+            mWorld.dynamicRecords[makeDynamicRecordKey(normalizedType, created.recordId)] = std::move(stored);
+
+            PacketRecordDynamic packet;
+            packet.action = DynamicRecordAction::Upsert;
+            packet.recordType = normalizedType;
+            packet.entries.push_back({ created.recordId, created.definition });
+            broadcastToAll(packet.encode());
+        }
+        if (normalizedScope == "generated")
+            mLua.observeGeneratedRecordId(normalizedType, recordId);
+
+        Log(Debug::Info) << "[Server] Canonical server-Lua record type=" << normalizedType
+                         << " id=" << recordId
+                         << " scope=" << normalizedScope
+                         << " persistent=" << (persistent ? "true" : "false")
+                         << " replayed=" << (outcome.replayed ? "true" : "false");
+        return true;
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[Server] Server-Lua dynamic record failed type=" << normalizedType
+                          << " id=" << recordId << ": " << e.what();
+        return false;
+    }
 }
 
 bool MPServer::removeDynamicRecord(const std::string& recordType, const std::string& recordId)

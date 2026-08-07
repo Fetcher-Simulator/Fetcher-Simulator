@@ -20,6 +20,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwscript/testscripts.cpp
 
     mwmp/testservercontentregistry.cpp
+    mwmp/testserverluarecordparser.cpp
 )
 
 if (MSVC)
@@ -41,6 +42,7 @@ openmw_add_executable(openmw-tests ${UNITTEST_SRC_FILES})
 if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
     target_sources(openmw-tests PRIVATE
         ../openmw-server/ServerContentRegistry.cpp
+        ../openmw-server/ServerLuaRecordParser.cpp
     )
 endif()
 

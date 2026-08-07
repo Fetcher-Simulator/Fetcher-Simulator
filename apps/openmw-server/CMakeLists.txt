@@ -7,6 +7,7 @@ set(OPENMW_SERVER_SOURCES
     PlayerDatabase.cpp
     DynamicRecordService.cpp
     ServerContentRegistry.cpp
+    ServerLuaRecordParser.cpp
     bindings/PlayerBindings.cpp
     bindings/ServerBindings.cpp
     bindings/TypesStubBindings.cpp
@@ -22,6 +23,7 @@ set(OPENMW_SERVER_HEADERS
     MasterServerClient.hpp
     PlayerDatabase.hpp
     ServerContentRegistry.hpp
+    ServerLuaRecordParser.hpp
     bindings/PlayerBindings.hpp
     bindings/ServerBindings.hpp
     bindings/TypesStubBindings.hpp

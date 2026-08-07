@@ -197,3 +197,49 @@ TEST(DynamicRecordDatabase, AtomicRecordCommitRejectsStaleRevisionWithoutPartial
     EXPECT_TRUE(database.loadDynamicRecords().empty());
     EXPECT_FALSE(database.loadCraftRequest(account, character, commit.requestId).has_value());
 }
+
+TEST(DynamicRecordDatabase, FailedLegacyReplacementRollsBackAndPreservesBackup)
+{
+    TemporaryDynamicRecordDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+
+    mwmp::PersistedDynamicRecord legacy;
+    legacy.recordType = "potion";
+    legacy.recordId = "legacy_potion";
+    legacy.recordScope = "permanent";
+    legacy.data = "legacy-lua-bytes";
+    database.upsertDynamicRecord(legacy);
+    database.backupLegacyDynamicRecord(legacy);
+
+    mwmp::DynamicRecordCommit commit;
+    commit.serverSource = "legacy_migration";
+    commit.requestId = "migrate-legacy-potion";
+    commit.requestHash = "migration-hash";
+    commit.resultPayload = "accepted-result";
+
+    mwmp::DynamicRecordCommitEntry replacement;
+    replacement.record = legacy;
+    replacement.record.data = "OMDR replacement";
+    replacement.record.schemaVersion = 1;
+    replacement.catalog.recordType = legacy.recordType;
+    replacement.catalog.recordId = legacy.recordId;
+    replacement.catalog.recordScope = legacy.recordScope;
+    replacement.catalog.persistent = true;
+    replacement.catalog.definitionFingerprint = "fingerprint";
+
+    mwmp::DynamicRecordCommitEntry invalid = replacement;
+    invalid.record.recordId.clear();
+    invalid.catalog.recordId.clear();
+    commit.records = { replacement, invalid };
+
+    EXPECT_THROW(database.commitDynamicRecordRequest(commit), std::invalid_argument);
+    const auto records = database.loadDynamicRecords();
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records.front().data, legacy.data);
+    EXPECT_EQ(records.front().schemaVersion, 0);
+    EXPECT_FALSE(database.loadServerRecordRequest(commit.serverSource, commit.requestId).has_value());
+
+    const auto backup = database.browseTable("world_dynamic_record_legacy_backup", 0, 10);
+    ASSERT_TRUE(backup.has_value());
+    EXPECT_EQ(backup->totalRows, 1);
+}

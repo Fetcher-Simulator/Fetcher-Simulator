@@ -49,6 +49,8 @@ namespace mwmp
         const MWWorld::ESMStore& store() const;
         bool hasContentId(std::string_view id) const;
         bool hasAsset(std::string_view path) const;
+        bool hasModel(std::string_view path) const;
+        bool hasIcon(std::string_view path) const;
 
         static std::string orderedManifestFingerprint(const std::vector<ManifestEntry>& entries);
 

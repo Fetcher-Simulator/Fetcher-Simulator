@@ -18,6 +18,19 @@
 #include <components/debug/debuglog.hpp>
 #include <components/fallback/fallback.hpp>
 #include <components/fallback/validate.hpp>
+#include <components/esm/attr.hpp>
+#include <components/esm3/loadalch.hpp>
+#include <components/esm3/loadarmo.hpp>
+#include <components/esm3/loadbody.hpp>
+#include <components/esm3/loadbook.hpp>
+#include <components/esm3/loadclot.hpp>
+#include <components/esm3/loadench.hpp>
+#include <components/esm3/loadmgef.hpp>
+#include <components/esm3/loadscpt.hpp>
+#include <components/esm3/loadskil.hpp>
+#include <components/esm3/loadspel.hpp>
+#include <components/esm3/loadweap.hpp>
+#include <components/misc/resourcehelpers.hpp>
 #include <components/files/collections.hpp>
 #include <components/files/configurationmanager.hpp>
 #include <components/openmw-mp/Sha256.hpp>
@@ -289,7 +302,23 @@ bool mwmp::ServerContentRegistry::hasContentId(std::string_view id) const
         return false;
     try
     {
-        return store().findStatic(ESM::RefId::deserializeText(id)) != 0;
+        ESM::RefId refId = ESM::RefId::deserializeText(id);
+        if (refId.empty())
+            refId = ESM::RefId::stringRefId(id);
+        const MWWorld::ESMStore& content = store();
+        return content.findStatic(refId) != 0
+            || content.get<ESM::Potion>().search(refId) != nullptr
+            || content.get<ESM::Enchantment>().search(refId) != nullptr
+            || content.get<ESM::Weapon>().search(refId) != nullptr
+            || content.get<ESM::Armor>().search(refId) != nullptr
+            || content.get<ESM::Clothing>().search(refId) != nullptr
+            || content.get<ESM::Book>().search(refId) != nullptr
+            || content.get<ESM::MagicEffect>().search(refId) != nullptr
+            || content.get<ESM::Skill>().search(refId) != nullptr
+            || content.get<ESM::Attribute>().search(refId) != nullptr
+            || content.get<ESM::Script>().search(refId) != nullptr
+            || content.get<ESM::BodyPart>().search(refId) != nullptr
+            || content.get<ESM::Spell>().search(refId) != nullptr;
     }
     catch (const std::exception&)
     {
@@ -304,6 +333,38 @@ bool mwmp::ServerContentRegistry::hasAsset(std::string_view path) const
     try
     {
         return mRuntime->vfs->exists(VFS::Path::Normalized(path));
+    }
+    catch (const std::exception&)
+    {
+        return false;
+    }
+}
+
+bool mwmp::ServerContentRegistry::hasModel(std::string_view path) const
+{
+    if (path.empty())
+        return true;
+    try
+    {
+        const VFS::Path::Normalized normalized(path);
+        return mRuntime->vfs->exists(normalized)
+            || mRuntime->vfs->exists(Misc::ResourceHelpers::correctMeshPath(normalized));
+    }
+    catch (const std::exception&)
+    {
+        return false;
+    }
+}
+
+bool mwmp::ServerContentRegistry::hasIcon(std::string_view path) const
+{
+    if (path.empty())
+        return true;
+    try
+    {
+        const VFS::Path::Normalized normalized(path);
+        return mRuntime->vfs->exists(normalized)
+            || mRuntime->vfs->exists(Misc::ResourceHelpers::correctIconPath(normalized, *mRuntime->vfs));
     }
     catch (const std::exception&)
     {

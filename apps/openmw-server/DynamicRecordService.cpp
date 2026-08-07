@@ -62,14 +62,17 @@ namespace mwmp
         records::CreateError validateAuthoritativeReferences(
             const records::DynamicRecordBundle& bundle, const DynamicRecordService::Context& context)
         {
-            if (context.trustedServerRequest)
-                return records::CreateError::None;
-
             const auto contentAllowed = [&](std::string_view id) {
                 return id.empty() || (context.isContentIdAllowed && context.isContentIdAllowed(id));
             };
             const auto assetAllowed = [&](std::string_view path) {
                 return path.empty() || (context.isAssetAllowed && context.isAssetAllowed(path));
+            };
+            const auto modelAllowed = [&](std::string_view path) {
+                return path.empty() || (context.isModelAllowed ? context.isModelAllowed(path) : assetAllowed(path));
+            };
+            const auto iconAllowed = [&](std::string_view path) {
+                return path.empty() || (context.isIconAllowed ? context.isIconAllowed(path) : assetAllowed(path));
             };
 
             records::CreateError error = records::CreateError::None;
@@ -80,7 +83,7 @@ namespace mwmp
                         using Record = std::decay_t<decltype(record)>;
                         if constexpr (!std::is_same_v<Record, records::Enchantment>)
                         {
-                            if (!assetAllowed(record.item.model) || !assetAllowed(record.item.icon))
+                            if (!modelAllowed(record.item.model) || !iconAllowed(record.item.icon))
                                 error = records::CreateError::InvalidAsset;
                             else if (!contentAllowed(record.item.scriptId))
                                 error = records::CreateError::ContentMismatch;
@@ -225,7 +228,10 @@ namespace mwmp
         outcome.result.requestId = request.requestId;
         outcome.result.inventoryRevision = context.inventoryRevision;
 
-        if (const auto existing = mDatabase.loadCraftRequest(context.accountId, context.characterId, request.requestId))
+        const auto existingRequest = context.serverRequestSource.empty()
+            ? mDatabase.loadCraftRequest(context.accountId, context.characterId, request.requestId)
+            : mDatabase.loadServerRecordRequest(context.serverRequestSource, request.requestId);
+        if (const auto& existing = existingRequest)
         {
             if (existing->requestHash != requestHash)
             {
@@ -299,7 +305,13 @@ namespace mwmp
             journal.requestId = request.requestId;
             journal.requestHash = std::string(requestHash);
             if (!request.requestId.empty() && request.requestId.size() <= 128 && !requestHash.empty())
-                mDatabase.insertRejectedCraftRequest(journal, asString(outcome.encodedResult));
+            {
+                if (context.serverRequestSource.empty())
+                    mDatabase.insertRejectedCraftRequest(journal, asString(outcome.encodedResult));
+                else
+                    mDatabase.insertRejectedServerRecordRequest(
+                        context.serverRequestSource, journal, asString(outcome.encodedResult));
+            }
             return outcome;
         }
 
@@ -330,7 +342,8 @@ namespace mwmp
             }
             else
             {
-                created.recordId = allocateId(type);
+                const auto fixed = context.fixedRecordIds.find(key);
+                created.recordId = fixed == context.fixedRecordIds.end() ? allocateId(type) : fixed->second;
                 if (created.recordId.empty())
                     throw std::runtime_error("Authoritative record ID allocation failed");
 
@@ -345,18 +358,18 @@ namespace mwmp
                 entry.record.recordType = runtime.recordType;
                 entry.record.recordId = runtime.recordId;
                 entry.record.data = runtime.definition;
-                entry.record.recordScope = "generated";
+                entry.record.recordScope = context.recordScope;
                 entry.record.schemaVersion = records::CurrentSchemaVersion;
                 entry.catalog.recordType = runtime.recordType;
                 entry.catalog.recordId = runtime.recordId;
-                entry.catalog.recordScope = "generated";
-                entry.catalog.persistent = true;
+                entry.catalog.recordScope = context.recordScope;
+                entry.catalog.persistent = context.persistent;
                 entry.catalog.definitionFingerprint = fingerprint;
                 entry.catalog.creatorAccountId = context.accountId;
                 entry.catalog.creatorCharacterId = context.characterId;
                 entry.catalog.creationSource = context.creationSource;
                 entry.catalog.schemaVersion = records::CurrentSchemaVersion;
-                entry.catalog.validationVersion = 1;
+                entry.catalog.validationVersion = context.validationVersion;
                 entry.dependencyRecordIds = runtime.dependencyRecordIds;
                 commitEntries.push_back(std::move(entry));
             }
@@ -375,7 +388,11 @@ namespace mwmp
             journal.characterId = context.characterId;
             journal.requestId = request.requestId;
             journal.requestHash = std::string(requestHash);
-            mDatabase.insertRejectedCraftRequest(journal, asString(outcome.encodedResult));
+            if (context.serverRequestSource.empty())
+                mDatabase.insertRejectedCraftRequest(journal, asString(outcome.encodedResult));
+            else
+                mDatabase.insertRejectedServerRecordRequest(
+                    context.serverRequestSource, journal, asString(outcome.encodedResult));
             return outcome;
         }
 
@@ -397,6 +414,7 @@ namespace mwmp
         commit.expectedInventoryRevision = context.inventoryRevision;
         commit.resultingInventoryRevision = context.inventoryRevision;
         commit.records = std::move(commitEntries);
+        commit.serverSource = context.serverRequestSource;
         const DynamicRecordCommitStatus status = mDatabase.commitDynamicRecordRequest(commit);
         if (status == DynamicRecordCommitStatus::DuplicateRequest
             || status == DynamicRecordCommitStatus::DuplicateRequestConflict)
@@ -416,7 +434,11 @@ namespace mwmp
             journal.characterId = context.characterId;
             journal.requestId = request.requestId;
             journal.requestHash = std::string(requestHash);
-            mDatabase.insertRejectedCraftRequest(journal, asString(outcome.encodedResult));
+            if (context.serverRequestSource.empty())
+                mDatabase.insertRejectedCraftRequest(journal, asString(outcome.encodedResult));
+            else
+                mDatabase.insertRejectedServerRecordRequest(
+                    context.serverRequestSource, journal, asString(outcome.encodedResult));
         }
         return outcome;
     }
