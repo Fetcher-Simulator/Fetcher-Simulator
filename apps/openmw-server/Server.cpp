@@ -11102,10 +11102,56 @@ bool MPServer::upsertDynamicRecord(const std::string& recordType, const std::str
         return false;
     if (!isCanonicalServerLuaRecordType(normalizedType))
     {
-        Log(Debug::Warning) << "[Server] Rejected server-Lua dynamic record type=" << normalizedType
-                            << " id=" << recordId
-                            << ": canonical DTO support is limited to potion, enchantment, weapon, armor, clothing, and book";
-        return false;
+        // Trusted server Lua historically supports a wider RecordDynamic surface
+        // (notably Bardcraft NPCs and administrative spell/NPC test records).
+        // Keep that server-only compatibility path until those record kinds have
+        // typed OMDR DTO coverage. Client proposals can never enter this API.
+        auto& record = mWorld.dynamicRecords[makeDynamicRecordKey(normalizedType, recordId)];
+        record.recordType = normalizedType;
+        record.recordId = recordId;
+        record.data = data;
+        record.recordScope = normalizedScope;
+        record.persistent = persistent;
+        record.sequence = mWorld.nextDynamicRecordSequence++;
+
+        if (normalizedScope == "generated")
+            mLua.observeGeneratedRecordId(normalizedType, recordId);
+
+        DynamicRecordCatalogEntry catalogRecord;
+        catalogRecord.recordType = normalizedType;
+        catalogRecord.recordId = recordId;
+        catalogRecord.recordScope = normalizedScope;
+        catalogRecord.persistent = persistent;
+        catalogRecord.creationSource = "server_lua_legacy";
+        catalogRecord.schemaVersion = 0;
+        catalogRecord.validationVersion = 0;
+        mPlayerDb->upsertDynamicRecordCatalog(catalogRecord);
+
+        if (persistent)
+        {
+            PersistedDynamicRecord persisted;
+            persisted.recordType = normalizedType;
+            persisted.recordId = recordId;
+            persisted.recordScope = normalizedScope;
+            persisted.data = data;
+            persisted.schemaVersion = 0;
+            mPlayerDb->upsertDynamicRecord(persisted);
+        }
+        else
+            mPlayerDb->deleteDynamicRecord(normalizedType, recordId);
+
+        PacketRecordDynamic packet;
+        packet.action = DynamicRecordAction::Upsert;
+        packet.recordType = normalizedType;
+        packet.entries.push_back({ recordId, data });
+        broadcastToAll(packet.encode());
+
+        Log(Debug::Info) << "[Server] Trusted legacy server-Lua record type=" << normalizedType
+                         << " id=" << recordId
+                         << " scope=" << normalizedScope
+                         << " persistent=" << (persistent ? "true" : "false")
+                         << " (awaiting typed OMDR coverage)";
+        return true;
     }
 
     try

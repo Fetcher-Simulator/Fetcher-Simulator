@@ -6,9 +6,11 @@
 namespace mwmp
 {
     // Bump these independently when their canonical inputs or negotiation
-    // semantics change.  They are carried explicitly in the handshake so a
+    // semantics change. They are carried explicitly in the handshake so a
     // mismatch is diagnosable without relying on the broad transport version.
-    inline constexpr std::uint16_t ContentManifestVersion = 1;
+    // ContentManifestVersion 2 adds Ingredient, Apparatus, MagicEffect, and
+    // GameSetting to the canonical resolved-content identity.
+    inline constexpr std::uint16_t ContentManifestVersion = 2;
     inline constexpr std::uint16_t ContentApiVersion = 1;
     inline constexpr std::uint16_t RuntimeRecordCapabilityManifestVersion = 1;
 }
