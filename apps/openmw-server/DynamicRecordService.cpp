@@ -335,14 +335,17 @@ namespace mwmp
             records::CreatedRecord created;
             created.temporaryKey = key;
             created.definition = encodedDefinition;
-            if (auto equivalent = findEquivalent(type, fingerprint))
+            const auto fixed = context.fixedRecordIds.find(key);
+            if (fixed == context.fixedRecordIds.end())
             {
-                created.recordId = equivalent->recordId;
-                created.reused = true;
+                if (auto equivalent = findEquivalent(type, fingerprint))
+                {
+                    created.recordId = equivalent->recordId;
+                    created.reused = true;
+                }
             }
-            else
+            if (created.recordId.empty())
             {
-                const auto fixed = context.fixedRecordIds.find(key);
                 created.recordId = fixed == context.fixedRecordIds.end() ? allocateId(type) : fixed->second;
                 if (created.recordId.empty())
                     throw std::runtime_error("Authoritative record ID allocation failed");

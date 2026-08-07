@@ -191,6 +191,49 @@ TEST(DynamicRecordService, ReferenceAdmissionRateAndQuotaFailuresAreTerminal)
     EXPECT_TRUE(database.loadDynamicRecords().empty());
 }
 
+
+TEST(DynamicRecordService, FixedServerIdsTakePrecedenceOverDeduplication)
+{
+    TemporaryServiceDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+    mwmp::DynamicRecordService service(database);
+
+    auto request = makeEnchantedWeaponRequest("server-lua-fixed-id");
+    request.operation = mwmp::records::CreateOperation::ServerScript;
+
+    mwmp::DynamicRecordService::Context context;
+    context.trustedServerRequest = true;
+    context.serverRequestSource = "server_lua";
+    context.creationSource = "server_lua:scripts/fixed.lua";
+    context.recordScope = "permanent";
+    context.fixedRecordIds = {
+        { "enchantment", "fixed_server_enchantment" }, { "weapon", "fixed_server_weapon" } };
+    context.isContentIdAllowed = [](std::string_view) { return true; };
+    context.isAssetAllowed = [](std::string_view) { return true; };
+
+    auto outcome = service.execute(request, "server-lua-fixed-hash", context,
+        [](mwmp::records::RecordType type, std::string_view fingerprint)
+            -> std::optional<mwmp::DynamicRecordService::CatalogRecord> {
+            return mwmp::DynamicRecordService::CatalogRecord{
+                std::string(mwmp::records::getRecordTypeName(type)),
+                "equivalent_other_id",
+                std::string(fingerprint),
+                {}
+            };
+        },
+        [](auto) { return std::string("allocated_unexpected_id"); },
+        [] { return 77u; });
+
+    ASSERT_TRUE(outcome.result.accepted);
+    ASSERT_EQ(outcome.result.records.size(), 2u);
+    ASSERT_EQ(outcome.newRecords.size(), 2u);
+    EXPECT_EQ(outcome.result.records[0].recordId, "fixed_server_enchantment");
+    EXPECT_EQ(outcome.result.records[1].recordId, "fixed_server_weapon");
+    EXPECT_FALSE(outcome.result.records[0].reused);
+    EXPECT_FALSE(outcome.result.records[1].reused);
+}
+
+
 TEST(DynamicRecordService, TrustedServerLuaUsesCanonicalJournalAndReplaysAfterRestart)
 {
     TemporaryServiceDatabase temporary;

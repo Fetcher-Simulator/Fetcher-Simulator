@@ -2,11 +2,16 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <string>
 #include <tuple>
 #include <vector>
 
+#include <components/esm3/loadappa.hpp>
+#include <components/esm3/loadgmst.hpp>
+#include <components/esm3/loadingr.hpp>
+#include <components/esm3/loadmgef.hpp>
 #include <components/openmw-mp/Records/DynamicRecordCodec.hpp>
 #include <components/openmw-mp/Records/DynamicRecordValidation.hpp>
 #include <components/openmw-mp/Records/EsmDynamicRecordConversion.hpp>
@@ -16,6 +21,20 @@
 
 namespace
 {
+    enum class ResolvedRecordType : std::uint8_t
+    {
+        Potion = 1,
+        Enchantment = 2,
+        Weapon = 3,
+        Armor = 4,
+        Clothing = 5,
+        Book = 6,
+        Ingredient = 0x40,
+        Apparatus = 0x41,
+        MagicEffect = 0x42,
+        GameSetting = 0x43,
+    };
+
     struct Entry
     {
         std::uint8_t type = 0;
@@ -23,14 +42,45 @@ namespace
         std::string definition;
     };
 
+    void appendU32(std::string& out, std::uint32_t value)
+    {
+        out.push_back(static_cast<char>(value));
+        out.push_back(static_cast<char>(value >> 8));
+        out.push_back(static_cast<char>(value >> 16));
+        out.push_back(static_cast<char>(value >> 24));
+    }
+
+    void appendI32(std::string& out, std::int32_t value)
+    {
+        appendU32(out, static_cast<std::uint32_t>(value));
+    }
+
+    void appendFloat(std::string& out, float value)
+    {
+        appendU32(out, std::bit_cast<std::uint32_t>(value == 0.f ? 0.f : value));
+    }
+
+    void appendString(std::string& out, std::string_view value)
+    {
+        appendU32(out, static_cast<std::uint32_t>(value.size()));
+        out.append(value);
+    }
+
+    void appendRefId(std::string& out, const ESM::RefId& value)
+    {
+        appendString(out, value.serializeText());
+    }
+
+    void appendPath(std::string& out, const ESM::Path& value)
+    {
+        appendString(out, value.getNormalized().value());
+    }
+
     template <class T>
-    void appendRecords(const MWWorld::ESMStore& store, mwmp::records::RecordType type, std::vector<Entry>& out)
+    void appendTypedRecords(const MWWorld::ESMStore& store, mwmp::records::RecordType type, std::vector<Entry>& out)
     {
         for (const T& record : store.get<T>())
         {
-            // Runtime/save records are not load-time content. In particular,
-            // reconnecting after authoritative records have been replayed must
-            // not change the negotiated content identity.
             if (store.get<T>().isDynamic(record.mId))
                 continue;
             Entry entry;
@@ -39,6 +89,101 @@ namespace
             entry.definition = mwmp::records::encodeDefinition(
                 mwmp::records::canonicalize(mwmp::records::fromEsmRecord(record)));
             out.push_back(std::move(entry));
+        }
+    }
+
+    template <class T, class Encode>
+    void appendMechanicsRecords(
+        const MWWorld::ESMStore& store, ResolvedRecordType type, std::vector<Entry>& out, Encode&& encode)
+    {
+        for (const T& record : store.get<T>())
+        {
+            if (store.get<T>().isDynamic(record.mId))
+                continue;
+            Entry entry;
+            entry.type = static_cast<std::uint8_t>(type);
+            entry.id = record.mId.toString();
+            encode(record, entry.definition);
+            out.push_back(std::move(entry));
+        }
+    }
+
+    void appendIngredient(const ESM::Ingredient& record, std::string& out)
+    {
+        appendU32(out, record.mRecordFlags);
+        appendString(out, record.mName);
+        appendPath(out, record.mModel);
+        appendPath(out, record.mIcon);
+        appendRefId(out, record.mScript);
+        appendFloat(out, record.mData.mWeight);
+        appendI32(out, record.mData.mValue);
+        for (std::size_t i = 0; i < 4; ++i)
+        {
+            appendRefId(out, record.mData.mEffectID[i]);
+            appendRefId(out, record.mData.mSkills[i]);
+            appendRefId(out, record.mData.mAttributes[i]);
+        }
+    }
+
+    void appendApparatus(const ESM::Apparatus& record, std::string& out)
+    {
+        appendU32(out, record.mRecordFlags);
+        appendString(out, record.mName);
+        appendPath(out, record.mModel);
+        appendPath(out, record.mIcon);
+        appendRefId(out, record.mScript);
+        appendI32(out, record.mData.mType);
+        appendFloat(out, record.mData.mQuality);
+        appendFloat(out, record.mData.mWeight);
+        appendI32(out, record.mData.mValue);
+    }
+
+    void appendMagicEffect(const ESM::MagicEffect& record, std::string& out)
+    {
+        appendU32(out, record.mRecordFlags);
+        appendRefId(out, record.mData.mSchool);
+        appendFloat(out, record.mData.mBaseCost);
+        appendI32(out, record.mData.mFlags);
+        appendI32(out, record.mData.mRed);
+        appendI32(out, record.mData.mGreen);
+        appendI32(out, record.mData.mBlue);
+        appendFloat(out, record.mData.mUnknown1);
+        appendFloat(out, record.mData.mSpeed);
+        appendFloat(out, record.mData.mUnknown2);
+        appendPath(out, record.mIcon);
+        appendPath(out, record.mParticle);
+        appendRefId(out, record.mCasting);
+        appendRefId(out, record.mHit);
+        appendRefId(out, record.mArea);
+        appendRefId(out, record.mBolt);
+        appendRefId(out, record.mCastSound);
+        appendRefId(out, record.mBoltSound);
+        appendRefId(out, record.mHitSound);
+        appendRefId(out, record.mAreaSound);
+        appendString(out, record.mDescription);
+        appendString(out, record.mName);
+    }
+
+    void appendGameSetting(const ESM::GameSetting& record, std::string& out)
+    {
+        appendU32(out, record.mRecordFlags);
+        appendU32(out, static_cast<std::uint32_t>(record.mValue.getType()));
+        switch (record.mValue.getType())
+        {
+            case ESM::VT_Short:
+            case ESM::VT_Int:
+            case ESM::VT_Long:
+                appendI32(out, record.mValue.getInteger());
+                break;
+            case ESM::VT_Float:
+                appendFloat(out, record.mValue.getFloat());
+                break;
+            case ESM::VT_String:
+                appendString(out, record.mValue.getString());
+                break;
+            case ESM::VT_Unknown:
+            case ESM::VT_None:
+                break;
         }
     }
 
@@ -59,19 +204,27 @@ namespace
 std::string MWMP::resolvedContentFingerprint(const MWWorld::ESMStore& store)
 {
     std::vector<Entry> entries;
-    appendRecords<ESM::Potion>(store, mwmp::records::RecordType::Potion, entries);
-    appendRecords<ESM::Enchantment>(store, mwmp::records::RecordType::Enchantment, entries);
-    appendRecords<ESM::Weapon>(store, mwmp::records::RecordType::Weapon, entries);
-    appendRecords<ESM::Armor>(store, mwmp::records::RecordType::Armor, entries);
-    appendRecords<ESM::Clothing>(store, mwmp::records::RecordType::Clothing, entries);
-    appendRecords<ESM::Book>(store, mwmp::records::RecordType::Book, entries);
+    appendTypedRecords<ESM::Potion>(store, mwmp::records::RecordType::Potion, entries);
+    appendTypedRecords<ESM::Enchantment>(store, mwmp::records::RecordType::Enchantment, entries);
+    appendTypedRecords<ESM::Weapon>(store, mwmp::records::RecordType::Weapon, entries);
+    appendTypedRecords<ESM::Armor>(store, mwmp::records::RecordType::Armor, entries);
+    appendTypedRecords<ESM::Clothing>(store, mwmp::records::RecordType::Clothing, entries);
+    appendTypedRecords<ESM::Book>(store, mwmp::records::RecordType::Book, entries);
+
+    // These are authoritative mechanics inputs rather than runtime-create DTOs.
+    // Load scripts can mutate several of them, so they must participate in the
+    // post-load fingerprint used by server-authoritative crafting.
+    appendMechanicsRecords<ESM::Ingredient>(store, ResolvedRecordType::Ingredient, entries, appendIngredient);
+    appendMechanicsRecords<ESM::Apparatus>(store, ResolvedRecordType::Apparatus, entries, appendApparatus);
+    appendMechanicsRecords<ESM::MagicEffect>(store, ResolvedRecordType::MagicEffect, entries, appendMagicEffect);
+    appendMechanicsRecords<ESM::GameSetting>(store, ResolvedRecordType::GameSetting, entries, appendGameSetting);
 
     std::sort(entries.begin(), entries.end(), [](const Entry& left, const Entry& right) {
         return std::tie(left.type, left.id) < std::tie(right.type, right.id);
     });
 
     mwmp::crypto::Sha256 hash;
-    static constexpr std::array<std::uint8_t, 8> header = { 'O', 'M', 'R', 'C', 1, 0, 0, 0 };
+    static constexpr std::array<std::uint8_t, 8> header = { 'O', 'M', 'R', 'C', 2, 0, 0, 0 };
     hash.update(header.data(), header.size());
     updateU32(hash, static_cast<std::uint32_t>(entries.size()));
     for (const Entry& entry : entries)

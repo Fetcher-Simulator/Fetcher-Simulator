@@ -1,6 +1,10 @@
 #include <gtest/gtest.h>
 
 #include <components/esm3/loadalch.hpp>
+#include <components/esm3/loadappa.hpp>
+#include <components/esm3/loadgmst.hpp>
+#include <components/esm3/loadingr.hpp>
+#include <components/esm3/loadmgef.hpp>
 #include <components/lua/configuration.hpp>
 #include <components/lua/luastate.hpp>
 #include <components/resource/resourcesystem.hpp>
@@ -26,6 +30,49 @@ namespace
         potion.mData.mWeight = weight;
         potion.mData.mValue = 10;
         return potion;
+    }
+
+    ESM::Ingredient makeIngredient(float weight)
+    {
+        ESM::Ingredient ingredient;
+        ingredient.blank();
+        ingredient.mId = ESM::RefId::stringRefId("content_ingredient");
+        ingredient.mName = "Content ingredient";
+        ingredient.mData.mWeight = weight;
+        ingredient.mData.mValue = 10;
+        ingredient.mData.mEffectID[0] = ESM::MagicEffect::FireDamage;
+        return ingredient;
+    }
+
+    ESM::Apparatus makeApparatus(float quality)
+    {
+        ESM::Apparatus apparatus;
+        apparatus.blank();
+        apparatus.mId = ESM::RefId::stringRefId("content_apparatus");
+        apparatus.mName = "Content apparatus";
+        apparatus.mData.mType = ESM::Apparatus::MortarPestle;
+        apparatus.mData.mQuality = quality;
+        return apparatus;
+    }
+
+    ESM::MagicEffect makeMagicEffect(float baseCost)
+    {
+        ESM::MagicEffect effect;
+        effect.blank();
+        effect.mId = ESM::MagicEffect::FireDamage;
+        effect.mData.mBaseCost = baseCost;
+        effect.mName = "Fire Damage";
+        return effect;
+    }
+
+    ESM::GameSetting makeGameSetting(float value)
+    {
+        ESM::GameSetting setting;
+        setting.blank();
+        setting.mId = ESM::RefId::stringRefId("fPotionT1MagMult");
+        setting.mValue.setType(ESM::VT_Float);
+        setting.mValue.setFloat(value);
+        return setting;
     }
 
     std::string runLoadScript(float templateWeight, std::string script)
@@ -93,6 +140,38 @@ TEST(ServerContentRegistry, changedTemplateInputChangesResolvedFingerprint)
         "local c=require('openmw.content'); "
         "c.potions.records.lua_potion={template=c.potions.records.template_potion,name='Derived'}";
     EXPECT_NE(runLoadScript(1.f, script), runLoadScript(2.f, script));
+}
+
+TEST(ServerContentRegistry, authoritativeCraftingInputsChangeResolvedFingerprint)
+{
+    {
+        MWWorld::ESMStore first;
+        MWWorld::ESMStore second;
+        first.insertStatic(makeIngredient(1.f));
+        second.insertStatic(makeIngredient(2.f));
+        EXPECT_NE(MWMP::resolvedContentFingerprint(first), MWMP::resolvedContentFingerprint(second));
+    }
+    {
+        MWWorld::ESMStore first;
+        MWWorld::ESMStore second;
+        first.insertStatic(makeApparatus(1.f));
+        second.insertStatic(makeApparatus(2.f));
+        EXPECT_NE(MWMP::resolvedContentFingerprint(first), MWMP::resolvedContentFingerprint(second));
+    }
+    {
+        MWWorld::ESMStore first;
+        MWWorld::ESMStore second;
+        first.insertStatic(makeMagicEffect(1.f));
+        second.insertStatic(makeMagicEffect(2.f));
+        EXPECT_NE(MWMP::resolvedContentFingerprint(first), MWMP::resolvedContentFingerprint(second));
+    }
+    {
+        MWWorld::ESMStore first;
+        MWWorld::ESMStore second;
+        first.insertStatic(makeGameSetting(1.f));
+        second.insertStatic(makeGameSetting(2.f));
+        EXPECT_NE(MWMP::resolvedContentFingerprint(first), MWMP::resolvedContentFingerprint(second));
+    }
 }
 
 TEST(ServerContentRegistry, invalidLoadScriptIsRejected)
