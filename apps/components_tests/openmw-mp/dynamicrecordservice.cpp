@@ -190,3 +190,61 @@ TEST(DynamicRecordService, ReferenceAdmissionRateAndQuotaFailuresAreTerminal)
     EXPECT_EQ(database.loadCraftRequest(account, character, "rate")->status, "rejected");
     EXPECT_TRUE(database.loadDynamicRecords().empty());
 }
+
+TEST(DynamicRecordService, TrustedServerLuaUsesCanonicalJournalAndReplaysAfterRestart)
+{
+    TemporaryServiceDatabase temporary;
+    auto request = makeEnchantedWeaponRequest("server-lua-request");
+    request.operation = mwmp::records::CreateOperation::ServerScript;
+
+    mwmp::DynamicRecordService::Context context;
+    context.trustedServerRequest = true;
+    context.serverRequestSource = "server_lua";
+    context.creationSource = "server_lua:scripts/test.lua";
+    context.recordScope = "permanent";
+    context.fixedRecordIds = {
+        { "enchantment", "server_test_enchantment" }, { "weapon", "server_test_weapon" } };
+    context.isContentIdAllowed = [](std::string_view) { return true; };
+    context.isAssetAllowed = [](std::string_view) { return true; };
+
+    mwmp::records::RecordCreateResult committedResult;
+    {
+        mwmp::PlayerDatabase database(temporary.path.string());
+        mwmp::DynamicRecordService service(database);
+        uint64_t sequence = 10;
+        auto outcome = service.execute(request, "server-lua-hash", context,
+            [](auto, auto) { return std::optional<mwmp::DynamicRecordService::CatalogRecord>{}; },
+            [](auto) { return std::string{}; }, [&] { return sequence++; });
+        ASSERT_TRUE(outcome.result.accepted);
+        EXPECT_FALSE(outcome.replayed);
+        ASSERT_EQ(outcome.newRecords.size(), 2u);
+        EXPECT_EQ(outcome.result.records[0].recordId, "server_test_enchantment");
+        EXPECT_EQ(outcome.result.records[1].recordId, "server_test_weapon");
+        committedResult = outcome.result;
+
+        const auto catalog = database.loadDynamicRecordCatalog();
+        ASSERT_EQ(catalog.size(), 2u);
+        const auto weapon = std::find_if(catalog.begin(), catalog.end(),
+            [](const auto& entry) { return entry.recordType == "weapon"; });
+        const auto enchantment = std::find_if(catalog.begin(), catalog.end(),
+            [](const auto& entry) { return entry.recordType == "enchantment"; });
+        ASSERT_NE(weapon, catalog.end());
+        ASSERT_NE(enchantment, catalog.end());
+        EXPECT_EQ(weapon->creationSource, "server_lua:scripts/test.lua");
+        EXPECT_EQ(weapon->linkCount, 0);
+        EXPECT_EQ(enchantment->linkCount, 1);
+    }
+
+    mwmp::PlayerDatabase reopened(temporary.path.string());
+    const auto journal = reopened.loadServerRecordRequest("server_lua", request.requestId);
+    ASSERT_TRUE(journal.has_value());
+    EXPECT_EQ(journal->status, "accepted");
+    mwmp::DynamicRecordService service(reopened);
+    auto replay = service.execute(request, "server-lua-hash", context,
+        [](auto, auto) { return std::optional<mwmp::DynamicRecordService::CatalogRecord>{}; },
+        [](auto) { return std::string{}; }, [] { return 99u; });
+    EXPECT_TRUE(replay.result.accepted);
+    EXPECT_TRUE(replay.replayed);
+    EXPECT_EQ(replay.result, committedResult);
+    EXPECT_TRUE(replay.newRecords.empty());
+}

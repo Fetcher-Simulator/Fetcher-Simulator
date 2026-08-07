@@ -133,6 +133,9 @@ namespace mwmp
         uint64_t resultingInventoryRevision = 0;
         std::vector<DynamicRecordCommitEntry> records;
         std::optional<std::vector<Item>> inventory;
+        /// Non-empty for trusted server-side requests that have no player
+        /// account or inventory revision. These use a separate durable journal.
+        std::string serverSource;
     };
 
     struct DatabaseTableInfo
@@ -359,10 +362,21 @@ namespace mwmp
         /// Delete one persisted dynamic record by (recordType, recordId).
         void deleteDynamicRecord(std::string_view recordType, std::string_view recordId);
 
+        /// Preserve the exact pre-OMDR payload before an in-place legacy migration.
+        void backupLegacyDynamicRecord(const PersistedDynamicRecord& record);
+        void recordLegacyDynamicRecordMigrationFailure(
+            std::string_view recordType, std::string_view recordId, std::string_view reason);
+        void clearLegacyDynamicRecordMigrationFailure(
+            std::string_view recordType, std::string_view recordId);
+
         std::optional<CraftRequestRecord> loadCraftRequest(
             int64_t accountId, int64_t characterId, std::string_view requestId);
+        std::optional<CraftRequestRecord> loadServerRecordRequest(
+            std::string_view source, std::string_view requestId);
         bool insertPendingCraftRequest(const CraftRequestRecord& request);
         bool insertRejectedCraftRequest(
+            const CraftRequestRecord& request, std::string_view resultPayload);
+        bool insertRejectedServerRecordRequest(std::string_view source,
             const CraftRequestRecord& request, std::string_view resultPayload);
         void completeCraftRequest(int64_t accountId, int64_t characterId, std::string_view requestId,
             std::string_view requestHash, std::string_view status, std::string_view resultPayload);

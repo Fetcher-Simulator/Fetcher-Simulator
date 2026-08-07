@@ -8,6 +8,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_set>
+#include <unordered_map>
 #include <vector>
 
 #include <components/openmw-mp/Records/RecordCreateProtocol.hpp>
@@ -35,13 +36,20 @@ namespace mwmp
             int64_t characterId = 0;
             uint64_t inventoryRevision = 0;
             std::string creationSource;
+            std::uint16_t validationVersion = 1;
             bool trustedServerRequest = false;
+            std::string recordScope = "generated";
+            bool persistent = true;
+            std::string serverRequestSource;
+            std::unordered_map<std::string, std::string> fixedRecordIds;
             bool allowCustomDefinitions = false;
             std::unordered_set<records::RecordType> permittedTypes;
             records::CreateError admissionError = records::CreateError::None;
             std::size_t maximumNewRecords = std::numeric_limits<std::size_t>::max();
             std::function<bool(std::string_view)> isContentIdAllowed;
             std::function<bool(std::string_view)> isAssetAllowed;
+            std::function<bool(std::string_view)> isModelAllowed;
+            std::function<bool(std::string_view)> isIconAllowed;
         };
 
         struct CommittedRecord

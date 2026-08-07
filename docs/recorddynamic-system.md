@@ -33,8 +33,12 @@ creates no client-local definitions.
 
 The durable wire/database payload is the versioned, little-endian `OMDR` codec;
 it is independent of Lua tables and C++ layout. Typed records are canonicalized,
-validated, fingerprinted, and have dependencies rebuilt at startup. Legacy
-server-Lua payloads remain readable but are not accepted through client proposals.
+validated, fingerprinted, and have dependencies rebuilt at startup. New trusted
+server-Lua writes for supported DTO types use the same service and a durable
+server-request journal. On restart, legacy Lua-table definitions are backed up
+and migrated to OMDR when conversion and authoritative reference validation
+succeed. Failed or unsupported migrations leave the readable original intact
+and record a durable diagnostic.
 
 ## Permissions and validation
 
@@ -62,10 +66,13 @@ crafting menus therefore perform no mutation and report that authoritative
 crafting is unavailable. No client-local crafted ID, consumed resource, or skill
 gain can leak into multiplayer state.
 
-The remaining convergence work is to route native semantic calculation and the
-legacy server-Lua table API through the typed service. Trusted server Lua may use
-the legacy administrative API in the meantime; authorized client Lua already
-uses the canonical service.
+The legacy server-Lua table API is now only a compatibility parser boundary for
+Potion, Enchantment, Weapon, Armor, Clothing, and Book; persistence, provenance,
+dependencies, validation, fingerprinting, and idempotency are owned by
+`DynamicRecordService`. New writes for broader world-authority types such as NPC,
+Creature, or Container are rejected clearly, while already persisted legacy rows
+remain readable. The remaining convergence work is native semantic alchemy and
+enchanting calculation.
 
 ## Upstream-facing surface
 
