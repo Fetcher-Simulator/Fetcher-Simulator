@@ -701,7 +701,7 @@ endif()
 add_subdirectory (components)
 
 # Apps and tools
-if (BUILD_OPENMW OR BUILD_OPENMW_TESTS)
+if (BUILD_OPENMW OR BUILD_OPENMW_TESTS OR BUILD_DEDICATED_SERVER)
     add_subdirectory( apps/openmw )
 endif()
 

@@ -214,6 +214,12 @@ static void writeDefaultConfig(const std::filesystem::path& cfgPath)
          "actorAuthorityStickyMs = 3000\n"
          "actorAuthorityPreferExactCell = true\n"
          "\n"
+         "[content]\n"
+         "# Required: client-equivalent OpenMW configuration loaded by the headless server.\n"
+         "openmw_cfg      = openmw.cfg\n"
+         "encoding        = win1252\n"
+         "verify_determinism = true\n"
+         "\n"
          "[master]\n"
          "public_listing  = false       # set true to appear in the server browser\n"
          "master_url      = " << mwmp::DefaultMasterServerUrl << "\n"
@@ -267,6 +273,10 @@ int main(int argc, char* argv[])
         cfgInt(cfg, "server.actor_authority_sticky_ms", 3000));
     bool        actorAuthorityPreferExactCell = cfgBool(cfg, "server.actorAuthorityPreferExactCell",
         cfgBool(cfg, "server.actor_authority_prefer_exact_cell", true));
+    std::filesystem::path contentConfig = cfgStr(cfg, "content.openmw_cfg", "");
+    std::filesystem::path contentResources = cfgStr(cfg, "content.resources", "");
+    const std::string contentEncoding = cfgStr(cfg, "content.encoding", "win1252");
+    const bool verifyContentDeterminism = cfgBool(cfg, "content.verify_determinism", true);
     bool        publicListing = cfgBool(cfg, "master.public_listing", false);
     std::string masterUrl     = cfgStr(
         cfg, "master.master_url", std::string(mwmp::DefaultMasterServerUrl));
@@ -286,6 +296,14 @@ int main(int argc, char* argv[])
     }
 
     setupServerLogging(logDir);
+
+    const std::filesystem::path cfgDir = std::filesystem::absolute(cfgPath).parent_path();
+    if (!contentConfig.empty() && contentConfig.is_relative())
+        contentConfig = cfgDir / contentConfig;
+    if (contentResources.empty())
+        contentResources = exeDir / "resources";
+    else if (contentResources.is_relative())
+        contentResources = cfgDir / contentResources;
 
     std::cout << "[Server] Config: " << cfgPath.string() << "\n"
               << "[Server] Port: " << port
@@ -309,6 +327,8 @@ int main(int argc, char* argv[])
         server.setActorAuthorityExteriorRadius(actorAuthorityExteriorRadius);
         server.setActorAuthorityStickyMs(actorAuthorityStickyMs);
         server.setActorAuthorityPreferExactCell(actorAuthorityPreferExactCell);
+        server.setContentRegistryConfig({ std::move(contentConfig), std::move(contentResources),
+            contentEncoding, verifyContentDeterminism });
         if (publicListing && !masterUrl.empty())
         {
             server.setMasterUrl(masterUrl);

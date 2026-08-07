@@ -6,6 +6,7 @@ set(OPENMW_SERVER_SOURCES
     MasterServerClient.cpp
     PlayerDatabase.cpp
     DynamicRecordService.cpp
+    ServerContentRegistry.cpp
     bindings/PlayerBindings.cpp
     bindings/ServerBindings.cpp
     bindings/TypesStubBindings.cpp
@@ -20,6 +21,7 @@ set(OPENMW_SERVER_HEADERS
     OutboundQueue.hpp
     MasterServerClient.hpp
     PlayerDatabase.hpp
+    ServerContentRegistry.hpp
     bindings/PlayerBindings.hpp
     bindings/ServerBindings.hpp
     bindings/TypesStubBindings.hpp
@@ -138,6 +140,7 @@ if(DEFINED OPENMW_SERVER_INSTALL_SCRIPTS_DESTINATION)
 endif()
 
 target_link_libraries(openmw-server
+    openmw-lib
     components
     GameNetworkingSockets::GameNetworkingSockets_s
     OpenSSL::SSL

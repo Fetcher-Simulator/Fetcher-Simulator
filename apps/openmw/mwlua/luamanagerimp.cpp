@@ -325,8 +325,20 @@ namespace MWLua
             .mLogMemoryUsage = Settings::lua().mLogMemoryUsage };
     }
 
-    LuaManager::LuaManager(const VFS::Manager* vfs, const std::filesystem::path& libsDir)
-        : mLua(vfs, &mConfiguration, createLuaStateSettings())
+    static LuaUtil::LuaStateSettings createStrictHeadlessLuaStateSettings()
+    {
+        // The resource profiler attributes allocations to live gameplay script
+        // containers. Headless load scripts have no gameplay container and are
+        // instead bounded by hard per-state limits.
+        LuaUtil::LuaState::disableProfiler();
+        return { 100000000, 512 * 1024 * 1024 };
+    }
+
+    LuaManager::LuaManager(
+        const VFS::Manager* vfs, const std::filesystem::path& libsDir, bool strictHeadlessContent)
+        : mStrictHeadlessContent(strictHeadlessContent)
+        , mLua(vfs, &mConfiguration,
+              strictHeadlessContent ? createStrictHeadlessLuaStateSettings() : createLuaStateSettings())
     {
         Log(Debug::Info) << "Lua version: " << LuaUtil::getLuaVersion();
         mLua.addInternalLibSearchPath(libsDir);
@@ -363,7 +375,10 @@ namespace MWLua
             context.mLua = &mLua;
 
             for (const auto& [name, package] : initCommonPackages(context))
-                mLua.addCommonPackage(name, package);
+            {
+                if (!mStrictHeadlessContent || name != "mp")
+                    mLua.addCommonPackage(name, package);
+            }
 
             for (const auto& [name, package] : initLoadPackages(context))
                 mLoadScripts.addPackage(name, package);
@@ -380,7 +395,11 @@ namespace MWLua
         mLoadScripts.setAutoStartConf(mConfiguration.getLoadConf());
         mLoadScripts.addAutoStartedScripts();
         mLoadScripts.contentFilesLoaded();
+        const std::size_t errors = mLoadScripts.errorCount();
         mLoadScripts.removeAllScripts();
+        if (mStrictHeadlessContent && errors != 0)
+            throw std::runtime_error("Headless content loading failed with " + std::to_string(errors)
+                + " Lua script error(s)");
     }
 
     void LuaManager::initPostLoad()
