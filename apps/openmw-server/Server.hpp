@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <memory>
+#include <utility>
 #include <vector>
 #include <atomic>
 
@@ -31,6 +32,7 @@
 #include "AdminHttpServer.hpp"
 #include "MasterServerClient.hpp"
 #include "PlayerDatabase.hpp"
+#include "ServerContentRegistry.hpp"
 #include <optional>
 
 namespace mwmp
@@ -251,6 +253,10 @@ public:
         mActorAuthorityStickyMs = std::max(milliseconds, 0);
     }
     void setActorAuthorityPreferExactCell(bool prefer) { mActorAuthorityPreferExactCell = prefer; }
+    void setContentRegistryConfig(ServerContentRegistry::Config config)
+    {
+        mContentRegistryConfig = std::move(config);
+    }
 
 private:
     // ── GNS callbacks ─────────────────────────────────────────────────────
@@ -627,6 +633,8 @@ private:
     bool               mPasswordProtected = false;
 
     std::optional<PlayerDatabase> mPlayerDb;
+    ServerContentRegistry::Config mContentRegistryConfig;
+    std::unique_ptr<ServerContentRegistry> mContentRegistry;
     std::string                   mDbPath            = "playerdata.db";
     std::string                   mDefaultSpawnCell  = "toddtest";
     Position                      mDefaultSpawnPosition;

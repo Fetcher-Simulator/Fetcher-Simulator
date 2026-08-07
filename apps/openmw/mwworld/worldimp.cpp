@@ -239,7 +239,8 @@ namespace MWWorld
     }
 
     void World::loadData(const Files::Collections& fileCollections, const std::vector<std::string>& contentFiles,
-        const std::vector<std::string>& groundcoverFiles, ToUTF8::Utf8Encoder* encoder, Loading::Listener* listener)
+        const std::vector<std::string>& groundcoverFiles, ToUTF8::Utf8Encoder* encoder, Loading::Listener* listener,
+        bool initializeGameplayState)
     {
         mContentFiles = contentFiles;
         mESMVersions.resize(mContentFiles.size(), -1);
@@ -248,13 +249,16 @@ namespace MWWorld
         loadGroundcoverFiles(fileCollections, groundcoverFiles, encoder, listener);
         MWBase::Environment::get().getLuaManager()->contentFilesLoaded();
 
-        fillGlobalVariables();
+        if (initializeGameplayState)
+            fillGlobalVariables();
 
         mStore.setUp();
         mStore.validateRecords(mReaders);
-        mStore.movePlayerRecord();
+        if (initializeGameplayState)
+            mStore.movePlayerRecord();
 
-        mSwimHeightScale = mStore.get<ESM::GameSetting>().find("fSwimHeightScale")->mValue.getFloat();
+        if (initializeGameplayState)
+            mSwimHeightScale = mStore.get<ESM::GameSetting>().find("fSwimHeightScale")->mValue.getFloat();
     }
 
     void World::init(Debug::Level maxRecastLogLevel, osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode,

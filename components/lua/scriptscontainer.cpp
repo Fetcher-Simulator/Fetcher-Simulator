@@ -52,6 +52,7 @@ namespace LuaUtil
 
     void ScriptsContainer::printError(int scriptId, std::string_view msg, const std::exception& e) const
     {
+        ++mErrorCount;
         Log(Debug::Error) << mNamePrefix << "[" << scriptPath(scriptId) << "] " << msg << ": " << e.what();
     }
 
@@ -141,7 +142,10 @@ namespace LuaUtil
                 else if (sectionName == INTERFACE)
                     script.mInterface = cast<sol::table>(value);
                 else
+                {
+                    ++mErrorCount;
                     Log(Debug::Error) << "Not supported section '" << sectionName << "' in " << debugName;
+                }
             }
             if (engineHandlers != sol::nil)
             {
@@ -161,7 +165,10 @@ namespace LuaUtil
                     {
                         auto it = mEngineHandlers.find(handlerName);
                         if (it == mEngineHandlers.end())
+                        {
+                            ++mErrorCount;
                             Log(Debug::Error) << "Not supported handler '" << handlerName << "' in " << debugName;
+                        }
                         else
                             insertHandler(it->second->mList, scriptId, std::move(fn));
                     }
@@ -181,6 +188,7 @@ namespace LuaUtil
 
             if (script.mInterfaceName.empty() == script.mInterface.has_value())
             {
+                ++mErrorCount;
                 Log(Debug::Error) << debugName << ": 'interfaceName' should always be used together with 'interface'";
                 script.mInterfaceName.clear();
                 script.mInterface = sol::nil;
@@ -195,6 +203,7 @@ namespace LuaUtil
         }
         catch (std::exception& e)
         {
+            ++mErrorCount;
             auto iter = data.mScripts.find(scriptId);
             mRemovedScriptsMemoryUsage[scriptId] = iter->second.mStats.mMemoryUsage;
             data.mScripts.erase(iter);

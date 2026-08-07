@@ -1517,6 +1517,11 @@ MPServer::~MPServer()
 // ---------------------------------------------------------------------------
 void MPServer::run()
 {
+    if (mContentRegistryConfig.openmwConfig.empty())
+        throw std::runtime_error(
+            "Authoritative content is not configured; set [content] openmw_cfg in server.cfg");
+    mContentRegistry = std::make_unique<ServerContentRegistry>(mContentRegistryConfig);
+
     // Create listen socket
     SteamNetworkingIPAddr listenAddr;
     listenAddr.Clear();
@@ -1628,8 +1633,16 @@ void MPServer::run()
     mModChecksHelpUrl = mLua.getString("Config", "MOD_CHECKS_HELP_URL", "");
     mRequiredContentFiles = mLua.getConfigContentFileRules("REQUIRED_CONTENT_FILES");
     mRequiredLuaScripts = mLua.getConfigContentFileRules("REQUIRED_LUA_SCRIPTS");
-    mResolvedContentFingerprint
+    const std::string configuredResolvedFingerprint
         = lowerAscii(mLua.getString("Config", "RESOLVED_CONTENT_FINGERPRINT", ""));
+    mResolvedContentFingerprint = lowerAscii(mContentRegistry->resolvedFingerprint());
+    if (!configuredResolvedFingerprint.empty()
+        && configuredResolvedFingerprint != mResolvedContentFingerprint)
+    {
+        throw std::runtime_error("Config.RESOLVED_CONTENT_FINGERPRINT does not match the authoritative "
+            "headless content result (configured=" + configuredResolvedFingerprint
+            + ", computed=" + mResolvedContentFingerprint + ")");
+    }
     mRuntimeRecordContentIds.clear();
     for (const std::string& id : mLua.getConfigStringList("RUNTIME_RECORD_CONTENT_IDS"))
         mRuntimeRecordContentIds.insert(lowerAscii(id));
@@ -1658,12 +1671,9 @@ void MPServer::run()
     }
     Log(Debug::Info) << "[Server] Runtime record client capabilities: packages="
                      << mRuntimeRecordCapabilities.size() << " (default deny)";
-    if (!mRuntimeRecordCapabilities.empty() && mResolvedContentFingerprint.empty())
-    {
-        Log(Debug::Warning) << "[Server] Disabling client runtime-record capabilities: "
-                               "Config.RESOLVED_CONTENT_FINGERPRINT is required";
-        mRuntimeRecordCapabilities.clear();
-    }
+    if (!mRuntimeRecordContentIds.empty() || !mRuntimeRecordAssets.empty())
+        Log(Debug::Warning) << "[Server] RUNTIME_RECORD_CONTENT_IDS and RUNTIME_RECORD_ASSETS are deprecated; "
+                              "runtime references are validated against the authoritative content registry";
 
     const std::string journalSharing = lowerAscii(mLua.getString("Config", "JOURNAL_SHARING", "player"));
     if (journalSharing == "server")
@@ -4742,6 +4752,42 @@ void MPServer::handleHandshake(ConnectedClient& c, const uint8_t* data, size_t s
 
     // Validate content before any password/key lookup so incompatible clients
     // cannot create accounts or spend authentication work.
+    {
+        std::vector<ContentFileRule> authoritativeContent;
+        authoritativeContent.reserve(mContentRegistry->contentFiles().size());
+        for (const ServerContentRegistry::ManifestEntry& entry : mContentRegistry->contentFiles())
+            authoritativeContent.push_back({ entry.filename, entry.sha256 });
+        auto mismatches = validateContentFiles(hs.plugins, authoritativeContent, true, true);
+        if (!mismatches.empty())
+        {
+            PacketHandshakeResponse rsp;
+            rsp.pluginMismatches = std::move(mismatches);
+            rsp.rejectReason = "Authoritative content mismatch: "
+                + contentFileRejectReason(rsp.pluginMismatches, mModChecksHelpUrl);
+            Log(Debug::Warning) << "[Handshake] Rejecting " << hs.playerName << ": " << rsp.rejectReason;
+            sendTo(c.conn, rsp.encode());
+            mInterface->CloseConnection(c.conn, 0, "Authoritative content mismatch", true);
+            return;
+        }
+
+        std::vector<ContentFileRule> authoritativeLua;
+        authoritativeLua.reserve(mContentRegistry->luaScripts().size());
+        for (const ServerContentRegistry::ManifestEntry& entry : mContentRegistry->luaScripts())
+            authoritativeLua.push_back({ entry.filename, entry.sha256 });
+        auto luaMismatches = validateContentFiles(hs.luaScripts, authoritativeLua, true, true);
+        if (!luaMismatches.empty())
+        {
+            PacketHandshakeResponse rsp;
+            rsp.pluginMismatches = std::move(luaMismatches);
+            rsp.rejectReason = "Authoritative Lua content mismatch: "
+                + contentFileRejectReason(rsp.pluginMismatches, mModChecksHelpUrl);
+            Log(Debug::Warning) << "[Handshake] Rejecting " << hs.playerName << ": " << rsp.rejectReason;
+            sendTo(c.conn, rsp.encode());
+            mInterface->CloseConnection(c.conn, 0, "Authoritative Lua content mismatch", true);
+            return;
+        }
+    }
+
     if (mModChecksEnabled)
     {
         auto mismatches = validateContentFiles(
@@ -4777,8 +4823,7 @@ void MPServer::handleHandshake(ConnectedClient& c, const uint8_t* data, size_t s
         }
     }
 
-    if (!mResolvedContentFingerprint.empty()
-        && lowerAscii(hs.resolvedContentFingerprint) != mResolvedContentFingerprint)
+    if (lowerAscii(hs.resolvedContentFingerprint) != mResolvedContentFingerprint)
     {
         PacketHandshakeResponse rsp;
         rsp.rejectReason = hs.resolvedContentFingerprint.empty()
@@ -6263,11 +6308,11 @@ void MPServer::handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data
             ? 0
             : mRuntimeRecordMaxPerCharacter - owned;
         context.isAssetAllowed = [&](std::string_view asset) {
-            return mRuntimeRecordAssets.contains(normalizeRuntimeAsset(asset));
+            return mContentRegistry->hasAsset(normalizeRuntimeAsset(asset));
         };
         context.isContentIdAllowed = [&](std::string_view id) {
             const std::string normalized = lowerAscii(id);
-            if (mRuntimeRecordContentIds.contains(normalized))
+            if (mContentRegistry->hasContentId(normalized))
                 return true;
             if (!normalized.starts_with(lowerAscii(mGeneratedRecordIdPrefix) + "_"))
                 return false;

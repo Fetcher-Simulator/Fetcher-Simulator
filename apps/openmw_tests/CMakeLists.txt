@@ -18,6 +18,8 @@ file(GLOB UNITTEST_SRC_FILES
     mwgui/weightedsearch.cpp
 
     mwscript/testscripts.cpp
+
+    mwmp/testservercontentregistry.cpp
 )
 
 if (MSVC)
@@ -35,6 +37,12 @@ endif()
 source_group(apps\\openmw-tests FILES ${UNITTEST_SRC_FILES})
 
 openmw_add_executable(openmw-tests ${UNITTEST_SRC_FILES})
+
+if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
+    target_sources(openmw-tests PRIVATE
+        ../openmw-server/ServerContentRegistry.cpp
+    )
+endif()
 
 target_link_libraries(openmw-tests
     GTest::GTest

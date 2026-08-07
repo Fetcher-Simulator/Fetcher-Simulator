@@ -28,6 +28,11 @@ namespace
     {
         for (const T& record : store.get<T>())
         {
+            // Runtime/save records are not load-time content. In particular,
+            // reconnecting after authoritative records have been replayed must
+            // not change the negotiated content identity.
+            if (store.get<T>().isDynamic(record.mId))
+                continue;
             Entry entry;
             entry.type = static_cast<std::uint8_t>(type);
             entry.id = record.mId.toString();

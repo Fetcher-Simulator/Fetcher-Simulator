@@ -44,7 +44,8 @@ namespace MWLua
     class LuaManager : public MWBase::LuaManager
     {
     public:
-        LuaManager(const VFS::Manager* vfs, const std::filesystem::path& libsDir);
+        LuaManager(const VFS::Manager* vfs, const std::filesystem::path& libsDir,
+            bool strictHeadlessContent = false);
         LuaManager(const LuaManager&) = delete;
         LuaManager(LuaManager&&) = delete;
         ~LuaManager();
@@ -219,6 +220,7 @@ namespace MWLua
         bool mGlobalScriptsStarted = false;
         bool mProcessingInputEvents = false;
         bool mApplyingDelayedActions = false;
+        bool mStrictHeadlessContent = false;
         bool mNewGameStarted = false;
         bool mReloadAllScriptsRequested = false;
         bool mRunningSynchronizedUpdates = false;

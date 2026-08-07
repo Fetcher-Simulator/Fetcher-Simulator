@@ -61,8 +61,9 @@ Config.REQUIRED_CONTENT_FILES = require("mod_manifest")
 -- script configuration. Load-time script output is covered separately below.
 Config.REQUIRED_LUA_SCRIPTS = {}
 
--- Canonical post-load-script fingerprint printed by a matching client during
--- connection. Required before client runtime-record capabilities are enabled.
+-- Optional startup assertion for the canonical post-load-script fingerprint.
+-- The server computes the authoritative value from [content] openmw_cfg and
+-- always requires clients to match it exactly.
 Config.RESOLVED_CONTENT_FINGERPRINT = ""
 
 -- Generic client proposals are default-deny. Keys are exact synchronized Lua
@@ -71,9 +72,9 @@ Config.RUNTIME_RECORD_CAPABILITIES = {
     -- ["scripts/example.lua"] = { "potion" },
 }
 
--- Exact normalized IDs and VFS paths generic client proposals may reference.
--- Generated $custom_* references are admitted only when present in the
--- authoritative dynamic-record catalog.
+-- Deprecated compatibility settings. Static IDs and VFS assets are validated
+-- against the server's loaded content registry; generated $custom_* references
+-- are admitted only when present in the authoritative dynamic-record catalog.
 Config.RUNTIME_RECORD_CONTENT_IDS = {}
 Config.RUNTIME_RECORD_ASSETS = {}
 Config.RUNTIME_RECORD_REQUESTS_PER_MINUTE = 30

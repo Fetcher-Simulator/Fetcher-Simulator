@@ -8,8 +8,9 @@ are part of the resolved content view; they do not allocate `$custom_*` IDs and
 are never written to runtime-record tables. The handshake compares ordered base
 files, configured Lua script paths and hashes, content/API versions, the runtime
 wire version, and a canonical SHA-256 over the resolved Potion, Enchantment,
-Weapon, Armor, Clothing, and Book stores. A server that enables client record
-capabilities must pin `Config.RESOLVED_CONTENT_FINGERPRINT`.
+Weapon, Armor, Clothing, and Book stores. The server derives all three manifests
+from its own `[content] openmw_cfg`; `Config.RESOLVED_CONTENT_FINGERPRINT` is only
+an optional startup assertion.
 
 `world.createRecord` remains synchronous in single-player. A connected client
 gets a descriptive error instead of inserting a local record. Draft constructors
@@ -39,10 +40,11 @@ server-Lua payloads remain readable but are not accepted through client proposal
 
 Generic client creation is default-deny. Configure exact script paths in
 `Config.RUNTIME_RECORD_CAPABILITIES`; only Potion, Enchantment, Weapon, Armor,
-Clothing, and Book have DTO support. Every referenced static ID and VFS asset
-must appear in `Config.RUNTIME_RECORD_CONTENT_IDS` or
-`Config.RUNTIME_RECORD_ASSETS`. Generated-looking references are accepted only
-when present in the authoritative catalog. Requests are rate- and quota-limited.
+Clothing, and Book have DTO support. Every referenced static ID and VFS asset is
+validated against the server's loaded content registry. Generated-looking
+references are accepted only when present in the authoritative catalog. Requests
+are rate- and quota-limited. The old `Config.RUNTIME_RECORD_CONTENT_IDS` and
+`Config.RUNTIME_RECORD_ASSETS` lists are deprecated and ignored.
 
 Validation covers bounded payloads, UTF-8, finite/nonnegative numbers, effect
 and enum ranges, VFS path traversal, temporary-key integrity, duplicate edges,

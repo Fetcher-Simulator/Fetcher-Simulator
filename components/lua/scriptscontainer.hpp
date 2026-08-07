@@ -136,6 +136,8 @@ namespace LuaUtil
         // Automatically applies LuaUtil::makeReadOnly to the package.
         void addPackage(std::string packageName, sol::main_object package);
 
+        std::size_t errorCount() const { return mErrorCount; }
+
         // Gets script with given id from ScriptsConfiguration, finds the source in the virtual file system, starts as a
         // new script, adds it to the container, and calls onInit for this script. Returns `true` if the script was
         // successfully added. The script should have CUSTOM flag. If the flag is not set, or file not found, or has
@@ -275,6 +277,7 @@ namespace LuaUtil
                 }
                 catch (std::exception& e)
                 {
+                    ++mErrorCount;
                     Log(Debug::Error) << mNamePrefix << "[" << scriptPath(handler.mScriptId) << "] " << handlers.mName
                                       << " failed. " << e.what();
                 }
@@ -287,6 +290,7 @@ namespace LuaUtil
 
         const std::string mNamePrefix;
         LuaUtil::LuaState& mLua;
+        mutable std::size_t mErrorCount = 0;
 
     private:
         struct Script
