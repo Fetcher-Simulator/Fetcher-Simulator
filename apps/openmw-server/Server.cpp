@@ -82,6 +82,10 @@
 #include <components/openmw-mp/Records/DynamicRecordFingerprint.hpp>
 #include <components/openmw-mp/Records/DynamicRecordValidation.hpp>
 #include <components/openmw-mp/Sha256.hpp>
+#include <components/openmw-mp/SpellbookSync.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerSpellbook.hpp>
+#include <components/esm3/loadspel.hpp>
+#include <apps/openmw/mwworld/esmstore.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAI.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAnimFlags.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAnimPlay.hpp>
@@ -824,6 +828,27 @@ namespace
         return std::any_of(restored.begin(), restored.end(), [&](const mwmp::Item& item) {
             return !item.refId.empty() && item.count > 0
                 && !inventoryContainsItemIdentity(incoming.items, item);
+        });
+    }
+
+    bool looksLikeRestoredSpellbookRegression(const mwmp::BasePlayer::SpellbookChanges& incoming,
+        const std::vector<std::string>& restored)
+    {
+        // During login the client may send its pre-restore learned set before
+        // applying the authoritative spellbook (or a mid-chargen partial set).
+        // A full Set missing restored spells is a regression and must not
+        // clobber the persisted state. Deltas are never treated as regressions:
+        // Adds are harmless and Removes of a restored spell are only possible
+        // from a client that already acknowledged it.
+        if (incoming.action != mwmp::BasePlayer::SpellbookChanges::Action::Set || restored.empty())
+            return false;
+
+        std::vector<std::string> incomingSet = mwmp::canonicalizeSpellIds(incoming.spellIds);
+        if (incomingSet == mwmp::canonicalizeSpellIds(restored))
+            return false;
+
+        return std::any_of(restored.begin(), restored.end(), [&](const std::string& spellId) {
+            return std::find(incomingSet.begin(), incomingSet.end(), spellId) == incomingSet.end();
         });
     }
 
@@ -4127,6 +4152,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::PlayerAttack:     handlePlayerAttack(client, data, size);       break;
         case PacketType::PlayerCast:       handlePlayerCast(client, data, size);         break;
         case PacketType::PlayerInventory:  handlePlayerInventory(client, data, size);    break;
+        case PacketType::PlayerSpellbook:  handlePlayerSpellbook(client, data, size);    break;
         case PacketType::RecordCreateRequest: handleRecordCreateRequest(client, data, size); break;
         case PacketType::AlchemyRequest:   handleAlchemyRequest(client, data, size);     break;
         case PacketType::EnchantingRequest: handleEnchantingRequest(client, data, size); break;
@@ -5392,6 +5418,7 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
     applyDefaultSpawn(cdPkt);
     bool sendSavedInventory = false;
     bool sendSavedEquipment = false;
+    bool sendSavedSpellbook = false;
     c.dbChargenCompletePending = false;
     c.hasRestoredStatsSnapshot = false;
     c.acceptedPlayerStatsThisSession = false;
@@ -5410,6 +5437,15 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
     c.lastPlayerEquipmentRestoreCorrectionLogMs = 0;
     c.lastPlayerEquipmentInstanceCorrectionLogMs = 0;
     c.pendingInventoryTransfers.clear();
+    c.restoredSpellbookSnapshot.clear();
+    c.hasRestoredSpellbookSnapshot = false;
+    c.acceptedPlayerSpellbookThisSession = false;
+    c.spellbookRevision = 0;
+    c.playerSpellbookRestoreGuardUntilMs = 0;
+    c.lastPlayerSpellbookRestoreCorrectionLogMs = 0;
+    c.player.spellbookChanges.action = BasePlayer::SpellbookChanges::Action::Set;
+    c.player.spellbookChanges.spellIds.clear();
+    c.player.spellbookChanges.revision = 0;
 
     for (int slot = 0; slot < BasePlayer::NUM_EQUIPMENT_SLOTS; ++slot)
         c.player.equipment[slot].slot = slot;
@@ -5486,6 +5522,7 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
                 c.dbCharacterId      = rec->characterId;
                 c.dbChargenCompletePending = rec->isNew;
                 cdPkt.isNewCharacter = rec->isNew;
+                cdPkt.hasSavedSpellbook = !rec->isNew && rec->hasSavedSpellbook;
                 c.player.charGenComplete = !rec->isNew;
                 if (rec->cell.empty())
                 {
@@ -5536,6 +5573,23 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
                     c.hasRestoredEquipmentSnapshot = true;
                     c.playerEquipmentRestoreGuardUntilMs = currentServerTimeMs() + 5000;
                     sendSavedEquipment = true;
+                }
+
+                if (!rec->isNew && rec->hasSavedSpellbook)
+                {
+                    c.player.spellbookChanges.action = BasePlayer::SpellbookChanges::Action::Set;
+                    c.player.spellbookChanges.spellIds = mPlayerDb->loadCharacterSpellbook(rec->characterId);
+                    c.restoredSpellbookSnapshot = c.player.spellbookChanges.spellIds;
+                    c.hasRestoredSpellbookSnapshot = true;
+                    c.playerSpellbookRestoreGuardUntilMs = currentServerTimeMs() + 5000;
+                    sendSavedSpellbook = true;
+
+                    const std::size_t dynamicSpells = std::count_if(
+                        c.player.spellbookChanges.spellIds.begin(), c.player.spellbookChanges.spellIds.end(),
+                        [&](const std::string& id) { return id.starts_with(mGeneratedRecordIdPrefix + "_"); });
+                    Log(Debug::Info) << "[Spellbook] restored player=" << sel.charName
+                                     << " learned=" << c.player.spellbookChanges.spellIds.size()
+                                     << " dynamic=" << dynamicSpells;
                 }
 
                 if (sendSavedEquipment && equippedItemCount(c.player.equipment) > 0)
@@ -5624,6 +5678,8 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
             }
             c.inventoryRevision = mPlayerDb->loadInventoryRevision(c.dbCharacterId);
             c.player.inventoryChanges.revision = c.inventoryRevision;
+            c.spellbookRevision = mPlayerDb->loadSpellbookRevision(c.dbCharacterId);
+            c.player.spellbookChanges.revision = c.spellbookRevision;
             mPlayerDb->touch(c.dbCharacterId);
             mLua.setPlayerMarks(c.guid, mPlayerDb->loadCharacterMarks(c.dbCharacterId));
         }
@@ -5730,6 +5786,19 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
                             << " charId=" << c.dbCharacterId
                             << " name=" << c.slotName
                             << " equipped=" << equippedItemCount(c.player.equipment);
+    }
+
+    if (sendSavedSpellbook)
+    {
+        PacketPlayerSpellbook spellbook;
+        spellbook.setPlayer(&c.player);
+        sendTo(c.conn, spellbook.encode());
+        Log(Debug::Info) << "[PlayerDB] sent player spellbook restore"
+                         << " guid=" << c.player.guid
+                         << " charId=" << c.dbCharacterId
+                         << " name=" << c.slotName
+                         << " revision=" << c.player.spellbookChanges.revision
+                         << " spells=" << c.player.spellbookChanges.spellIds.size();
     }
 
     // Late-join catch-up: send state of all in-world players to the new joiner.
@@ -6633,6 +6702,179 @@ void MPServer::handlePlayerInventory(ConnectedClient& c, const uint8_t* data, si
     // Client-side application already coalesces authoritative snapshots.
     sendTo(c.conn, encoded);
     broadcastToAll(encoded, c.conn);
+}
+
+// ---------------------------------------------------------------------------
+void MPServer::handlePlayerSpellbook(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    BasePlayer incoming = c.player;
+    PacketPlayerSpellbook pkt;
+    pkt.setPlayer(&incoming);
+    if (!pkt.decode(data, size))
+    {
+        Log(Debug::Warning) << "[Spellbook] rejected player=" << c.name
+                            << " error=" << spellbookErrorName(SpellbookError::MalformedRequest);
+        return;
+    }
+
+    using SpellbookAction = BasePlayer::SpellbookChanges::Action;
+
+    if (incoming.spellbookChanges.revision != c.spellbookRevision)
+    {
+        Log(Debug::Info) << "[Spellbook] rejected player=" << c.name
+                         << " error=" << spellbookErrorName(SpellbookError::StaleSpellbookRevision)
+                         << " expectedRevision=" << c.spellbookRevision
+                         << " receivedRevision=" << incoming.spellbookChanges.revision;
+        sendAuthoritativeSpellbook(c);
+        return;
+    }
+
+    const uint64_t nowMs = currentServerTimeMs();
+    if (c.hasRestoredSpellbookSnapshot
+        && !c.acceptedPlayerSpellbookThisSession
+        && nowMs < c.playerSpellbookRestoreGuardUntilMs
+        && looksLikeRestoredSpellbookRegression(incoming.spellbookChanges, c.restoredSpellbookSnapshot))
+    {
+        if (c.lastPlayerSpellbookRestoreCorrectionLogMs == 0
+            || nowMs - c.lastPlayerSpellbookRestoreCorrectionLogMs >= 1000)
+        {
+            c.lastPlayerSpellbookRestoreCorrectionLogMs = nowMs;
+            Log(Debug::Info) << "[PlayerDB] ignored startup player spellbook overwrite"
+                             << " charId=" << c.dbCharacterId
+                             << " name=" << c.slotName
+                             << " incomingSpells=" << incoming.spellbookChanges.spellIds.size()
+                             << " restoredSpells=" << c.restoredSpellbookSnapshot.size();
+        }
+        sendAuthoritativeSpellbook(c);
+        return;
+    }
+
+    // Validate every proposed spell ID before mutating any state. Content IDs
+    // must resolve to an ST_Spell record in the authoritative content store;
+    // generated-looking IDs must be catalog-known persistent dynamic spell
+    // records. The client can never introduce a spell definition.
+    std::string firstRejectedSpellId;
+    SpellbookError validationError = SpellbookError::None;
+    for (const std::string& spellId : incoming.spellbookChanges.spellIds)
+    {
+        const SpellbookError error = validateSpellbookSpellId(spellId,
+            mGeneratedRecordIdPrefix + "_",
+            [&](const std::string& id) -> const ESM::Spell* {
+                if (!mContentRegistry)
+                    return nullptr;
+                return mContentRegistry->store().get<ESM::Spell>().search(ESM::RefId::stringRefId(id));
+            },
+            [&](const std::string& id) -> std::optional<bool> {
+                const auto it = mWorld.dynamicRecords.find(makeDynamicRecordKey("spell", id));
+                if (it == mWorld.dynamicRecords.end())
+                    return std::nullopt;
+                return it->second.persistent;
+            });
+        if (error != SpellbookError::None)
+        {
+            validationError = error;
+            firstRejectedSpellId = spellId;
+            break;
+        }
+    }
+
+    if (validationError != SpellbookError::None)
+    {
+        Log(Debug::Warning) << "[Spellbook] rejected player=" << c.name
+                            << " error=" << spellbookErrorName(validationError)
+                            << " spellId=" << firstRejectedSpellId;
+        sendAuthoritativeSpellbook(c);
+        return;
+    }
+
+    const std::vector<std::string> previous = c.player.spellbookChanges.spellIds;
+    std::vector<std::string> nextSpellbook = applySpellbookAction(
+        incoming.spellbookChanges.action, previous, incoming.spellbookChanges.spellIds);
+
+    if (nextSpellbook.size() > MAX_SPELLBOOK_SIZE)
+    {
+        Log(Debug::Warning) << "[Spellbook] rejected player=" << c.name
+                            << " error=" << spellbookErrorName(SpellbookError::TooManySpells)
+                            << " count=" << nextSpellbook.size();
+        sendAuthoritativeSpellbook(c);
+        return;
+    }
+
+    // An idempotent mutation (already-known Add, absent Remove, identical Set)
+    // changes nothing: acknowledge without advancing the revision so the
+    // client's optimistic-concurrency token stays valid.
+    const bool changed = nextSpellbook != previous;
+    c.player.spellbookChanges.action = SpellbookAction::Set;
+    c.player.spellbookChanges.spellIds = std::move(nextSpellbook);
+    if (changed)
+        ++c.spellbookRevision;
+    c.player.spellbookChanges.revision = c.spellbookRevision;
+
+    c.acceptedPlayerSpellbookThisSession = true;
+    c.restoredSpellbookSnapshot = c.player.spellbookChanges.spellIds;
+    c.hasRestoredSpellbookSnapshot = true;
+    c.playerSpellbookRestoreGuardUntilMs = 0;
+
+    if (changed && mPlayerDb && c.dbCharacterId != 0)
+    {
+        try
+        {
+            mPlayerDb->saveCharacterSpellbook(
+                c.dbCharacterId, c.player.spellbookChanges.spellIds, true, c.spellbookRevision);
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "[PlayerDB] saveCharacterSpellbook error: " << e.what();
+        }
+    }
+
+    if (changed)
+        scheduleGeneratedDynamicRecordGc("player_spellbook");
+
+    // The authoritative reply doubles as the mutation acknowledgement; it
+    // releases the client's in-flight gate and reconciles any drift. The
+    // spellbook is private per-character state, so it is never broadcast.
+    sendAuthoritativeSpellbook(c);
+
+    if (!changed)
+    {
+        Log(Debug::Verbose) << "[Spellbook] accepted no-op player=" << c.name
+                            << " action=" << static_cast<int>(incoming.spellbookChanges.action)
+                            << " spells=" << c.player.spellbookChanges.spellIds.size()
+                            << " revision=" << c.spellbookRevision;
+        return;
+    }
+
+    if (incoming.spellbookChanges.action == SpellbookAction::Add)
+    {
+        for (const std::string& spellId : incoming.spellbookChanges.spellIds)
+        {
+            if (std::find(previous.begin(), previous.end(), spellId) == previous.end())
+            {
+                Log(Debug::Info) << "[Spellbook] accepted player=" << c.name
+                                 << " action=add spellId=" << spellId
+                                 << " revision=" << c.spellbookRevision;
+            }
+        }
+    }
+    else if (incoming.spellbookChanges.action == SpellbookAction::Remove)
+    {
+        for (const std::string& spellId : incoming.spellbookChanges.spellIds)
+        {
+            if (std::find(previous.begin(), previous.end(), spellId) != previous.end())
+            {
+                Log(Debug::Info) << "[Spellbook] removed player=" << c.name
+                                 << " spellId=" << spellId
+                                 << " revision=" << c.spellbookRevision;
+            }
+        }
+    }
+    else
+    {
+        Log(Debug::Info) << "[Spellbook] accepted player=" << c.name
+                         << " action=set spells=" << c.player.spellbookChanges.spellIds.size()
+                         << " revision=" << c.spellbookRevision;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -12799,6 +13041,15 @@ void MPServer::sendAuthoritativeInventory(ConnectedClient& c)
     PacketPlayerInventory inventory;
     inventory.setPlayer(&c.player);
     sendTo(c.conn, inventory.encode());
+}
+
+void MPServer::sendAuthoritativeSpellbook(ConnectedClient& c)
+{
+    c.player.spellbookChanges.action = BasePlayer::SpellbookChanges::Action::Set;
+    c.player.spellbookChanges.revision = c.spellbookRevision;
+    PacketPlayerSpellbook spellbook;
+    spellbook.setPlayer(&c.player);
+    sendTo(c.conn, spellbook.encode());
 }
 
 // ---------------------------------------------------------------------------

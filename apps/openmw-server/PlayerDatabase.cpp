@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <components/debug/debuglog.hpp>
+#include <components/openmw-mp/SpellbookSync.hpp>
 #include <sqlite3.h>
 
 #include <ctime>
@@ -57,7 +58,9 @@ CREATE TABLE IF NOT EXISTS characters (
     stats_saved INTEGER NOT NULL DEFAULT 0,
     level INTEGER NOT NULL DEFAULT 1,
     level_progress REAL NOT NULL DEFAULT 0,
-    inventory_revision INTEGER NOT NULL DEFAULT 0
+    inventory_revision INTEGER NOT NULL DEFAULT 0,
+    spellbook_saved INTEGER NOT NULL DEFAULT 0,
+    spellbook_revision INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_chars_account ON characters(account_id);
@@ -313,6 +316,18 @@ CREATE TABLE IF NOT EXISTS character_equipment (
     PRIMARY KEY(character_id, slot)
 );
 
+-- Learned spellbook: canonical set of learned spell IDs (ESM::Spell records
+-- with type ST_Spell). Baseline content spells (race/birthsign powers,
+-- abilities, diseases) are never stored here.
+CREATE TABLE IF NOT EXISTS character_spellbook (
+    character_id          INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    spell_id              TEXT    NOT NULL,
+    PRIMARY KEY(character_id, spell_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_character_spellbook_character
+    ON character_spellbook(character_id);
+
 CREATE TABLE IF NOT EXISTS character_dynamic_stats (
     character_id          INTEGER PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
     health_base           REAL    NOT NULL DEFAULT 0,
@@ -528,6 +543,13 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         "CREATE INDEX IF NOT EXISTS idx_world_dynamic_record_links_record"
         " ON world_dynamic_record_links(record_id)",
         "ALTER TABLE characters ADD COLUMN inventory_revision INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE characters ADD COLUMN spellbook_saved INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE characters ADD COLUMN spellbook_revision INTEGER NOT NULL DEFAULT 0",
+        "CREATE TABLE IF NOT EXISTS character_spellbook ("
+        "  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,"
+        "  spell_id TEXT NOT NULL,"
+        "  PRIMARY KEY(character_id, spell_id))",
+        "CREATE INDEX IF NOT EXISTS idx_character_spellbook_character ON character_spellbook(character_id)",
         "ALTER TABLE world_dynamic_records ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE world_dynamic_record_catalog ADD COLUMN definition_fingerprint TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE world_dynamic_record_catalog ADD COLUMN creator_account_id INTEGER NOT NULL DEFAULT 0",
@@ -848,7 +870,8 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         sqlite3_stmt* s = prepare(
             "SELECT id, name, cell, pos_x, pos_y, pos_z, rot_x, rot_y, rot_z, is_new,"
             " race, head_mesh, hair_mesh, is_male, class_id, class_name, birth_sign, class_data, nickname,"
-            " inventory_saved, equipment_saved, stats_saved"
+            " inventory_saved, equipment_saved, stats_saved,"
+            " spellbook_saved"
             " FROM characters WHERE account_id = ?1 AND name = ?2 LIMIT 1");
         sqlite3_bind_int64(s, 1, accountId);
         sqlite3_bind_text(s, 2, charName.data(), static_cast<int>(charName.size()), SQLITE_STATIC);
@@ -887,6 +910,7 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         rec.hasSavedInventory = sqlite3_column_int(s, 19) != 0;
         rec.hasSavedEquipment = sqlite3_column_int(s, 20) != 0;
         rec.hasSavedStats = sqlite3_column_int(s, 21) != 0;
+        rec.hasSavedSpellbook = sqlite3_column_int(s, 22) != 0;
         sqlite3_finalize(s);
         return rec;
     }
@@ -1302,6 +1326,133 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
                 sqlite3_bind_int64(mark, 1, characterId);
             }
             checkSqlite(sqlite3_step(mark), mDb, "markCharacterEquipmentSaved");
+            sqlite3_finalize(mark);
+
+            exec("COMMIT");
+        }
+        catch (...)
+        {
+            try
+            {
+                exec("ROLLBACK");
+            }
+            catch (...)
+            {
+            }
+            throw;
+        }
+    }
+
+    std::vector<std::string> PlayerDatabase::loadCharacterSpellbook(int64_t characterId)
+    {
+        sqlite3_stmt* s = prepare(
+            "SELECT spell_id FROM character_spellbook WHERE character_id=?1 ORDER BY spell_id");
+        sqlite3_bind_int64(s, 1, characterId);
+
+        std::vector<std::string> spellIds;
+        while (sqlite3_step(s) == SQLITE_ROW)
+        {
+            const char* text = reinterpret_cast<const char*>(sqlite3_column_text(s, 0));
+            if (text)
+                spellIds.emplace_back(text);
+        }
+
+        sqlite3_finalize(s);
+        return spellIds;
+    }
+
+    uint64_t PlayerDatabase::loadSpellbookRevision(int64_t characterId)
+    {
+        sqlite3_stmt* s = prepare("SELECT spellbook_revision FROM characters WHERE id=?1");
+        sqlite3_bind_int64(s, 1, characterId);
+        const int rc = sqlite3_step(s);
+        const uint64_t revision
+            = rc == SQLITE_ROW ? static_cast<uint64_t>(sqlite3_column_int64(s, 0)) : 0;
+        sqlite3_finalize(s);
+        return revision;
+    }
+
+    void PlayerDatabase::saveCharacterSpellbook(int64_t characterId,
+        const std::vector<std::string>& spellIds, bool touchLastSeen,
+        std::optional<uint64_t> spellbookRevision)
+    {
+        const std::vector<std::string> canonical = mwmp::canonicalizeSpellIds(spellIds);
+
+        exec("BEGIN");
+        try
+        {
+            sqlite3_stmt* clear = prepare("DELETE FROM character_spellbook WHERE character_id=?1");
+            sqlite3_bind_int64(clear, 1, characterId);
+            checkSqlite(sqlite3_step(clear), mDb, "clearCharacterSpellbook");
+            sqlite3_finalize(clear);
+
+            sqlite3_stmt* insert = prepare(
+                "INSERT OR IGNORE INTO character_spellbook(character_id, spell_id) VALUES(?1, ?2)");
+            for (const std::string& spellId : canonical)
+            {
+                if (spellId.empty())
+                    continue;
+                sqlite3_bind_int64(insert, 1, characterId);
+                sqlite3_bind_text(insert, 2, spellId.c_str(), static_cast<int>(spellId.size()), SQLITE_TRANSIENT);
+                checkSqlite(sqlite3_step(insert), mDb, "insertCharacterSpellbook");
+                sqlite3_reset(insert);
+                sqlite3_clear_bindings(insert);
+            }
+            sqlite3_finalize(insert);
+
+            // Rebuild dynamic-record GC links so a learned dynamic spell stays
+            // alive while the character knows it. Links are keyed by character
+            // (owner_a) and rebuilt wholesale on every persisted mutation.
+            const std::string characterKey = std::to_string(characterId);
+            sqlite3_stmt* clearLinks = prepare(
+                "DELETE FROM world_dynamic_record_links"
+                " WHERE link_kind=?1 AND owner_a=?2 AND owner_b=?3 AND owner_c=?4");
+            clearDynamicRecordLinksForOwner(mDb, clearLinks, "spellbook_spell", characterKey, "", "");
+            sqlite3_finalize(clearLinks);
+
+            sqlite3_stmt* insertLink = prepare(
+                "INSERT OR REPLACE INTO world_dynamic_record_links(record_id, link_kind, owner_a, owner_b, owner_c, "
+                "owner_index)"
+                " VALUES(?1, ?2, ?3, ?4, ?5, ?6)");
+            for (std::size_t i = 0; i < canonical.size(); ++i)
+                insertDynamicRecordLink(
+                    mDb, insertLink, canonical[i], "spellbook_spell", characterKey, "", "",
+                    static_cast<int64_t>(i));
+            sqlite3_finalize(insertLink);
+
+            sqlite3_stmt* mark = prepare(
+                touchLastSeen
+                    ? (spellbookRevision
+                        ? "UPDATE characters SET spellbook_saved=1, spellbook_revision=?1, last_seen=?2 WHERE id=?3"
+                        : "UPDATE characters SET spellbook_saved=1, last_seen=?1 WHERE id=?2")
+                    : (spellbookRevision
+                        ? "UPDATE characters SET spellbook_saved=1, spellbook_revision=?1 WHERE id=?2"
+                        : "UPDATE characters SET spellbook_saved=1 WHERE id=?1"));
+            if (touchLastSeen)
+            {
+                if (spellbookRevision)
+                {
+                    sqlite3_bind_int64(mark, 1, static_cast<sqlite3_int64>(*spellbookRevision));
+                    sqlite3_bind_int64(mark, 2, static_cast<int64_t>(std::time(nullptr)));
+                    sqlite3_bind_int64(mark, 3, characterId);
+                }
+                else
+                {
+                    sqlite3_bind_int64(mark, 1, static_cast<int64_t>(std::time(nullptr)));
+                    sqlite3_bind_int64(mark, 2, characterId);
+                }
+            }
+            else
+            {
+                if (spellbookRevision)
+                {
+                    sqlite3_bind_int64(mark, 1, static_cast<sqlite3_int64>(*spellbookRevision));
+                    sqlite3_bind_int64(mark, 2, characterId);
+                }
+                else
+                    sqlite3_bind_int64(mark, 1, characterId);
+            }
+            checkSqlite(sqlite3_step(mark), mDb, "markCharacterSpellbookSaved");
             sqlite3_finalize(mark);
 
             exec("COMMIT");

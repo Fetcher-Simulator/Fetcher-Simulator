@@ -10,6 +10,7 @@
 #include <components/openmw-mp/Base/BasePlayer.hpp>
 #include <components/openmw-mp/InventorySync.hpp>
 #include <components/openmw-mp/NetworkMessages.hpp>
+#include <components/openmw-mp/SpellbookSync.hpp>
 
 namespace MWWorld { class Ptr; }
 
@@ -38,7 +39,7 @@ namespace mwmp
         void setPlayer(const MWWorld::Ptr& player);
 
         // Force-flush all state immediately (e.g. just after connect)
-        void forceFullSync(bool includeInventoryAndEquipment = true);
+        void forceFullSync(bool includeInventoryAndEquipment = true, bool includeSpellbook = true);
         void flushPersistentStats();
         void notifyLocalHit(const MWWorld::Ptr& victim, float damage, bool healthDamage, bool knocked,
             const osg::Vec3f& hitPos, int attackType = 0, float attackStrength = 0.f,
@@ -53,6 +54,7 @@ namespace mwmp
         void applyServerCellChange(const BasePlayer& authoritative);
         void queueAuthoritativeEquipment(const BasePlayer& authoritative);
         void queueAuthoritativeInventory(const BasePlayer& authoritative);
+        void queueAuthoritativeSpellbook(const BasePlayer& authoritative);
         void queueAuthoritativeStats(const BasePlayer& authoritative);
         void applyAuthoritativeStatsToPlayer();
         void onDynamicRecordsChanged();
@@ -79,11 +81,17 @@ namespace mwmp
         // Accessors used by Networking dispatcher
         BasePlayer& localPlayer() { return mLocal; }
 
+        // Drop all per-session spellbook sync state (revision token, baseline,
+        // in-flight gate). Called on disconnect so no state leaks into the next
+        // connection.
+        void resetSpellbookSyncState();
+
     private:
         // ---- per-frame checks ----
         void tickPosition(float dt);
         void tickDynamicStats(float dt);
         void tickJournal();
+        void tickSpellbook(float dt);
 
         // ---- send helpers ----
         void sendPosition(bool reliable);
@@ -91,6 +99,7 @@ namespace mwmp
         void sendLoadedActorCells(bool force = false);
         void sendEquipment();
         void sendInventory();
+        void sendSpellbook();
         void sendJournal();
         void sendAnimFlags(float dt);
         void sendAnimPlay();
@@ -107,6 +116,7 @@ namespace mwmp
         bool cellChanged()        const;
         bool equipmentChanged()   const;
         bool inventoryChanged()   const;
+        bool spellbookChanged()   const;
         bool dynamicStatsChanged() const;
         bool animFlagsChanged()    const;
 
@@ -115,11 +125,19 @@ namespace mwmp
         void snapshotCell();
         void snapshotEquipment();
         void snapshotInventory();
+        void snapshotSpellbook();
         void snapshotDynamicStats();
         void capturePersistentStats(const MWWorld::Ptr& player);
         void captureEquipment(const MWWorld::Ptr& player);
         void captureInventory(const MWWorld::Ptr& player);
+        void captureSpellbook(const MWWorld::Ptr& player);
         void captureJournalSnapshot();
+        // Client spellbook sync: learn/detect the learned spell set (ST_Spell
+        // records only), propose canonical Sets on change, and reconcile with
+        // the server's authoritative Set. See SpellbookSync.hpp for the shared
+        // constants and helpers.
+        void collectLearnedSpellIds(const MWWorld::Ptr& player, std::vector<std::string>& out) const;
+        void applyAuthoritativeSpellbook(const MWWorld::Ptr& player);
         std::vector<std::string> collectLoadedActorCellIds() const;
         void applyPendingAuthoritativeState(const MWWorld::Ptr& player);
         void applyVehicleRuntimeState();
@@ -181,6 +199,16 @@ namespace mwmp
         std::vector<Item> mLastInventory;
         InventoryRevisionGate mInventoryRevisionGate;
         float mInventoryChargeSyncTimer = 0.f;
+
+        // --- spellbook sync state ---
+        BasePlayer::SpellbookChanges mAuthoritativeSpellbook;
+        bool mPendingSpellbookRestore = false;
+        bool mSpellbookInitialized = false;
+        std::vector<std::string> mLastSpellbook;
+        std::string mLastPendingSpellbookMissingSpellId;
+        float mSpellbookTimer = 0.f;
+        static constexpr float SPELLBOOK_RATE = 0.25f; // 4 Hz learned-set comparison
+        SpellbookRevisionGate mSpellbookRevisionGate;
 
         struct StatsSnapshot
         {

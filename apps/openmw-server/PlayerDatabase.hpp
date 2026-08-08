@@ -64,6 +64,7 @@ namespace mwmp
         bool        hasSavedInventory = false;
         bool        hasSavedEquipment = false;
         bool        hasSavedStats = false;
+        bool        hasSavedSpellbook = false;
     };
 
     struct PersistedDynamicRecord
@@ -262,6 +263,19 @@ namespace mwmp
         /// Replace the persisted inventory snapshot for a character.
         void saveCharacterInventory(int64_t characterId, const std::vector<Item>& items, bool touchLastSeen = true,
             std::optional<uint64_t> inventoryRevision = std::nullopt);
+
+        /// Load the persisted learned spellbook (canonical, ordered by spell_id).
+        std::vector<std::string> loadCharacterSpellbook(int64_t characterId);
+
+        /// Load the persisted spellbook optimistic-concurrency revision.
+        uint64_t loadSpellbookRevision(int64_t characterId);
+
+        /// Transactionally replace the character's learned spellbook. Rebuilds
+        /// dynamic-record GC links (link_kind='spellbook_spell') for generated
+        /// spell IDs in the same transaction. When spellbookRevision is set the
+        /// characters row is marked spellbook_saved=1 and the revision stored.
+        void saveCharacterSpellbook(int64_t characterId, const std::vector<std::string>& spellIds,
+            bool touchLastSeen = true, std::optional<uint64_t> spellbookRevision = std::nullopt);
 
         /// Load the last persisted equipment snapshot for a character.
         std::vector<EquipmentItem> loadCharacterEquipment(int64_t characterId);

@@ -66,6 +66,12 @@ struct ConnectedClient
     bool                hasRestoredEquipmentSnapshot = false;
     bool                acceptedPlayerInventoryThisSession = false;
     uint64_t            inventoryRevision = 0;
+    std::vector<std::string> restoredSpellbookSnapshot;
+    bool                hasRestoredSpellbookSnapshot = false;
+    bool                acceptedPlayerSpellbookThisSession = false;
+    uint64_t            spellbookRevision = 0;
+    uint64_t            playerSpellbookRestoreGuardUntilMs = 0;
+    uint64_t            lastPlayerSpellbookRestoreCorrectionLogMs = 0;
     uint64_t            runtimeRecordRateWindowStartMs = 0;
     std::size_t         runtimeRecordRequestsInWindow = 0;
     /// Post-award alchemy skill state while a server-authoritative skill
@@ -319,6 +325,7 @@ private:
     void handlePlayerAttack     (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerCast       (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerInventory  (ConnectedClient& c, const uint8_t* data, size_t size);
+    void handlePlayerSpellbook  (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleAlchemyRequest   (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleEnchantingRequest(ConnectedClient& c, const uint8_t* data, size_t size);
@@ -393,6 +400,7 @@ private:
     void sendAuthoritativeEquipment(
         ConnectedClient& c, bool includeOthers = true, bool includeSelf = true);
     void sendAuthoritativeJournal(ConnectedClient& c);
+    void sendAuthoritativeSpellbook(ConnectedClient& c);
     std::string journalGroupFor(const ConnectedClient& c) const;
     bool shouldShareJournal(const ConnectedClient& source, const ConnectedClient& target) const;
     std::vector<int64_t> journalSourceCharacterIds(const ConnectedClient& c);

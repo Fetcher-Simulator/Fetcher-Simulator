@@ -169,6 +169,7 @@ namespace mwmp
         std::string mPlayerName;
         bool        mWorldReady           = false;
         bool        mIsNewCharacter       = true;
+        bool        mHasSavedSpellbook     = false;
         int64_t     mCharacterId          = 0;
         std::string mCharacterName;       ///< selected character slot name (may differ from login name)
         bool        mCharacterDataReady   = false;

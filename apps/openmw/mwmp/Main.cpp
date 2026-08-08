@@ -49,6 +49,7 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerVehicleState.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerInventory.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerJournal.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerSpellbook.hpp>
 #include <components/openmw-mp/Packets/Lua/PacketLuaEvent.hpp>
 #include <components/openmw-mp/Packets/Lua/PacketLuaStorage.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAI.hpp>
@@ -634,6 +635,7 @@ void Main::onDisconnected()
         mUnexpectedDisconnect = true;
     mWorldReady         = false;
     mCharacterDataReady = false;
+    mHasSavedSpellbook  = false;
     mCharacterId        = 0;
     mCharSelectError.clear();
     mCharacterName.clear();
@@ -649,6 +651,10 @@ void Main::onDisconnected()
     // references from the now-dying game world are never accessed on reconnect.
     if (mActorSync)
         mActorSync->resetSessionState();
+    // Spellbook sync state is per-session: the authoritative revision token,
+    // baseline and in-flight gate must not leak into the next connection.
+    if (mPlayerSync)
+        mPlayerSync->resetSpellbookSyncState();
 }
 
 // ---------------------------------------------------------------------------
@@ -840,7 +846,12 @@ bool Main::enterSelectedCharacterWorld(bool allowNewCharacterUi)
     getPlayerSync().applyRestoredStatsToPlayer();
     MWBase::Environment::get().getLuaManager()->restorePendingMultiplayerPlayerScripts();
     Log(Debug::Info) << "[MP] Returning player restore complete - sending full sync";
-    getPlayerSync().forceFullSync(false);
+    // A returning character with a persisted spellbook must wait for the
+    // server's authoritative Set before the client establishes or sends a
+    // local learned-spell baseline. CharacterData and PlayerSpellbook use
+    // independent reliable lanes, so the restore may arrive after world
+    // entry even though the server sent it immediately after CharacterData.
+    getPlayerSync().forceFullSync(false, !mHasSavedSpellbook);
     return true;
 }
 
@@ -1081,6 +1092,7 @@ void Main::registerProtocolHandlers()
             if (!cd.decode(data, size)) return;
 
             mIsNewCharacter = cd.isNewCharacter;
+            mHasSavedSpellbook = cd.hasSavedSpellbook;
             mCharacterId    = cd.characterId;
             mCharacterName  = cd.characterName;
             // Update the sync layer name to the character slot name so
@@ -1570,6 +1582,31 @@ void Main::registerProtocolHandlers()
             if (tmp.guid != mPlayerSync->localPlayer().guid)
                 return;
             mPlayerSync->queueAuthoritativeJournal(tmp);
+        });
+
+    // --- Server-authoritative learned spellbook ---
+    proto.registerHandler(PacketType::PlayerSpellbook,
+        [this](const uint8_t* data, size_t size)
+        {
+            BasePlayer tmp;
+            PacketPlayerSpellbook pkt;
+            pkt.setPlayer(&tmp);
+            if (!pkt.decode(data, size))
+            {
+                Log(Debug::Warning) << "[MP] Rejected malformed PlayerSpellbook packet";
+                return;
+            }
+            const uint64_t localGuid = mPlayerSync->localPlayer().guid;
+            if (tmp.guid != localGuid)
+            {
+                Log(Debug::Warning) << "[MP] Rejected PlayerSpellbook for non-local guid"
+                                    << " packetGuid=" << tmp.guid
+                                    << " localGuid=" << localGuid
+                                    << " revision=" << tmp.spellbookChanges.revision
+                                    << " spells=" << tmp.spellbookChanges.spellIds.size();
+                return;
+            }
+            mPlayerSync->queueAuthoritativeSpellbook(tmp);
         });
 
     proto.registerHandler(PacketType::PlayerDeath,

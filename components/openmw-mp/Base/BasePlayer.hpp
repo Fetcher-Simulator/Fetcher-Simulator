@@ -132,12 +132,24 @@ namespace mwmp
 
         // ------------------------------------------------------------------
         // Spellbook
+        //
+        // Carries semantic spell record IDs only (content IDs or catalog-known
+        // generated IDs such as $custom_spell_*). Full ESM::Spell definitions
+        // are never sent by clients; the server resolves every ID against its
+        // authoritative content registry / dynamic record catalog.
+        //
+        // Only learned spells (ESM::Spell::ST_Spell) belong in this list.
+        // Powers, abilities, diseases and other baseline content-derived spells
+        // stay client-side and are never persisted or synchronised here.
         // ------------------------------------------------------------------
         struct SpellbookChanges
         {
-            std::vector<ESM::Spell> spells;
+            std::vector<std::string> spellIds;
             enum class Action { Set = 0, Add, Remove };
             Action action = Action::Set;
+            // Server-observed optimistic concurrency token. Client mutations
+            // carry the last acknowledged value; authoritative replies advance it.
+            uint64_t revision = 0;
         } spellbookChanges;
 
         // ------------------------------------------------------------------
