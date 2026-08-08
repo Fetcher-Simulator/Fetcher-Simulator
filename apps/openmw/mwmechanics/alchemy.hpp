@@ -1,6 +1,7 @@
 #ifndef GAME_MWMECHANICS_ALCHEMY_H
 #define GAME_MWMECHANICS_ALCHEMY_H
 
+#include <string>
 #include <vector>
 
 #include <components/esm3/effectlist.hpp>
@@ -11,6 +12,19 @@ namespace ESM
 {
     struct Potion;
 }
+
+namespace Crafting
+{
+    struct AlchemyMechanicsInput;
+    struct PotionDefinition;
+}
+
+#ifdef BUILD_MULTIPLAYER
+namespace mwmp::records
+{
+    struct AlchemyRequest;
+}
+#endif
 
 namespace MWMechanics
 {
@@ -51,7 +65,7 @@ namespace MWMechanics
         int mValue;
         std::string mPotionName;
 
-        void applyTools(int flags, float& value) const;
+        Crafting::AlchemyMechanicsInput makeMechanicsInput() const;
 
         void updateEffects();
 
@@ -65,7 +79,7 @@ namespace MWMechanics
         ///< Remove selected ingredients from alchemist's inventory, cleanup selected ingredients and
         /// update effect list accordingly.
 
-        void addPotion(const std::string& name);
+        void addPotion(const Crafting::PotionDefinition& definition);
         ///< Add a potion to the alchemist's inventory.
 
         void increaseSkill();
@@ -135,6 +149,16 @@ namespace MWMechanics
         ///< Try to create potions from the ingredients, place them in the inventory of the alchemist and
         /// adjust the skills of the alchemist accordingly.
         /// \param name must not be an empty string, or Result_NoName is returned
+
+#ifdef BUILD_MULTIPLAYER
+        /// Captures the current selections as a semantic multiplayer alchemy
+        /// request. Only player choices are captured: selected inventory
+        /// instances in slot order. No calculation, record, or mutation is
+        /// performed locally.
+        /// \return false and sets \a error when a selection cannot be
+        /// referenced by a stable inventory instance yet.
+        bool captureMultiplayerRequest(mwmp::records::AlchemyRequest& request, std::string& error) const;
+#endif
 
         static std::vector<std::string> effectsDescription(const MWWorld::ConstPtr& ptr, const float alchemySKill);
     };

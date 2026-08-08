@@ -220,6 +220,54 @@ namespace mwmp
         return result;
     }
 
+    DynamicRecordService::PreparedRecord DynamicRecordService::prepareSingleRecord(
+        const records::RecordDraft& draft, const Context& context, const FindEquivalent& findEquivalent,
+        const AllocateId& allocateId) const
+    {
+        PreparedRecord prepared;
+        records::DynamicRecordDefinition definition = records::canonicalize(draft.definition);
+        const records::RecordType type = records::getRecordType(definition);
+        const std::string fingerprint = records::fingerprint(definition);
+        const std::string encodedDefinition = records::encodeDefinition(definition);
+
+        prepared.created.temporaryKey = draft.temporaryKey;
+        prepared.created.definition = encodedDefinition;
+        const auto fixed = context.fixedRecordIds.find(draft.temporaryKey);
+        if (fixed == context.fixedRecordIds.end())
+        {
+            if (auto equivalent = findEquivalent(type, fingerprint))
+            {
+                prepared.created.recordId = equivalent->recordId;
+                prepared.created.reused = true;
+            }
+        }
+        if (prepared.created.recordId.empty())
+        {
+            prepared.created.recordId = fixed == context.fixedRecordIds.end() ? allocateId(type) : fixed->second;
+            if (prepared.created.recordId.empty())
+                throw std::runtime_error("Authoritative record ID allocation failed");
+
+            DynamicRecordCommitEntry entry;
+            entry.record.recordType = std::string(records::getRecordTypeName(type));
+            entry.record.recordId = prepared.created.recordId;
+            entry.record.data = encodedDefinition;
+            entry.record.recordScope = context.recordScope;
+            entry.record.schemaVersion = records::CurrentSchemaVersion;
+            entry.catalog.recordType = entry.record.recordType;
+            entry.catalog.recordId = prepared.created.recordId;
+            entry.catalog.recordScope = context.recordScope;
+            entry.catalog.persistent = context.persistent;
+            entry.catalog.definitionFingerprint = fingerprint;
+            entry.catalog.creatorAccountId = context.accountId;
+            entry.catalog.creatorCharacterId = context.characterId;
+            entry.catalog.creationSource = context.creationSource;
+            entry.catalog.schemaVersion = records::CurrentSchemaVersion;
+            entry.catalog.validationVersion = context.validationVersion;
+            prepared.entry = std::move(entry);
+        }
+        return prepared;
+    }
+
     DynamicRecordService::Outcome DynamicRecordService::execute(const records::RecordCreateRequest& request,
         std::string_view requestHash, const Context& context, const FindEquivalent& findEquivalent,
         const AllocateId& allocateId, const NextCommitSequence& nextCommitSequence)

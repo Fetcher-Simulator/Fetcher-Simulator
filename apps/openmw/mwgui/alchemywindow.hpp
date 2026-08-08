@@ -1,6 +1,7 @@
 #ifndef MWGUI_ALCHEMY_H
 #define MWGUI_ALCHEMY_H
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -14,6 +15,10 @@
 #include "windowbase.hpp"
 
 #include "../mwmechanics/alchemy.hpp"
+
+#ifdef BUILD_MULTIPLAYER
+#include <components/openmw-mp/Records/AlchemyProtocol.hpp>
+#endif
 
 namespace MWGui
 {
@@ -92,6 +97,11 @@ namespace MWGui
         void onItemCancel();
 
         void createPotions(int count);
+#ifdef BUILD_MULTIPLAYER
+        void startMultiplayerBrew(int count);
+        void onMultiplayerBrewResult(const mwmp::records::AlchemyResult& result);
+#endif
+        void refreshAfterBrew();
 
         void update();
 
@@ -99,6 +109,10 @@ namespace MWGui
 
         std::vector<ItemWidget*> mApparatus;
         std::vector<ItemWidget*> mIngredients;
+
+        // Incremented on every window open; stale async completions from a
+        // previous session are ignored.
+        std::uint64_t mSessionToken = 0;
 
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
         void filterListButtonHandler(const SDL_ControllerButtonEvent& arg);

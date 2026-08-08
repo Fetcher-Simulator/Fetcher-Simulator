@@ -10,7 +10,9 @@ namespace mwmp
     // mismatch is diagnosable without relying on the broad transport version.
     // ContentManifestVersion 2 adds Ingredient, Apparatus, MagicEffect, and
     // GameSetting to the canonical resolved-content identity.
-    inline constexpr std::uint16_t ContentManifestVersion = 2;
+    // ContentManifestVersion 3 adds Skill and Class, which feed the
+    // server-authoritative alchemy skill progression.
+    inline constexpr std::uint16_t ContentManifestVersion = 3;
     inline constexpr std::uint16_t ContentApiVersion = 1;
     inline constexpr std::uint16_t RuntimeRecordCapabilityManifestVersion = 1;
 }

@@ -6,6 +6,7 @@ set(OPENMW_SERVER_SOURCES
     MasterServerClient.cpp
     PlayerDatabase.cpp
     DynamicRecordService.cpp
+    AlchemyService.cpp
     ServerContentRegistry.cpp
     ServerLuaRecordParser.cpp
     bindings/PlayerBindings.cpp
@@ -22,6 +23,8 @@ set(OPENMW_SERVER_HEADERS
     OutboundQueue.hpp
     MasterServerClient.hpp
     PlayerDatabase.hpp
+    DynamicRecordService.hpp
+    AlchemyService.hpp
     ServerContentRegistry.hpp
     ServerLuaRecordParser.hpp
     bindings/PlayerBindings.hpp

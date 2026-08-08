@@ -133,6 +133,11 @@ namespace mwmp
         uint64_t resultingInventoryRevision = 0;
         std::vector<DynamicRecordCommitEntry> records;
         std::optional<std::vector<Item>> inventory;
+        /// When set, the character's persistent statistics (attributes,
+        /// skills, level) are rewritten inside the same transaction. Used by
+        /// server-authoritative crafting so skill progression commits
+        /// atomically with the rest of the request.
+        std::optional<BasePlayer> characterStats;
         /// Non-empty for trusted server-side requests that have no player
         /// account or inventory revision. These use a separate durable journal.
         std::string serverSource;
@@ -471,6 +476,11 @@ namespace mwmp
         void removeKeypair(std::string_view publicKey);
 
     private:
+        /// Rewrites the character statistics tables (dynamic stats, attributes,
+        /// skills, level) without beginning or committing a transaction.
+        /// Callers own the surrounding transaction.
+        void writeCharacterStatsRows(int64_t characterId, const BasePlayer& player);
+
         void exec(const char* sql);
         sqlite3_stmt* prepare(const char* sql);
 

@@ -1390,100 +1390,105 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         return true;
     }
 
+    void PlayerDatabase::writeCharacterStatsRows(int64_t characterId, const BasePlayer& player)
+    {
+        sqlite3_stmt* dyn = prepare(
+            "INSERT INTO character_dynamic_stats(character_id, health_base, health_current, health_mod,"
+            " magicka_base, magicka_current, magicka_mod, fatigue_base, fatigue_current, fatigue_mod)"
+            " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+            " ON CONFLICT(character_id) DO UPDATE SET"
+            " health_base=excluded.health_base,"
+            " health_current=excluded.health_current,"
+            " health_mod=excluded.health_mod,"
+            " magicka_base=excluded.magicka_base,"
+            " magicka_current=excluded.magicka_current,"
+            " magicka_mod=excluded.magicka_mod,"
+            " fatigue_base=excluded.fatigue_base,"
+            " fatigue_current=excluded.fatigue_current,"
+            " fatigue_mod=excluded.fatigue_mod");
+        sqlite3_bind_int64(dyn, 1, characterId);
+        sqlite3_bind_double(dyn, 2, player.dynamicStats.health.base);
+        sqlite3_bind_double(dyn, 3, player.dynamicStats.health.current);
+        sqlite3_bind_double(dyn, 4, player.dynamicStats.health.mod);
+        sqlite3_bind_double(dyn, 5, player.dynamicStats.magicka.base);
+        sqlite3_bind_double(dyn, 6, player.dynamicStats.magicka.current);
+        sqlite3_bind_double(dyn, 7, player.dynamicStats.magicka.mod);
+        sqlite3_bind_double(dyn, 8, player.dynamicStats.fatigue.base);
+        sqlite3_bind_double(dyn, 9, player.dynamicStats.fatigue.current);
+        sqlite3_bind_double(dyn, 10, player.dynamicStats.fatigue.mod);
+        checkSqlite(sqlite3_step(dyn), mDb, "upsertCharacterDynamicStats");
+        sqlite3_finalize(dyn);
+
+        sqlite3_stmt* clearAttrs = prepare("DELETE FROM character_attributes WHERE character_id=?1");
+        sqlite3_bind_int64(clearAttrs, 1, characterId);
+        checkSqlite(sqlite3_step(clearAttrs), mDb, "clearCharacterAttributes");
+        sqlite3_finalize(clearAttrs);
+
+        sqlite3_stmt* insertAttr = prepare(
+            "INSERT INTO character_attributes(character_id, attribute_index, base, mod, damage)"
+            " VALUES(?1, ?2, ?3, ?4, ?5)");
+        for (std::size_t i = 0; i < player.attributes.size(); ++i)
+        {
+            const Attribute& attribute = player.attributes[i];
+            sqlite3_bind_int64(insertAttr, 1, characterId);
+            sqlite3_bind_int(insertAttr, 2, static_cast<int>(i));
+            sqlite3_bind_int(insertAttr, 3, attribute.base);
+            sqlite3_bind_double(insertAttr, 4, attribute.mod);
+            sqlite3_bind_double(insertAttr, 5, attribute.damage);
+            checkSqlite(sqlite3_step(insertAttr), mDb, "insertCharacterAttribute");
+            sqlite3_reset(insertAttr);
+            sqlite3_clear_bindings(insertAttr);
+        }
+        sqlite3_finalize(insertAttr);
+
+        sqlite3_stmt* clearSkills = prepare("DELETE FROM character_skills WHERE character_id=?1");
+        sqlite3_bind_int64(clearSkills, 1, characterId);
+        checkSqlite(sqlite3_step(clearSkills), mDb, "clearCharacterSkills");
+        sqlite3_finalize(clearSkills);
+
+        sqlite3_stmt* insertSkill = prepare(
+            "INSERT INTO character_skills(character_id, skill_index, base, mod, damage, progress, increases)"
+            " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)");
+        for (std::size_t i = 0; i < player.skills.size(); ++i)
+        {
+            const Skill& skill = player.skills[i];
+            sqlite3_bind_int64(insertSkill, 1, characterId);
+            sqlite3_bind_int(insertSkill, 2, static_cast<int>(i));
+            sqlite3_bind_double(insertSkill, 3, skill.base);
+            sqlite3_bind_double(insertSkill, 4, skill.mod);
+            sqlite3_bind_double(insertSkill, 5, skill.damage);
+            sqlite3_bind_double(insertSkill, 6, skill.progress);
+            sqlite3_bind_int(insertSkill, 7, skill.increases);
+            checkSqlite(sqlite3_step(insertSkill), mDb, "insertCharacterSkill");
+            sqlite3_reset(insertSkill);
+            sqlite3_clear_bindings(insertSkill);
+        }
+        sqlite3_finalize(insertSkill);
+
+        sqlite3_stmt* mark = prepare(
+            "UPDATE characters SET stats_saved=1, level=?1, level_progress=?2 WHERE id=?3");
+        sqlite3_bind_int(mark, 1, player.level);
+        sqlite3_bind_double(mark, 2, player.levelProgress);
+        sqlite3_bind_int64(mark, 3, characterId);
+        checkSqlite(sqlite3_step(mark), mDb, "markCharacterStatsSaved");
+        sqlite3_finalize(mark);
+    }
+
     void PlayerDatabase::saveCharacterStats(int64_t characterId, const BasePlayer& player, bool touchLastSeen)
     {
         exec("BEGIN");
         try
         {
-            sqlite3_stmt* dyn = prepare(
-                "INSERT INTO character_dynamic_stats(character_id, health_base, health_current, health_mod,"
-                " magicka_base, magicka_current, magicka_mod, fatigue_base, fatigue_current, fatigue_mod)"
-                " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
-                " ON CONFLICT(character_id) DO UPDATE SET"
-                " health_base=excluded.health_base,"
-                " health_current=excluded.health_current,"
-                " health_mod=excluded.health_mod,"
-                " magicka_base=excluded.magicka_base,"
-                " magicka_current=excluded.magicka_current,"
-                " magicka_mod=excluded.magicka_mod,"
-                " fatigue_base=excluded.fatigue_base,"
-                " fatigue_current=excluded.fatigue_current,"
-                " fatigue_mod=excluded.fatigue_mod");
-            sqlite3_bind_int64(dyn, 1, characterId);
-            sqlite3_bind_double(dyn, 2, player.dynamicStats.health.base);
-            sqlite3_bind_double(dyn, 3, player.dynamicStats.health.current);
-            sqlite3_bind_double(dyn, 4, player.dynamicStats.health.mod);
-            sqlite3_bind_double(dyn, 5, player.dynamicStats.magicka.base);
-            sqlite3_bind_double(dyn, 6, player.dynamicStats.magicka.current);
-            sqlite3_bind_double(dyn, 7, player.dynamicStats.magicka.mod);
-            sqlite3_bind_double(dyn, 8, player.dynamicStats.fatigue.base);
-            sqlite3_bind_double(dyn, 9, player.dynamicStats.fatigue.current);
-            sqlite3_bind_double(dyn, 10, player.dynamicStats.fatigue.mod);
-            checkSqlite(sqlite3_step(dyn), mDb, "upsertCharacterDynamicStats");
-            sqlite3_finalize(dyn);
+            writeCharacterStatsRows(characterId, player);
 
-            sqlite3_stmt* clearAttrs = prepare("DELETE FROM character_attributes WHERE character_id=?1");
-            sqlite3_bind_int64(clearAttrs, 1, characterId);
-            checkSqlite(sqlite3_step(clearAttrs), mDb, "clearCharacterAttributes");
-            sqlite3_finalize(clearAttrs);
-
-            sqlite3_stmt* insertAttr = prepare(
-                "INSERT INTO character_attributes(character_id, attribute_index, base, mod, damage)"
-                " VALUES(?1, ?2, ?3, ?4, ?5)");
-            for (std::size_t i = 0; i < player.attributes.size(); ++i)
-            {
-                const Attribute& attribute = player.attributes[i];
-                sqlite3_bind_int64(insertAttr, 1, characterId);
-                sqlite3_bind_int(insertAttr, 2, static_cast<int>(i));
-                sqlite3_bind_int(insertAttr, 3, attribute.base);
-                sqlite3_bind_double(insertAttr, 4, attribute.mod);
-                sqlite3_bind_double(insertAttr, 5, attribute.damage);
-                checkSqlite(sqlite3_step(insertAttr), mDb, "insertCharacterAttribute");
-                sqlite3_reset(insertAttr);
-                sqlite3_clear_bindings(insertAttr);
-            }
-            sqlite3_finalize(insertAttr);
-
-            sqlite3_stmt* clearSkills = prepare("DELETE FROM character_skills WHERE character_id=?1");
-            sqlite3_bind_int64(clearSkills, 1, characterId);
-            checkSqlite(sqlite3_step(clearSkills), mDb, "clearCharacterSkills");
-            sqlite3_finalize(clearSkills);
-
-            sqlite3_stmt* insertSkill = prepare(
-                "INSERT INTO character_skills(character_id, skill_index, base, mod, damage, progress, increases)"
-                " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)");
-            for (std::size_t i = 0; i < player.skills.size(); ++i)
-            {
-                const Skill& skill = player.skills[i];
-                sqlite3_bind_int64(insertSkill, 1, characterId);
-                sqlite3_bind_int(insertSkill, 2, static_cast<int>(i));
-                sqlite3_bind_double(insertSkill, 3, skill.base);
-                sqlite3_bind_double(insertSkill, 4, skill.mod);
-                sqlite3_bind_double(insertSkill, 5, skill.damage);
-                sqlite3_bind_double(insertSkill, 6, skill.progress);
-                sqlite3_bind_int(insertSkill, 7, skill.increases);
-                checkSqlite(sqlite3_step(insertSkill), mDb, "insertCharacterSkill");
-                sqlite3_reset(insertSkill);
-                sqlite3_clear_bindings(insertSkill);
-            }
-            sqlite3_finalize(insertSkill);
-
-            sqlite3_stmt* mark = prepare(touchLastSeen
-                    ? "UPDATE characters SET stats_saved=1, level=?1, level_progress=?2, last_seen=?3 WHERE id=?4"
-                    : "UPDATE characters SET stats_saved=1, level=?1, level_progress=?2 WHERE id=?3");
-            sqlite3_bind_int(mark, 1, player.level);
-            sqlite3_bind_double(mark, 2, player.levelProgress);
             if (touchLastSeen)
             {
-                sqlite3_bind_int64(mark, 3, static_cast<int64_t>(std::time(nullptr)));
-                sqlite3_bind_int64(mark, 4, characterId);
+                sqlite3_stmt* mark = prepare("UPDATE characters SET last_seen=?1 WHERE id=?2");
+                sqlite3_bind_int64(mark, 1, static_cast<int64_t>(std::time(nullptr)));
+                sqlite3_bind_int64(mark, 2, characterId);
+                checkSqlite(sqlite3_step(mark), mDb, "markCharacterStatsLastSeen");
+                sqlite3_finalize(mark);
             }
-            else
-            {
-                sqlite3_bind_int64(mark, 3, characterId);
-            }
-            checkSqlite(sqlite3_step(mark), mDb, "markCharacterStatsSaved");
-            sqlite3_finalize(mark);
 
             exec("COMMIT");
         }
@@ -3085,6 +3090,25 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
                 if (sqlite3_changes(mDb) != 1)
                     throw std::runtime_error("[PlayerDB] inventory revision changed during dynamic record commit");
                 sqlite3_finalize(updateRevision);
+            }
+
+            if (commit.characterStats)
+            {
+                // Server-authoritative crafting commits skill progression and
+                // level state inside the same transaction as the records,
+                // inventory, and journal row.
+                writeCharacterStatsRows(commit.characterId, *commit.characterStats);
+                sqlite3_stmt* mark = prepare(
+                    "UPDATE characters SET stats_saved=1, level=?1, level_progress=?2"
+                    " WHERE id=?3 AND account_id=?4");
+                sqlite3_bind_int(mark, 1, commit.characterStats->level);
+                sqlite3_bind_double(mark, 2, commit.characterStats->levelProgress);
+                sqlite3_bind_int64(mark, 3, commit.characterId);
+                sqlite3_bind_int64(mark, 4, commit.accountId);
+                checkSqlite(sqlite3_step(mark), mDb, "commitDynamicRecordRequest(characterStats)");
+                if (sqlite3_changes(mDb) != 1)
+                    throw std::runtime_error("[PlayerDB] character identity changed during dynamic record commit");
+                sqlite3_finalize(mark);
             }
 
             sqlite3_stmt* request = prepare(serverRequest
