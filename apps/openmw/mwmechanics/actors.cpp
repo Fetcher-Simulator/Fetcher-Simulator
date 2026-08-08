@@ -87,7 +87,7 @@ namespace
 
         if (warnings.size() >= maxEntries)
         {
-            std::erase_if(warnings, [now](const auto& entry) {
+            std::erase_if(warnings, [now, retention](const auto& entry) {
                 return entry.second.mLast.time_since_epoch().count() != 0
                     && now - entry.second.mLast >= retention;
             });
