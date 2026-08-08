@@ -333,6 +333,7 @@ namespace mwmp
         std::string classData; ///< CLDTstruct as 15 comma-separated ints
         std::string characterName; ///< the character slot name (shown in-world as player name)
         bool hasSavedStats = false;
+        bool hasSavedSpellbook = false;
         DynamicStats dynamicStats;
         std::array<Attribute, BasePlayer::NUM_ATTRIBUTES> attributes;
         std::array<Skill, BasePlayer::NUM_SKILLS> skills;
@@ -400,6 +401,7 @@ namespace mwmp
             ws.writeString(classData);
             ws.writeString(characterName);
             ws.write(hasSavedStats);
+            ws.write(hasSavedSpellbook);
             packStat(ws, dynamicStats.health);
             packStat(ws, dynamicStats.magicka);
             packStat(ws, dynamicStats.fatigue);
@@ -428,6 +430,7 @@ namespace mwmp
             classData  = rs.readString();
             characterName = rs.readString();
             rs.read(hasSavedStats);
+            rs.read(hasSavedSpellbook);
             unpackStat(rs, dynamicStats.health);
             unpackStat(rs, dynamicStats.magicka);
             unpackStat(rs, dynamicStats.fatigue);

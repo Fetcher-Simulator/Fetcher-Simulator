@@ -23,6 +23,7 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerEquipment.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerInventory.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerJournal.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerSpellbook.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerDeath.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerResurrect.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAnimPlay.hpp>
@@ -55,6 +56,7 @@
 #include "../../mwworld/globals.hpp"
 #include "../../mwworld/inventorystore.hpp"
 #include "../../mwmechanics/creaturestats.hpp"
+#include "../../mwmechanics/spells.hpp"
 #include "../../mwmechanics/npcstats.hpp"
 #include "../../mwmechanics/weapontype.hpp"
 #include "../../mwworld/player.hpp"
@@ -427,7 +429,7 @@ void PlayerSync::setPlayer(const MWWorld::Ptr& /*player*/)
 }
 
 // ---------------------------------------------------------------------------
-void PlayerSync::forceFullSync(bool includeInventoryAndEquipment)
+void PlayerSync::forceFullSync(bool includeInventoryAndEquipment, bool includeSpellbook)
 {
     if (mLocal.guid == 0) return; // guid not yet assigned; will be called again after handshake
     // Pull latest cell/stats before sending — player ptr may not be set yet
@@ -488,6 +490,8 @@ void PlayerSync::forceFullSync(bool includeInventoryAndEquipment)
 
             captureEquipment(player);
             captureInventory(player);
+            if (includeSpellbook)
+                captureSpellbook(player);
             capturePersistentStats(player);
         }
     }
@@ -512,6 +516,8 @@ void PlayerSync::forceFullSync(bool includeInventoryAndEquipment)
             Log(Debug::Verbose) << "[MP] PlayerSync: deferred full-sync inventory until revision acknowledgement";
         }
     }
+    if (includeSpellbook && mSpellbookInitialized && !mPendingSpellbookRestore && mSpellbookRevisionGate.canSend())
+        sendSpellbook();
     sendDynamicStats();
     mPositionTimer = POSITION_RATE; // force position send next tick
     snapshotPosition();
@@ -519,6 +525,8 @@ void PlayerSync::forceFullSync(bool includeInventoryAndEquipment)
     snapshotEquipment();
     if (!deferredInventorySync)
         snapshotInventory();
+    if (includeSpellbook)
+        snapshotSpellbook();
     snapshotDynamicStats();
     // PlayerAnimFlags is not part of the full-sync packet set.  Arm an
     // immediate baseline for the next update so newly joined observers do not
@@ -778,9 +786,69 @@ void PlayerSync::queueAuthoritativeInventory(const BasePlayer& authoritative)
     applyPendingAuthoritativeState(player);
 }
 
+void PlayerSync::queueAuthoritativeSpellbook(const BasePlayer& authoritative)
+{
+    const uint64_t previousRevision = mLocal.spellbookChanges.revision;
+    const bool releasedInFlight = mSpellbookRevisionGate.observeAuthoritative();
+    mLocal.spellbookChanges.revision = authoritative.spellbookChanges.revision;
+    if (releasedInFlight)
+        Log(Debug::Verbose) << "[MP] PlayerSync: spellbook mutation acknowledged"
+                            << " previousRevision=" << previousRevision
+                            << " authoritativeRevision=" << authoritative.spellbookChanges.revision;
+
+    mAuthoritativeSpellbook = authoritative.spellbookChanges;
+    mAuthoritativeSpellbook.action = BasePlayer::SpellbookChanges::Action::Set;
+    mAuthoritativeSpellbook.spellIds = canonicalizeSpellIds(authoritative.spellbookChanges.spellIds);
+
+    Log(Debug::Info) << "[MP] PlayerSync: received authoritative spellbook"
+                     << " packetGuid=" << authoritative.guid
+                     << " localGuid=" << mLocal.guid
+                     << " revision=" << authoritative.spellbookChanges.revision
+                     << " spells=" << mAuthoritativeSpellbook.spellIds.size()
+                     << " releasedInFlight=" << releasedInFlight;
+
+    // The server always replies with the full canonical set. An acknowledgement
+    // whose set matches what we last sent is a pure revision ACK: nothing to
+    // reconcile.
+    if (releasedInFlight && mAuthoritativeSpellbook.spellIds == canonicalizeSpellIds(mLastSpellbook))
+    {
+        mPendingSpellbookRestore = false;
+        Log(Debug::Verbose) << "[MP] PlayerSync: fast spellbook revision acknowledgement"
+                            << " revision=" << authoritative.spellbookChanges.revision
+                            << " spells=" << mAuthoritativeSpellbook.spellIds.size();
+        return;
+    }
+
+    mPendingSpellbookRestore = true;
+
+    Log(Debug::Verbose) << "[MP] PlayerSync: queued authoritative spellbook"
+                        << " guid=" << authoritative.guid
+                        << " localGuid=" << mLocal.guid
+                        << " spells=" << mAuthoritativeSpellbook.spellIds.size()
+                        << " state="
+                        << static_cast<int>(MWBase::Environment::get().getStateManager()->getState());
+
+    // During MP auto-enter the server can send the saved spellbook immediately
+    // after CharacterData while OpenMW is still in State_NoGame. Do not apply
+    // to the pre-game/template player; the chargen restore (buildPlayer) would
+    // wipe the restored spells. Keep it pending until the real world is running.
+    if (MWBase::Environment::get().getStateManager()->getState() != MWBase::StateManager::State_Running)
+        return;
+
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    if (!world)
+        return;
+
+    const MWWorld::Ptr player = world->getPlayerPtr();
+    if (player.isEmpty())
+        return;
+
+    applyPendingAuthoritativeState(player);
+}
+
 void PlayerSync::onDynamicRecordsChanged()
 {
-    if (!mPendingInventoryRestore && !mPendingEquipmentRestore)
+    if (!mPendingInventoryRestore && !mPendingEquipmentRestore && !mPendingSpellbookRestore)
         return;
     MWBase::World* world = MWBase::Environment::get().getWorld();
     if (world == nullptr)
@@ -1002,6 +1070,7 @@ void PlayerSync::update(float dt)
     }
     tickDynamicStats(dt);
     tickJournal();
+    tickSpellbook(dt);
     sendAnimFlags(dt);
     sendAnimPlay();
     sendAttack();
@@ -2627,6 +2696,206 @@ void PlayerSync::captureInventory(const MWWorld::Ptr& player)
     std::sort(items.begin(), items.end(), inventoryOrder);
 }
 
+// ---------------------------------------------------------------------------
+// Spellbook sync
+// ---------------------------------------------------------------------------
+void PlayerSync::collectLearnedSpellIds(const MWWorld::Ptr& player, std::vector<std::string>& out) const
+{
+    out.clear();
+    if (player.isEmpty() || !player.getClass().isActor())
+        return;
+
+    // Only ST_Spell records belong to the learned spellbook. Powers, abilities,
+    // diseases and other baseline content spells are reconstructed from
+    // authoritative content on login and must never be synchronised.
+    const MWMechanics::Spells& spells = player.getClass().getCreatureStats(player).getSpells();
+    out.reserve(spells.count());
+    for (const ESM::Spell* spell : spells)
+    {
+        if (isLearnedSpell(spell))
+            out.push_back(spell->mId.serializeText());
+    }
+}
+
+void PlayerSync::captureSpellbook(const MWWorld::Ptr& player)
+{
+    collectLearnedSpellIds(player, mLocal.spellbookChanges.spellIds);
+    mLocal.spellbookChanges.action = BasePlayer::SpellbookChanges::Action::Set;
+    mSpellbookInitialized = true;
+    snapshotSpellbook();
+}
+
+void PlayerSync::snapshotSpellbook()
+{
+    mLastSpellbook = canonicalizeSpellIds(mLocal.spellbookChanges.spellIds);
+}
+
+bool PlayerSync::spellbookChanged() const
+{
+    if (!mSpellbookInitialized)
+        return false;
+    std::vector<std::string> live;
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    const MWWorld::Ptr player = world ? world->getPlayerPtr() : MWWorld::Ptr{};
+    if (player.isEmpty())
+        return false;
+    collectLearnedSpellIds(player, live);
+    return canonicalizeSpellIds(std::move(live)) != mLastSpellbook;
+}
+
+void PlayerSync::sendSpellbook()
+{
+    if (!mSpellbookInitialized || mPendingSpellbookRestore)
+        return;
+    mSpellbookRevisionGate.markSent();
+    mLocal.spellbookChanges.action = BasePlayer::SpellbookChanges::Action::Set;
+    PacketPlayerSpellbook pkt;
+    pkt.setPlayer(&mLocal);
+    mClient.sendReliable(pkt.encode(mSeqCounter++));
+}
+
+void PlayerSync::tickSpellbook(float dt)
+{
+    mSpellbookTimer += dt;
+    if (mSpellbookTimer < SPELLBOOK_RATE)
+        return;
+    mSpellbookTimer = 0.f;
+
+    if (!mSpellbookInitialized)
+        return;
+
+    // A pending authoritative restore (e.g. waiting for a dynamic spell record
+    // to become visible) blocks mutation detection so the restore can never
+    // echo itself back as a client mutation.
+    if (mPendingSpellbookRestore)
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (world != nullptr)
+        {
+            const MWWorld::Ptr player = world->getPlayerPtr();
+            if (!player.isEmpty())
+                applyPendingAuthoritativeState(player);
+        }
+        return;
+    }
+
+    if (!mSpellbookRevisionGate.canSend() || !spellbookChanged())
+        return;
+
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    const MWWorld::Ptr player = world ? world->getPlayerPtr() : MWWorld::Ptr{};
+    if (player.isEmpty())
+        return;
+
+    // Coalesce every add/remove since the last send into one canonical Set.
+    captureSpellbook(player);
+    sendSpellbook();
+}
+
+void PlayerSync::resetSpellbookSyncState()
+{
+    mPendingSpellbookRestore = false;
+    mSpellbookInitialized = false;
+    mLastSpellbook.clear();
+    mLastPendingSpellbookMissingSpellId.clear();
+    mSpellbookTimer = 0.f;
+    mSpellbookRevisionGate.reset();
+    mLocal.spellbookChanges.action = BasePlayer::SpellbookChanges::Action::Set;
+    mLocal.spellbookChanges.spellIds.clear();
+    mLocal.spellbookChanges.revision = 0;
+}
+
+void PlayerSync::applyAuthoritativeSpellbook(const MWWorld::Ptr& player)
+{
+    const MWBase::Environment& environment = MWBase::Environment::get();
+    if (environment.getStateManager()->getState() != MWBase::StateManager::State_Running
+        || player.isEmpty() || !player.isInCell() || !player.getClass().isActor())
+        return;
+
+    MWBase::World* world = environment.getWorld();
+    if (!world)
+        return;
+    const MWWorld::ESMStore& store = world->getStore();
+
+    // Stage the whole authoritative snapshot until every referenced record
+    // exists. Clearing/adding first and skipping unknown rows would leave a
+    // dangling learned spell when RecordDynamic and spellbook processing
+    // interleave.
+    for (const std::string& spellId : mAuthoritativeSpellbook.spellIds)
+    {
+        // Spell records are intentionally not part of ESMStore::find()'s
+        // generic cacheable-record index. Use the typed Spell store for the
+        // visibility barrier or every ordinary content spell appears missing
+        // forever during reconnect restoration.
+        if (store.get<ESM::Spell>().search(ESM::RefId::stringRefId(spellId)) != nullptr)
+            continue;
+        if (mLastPendingSpellbookMissingSpellId != spellId)
+        {
+            Log(Debug::Verbose) << "[MP] Delaying spellbook restore until record is present: " << spellId;
+            mLastPendingSpellbookMissingSpellId = spellId;
+        }
+        return;
+    }
+    mLastPendingSpellbookMissingSpellId.clear();
+
+    MWMechanics::Spells& spells = player.getClass().getCreatureStats(player).getSpells();
+    const std::vector<std::string> authoritative = canonicalizeSpellIds(mAuthoritativeSpellbook.spellIds);
+
+    // 1. Add missing learned spells. Only ST_Spell records are ever added;
+    //    baseline powers/abilities are preserved untouched. The ID-based
+    //    duplicate check guards against the same spell appearing under a
+    //    different record pointer (e.g. a dynamic record re-installed since
+    //    login).
+    std::size_t added = 0;
+    std::string firstAdded;
+    for (const std::string& spellId : authoritative)
+    {
+        const ESM::Spell* spell = store.get<ESM::Spell>().search(ESM::RefId::stringRefId(spellId));
+        if (spell == nullptr || !isLearnedSpell(spell) || spells.hasSpell(spell->mId))
+            continue;
+        spells.add(spell, false);
+        ++added;
+        if (firstAdded.empty())
+            firstAdded = spellId;
+    }
+
+    // 2. Remove stale learned spells no longer present in the authoritative
+    //    set. Collect first: Spells::remove mutates the iterated container.
+    //    Non-ST_Spell entries (powers, abilities, diseases, starter-spell
+    //    mods are ST_Spell and thus managed here) are never touched.
+    std::size_t removed = 0;
+    std::string firstRemoved;
+    std::vector<const ESM::Spell*> stale;
+    for (const ESM::Spell* spell : spells)
+    {
+        if (!isLearnedSpell(spell))
+            continue;
+        const std::string spellId = spell->mId.serializeText();
+        if (std::find(authoritative.begin(), authoritative.end(), spellId) != authoritative.end())
+            continue;
+        stale.push_back(spell);
+    }
+    for (const ESM::Spell* spell : stale)
+    {
+        spells.remove(spell, false);
+        ++removed;
+        if (firstRemoved.empty())
+            firstRemoved = spell->mId.serializeText();
+    }
+
+    mPendingSpellbookRestore = false;
+    mSpellbookInitialized = true;
+    captureSpellbook(player);
+
+    Log(added != 0 || removed != 0 ? Debug::Info : Debug::Verbose)
+        << "[MP] PlayerSync: applied authoritative spellbook"
+        << " spells=" << authoritative.size()
+        << " added=" << added
+        << " removed=" << removed
+        << " firstAdded=" << firstAdded
+        << " firstRemoved=" << firstRemoved;
+}
+
 void PlayerSync::applyPendingAuthoritativeState(const MWWorld::Ptr& player)
 {
     const MWBase::Environment& environment = MWBase::Environment::get();
@@ -2686,6 +2955,9 @@ void PlayerSync::applyPendingAuthoritativeState(const MWWorld::Ptr& player)
                             << " replace=" << replace
                             << " items=" << mAuthoritativeJournal.items.size();
     }
+
+    if (mPendingSpellbookRestore)
+        applyAuthoritativeSpellbook(player);
 
     if (!player.getClass().hasInventoryStore(player))
         return;
