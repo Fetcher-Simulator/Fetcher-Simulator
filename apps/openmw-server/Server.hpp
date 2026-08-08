@@ -80,6 +80,15 @@ struct ConnectedClient
         float levelProgress = 0.f;
     };
     std::optional<AlchemySkillSyncGuard> alchemySkillSyncGuard;
+    /// Same guard for the server-authoritative Enchant skill award.
+    struct EnchantSkillSyncGuard
+    {
+        float skillBase = 0.f;
+        float skillProgress = 0.f;
+        int level = 0;
+        float levelProgress = 0.f;
+    };
+    std::optional<EnchantSkillSyncGuard> enchantSkillSyncGuard;
     bool                acceptedPlayerEquipmentThisSession = false;
     uint64_t            playerInventoryRestoreGuardUntilMs = 0;
     uint64_t            playerEquipmentRestoreGuardUntilMs = 0;
@@ -308,6 +317,7 @@ private:
     void handlePlayerInventory  (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleAlchemyRequest   (ConnectedClient& c, const uint8_t* data, size_t size);
+    void handleEnchantingRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerJournal    (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerStatsDynamic(ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerDeath      (ConnectedClient& c, const uint8_t* data, size_t size);
@@ -673,6 +683,9 @@ private:
     std::unordered_set<std::string> mRuntimeRecordAssets;
     std::size_t                   mRuntimeRecordRequestsPerMinute = 30;
     std::size_t                   mRuntimeRecordMaxPerCharacter = 2048;
+    /// Server-side mirror of the client "projectiles enchant multiplier"
+    /// setting; 0 = one projectile enchanted at a time (native default).
+    float                         mEnchantProjectilesMultiplier = 0.f;
     enum class JournalSharingMode { Player, Group, Server };
     JournalSharingMode             mJournalSharingMode = JournalSharingMode::Player;
     std::vector<JournalSharingGroup> mJournalSharingGroups;

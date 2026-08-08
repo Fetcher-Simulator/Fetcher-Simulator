@@ -129,6 +129,9 @@ if (BUILD_MULTIPLAYER)
     add_openmw_dir (mwmp/alchemy
         AlchemyCreationManager
     )
+    add_openmw_dir (mwmp/enchanting
+        EnchantingCreationManager
+    )
     add_openmw_dir (mwmp/gui
         ChatWindow ServerAddressDialog ServerBrowserDialog
         CharacterSelectDialog KeyLinkDialog

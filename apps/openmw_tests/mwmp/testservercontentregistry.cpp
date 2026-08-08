@@ -2,9 +2,11 @@
 
 #include <components/esm3/loadalch.hpp>
 #include <components/esm3/loadappa.hpp>
+#include <components/esm3/loadcrea.hpp>
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadingr.hpp>
 #include <components/esm3/loadmgef.hpp>
+#include <components/esm3/loadnpc.hpp>
 #include <components/lua/configuration.hpp>
 #include <components/lua/luastate.hpp>
 #include <components/resource/resourcesystem.hpp>
@@ -172,6 +174,69 @@ TEST(ServerContentRegistry, authoritativeCraftingInputsChangeResolvedFingerprint
         second.insertStatic(makeGameSetting(2.f));
         EXPECT_NE(MWMP::resolvedContentFingerprint(first), MWMP::resolvedContentFingerprint(second));
     }
+}
+
+TEST(ServerContentRegistry, enchantingInputsChangeResolvedFingerprint)
+{
+    auto makeCreature = [](int soul) {
+        ESM::Creature creature;
+        creature.blank();
+        creature.mId = ESM::RefId::stringRefId("content_soul");
+        creature.mName = "Content soul";
+        creature.mData.mSoul = soul;
+        return creature;
+    };
+    auto makeNpc = [](int services, int disposition) {
+        ESM::NPC npc;
+        npc.blank();
+        npc.mId = ESM::RefId::stringRefId("content_enchanter");
+        npc.mName = "Content enchanter";
+        npc.mNpdt.mDisposition = disposition;
+        npc.mAiData.mServices = services;
+        return npc;
+    };
+    {
+        // The soul value stored in a Creature record determines the
+        // enchantment charge, cost, and success chance.
+        MWWorld::ESMStore first;
+        MWWorld::ESMStore second;
+        first.insertStatic(makeCreature(100));
+        second.insertStatic(makeCreature(200));
+        EXPECT_NE(MWMP::resolvedContentFingerprint(first), MWMP::resolvedContentFingerprint(second));
+    }
+    {
+        // The paid enchanter's NPC record drives service availability and
+        // the authoritative barter price.
+        MWWorld::ESMStore first;
+        MWWorld::ESMStore second;
+        first.insertStatic(makeNpc(ESM::NPC::Enchanting, 50));
+        second.insertStatic(makeNpc(0, 50));
+        EXPECT_NE(MWMP::resolvedContentFingerprint(first), MWMP::resolvedContentFingerprint(second));
+        MWWorld::ESMStore third;
+        third.insertStatic(makeNpc(ESM::NPC::Enchanting, 80));
+        EXPECT_NE(MWMP::resolvedContentFingerprint(first), MWMP::resolvedContentFingerprint(third));
+    }
+}
+
+TEST(ServerContentRegistry, playerNpcPromotionDoesNotChangeResolvedFingerprint)
+{
+    ESM::NPC player;
+    player.blank();
+    player.mId = ESM::RefId::stringRefId("Player");
+    player.mName = "Player";
+    player.mNpdt.mLevel = 7;
+    player.mNpdt.mGold = 123;
+
+    MWWorld::ESMStore headless;
+    MWWorld::ESMStore client;
+    headless.insertStatic(player);
+    client.insertStatic(player);
+
+    // Normal client World::loadData() performs this promotion, while the
+    // headless ServerContentRegistry uses initializeGameplayState=false.
+    client.movePlayerRecord();
+
+    EXPECT_EQ(MWMP::resolvedContentFingerprint(headless), MWMP::resolvedContentFingerprint(client));
 }
 
 TEST(ServerContentRegistry, invalidLoadScriptIsRejected)

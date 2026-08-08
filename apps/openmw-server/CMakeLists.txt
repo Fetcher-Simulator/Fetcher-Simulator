@@ -7,6 +7,7 @@ set(OPENMW_SERVER_SOURCES
     PlayerDatabase.cpp
     DynamicRecordService.cpp
     AlchemyService.cpp
+    EnchantingService.cpp
     ServerContentRegistry.cpp
     ServerLuaRecordParser.cpp
     bindings/PlayerBindings.cpp
@@ -25,6 +26,7 @@ set(OPENMW_SERVER_HEADERS
     PlayerDatabase.hpp
     DynamicRecordService.hpp
     AlchemyService.hpp
+    EnchantingService.hpp
     ServerContentRegistry.hpp
     ServerLuaRecordParser.hpp
     bindings/PlayerBindings.hpp

@@ -1,6 +1,7 @@
 #include "Server.hpp"
 #include "AlchemyService.hpp"
 #include "DynamicRecordService.hpp"
+#include "EnchantingService.hpp"
 #include "MasterServerClient.hpp"
 #include "ServerLuaRecordParser.hpp"
 #include <extern/bcrypt/bcrypt.h>
@@ -70,7 +71,10 @@
 #include <components/openmw-mp/Packets/Records/PacketRecordCreateResult.hpp>
 #include <components/openmw-mp/Packets/Records/PacketAlchemyRequest.hpp>
 #include <components/openmw-mp/Packets/Records/PacketAlchemyResult.hpp>
+#include <components/openmw-mp/Packets/Records/PacketEnchantingRequest.hpp>
+#include <components/openmw-mp/Packets/Records/PacketEnchantingResult.hpp>
 #include <components/openmw-mp/Records/AlchemyProtocol.hpp>
+#include <components/openmw-mp/Records/EnchantingProtocol.hpp>
 #include <components/openmw-mp/Records/DynamicRecordCodec.hpp>
 #include <components/openmw-mp/Records/DynamicRecordFingerprint.hpp>
 #include <components/openmw-mp/Records/DynamicRecordValidation.hpp>
@@ -1718,6 +1722,8 @@ void MPServer::run()
         std::max(0, mLua.getInt("Config", "RUNTIME_RECORD_REQUESTS_PER_MINUTE", 30)));
     mRuntimeRecordMaxPerCharacter = static_cast<std::size_t>(
         std::max(0, mLua.getInt("Config", "RUNTIME_RECORD_MAX_PER_CHARACTER", 2048)));
+    mEnchantProjectilesMultiplier = static_cast<float>(
+        std::max(0, mLua.getInt("Config", "ENCHANTING_PROJECTILES_MULTIPLIER", 0)));
     mRuntimeRecordCapabilities.clear();
     for (const RuntimeRecordCapability& capability
         : mLua.getConfigRuntimeRecordCapabilities("RUNTIME_RECORD_CAPABILITIES"))
@@ -3912,6 +3918,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::PlayerInventory:  handlePlayerInventory(client, data, size);    break;
         case PacketType::RecordCreateRequest: handleRecordCreateRequest(client, data, size); break;
         case PacketType::AlchemyRequest:   handleAlchemyRequest(client, data, size);     break;
+        case PacketType::EnchantingRequest: handleEnchantingRequest(client, data, size); break;
         case PacketType::PlayerJournal:    handlePlayerJournal(client, data, size);      break;
         case PacketType::PlayerStatsDynamic: handlePlayerStatsDynamic(client, data, size); break;
         case PacketType::PlayerDeath:      handlePlayerDeath(client, data, size);        break;
@@ -6569,6 +6576,30 @@ namespace
             << " replayed=" << (outcome.replayed ? "true" : "false")
             << " error=" << mwmp::records::getAlchemyErrorCode(outcome.result.error);
     }
+
+    void logEnchantingResult(const mwmp::ConnectedClient& c, const mwmp::records::EnchantingRequest& request,
+        const mwmp::EnchantingService::Outcome& outcome)
+    {
+        Log(outcome.result.accepted ? Debug::Info : Debug::Warning)
+            << "[Enchanting] " << (outcome.result.accepted ? "accepted" : "rejected")
+            << " player=" << c.slotName
+            << " requestId=" << outcome.result.requestId
+            << " expectedRevision=" << request.inventoryRevision
+            << " targetInstance=" << request.targetInstanceId
+            << " gemInstance=" << request.soulGemInstanceId
+            << " mode=" << (request.selfEnchanting ? "self" : "paid")
+            << " castStyle=" << request.castStyle
+            << " effects=" << request.effects.size()
+            << " success=" << (outcome.result.success ? "true" : "false")
+            << " enchantmentId=" << (outcome.result.enchantmentRecordId.empty() ? "-" : outcome.result.enchantmentRecordId)
+            << " itemId=" << (outcome.result.itemRecordId.empty() ? "-" : outcome.result.itemRecordId)
+            << " enchantmentReused=" << (outcome.result.enchantmentReused ? "true" : "false")
+            << " itemReused=" << (outcome.result.itemReused ? "true" : "false")
+            << " newRecords=" << outcome.newRecords.size()
+            << " resultingRevision=" << outcome.result.inventoryRevision
+            << " replayed=" << (outcome.replayed ? "true" : "false")
+            << " error=" << mwmp::records::getEnchantingErrorCode(outcome.result.error);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -6798,6 +6829,253 @@ void MPServer::handleAlchemyRequest(ConnectedClient& c, const uint8_t* data, siz
 }
 
 // ---------------------------------------------------------------------------
+void MPServer::handleEnchantingRequest(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    PacketEnchantingRequest packet;
+    if (!packet.decode(data, size))
+    {
+        PacketEnchantingResult errorPacket;
+        errorPacket.result
+            = EnchantingService::makeError({}, records::EnchantingError::InvalidRequest, c.inventoryRevision);
+        sendTo(c.conn, errorPacket.encode());
+        return;
+    }
+
+    if (!mPlayerDb || c.dbAccountId <= 0 || c.dbCharacterId <= 0)
+    {
+        PacketEnchantingResult errorPacket;
+        errorPacket.result = EnchantingService::makeError(
+            packet.request.requestId, records::EnchantingError::ServerError, c.inventoryRevision);
+        sendTo(c.conn, errorPacket.encode());
+        return;
+    }
+
+    // Hash the decoded application payload with a neutral packet sequence. A
+    // transport retry may legitimately use another packet sequence while still
+    // representing the same idempotent request.
+    const std::vector<uint8_t> canonicalRequest = packet.encode();
+    const std::string requestHash = crypto::sha256hex(std::string_view(
+        reinterpret_cast<const char*>(canonicalRequest.data()), canonicalRequest.size()));
+
+    EnchantingService::Context context;
+    context.accountId = c.dbAccountId;
+    context.characterId = c.dbCharacterId;
+    context.inventoryRevision = c.inventoryRevision;
+    context.player = &c.player;
+    context.inventory = &c.player.inventoryChanges.items;
+    context.store = &mContentRegistry->store();
+    context.creationSource = "enchanting";
+    context.recordScope = "generated";
+    context.persistent = true;
+    context.validationVersion = 1;
+    context.projectilesEnchantMultiplier = mEnchantProjectilesMultiplier;
+
+    bool isReplay = false;
+    try
+    {
+        isReplay = mPlayerDb->loadCraftRequest(
+            c.dbAccountId, c.dbCharacterId, packet.request.requestId).has_value();
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[Server] Enchanting journal lookup failed: " << e.what();
+        PacketEnchantingResult errorPacket;
+        errorPacket.result = EnchantingService::makeError(
+            packet.request.requestId, records::EnchantingError::ServerError, c.inventoryRevision);
+        sendTo(c.conn, errorPacket.encode());
+        return;
+    }
+    if (!isReplay)
+    {
+        const uint64_t now = currentServerTimeMs();
+        if (c.runtimeRecordRateWindowStartMs == 0 || now - c.runtimeRecordRateWindowStartMs >= 60000)
+        {
+            c.runtimeRecordRateWindowStartMs = now;
+            c.runtimeRecordRequestsInWindow = 0;
+        }
+        if (mRuntimeRecordRequestsPerMinute == 0
+            || c.runtimeRecordRequestsInWindow >= mRuntimeRecordRequestsPerMinute)
+            context.admissionError = records::CreateError::RateLimited;
+        else
+            ++c.runtimeRecordRequestsInWindow;
+    }
+
+    try
+    {
+        const std::vector<DynamicRecordCatalogEntry> catalog = mPlayerDb->loadDynamicRecordCatalog();
+        const std::size_t owned = static_cast<std::size_t>(std::count_if(catalog.begin(), catalog.end(),
+            [&](const DynamicRecordCatalogEntry& entry) {
+                return entry.creatorCharacterId == c.dbCharacterId;
+            }));
+        context.maximumNewRecords = owned >= mRuntimeRecordMaxPerCharacter
+            ? 0
+            : mRuntimeRecordMaxPerCharacter - owned;
+        context.isAssetAllowed = [&](std::string_view asset) {
+            return mContentRegistry->hasAsset(normalizeRuntimeAsset(asset));
+        };
+        context.isModelAllowed = [&](std::string_view asset) {
+            return mContentRegistry->hasModel(normalizeRuntimeAsset(asset));
+        };
+        context.isIconAllowed = [&](std::string_view asset) {
+            return mContentRegistry->hasIcon(normalizeRuntimeAsset(asset));
+        };
+        context.isContentIdAllowed = [&](std::string_view id) {
+            const std::string normalized = lowerAscii(id);
+            if (mContentRegistry->hasContentId(normalized))
+                return true;
+            if (!normalized.starts_with(lowerAscii(mGeneratedRecordIdPrefix) + "_"))
+                return false;
+            return std::any_of(catalog.begin(), catalog.end(), [&](const DynamicRecordCatalogEntry& entry) {
+                return lowerAscii(entry.recordId) == normalized;
+            });
+        };
+        context.findEquivalent = [&](records::RecordType type, std::string_view fingerprint)
+            -> std::optional<DynamicRecordService::CatalogRecord> {
+            const std::string typeName(records::getRecordTypeName(type));
+            for (const DynamicRecordCatalogEntry& catalogEntry : catalog)
+            {
+                if (catalogEntry.recordType != typeName
+                    || catalogEntry.definitionFingerprint != fingerprint)
+                    continue;
+                auto stored = mWorld.dynamicRecords.find(
+                    makeDynamicRecordKey(typeName, catalogEntry.recordId));
+                if (stored == mWorld.dynamicRecords.end())
+                    continue;
+                return DynamicRecordService::CatalogRecord{ typeName, catalogEntry.recordId,
+                    catalogEntry.definitionFingerprint, stored->second.data };
+            }
+            return std::nullopt;
+        };
+        context.allocateId = [&](records::RecordType type) {
+            return mLua.generateDynamicRecordId(std::string(records::getRecordTypeName(type)));
+        };
+        context.nextCommitSequence = [&]() { return mWorld.nextDynamicRecordSequence++; };
+        context.listDynamicEnchantments = [&]() {
+            std::vector<std::pair<std::string, std::string>> enchantments;
+            for (const auto& [key, record] : mWorld.dynamicRecords)
+            {
+                if (record.recordType != "enchantment")
+                    continue;
+                enchantments.emplace_back(record.recordId, record.data);
+            }
+            return enchantments;
+        };
+        context.resolveEnchanter = [&](std::uint64_t actorNetId)
+            -> std::optional<EnchantingService::Context::EnchanterInfo> {
+            for (const auto& [cellId, cellState] : mWorld.actorCells)
+            {
+                for (const auto& [key, record] : cellState.actors)
+                {
+                    if (record.actorNetId != actorNetId || record.actor.refId.empty())
+                        continue;
+                    EnchantingService::Context::EnchanterInfo info;
+                    info.refId = record.actor.refId;
+                    info.dynamicStats = record.actor.dynamicStats;
+                    info.cellLoaded = clientHasActorCellLoaded(c, cellId);
+                    return info;
+                }
+            }
+            return std::nullopt;
+        };
+        context.reconcileInventory = [&](std::vector<Item>& items) {
+            reconcileInventoryInstanceIds(c, items);
+        };
+
+        EnchantingService service(*mPlayerDb);
+        EnchantingService::Outcome outcome = service.execute(packet.request, requestHash, context);
+
+        if (outcome.committed)
+        {
+            // Install the authoritative gameplay state on the client mirror.
+            c.player.inventoryChanges.action = BasePlayer::InventoryChanges::Action::Set;
+            c.player.inventoryChanges.items = std::move(outcome.resultingInventory);
+            c.player.inventoryChanges.revision = outcome.resultingInventoryRevision;
+            c.inventoryRevision = outcome.resultingInventoryRevision;
+            c.acceptedPlayerInventoryThisSession = true;
+            c.restoredInventorySnapshot = c.player.inventoryChanges.items;
+            c.hasRestoredInventorySnapshot = true;
+
+            if (outcome.resultingStats)
+            {
+                c.player = *outcome.resultingStats;
+                c.restoredStatsSnapshot = c.player;
+                c.hasRestoredStatsSnapshot = true;
+                c.acceptedPlayerStatsThisSession = true;
+                const int enchantIndex = ESM::Skill::refIdToIndex(ESM::Skill::Enchant);
+                c.enchantSkillSyncGuard = ConnectedClient::EnchantSkillSyncGuard{
+                    c.player.skills[enchantIndex].base,
+                    c.player.skills[enchantIndex].progress,
+                    c.player.level,
+                    c.player.levelProgress };
+            }
+
+            for (const DynamicRecordService::CommittedRecord& created : outcome.newRecords)
+            {
+                WorldState::StoredDynamicRecord stored;
+                stored.recordType = created.recordType;
+                stored.recordId = created.recordId;
+                stored.data = created.definition;
+                stored.recordScope = "generated";
+                stored.persistent = true;
+                stored.sequence = outcome.result.commitSequence;
+                mWorld.dynamicRecords[makeDynamicRecordKey(stored.recordType, stored.recordId)] = std::move(stored);
+
+                PacketRecordDynamic definitionPacket;
+                definitionPacket.action = DynamicRecordAction::Upsert;
+                definitionPacket.recordType = created.recordType;
+                definitionPacket.entries.push_back({ created.recordId, created.definition });
+                broadcastToAll(definitionPacket.encode());
+            }
+
+            sendAuthoritativeInventory(c);
+            if (outcome.resultingStats)
+            {
+                PacketPlayerStatsDynamic statsPacket;
+                statsPacket.setPlayer(&c.player);
+                const std::vector<uint8_t> encoded = statsPacket.encode();
+                sendTo(c.conn, encoded);
+                broadcastToAll(encoded, c.conn);
+            }
+            syncLuaPlayerSnapshot();
+        }
+
+        // Re-send every referenced definition to the requester before
+        // publishing the result so replay and deduplication are safe even
+        // if the local store missed an earlier broadcast; the client still
+        // enforces a local visibility barrier. This also covers replayed
+        // results after a reconnect. The owning item is sent before the
+        // enchantment so the client can resolve the dependency either way.
+        for (const std::string recordId : { outcome.result.itemRecordId, outcome.result.enchantmentRecordId })
+        {
+            if (recordId.empty())
+                continue;
+            for (const auto& [key, record] : mWorld.dynamicRecords)
+            {
+                if (record.recordId != recordId)
+                    continue;
+                PacketRecordDynamic definitionPacket;
+                definitionPacket.action = DynamicRecordAction::Upsert;
+                definitionPacket.recordType = record.recordType;
+                definitionPacket.entries.push_back({ record.recordId, record.data });
+                sendTo(c.conn, definitionPacket.encode());
+            }
+        }
+
+        sendTo(c.conn, outcome.encodedResult);
+        logEnchantingResult(c, packet.request, outcome);
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[Server] Enchanting internal error player=" << c.slotName
+                          << " requestId=" << packet.request.requestId << " error=" << e.what();
+        PacketEnchantingResult errorPacket;
+        errorPacket.result = EnchantingService::makeError(
+            packet.request.requestId, records::EnchantingError::ServerError, c.inventoryRevision);
+        sendTo(c.conn, errorPacket.encode());
+    }
+}
+
+// ---------------------------------------------------------------------------
 void MPServer::handlePlayerJournal(ConnectedClient& c, const uint8_t* data, size_t size)
 {
     BasePlayer incoming;
@@ -6932,6 +7210,35 @@ void MPServer::handlePlayerStatsDynamic(ConnectedClient& c, const uint8_t* data,
             return;
         }
         c.alchemySkillSyncGuard.reset();
+    }
+
+    if (c.enchantSkillSyncGuard)
+    {
+        const int enchantIndex = ESM::Skill::refIdToIndex(ESM::Skill::Enchant);
+        const Skill& incomingEnchant = incoming.skills[enchantIndex];
+        const auto& guard = *c.enchantSkillSyncGuard;
+        const bool caughtUp = incomingEnchant.base >= guard.skillBase - 0.01f
+            && incoming.level >= guard.level
+            && (incomingEnchant.base > guard.skillBase + 0.01f || incoming.level > guard.level
+                || incomingEnchant.progress >= guard.skillProgress - 0.001f)
+            && incoming.levelProgress >= guard.levelProgress - 0.001f;
+        if (!caughtUp)
+        {
+            Log(Debug::Info) << "[Enchanting] rejected stale player stats overwrite"
+                             << " charId=" << c.dbCharacterId
+                             << " name=" << c.slotName
+                             << " incomingEnchantBase=" << incomingEnchant.base
+                             << " incomingEnchantProgress=" << incomingEnchant.progress
+                             << " incomingLevel=" << incoming.level
+                             << " guardEnchantBase=" << guard.skillBase
+                             << " guardEnchantProgress=" << guard.skillProgress
+                             << " guardLevel=" << guard.level;
+            PacketPlayerStatsDynamic correctionPkt;
+            correctionPkt.setPlayer(&c.player);
+            sendTo(c.conn, correctionPkt.encode());
+            return;
+        }
+        c.enchantSkillSyncGuard.reset();
     }
 
     const bool hadPreviousStats = c.hasRestoredStatsSnapshot;

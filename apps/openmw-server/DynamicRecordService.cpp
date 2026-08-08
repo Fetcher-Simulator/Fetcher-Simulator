@@ -263,6 +263,18 @@ namespace mwmp
             entry.catalog.creationSource = context.creationSource;
             entry.catalog.schemaVersion = records::CurrentSchemaVersion;
             entry.catalog.validationVersion = context.validationVersion;
+
+            // prepareSingleRecord() is used by authoritative crafting services
+            // after temporary references have already been resolved to canonical
+            // server ids. Preserve any concrete record-to-record references in
+            // the same GC dependency graph as the bundled execute() path.
+            // Without this, an enchanted owning item could remain linked in an
+            // inventory while its generated Enchantment was collected as
+            // apparently unreferenced.
+            const records::DynamicRecordBundle noTemporaryDependencies;
+            const std::unordered_map<std::string, std::string> noTemporaryIds;
+            entry.dependencyRecordIds
+                = resolvedDependencies(noTemporaryDependencies, draft.temporaryKey, noTemporaryIds, definition);
             prepared.entry = std::move(entry);
         }
         return prepared;

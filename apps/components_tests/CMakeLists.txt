@@ -98,6 +98,7 @@ file(GLOB UNITTEST_SRC_FILES
     nif/testphysics.cpp
 
     alchemy/alchemymechanics.cpp
+    enchanting/enchantingmechanics.cpp
 )
 
 if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
@@ -112,6 +113,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         openmw-mp/dynamicrecorddatabase.cpp
         openmw-mp/dynamicrecordservice.cpp
         openmw-mp/alchemyprotocol.cpp
+        openmw-mp/enchantingprotocol.cpp
         ../openmw-server/PlayerDatabase.cpp
         ../openmw-server/DynamicRecordService.cpp
     )

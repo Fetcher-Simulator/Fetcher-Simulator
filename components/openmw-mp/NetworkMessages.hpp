@@ -145,6 +145,8 @@ namespace mwmp
         RecordCreateResult  = 141,
         AlchemyRequest      = 142,  // Semantic server-authoritative alchemy request
         AlchemyResult       = 143,  // Authoritative alchemy result
+        EnchantingRequest   = 144,  // Semantic server-authoritative enchanting request
+        EnchantingResult    = 145,  // Authoritative enchanting result
 
         // --- Lua bridge (7C+) ---
         // IDs 150-199 reserved; exact assignments TBD in Phase 7C/7D.

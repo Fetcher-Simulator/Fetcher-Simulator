@@ -22,6 +22,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwmp/testservercontentregistry.cpp
     mwmp/testserverluarecordparser.cpp
     mwmp/testalchemyservice.cpp
+    mwmp/testenchantingservice.cpp
 )
 
 if (MSVC)
@@ -47,6 +48,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         ../openmw-server/PlayerDatabase.cpp
         ../openmw-server/DynamicRecordService.cpp
         ../openmw-server/AlchemyService.cpp
+        ../openmw-server/EnchantingService.cpp
     )
 endif()
 

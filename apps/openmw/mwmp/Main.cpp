@@ -2,6 +2,7 @@
 #include "Identity.hpp"
 #include "MpNetworkBridge.hpp"
 #include "alchemy/AlchemyCreationManager.hpp"
+#include "enchanting/EnchantingCreationManager.hpp"
 #include "records/RecordCreationManager.hpp"
 #include "records/ResolvedContentFingerprint.hpp"
 #include "sha256.hpp"
@@ -33,6 +34,7 @@
 #include <components/openmw-mp/Packets/Worldstate/PacketRecordDynamic.hpp>
 #include <components/openmw-mp/Packets/Records/PacketRecordCreateResult.hpp>
 #include <components/openmw-mp/Packets/Records/PacketAlchemyResult.hpp>
+#include <components/openmw-mp/Packets/Records/PacketEnchantingResult.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketWorldTime.hpp>
 #include <components/openmw-mp/Packets/Object/PacketDoorState.hpp>
 #include <components/openmw-mp/Packets/Object/PacketObjectPlace.hpp>
@@ -255,6 +257,8 @@ Main::Main()
     mWorldStateSync= std::make_unique<WorldStateSync>(*mClient);
     mRecordCreationManager = std::make_unique<RecordCreationManager>(*mClient);
     mAlchemyCreationManager = std::make_unique<AlchemyCreationManager>(*mClient, *mRecordCreationManager);
+    mEnchantingCreationManager
+        = std::make_unique<EnchantingCreationManager>(*mClient, *mRecordCreationManager);
     mWorldStateSync->setDynamicRecordChangeCallback(
         [this] {
             mRecordCreationManager->notifyRecordStoreChanged();
@@ -315,6 +319,7 @@ void Main::frame(float dt)
     mWorldStateSync->update(dt);
     mRecordCreationManager->update();
     mAlchemyCreationManager->update();
+    mEnchantingCreationManager->update();
     const auto worldSyncFinished = std::chrono::steady_clock::now();
 
     mChatWindow->update(dt);
@@ -601,6 +606,8 @@ void Main::onDisconnected()
         mRecordCreationManager->cancelAll();
     if (mAlchemyCreationManager)
         mAlchemyCreationManager->cancelAll();
+    if (mEnchantingCreationManager)
+        mEnchantingCreationManager->cancelAll();
     // If we were already in-world, request a main-menu return on the next frame.
     // Do NOT touch engine state here - this fires inside mClient->update() and
     // must remain engine-API-free to stay thread-safe.
@@ -1344,6 +1351,15 @@ void Main::registerProtocolHandlers()
             if (!packet.decode(data, size))
                 return;
             mAlchemyCreationManager->onResult(std::move(packet.result));
+        });
+
+    proto.registerHandler(PacketType::EnchantingResult,
+        [this](const uint8_t* data, size_t size)
+        {
+            PacketEnchantingResult packet;
+            if (!packet.decode(data, size))
+                return;
+            mEnchantingCreationManager->onResult(std::move(packet.result));
         });
 
     // --- Persisted / relayed world objects ---
