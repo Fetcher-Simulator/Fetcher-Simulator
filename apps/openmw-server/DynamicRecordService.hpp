@@ -68,10 +68,24 @@ namespace mwmp
             bool replayed = false;
         };
 
+        /// The canonical preparation of one record draft: validation,
+        /// canonicalization, fingerprinting, equivalent lookup, and ID
+        /// allocation. No database writes occur; the caller owns the
+        /// transaction and commits the returned entry together with its own
+        /// mutations (used by server-authoritative crafting).
+        struct PreparedRecord
+        {
+            records::CreatedRecord created;
+            std::optional<DynamicRecordCommitEntry> entry; // set when the record is new
+        };
+
         using FindEquivalent = std::function<std::optional<CatalogRecord>(
             records::RecordType type, std::string_view fingerprint)>;
         using AllocateId = std::function<std::string(records::RecordType type)>;
         using NextCommitSequence = std::function<uint64_t()>;
+
+        PreparedRecord prepareSingleRecord(const records::RecordDraft& draft, const Context& context,
+            const FindEquivalent& findEquivalent, const AllocateId& allocateId) const;
 
         explicit DynamicRecordService(PlayerDatabase& database)
             : mDatabase(database)

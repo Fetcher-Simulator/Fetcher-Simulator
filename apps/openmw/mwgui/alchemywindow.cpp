@@ -1,5 +1,7 @@
 #include "alchemywindow.hpp"
 
+#include <algorithm>
+
 #include <MyGUI_Button.h>
 #include <MyGUI_ComboBox.h>
 #include <MyGUI_ControllerManager.h>
@@ -16,6 +18,14 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
+
+#ifdef BUILD_MULTIPLAYER
+#include <components/openmw-mp/Records/AlchemyProtocol.hpp>
+
+#include "../mwmp/Main.hpp"
+#include "../mwmp/alchemy/AlchemyCreationManager.hpp"
+#include "../mwmp/sync/InventoryIdentity.hpp"
+#endif
 
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/alchemy.hpp"
@@ -127,6 +137,13 @@ namespace MWGui
 
     void AlchemyWindow::createPotions(int count)
     {
+#ifdef BUILD_MULTIPLAYER
+        if (mwmp::Main::isConnected())
+        {
+            startMultiplayerBrew(count);
+            return;
+        }
+#endif
         MWMechanics::Alchemy::Result result = mAlchemy->create(mNameEdit->getCaption(), count);
         MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
 
@@ -155,10 +172,140 @@ namespace MWGui
                 winMgr->playSound(ESM::RefId::stringRefId("potion fail"));
                 break;
             case MWMechanics::Alchemy::Result_ServerAuthorityRequired:
-                winMgr->messageBox("Alchemy is unavailable until this server enables authoritative crafting.");
+                winMgr->messageBox("The alchemy request could not be started.");
                 break;
         }
 
+        refreshAfterBrew();
+    }
+
+#ifdef BUILD_MULTIPLAYER
+    void AlchemyWindow::startMultiplayerBrew(int count)
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+        // Mirror the native pre-checks that do not mutate anything: an empty
+        // name, a missing mortar and pestle, or fewer than two ingredients
+        // never reach the server.
+        if (mNameEdit->getCaption().empty())
+        {
+            winMgr->messageBox("#{sNotifyMessage37}");
+            return;
+        }
+        if (mApparatus[ESM::Apparatus::MortarPestle]->getUserData<MWWorld::Ptr>() == nullptr
+            || mApparatus[ESM::Apparatus::MortarPestle]->getUserData<MWWorld::Ptr>()->isEmpty())
+        {
+            winMgr->messageBox("#{sNotifyMessage45}");
+            return;
+        }
+        int filledIngredients = 0;
+        for (const ItemWidget* widget : mIngredients)
+        {
+            if (widget->isUserString("ToolTipType"))
+                ++filledIngredients;
+        }
+        if (filledIngredients < 2)
+        {
+            winMgr->messageBox("#{sNotifyMessage6a}");
+            return;
+        }
+        if (count <= 0)
+        {
+            winMgr->messageBox("#{sNotifyMessage8}");
+            winMgr->playSound(ESM::RefId::stringRefId("potion fail"));
+            return;
+        }
+
+        mwmp::records::AlchemyRequest request;
+        request.protocolVersion = mwmp::records::CurrentAlchemyProtocolVersion;
+        request.potionName = mNameEdit->getCaption().asUTF8();
+        request.count = static_cast<std::uint32_t>(count);
+        std::string error;
+        if (!mAlchemy->captureMultiplayerRequest(request, error))
+        {
+            winMgr->messageBox(error);
+            return;
+        }
+
+        mwmp::AlchemyCreationManager& manager = mwmp::Main::get().getAlchemyCreationManager();
+        const std::uint64_t sessionToken = mSessionToken;
+        if (!manager.request(std::move(request),
+                [this, sessionToken](const mwmp::records::AlchemyResult& result) {
+                    if (sessionToken != mSessionToken)
+                        return; // the window was reopened; the new session owns the UI
+                    onMultiplayerBrewResult(result);
+                },
+                error))
+        {
+            winMgr->messageBox(error);
+            return;
+        }
+    }
+
+    void AlchemyWindow::onMultiplayerBrewResult(const mwmp::records::AlchemyResult& result)
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        if (!result.accepted)
+        {
+            switch (result.error)
+            {
+                case mwmp::records::AlchemyError::StaleInventoryRevision:
+                    winMgr->messageBox("Your inventory changed; try again.");
+                    break;
+                case mwmp::records::AlchemyError::IngredientNotFound:
+                case mwmp::records::AlchemyError::IngredientNotOwned:
+                    winMgr->messageBox("An ingredient is no longer in your inventory.");
+                    break;
+                case mwmp::records::AlchemyError::InvalidIngredient:
+                case mwmp::records::AlchemyError::DuplicateSourceInstance:
+                    winMgr->messageBox("Invalid ingredient selection.");
+                    break;
+                case mwmp::records::AlchemyError::ApparatusNotFound:
+                case mwmp::records::AlchemyError::InvalidApparatus:
+                    winMgr->messageBox("Required apparatus is no longer available.");
+                    break;
+                case mwmp::records::AlchemyError::ContentMismatch:
+                    winMgr->messageBox("Your content does not match the server; reconnect.");
+                    break;
+                case mwmp::records::AlchemyError::MechanicsValidationFailed:
+                    winMgr->messageBox("The server could not validate this recipe.");
+                    break;
+                case mwmp::records::AlchemyError::RateLimited:
+                    winMgr->messageBox("Too many crafting requests; wait a moment.");
+                    break;
+                case mwmp::records::AlchemyError::QuotaExceeded:
+                    winMgr->messageBox("Your crafted-record limit was reached.");
+                    break;
+                default:
+                    winMgr->messageBox("The alchemy request failed.");
+                    break;
+            }
+            return;
+        }
+
+        const int successCount = static_cast<int>(std::count_if(result.attempts.begin(), result.attempts.end(),
+            [](const mwmp::records::AlchemyAttemptResult& attempt) { return attempt.success; }));
+        if (successCount > 0)
+        {
+            winMgr->playSound(ESM::RefId::stringRefId("potion success"));
+            if (successCount == 1)
+                winMgr->messageBox("#{sPotionSuccess}");
+            else
+                winMgr->messageBox(
+                    "#{sPotionSuccess} " + mNameEdit->getCaption().asUTF8() + " (" + std::to_string(successCount) + ")");
+        }
+        else
+        {
+            winMgr->messageBox("#{sNotifyMessage8}");
+            winMgr->playSound(ESM::RefId::stringRefId("potion fail"));
+        }
+
+        refreshAfterBrew();
+    }
+#endif
+
+    void AlchemyWindow::refreshAfterBrew()
+    {
         // remove ingredient slots that have been fully used up
         for (size_t i = 0; i < mIngredients.size(); ++i)
             if (mIngredients[i]->isUserString("ToolTipType"))
@@ -277,6 +424,7 @@ namespace MWGui
 
     void AlchemyWindow::onOpen()
     {
+        ++mSessionToken;
         mAlchemy->clear();
         mAlchemy->setAlchemist(MWMechanics::getPlayer());
 

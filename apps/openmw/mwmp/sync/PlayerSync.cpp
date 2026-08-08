@@ -109,14 +109,6 @@ namespace
         return sameItemIdentity(left, right);
     }
 
-    bool requiresInventoryInstanceId(const Item& item)
-    {
-        // ContainerStore canonicalizes every gold pile into one gold_001 stack
-        // backed by a fresh ManualRef, so a server-issued RefNum cannot survive
-        // an authoritative inventory rebuild for this intentionally fungible item.
-        return item.refId != "gold_001";
-    }
-
     bool sameEquipment(const EquipmentItem& left, const EquipmentItem& right)
     {
         return left.slot == right.slot && sameItem(left.item, right.item);
@@ -503,17 +495,30 @@ void PlayerSync::forceFullSync(bool includeInventoryAndEquipment)
     sendBaseInfo();
     sendCellChange();
     sendLoadedActorCells(true);
+    bool deferredInventorySync = false;
     if (includeInventoryAndEquipment)
     {
         sendEquipment();
-        sendInventory();
+        if (mInventoryRevisionGate.canSend())
+            sendInventory();
+        else
+        {
+            // A full sync can run during respawn while an ordinary inventory
+            // mutation is still awaiting its authoritative revision ACK. Do not
+            // bypass the optimistic-concurrency gate with a second snapshot using
+            // the same revision; leave mLastInventory untouched so update() sends
+            // the newest coalesced state as soon as the ACK arrives.
+            deferredInventorySync = true;
+            Log(Debug::Verbose) << "[MP] PlayerSync: deferred full-sync inventory until revision acknowledgement";
+        }
     }
     sendDynamicStats();
     mPositionTimer = POSITION_RATE; // force position send next tick
     snapshotPosition();
     snapshotCell();
     snapshotEquipment();
-    snapshotInventory();
+    if (!deferredInventorySync)
+        snapshotInventory();
     snapshotDynamicStats();
     // PlayerAnimFlags is not part of the full-sync packet set.  Arm an
     // immediate baseline for the next update so newly joined observers do not
@@ -703,8 +708,33 @@ void PlayerSync::queueAuthoritativeEquipment(const BasePlayer& authoritative)
 
 void PlayerSync::queueAuthoritativeInventory(const BasePlayer& authoritative)
 {
+    const uint64_t previousRevision = mLocal.inventoryChanges.revision;
+    const bool releasedInFlight
+        = mInventoryRevisionGate.observeAuthoritative();
+    mLocal.inventoryChanges.revision = authoritative.inventoryChanges.revision;
+    if (releasedInFlight)
+        Log(Debug::Verbose) << "[MP] PlayerSync: inventory mutation acknowledged"
+                            << " previousRevision=" << previousRevision
+                            << " authoritativeRevision=" << authoritative.inventoryChanges.revision;
+
     mAuthoritativeInventory = authoritative.inventoryChanges;
     mAuthoritativeInventory.action = BasePlayer::InventoryChanges::Action::Set;
+
+    // The server replies to every accepted optimistic inventory mutation so the
+    // client can advance its revision token. Most replies are pure ACKs: the
+    // visible inventory and all stable identities are exactly what we just sent.
+    // Avoid the O(n^2) live InventoryStore reconciliation in that common case.
+    // Gold is intentionally fungible and may receive a server-only instance ID.
+    if (releasedInFlight
+        && inventoryAckMatchesSentSnapshot(mAuthoritativeInventory.items, mLastInventory))
+    {
+        mPendingInventoryRestore = false;
+        Log(Debug::Verbose) << "[MP] PlayerSync: fast inventory revision acknowledgement"
+                            << " revision=" << authoritative.inventoryChanges.revision
+                            << " stacks=" << inventoryStackCount(mAuthoritativeInventory.items);
+        return;
+    }
+
     mPendingInventoryRestore = true;
 
     Log(Debug::Verbose) << "[MP] PlayerSync: queued authoritative inventory"
@@ -815,6 +845,8 @@ void PlayerSync::update(float dt)
     if (MWBase::Environment::get().getStateManager()->getState() != MWBase::StateManager::State_Running)
         return;
 
+    applyAuthoritativeStatsToPlayer();
+
     // Pull live state from OpenMW
     MWBase::World* world = MWBase::Environment::get().getWorld();
     if (!world) return;
@@ -844,6 +876,7 @@ void PlayerSync::update(float dt)
         baseNode->setUserValue("mp_player_guid", static_cast<int>(mLocal.guid));
 
     const float safeDt = std::max(0.f, dt);
+    mInventoryChargeSyncTimer = std::min(1.f, mInventoryChargeSyncTimer + safeDt);
     mPositionDiagTimer += safeDt;
     mPositionDiagFrameDtMax = std::max(mPositionDiagFrameDtMax, safeDt);
     ++mPositionDiagFrames;
@@ -988,7 +1021,7 @@ void PlayerSync::update(float dt)
         snapshotEquipment();
         sendEquipment();
     }
-    if (inventoryChanged())
+    if (mInventoryRevisionGate.canSend() && inventoryChanged())
     {
         snapshotInventory();
         sendInventory();
@@ -1295,13 +1328,15 @@ void PlayerSync::sendEquipment()
 
 void PlayerSync::sendInventory()
 {
+    mInventoryRevisionGate.markSent();
+    mInventoryChargeSyncTimer = 0.f;
     mLocal.inventoryChanges.action = BasePlayer::InventoryChanges::Action::Set;
     std::size_t missingInstanceIds = 0;
     const Item* firstMissingInstance = nullptr;
     for (const Item& item : mLocal.inventoryChanges.items)
     {
         if (item.refId.empty() || item.count <= 0 || item.instanceId != 0
-            || !requiresInventoryInstanceId(item))
+            || !requiresStableInventoryInstanceId(item))
             continue;
         ++missingInstanceIds;
         if (firstMissingInstance == nullptr)
@@ -2302,11 +2337,20 @@ bool PlayerSync::inventoryChanged() const
         return true;
     }
 
+    constexpr float immediateEnchantmentChargeDelta = 0.05f;
+    constexpr float maxDeferredEnchantmentChargeSeconds = 1.f;
     for (std::size_t i = 0; i < mLocal.inventoryChanges.items.size(); ++i)
     {
-        if (!sameItem(mLocal.inventoryChanges.items[i], mLastInventory[i]))
+        const Item& live = mLocal.inventoryChanges.items[i];
+        const Item& previous = mLastInventory[i];
+        if (!sameItem(live, previous))
         {
-            logChange("stack-state", i, &mLocal.inventoryChanges.items[i], &mLastInventory[i]);
+            if (mInventoryChargeSyncTimer < maxDeferredEnchantmentChargeSeconds
+                && isOnlySmallEnchantmentChargeChange(
+                    live, previous, immediateEnchantmentChargeDelta))
+                continue;
+
+            logChange("stack-state", i, &live, &previous);
             return true;
         }
     }
@@ -2373,6 +2417,62 @@ void PlayerSync::snapshotDynamicStats()
     mLastStats.skills = mLocal.skills;
     mLastStats.level = mLocal.level;
     mLastStats.levelProgress = mLocal.levelProgress;
+}
+
+void PlayerSync::queueAuthoritativeStats(const BasePlayer& authoritative)
+{
+    mPendingAuthoritativeStats = authoritative;
+    mPendingAuthoritativeStats.hasSavedStats = true;
+    mHasPendingAuthoritativeStats = true;
+}
+
+void PlayerSync::applyAuthoritativeStatsToPlayer()
+{
+    if (!mHasPendingAuthoritativeStats)
+        return;
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    MWWorld::Ptr player = world ? world->getPlayerPtr() : MWWorld::Ptr{};
+    if (!world || player.isEmpty() || !player.getClass().isNpc())
+        return;
+
+    const BasePlayer& source = mPendingAuthoritativeStats;
+    MWMechanics::NpcStats& stats = player.getClass().getNpcStats(player);
+    for (std::size_t i = 0; i < source.attributes.size(); ++i)
+    {
+        const Attribute& saved = source.attributes[i];
+        MWMechanics::AttributeValue value;
+        value.setBase(static_cast<float>(saved.base), true);
+        value.setModifier(saved.mod);
+        if (saved.damage > 0.f)
+            value.damage(saved.damage);
+        stats.setAttribute(ESM::Attribute::indexToRefId(static_cast<int>(i)), value);
+    }
+
+    for (std::size_t i = 0; i < source.skills.size(); ++i)
+    {
+        const Skill& saved = source.skills[i];
+        MWMechanics::SkillValue value;
+        value.setBase(saved.base, true);
+        value.setModifier(saved.mod);
+        if (saved.damage > 0.f)
+            value.damage(saved.damage);
+        value.setProgress(saved.progress);
+        stats.setSkill(ESM::Skill::indexToRefId(static_cast<int>(i)), value);
+    }
+
+    stats.setLevel(std::max(1, source.level));
+    stats.setLevelProgress(static_cast<int>(std::max(0.f, source.levelProgress)));
+    stats.setHealth(toMechanicsDynamicStat(source.dynamicStats.health));
+    stats.setMagicka(toMechanicsDynamicStat(source.dynamicStats.magicka));
+    stats.setFatigue(toMechanicsDynamicStat(source.dynamicStats.fatigue));
+
+    mHasPendingAuthoritativeStats = false;
+    capturePersistentStats(player);
+    Log(Debug::Info) << "[MP] PlayerSync: applied authoritative player stats"
+                     << " alchemyBase=" << mLocal.skills[ESM::Skill::refIdToIndex(ESM::Skill::Alchemy)].base
+                     << " alchemyProgress=" << mLocal.skills[ESM::Skill::refIdToIndex(ESM::Skill::Alchemy)].progress
+                     << " level=" << mLocal.level
+                     << " levelProgress=" << mLocal.levelProgress;
 }
 
 void PlayerSync::applyRestoredStatsToPlayer()
@@ -2876,7 +2976,7 @@ void PlayerSync::applyPendingAuthoritativeState(const MWWorld::Ptr& player)
         for (const Item& item : mLocal.inventoryChanges.items)
         {
             if (item.refId.empty() || item.count <= 0 || item.instanceId != 0
-                || !requiresInventoryInstanceId(item))
+                || !requiresStableInventoryInstanceId(item))
                 continue;
             ++missingInstanceIds;
             if (firstMissingInstance == nullptr)

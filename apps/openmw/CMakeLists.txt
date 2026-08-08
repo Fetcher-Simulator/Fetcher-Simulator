@@ -126,6 +126,9 @@ if (BUILD_MULTIPLAYER)
     add_openmw_dir (mwmp/records
         RecordCreationManager ResolvedContentFingerprint
     )
+    add_openmw_dir (mwmp/alchemy
+        AlchemyCreationManager
+    )
     add_openmw_dir (mwmp/gui
         ChatWindow ServerAddressDialog ServerBrowserDialog
         CharacterSelectDialog KeyLinkDialog

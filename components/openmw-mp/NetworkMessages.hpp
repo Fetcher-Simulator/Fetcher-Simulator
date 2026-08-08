@@ -143,6 +143,8 @@ namespace mwmp
         RecordDynamic       = 139,
         RecordCreateRequest = 140,
         RecordCreateResult  = 141,
+        AlchemyRequest      = 142,  // Semantic server-authoritative alchemy request
+        AlchemyResult       = 143,  // Authoritative alchemy result
 
         // --- Lua bridge (7C+) ---
         // IDs 150-199 reserved; exact assignments TBD in Phase 7C/7D.

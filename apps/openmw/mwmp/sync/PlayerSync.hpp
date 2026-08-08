@@ -8,6 +8,7 @@
 #include <osg/Vec3f>
 
 #include <components/openmw-mp/Base/BasePlayer.hpp>
+#include <components/openmw-mp/InventorySync.hpp>
 #include <components/openmw-mp/NetworkMessages.hpp>
 
 namespace MWWorld { class Ptr; }
@@ -52,6 +53,8 @@ namespace mwmp
         void applyServerCellChange(const BasePlayer& authoritative);
         void queueAuthoritativeEquipment(const BasePlayer& authoritative);
         void queueAuthoritativeInventory(const BasePlayer& authoritative);
+        void queueAuthoritativeStats(const BasePlayer& authoritative);
+        void applyAuthoritativeStatsToPlayer();
         void onDynamicRecordsChanged();
         void queueAuthoritativeJournal(const BasePlayer& authoritative);
         void queueRestoredStats(const BasePlayer& restored);
@@ -115,6 +118,8 @@ namespace mwmp
         bool           mPlayerReady = false;
         BasePlayer     mPendingRestoredStats;
         bool           mHasPendingRestoredStats = false;
+        BasePlayer     mPendingAuthoritativeStats;
+        bool           mHasPendingAuthoritativeStats = false;
         int            mLastLoggedPersistentStrength = -1;
         float          mLastLoggedPersistentBlunt = -1.f;
 
@@ -144,6 +149,8 @@ namespace mwmp
 
         std::array<EquipmentItem, BasePlayer::NUM_EQUIPMENT_SLOTS> mLastEquip{};
         std::vector<Item> mLastInventory;
+        InventoryRevisionGate mInventoryRevisionGate;
+        float mInventoryChargeSyncTimer = 0.f;
 
         struct StatsSnapshot
         {

@@ -96,6 +96,8 @@ file(GLOB UNITTEST_SRC_FILES
 
     nif/node.hpp
     nif/testphysics.cpp
+
+    alchemy/alchemymechanics.cpp
 )
 
 if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
@@ -103,11 +105,13 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         openmw-mp/playerjournal.cpp
         openmw-mp/playerjournaldatabase.cpp
         openmw-mp/playerinventory.cpp
+        openmw-mp/inventorysync.cpp
         openmw-mp/playerinventorydatabase.cpp
         openmw-mp/masterserverprotocol.cpp
         openmw-mp/dynamicrecord.cpp
         openmw-mp/dynamicrecorddatabase.cpp
         openmw-mp/dynamicrecordservice.cpp
+        openmw-mp/alchemyprotocol.cpp
         ../openmw-server/PlayerDatabase.cpp
         ../openmw-server/DynamicRecordService.cpp
     )

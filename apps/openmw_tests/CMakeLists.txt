@@ -21,6 +21,7 @@ file(GLOB UNITTEST_SRC_FILES
 
     mwmp/testservercontentregistry.cpp
     mwmp/testserverluarecordparser.cpp
+    mwmp/testalchemyservice.cpp
 )
 
 if (MSVC)
@@ -43,6 +44,9 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
     target_sources(openmw-tests PRIVATE
         ../openmw-server/ServerContentRegistry.cpp
         ../openmw-server/ServerLuaRecordParser.cpp
+        ../openmw-server/PlayerDatabase.cpp
+        ../openmw-server/DynamicRecordService.cpp
+        ../openmw-server/AlchemyService.cpp
     )
 endif()
 

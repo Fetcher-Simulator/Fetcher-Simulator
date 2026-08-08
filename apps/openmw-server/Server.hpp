@@ -68,6 +68,18 @@ struct ConnectedClient
     uint64_t            inventoryRevision = 0;
     uint64_t            runtimeRecordRateWindowStartMs = 0;
     std::size_t         runtimeRecordRequestsInWindow = 0;
+    /// Post-award alchemy skill state while a server-authoritative skill
+    /// progression push is still waiting for the client to catch up. Incoming
+    /// client stats below these values are stale and get rejected instead of
+    /// clobbering the award.
+    struct AlchemySkillSyncGuard
+    {
+        float skillBase = 0.f;
+        float skillProgress = 0.f;
+        int level = 0;
+        float levelProgress = 0.f;
+    };
+    std::optional<AlchemySkillSyncGuard> alchemySkillSyncGuard;
     bool                acceptedPlayerEquipmentThisSession = false;
     uint64_t            playerInventoryRestoreGuardUntilMs = 0;
     uint64_t            playerEquipmentRestoreGuardUntilMs = 0;
@@ -295,6 +307,7 @@ private:
     void handlePlayerCast       (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerInventory  (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data, size_t size);
+    void handleAlchemyRequest   (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerJournal    (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerStatsDynamic(ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerDeath      (ConnectedClient& c, const uint8_t* data, size_t size);

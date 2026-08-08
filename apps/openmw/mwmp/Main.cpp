@@ -1,6 +1,7 @@
 #include "Main.hpp"
 #include "Identity.hpp"
 #include "MpNetworkBridge.hpp"
+#include "alchemy/AlchemyCreationManager.hpp"
 #include "records/RecordCreationManager.hpp"
 #include "records/ResolvedContentFingerprint.hpp"
 #include "sha256.hpp"
@@ -31,6 +32,7 @@
 #include <components/openmw-mp/Packets/System/PacketHandshake.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketRecordDynamic.hpp>
 #include <components/openmw-mp/Packets/Records/PacketRecordCreateResult.hpp>
+#include <components/openmw-mp/Packets/Records/PacketAlchemyResult.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketWorldTime.hpp>
 #include <components/openmw-mp/Packets/Object/PacketDoorState.hpp>
 #include <components/openmw-mp/Packets/Object/PacketObjectPlace.hpp>
@@ -252,6 +254,7 @@ Main::Main()
     mWorldObjectSync = std::make_unique<WorldObjectSync>(*mClient);
     mWorldStateSync= std::make_unique<WorldStateSync>(*mClient);
     mRecordCreationManager = std::make_unique<RecordCreationManager>(*mClient);
+    mAlchemyCreationManager = std::make_unique<AlchemyCreationManager>(*mClient, *mRecordCreationManager);
     mWorldStateSync->setDynamicRecordChangeCallback(
         [this] {
             mRecordCreationManager->notifyRecordStoreChanged();
@@ -311,6 +314,7 @@ void Main::frame(float dt)
     mWorldObjectSync->update(dt);
     mWorldStateSync->update(dt);
     mRecordCreationManager->update();
+    mAlchemyCreationManager->update();
     const auto worldSyncFinished = std::chrono::steady_clock::now();
 
     mChatWindow->update(dt);
@@ -595,6 +599,8 @@ void Main::onDisconnected()
     Log(Debug::Warning) << "[MP] Disconnected from server";
     if (mRecordCreationManager)
         mRecordCreationManager->cancelAll();
+    if (mAlchemyCreationManager)
+        mAlchemyCreationManager->cancelAll();
     // If we were already in-world, request a main-menu return on the next frame.
     // Do NOT touch engine state here - this fires inside mClient->update() and
     // must remain engine-API-free to stay thread-safe.
@@ -1230,7 +1236,14 @@ void Main::registerProtocolHandlers()
             PacketPlayerStatsDynamic pkt;
             pkt.setPlayer(&tmp);
             if (!pkt.decode(data, size)) return;
-            if (tmp.guid == mPlayerSync->localPlayer().guid) return;
+            if (tmp.guid == mPlayerSync->localPlayer().guid)
+            {
+                // The server pushed authoritative statistics (for example the
+                // alchemy skill progression awarded by server-authoritative
+                // crafting). Apply them to the local player.
+                mPlayerSync->queueAuthoritativeStats(tmp);
+                return;
+            }
 
             auto* rp = mPlayerList->getPlayer(tmp.guid);
             if (rp) rp->onStatsDynamicUpdate(tmp);
@@ -1322,6 +1335,15 @@ void Main::registerProtocolHandlers()
             if (!packet.decode(data, size))
                 return;
             mRecordCreationManager->onResult(std::move(packet.result));
+        });
+
+    proto.registerHandler(PacketType::AlchemyResult,
+        [this](const uint8_t* data, size_t size)
+        {
+            PacketAlchemyResult packet;
+            if (!packet.decode(data, size))
+                return;
+            mAlchemyCreationManager->onResult(std::move(packet.result));
         });
 
     // --- Persisted / relayed world objects ---

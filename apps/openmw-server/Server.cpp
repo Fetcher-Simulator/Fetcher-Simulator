@@ -1,4 +1,5 @@
 #include "Server.hpp"
+#include "AlchemyService.hpp"
 #include "DynamicRecordService.hpp"
 #include "MasterServerClient.hpp"
 #include "ServerLuaRecordParser.hpp"
@@ -67,6 +68,9 @@
 #include <components/openmw-mp/Packets/Worldstate/PacketRecordDynamic.hpp>
 #include <components/openmw-mp/Packets/Records/PacketRecordCreateRequest.hpp>
 #include <components/openmw-mp/Packets/Records/PacketRecordCreateResult.hpp>
+#include <components/openmw-mp/Packets/Records/PacketAlchemyRequest.hpp>
+#include <components/openmw-mp/Packets/Records/PacketAlchemyResult.hpp>
+#include <components/openmw-mp/Records/AlchemyProtocol.hpp>
 #include <components/openmw-mp/Records/DynamicRecordCodec.hpp>
 #include <components/openmw-mp/Records/DynamicRecordFingerprint.hpp>
 #include <components/openmw-mp/Records/DynamicRecordValidation.hpp>
@@ -212,6 +216,64 @@ namespace
             }
         }
 
+        return mismatches;
+    }
+
+    std::vector<mwmp::PacketHandshakeResponse::PluginMismatch> validateExactOrderedManifestAllowingDuplicates(
+        const std::vector<mwmp::PacketHandshake::PluginEntry>& clientFiles,
+        const std::vector<mwmp::ContentFileRule>& requiredFiles)
+    {
+        using Mismatch = mwmp::PacketHandshakeResponse::PluginMismatch;
+        std::vector<Mismatch> mismatches;
+        const std::size_t shared = std::min(clientFiles.size(), requiredFiles.size());
+        for (std::size_t i = 0; i < shared; ++i)
+        {
+            const auto& client = clientFiles[i];
+            const auto& required = requiredFiles[i];
+            const std::string requiredName = lowerAscii(required.filename);
+            const std::string clientName = lowerAscii(client.filename);
+
+            if (requiredName.empty())
+            {
+                mismatches.push_back({ required.filename, required.sha256, client.sha256,
+                    "server manifest has an empty filename" });
+                continue;
+            }
+            if (!isSha256(required.sha256))
+            {
+                mismatches.push_back({ required.filename, required.sha256, client.sha256,
+                    "server manifest has an invalid SHA-256" });
+                continue;
+            }
+            if (clientName.empty())
+            {
+                mismatches.push_back({ required.filename, lowerAscii(required.sha256), client.sha256,
+                    "client manifest has an empty filename" });
+                continue;
+            }
+            if (clientName != requiredName)
+            {
+                mismatches.push_back({ required.filename, lowerAscii(required.sha256), client.sha256,
+                    "required file is missing or out of order (client has " + client.filename + ")" });
+                continue;
+            }
+            if (!isSha256(client.sha256))
+            {
+                mismatches.push_back({ required.filename, lowerAscii(required.sha256), client.sha256,
+                    "client could not provide a valid SHA-256" });
+            }
+            else if (lowerAscii(client.sha256) != lowerAscii(required.sha256))
+            {
+                mismatches.push_back({ required.filename, lowerAscii(required.sha256), lowerAscii(client.sha256),
+                    "SHA-256 mismatch" });
+            }
+        }
+
+        for (std::size_t i = shared; i < requiredFiles.size(); ++i)
+            mismatches.push_back({ requiredFiles[i].filename, lowerAscii(requiredFiles[i].sha256), {},
+                "required file is missing" });
+        for (std::size_t i = shared; i < clientFiles.size(); ++i)
+            mismatches.push_back({ clientFiles[i].filename, {}, clientFiles[i].sha256, "unexpected file" });
         return mismatches;
     }
 
@@ -3849,6 +3911,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::PlayerCast:       handlePlayerCast(client, data, size);         break;
         case PacketType::PlayerInventory:  handlePlayerInventory(client, data, size);    break;
         case PacketType::RecordCreateRequest: handleRecordCreateRequest(client, data, size); break;
+        case PacketType::AlchemyRequest:   handleAlchemyRequest(client, data, size);     break;
         case PacketType::PlayerJournal:    handlePlayerJournal(client, data, size);      break;
         case PacketType::PlayerStatsDynamic: handlePlayerStatsDynamic(client, data, size); break;
         case PacketType::PlayerDeath:      handlePlayerDeath(client, data, size);        break;
@@ -4822,7 +4885,7 @@ void MPServer::handleHandshake(ConnectedClient& c, const uint8_t* data, size_t s
         authoritativeLua.reserve(mContentRegistry->luaScripts().size());
         for (const ServerContentRegistry::ManifestEntry& entry : mContentRegistry->luaScripts())
             authoritativeLua.push_back({ entry.filename, entry.sha256 });
-        auto luaMismatches = validateContentFiles(hs.luaScripts, authoritativeLua, true, true);
+        auto luaMismatches = validateExactOrderedManifestAllowingDuplicates(hs.luaScripts, authoritativeLua);
         if (!luaMismatches.empty())
         {
             PacketHandshakeResponse rsp;
@@ -6459,6 +6522,282 @@ void MPServer::handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data
 }
 
 // ---------------------------------------------------------------------------
+namespace
+{
+    std::string joinInstanceIds(const std::vector<std::uint32_t>& ids)
+    {
+        std::string joined;
+        for (const std::uint32_t id : ids)
+        {
+            if (!joined.empty())
+                joined.push_back(',');
+            joined += std::to_string(id);
+        }
+        return joined;
+    }
+
+    void logAlchemyResult(const mwmp::ConnectedClient& c, const mwmp::records::AlchemyRequest& request,
+        const mwmp::AlchemyService::Outcome& outcome)
+    {
+        std::size_t successes = 0;
+        std::string firstPotionId;
+        bool firstReused = false;
+        for (const mwmp::records::AlchemyAttemptResult& attempt : outcome.result.attempts)
+        {
+            if (!attempt.success)
+                continue;
+            ++successes;
+            if (firstPotionId.empty())
+            {
+                firstPotionId = attempt.recordId;
+                firstReused = attempt.reused;
+            }
+        }
+        Log(outcome.result.accepted ? Debug::Info : Debug::Warning)
+            << "[Alchemy] " << (outcome.result.accepted ? "accepted" : "rejected")
+            << " player=" << c.slotName
+            << " requestId=" << outcome.result.requestId
+            << " expectedRevision=" << request.inventoryRevision
+            << " ingredients=[" << joinInstanceIds(request.ingredientInstanceIds) << "]"
+            << " apparatus=[" << joinInstanceIds(request.apparatusInstanceIds) << "]"
+            << " attempts=" << outcome.result.attempts.size()
+            << " successes=" << successes
+            << " potionId=" << (firstPotionId.empty() ? "-" : firstPotionId)
+            << " reused=" << (firstReused ? "true" : "false")
+            << " newRecords=" << outcome.newRecords.size()
+            << " resultingRevision=" << outcome.result.inventoryRevision
+            << " replayed=" << (outcome.replayed ? "true" : "false")
+            << " error=" << mwmp::records::getAlchemyErrorCode(outcome.result.error);
+    }
+}
+
+// ---------------------------------------------------------------------------
+void MPServer::handleAlchemyRequest(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    PacketAlchemyRequest packet;
+    if (!packet.decode(data, size))
+    {
+        PacketAlchemyResult errorPacket;
+        errorPacket.result
+            = AlchemyService::makeError({}, records::AlchemyError::InvalidRequest, c.inventoryRevision);
+        sendTo(c.conn, errorPacket.encode());
+        return;
+    }
+
+    if (!mPlayerDb || c.dbAccountId <= 0 || c.dbCharacterId <= 0)
+    {
+        PacketAlchemyResult errorPacket;
+        errorPacket.result = AlchemyService::makeError(
+            packet.request.requestId, records::AlchemyError::ServerError, c.inventoryRevision);
+        sendTo(c.conn, errorPacket.encode());
+        return;
+    }
+
+    // Hash the decoded application payload with a neutral packet sequence. A
+    // transport retry may legitimately use another packet sequence while still
+    // representing the same idempotent request.
+    const std::vector<uint8_t> canonicalRequest = packet.encode();
+    const std::string requestHash = crypto::sha256hex(std::string_view(
+        reinterpret_cast<const char*>(canonicalRequest.data()), canonicalRequest.size()));
+
+    AlchemyService::Context context;
+    context.accountId = c.dbAccountId;
+    context.characterId = c.dbCharacterId;
+    context.inventoryRevision = c.inventoryRevision;
+    context.player = &c.player;
+    context.inventory = &c.player.inventoryChanges.items;
+    context.store = &mContentRegistry->store();
+    context.creationSource = "alchemy";
+    context.recordScope = "generated";
+    context.persistent = true;
+    context.validationVersion = 1;
+
+    bool isReplay = false;
+    try
+    {
+        isReplay = mPlayerDb->loadCraftRequest(
+            c.dbAccountId, c.dbCharacterId, packet.request.requestId).has_value();
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[Server] Alchemy journal lookup failed: " << e.what();
+        PacketAlchemyResult errorPacket;
+        errorPacket.result = AlchemyService::makeError(
+            packet.request.requestId, records::AlchemyError::ServerError, c.inventoryRevision);
+        sendTo(c.conn, errorPacket.encode());
+        return;
+    }
+    if (!isReplay)
+    {
+        const uint64_t now = currentServerTimeMs();
+        if (c.runtimeRecordRateWindowStartMs == 0 || now - c.runtimeRecordRateWindowStartMs >= 60000)
+        {
+            c.runtimeRecordRateWindowStartMs = now;
+            c.runtimeRecordRequestsInWindow = 0;
+        }
+        if (mRuntimeRecordRequestsPerMinute == 0
+            || c.runtimeRecordRequestsInWindow >= mRuntimeRecordRequestsPerMinute)
+            context.admissionError = records::CreateError::RateLimited;
+        else
+            ++c.runtimeRecordRequestsInWindow;
+    }
+
+    try
+    {
+        const std::vector<DynamicRecordCatalogEntry> catalog = mPlayerDb->loadDynamicRecordCatalog();
+        const std::size_t owned = static_cast<std::size_t>(std::count_if(catalog.begin(), catalog.end(),
+            [&](const DynamicRecordCatalogEntry& entry) {
+                return entry.creatorCharacterId == c.dbCharacterId;
+            }));
+        context.maximumNewRecords = owned >= mRuntimeRecordMaxPerCharacter
+            ? 0
+            : mRuntimeRecordMaxPerCharacter - owned;
+        context.isAssetAllowed = [&](std::string_view asset) {
+            return mContentRegistry->hasAsset(normalizeRuntimeAsset(asset));
+        };
+        context.isModelAllowed = [&](std::string_view asset) {
+            return mContentRegistry->hasModel(normalizeRuntimeAsset(asset));
+        };
+        context.isIconAllowed = [&](std::string_view asset) {
+            return mContentRegistry->hasIcon(normalizeRuntimeAsset(asset));
+        };
+        context.isContentIdAllowed = [&](std::string_view id) {
+            const std::string normalized = lowerAscii(id);
+            if (mContentRegistry->hasContentId(normalized))
+                return true;
+            if (!normalized.starts_with(lowerAscii(mGeneratedRecordIdPrefix) + "_"))
+                return false;
+            return std::any_of(catalog.begin(), catalog.end(), [&](const DynamicRecordCatalogEntry& entry) {
+                return lowerAscii(entry.recordId) == normalized;
+            });
+        };
+        context.findEquivalent = [&](records::RecordType type, std::string_view fingerprint)
+            -> std::optional<DynamicRecordService::CatalogRecord> {
+            const std::string typeName(records::getRecordTypeName(type));
+            for (const DynamicRecordCatalogEntry& catalogEntry : catalog)
+            {
+                if (catalogEntry.recordType != typeName
+                    || catalogEntry.definitionFingerprint != fingerprint)
+                    continue;
+                auto stored = mWorld.dynamicRecords.find(
+                    makeDynamicRecordKey(typeName, catalogEntry.recordId));
+                if (stored == mWorld.dynamicRecords.end())
+                    continue;
+                return DynamicRecordService::CatalogRecord{ typeName, catalogEntry.recordId,
+                    catalogEntry.definitionFingerprint, stored->second.data };
+            }
+            return std::nullopt;
+        };
+        context.allocateId = [&](records::RecordType type) {
+            return mLua.generateDynamicRecordId(std::string(records::getRecordTypeName(type)));
+        };
+        context.nextCommitSequence = [&]() { return mWorld.nextDynamicRecordSequence++; };
+        context.listDynamicPotions = [&]() {
+            std::vector<std::pair<std::string, std::string>> potions;
+            for (const auto& [key, record] : mWorld.dynamicRecords)
+            {
+                if (record.recordType != "potion")
+                    continue;
+                potions.emplace_back(record.recordId, record.data);
+            }
+            return potions;
+        };
+        context.reconcileInventory = [&](std::vector<Item>& items) {
+            reconcileInventoryInstanceIds(c, items);
+        };
+
+        AlchemyService service(*mPlayerDb);
+        AlchemyService::Outcome outcome = service.execute(packet.request, requestHash, context);
+
+        if (outcome.committed)
+        {
+            // Install the authoritative gameplay state on the client mirror.
+            c.player.inventoryChanges.action = BasePlayer::InventoryChanges::Action::Set;
+            c.player.inventoryChanges.items = std::move(outcome.resultingInventory);
+            c.player.inventoryChanges.revision = outcome.resultingInventoryRevision;
+            c.inventoryRevision = outcome.resultingInventoryRevision;
+            c.acceptedPlayerInventoryThisSession = true;
+            c.restoredInventorySnapshot = c.player.inventoryChanges.items;
+            c.hasRestoredInventorySnapshot = true;
+
+            if (outcome.resultingStats)
+            {
+                c.player = *outcome.resultingStats;
+                c.restoredStatsSnapshot = c.player;
+                c.hasRestoredStatsSnapshot = true;
+                c.acceptedPlayerStatsThisSession = true;
+                const int alchemyIndex = ESM::Skill::refIdToIndex(ESM::Skill::Alchemy);
+                c.alchemySkillSyncGuard = ConnectedClient::AlchemySkillSyncGuard{
+                    c.player.skills[alchemyIndex].base,
+                    c.player.skills[alchemyIndex].progress,
+                    c.player.level,
+                    c.player.levelProgress };
+            }
+
+            for (const DynamicRecordService::CommittedRecord& created : outcome.newRecords)
+            {
+                WorldState::StoredDynamicRecord stored;
+                stored.recordType = created.recordType;
+                stored.recordId = created.recordId;
+                stored.data = created.definition;
+                stored.recordScope = "generated";
+                stored.persistent = true;
+                stored.sequence = outcome.result.commitSequence;
+                mWorld.dynamicRecords[makeDynamicRecordKey(stored.recordType, stored.recordId)] = std::move(stored);
+
+                PacketRecordDynamic definitionPacket;
+                definitionPacket.action = DynamicRecordAction::Upsert;
+                definitionPacket.recordType = created.recordType;
+                definitionPacket.entries.push_back({ created.recordId, created.definition });
+                broadcastToAll(definitionPacket.encode());
+            }
+
+            sendAuthoritativeInventory(c);
+            if (outcome.resultingStats)
+            {
+                PacketPlayerStatsDynamic statsPacket;
+                statsPacket.setPlayer(&c.player);
+                const std::vector<uint8_t> encoded = statsPacket.encode();
+                sendTo(c.conn, encoded);
+                broadcastToAll(encoded, c.conn);
+            }
+            syncLuaPlayerSnapshot();
+        }
+
+        // Re-send every referenced definition to the requester before
+        // publishing the result so replay and deduplication are safe even
+        // if the local store missed an earlier broadcast; the client still
+        // enforces a local visibility barrier. This also covers replayed
+        // results after a reconnect.
+        for (const records::AlchemyAttemptResult& attempt : outcome.result.attempts)
+        {
+            if (!attempt.success || attempt.recordId.empty())
+                continue;
+            const auto stored = mWorld.dynamicRecords.find(makeDynamicRecordKey("potion", attempt.recordId));
+            if (stored == mWorld.dynamicRecords.end())
+                continue;
+            PacketRecordDynamic definitionPacket;
+            definitionPacket.action = DynamicRecordAction::Upsert;
+            definitionPacket.recordType = "potion";
+            definitionPacket.entries.push_back({ stored->second.recordId, stored->second.data });
+            sendTo(c.conn, definitionPacket.encode());
+        }
+
+        sendTo(c.conn, outcome.encodedResult);
+        logAlchemyResult(c, packet.request, outcome);
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[Server] Alchemy internal error player=" << c.slotName
+                          << " requestId=" << packet.request.requestId << " error=" << e.what();
+        PacketAlchemyResult errorPacket;
+        errorPacket.result = AlchemyService::makeError(
+            packet.request.requestId, records::AlchemyError::ServerError, c.inventoryRevision);
+        sendTo(c.conn, errorPacket.encode());
+    }
+}
+
+// ---------------------------------------------------------------------------
 void MPServer::handlePlayerJournal(ConnectedClient& c, const uint8_t* data, size_t size)
 {
     BasePlayer incoming;
@@ -6561,6 +6900,38 @@ void MPServer::handlePlayerStatsDynamic(ConnectedClient& c, const uint8_t* data,
         correctionPkt.setPlayer(&correction);
         sendTo(c.conn, correctionPkt.encode());
         return;
+    }
+
+    // Protect a server-authoritative alchemy skill award from being clobbered
+    // by a stale client snapshot that was captured before the client applied
+    // the pushed authoritative statistics.
+    if (c.alchemySkillSyncGuard)
+    {
+        const int alchemyIndex = ESM::Skill::refIdToIndex(ESM::Skill::Alchemy);
+        const Skill& incomingAlchemy = incoming.skills[alchemyIndex];
+        const auto& guard = *c.alchemySkillSyncGuard;
+        const bool caughtUp = incomingAlchemy.base >= guard.skillBase - 0.01f
+            && incoming.level >= guard.level
+            && (incomingAlchemy.base > guard.skillBase + 0.01f || incoming.level > guard.level
+                || incomingAlchemy.progress >= guard.skillProgress - 0.001f)
+            && incoming.levelProgress >= guard.levelProgress - 0.001f;
+        if (!caughtUp)
+        {
+            Log(Debug::Info) << "[Alchemy] rejected stale player stats overwrite"
+                             << " charId=" << c.dbCharacterId
+                             << " name=" << c.slotName
+                             << " incomingAlchemyBase=" << incomingAlchemy.base
+                             << " incomingAlchemyProgress=" << incomingAlchemy.progress
+                             << " incomingLevel=" << incoming.level
+                             << " guardAlchemyBase=" << guard.skillBase
+                             << " guardAlchemyProgress=" << guard.skillProgress
+                             << " guardLevel=" << guard.level;
+            PacketPlayerStatsDynamic correctionPkt;
+            correctionPkt.setPlayer(&c.player);
+            sendTo(c.conn, correctionPkt.encode());
+            return;
+        }
+        c.alchemySkillSyncGuard.reset();
     }
 
     const bool hadPreviousStats = c.hasRestoredStatsSnapshot;

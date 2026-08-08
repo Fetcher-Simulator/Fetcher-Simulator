@@ -29,6 +29,7 @@ namespace mwmp
     class ChatWindow;
     class MpNetworkBridge;
     class RecordCreationManager;
+    class AlchemyCreationManager;
 
     // -----------------------------------------------------------------------
     // Main — singleton that owns every multiplayer subsystem.
@@ -73,6 +74,7 @@ namespace mwmp
         ChatWindow& getChatWindow() { return *mChatWindow; }
         MpNetworkBridge& getNetworkBridge() { return *mNetworkBridge; }
         RecordCreationManager& getRecordCreationManager() { return *mRecordCreationManager; }
+        AlchemyCreationManager& getAlchemyCreationManager() { return *mAlchemyCreationManager; }
         bool hasChatWindow() const { return mChatWindow != nullptr; }
         GuardArrestMode getGuardArrestMode() const { return mGuardArrestMode; }
 
@@ -158,6 +160,7 @@ namespace mwmp
         std::unique_ptr<ChatWindow> mChatWindow;
         std::unique_ptr<MpNetworkBridge> mNetworkBridge;
         std::unique_ptr<RecordCreationManager> mRecordCreationManager;
+        std::unique_ptr<AlchemyCreationManager> mAlchemyCreationManager;
 
         std::string mPlayerName;
         bool        mWorldReady           = false;

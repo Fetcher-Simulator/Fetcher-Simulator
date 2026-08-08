@@ -9,9 +9,11 @@
 #include <vector>
 
 #include <components/esm3/loadappa.hpp>
+#include <components/esm3/loadclas.hpp>
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadingr.hpp>
 #include <components/esm3/loadmgef.hpp>
+#include <components/esm3/loadskil.hpp>
 #include <components/openmw-mp/Records/DynamicRecordCodec.hpp>
 #include <components/openmw-mp/Records/DynamicRecordValidation.hpp>
 #include <components/openmw-mp/Records/EsmDynamicRecordConversion.hpp>
@@ -33,6 +35,8 @@ namespace
         Apparatus = 0x41,
         MagicEffect = 0x42,
         GameSetting = 0x43,
+        Skill = 0x44,
+        Class = 0x45,
     };
 
     struct Entry
@@ -187,6 +191,33 @@ namespace
         }
     }
 
+    void appendSkill(const ESM::Skill& record, std::string& out)
+    {
+        appendU32(out, record.mRecordFlags);
+        appendI32(out, record.mData.mAttribute);
+        appendI32(out, record.mData.mSpecialization);
+        for (float useValue : record.mData.mUseValue)
+            appendFloat(out, useValue);
+        appendString(out, record.mDescription);
+        appendString(out, record.mName);
+        appendString(out, record.mIcon);
+    }
+
+    void appendClass(const ESM::Class& record, std::string& out)
+    {
+        appendU32(out, record.mRecordFlags);
+        appendString(out, record.mName);
+        appendString(out, record.mDescription);
+        for (int32_t attribute : record.mData.mAttribute)
+            appendI32(out, attribute);
+        appendI32(out, record.mData.mSpecialization);
+        for (const auto& skillPair : record.mData.mSkills)
+            for (int32_t skill : skillPair)
+                appendI32(out, skill);
+        appendI32(out, record.mData.mIsPlayable);
+        appendI32(out, record.mData.mServices);
+    }
+
     void updateU32(mwmp::crypto::Sha256& hash, std::uint32_t value)
     {
         const std::array<std::uint8_t, 4> bytes = { static_cast<std::uint8_t>(value),
@@ -218,13 +249,18 @@ std::string MWMP::resolvedContentFingerprint(const MWWorld::ESMStore& store)
     appendMechanicsRecords<ESM::Apparatus>(store, ResolvedRecordType::Apparatus, entries, appendApparatus);
     appendMechanicsRecords<ESM::MagicEffect>(store, ResolvedRecordType::MagicEffect, entries, appendMagicEffect);
     appendMechanicsRecords<ESM::GameSetting>(store, ResolvedRecordType::GameSetting, entries, appendGameSetting);
+    // Alchemy skill progression consumes the Alchemy skill record's use values
+    // and the character class's major/minor skills and specialization, so both
+    // participate in the authoritative crafting identity.
+    appendMechanicsRecords<ESM::Skill>(store, ResolvedRecordType::Skill, entries, appendSkill);
+    appendMechanicsRecords<ESM::Class>(store, ResolvedRecordType::Class, entries, appendClass);
 
     std::sort(entries.begin(), entries.end(), [](const Entry& left, const Entry& right) {
         return std::tie(left.type, left.id) < std::tie(right.type, right.id);
     });
 
     mwmp::crypto::Sha256 hash;
-    static constexpr std::array<std::uint8_t, 8> header = { 'O', 'M', 'R', 'C', 2, 0, 0, 0 };
+    static constexpr std::array<std::uint8_t, 8> header = { 'O', 'M', 'R', 'C', 3, 0, 0, 0 };
     hash.update(header.data(), header.size());
     updateU32(hash, static_cast<std::uint32_t>(entries.size()));
     for (const Entry& entry : entries)
