@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   Windows:
-    if: ${{ github.ref == 'refs/heads/experimental/vehicles-rigidbody' }}
+    if: ${{ github.ref == 'refs/heads/experimental/public-test' }}
     uses: ./.github/workflows/windows.yml
     with:
       image: "2022"
