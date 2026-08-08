@@ -12,7 +12,9 @@ namespace mwmp
     // GameSetting to the canonical resolved-content identity.
     // ContentManifestVersion 3 adds Skill and Class, which feed the
     // server-authoritative alchemy skill progression.
-    inline constexpr std::uint16_t ContentManifestVersion = 3;
+    // ContentManifestVersion 4 adds Creature and NPC, which feed the
+    // server-authoritative enchanting charge and paid-enchanter pricing.
+    inline constexpr std::uint16_t ContentManifestVersion = 4;
     inline constexpr std::uint16_t ContentApiVersion = 1;
     inline constexpr std::uint16_t RuntimeRecordCapabilityManifestVersion = 1;
 }

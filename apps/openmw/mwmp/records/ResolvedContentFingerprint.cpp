@@ -6,13 +6,16 @@
 #include <cstdint>
 #include <string>
 #include <tuple>
+#include <type_traits>
 #include <vector>
 
 #include <components/esm3/loadappa.hpp>
 #include <components/esm3/loadclas.hpp>
+#include <components/esm3/loadcrea.hpp>
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadingr.hpp>
 #include <components/esm3/loadmgef.hpp>
+#include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadskil.hpp>
 #include <components/openmw-mp/Records/DynamicRecordCodec.hpp>
 #include <components/openmw-mp/Records/DynamicRecordValidation.hpp>
@@ -37,6 +40,8 @@ namespace
         GameSetting = 0x43,
         Skill = 0x44,
         Class = 0x45,
+        Creature = 0x46,
+        NPC = 0x47,
     };
 
     struct Entry
@@ -102,6 +107,17 @@ namespace
     {
         for (const T& record : store.get<T>())
         {
+            // The normal client promotes the special Player NPC to the dynamic
+            // store during World::loadData(), while the headless authoritative
+            // content registry intentionally skips gameplay-state initialization.
+            // Player is mutable runtime character state and cannot be a paid
+            // enchanting service provider, so it must not participate in the
+            // resolved static NPC content identity.
+            if constexpr (std::is_same_v<T, ESM::NPC>)
+            {
+                if (record.mId == ESM::RefId::stringRefId("Player"))
+                    continue;
+            }
             if (store.get<T>().isDynamic(record.mId))
                 continue;
             Entry entry;
@@ -218,6 +234,47 @@ namespace
         appendI32(out, record.mData.mServices);
     }
 
+    void appendCreature(const ESM::Creature& record, std::string& out)
+    {
+        appendU32(out, record.mRecordFlags);
+        appendI32(out, record.mData.mType);
+        appendI32(out, record.mData.mLevel);
+        appendI32(out, record.mData.mSoul);
+        appendI32(out, record.mData.mHealth);
+        appendI32(out, record.mData.mMana);
+        appendI32(out, record.mData.mFatigue);
+        appendI32(out, record.mData.mCombat);
+        appendI32(out, record.mData.mMagic);
+        appendI32(out, record.mData.mStealth);
+        appendI32(out, record.mAiData.mServices);
+        appendString(out, record.mName);
+        appendPath(out, record.mModel);
+    }
+
+    void appendNpc(const ESM::NPC& record, std::string& out)
+    {
+        appendU32(out, record.mRecordFlags);
+        appendU32(out, record.mNpdtType);
+        appendI32(out, record.mNpdt.mLevel);
+        for (unsigned char attribute : record.mNpdt.mAttributes)
+            appendI32(out, attribute);
+        for (unsigned char skill : record.mNpdt.mSkills)
+            appendI32(out, skill);
+        appendI32(out, record.mNpdt.mHealth);
+        appendI32(out, record.mNpdt.mMana);
+        appendI32(out, record.mNpdt.mFatigue);
+        appendI32(out, record.mNpdt.mDisposition);
+        appendI32(out, record.mNpdt.mReputation);
+        appendI32(out, record.mNpdt.mRank);
+        appendI32(out, record.mNpdt.mGold);
+        appendRefId(out, record.mRace);
+        appendRefId(out, record.mClass);
+        appendRefId(out, record.mFaction);
+        appendI32(out, record.mAiData.mServices);
+        appendU32(out, record.mFlags);
+        appendString(out, record.mName);
+    }
+
     void updateU32(mwmp::crypto::Sha256& hash, std::uint32_t value)
     {
         const std::array<std::uint8_t, 4> bytes = { static_cast<std::uint8_t>(value),
@@ -254,13 +311,19 @@ std::string MWMP::resolvedContentFingerprint(const MWWorld::ESMStore& store)
     // participate in the authoritative crafting identity.
     appendMechanicsRecords<ESM::Skill>(store, ResolvedRecordType::Skill, entries, appendSkill);
     appendMechanicsRecords<ESM::Class>(store, ResolvedRecordType::Class, entries, appendClass);
+    // Enchanting consumes the creature soul value of the soul trapped in a
+    // gem (charge/cost/count/chance), the enchanter's NPC record statistics
+    // (paid services), and the NPC/creature service bits, so those records
+    // participate in the authoritative crafting identity too.
+    appendMechanicsRecords<ESM::Creature>(store, ResolvedRecordType::Creature, entries, appendCreature);
+    appendMechanicsRecords<ESM::NPC>(store, ResolvedRecordType::NPC, entries, appendNpc);
 
     std::sort(entries.begin(), entries.end(), [](const Entry& left, const Entry& right) {
         return std::tie(left.type, left.id) < std::tie(right.type, right.id);
     });
 
     mwmp::crypto::Sha256 hash;
-    static constexpr std::array<std::uint8_t, 8> header = { 'O', 'M', 'R', 'C', 3, 0, 0, 0 };
+    static constexpr std::array<std::uint8_t, 8> header = { 'O', 'M', 'R', 'C', 4, 0, 0, 0 };
     hash.update(header.data(), header.size());
     updateU32(hash, static_cast<std::uint32_t>(entries.size()));
     for (const Entry& entry : entries)

@@ -9,6 +9,18 @@
 
 #include "../mwworld/ptr.hpp"
 
+namespace Crafting
+{
+    struct EnchantingMechanicsInput;
+}
+
+#ifdef BUILD_MULTIPLAYER
+namespace mwmp::records
+{
+    struct EnchantingRequest;
+}
+#endif
+
 namespace MWMechanics
 {
     class Enchanting
@@ -30,10 +42,12 @@ namespace MWMechanics
         const ESM::Enchantment* getRecord(const ESM::Enchantment& newEnchantment) const;
         int getBaseCastCost() const; // To be saved in the enchantment's record
         int getEnchantItemsCount() const;
-        float getTypeMultiplier() const;
         void payForEnchantment(int count) const;
         int getEnchantPrice(int count) const;
-        std::vector<float> getEffectCosts() const;
+
+        /// Resolves the current selections into the shared enchanting
+        /// calculation inputs (statistics, content lookups, GMSTs).
+        Crafting::EnchantingMechanicsInput makeMechanicsInput() const;
 
     public:
         Enchanting();
@@ -58,6 +72,16 @@ namespace MWMechanics
         int getEnchantChance() const;
         bool soulEmpty() const; // Return true if empty
         bool itemEmpty() const; // Return true if empty
+
+#ifdef BUILD_MULTIPLAYER
+        /// Captures the current selections as a semantic multiplayer
+        /// enchanting request. Only player choices are captured: the selected
+        /// inventory instances, cast style, item name, and effect list. No
+        /// calculation, record, or mutation is performed locally.
+        /// \return false and sets \a error when a selection cannot be
+        /// referenced by a stable inventory instance yet.
+        bool captureMultiplayerRequest(mwmp::records::EnchantingRequest& request, std::string& error) const;
+#endif
     };
 }
 #endif

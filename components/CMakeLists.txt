@@ -309,6 +309,10 @@ add_component_dir (alchemy
     AlchemyMechanics
     )
 
+add_component_dir (enchanting
+    EnchantingMechanics
+    )
+
 add_component_dir (stereo
     frustum multiview stereomanager types
     )
@@ -537,7 +541,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         BasePacket Serialization
     )
     add_component_dir (openmw-mp/Records
-        DynamicRecordCodec DynamicRecordFingerprint DynamicRecordValidation EsmDynamicRecordConversion RecordCreateProtocol AlchemyProtocol
+        DynamicRecordCodec DynamicRecordFingerprint DynamicRecordValidation EsmDynamicRecordConversion RecordCreateProtocol AlchemyProtocol EnchantingProtocol
     )
 endif()
 

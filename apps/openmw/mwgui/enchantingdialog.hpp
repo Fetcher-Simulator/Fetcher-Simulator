@@ -3,6 +3,10 @@
 
 #include <memory>
 
+#ifdef BUILD_MULTIPLAYER
+#include <components/openmw-mp/Records/EnchantingProtocol.hpp>
+#endif
+
 #include "itemselection.hpp"
 #include "spellcreationdialog.hpp"
 
@@ -52,6 +56,14 @@ namespace MWGui
         void onTypeButtonClicked(MyGUI::Widget* sender);
         void onAccept(MyGUI::EditBox* sender);
 
+#ifdef BUILD_MULTIPLAYER
+        /// Sends the current selections as a semantic server-authoritative
+        /// enchanting request; the completion is held until the returned
+        /// records and inventory revision are visible locally.
+        void startMultiplayerEnchant();
+        void onMultiplayerEnchantResult(const mwmp::records::EnchantingResult& result);
+#endif
+
         std::unique_ptr<ItemSelectionDialog> mItemSelectionDialog;
 
         MyGUI::Widget* mChanceLayout;
@@ -73,6 +85,12 @@ namespace MWGui
 
         MWMechanics::Enchanting mEnchanting;
         ESM::EffectList mEffectList;
+
+#ifdef BUILD_MULTIPLAYER
+        /// Bumped whenever the dialog opens for a new target; stale completion
+        /// callbacks from an earlier session are ignored.
+        std::uint64_t mSessionToken = 0;
+#endif
 
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
     };

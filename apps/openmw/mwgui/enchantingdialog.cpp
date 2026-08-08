@@ -28,6 +28,13 @@
 
 #include "sortfilteritemmodel.hpp"
 
+#ifdef BUILD_MULTIPLAYER
+#include <components/openmw-mp/Records/EnchantingProtocol.hpp>
+
+#include "../mwmp/Main.hpp"
+#include "../mwmp/enchanting/EnchantingCreationManager.hpp"
+#endif
+
 namespace MWGui
 {
 
@@ -151,6 +158,9 @@ namespace MWGui
         if (ptr.isEmpty() || (ptr.getType() != ESM::REC_MISC && !ptr.getClass().isActor()))
             throw std::runtime_error("Invalid argument in EnchantingDialog::setPtr");
 
+#ifdef BUILD_MULTIPLAYER
+        ++mSessionToken;
+#endif
         mName->setCaption({});
 
         if (ptr.getClass().isActor())
@@ -373,8 +383,7 @@ namespace MWGui
 
         if (mEnchanting.requiresServerAuthority())
         {
-            MWBase::Environment::get().getWindowManager()->messageBox(
-                "Enchanting is unavailable until this server enables authoritative crafting.");
+            startMultiplayerEnchant();
             return;
         }
 
@@ -397,6 +406,127 @@ namespace MWGui
             }
         }
     }
+
+#ifdef BUILD_MULTIPLAYER
+    void EnchantingDialog::startMultiplayerEnchant()
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+
+        mwmp::records::EnchantingRequest request;
+        request.protocolVersion = mwmp::records::CurrentEnchantingProtocolVersion;
+        std::string error;
+        if (!mEnchanting.captureMultiplayerRequest(request, error))
+        {
+            winMgr->messageBox(error);
+            return;
+        }
+
+        mwmp::EnchantingCreationManager& manager = mwmp::Main::get().getEnchantingCreationManager();
+        const std::uint64_t sessionToken = mSessionToken;
+        if (!manager.request(std::move(request),
+                [this, sessionToken](const mwmp::records::EnchantingResult& result) {
+                    if (sessionToken != mSessionToken)
+                        return; // the window was reopened; the new session owns the UI
+                    onMultiplayerEnchantResult(result);
+                },
+                error))
+        {
+            winMgr->messageBox(error);
+            return;
+        }
+    }
+
+    void EnchantingDialog::onMultiplayerEnchantResult(const mwmp::records::EnchantingResult& result)
+    {
+        MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+        if (!result.accepted)
+        {
+            switch (result.error)
+            {
+                case mwmp::records::EnchantingError::StaleInventoryRevision:
+                    winMgr->messageBox("Your inventory changed; try again.");
+                    break;
+                case mwmp::records::EnchantingError::TargetItemNotFound:
+                case mwmp::records::EnchantingError::TargetItemNotOwned:
+                    winMgr->messageBox("The target item is no longer in your inventory.");
+                    break;
+                case mwmp::records::EnchantingError::InvalidTargetItem:
+                    winMgr->messageBox("This item cannot be enchanted.");
+                    break;
+                case mwmp::records::EnchantingError::SoulGemNotFound:
+                case mwmp::records::EnchantingError::SoulGemNotOwned:
+                    winMgr->messageBox("The soul gem is no longer in your inventory.");
+                    break;
+                case mwmp::records::EnchantingError::EmptySoul:
+                case mwmp::records::EnchantingError::InvalidSoulGem:
+                case mwmp::records::EnchantingError::InvalidSoul:
+                    winMgr->messageBox("#{sNotifyMessage32}");
+                    break;
+                case mwmp::records::EnchantingError::DuplicateSourceInstance:
+                    winMgr->messageBox("Invalid item and soul gem selection.");
+                    break;
+                case mwmp::records::EnchantingError::InvalidEffect:
+                case mwmp::records::EnchantingError::EffectNotAllowed:
+                    winMgr->messageBox("Invalid enchantment effect selection.");
+                    break;
+                case mwmp::records::EnchantingError::InvalidMagnitude:
+                case mwmp::records::EnchantingError::InvalidDuration:
+                case mwmp::records::EnchantingError::InvalidArea:
+                    winMgr->messageBox("Invalid effect values.");
+                    break;
+                case mwmp::records::EnchantingError::CapacityExceeded:
+                    winMgr->messageBox("#{sNotifyMessage29}");
+                    break;
+                case mwmp::records::EnchantingError::InvalidCastStyle:
+                    winMgr->messageBox("This cast style is not valid for the selected item.");
+                    break;
+                case mwmp::records::EnchantingError::InsufficientGold:
+                    winMgr->messageBox("#{sNotifyMessage18}");
+                    break;
+                case mwmp::records::EnchantingError::InvalidEnchanter:
+                case mwmp::records::EnchantingError::EnchanterUnavailable:
+                    winMgr->messageBox("The enchanter is unavailable.");
+                    break;
+                case mwmp::records::EnchantingError::ContentMismatch:
+                    winMgr->messageBox("Your content does not match the server; reconnect.");
+                    break;
+                case mwmp::records::EnchantingError::MechanicsValidationFailed:
+                    winMgr->messageBox("The server could not validate this enchantment.");
+                    break;
+                case mwmp::records::EnchantingError::RateLimited:
+                    winMgr->messageBox("Too many crafting requests; wait a moment.");
+                    break;
+                case mwmp::records::EnchantingError::QuotaExceeded:
+                    winMgr->messageBox("Your crafted-record limit was reached.");
+                    break;
+                default:
+                    winMgr->messageBox("The enchanting request failed.");
+                    break;
+            }
+            return;
+        }
+
+        if (result.success)
+        {
+            winMgr->playSound(ESM::RefId::stringRefId("enchant success"));
+            winMgr->messageBox("#{sEnchantmentMenu12}");
+            winMgr->removeGuiMode(GM_Enchanting);
+        }
+        else
+        {
+            winMgr->playSound(ESM::RefId::stringRefId("enchant fail"));
+            winMgr->messageBox("#{sNotifyMessage34}");
+            // The authoritative inventory already consumed the soul gem.
+            if (!mEnchanting.getGem().isEmpty() && !mEnchanting.getGem().getCellRef().getCount())
+            {
+                setSoulGem(MWWorld::Ptr());
+                mEnchanting.nextCastStyle();
+                updateLabels();
+                updateEffectsView();
+            }
+        }
+    }
+#endif
 
     bool EnchantingDialog::onControllerButtonEvent(const SDL_ControllerButtonEvent& arg)
     {

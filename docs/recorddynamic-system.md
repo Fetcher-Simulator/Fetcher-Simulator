@@ -10,15 +10,15 @@ configured OpenMW content and load scripts, then the handshake compares ordered
 base files, configured Lua script paths and hashes, content/API versions, the
 runtime wire version, and a canonical post-load SHA-256.
 
-Resolved-content identity is explicitly versioned. `ContentManifestVersion = 3`
-and the `OMRC` v3 fingerprint cover the six typed runtime-record stores
+Resolved-content identity is explicitly versioned. `ContentManifestVersion = 4`
+and the `OMRC` v4 fingerprint cover the six typed runtime-record stores
 (Potion, Enchantment, Weapon, Armor, Clothing, and Book) plus the load-time
 records that currently feed authoritative crafting mechanics: Ingredient,
-Apparatus, MagicEffect, GameSetting, Skill, and Class. The mechanics-only
-records use their own stable fingerprint tags and deterministic little-endian
-field encodings; they are not being promoted to runtime-create DTOs. Any
-future authoritative mechanic that consumes another load-script-mutable record
-kind must add that record kind to the resolved fingerprint and bump the
+Apparatus, MagicEffect, GameSetting, Skill, Class, Creature, and NPC. The
+mechanics-only records use their own stable fingerprint tags and deterministic
+little-endian field encodings; they are not being promoted to runtime-create
+DTOs. Any future authoritative mechanic that consumes another load-script-mutable
+record kind must add that record kind to the resolved fingerprint and bump the
 content/fingerprint version. Runtime `$custom_*` records remain excluded from
 resolved-content identity.
 
@@ -79,22 +79,20 @@ inventory, equipment, world, container, actor, and record-dependency links.
 
 ## Native crafting status
 
-Generic definitions are not a safe substitute for crafting rules. `enchanting`
-operations are rejected until a headless server mechanics validator can
-independently verify soul/gold state, capacity, costs, success, and randomness.
-Connected native enchanting therefore performs no mutation and reports that
-authoritative enchanting is unavailable. Enchanting is Stage 4 work; no part of
-the Stage 3 alchemy implementation enables it.
+Generic definitions are not a safe substitute for crafting rules. Both native
+crafting flows are now server-authoritative for connected multiplayer; see
+"Native alchemy" and "Native enchanting" below.
 
-Native `alchemy` is fully server-authoritative for connected multiplayer; see
-"Native alchemy" below.
+Native `alchemy` is fully server-authoritative (Stage 3) and native
+`enchanting` (Stage 4) is fully server-authoritative, including the
+Enchantment + owning-item record pair as one atomic transaction.
 
 The headless content registry fingerprints the resolved Ingredient,
-Apparatus, MagicEffect, GameSetting, Skill, and Class data required by the
-authoritative alchemy validator, in addition to the six runtime DTO record
-kinds. This prevents load-script changes to crafting inputs from passing the
-content handshake merely because the underlying runtime-created output types
-still match.
+Apparatus, MagicEffect, GameSetting, Skill, Class, Creature, and NPC data
+required by the authoritative crafting validators, in addition to the six
+runtime DTO record kinds. This prevents load-script changes to crafting inputs
+from passing the content handshake merely because the underlying
+runtime-created output types still match.
 
 ## Native alchemy
 
@@ -293,7 +291,247 @@ to the exact request.
 - Skill-progression formulas reproduce the default (unmodded) player
   skillhandlers; overridden player skill scripts are not replicated server-side.
 - Alchemy requests are rate-limited together with runtime record creation.
-- Multiplayer enchanting remains disabled (Stage 4).
+
+## Native enchanting
+
+Connected multiplayer enchanting is a semantic server-authoritative
+transaction. The client sends only player choices; every calculated value is
+derived on the server and committed atomically together with the
+Enchantment + owning-item record pair.
+
+### Architecture
+
+```text
+Native Enchanting UI
+        |
+        | semantic request (PacketEnchantingRequest)
+        v
+Client multiplayer enchanting coordinator (mwmp::EnchantingCreationManager)
+        |
+        v
+Server EnchantingService / authoritative mechanics
+        |   - validates player/inventory revision
+        |   - validates exact target/soul-gem inventory instances
+        |   - resolves item/soul/enchanter content through ServerContentRegistry
+        |   - obtains authoritative character statistics
+        |   - runs shared OpenMW mechanics (components/enchanting)
+        |   - performs authoritative RNG (self-enchant only)
+        |   - prepares the Enchantment + owning-item pair via DynamicRecordService
+        |   - atomically commits gameplay state
+        v
+PacketEnchantingResult + RecordDynamic + authoritative inventory/stats
+        |
+        v
+client applies authoritative definitions/state, then the native UI completes
+```
+
+### Semantic request contents
+
+The request (`records::EnchantingRequest`) carries only genuine player choices:
+
+- protocol/schema version and a stable client-generated request ID
+- the expected inventory revision
+- the exact target item inventory instance ID
+- the exact soul gem inventory instance ID
+- the selected cast style
+- the custom item name
+- self-enchant vs paid NPC service, with the enchanter's server-issued actor
+  net ID for paid services
+- the selected effects in UI order (effect ID, range, magnitude min/max,
+  duration, area, and the target skill/attribute for TargetSkill/
+  TargetAttribute effects)
+
+The request never contains calculated effects costs, enchantment points,
+charge, success, skill gain, gold price, canonical record IDs, or record
+definitions. The packet decoder is bounded (effect count, name/ID lengths,
+cast-style/range/magnitude/duration/area ranges, strict no-trailing-bytes) and
+rejects malformed or oversized payloads.
+
+### Exact inventory-instance validation
+
+The server resolves the target and soul gem by exact `instanceId` in the
+character's authoritative inventory mirror and verifies both exist with
+count > 0, are not the same instance, and are owned by the requesting
+character. The target must resolve to an enchantable content record: Weapon,
+Armor, Clothing, or a scroll-type Book. The soul gem must be a Miscellaneous
+record whose authoritative inventory `soul` field names a known Creature
+record; the creature's soul value becomes the gem charge. A known content
+record of the wrong type maps to `invalid_target_item`/`invalid_soul_gem`; an
+unknown id maps to `content_mismatch`; an empty or unresolvable soul maps to
+`empty_soul`/`invalid_soul`.
+
+### Inventory revision behavior
+
+Identical to alchemy: the request carries the expected revision, stale
+requests are rejected without mutation and journaled, and the atomic commit
+re-checks the revision inside the SQLite transaction. The client's
+one-in-flight inventory mutation gate and the authoritative fast-path apply
+unchanged.
+
+### Authoritative content validation
+
+Item fields (enchant capacity, weapon type, armor/clothing parts, book
+scroll flag), magic-effect records (base cost, `AllowEnchanting`, CastSelf/
+Touch/Target, TargetSkill/TargetAttribute flags), skills, classes, GMSTs, and
+creature soul values are all resolved from `ServerContentRegistry`. Every
+effect must exist, permit enchanting, use a range the effect supports
+(constant effects are Self-only), and carry a valid target skill/attribute
+when the effect requires one. Model/icon/script/body-part references of the
+created item records are validated against the server VFS and content before
+commit, like the alchemy path.
+
+### Shared OpenMW mechanics
+
+`components/enchanting/EnchantingMechanics` is a pure extraction of the
+native `MWMechanics::Enchanting` calculation: per-effect costs (including the
+vanilla running-total accumulation and the constant-effect duration
+multiplier), enchantment points, cast cost, effective cast cost, capacity
+check, success chance, projectile/ammo count and type multiplier, the
+cast-style cycle, the barter-price core, and the success roll. The
+single-player window and the server both call it, so the formulas cannot
+diverge. The weapon-class column of the hardcoded weapon-type table is kept
+in the shared layer for the same reason. Callers supply resolved records,
+authoritative statistics, GMSTs, and an injected RNG.
+
+### Authoritative RNG
+
+The server constructs a fresh generator per request (or a fixed seed for
+deterministic tests) and rolls only self-enchant attempts; paid services
+never roll, exactly like native. The durable terminal result captures the
+roll so retries replay the exact original outcome.
+
+### Self-enchant vs paid NPC enchanting
+
+The two native paths are modeled explicitly. Self-enchanting rolls the
+player's chance (Enchant skill, Intelligence, Luck, fatigue term) and awards
+player skill progression on success. Paid enchanting always succeeds, never
+rolls, and never awards the player skill; the server validates the enchanter
+actor identity, that its cell is loaded by the requester, and that it offers
+the Enchanting service (from the NPC/Creature content record, or the class
+record for autocalc NPCs). The price is the native barter formula evaluated
+with authoritative inputs: player Mercantile/Luck/Personality and fatigue
+from the synced player state, enchanter statistics from the NPC content
+record, and a derived disposition (base disposition plus the race,
+personality, and crime/bounty modifiers; faction-reaction, disease,
+weapon-drawn, and charm terms are not representable in the sync model and
+are omitted). Creature merchants keep the native base-price special case.
+Player gold is checked and deducted authoritatively. The enchanter's gold
+pool is not tracked by the sync model, so the native "gold added to the
+NPC's pool" step is skipped; NPC runtime skill/attribute state is not synced,
+so the enchanter's record base values are authoritative.
+
+### Success/failure semantics
+
+Mirrors native exactly: the soul gem is consumed on every accepted outcome
+(and the Azura Star exception re-adds a fresh star); the target item is
+consumed only on success; gold is charged only on success; skill progresses
+only on successful self-enchants; a failed roll creates no records. A failed
+roll is still an accepted, committed outcome (one revision). Zero-cost or
+invalid setups are rejected before the roll, like the native UI pre-checks.
+
+### Atomic pair creation
+
+The successful transaction creates the `Enchantment` record and the owning
+item record (Weapon/Armor/Clothing/Book-scroll) as one bundled preparation:
+`DynamicRecordService::prepareSingleRecord` allocates the enchantment first,
+its canonical `$custom_enchantment_<n>` ID is written into the owning item's
+enchantment reference, and only then is the item's definition canonicalized,
+fingerprinted, deduplicated, and allocated as `$custom_<type>_<n>`. Both
+entries are committed in one SQLite transaction (dependency-first:
+enchantment row before item row) together with inventory, gold, stats,
+revision, and the journal. A partial state (enchantment without item, item
+without enchantment, consumed gem without records) is impossible.
+
+Deduplication follows the canonical layer: identical enchantment definitions
+reuse one record, and identical owning-item definitions (same fields and
+canonical enchantment reference) reuse one record. Because the item
+fingerprint includes the canonical enchantment ID, items carrying different
+enchantments never collapse onto each other. The native single-player
+behavior of always inserting a fresh item record is deliberately tightened
+to canonical dedup; the native getRecord-equivalent reuse of identical
+dynamic enchantments is preserved through the fingerprint.
+
+### Atomic gameplay commit
+
+The success transaction atomically includes: the enchantment record, the
+owning item record, the original target item removal (the whole enchanted
+count for ammo/thrown stacks), the soul gem consumption (Azura Star
+exception), the granted enchanted item stack, the gold deduction for paid
+services, the skill progression award, the new player stats, the inventory
+revision advancement, and the durable terminal journal row. Any failure
+rolls everything back.
+
+### Persistent idempotency
+
+Identical to alchemy: the request is journaled in `craft_requests` with its
+account, character, request ID, canonical semantic request hash, and terminal
+result. Retries replay the exact stored result and can never consume a second
+gem or item, deduct gold twice, grant another item pair, award skill twice,
+advance the revision twice, or roll RNG twice. A reused request ID with a
+different payload is rejected with `duplicate_request_conflict`.
+
+### Result protocol and client barrier
+
+`PacketEnchantingResult` carries the request ID, accepted/rejected status,
+machine-readable error, success/failure, the canonical enchantment and item
+record IDs, reused/new flags, the resulting inventory revision, and the
+commit sequence. The client's `EnchantingCreationManager` holds completion
+until the returned item record resolves in the local `ESMStore`, its
+enchantment reference points at the returned enchantment ID, the
+enchantment record itself resolves, and the authoritative inventory revision
+is visible. Packet arrival order is irrelevant. Nothing is consumed or
+created locally while pending; a disconnect fails pending requests cleanly
+with an error.
+
+### Reconnect/restart behavior
+
+Identical to alchemy: durable results replay, and the persisted definition
+pair is loaded at startup and re-sent before/with the restored inventory, so
+an enchanted item held during reconnect resolves with its enchantment.
+
+### Skill progression
+
+On successful self-enchants the server awards the vanilla
+`Enchant_CreateMagicItem` skill-use progression using authoritative
+Skill/Class records and GMSTs, committed in the same transaction and pushed
+to the client with the same stale-stats guard as the alchemy award.
+
+### Error handling
+
+Machine-readable `records::EnchantingError` codes distinguish invalid
+requests, unsupported protocol versions, pending/conflicting duplicates,
+stale revisions, missing/unowned/invalid targets, missing/unowned/invalid
+soul gems, empty/invalid souls, duplicate source instances, invalid or
+not-allowed effects, invalid magnitudes/durations/areas, exceeded capacity,
+invalid cast styles, insufficient gold, invalid/unavailable enchanters,
+mechanics validation failures, content mismatch, rate limits, quotas, and
+server errors. Rejections are journaled so retries replay them.
+
+### Logging
+
+Every request produces a structured server log line correlating the player,
+request ID, expected revision, target/gem instance IDs, enchantment mode
+(self/paid) and cast style, effect count, success, the canonical
+enchantment/item IDs, reused/new status, resulting revision, replay flag,
+and error code.
+
+### Current limitations
+
+- NPC runtime statistics (fortified attributes, temporary disposition,
+  diseases, charm) are not part of the sync model; paid-enchant pricing uses
+  the enchanter content record's base values and the disposition subset
+  described above.
+- The enchanter's gold pool is not tracked; the native gold-pool credit is
+  skipped.
+- Autocalc NPC enchanters use their content-record fields (which are empty
+  for autocalc stats); their class-derived service bit is honored.
+- The native multi-stack ammo edge case (enchanted count clamped by the
+  selected stack instead of the total refId count) is deliberately fixed to
+  avoid minting items.
+- Enchanting requests are rate-limited together with runtime record
+  creation.
+- The vanilla level-up dialog attribute counters are not synced (see
+  alchemy).
 
 ## Trusted server-Lua compatibility
 
