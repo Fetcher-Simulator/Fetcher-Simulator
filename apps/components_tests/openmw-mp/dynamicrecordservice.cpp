@@ -452,3 +452,40 @@ TEST(DynamicRecordService, ProtectsFixedIdentityDurableJournalAndScriptCompilati
         "fixed-conflict-hash", conflictContext, noEquivalent, noAllocation, [&] { return sequence++; });
     EXPECT_EQ(conflict.result.error, mwmp::records::CreateError::FixedRecordConflict);
 }
+
+TEST(DynamicRecordService, TypedDialoguePersistenceAndReplaySurviveRestart)
+{
+    TemporaryServiceDatabase temporary;
+    const auto request = makeDialogueRequest("dialogue-restart", mwmp::records::AuthoringMode::New);
+    auto context = makeTrustedContentContext("dialogue", "runtime_restart_quest");
+    context.hasStaticRecord = [](auto, auto) { return false; };
+    context.findRecordById = [](auto, auto) {
+        return std::optional<mwmp::DynamicRecordService::CatalogRecord>{};
+    };
+
+    mwmp::records::RecordCreateResult committed;
+    {
+        mwmp::PlayerDatabase database(temporary.path.string());
+        mwmp::DynamicRecordService service(database);
+        auto outcome = service.execute(request, "dialogue-restart-hash", context,
+            [](auto, auto) { return std::optional<mwmp::DynamicRecordService::CatalogRecord>{}; },
+            [](auto) { return std::string{}; }, [] { return 12u; });
+        ASSERT_TRUE(outcome.result.accepted);
+        committed = outcome.result;
+        const auto persisted = database.loadDynamicRecords();
+        ASSERT_EQ(persisted.size(), 1u);
+        const auto definition = mwmp::records::decodeDefinition(persisted.front().data);
+        EXPECT_EQ(definition.authoringMode, mwmp::records::AuthoringMode::New);
+        EXPECT_TRUE(std::holds_alternative<mwmp::records::Dialogue>(definition.data));
+    }
+
+    mwmp::PlayerDatabase reopened(temporary.path.string());
+    mwmp::DynamicRecordService service(reopened);
+    auto replay = service.execute(request, "dialogue-restart-hash", context,
+        [](auto, auto) { return std::optional<mwmp::DynamicRecordService::CatalogRecord>{}; },
+        [](auto) { return std::string{}; }, [] { return 99u; });
+    EXPECT_TRUE(replay.result.accepted);
+    EXPECT_TRUE(replay.replayed);
+    EXPECT_EQ(replay.result, committed);
+    EXPECT_TRUE(replay.newRecords.empty());
+}
