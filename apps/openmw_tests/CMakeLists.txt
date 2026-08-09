@@ -21,6 +21,7 @@ file(GLOB UNITTEST_SRC_FILES
 
     mwmp/testservercontentregistry.cpp
     mwmp/testserverluarecordparser.cpp
+    mwmp/testtypeddynamicrecordinstaller.cpp
     mwmp/testalchemyservice.cpp
     mwmp/testenchantingservice.cpp
     mwmp/testplayerspellbook.cpp

@@ -489,3 +489,48 @@ TEST(DynamicRecordService, TypedDialoguePersistenceAndReplaySurviveRestart)
     EXPECT_EQ(replay.result, committed);
     EXPECT_TRUE(replay.newRecords.empty());
 }
+
+TEST(DynamicRecordService, DurableStaticOverrideModeSurvivesRestart)
+{
+    TemporaryServiceDatabase temporary;
+    const auto request = makeDialogueRequest(
+        "dialogue-override-restart", mwmp::records::AuthoringMode::Override);
+    auto context = makeTrustedContentContext("dialogue", "static_restart_quest");
+    context.allowStaticOverrides = true;
+    context.hasStaticRecord = [](auto, auto) { return true; };
+    context.findRecordById = [](auto, auto) {
+        return std::optional<mwmp::DynamicRecordService::CatalogRecord>{};
+    };
+
+    mwmp::records::RecordCreateResult committed;
+    {
+        mwmp::PlayerDatabase database(temporary.path.string());
+        mwmp::DynamicRecordService service(database);
+        auto outcome = service.execute(request, "dialogue-override-restart-hash", context,
+            [](auto, auto) { return std::optional<mwmp::DynamicRecordService::CatalogRecord>{}; },
+            [](auto) { return std::string{}; }, [] { return 21u; });
+        ASSERT_TRUE(outcome.result.accepted);
+        committed = outcome.result;
+
+        const auto persisted = database.loadDynamicRecords();
+        ASSERT_EQ(persisted.size(), 1u);
+        EXPECT_EQ(mwmp::records::decodeDefinition(persisted.front().data).authoringMode,
+            mwmp::records::AuthoringMode::Override);
+    }
+
+    mwmp::PlayerDatabase reopened(temporary.path.string());
+    const auto persisted = reopened.loadDynamicRecords();
+    ASSERT_EQ(persisted.size(), 1u);
+    const auto definition = mwmp::records::decodeDefinition(persisted.front().data);
+    EXPECT_EQ(definition.authoringMode, mwmp::records::AuthoringMode::Override);
+    EXPECT_TRUE(std::holds_alternative<mwmp::records::Dialogue>(definition.data));
+
+    mwmp::DynamicRecordService service(reopened);
+    auto replay = service.execute(request, "dialogue-override-restart-hash", context,
+        [](auto, auto) { return std::optional<mwmp::DynamicRecordService::CatalogRecord>{}; },
+        [](auto) { return std::string{}; }, [] { return 99u; });
+    EXPECT_TRUE(replay.result.accepted);
+    EXPECT_TRUE(replay.replayed);
+    EXPECT_EQ(replay.result, committed);
+    EXPECT_TRUE(replay.newRecords.empty());
+}
