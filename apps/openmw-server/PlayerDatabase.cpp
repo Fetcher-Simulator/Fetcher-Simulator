@@ -1812,6 +1812,24 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         return result;
     }
 
+    std::vector<std::string> PlayerDatabase::loadReferencedJournalInfoIds(std::string_view dialogueId)
+    {
+        sqlite3_stmt* statement = prepare(
+            "SELECT DISTINCT info_id FROM character_journal_entries"
+            " WHERE lower(quest_id)=lower(?1) ORDER BY lower(info_id), info_id");
+        sqlite3_bind_text(
+            statement, 1, dialogueId.data(), static_cast<int>(dialogueId.size()), SQLITE_TRANSIENT);
+        std::vector<std::string> result;
+        while (sqlite3_step(statement) == SQLITE_ROW)
+        {
+            const char* value = reinterpret_cast<const char*>(sqlite3_column_text(statement, 0));
+            if (value != nullptr)
+                result.emplace_back(value);
+        }
+        sqlite3_finalize(statement);
+        return result;
+    }
+
     std::vector<JournalCharacterIdentity> PlayerDatabase::listJournalCharacterIdentities()
     {
         sqlite3_stmt* statement = prepare(

@@ -173,6 +173,9 @@ namespace mwmp
             // authoritative snapshot and Append continues a chunked snapshot.
             enum class Action { Add = 0, Set, Append };
             Action action = Action::Add;
+            // Set/Append snapshots are not visible until the final chunk is
+            // received. Add packets are always complete.
+            bool snapshotComplete = true;
         } journalChanges;
         std::vector<std::string> topicChanges;
         std::vector<std::string> bookChanges;

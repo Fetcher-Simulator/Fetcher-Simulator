@@ -8,6 +8,7 @@
 
 #include <components/openmw-mp/Records/DynamicRecordCodec.hpp>
 #include <components/openmw-mp/Records/DynamicRecordFingerprint.hpp>
+#include <components/openmw-mp/Records/DynamicRecordValidation.hpp>
 
 #include "../../openmw-server/DynamicRecordService.hpp"
 
@@ -55,6 +56,62 @@ namespace
         request.bundle.records.push_back({ "weapon", { CurrentSchemaVersion, weapon } });
         request.bundle.dependencies.push_back({ "weapon", "enchantment" });
         return request;
+    }
+
+    mwmp::records::RecordCreateRequest makeDialogueRequest(std::string requestId,
+        mwmp::records::AuthoringMode mode, std::string infoId = "runtime_quest_10")
+    {
+        using namespace mwmp::records;
+        Dialogue dialogue;
+        dialogue.stringId = "Runtime Quest";
+        dialogue.type = 4;
+        DialogueInfo info;
+        info.infoId = std::move(infoId);
+        info.dialogueType = 4;
+        info.dispositionOrJournalIndex = 10;
+        info.response = "A durable runtime journal entry.";
+        dialogue.infos.push_back(std::move(info));
+
+        DynamicRecordDefinition definition;
+        definition.data = std::move(dialogue);
+        definition.authoringMode = mode;
+
+        RecordCreateRequest request;
+        request.requestId = std::move(requestId);
+        request.operation = CreateOperation::ServerScript;
+        request.bundle.records.push_back({ "dialogue", std::move(definition) });
+        return request;
+    }
+
+    mwmp::records::RecordCreateRequest makeScriptRequest(
+        std::string requestId, mwmp::records::AuthoringMode mode, std::string source)
+    {
+        using namespace mwmp::records;
+        Script script;
+        script.sourceText = std::move(source);
+        DynamicRecordDefinition definition;
+        definition.data = std::move(script);
+        definition.authoringMode = mode;
+
+        RecordCreateRequest request;
+        request.requestId = std::move(requestId);
+        request.operation = CreateOperation::ServerScript;
+        request.bundle.records.push_back({ "script", std::move(definition) });
+        return request;
+    }
+
+    mwmp::DynamicRecordService::Context makeTrustedContentContext(std::string key, std::string id)
+    {
+        mwmp::DynamicRecordService::Context context;
+        context.trustedServerRequest = true;
+        context.serverRequestSource = "server_lua";
+        context.creationSource = "server_lua:content-test.lua";
+        context.recordScope = "permanent";
+        context.persistent = true;
+        context.fixedRecordIds.emplace(std::move(key), std::move(id));
+        context.isContentIdAllowed = [](std::string_view) { return true; };
+        context.isAssetAllowed = [](std::string_view) { return true; };
+        return context;
     }
 }
 
@@ -290,4 +347,108 @@ TEST(DynamicRecordService, TrustedServerLuaUsesCanonicalJournalAndReplaysAfterRe
     EXPECT_TRUE(replay.replayed);
     EXPECT_EQ(replay.result, committedResult);
     EXPECT_TRUE(replay.newRecords.empty());
+}
+
+TEST(DynamicRecordService, EnforcesExplicitNewAndBootstrapOverrideModes)
+{
+    TemporaryServiceDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+    mwmp::DynamicRecordService service(database);
+    const auto noEquivalent = [](auto, auto) {
+        return std::optional<mwmp::DynamicRecordService::CatalogRecord>{};
+    };
+    const auto noAllocation = [](auto) { return std::string{}; };
+    uint64_t sequence = 1;
+
+    auto newContext = makeTrustedContentContext("dialogue", "runtime_quest");
+    newContext.hasStaticRecord = [](auto, auto) { return false; };
+    auto created = service.execute(makeDialogueRequest("dialogue-new", mwmp::records::AuthoringMode::New),
+        "dialogue-new-hash", newContext, noEquivalent, noAllocation, [&] { return sequence++; });
+    ASSERT_TRUE(created.result.accepted);
+    ASSERT_EQ(created.newRecords.size(), 1u);
+    EXPECT_EQ(created.newRecords[0].recordId, "runtime_quest");
+
+    auto collisionContext = makeTrustedContentContext("dialogue", "static_quest");
+    collisionContext.hasStaticRecord = [](auto, auto) { return true; };
+    auto collision = service.execute(makeDialogueRequest("dialogue-collision", mwmp::records::AuthoringMode::New),
+        "dialogue-collision-hash", collisionContext, noEquivalent, noAllocation, [&] { return sequence++; });
+    EXPECT_EQ(collision.result.error, mwmp::records::CreateError::NewRecordStaticCollision);
+
+    auto overrideContext = makeTrustedContentContext("dialogue", "static_quest");
+    overrideContext.hasStaticRecord = [](auto, auto) { return true; };
+    overrideContext.allowStaticOverrides = true;
+    auto overridden = service.execute(makeDialogueRequest("dialogue-override", mwmp::records::AuthoringMode::Override),
+        "dialogue-override-hash", overrideContext, noEquivalent, noAllocation, [&] { return sequence++; });
+    EXPECT_TRUE(overridden.result.accepted);
+
+    overrideContext.allowStaticOverrides = false;
+    auto late = service.execute(makeDialogueRequest("dialogue-late", mwmp::records::AuthoringMode::Override),
+        "dialogue-late-hash", overrideContext, noEquivalent, noAllocation, [&] { return sequence++; });
+    EXPECT_EQ(late.result.error, mwmp::records::CreateError::OverrideNotBootstrap);
+
+    overrideContext.allowStaticOverrides = true;
+    overrideContext.hasStaticRecord = [](auto, auto) { return false; };
+    auto missing = service.execute(makeDialogueRequest("dialogue-missing", mwmp::records::AuthoringMode::Override),
+        "dialogue-missing-hash", overrideContext, noEquivalent, noAllocation, [&] { return sequence++; });
+    EXPECT_EQ(missing.result.error, mwmp::records::CreateError::OverrideMissingStatic);
+}
+
+TEST(DynamicRecordService, ProtectsFixedIdentityDurableJournalAndScriptCompilation)
+{
+    TemporaryServiceDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+    mwmp::DynamicRecordService service(database);
+    const auto noEquivalent = [](auto, auto) {
+        return std::optional<mwmp::DynamicRecordService::CatalogRecord>{};
+    };
+    const auto noAllocation = [](auto) { return std::string{}; };
+    uint64_t sequence = 1;
+
+    auto durableContext = makeTrustedContentContext("dialogue", "static_quest");
+    durableContext.allowStaticOverrides = true;
+    durableContext.hasStaticRecord = [](auto, auto) { return true; };
+    durableContext.loadDurableJournalInfoIds = [](std::string_view) {
+        return std::vector<std::string>{ "runtime_quest_10" };
+    };
+    auto removesDurable = service.execute(
+        makeDialogueRequest("dialogue-removes-durable", mwmp::records::AuthoringMode::Override, "runtime_quest_20"),
+        "dialogue-removes-durable-hash", durableContext, noEquivalent, noAllocation, [&] { return sequence++; });
+    EXPECT_EQ(removesDurable.result.error, mwmp::records::CreateError::DurableReferenceConflict);
+
+    auto scriptContext = makeTrustedContentContext("script", "runtime_script");
+    scriptContext.hasStaticRecord = [](auto, auto) { return false; };
+    scriptContext.validateScriptSource = [](std::string_view, std::string_view) { return false; };
+    auto badScript = service.execute(makeScriptRequest("script-bad", mwmp::records::AuthoringMode::New,
+        "begin runtime_script\nthis is not mwscript\nend"), "script-bad-hash", scriptContext,
+        noEquivalent, noAllocation, [&] { return sequence++; });
+    EXPECT_EQ(badScript.result.error, mwmp::records::CreateError::ScriptCompileFailed);
+
+    const auto canonical = mwmp::records::canonicalize(
+        makeDialogueRequest("unused", mwmp::records::AuthoringMode::New).bundle.records.front().definition);
+    auto identicalContext = makeTrustedContentContext("dialogue", "fixed_dialogue");
+    identicalContext.hasStaticRecord = [](auto, auto) { return false; };
+    identicalContext.findRecordById = [canonical](auto, auto) {
+        return std::optional<mwmp::DynamicRecordService::CatalogRecord>{ {
+            "dialogue", "fixed_dialogue", mwmp::records::fingerprint(canonical),
+            mwmp::records::encodeDefinition(canonical) } };
+    };
+    auto identical = service.execute(makeDialogueRequest("fixed-identical", mwmp::records::AuthoringMode::New),
+        "fixed-identical-hash", identicalContext, noEquivalent, noAllocation, [&] { return sequence++; });
+    EXPECT_TRUE(identical.result.accepted);
+    ASSERT_EQ(identical.result.records.size(), 1u);
+    EXPECT_TRUE(identical.result.records.front().reused);
+    EXPECT_TRUE(identical.newRecords.empty());
+
+    auto conflictContext = makeTrustedContentContext("dialogue", "fixed_dialogue");
+    conflictContext.hasStaticRecord = [](auto, auto) { return false; };
+    conflictContext.findRecordById = [canonical](auto, auto) {
+        auto different = canonical;
+        std::get<mwmp::records::Dialogue>(different.data).stringId = "Different";
+        return std::optional<mwmp::DynamicRecordService::CatalogRecord>{ {
+            "dialogue", "fixed_dialogue", mwmp::records::fingerprint(different),
+            mwmp::records::encodeDefinition(different) } };
+    };
+    auto conflict = service.execute(makeDialogueRequest("fixed-conflict", mwmp::records::AuthoringMode::New),
+        "fixed-conflict-hash", conflictContext, noEquivalent, noAllocation, [&] { return sequence++; });
+    EXPECT_EQ(conflict.result.error, mwmp::records::CreateError::FixedRecordConflict);
 }

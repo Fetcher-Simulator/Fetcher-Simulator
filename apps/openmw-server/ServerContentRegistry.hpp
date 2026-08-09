@@ -2,6 +2,7 @@
 #define OPENMW_SERVER_SERVERCONTENTREGISTRY_HPP
 
 #include <filesystem>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -10,6 +11,10 @@
 namespace MWWorld
 {
     class ESMStore;
+}
+namespace mwmp::records
+{
+    struct DynamicRecordDefinition;
 }
 
 namespace mwmp
@@ -51,6 +56,10 @@ namespace mwmp
         bool hasAsset(std::string_view path) const;
         bool hasModel(std::string_view path) const;
         bool hasIcon(std::string_view path) const;
+        bool hasStaticRecord(std::uint8_t recordType, std::string_view id) const;
+        bool validateScriptSource(std::string_view id, std::string_view source) const;
+        void installRuntimeDefinition(
+            std::string_view id, const records::DynamicRecordDefinition& definition);
 
         static std::string orderedManifestFingerprint(const std::vector<ManifestEntry>& entries);
 

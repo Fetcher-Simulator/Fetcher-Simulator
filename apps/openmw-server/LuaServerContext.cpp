@@ -385,7 +385,8 @@ void LuaServerContext::drainOutbound()
                 break;
             case OutboundLuaActionType::UpsertDynamicRecord:
                 mServer->upsertDynamicRecord(
-                    action.recordType, action.recordId, action.recordData, action.recordScope, action.recordPersistent);
+                    action.recordType, action.recordId, action.recordData, action.recordScope, action.recordPersistent,
+                    action.recordAuthoringMode);
                 break;
             case OutboundLuaActionType::RemoveDynamicRecord:
                 mServer->removeDynamicRecord(action.recordType, action.recordId);
@@ -1410,7 +1411,8 @@ void LuaServerContext::queueResetAllCellStates()
 }
 
 void LuaServerContext::queueUpsertDynamicRecord(const std::string& recordType, const std::string& recordId,
-    const LuaUtil::BinaryData& data, const std::string& recordScope, bool persistent)
+    const LuaUtil::BinaryData& data, const std::string& recordScope, bool persistent,
+    const std::string& authoringMode)
 {
     OutboundLuaAction action;
     action.type = OutboundLuaActionType::UpsertDynamicRecord;
@@ -1418,6 +1420,7 @@ void LuaServerContext::queueUpsertDynamicRecord(const std::string& recordType, c
     action.recordId = recordId;
     action.recordScope = recordScope;
     action.recordPersistent = persistent;
+    action.recordAuthoringMode = authoringMode;
     action.recordData = data;
     mOutboundQueue.push(std::move(action));
 }

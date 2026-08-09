@@ -297,6 +297,10 @@ namespace mwmp
         /// Load and merge journal state produced by the supplied characters.
         std::vector<BasePlayer::JournalItem> loadCharacterJournals(const std::vector<int64_t>& characterIds);
 
+        /// Return every durable INFO identity referenced by any character's
+        /// historical journal rows for the supplied Dialogue.
+        std::vector<std::string> loadReferencedJournalInfoIds(std::string_view dialogueId);
+
         /// Enumerate account/character identities for journal group resolution.
         std::vector<JournalCharacterIdentity> listJournalCharacterIdentities();
 

@@ -73,6 +73,7 @@ struct OutboundLuaAction
     std::string recordType;
     std::string recordId;
     std::string recordScope;
+    std::string recordAuthoringMode;
     std::vector<std::string> dependencyRecordIds;
     LuaUtil::BinaryData eventData;
     LuaUtil::BinaryData recordData;

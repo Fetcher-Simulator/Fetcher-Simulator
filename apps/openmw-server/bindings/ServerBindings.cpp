@@ -644,6 +644,7 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
     {
         bool persistent = true;
         std::string scope;
+        std::string authoringMode = "generated";
 
         if (options)
         {
@@ -651,6 +652,8 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
                 persistent = *maybePersistent;
             if (auto maybeScope = options->get<sol::optional<std::string>>("scope"))
                 scope = normalizeDynamicRecordScope(*maybeScope);
+            if (auto maybeMode = options->get<sol::optional<std::string>>("mode"))
+                authoringMode = normalizeDynamicRecordAuthoringMode(*maybeMode);
         }
 
         if (scope.empty())
@@ -660,7 +663,7 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
             scope = recordId.rfind(generatedPrefix, 0) == 0 ? "generated" : "permanent";
         }
 
-        return std::make_pair(scope, persistent);
+        return std::tuple(scope, persistent, authoringMode);
     };
 
     auto queueDynamicRecordUpsert = [context, resolveDynamicRecordOptions](
@@ -674,11 +677,12 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
         if (normalizedType.empty())
             return false;
 
-        const auto [scope, persistent] = resolveDynamicRecordOptions(normalizedType, recordId, options);
-        if (scope.empty())
+        const auto [scope, persistent, authoringMode] = resolveDynamicRecordOptions(normalizedType, recordId, options);
+        if (scope.empty() || authoringMode.empty())
             return false;
 
-        context->queueUpsertDynamicRecord(normalizedType, recordId, LuaUtil::serialize(data), scope, persistent);
+        context->queueUpsertDynamicRecord(
+            normalizedType, recordId, LuaUtil::serialize(data), scope, persistent, authoringMode);
         return true;
     };
 
@@ -740,7 +744,8 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
                 persistent = *maybePersistent;
         }
 
-        context->queueUpsertDynamicRecord(normalizedType, recordId, LuaUtil::serialize(data), "generated", persistent);
+        context->queueUpsertDynamicRecord(
+            normalizedType, recordId, LuaUtil::serialize(data), "generated", persistent, "generated");
         return sol::make_object(ts, recordId);
     });
     mp.set_function("UpsertGeneratedRecord", [context](const std::string& recordType, const sol::table& data,
@@ -761,7 +766,8 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
                 persistent = *maybePersistent;
         }
 
-        context->queueUpsertDynamicRecord(normalizedType, recordId, LuaUtil::serialize(data), "generated", persistent);
+        context->queueUpsertDynamicRecord(
+            normalizedType, recordId, LuaUtil::serialize(data), "generated", persistent, "generated");
         return sol::make_object(ts, recordId);
     });
 
