@@ -7,6 +7,7 @@
 #include <string>
 #include <tuple>
 #include <type_traits>
+#include <unordered_set>
 #include <vector>
 
 #include <components/esm3/loadappa.hpp>
@@ -88,15 +89,19 @@ namespace
     template <class T>
     void appendTypedRecords(const MWWorld::ESMStore& store, mwmp::records::RecordType type, std::vector<Entry>& out)
     {
+        std::unordered_set<ESM::RefId> visited;
         for (const T& record : store.get<T>())
         {
-            if (store.get<T>().isDynamic(record.mId))
+            if (!visited.insert(record.mId).second)
+                continue;
+            const T* staticRecord = store.get<T>().searchStatic(record.mId);
+            if (staticRecord == nullptr)
                 continue;
             Entry entry;
             entry.type = static_cast<std::uint8_t>(type);
-            entry.id = record.mId.toString();
+            entry.id = staticRecord->mId.toString();
             entry.definition = mwmp::records::encodeDefinition(
-                mwmp::records::canonicalize(mwmp::records::fromEsmRecord(record)));
+                mwmp::records::canonicalize(mwmp::records::fromEsmRecord(*staticRecord)));
             out.push_back(std::move(entry));
         }
     }
@@ -298,6 +303,8 @@ std::string MWMP::resolvedContentFingerprint(const MWWorld::ESMStore& store)
     appendTypedRecords<ESM::Armor>(store, mwmp::records::RecordType::Armor, entries);
     appendTypedRecords<ESM::Clothing>(store, mwmp::records::RecordType::Clothing, entries);
     appendTypedRecords<ESM::Book>(store, mwmp::records::RecordType::Book, entries);
+    appendTypedRecords<ESM::Dialogue>(store, mwmp::records::RecordType::Dialogue, entries);
+    appendTypedRecords<ESM::Script>(store, mwmp::records::RecordType::Script, entries);
 
     // These are authoritative mechanics inputs rather than runtime-create DTOs.
     // Load scripts can mutate several of them, so they must participate in the
@@ -323,7 +330,7 @@ std::string MWMP::resolvedContentFingerprint(const MWWorld::ESMStore& store)
     });
 
     mwmp::crypto::Sha256 hash;
-    static constexpr std::array<std::uint8_t, 8> header = { 'O', 'M', 'R', 'C', 4, 0, 0, 0 };
+    static constexpr std::array<std::uint8_t, 8> header = { 'O', 'M', 'R', 'C', 5, 0, 0, 0 };
     hash.update(header.data(), header.size());
     updateU32(hash, static_cast<std::uint32_t>(entries.size()));
     for (const Entry& entry : entries)

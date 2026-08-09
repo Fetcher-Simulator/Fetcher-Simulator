@@ -7,12 +7,15 @@
 
 #include <components/openmw-mp/Base/DynamicRecord.hpp>
 #include <components/openmw-mp/Packets/BasePacket.hpp>
+#include <components/openmw-mp/Records/DynamicRecordTypes.hpp>
 
 namespace mwmp
 {
     class PacketRecordDynamic : public BasePacket
     {
     public:
+        static constexpr std::uint32_t MaxEntries = 4096;
+
         PacketRecordDynamic()
             : BasePacket(PacketType::RecordDynamic)
         {
@@ -42,18 +45,22 @@ namespace mwmp
         {
             uint8_t wireAction = 0;
             rs.read(wireAction);
+            if (wireAction > static_cast<uint8_t>(DynamicRecordAction::Remove))
+                throw std::runtime_error("PacketRecordDynamic: invalid action");
             action = static_cast<DynamicRecordAction>(wireAction);
             recordType = rs.readString();
 
             uint32_t count = 0;
             rs.read(count);
+            if (count > MaxEntries)
+                throw std::runtime_error("PacketRecordDynamic: too many entries");
             entries.clear();
             entries.reserve(count);
             for (uint32_t i = 0; i < count; ++i)
             {
                 DynamicRecordEntry entry;
                 entry.recordId = rs.readString();
-                entry.data = rs.readBytes();
+                entry.data = rs.readBytes(records::MaximumDefinitionBytes);
                 entries.push_back(std::move(entry));
             }
         }

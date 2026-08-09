@@ -5,6 +5,7 @@
 #include <stdexcept>
 
 #include <components/openmw-mp/Records/DynamicRecordCodec.hpp>
+#include <components/openmw-mp/Records/DynamicRecordDependencies.hpp>
 #include <components/openmw-mp/Records/DynamicRecordFingerprint.hpp>
 #include <components/openmw-mp/Records/DynamicRecordValidation.hpp>
 #include <components/openmw-mp/Records/EsmDynamicRecordConversion.hpp>
@@ -97,6 +98,28 @@ TEST(DynamicRecord, DefinitionCodecRoundTripsEverySupportedType)
     book.isScroll = true;
     definitions.push_back({ CurrentSchemaVersion, book });
 
+    Dialogue dialogue;
+    dialogue.stringId = "A New Topic";
+    dialogue.type = 0;
+    DialogueInfo firstInfo;
+    firstInfo.infoId = "InfoA";
+    firstInfo.dialogueType = 0;
+    firstInfo.actorId = "some_npc";
+    firstInfo.response = "First response";
+    firstInfo.resultScript = "set example to 1\n";
+    firstInfo.conditions.push_back({ "QuestA", std::int32_t{ 20 }, 0, 76, '3' });
+    DialogueInfo secondInfo;
+    secondInfo.infoId = "InfoB";
+    secondInfo.dialogueType = 0;
+    secondInfo.response = "Second response";
+    dialogue.infos = { firstInfo, secondInfo };
+    definitions.push_back({ CurrentSchemaVersion, dialogue, AuthoringMode::New });
+
+    Script script;
+    script.recordFlags = 0x20;
+    script.sourceText = "Begin RuntimeScript\nshort state\nEnd RuntimeScript\n";
+    definitions.push_back({ CurrentSchemaVersion, script, AuthoringMode::Override });
+
     for (const DynamicRecordDefinition& definition : definitions)
     {
         SCOPED_TRACE(getRecordTypeName(getRecordType(definition)));
@@ -105,10 +128,85 @@ TEST(DynamicRecord, DefinitionCodecRoundTripsEverySupportedType)
 
         const DynamicRecordDefinition normalized = canonicalize(definition);
         const EsmDynamicRecord esm = toEsmRecord(normalized);
-        const DynamicRecordDefinition converted = std::visit(
+        DynamicRecordDefinition converted = std::visit(
             [](const auto& record) { return fromEsmRecord(record); }, esm);
+        converted.authoringMode = normalized.authoringMode;
         EXPECT_EQ(encodeDefinition(converted), encodeDefinition(normalized));
     }
+}
+
+TEST(DynamicRecord, DialogueOrderDerivesPrevAndNextWithoutEncodingLinks)
+{
+    using namespace mwmp::records;
+    Dialogue dialogue;
+    dialogue.stringId = "Topic";
+    dialogue.type = 0;
+    dialogue.infos = { DialogueInfo{ .infoId = "A" }, DialogueInfo{ .infoId = "B" },
+        DialogueInfo{ .infoId = "C" } };
+    for (DialogueInfo& info : dialogue.infos)
+        info.dialogueType = 0;
+    DynamicRecordDefinition definition{ CurrentSchemaVersion, dialogue, AuthoringMode::New };
+
+    const auto& esm = std::get<ESM::Dialogue>(toEsmRecord(definition));
+    ASSERT_EQ(esm.mInfo.size(), 3u);
+    auto it = esm.mInfo.begin();
+    EXPECT_TRUE(it->mPrev.empty());
+    EXPECT_EQ(it->mNext, ESM::RefId::stringRefId("b"));
+    ++it;
+    EXPECT_EQ(it->mPrev, ESM::RefId::stringRefId("a"));
+    EXPECT_EQ(it->mNext, ESM::RefId::stringRefId("c"));
+    ++it;
+    EXPECT_EQ(it->mPrev, ESM::RefId::stringRefId("b"));
+    EXPECT_TRUE(it->mNext.empty());
+}
+
+TEST(DynamicRecord, DialogueValidationRejectsDuplicateInfoIdentity)
+{
+    using namespace mwmp::records;
+    Dialogue dialogue;
+    dialogue.type = 4;
+    dialogue.infos = { DialogueInfo{ .infoId = "Entry", .dialogueType = 4 },
+        DialogueInfo{ .infoId = "ENTRY", .dialogueType = 4 } };
+    const auto errors = validate({ CurrentSchemaVersion, dialogue, AuthoringMode::Override });
+    EXPECT_NE(std::find_if(errors.begin(), errors.end(), [](const ValidationError& error) {
+        return error.code == "duplicate_dialogue_info";
+    }), errors.end());
+}
+
+TEST(DynamicRecord, CanonicalSourceAndDialogueDependenciesAreDeterministic)
+{
+    using namespace mwmp::records;
+    Script script;
+    script.sourceText = "Begin Test\r\nSet Value To 1\rEnd Test\r\n";
+    DynamicRecordDefinition scriptDefinition{ CurrentSchemaVersion, script, AuthoringMode::New };
+    EXPECT_EQ(std::get<Script>(canonicalize(scriptDefinition).data).sourceText,
+        "Begin Test\nSet Value To 1\nEnd Test\n");
+
+    Dialogue dialogue;
+    dialogue.type = 0;
+    DialogueInfo info;
+    info.infoId = "Info";
+    info.actorId = "NPC_A";
+    info.factionId = "Faction_A";
+    info.conditions.push_back({ "Quest_A", std::int32_t{ 10 }, 0, 76, '3' });
+    info.conditions.push_back({ "LocalName", std::int32_t{ 1 }, 1, 75, '0' });
+    dialogue.infos.push_back(info);
+    DynamicRecordDefinition dialogueDefinition{ CurrentSchemaVersion, dialogue, AuthoringMode::New };
+    EXPECT_EQ(extractContentDependencies(dialogueDefinition),
+        (std::vector<std::string>{ "faction_a", "npc_a", "quest_a" }));
+}
+
+TEST(DynamicRecord, SchemaOneDefinitionsUpgradeToGeneratedMode)
+{
+    using namespace mwmp::records;
+    DynamicRecordDefinition old = potionDefinition();
+    old.schemaVersion = 1;
+    const DynamicRecordDefinition decoded = decodeDefinition(encodeDefinition(old));
+    ASSERT_EQ(decoded.schemaVersion, 1);
+    const DynamicRecordDefinition upgraded = upgradeDefinition(decoded);
+    EXPECT_EQ(upgraded.schemaVersion, CurrentSchemaVersion);
+    EXPECT_EQ(upgraded.authoringMode, AuthoringMode::Generated);
+    EXPECT_TRUE(validate(upgraded).empty());
 }
 
 TEST(DynamicRecord, BundleCodecRoundTripsRelatedRecords)

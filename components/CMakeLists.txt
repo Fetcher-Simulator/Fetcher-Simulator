@@ -541,7 +541,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         BasePacket Serialization
     )
     add_component_dir (openmw-mp/Records
-        DynamicRecordCodec DynamicRecordFingerprint DynamicRecordValidation EsmDynamicRecordConversion RecordCreateProtocol AlchemyProtocol EnchantingProtocol
+        DynamicRecordCodec DynamicRecordDependencies DynamicRecordFingerprint DynamicRecordValidation EsmDynamicRecordConversion RecordCreateProtocol AlchemyProtocol EnchantingProtocol
     )
 endif()
 

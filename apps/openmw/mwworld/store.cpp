@@ -123,9 +123,17 @@ namespace MWWorld
     template <class T, class Id>
     void TypedDynamicStore<T, Id>::clearDynamic()
     {
-        // remove the dynamic part of mShared
-        assert(mShared.size() >= mStatic.size());
-        mShared.erase(mShared.begin() + mStatic.size(), mShared.end());
+        for (auto it = mShared.begin(); it != mShared.end();)
+        {
+            const auto staticIt = mStatic.find((*it)->mId);
+            if (staticIt != mStatic.end())
+            {
+                *it = &staticIt->second;
+                ++it;
+            }
+            else
+                it = mShared.erase(it);
+        }
         mDynamic.clear();
     }
 
@@ -280,7 +288,18 @@ namespace MWWorld
         std::pair<typename Dynamic::iterator, bool> result = mDynamic.insert_or_assign(item.mId, item);
         T* ptr = &result.first->second;
         if (result.second)
-            mShared.push_back(ptr);
+        {
+            const auto staticIt = mStatic.find(item.mId);
+            if (staticIt == mStatic.end())
+                mShared.push_back(ptr);
+            else
+            {
+                const auto shared = std::find_if(mShared.begin(), mShared.end(),
+                    [&](const T* value) { return value->mId == item.mId; });
+                if (shared != mShared.end())
+                    *shared = ptr;
+            }
+        }
         return ptr;
     }
     template <class T, class Id>
@@ -299,18 +318,12 @@ namespace MWWorld
 
         if (it != mStatic.end())
         {
-            // delete from the static part of mShared
-            typename std::vector<T*>::iterator sharedIter = mShared.begin();
-            typename std::vector<T*>::iterator end = sharedIter + mStatic.size();
-
-            while (sharedIter != mShared.end() && sharedIter != end)
+            if (!mDynamic.contains(id))
             {
-                if ((*sharedIter)->mId == id)
-                {
-                    mShared.erase(sharedIter);
-                    break;
-                }
-                ++sharedIter;
+                const auto shared = std::find_if(mShared.begin(), mShared.end(),
+                    [&](const T* value) { return value->mId == id; });
+                if (shared != mShared.end())
+                    mShared.erase(shared);
             }
             mStatic.erase(it);
         }
@@ -321,16 +334,21 @@ namespace MWWorld
     template <class T, class Id>
     bool TypedDynamicStore<T, Id>::erase(const Id& id)
     {
-        if (!eraseFromMap(mDynamic, id))
+        const auto dynamic = mDynamic.find(id);
+        if (dynamic == mDynamic.end())
             return false;
 
-        // have to reinit the whole shared part
-        assert(mShared.size() >= mStatic.size());
-        mShared.erase(mShared.begin() + mStatic.size(), mShared.end());
-        for (auto it = mDynamic.begin(); it != mDynamic.end(); ++it)
+        const auto shared = std::find_if(mShared.begin(), mShared.end(),
+            [&](const T* value) { return value->mId == id; });
+        if (shared != mShared.end())
         {
-            mShared.push_back(&it->second);
+            const auto staticIt = mStatic.find(id);
+            if (staticIt == mStatic.end())
+                mShared.erase(shared);
+            else
+                *shared = &staticIt->second;
         }
+        mDynamic.erase(dynamic);
         return true;
     }
     template <class T, class Id>
@@ -1004,6 +1022,26 @@ namespace MWWorld
 
     Store<ESM::Dialogue>::Store() {}
 
+    void Store<ESM::Dialogue>::rebuildShared()
+    {
+        mShared.clear();
+        mShared.reserve(mStatic.size() + mDynamic.size());
+        for (auto& [id, dialogue] : mStatic)
+        {
+            auto dynamic = mDynamic.find(id);
+            mShared.push_back(dynamic == mDynamic.end() ? &dialogue : &dynamic->second);
+        }
+        for (auto& [id, dialogue] : mDynamic)
+        {
+            if (!mStatic.contains(id))
+                mShared.push_back(&dialogue);
+        }
+        // Preserve the store's historical sorted iteration while exposing each
+        // effective Dialogue identity exactly once.
+        std::sort(mShared.begin(), mShared.end(),
+            [](const ESM::Dialogue* left, const ESM::Dialogue* right) { return left->mId < right->mId; });
+    }
+
     void Store<ESM::Dialogue>::setUp()
     {
         // DialInfos marked as deleted are kept during the loading phase, so that the linked list
@@ -1011,25 +1049,40 @@ namespace MWWorld
         for (auto& [_, dial] : mStatic)
             dial.setUp();
 
-        mShared.clear();
-        mShared.reserve(mStatic.size());
-        for (auto& [_, dial] : mStatic)
-            mShared.push_back(&dial);
-        // TODO: verify and document this inconsistent behaviour
-        // TODO: if we require this behaviour, maybe we should move it to the place that requires it
-        std::sort(mShared.begin(), mShared.end(),
-            [](const ESM::Dialogue* l, const ESM::Dialogue* r) -> bool { return l->mId < r->mId; });
+        rebuildShared();
+        mKeywordSearchModFlag = true;
+    }
 
+    void Store<ESM::Dialogue>::clearDynamic()
+    {
+        if (mDynamic.empty())
+            return;
+        mDynamic.clear();
+        rebuildShared();
         mKeywordSearchModFlag = true;
     }
 
     const ESM::Dialogue* Store<ESM::Dialogue>::search(const ESM::RefId& id) const
     {
+        typename Dynamic::const_iterator dynamic = mDynamic.find(id);
+        if (dynamic != mDynamic.end())
+            return &dynamic->second;
         typename Static::const_iterator it = mStatic.find(id);
         if (it != mStatic.end())
             return &(it->second);
 
         return nullptr;
+    }
+
+    const ESM::Dialogue* Store<ESM::Dialogue>::searchStatic(const ESM::RefId& id) const
+    {
+        typename Static::const_iterator it = mStatic.find(id);
+        return it == mStatic.end() ? nullptr : &it->second;
+    }
+
+    bool Store<ESM::Dialogue>::isDynamic(const ESM::RefId& id) const
+    {
+        return mDynamic.contains(id);
     }
 
     const ESM::Dialogue* Store<ESM::Dialogue>::find(const ESM::RefId& id) const
@@ -1057,6 +1110,40 @@ namespace MWWorld
     size_t Store<ESM::Dialogue>::getSize() const
     {
         return mShared.size();
+    }
+
+    size_t Store<ESM::Dialogue>::getDynamicSize() const
+    {
+        return mDynamic.size();
+    }
+
+    ESM::Dialogue* Store<ESM::Dialogue>::insert(const ESM::Dialogue& dialogue, bool overrideOnly)
+    {
+        if (overrideOnly && !mStatic.contains(dialogue.mId))
+            return nullptr;
+        auto [it, inserted] = mDynamic.insert_or_assign(dialogue.mId, dialogue);
+        (void)inserted;
+        rebuildShared();
+        mKeywordSearchModFlag = true;
+        return &it->second;
+    }
+
+    ESM::Dialogue* Store<ESM::Dialogue>::insertStatic(const ESM::Dialogue& dialogue)
+    {
+        auto [it, inserted] = mStatic.insert_or_assign(dialogue.mId, dialogue);
+        (void)inserted;
+        rebuildShared();
+        mKeywordSearchModFlag = true;
+        return &it->second;
+    }
+
+    bool Store<ESM::Dialogue>::erase(const ESM::RefId& id)
+    {
+        if (!eraseFromMap(mDynamic, id))
+            return false;
+        rebuildShared();
+        mKeywordSearchModFlag = true;
+        return true;
     }
 
     inline RecordId Store<ESM::Dialogue>::load(ESM::ESMReader& esm)
@@ -1087,7 +1174,10 @@ namespace MWWorld
     bool Store<ESM::Dialogue>::eraseStatic(const ESM::RefId& id)
     {
         if (eraseFromMap(mStatic, id))
+        {
+            rebuildShared();
             mKeywordSearchModFlag = true;
+        }
 
         return true;
     }

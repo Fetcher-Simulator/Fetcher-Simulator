@@ -7,7 +7,9 @@
 #include <components/esm3/loadarmo.hpp>
 #include <components/esm3/loadbook.hpp>
 #include <components/esm3/loadclot.hpp>
+#include <components/esm3/loaddial.hpp>
 #include <components/esm3/loadench.hpp>
+#include <components/esm3/loadscpt.hpp>
 #include <components/esm3/loadweap.hpp>
 
 #include "DynamicRecordTypes.hpp"
@@ -15,7 +17,8 @@
 namespace mwmp::records
 {
     using EsmDynamicRecord
-        = std::variant<ESM::Potion, ESM::Enchantment, ESM::Weapon, ESM::Armor, ESM::Clothing, ESM::Book>;
+        = std::variant<ESM::Potion, ESM::Enchantment, ESM::Weapon, ESM::Armor, ESM::Clothing, ESM::Book,
+            ESM::Dialogue, ESM::Script>;
 
     EsmDynamicRecord toEsmRecord(const DynamicRecordDefinition& definition);
 
@@ -25,6 +28,8 @@ namespace mwmp::records
     DynamicRecordDefinition fromEsmRecord(const ESM::Armor& record);
     DynamicRecordDefinition fromEsmRecord(const ESM::Clothing& record);
     DynamicRecordDefinition fromEsmRecord(const ESM::Book& record);
+    DynamicRecordDefinition fromEsmRecord(const ESM::Dialogue& record);
+    DynamicRecordDefinition fromEsmRecord(const ESM::Script& record);
 }
 
 #endif

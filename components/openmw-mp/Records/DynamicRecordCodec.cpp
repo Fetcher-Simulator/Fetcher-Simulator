@@ -29,6 +29,7 @@ namespace mwmp::records
                     u8(static_cast<std::uint8_t>(value >> shift));
             }
             void i16(std::int16_t value) { u16(std::bit_cast<std::uint16_t>(value)); }
+            void i8(std::int8_t value) { u8(std::bit_cast<std::uint8_t>(value)); }
             void i32(std::int32_t value) { u32(std::bit_cast<std::uint32_t>(value)); }
             void f32(float value) { u32(std::bit_cast<std::uint32_t>(value)); }
             void string(std::string_view value)
@@ -71,6 +72,7 @@ namespace mwmp::records
                 return value;
             }
             std::int16_t i16() { return std::bit_cast<std::int16_t>(u16()); }
+            std::int8_t i8() { return std::bit_cast<std::int8_t>(u8()); }
             std::int32_t i32() { return std::bit_cast<std::int32_t>(u32()); }
             float f32() { return std::bit_cast<float>(u32()); }
             std::string string()
@@ -213,10 +215,103 @@ namespace mwmp::records
             return parts;
         }
 
+        void writeConditions(Writer& out, const std::vector<DialogueCondition>& conditions)
+        {
+            out.u32(static_cast<std::uint32_t>(conditions.size()));
+            for (const DialogueCondition& condition : conditions)
+            {
+                out.string(condition.variable);
+                if (const auto* value = std::get_if<std::int32_t>(&condition.value))
+                {
+                    out.u8(0);
+                    out.i32(*value);
+                }
+                else
+                {
+                    out.u8(1);
+                    out.f32(std::get<float>(condition.value));
+                }
+                out.u8(condition.index);
+                out.i8(condition.function);
+                out.u8(static_cast<std::uint8_t>(condition.comparison));
+            }
+        }
+
+        std::vector<DialogueCondition> readConditions(Reader& in)
+        {
+            const std::uint32_t count = in.u32();
+            if (count > sMaximumDecodedCollection)
+                throw std::runtime_error("Too many conditions in dynamic Dialogue payload");
+            std::vector<DialogueCondition> conditions(count);
+            for (DialogueCondition& condition : conditions)
+            {
+                condition.variable = in.string();
+                const std::uint8_t valueType = in.u8();
+                if (valueType == 0)
+                    condition.value = in.i32();
+                else if (valueType == 1)
+                    condition.value = in.f32();
+                else
+                    throw std::runtime_error("Unsupported dynamic Dialogue condition value type");
+                condition.index = in.u8();
+                condition.function = in.i8();
+                condition.comparison = static_cast<char>(in.u8());
+            }
+            return conditions;
+        }
+
+        void writeDialogueInfo(Writer& out, const DialogueInfo& info)
+        {
+            out.string(info.infoId);
+            out.i32(info.dialogueType);
+            out.i32(info.dispositionOrJournalIndex);
+            out.i8(info.rank);
+            out.i8(info.gender);
+            out.i8(info.pcRank);
+            writeConditions(out, info.conditions);
+            out.string(info.actorId);
+            out.string(info.raceId);
+            out.string(info.classId);
+            out.string(info.factionId);
+            out.string(info.pcFactionId);
+            out.string(info.cellId);
+            out.string(info.sound);
+            out.string(info.response);
+            out.string(info.resultScript);
+            out.u8(info.factionLess ? 1 : 0);
+            out.i8(info.questStatus);
+        }
+
+        DialogueInfo readDialogueInfo(Reader& in)
+        {
+            DialogueInfo info;
+            info.infoId = in.string();
+            info.dialogueType = in.i32();
+            info.dispositionOrJournalIndex = in.i32();
+            info.rank = in.i8();
+            info.gender = in.i8();
+            info.pcRank = in.i8();
+            info.conditions = readConditions(in);
+            info.actorId = in.string();
+            info.raceId = in.string();
+            info.classId = in.string();
+            info.factionId = in.string();
+            info.pcFactionId = in.string();
+            info.cellId = in.string();
+            info.sound = in.string();
+            info.response = in.string();
+            info.resultScript = in.string();
+            info.factionLess = in.u8() != 0;
+            info.questStatus = in.i8();
+            return info;
+        }
+
         void writeDefinitionBody(Writer& out, const DynamicRecordDefinition& definition)
         {
             out.u16(definition.schemaVersion);
             out.u8(static_cast<std::uint8_t>(getRecordType(definition)));
+            if (definition.schemaVersion >= 2)
+                out.u8(static_cast<std::uint8_t>(definition.authoringMode));
             std::visit(
                 [&out](const auto& record) {
                     using Record = std::decay_t<decltype(record)>;
@@ -279,6 +374,25 @@ namespace mwmp::records
                         out.i32(record.skillId);
                         out.i32(record.enchantCapacity);
                     }
+                    else if constexpr (std::is_same_v<Record, Dialogue>)
+                    {
+                        out.string(record.stringId);
+                        out.i8(record.type);
+                        out.u32(static_cast<std::uint32_t>(record.infos.size()));
+                        for (const DialogueInfo& info : record.infos)
+                            writeDialogueInfo(out, info);
+                        out.u32(static_cast<std::uint32_t>(record.declaredDependencies.size()));
+                        for (const std::string& dependency : record.declaredDependencies)
+                            out.string(dependency);
+                    }
+                    else if constexpr (std::is_same_v<Record, Script>)
+                    {
+                        out.u32(record.recordFlags);
+                        out.string(record.sourceText);
+                        out.u32(static_cast<std::uint32_t>(record.declaredDependencies.size()));
+                        for (const std::string& dependency : record.declaredDependencies)
+                            out.string(dependency);
+                    }
                 },
                 definition.data);
         }
@@ -288,6 +402,8 @@ namespace mwmp::records
             DynamicRecordDefinition definition;
             definition.schemaVersion = in.u16();
             const RecordType type = static_cast<RecordType>(in.u8());
+            if (definition.schemaVersion >= 2)
+                definition.authoringMode = static_cast<AuthoringMode>(in.u8());
             switch (type)
             {
                 case RecordType::Potion:
@@ -367,6 +483,40 @@ namespace mwmp::records
                     definition.data = std::move(value);
                     break;
                 }
+                case RecordType::Dialogue:
+                {
+                    Dialogue value;
+                    value.stringId = in.string();
+                    value.type = in.i8();
+                    const std::uint32_t count = in.u32();
+                    if (count > sMaximumDecodedCollection)
+                        throw std::runtime_error("Too many INFOs in dynamic Dialogue payload");
+                    value.infos.reserve(count);
+                    for (std::uint32_t i = 0; i < count; ++i)
+                        value.infos.push_back(readDialogueInfo(in));
+                    const std::uint32_t dependencyCount = in.u32();
+                    if (dependencyCount > sMaximumDecodedCollection)
+                        throw std::runtime_error("Too many declared Dialogue dependencies");
+                    value.declaredDependencies.reserve(dependencyCount);
+                    for (std::uint32_t i = 0; i < dependencyCount; ++i)
+                        value.declaredDependencies.push_back(in.string());
+                    definition.data = std::move(value);
+                    break;
+                }
+                case RecordType::Script:
+                {
+                    Script value;
+                    value.recordFlags = in.u32();
+                    value.sourceText = in.string();
+                    const std::uint32_t dependencyCount = in.u32();
+                    if (dependencyCount > sMaximumDecodedCollection)
+                        throw std::runtime_error("Too many declared Script dependencies");
+                    value.declaredDependencies.reserve(dependencyCount);
+                    for (std::uint32_t i = 0; i < dependencyCount; ++i)
+                        value.declaredDependencies.push_back(in.string());
+                    definition.data = std::move(value);
+                    break;
+                }
                 default:
                     throw std::runtime_error("Unsupported dynamic record type tag");
             }
@@ -389,8 +539,12 @@ namespace mwmp::records
                     return RecordType::Armor;
                 else if constexpr (std::is_same_v<Record, Clothing>)
                     return RecordType::Clothing;
-                else
+                else if constexpr (std::is_same_v<Record, Book>)
                     return RecordType::Book;
+                else if constexpr (std::is_same_v<Record, Dialogue>)
+                    return RecordType::Dialogue;
+                else
+                    return RecordType::Script;
             },
             definition.data);
     }
@@ -411,6 +565,10 @@ namespace mwmp::records
                 return "clothing";
             case RecordType::Book:
                 return "book";
+            case RecordType::Dialogue:
+                return "dialogue";
+            case RecordType::Script:
+                return "script";
         }
         return {};
     }
@@ -420,11 +578,16 @@ namespace mwmp::records
         Writer out;
         out.fixed(sDefinitionMagic);
         writeDefinitionBody(out, definition);
-        return out.take();
+        std::string result = out.take();
+        if (result.size() > MaximumDefinitionBytes)
+            throw std::length_error("Dynamic record definition exceeds encoding limit");
+        return result;
     }
 
     DynamicRecordDefinition decodeDefinition(std::string_view bytes)
     {
+        if (bytes.size() > MaximumDefinitionBytes)
+            throw std::runtime_error("Dynamic record definition exceeds decoding limit");
         Reader in(bytes);
         in.expect(sDefinitionMagic);
         DynamicRecordDefinition definition = readDefinitionBody(in);
@@ -449,11 +612,16 @@ namespace mwmp::records
             out.string(dependency.ownerKey);
             out.string(dependency.dependencyKey);
         }
-        return out.take();
+        std::string result = out.take();
+        if (result.size() > MaximumBundleBytes)
+            throw std::length_error("Dynamic record bundle exceeds encoding limit");
+        return result;
     }
 
     DynamicRecordBundle decodeBundle(std::string_view bytes)
     {
+        if (bytes.size() > MaximumBundleBytes)
+            throw std::runtime_error("Dynamic record bundle exceeds decoding limit");
         Reader in(bytes);
         in.expect(sBundleMagic);
         DynamicRecordBundle bundle;

@@ -38,7 +38,7 @@ namespace mwmp
             request.operation = static_cast<records::CreateOperation>(operation);
             stream.read(request.inventoryRevision);
             request.scriptPackageId = stream.readString();
-            request.bundle = records::decodeBundle(stream.readBytes());
+            request.bundle = records::decodeBundle(stream.readBytes(records::MaximumBundleBytes));
             request.evidence = stream.readBytes();
             if (!stream.eof())
                 throw std::runtime_error("Trailing bytes in record create request");

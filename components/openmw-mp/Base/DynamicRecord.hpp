@@ -38,6 +38,7 @@ namespace mwmp
             || normalized == "clothing"
             || normalized == "container"
             || normalized == "creature"
+            || normalized == "dialogue"
             || normalized == "door"
             || normalized == "enchantment"
             || normalized == "light"
@@ -45,6 +46,7 @@ namespace mwmp
             || normalized == "npc"
             || normalized == "potion"
             || normalized == "spell"
+            || normalized == "script"
             || normalized == "static"
             || normalized == "weapon")
         {
@@ -64,6 +66,17 @@ namespace mwmp
         if (normalized == "generated" || normalized == "permanent")
             return normalized;
 
+        return {};
+    }
+
+    inline std::string normalizeDynamicRecordAuthoringMode(std::string_view mode)
+    {
+        std::string normalized(mode);
+        std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        if (normalized == "generated" || normalized == "new" || normalized == "override")
+            return normalized;
         return {};
     }
 }

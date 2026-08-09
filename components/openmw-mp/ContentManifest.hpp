@@ -14,9 +14,11 @@ namespace mwmp
     // server-authoritative alchemy skill progression.
     // ContentManifestVersion 4 adds Creature and NPC, which feed the
     // server-authoritative enchanting charge and paid-enchanter pricing.
-    inline constexpr std::uint16_t ContentManifestVersion = 4;
+    // ContentManifestVersion 5 / OMRC v5 add Dialogue/INFO and Script to the
+    // resolved static baseline used to validate explicit server overlays.
+    inline constexpr std::uint16_t ContentManifestVersion = 5;
     inline constexpr std::uint16_t ContentApiVersion = 1;
-    inline constexpr std::uint16_t RuntimeRecordCapabilityManifestVersion = 1;
+    inline constexpr std::uint16_t RuntimeRecordCapabilityManifestVersion = 2;
 }
 
 #endif
