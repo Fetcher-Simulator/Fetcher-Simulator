@@ -1,7 +1,6 @@
 #include "WorldStateSync.hpp"
 
 #include <components/debug/debuglog.hpp>
-#include <type_traits>
 #include <components/esm/refid.hpp>
 #include <components/esm3/loadacti.hpp>
 #include <components/esm3/loadarmo.hpp>
@@ -22,7 +21,6 @@
 #include <components/openmw-mp/Packets/Worldstate/PacketWorldTime.hpp>
 #include <components/openmw-mp/Records/DynamicRecordCodec.hpp>
 #include <components/openmw-mp/Records/DynamicRecordValidation.hpp>
-#include <components/openmw-mp/Records/EsmDynamicRecordConversion.hpp>
 #include <sol/sol.hpp>
 
 #include "../../mwbase/environment.hpp"
@@ -41,6 +39,7 @@
 
 #include "../network/Client.hpp"
 #include "../Main.hpp"
+#include "../records/TypedDynamicRecordInstaller.hpp"
 #include "../sync/PlayerSync.hpp"
 
 namespace mwmp
@@ -84,52 +83,6 @@ static bool isTypedDynamicRecordPayload(const LuaUtil::BinaryData& data)
     // The canonical codec starts with "OMDR". Legacy server-Lua records remain
     // Lua-serialized tables and continue through the parser below.
     return data.size() >= 4 && data[0] == 'O' && data[1] == 'M' && data[2] == 'D' && data[3] == 'R';
-}
-
-static void applyTypedDynamicRecordUpsert(MWWorld::ESMStore& store, const std::string& recordId,
-    const records::DynamicRecordDefinition& definition)
-{
-    records::EsmDynamicRecord esm = records::toEsmRecord(definition);
-    std::visit(
-        [&](auto& record) {
-            using Record = std::decay_t<decltype(record)>;
-            record.mId = ESM::RefId::stringRefId(recordId);
-            if constexpr (std::is_same_v<Record, ESM::Dialogue>)
-            {
-                if (record.mStringId.empty())
-                    record.mStringId = recordId;
-            }
-
-            const auto& typedStore = store.get<Record>();
-            bool overrideOnly = false;
-            switch (definition.authoringMode)
-            {
-                case records::AuthoringMode::Generated:
-                    if constexpr (std::is_same_v<Record, ESM::Dialogue> || std::is_same_v<Record, ESM::Script>)
-                        throw std::runtime_error("typed_server_content_requires_explicit_mode");
-                    break;
-                case records::AuthoringMode::New:
-                    if (typedStore.searchStatic(record.mId) != nullptr)
-                        throw std::runtime_error("new_record_collides_with_static_content");
-                    break;
-                case records::AuthoringMode::Override:
-                    if constexpr (!std::is_same_v<Record, ESM::Dialogue> && !std::is_same_v<Record, ESM::Script>)
-                        throw std::runtime_error("static_override_type_not_supported");
-                    if (MWBase::Environment::get().getStateManager()->getState()
-                        == MWBase::StateManager::State_Running)
-                        throw std::runtime_error("static_override_requires_bootstrap");
-                    if (typedStore.searchStatic(record.mId) == nullptr)
-                        throw std::runtime_error("override_record_has_no_static_base");
-                    overrideOnly = true;
-                    break;
-            }
-
-            if (store.overrideRecord(record, overrideOnly) == nullptr)
-                throw std::runtime_error("dynamic_record_install_failed");
-            if constexpr (std::is_same_v<Record, ESM::Script>)
-                MWBase::Environment::get().getScriptManager()->invalidate(record.mId);
-        },
-        esm);
 }
 
 template <class Record>
@@ -320,6 +273,9 @@ void WorldStateSync::onServerRecordDynamic(
     const std::string normalizedType = normalizeDynamicRecordType(recordType);
     if (normalizedType.empty() || entries.empty())
     {
+        if (mRuntimeContentBootstrapOpen && mRuntimeContentBootstrapError.empty())
+            mRuntimeContentBootstrapError = "invalid RecordDynamic bootstrap packet: type='" + recordType
+                + "' entries=" + std::to_string(entries.size());
         Log(Debug::Warning) << "[MP] WorldStateSync: ignored dynamic record packet with invalid type='"
                             << recordType << "'";
         return;
@@ -333,10 +289,53 @@ void WorldStateSync::onServerRecordDynamic(
     processPendingDynamicRecords();
 }
 
+void WorldStateSync::beginRuntimeContentBootstrap()
+{
+    mRuntimeContentBootstrapOpen = true;
+    mRuntimeContentBootstrapError.clear();
+}
+
+void WorldStateSync::noteRuntimeContentBootstrapError(std::string error)
+{
+    if (mRuntimeContentBootstrapOpen && mRuntimeContentBootstrapError.empty())
+        mRuntimeContentBootstrapError = std::move(error);
+}
+
+WorldStateSync::RuntimeContentBootstrapResult WorldStateSync::finishRuntimeContentBootstrap()
+{
+    processPendingDynamicRecords();
+
+    RuntimeContentBootstrapResult result;
+    result.unresolvedDefinitions = mPendingDynamicRecords.size();
+    if (!mRuntimeContentBootstrapError.empty())
+    {
+        result.error = mRuntimeContentBootstrapError;
+        mRuntimeContentBootstrapOpen = false;
+        return result;
+    }
+
+    if (!mPendingDynamicRecords.empty())
+    {
+        const PendingDynamicRecord& pending = mPendingDynamicRecords.front();
+        const std::string recordId = pending.entries.empty() ? std::string{} : pending.entries.front().recordId;
+        result.error = "unresolved runtime content definition: type='" + pending.recordType
+            + "' id='" + recordId + "' reason='"
+            + (pending.lastError.empty() ? "installation_deferred" : pending.lastError) + "'";
+        mRuntimeContentBootstrapOpen = false;
+        return result;
+    }
+
+    result.complete = true;
+    mRuntimeContentBootstrapOpen = false;
+    return result;
+}
+
 void WorldStateSync::resetSessionState()
 {
     mPendingDynamicRecords.clear();
     mInstalledTypedDefinitions.clear();
+    mRuntimeContentBootstrapOpen = true;
+    mRuntimeContentBootstrapError.clear();
 }
 
 void WorldStateSync::processPendingDynamicRecords()
@@ -443,7 +442,12 @@ bool WorldStateSync::applyDynamicRecord(const PendingDynamicRecord& record, std:
                             throw std::runtime_error("conflicting_server_content_overlay");
                         }
                     }
-                    applyTypedDynamicRecordUpsert(store, entry.recordId, definition);
+                    const bool gameplayRunning = MWBase::Environment::get().getStateManager()->getState()
+                        == MWBase::StateManager::State_Running;
+                    installTypedDynamicRecord(store, entry.recordId, definition, gameplayRunning,
+                        [](const ESM::RefId& scriptId) {
+                            MWBase::Environment::get().getScriptManager()->invalidate(scriptId);
+                        });
                     if (definition.authoringMode != records::AuthoringMode::Generated)
                         mInstalledTypedDefinitions.emplace(installedKey, entry.data);
                 }

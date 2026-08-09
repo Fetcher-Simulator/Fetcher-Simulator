@@ -111,6 +111,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         openmw-mp/playerspellbook.cpp
         openmw-mp/playerspellbookdatabase.cpp
         openmw-mp/masterserverprotocol.cpp
+        openmw-mp/runtimecontentbootstrap.cpp
         openmw-mp/dynamicrecord.cpp
         openmw-mp/dynamicrecorddatabase.cpp
         openmw-mp/dynamicrecordservice.cpp

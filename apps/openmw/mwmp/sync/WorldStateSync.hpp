@@ -13,6 +13,13 @@ namespace mwmp
     class WorldStateSync
     {
     public:
+        struct RuntimeContentBootstrapResult
+        {
+            bool complete = false;
+            std::size_t unresolvedDefinitions = 0;
+            std::string error;
+        };
+
         explicit WorldStateSync(NetworkClient& client);
         void update(float dt);
         void onServerTimeUpdate   (const Time& t, float timeScale);
@@ -20,6 +27,9 @@ namespace mwmp
                                    const std::string& regionName);
         void onServerRecordDynamic(
             DynamicRecordAction action, const std::string& recordType, std::vector<DynamicRecordEntry> entries);
+        void noteRuntimeContentBootstrapError(std::string error);
+        void beginRuntimeContentBootstrap();
+        RuntimeContentBootstrapResult finishRuntimeContentBootstrap();
         void resetSessionState();
         void setDynamicRecordChangeCallback(std::function<void()> callback)
         {
@@ -67,6 +77,8 @@ namespace mwmp
         std::vector<PendingDynamicRecord> mPendingDynamicRecords;
         std::unordered_map<std::string, std::string> mInstalledTypedDefinitions;
         std::function<void()> mDynamicRecordChangeCallback;
+        bool mRuntimeContentBootstrapOpen = true;
+        std::string mRuntimeContentBootstrapError;
 
         static constexpr float SYNC_RATE           = 5.f;
         static constexpr float WEATHER_REPORT_RATE = 30.f; // host reports every 30 real-seconds

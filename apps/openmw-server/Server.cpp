@@ -67,6 +67,7 @@
 #include <components/openmw-mp/Packets/Object/PacketContainer.hpp>
 #include <components/openmw-mp/Packets/Object/PacketDoorState.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketRecordDynamic.hpp>
+#include <components/openmw-mp/Packets/Worldstate/PacketRuntimeContentBootstrapComplete.hpp>
 #include <components/openmw-mp/Packets/Records/PacketRecordCreateRequest.hpp>
 #include <components/openmw-mp/Packets/Records/PacketRecordCreateResult.hpp>
 #include <components/openmw-mp/Packets/Records/PacketAlchemyRequest.hpp>
@@ -5526,15 +5527,15 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
     cdPkt.characterId = c.dbCharacterId;
     c.slotName = cdPkt.characterName;
 
-    // Queue records and the persisted actor baseline before CharacterData.  The
-    // client enters the selected character's world as soon as CharacterData is
-    // handled; sending the target cell afterwards lets the first authority load
-    // and simulate persisted corpses as living actors for at least one frame.
-    // CharacterData and ActorDeath share the reliable realtime lane below, so
-    // this preamble lets ActorSync cache death state while OpenMW is still in
-    // State_NoGame.
+    // Queue records and the persisted actor baseline before CharacterData.
+    // CharacterData may overtake the default reliable lane because it shares
+    // realtime actor lane 1 with ActorDeath. The ordered runtime-content marker
+    // explicitly gates client world entry without weakening corpse bootstrap
+    // ordering on the actor lane.
     // The normal sendCellStateToClient() below remains the post-selection catch-up.
     sendDynamicRecordsToClient(c.conn);
+    PacketRuntimeContentBootstrapComplete runtimeContentComplete;
+    sendTo(c.conn, runtimeContentComplete.encode());
     sendAuthoritativeJournal(c);
     if (!cdPkt.spawnCell.empty())
     {
