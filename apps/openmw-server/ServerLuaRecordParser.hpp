@@ -10,7 +10,8 @@ namespace mwmp
     /// Compatibility boundary for the historical server-Lua table format.
     /// New persistence and network traffic must use the returned typed DTO.
     records::DynamicRecordDefinition parseServerLuaRecord(
-        std::string_view recordType, std::string_view serializedTable);
+        std::string_view recordType, std::string_view serializedTable,
+        records::AuthoringMode authoringMode = records::AuthoringMode::Generated);
 
     bool isCanonicalServerLuaRecordType(std::string_view recordType);
 }

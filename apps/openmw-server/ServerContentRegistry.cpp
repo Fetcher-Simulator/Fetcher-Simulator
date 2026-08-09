@@ -16,6 +16,8 @@
 #include <boost/program_options/variables_map.hpp>
 
 #include <components/debug/debuglog.hpp>
+#include <components/compiler/extensions.hpp>
+#include <components/compiler/extensions0.hpp>
 #include <components/fallback/fallback.hpp>
 #include <components/fallback/validate.hpp>
 #include <components/esm/attr.hpp>
@@ -34,6 +36,7 @@
 #include <components/files/collections.hpp>
 #include <components/files/configurationmanager.hpp>
 #include <components/openmw-mp/Sha256.hpp>
+#include <components/openmw-mp/Records/EsmDynamicRecordConversion.hpp>
 #include <components/resource/resourcesystem.hpp>
 #include <components/settings/parser.hpp>
 #include <components/settings/settings.hpp>
@@ -46,6 +49,9 @@
 #include <apps/openmw/mwbase/environment.hpp>
 #include <apps/openmw/mwlua/luamanagerimp.hpp>
 #include <apps/openmw/mwmp/records/ResolvedContentFingerprint.hpp>
+#include <apps/openmw/mwscript/compilercontext.hpp>
+#include <apps/openmw/mwscript/extensions.hpp>
+#include <apps/openmw/mwscript/scriptmanagerimp.hpp>
 #include <apps/openmw/mwworld/esmstore.hpp>
 #include <apps/openmw/mwworld/worldimp.hpp>
 
@@ -193,6 +199,9 @@ struct mwmp::ServerContentRegistry::Runtime
     std::unique_ptr<Resource::ResourceSystem> resources;
     std::unique_ptr<MWWorld::World> world;
     std::unique_ptr<MWLua::LuaManager> lua;
+    Compiler::Extensions scriptExtensions;
+    std::unique_ptr<MWScript::CompilerContext> scriptCompilerContext;
+    std::unique_ptr<MWScript::ScriptManager> scriptManager;
     std::vector<std::string> contentFiles;
 };
 
@@ -233,6 +242,13 @@ mwmp::ServerContentRegistry::loadRuntime(const Config& config)
     runtime->contentFiles = parsed.contentFiles;
     runtime->world->loadData(
         *runtime->collections, runtime->contentFiles, {}, runtime->encoder.get(), nullptr, false);
+    Compiler::registerExtensions(runtime->scriptExtensions);
+    runtime->scriptCompilerContext
+        = std::make_unique<MWScript::CompilerContext>(MWScript::CompilerContext::Type_Full);
+    runtime->scriptCompilerContext->setExtensions(&runtime->scriptExtensions);
+    runtime->scriptManager = std::make_unique<MWScript::ScriptManager>(
+        runtime->world->getStore(), *runtime->scriptCompilerContext, 1);
+    runtime->environment->setScriptManager(*runtime->scriptManager);
     return runtime;
 }
 
@@ -316,6 +332,7 @@ bool mwmp::ServerContentRegistry::hasContentId(std::string_view id) const
             || content.get<ESM::MagicEffect>().search(refId) != nullptr
             || content.get<ESM::Skill>().search(refId) != nullptr
             || content.get<ESM::Attribute>().search(refId) != nullptr
+            || content.get<ESM::Dialogue>().search(refId) != nullptr
             || content.get<ESM::Script>().search(refId) != nullptr
             || content.get<ESM::BodyPart>().search(refId) != nullptr
             || content.get<ESM::Spell>().search(refId) != nullptr;
@@ -324,6 +341,78 @@ bool mwmp::ServerContentRegistry::hasContentId(std::string_view id) const
     {
         return false;
     }
+}
+
+bool mwmp::ServerContentRegistry::hasStaticRecord(std::uint8_t recordType, std::string_view id) const
+{
+    ESM::RefId refId = ESM::RefId::deserializeText(id);
+    if (refId.empty())
+        refId = ESM::RefId::stringRefId(id);
+    switch (static_cast<records::RecordType>(recordType))
+    {
+        case records::RecordType::Potion:
+            return store().get<ESM::Potion>().searchStatic(refId) != nullptr;
+        case records::RecordType::Enchantment:
+            return store().get<ESM::Enchantment>().searchStatic(refId) != nullptr;
+        case records::RecordType::Weapon:
+            return store().get<ESM::Weapon>().searchStatic(refId) != nullptr;
+        case records::RecordType::Armor:
+            return store().get<ESM::Armor>().searchStatic(refId) != nullptr;
+        case records::RecordType::Clothing:
+            return store().get<ESM::Clothing>().searchStatic(refId) != nullptr;
+        case records::RecordType::Book:
+            return store().get<ESM::Book>().searchStatic(refId) != nullptr;
+        case records::RecordType::Dialogue:
+            return store().get<ESM::Dialogue>().searchStatic(refId) != nullptr;
+        case records::RecordType::Script:
+            return store().get<ESM::Script>().searchStatic(refId) != nullptr;
+    }
+    return false;
+}
+
+bool mwmp::ServerContentRegistry::validateScriptSource(std::string_view id, std::string_view source) const
+{
+    ESM::RefId refId = ESM::RefId::deserializeText(id);
+    if (refId.empty())
+        refId = ESM::RefId::stringRefId(id);
+    return mRuntime->scriptManager->validateSource(refId, source);
+}
+
+void mwmp::ServerContentRegistry::installRuntimeDefinition(
+    std::string_view id, const records::DynamicRecordDefinition& definition)
+{
+    const records::RecordType type = records::getRecordType(definition);
+    if (type != records::RecordType::Dialogue && type != records::RecordType::Script)
+        return;
+    if (definition.authoringMode == records::AuthoringMode::Generated)
+        throw std::runtime_error("Server content definition requires explicit authoring mode");
+
+    const ESM::RefId refId = ESM::RefId::stringRefId(id);
+    MWWorld::ESMStore& content = mRuntime->world->getStore();
+    records::EsmDynamicRecord converted = records::toEsmRecord(definition);
+    std::visit([&](auto& record) {
+        using Record = std::decay_t<decltype(record)>;
+        if constexpr (std::is_same_v<Record, ESM::Dialogue> || std::is_same_v<Record, ESM::Script>)
+        {
+            record.mId = refId;
+            if constexpr (std::is_same_v<Record, ESM::Dialogue>)
+            {
+                if (record.mStringId.empty())
+                    record.mStringId = std::string(id);
+            }
+            const bool overrideOnly = definition.authoringMode == records::AuthoringMode::Override;
+            const auto& typedStore = content.get<Record>();
+            if (definition.authoringMode == records::AuthoringMode::New
+                && typedStore.searchStatic(refId) != nullptr)
+                throw std::runtime_error("New server content collides with static content");
+            if (content.overrideRecord(record, overrideOnly) == nullptr)
+                throw std::runtime_error("Server content override has no static base");
+            if constexpr (std::is_same_v<Record, ESM::Script>)
+                mRuntime->scriptManager->invalidate(refId);
+        }
+        else
+            throw std::runtime_error("Unexpected runtime server content type");
+    }, converted);
 }
 
 bool mwmp::ServerContentRegistry::hasAsset(std::string_view path) const

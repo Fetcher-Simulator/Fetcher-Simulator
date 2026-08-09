@@ -49,6 +49,9 @@ namespace MWBase
         ///< Compile script with the given namen
         /// \return Success?
 
+        virtual void invalidate(const ESM::RefId& name) = 0;
+        ///< Discard cached bytecode and locals after a runtime definition overlay.
+
         virtual std::pair<int, int> compileAll() = 0;
         ///< Compile all scripts
         /// \return count, success

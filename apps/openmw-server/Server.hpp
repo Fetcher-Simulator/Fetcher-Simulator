@@ -233,7 +233,7 @@ public:
     bool resetCellStateForTesting(const std::string& cellId);
     std::size_t resetAllCellStatesForTesting();
     bool upsertDynamicRecord(const std::string& recordType, const std::string& recordId, const std::string& data,
-        const std::string& recordScope, bool persistent);
+        const std::string& recordScope, bool persistent, const std::string& authoringMode = "generated");
     bool removeDynamicRecord(const std::string& recordType, const std::string& recordId);
     bool setDynamicRecordDependencies(
         const std::string& recordType, const std::string& recordId, const std::vector<std::string>& dependencyRecordIds);
@@ -627,6 +627,7 @@ private:
             std::string recordScope = "permanent";
             bool persistent = true;
             uint64_t sequence = 0;
+            std::vector<std::string> dependencyRecordIds;
         };
 
         float gameHour   = 8.f;   // 0..24

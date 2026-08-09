@@ -190,7 +190,8 @@ public:
     void queueEnsureInventoryItem(uint32_t guid, const std::string& refId);
     void queueRemovePlacedObject(uint32_t mpNum, const std::string& cellId);
     void queueUpsertDynamicRecord(const std::string& recordType, const std::string& recordId,
-        const LuaUtil::BinaryData& data, const std::string& recordScope, bool persistent);
+        const LuaUtil::BinaryData& data, const std::string& recordScope, bool persistent,
+        const std::string& authoringMode = "generated");
     void queueRemoveDynamicRecord(const std::string& recordType, const std::string& recordId);
     void queueSetDynamicRecordDependencies(
         const std::string& recordType, const std::string& recordId, std::vector<std::string> dependencyRecordIds);

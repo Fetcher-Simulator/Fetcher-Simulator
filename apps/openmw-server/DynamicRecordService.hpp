@@ -50,6 +50,11 @@ namespace mwmp
             std::function<bool(std::string_view)> isAssetAllowed;
             std::function<bool(std::string_view)> isModelAllowed;
             std::function<bool(std::string_view)> isIconAllowed;
+            std::function<std::optional<CatalogRecord>(records::RecordType, std::string_view)> findRecordById;
+            std::function<bool(records::RecordType, std::string_view)> hasStaticRecord;
+            std::function<std::vector<std::string>(std::string_view)> loadDurableJournalInfoIds;
+            std::function<bool(std::string_view, std::string_view)> validateScriptSource;
+            bool allowStaticOverrides = false;
         };
 
         struct CommittedRecord

@@ -9,6 +9,7 @@ namespace
         mwmp::BasePlayer outgoing;
         outgoing.guid = 42;
         outgoing.journalChanges.action = mwmp::BasePlayer::JournalChanges::Action::Set;
+        outgoing.journalChanges.snapshotComplete = false;
 
         mwmp::BasePlayer::JournalItem entry;
         entry.type = mwmp::BasePlayer::JournalItem::Type::Entry;
@@ -39,6 +40,7 @@ namespace
         ASSERT_TRUE(decoder.decode(bytes));
         EXPECT_EQ(incoming.guid, 42u);
         EXPECT_EQ(incoming.journalChanges.action, mwmp::BasePlayer::JournalChanges::Action::Set);
+        EXPECT_FALSE(incoming.journalChanges.snapshotComplete);
         ASSERT_EQ(incoming.journalChanges.items.size(), 2u);
 
         const auto& decodedEntry = incoming.journalChanges.items[0];

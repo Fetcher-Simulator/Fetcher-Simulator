@@ -26,6 +26,7 @@ namespace mwmp
         {
             ws.write(mPlayer->guid);
             ws.write(static_cast<uint8_t>(mPlayer->journalChanges.action));
+            ws.write(mPlayer->journalChanges.snapshotComplete);
 
             const auto count = static_cast<uint16_t>(
                 std::min<std::size_t>(mPlayer->journalChanges.items.size(), MaxItems));
@@ -55,6 +56,7 @@ namespace mwmp
             if (action > static_cast<uint8_t>(BasePlayer::JournalChanges::Action::Append))
                 throw std::runtime_error("PacketPlayerJournal: invalid action");
             mPlayer->journalChanges.action = static_cast<BasePlayer::JournalChanges::Action>(action);
+            rs.read(mPlayer->journalChanges.snapshotComplete);
 
             uint16_t count = 0;
             rs.read(count);

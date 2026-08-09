@@ -38,50 +38,49 @@ namespace MWScript
 
     bool ScriptManager::compile(const ESM::RefId& name)
     {
-        mParser.reset();
-        mErrorHandler.reset();
-
         if (const ESM::Script* script = mStore.get<ESM::Script>().find(name))
         {
-            mErrorHandler.setContext(script->mId.getRefIdString());
-
-            bool success = true;
-            try
-            {
-                std::istringstream input(script->mScriptText);
-
-                Compiler::Scanner scanner(mErrorHandler, input, mCompilerContext.getExtensions());
-
-                scanner.scan(mParser);
-
-                if (!mErrorHandler.isGood())
-                    success = false;
-            }
-            catch (const Compiler::SourceException&)
-            {
-                // error has already been reported via error handler
-                success = false;
-            }
-            catch (const std::exception& error)
-            {
-                Log(Debug::Error) << "Error: An exception has been thrown: " << error.what();
-                success = false;
-            }
-
-            if (!success)
-            {
-                Log(Debug::Error) << "Error: script compiling failed: " << name;
-            }
-
-            if (success)
-            {
-                mScripts.emplace(name, CompiledScript(mParser.getProgram(), mParser.getLocals()));
-
-                return true;
-            }
+            if (!validateSource(name, script->mScriptText))
+                return false;
+            mScripts.insert_or_assign(name, CompiledScript(mParser.getProgram(), mParser.getLocals()));
+            return true;
         }
-
         return false;
+    }
+
+    bool ScriptManager::validateSource(const ESM::RefId& name, std::string_view source)
+    {
+        mParser.reset();
+        mErrorHandler.reset();
+        mErrorHandler.setContext(name.getRefIdString());
+
+        bool success = true;
+        try
+        {
+            std::istringstream input{ std::string(source) };
+            Compiler::Scanner scanner(mErrorHandler, input, mCompilerContext.getExtensions());
+            scanner.scan(mParser);
+            if (!mErrorHandler.isGood())
+                success = false;
+        }
+        catch (const Compiler::SourceException&)
+        {
+            success = false;
+        }
+        catch (const std::exception& error)
+        {
+            Log(Debug::Error) << "Error: An exception has been thrown: " << error.what();
+            success = false;
+        }
+        if (!success)
+            Log(Debug::Error) << "Error: script compiling failed: " << name;
+        return success;
+    }
+
+    void ScriptManager::invalidate(const ESM::RefId& name)
+    {
+        mScripts.erase(name);
+        mOtherLocals.erase(name);
     }
 
     bool ScriptManager::run(const ESM::RefId& name, Interpreter::Context& interpreterContext)

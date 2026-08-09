@@ -1,11 +1,13 @@
 #include "DynamicRecordService.hpp"
 
 #include <algorithm>
+#include <iterator>
 #include <stdexcept>
 #include <unordered_map>
 
 #include <components/openmw-mp/Packets/Records/PacketRecordCreateResult.hpp>
 #include <components/openmw-mp/Records/DynamicRecordCodec.hpp>
+#include <components/openmw-mp/Records/DynamicRecordDependencies.hpp>
 #include <components/openmw-mp/Records/DynamicRecordFingerprint.hpp>
 #include <components/openmw-mp/Records/DynamicRecordValidation.hpp>
 
@@ -23,6 +25,15 @@ namespace mwmp
         std::string asString(const std::vector<uint8_t>& bytes)
         {
             return { reinterpret_cast<const char*>(bytes.data()), bytes.size() };
+        }
+
+        std::string lowerAscii(std::string_view value)
+        {
+            std::string result(value);
+            std::transform(result.begin(), result.end(), result.begin(), [](unsigned char c) {
+                return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : static_cast<char>(c);
+            });
+            return result;
         }
 
         void resolveTemporaryReference(records::DynamicRecordDefinition& definition,
@@ -81,7 +92,9 @@ namespace mwmp
                 std::visit(
                     [&](const auto& record) {
                         using Record = std::decay_t<decltype(record)>;
-                        if constexpr (!std::is_same_v<Record, records::Enchantment>)
+                        if constexpr (std::is_same_v<Record, records::Potion>
+                            || std::is_same_v<Record, records::Weapon> || std::is_same_v<Record, records::Armor>
+                            || std::is_same_v<Record, records::Clothing> || std::is_same_v<Record, records::Book>)
                         {
                             if (!modelAllowed(record.item.model) || !iconAllowed(record.item.icon))
                                 error = records::CreateError::InvalidAsset;
@@ -116,12 +129,111 @@ namespace mwmp
                                     error = records::CreateError::ContentMismatch;
                             }
                         }
+                        if constexpr (std::is_same_v<Record, records::Dialogue>)
+                        {
+                            for (const records::DialogueInfo& info : record.infos)
+                            {
+                                if (!contentAllowed(info.actorId) || !contentAllowed(info.raceId)
+                                    || !contentAllowed(info.classId) || !contentAllowed(info.factionId)
+                                    || !contentAllowed(info.pcFactionId) || !contentAllowed(info.cellId))
+                                    error = records::CreateError::ContentMismatch;
+                                if (!assetAllowed(info.sound))
+                                    error = records::CreateError::InvalidAsset;
+                            }
+                            for (const std::string& dependency : record.declaredDependencies)
+                                if (!contentAllowed(dependency))
+                                    error = records::CreateError::ContentMismatch;
+                        }
+                        if constexpr (std::is_same_v<Record, records::Script>)
+                        {
+                            for (const std::string& dependency : record.declaredDependencies)
+                                if (!contentAllowed(dependency))
+                                    error = records::CreateError::ContentMismatch;
+                        }
                     },
                     draft.definition.data);
                 if (error != records::CreateError::None)
                     break;
             }
             return error;
+        }
+
+        records::CreateError validateAuthoringModes(
+            const records::DynamicRecordBundle& bundle, const DynamicRecordService::Context& context)
+        {
+            for (const records::RecordDraft& draft : bundle.records)
+            {
+                const records::DynamicRecordDefinition canonical = records::canonicalize(draft.definition);
+                const records::RecordType type = records::getRecordType(canonical);
+                const records::AuthoringMode mode = canonical.authoringMode;
+                const auto fixed = context.fixedRecordIds.find(draft.temporaryKey);
+                const bool hasFixedId = fixed != context.fixedRecordIds.end();
+                const bool serverContentType
+                    = type == records::RecordType::Dialogue || type == records::RecordType::Script;
+
+                if (serverContentType && !context.trustedServerRequest)
+                    return records::CreateError::Unauthorized;
+                if (serverContentType && (!hasFixedId || mode == records::AuthoringMode::Generated))
+                    return records::CreateError::InvalidAuthoringMode;
+                if (mode != records::AuthoringMode::Generated && !hasFixedId)
+                    return records::CreateError::InvalidAuthoringMode;
+                if (mode == records::AuthoringMode::Override && !serverContentType)
+                    return records::CreateError::InvalidAuthoringMode;
+                if (!hasFixedId)
+                    continue;
+
+                const std::string& recordId = fixed->second;
+                if (mode == records::AuthoringMode::New && context.hasStaticRecord
+                    && context.hasStaticRecord(type, recordId))
+                    return records::CreateError::NewRecordStaticCollision;
+                if (mode == records::AuthoringMode::Override)
+                {
+                    if (!context.allowStaticOverrides)
+                        return records::CreateError::OverrideNotBootstrap;
+                    if (!context.hasStaticRecord || !context.hasStaticRecord(type, recordId))
+                        return records::CreateError::OverrideMissingStatic;
+                }
+
+                if (context.findRecordById)
+                {
+                    if (const auto existing = context.findRecordById(type, recordId))
+                    {
+                        try
+                        {
+                            const records::DynamicRecordDefinition existingDefinition = records::canonicalize(
+                                records::upgradeDefinition(records::decodeDefinition(existing->definition)));
+                            if (existingDefinition.authoringMode != mode
+                                || records::fingerprint(existingDefinition) != records::fingerprint(canonical))
+                                return records::CreateError::FixedRecordConflict;
+                        }
+                        catch (const std::exception&)
+                        {
+                            return records::CreateError::FixedRecordConflict;
+                        }
+                    }
+                }
+
+                if (type == records::RecordType::Dialogue && mode == records::AuthoringMode::Override
+                    && context.loadDurableJournalInfoIds)
+                {
+                    std::unordered_set<std::string> infos;
+                    for (const records::DialogueInfo& info : std::get<records::Dialogue>(canonical.data).infos)
+                        infos.insert(lowerAscii(info.infoId));
+                    for (const std::string& durableInfo : context.loadDurableJournalInfoIds(recordId))
+                    {
+                        if (!infos.contains(lowerAscii(durableInfo)))
+                            return records::CreateError::DurableReferenceConflict;
+                    }
+                }
+
+                if (type == records::RecordType::Script && context.validateScriptSource)
+                {
+                    const auto& script = std::get<records::Script>(canonical.data);
+                    if (!context.validateScriptSource(recordId, script.sourceText))
+                        return records::CreateError::ScriptCompileFailed;
+                }
+            }
+            return records::CreateError::None;
         }
 
         std::vector<std::string> dependencyOrder(const records::DynamicRecordBundle& bundle)
@@ -191,18 +303,9 @@ namespace mwmp
                     throw std::runtime_error("unresolved dependency ID");
                 result.push_back(it->second);
             }
-            std::visit(
-                [&](const auto& record) {
-                    using Record = std::decay_t<decltype(record)>;
-                    if constexpr (std::is_same_v<Record, records::Weapon> || std::is_same_v<Record, records::Armor>
-                        || std::is_same_v<Record, records::Clothing> || std::is_same_v<Record, records::Book>)
-                    {
-                        if (record.enchantment.kind == records::ReferenceKind::ContentId
-                            && !record.enchantment.value.empty())
-                            result.push_back(record.enchantment.value);
-                    }
-                },
-                definition.data);
+            std::vector<std::string> typedDependencies = records::extractContentDependencies(definition);
+            result.insert(result.end(), std::make_move_iterator(typedDependencies.begin()),
+                std::make_move_iterator(typedDependencies.end()));
             std::sort(result.begin(), result.end());
             result.erase(std::unique(result.begin(), result.end()), result.end());
             return result;
@@ -233,6 +336,15 @@ namespace mwmp
         prepared.created.temporaryKey = draft.temporaryKey;
         prepared.created.definition = encodedDefinition;
         const auto fixed = context.fixedRecordIds.find(draft.temporaryKey);
+        if (fixed != context.fixedRecordIds.end() && definition.authoringMode != records::AuthoringMode::Generated
+            && context.findRecordById)
+        {
+            if (const auto existing = context.findRecordById(type, fixed->second))
+            {
+                prepared.created.recordId = existing->recordId;
+                prepared.created.reused = true;
+            }
+        }
         if (fixed == context.fixedRecordIds.end())
         {
             if (auto equivalent = findEquivalent(type, fingerprint))
@@ -343,6 +455,9 @@ namespace mwmp
             earlyError = validateAuthoritativeReferences(request.bundle, context);
 
         if (earlyError == records::CreateError::None)
+            earlyError = validateAuthoringModes(request.bundle, context);
+
+        if (earlyError == records::CreateError::None)
         {
             for (const auto& draft : request.bundle.records)
             {
@@ -396,6 +511,15 @@ namespace mwmp
             created.temporaryKey = key;
             created.definition = encodedDefinition;
             const auto fixed = context.fixedRecordIds.find(key);
+            if (fixed != context.fixedRecordIds.end()
+                && definition.authoringMode != records::AuthoringMode::Generated && context.findRecordById)
+            {
+                if (const auto existing = context.findRecordById(type, fixed->second))
+                {
+                    created.recordId = existing->recordId;
+                    created.reused = true;
+                }
+            }
             if (fixed == context.fixedRecordIds.end())
             {
                 if (auto equivalent = findEquivalent(type, fingerprint))

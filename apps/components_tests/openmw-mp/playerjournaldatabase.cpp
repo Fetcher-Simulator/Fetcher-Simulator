@@ -80,5 +80,10 @@ namespace
         ASSERT_EQ(identities.size(), 2u);
         EXPECT_EQ(identities[0].accountName, "alice");
         EXPECT_EQ(identities[0].characterName, "Nerevar");
+
+        const auto referenced = database.loadReferencedJournalInfoIds("MAIN_QUEST");
+        ASSERT_EQ(referenced.size(), 2u);
+        EXPECT_EQ(referenced[0], "main_quest_10");
+        EXPECT_EQ(referenced[1], "main_quest_20");
     }
 }

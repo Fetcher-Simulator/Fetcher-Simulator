@@ -79,6 +79,7 @@
 #include <components/openmw-mp/Records/AlchemyProtocol.hpp>
 #include <components/openmw-mp/Records/EnchantingProtocol.hpp>
 #include <components/openmw-mp/Records/DynamicRecordCodec.hpp>
+#include <components/openmw-mp/Records/DynamicRecordDependencies.hpp>
 #include <components/openmw-mp/Records/DynamicRecordFingerprint.hpp>
 #include <components/openmw-mp/Records/DynamicRecordValidation.hpp>
 #include <components/openmw-mp/Sha256.hpp>
@@ -4266,7 +4267,8 @@ void MPServer::loadPersistentWorldState()
             // stored schema/fingerprint predates the current validator. An
             // unsupported future payload is fatal: serving it would let
             // clients interpret persistence under different semantics.
-            records::DynamicRecordDefinition definition = records::decodeDefinition(record.data);
+            records::DynamicRecordDefinition definition
+                = records::upgradeDefinition(records::decodeDefinition(record.data));
             const auto errors = records::validate(definition);
             if (!errors.empty())
                 throw std::runtime_error("Invalid persisted typed dynamic record " + record.recordId
@@ -4280,19 +4282,7 @@ void MPServer::loadPersistentWorldState()
             migratedCatalog.schemaVersion = records::CurrentSchemaVersion;
             migratedCatalog.validationVersion = 1;
 
-            std::vector<std::string> dependencies;
-            std::visit([&](const auto& value) {
-                using Record = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<Record, records::Weapon>
-                    || std::is_same_v<Record, records::Armor>
-                    || std::is_same_v<Record, records::Clothing>
-                    || std::is_same_v<Record, records::Book>)
-                {
-                    if (value.enchantment.kind == records::ReferenceKind::ContentId
-                        && !value.enchantment.value.empty())
-                        dependencies.push_back(value.enchantment.value);
-                }
-            }, definition.data);
+            const std::vector<std::string> dependencies = records::extractContentDependencies(definition);
             mPlayerDb->replaceDynamicRecordDependencies(record.recordType, record.recordId, dependencies);
         }
         else if (isCanonicalServerLuaRecordType(record.recordType))
@@ -4349,6 +4339,13 @@ void MPServer::loadPersistentWorldState()
             stored.recordScope = "permanent";
         stored.persistent = true;
         stored.data = record.data;
+        if (record.data.starts_with("OMDR"))
+        {
+            const records::DynamicRecordDefinition definition
+                = records::upgradeDefinition(records::decodeDefinition(record.data));
+            stored.dependencyRecordIds = records::extractContentDependencies(definition);
+            mContentRegistry->installRuntimeDefinition(record.recordId, definition);
+        }
         stored.sequence = mWorld.nextDynamicRecordSequence++;
         mWorld.dynamicRecords[makeDynamicRecordKey(stored.recordType, stored.recordId)] = std::move(stored);
         ++dynamicRecordCount;
@@ -4553,14 +4550,42 @@ void MPServer::sendDynamicRecordsToClient(HSteamNetConnection conn)
         ordered.push_back(&record);
 
     std::sort(ordered.begin(), ordered.end(), [](const auto* left, const auto* right) {
-        return left->sequence < right->sequence;
+        return std::tie(left->sequence, left->recordType, left->recordId)
+            < std::tie(right->sequence, right->recordType, right->recordId);
     });
+
+    std::unordered_map<std::string, const WorldState::StoredDynamicRecord*> recordsById;
+    for (const auto* record : ordered)
+        recordsById.emplace(lowerAscii(record->recordId), record);
+    enum class Visit : std::uint8_t { None, Active, Complete };
+    std::unordered_map<const WorldState::StoredDynamicRecord*, Visit> visits;
+    std::vector<const WorldState::StoredDynamicRecord*> dependencyOrdered;
+    dependencyOrdered.reserve(ordered.size());
+    std::function<void(const WorldState::StoredDynamicRecord*)> visit
+        = [&](const WorldState::StoredDynamicRecord* record) {
+        Visit& state = visits[record];
+        if (state == Visit::Complete)
+            return;
+        if (state == Visit::Active)
+            return; // persisted cycles cannot be satisfied; retain deterministic fallback order
+        state = Visit::Active;
+        for (const std::string& dependencyId : record->dependencyRecordIds)
+        {
+            const auto dependency = recordsById.find(lowerAscii(dependencyId));
+            if (dependency != recordsById.end())
+                visit(dependency->second);
+        }
+        state = Visit::Complete;
+        dependencyOrdered.push_back(record);
+    };
+    for (const auto* record : ordered)
+        visit(record);
 
     // Keep records isolated on initial bootstrap. Client-side conversion can
     // legitimately defer one record while its base dependency is unavailable;
     // batching same-type records would make that one bad entry block every
     // otherwise valid record in the packet.
-    for (const auto* record : ordered)
+    for (const auto* record : dependencyOrdered)
     {
         PacketRecordDynamic pkt;
         pkt.action = DynamicRecordAction::Upsert;
@@ -7015,6 +7040,7 @@ void MPServer::handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data
                 stored.recordScope = "generated";
                 stored.persistent = true;
                 stored.sequence = outcome.result.commitSequence;
+                stored.dependencyRecordIds = created.dependencyRecordIds;
                 mWorld.dynamicRecords[makeDynamicRecordKey(stored.recordType, stored.recordId)] = std::move(stored);
 
                 PacketRecordDynamic definitionPacket;
@@ -7309,6 +7335,7 @@ void MPServer::handleAlchemyRequest(ConnectedClient& c, const uint8_t* data, siz
                 stored.recordScope = "generated";
                 stored.persistent = true;
                 stored.sequence = outcome.result.commitSequence;
+                stored.dependencyRecordIds = created.dependencyRecordIds;
                 mWorld.dynamicRecords[makeDynamicRecordKey(stored.recordType, stored.recordId)] = std::move(stored);
 
                 PacketRecordDynamic definitionPacket;
@@ -7553,6 +7580,7 @@ void MPServer::handleEnchantingRequest(ConnectedClient& c, const uint8_t* data, 
                 stored.recordScope = "generated";
                 stored.persistent = true;
                 stored.sequence = outcome.result.commitSequence;
+                stored.dependencyRecordIds = created.dependencyRecordIds;
                 mWorld.dynamicRecords[makeDynamicRecordKey(stored.recordType, stored.recordId)] = std::move(stored);
 
                 PacketRecordDynamic definitionPacket;
@@ -12562,13 +12590,14 @@ std::size_t MPServer::resetAllCellStatesForTesting()
 }
 
 bool MPServer::upsertDynamicRecord(const std::string& recordType, const std::string& recordId, const std::string& data,
-    const std::string& recordScope, bool persistent)
+    const std::string& recordScope, bool persistent, const std::string& authoringMode)
 {
     const std::string normalizedType = normalizeDynamicRecordType(recordType);
     const std::string normalizedScope = normalizeDynamicRecordScope(recordScope);
+    const std::string normalizedAuthoringMode = normalizeDynamicRecordAuthoringMode(authoringMode);
     if (normalizedType.empty() || recordId.empty() || !mPlayerDb)
         return false;
-    if (normalizedScope.empty())
+    if (normalizedScope.empty() || normalizedAuthoringMode.empty())
         return false;
     if (!isCanonicalServerLuaRecordType(normalizedType))
     {
@@ -12626,11 +12655,22 @@ bool MPServer::upsertDynamicRecord(const std::string& recordType, const std::str
 
     try
     {
+        const records::AuthoringMode mode = normalizedAuthoringMode == "new" ? records::AuthoringMode::New
+            : normalizedAuthoringMode == "override" ? records::AuthoringMode::Override
+                                                    : records::AuthoringMode::Generated;
         records::DynamicRecordDefinition definition = data.starts_with("OMDR")
             ? records::decodeDefinition(data)
-            : parseServerLuaRecord(normalizedType, data);
+            : parseServerLuaRecord(normalizedType, data, mode);
         if (records::getRecordTypeName(records::getRecordType(definition)) != normalizedType)
             throw std::runtime_error("record type does not match the typed definition");
+        if (data.starts_with("OMDR") && definition.authoringMode != mode)
+            throw std::runtime_error("authoring mode does not match the typed definition");
+        const bool durableServerContent
+            = normalizedType == "dialogue" || normalizedType == "script";
+        if (durableServerContent && mode == records::AuthoringMode::Generated)
+            throw std::runtime_error("Dialogue and Script require explicit mode=new or mode=override");
+        if (durableServerContent && (normalizedScope != "permanent" || !persistent))
+            throw std::runtime_error("Dialogue and Script definitions must be permanent and persistent");
 
         records::RecordCreateRequest request;
         request.operation = records::CreateOperation::ServerScript;
@@ -12639,7 +12679,7 @@ bool MPServer::upsertDynamicRecord(const std::string& recordType, const std::str
 
         const std::string identityMaterial = "server-lua-validation-v"
             + std::to_string(ServerLuaValidationVersion) + '\0' + normalizedType + '\0' + recordId + '\0'
-            + normalizedScope + '\0' + (persistent ? "1" : "0") + '\0' + data;
+            + normalizedScope + '\0' + (persistent ? "1" : "0") + '\0' + normalizedAuthoringMode + '\0' + data;
         const std::string identityHash = crypto::sha256hex(identityMaterial);
         request.requestId = "server-lua:" + identityHash;
         const std::string requestHash = identityHash;
@@ -12653,6 +12693,7 @@ bool MPServer::upsertDynamicRecord(const std::string& recordType, const std::str
         context.recordScope = normalizedScope;
         context.persistent = persistent;
         context.fixedRecordIds.emplace("record", recordId);
+        context.allowStaticOverrides = mClients.empty();
         context.isAssetAllowed = [&](std::string_view asset) {
             return mContentRegistry->hasAsset(normalizeRuntimeAsset(asset));
         };
@@ -12668,6 +12709,29 @@ bool MPServer::upsertDynamicRecord(const std::string& recordType, const std::str
             return std::any_of(catalog.begin(), catalog.end(), [&](const DynamicRecordCatalogEntry& entry) {
                 return lowerAscii(entry.recordId) == lowerAscii(id);
             });
+        };
+        context.hasStaticRecord = [&](records::RecordType type, std::string_view id) {
+            return mContentRegistry->hasStaticRecord(static_cast<std::uint8_t>(type), id);
+        };
+        context.loadDurableJournalInfoIds = [&](std::string_view dialogueId) {
+            return mPlayerDb->loadReferencedJournalInfoIds(dialogueId);
+        };
+        context.validateScriptSource = [&](std::string_view scriptId, std::string_view source) {
+            return mContentRegistry->validateScriptSource(scriptId, source);
+        };
+        context.findRecordById = [&](records::RecordType type, std::string_view id)
+            -> std::optional<DynamicRecordService::CatalogRecord> {
+            const std::string typeName(records::getRecordTypeName(type));
+            for (const DynamicRecordCatalogEntry& entry : catalog)
+            {
+                if (entry.recordType != typeName || lowerAscii(entry.recordId) != lowerAscii(id))
+                    continue;
+                const auto stored = mWorld.dynamicRecords.find(makeDynamicRecordKey(typeName, entry.recordId));
+                if (stored != mWorld.dynamicRecords.end())
+                    return DynamicRecordService::CatalogRecord{
+                        typeName, entry.recordId, entry.definitionFingerprint, stored->second.data };
+            }
+            return std::nullopt;
         };
 
         DynamicRecordService service(*mPlayerDb);
@@ -12700,6 +12764,9 @@ bool MPServer::upsertDynamicRecord(const std::string& recordType, const std::str
 
         for (const records::CreatedRecord& created : outcome.result.records)
         {
+            const records::DynamicRecordDefinition installedDefinition
+                = records::decodeDefinition(created.definition);
+            mContentRegistry->installRuntimeDefinition(created.recordId, installedDefinition);
             WorldState::StoredDynamicRecord stored;
             stored.recordType = normalizedType;
             stored.recordId = created.recordId;
@@ -12707,6 +12774,7 @@ bool MPServer::upsertDynamicRecord(const std::string& recordType, const std::str
             stored.recordScope = normalizedScope;
             stored.persistent = persistent;
             stored.sequence = outcome.result.commitSequence;
+            stored.dependencyRecordIds = records::extractContentDependencies(installedDefinition);
             mWorld.dynamicRecords[makeDynamicRecordKey(normalizedType, created.recordId)] = std::move(stored);
 
             PacketRecordDynamic packet;
@@ -12738,6 +12806,12 @@ bool MPServer::removeDynamicRecord(const std::string& recordType, const std::str
     const std::string normalizedType = normalizeDynamicRecordType(recordType);
     if (normalizedType.empty() || recordId.empty())
         return false;
+    if (normalizedType == "dialogue" || normalizedType == "script")
+    {
+        Log(Debug::Warning) << "[Server] Refusing removal of durable server content type="
+                            << normalizedType << " id=" << recordId;
+        return false;
+    }
 
     auto it = mWorld.dynamicRecords.find(makeDynamicRecordKey(normalizedType, recordId));
     if (it == mWorld.dynamicRecords.end())
@@ -12776,7 +12850,8 @@ bool MPServer::setDynamicRecordDependencies(
     if (normalizedType.empty() || recordId.empty())
         return false;
 
-    if (mWorld.dynamicRecords.find(makeDynamicRecordKey(normalizedType, recordId)) == mWorld.dynamicRecords.end())
+    auto stored = mWorld.dynamicRecords.find(makeDynamicRecordKey(normalizedType, recordId));
+    if (stored == mWorld.dynamicRecords.end())
         return false;
 
     std::vector<std::string> uniqueDependencies;
@@ -12807,6 +12882,7 @@ bool MPServer::setDynamicRecordDependencies(
 
     if (mPlayerDb)
         mPlayerDb->replaceDynamicRecordDependencies(normalizedType, recordId, uniqueDependencies);
+    stored->second.dependencyRecordIds = uniqueDependencies;
 
     Log(Debug::Info) << "[Server] Set dynamic record dependencies type=" << normalizedType
                      << " id=" << recordId
@@ -13161,6 +13237,7 @@ void MPServer::sendAuthoritativeJournal(ConnectedClient& c)
             PacketPlayerJournal::MaxItems, items.size() - offset);
         payload.journalChanges.action = first ? BasePlayer::JournalChanges::Action::Set
                                               : BasePlayer::JournalChanges::Action::Append;
+        payload.journalChanges.snapshotComplete = offset + count == items.size();
         payload.journalChanges.items.assign(items.begin() + offset, items.begin() + offset + count);
 
         PacketPlayerJournal journal;

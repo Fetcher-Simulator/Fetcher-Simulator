@@ -2,6 +2,7 @@
 #define GAME_SCRIPT_SCRIPTMANAGER_H
 
 #include <map>
+#include <string_view>
 #include <set>
 #include <string>
 
@@ -69,6 +70,10 @@ namespace MWScript
         ///< Run the script with the given name (compile first, if not compiled yet)
 
         bool compile(const ESM::RefId& name) override;
+        void invalidate(const ESM::RefId& name) override;
+        /// Compile a supplied source definition without caching or executing
+        /// it. Used by the authoritative server before accepting SCPT content.
+        bool validateSource(const ESM::RefId& name, std::string_view source);
         ///< Compile script with the given namen
         /// \return Success?
 
