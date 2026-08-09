@@ -34,7 +34,7 @@ TEST(MasterServerProtocol, ParsesEscapedAndUnicodePublicEntry)
     ASSERT_EQ(parsed.entries.size(), 1);
     EXPECT_EQ(parsed.entries[0].name, "A \"quoted\" {server} \\ \xce\xa9");
     EXPECT_EQ(parsed.entries[0].currentPlayers, 7);
-    EXPECT_EQ(parsed.entries[0].protocolVersion, mwmp::MultiplayerProtocolVersion);
+    EXPECT_EQ(parsed.entries[0].protocolVersion, 1);
 }
 
 TEST(MasterServerProtocol, SkipsInvalidEntriesWithoutDiscardingValidOnes)
