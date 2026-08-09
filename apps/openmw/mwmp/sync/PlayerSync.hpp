@@ -2,6 +2,7 @@
 #define OPENMW_MWMP_SYNC_PLAYERSYNC_HPP
 
 #include <cstdint>
+#include <deque>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -12,7 +13,7 @@
 #include <components/openmw-mp/NetworkMessages.hpp>
 #include <components/openmw-mp/SpellbookSync.hpp>
 
-namespace MWWorld { class Ptr; }
+namespace MWWorld { class ESMStore; class Ptr; }
 
 namespace mwmp
 {
@@ -70,6 +71,10 @@ namespace mwmp
         // in-flight gate). Called on disconnect so no state leaks into the next
         // connection.
         void resetSpellbookSyncState();
+        void resetJournalSyncState();
+        static bool journalDefinitionsAvailable(const MWWorld::ESMStore& store,
+            const BasePlayer::JournalChanges& changes, std::string* missingQuest = nullptr,
+            std::string* missingInfo = nullptr);
 
     private:
         // ---- per-frame checks ----
@@ -246,8 +251,7 @@ namespace mwmp
         bool mPendingInventoryRestore = false;
         std::array<EquipmentItem, BasePlayer::NUM_EQUIPMENT_SLOTS> mAuthoritativeEquipment{};
         BasePlayer::InventoryChanges mAuthoritativeInventory;
-        BasePlayer::JournalChanges mAuthoritativeJournal;
-        bool mPendingJournalRestore = false;
+        std::deque<BasePlayer::JournalChanges> mPendingJournalChanges;
         bool mJournalAuthoritativeInitialized = false;
         std::unordered_set<std::string> mLastJournalEntries;
         std::unordered_map<std::string, int> mLastJournalIndices;

@@ -1,6 +1,7 @@
 #include "WorldStateSync.hpp"
 
 #include <components/debug/debuglog.hpp>
+#include <type_traits>
 #include <components/esm/refid.hpp>
 #include <components/esm3/loadacti.hpp>
 #include <components/esm3/loadarmo.hpp>
@@ -25,6 +26,7 @@
 #include <sol/sol.hpp>
 
 #include "../../mwbase/environment.hpp"
+#include "../../mwbase/scriptmanager.hpp"
 #include "../../mwbase/statemanager.hpp"
 #include "../../mwbase/world.hpp"
 #include "../../mwlua/magictypebindings.hpp"
@@ -84,19 +86,48 @@ static bool isTypedDynamicRecordPayload(const LuaUtil::BinaryData& data)
     return data.size() >= 4 && data[0] == 'O' && data[1] == 'M' && data[2] == 'D' && data[3] == 'R';
 }
 
-static void applyTypedDynamicRecordUpsert(
-    MWWorld::ESMStore& store, const std::string& recordId, const LuaUtil::BinaryData& data)
+static void applyTypedDynamicRecordUpsert(MWWorld::ESMStore& store, const std::string& recordId,
+    const records::DynamicRecordDefinition& definition)
 {
-    records::DynamicRecordDefinition definition = records::decodeDefinition(data);
-    const auto errors = records::validate(definition);
-    if (!errors.empty())
-        throw std::runtime_error("typed_record_invalid:" + errors.front().code + ":" + errors.front().path);
-
     records::EsmDynamicRecord esm = records::toEsmRecord(definition);
     std::visit(
         [&](auto& record) {
+            using Record = std::decay_t<decltype(record)>;
             record.mId = ESM::RefId::stringRefId(recordId);
-            store.overrideRecord(record);
+            if constexpr (std::is_same_v<Record, ESM::Dialogue>)
+            {
+                if (record.mStringId.empty())
+                    record.mStringId = recordId;
+            }
+
+            const auto& typedStore = store.get<Record>();
+            bool overrideOnly = false;
+            switch (definition.authoringMode)
+            {
+                case records::AuthoringMode::Generated:
+                    if constexpr (std::is_same_v<Record, ESM::Dialogue> || std::is_same_v<Record, ESM::Script>)
+                        throw std::runtime_error("typed_server_content_requires_explicit_mode");
+                    break;
+                case records::AuthoringMode::New:
+                    if (typedStore.searchStatic(record.mId) != nullptr)
+                        throw std::runtime_error("new_record_collides_with_static_content");
+                    break;
+                case records::AuthoringMode::Override:
+                    if constexpr (!std::is_same_v<Record, ESM::Dialogue> && !std::is_same_v<Record, ESM::Script>)
+                        throw std::runtime_error("static_override_type_not_supported");
+                    if (MWBase::Environment::get().getStateManager()->getState()
+                        == MWBase::StateManager::State_Running)
+                        throw std::runtime_error("static_override_requires_bootstrap");
+                    if (typedStore.searchStatic(record.mId) == nullptr)
+                        throw std::runtime_error("override_record_has_no_static_base");
+                    overrideOnly = true;
+                    break;
+            }
+
+            if (store.overrideRecord(record, overrideOnly) == nullptr)
+                throw std::runtime_error("dynamic_record_install_failed");
+            if constexpr (std::is_same_v<Record, ESM::Script>)
+                MWBase::Environment::get().getScriptManager()->invalidate(record.mId);
         },
         esm);
 }
@@ -302,6 +333,12 @@ void WorldStateSync::onServerRecordDynamic(
     processPendingDynamicRecords();
 }
 
+void WorldStateSync::resetSessionState()
+{
+    mPendingDynamicRecords.clear();
+    mInstalledTypedDefinitions.clear();
+}
+
 void WorldStateSync::processPendingDynamicRecords()
 {
     for (std::size_t i = 0; i < mPendingDynamicRecords.size();)
@@ -330,12 +367,6 @@ void WorldStateSync::processPendingDynamicRecords()
 
 bool WorldStateSync::applyDynamicRecord(const PendingDynamicRecord& record, std::string* error)
 {
-    if (!worldReady())
-    {
-        if (error) *error = "world_not_ready";
-        return false;
-    }
-
     MWBase::World* world = MWBase::Environment::get().getWorld();
     if (!world)
     {
@@ -384,13 +415,38 @@ bool WorldStateSync::applyDynamicRecord(const PendingDynamicRecord& record, std:
                     eraseDynamicRecord<ESM::Static>(store, entry.recordId);
                 else if (record.recordType == "weapon")
                     eraseDynamicRecord<ESM::Weapon>(store, entry.recordId);
+                else if (record.recordType == "dialogue" || record.recordType == "script")
+                    throw std::runtime_error("server_content_removal_not_supported");
                 else
                     throw std::runtime_error("unsupported_record_type");
             }
             else
             {
                 if (isTypedDynamicRecordPayload(entry.data))
-                    applyTypedDynamicRecordUpsert(store, entry.recordId, entry.data);
+                {
+                    records::DynamicRecordDefinition definition = records::decodeDefinition(entry.data);
+                    const auto errors = records::validate(definition);
+                    if (!errors.empty())
+                        throw std::runtime_error(
+                            "typed_record_invalid:" + errors.front().code + ":" + errors.front().path);
+                    if (records::getRecordTypeName(records::getRecordType(definition)) != record.recordType)
+                        throw std::runtime_error("typed_record_type_mismatch");
+
+                    const std::string installedKey = record.recordType + '\0' + entry.recordId;
+                    if (definition.authoringMode != records::AuthoringMode::Generated)
+                    {
+                        const auto installed = mInstalledTypedDefinitions.find(installedKey);
+                        if (installed != mInstalledTypedDefinitions.end())
+                        {
+                            if (installed->second == entry.data)
+                                continue;
+                            throw std::runtime_error("conflicting_server_content_overlay");
+                        }
+                    }
+                    applyTypedDynamicRecordUpsert(store, entry.recordId, definition);
+                    if (definition.authoringMode != records::AuthoringMode::Generated)
+                        mInstalledTypedDefinitions.emplace(installedKey, entry.data);
+                }
                 else if (record.recordType == "activator")
                     applyDynamicRecordUpsert<ESM::Activator>(store, entry.recordId, entry.data, MWLua::tableToActivator);
                 else if (record.recordType == "armor")

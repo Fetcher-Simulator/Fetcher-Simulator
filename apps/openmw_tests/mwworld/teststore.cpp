@@ -26,6 +26,7 @@
 #include <components/testing/util.hpp>
 
 #include "apps/openmw/mwworld/esmstore.hpp"
+#include "apps/openmw/mwmp/sync/PlayerSync.hpp"
 
 static Loading::Listener dummyListener;
 
@@ -412,7 +413,8 @@ namespace
         ASSERT_NE(override, original);
         ASSERT_TRUE(store.get<Record>().isDynamic(id));
         ASSERT_EQ(store.get<Record>().search(id), override);
-        ASSERT_EQ(store.get<Record>().getSize(), 2);
+        ASSERT_EQ(store.get<Record>().getSize(), 1);
+        ASSERT_EQ(std::distance(store.get<Record>().begin(), store.get<Record>().end()), 1);
 
         EXPECT_TRUE(store.eraseDynamic<Record>(id));
         EXPECT_FALSE(store.get<Record>().isDynamic(id));
@@ -947,5 +949,92 @@ namespace
         const ESM::Dialogue* dialogue = esmStore.get<ESM::Dialogue>().search(ESM::RefId::stringRefId("dialogue"));
         ASSERT_NE(dialogue, nullptr);
         EXPECT_THAT(dialogue->mInfo, ElementsAre(HasIdEqualTo("info0"), HasIdEqualTo("info2")));
+    }
+
+    TEST(MWWorldStoreTest, dialogueDynamicOverlayIsUniqueAndRestoresStaticBaseline)
+    {
+        const DialogueData data = generateDialogueWithInfos(2);
+        MWWorld::ESMStore esmStore;
+        loadEsmStore(0, saveDialogueWithInfos(data.mDialogue, data.mInfos), esmStore);
+        esmStore.setUp();
+
+        auto& store = esmStore.getWritable<ESM::Dialogue>();
+        ASSERT_TRUE(store.getKeywordSearchModFlag());
+        EXPECT_FALSE(store.getKeywordSearchModFlag());
+        const ESM::Dialogue* baseline = store.searchStatic(data.mDialogue.mId);
+        ASSERT_NE(baseline, nullptr);
+
+        ESM::Dialogue overlay = *baseline;
+        overlay.mInfo.front().mResponse = "runtime override";
+        ASSERT_NE(store.insert(overlay, true), nullptr);
+        EXPECT_EQ(store.getSize(), 1u);
+        EXPECT_EQ(store.getDynamicSize(), 1u);
+        EXPECT_EQ(store.search(data.mDialogue.mId)->mInfo.front().mResponse, "runtime override");
+        EXPECT_NE(store.search(data.mDialogue.mId), store.searchStatic(data.mDialogue.mId));
+        EXPECT_TRUE(store.searchStatic(data.mDialogue.mId)->mInfo.front().mResponse.empty());
+        EXPECT_TRUE(store.getKeywordSearchModFlag());
+        EXPECT_EQ(std::distance(store.begin(), store.end()), 1);
+
+        store.clearDynamic();
+        EXPECT_EQ(store.getSize(), 1u);
+        EXPECT_EQ(store.getDynamicSize(), 0u);
+        EXPECT_EQ(store.search(data.mDialogue.mId), store.searchStatic(data.mDialogue.mId));
+    }
+
+    TEST(MWWorldStoreTest, typedDynamicOverlayIterationExposesScriptIdentityOnce)
+    {
+        MWWorld::ESMStore esmStore;
+        ESM::Script baseline;
+        baseline.blank();
+        baseline.mId = ESM::RefId::stringRefId("runtime_test_script");
+        baseline.mScriptText = "Begin runtime_test_script\nEnd runtime_test_script\n";
+        esmStore.insertStatic(baseline);
+
+        ESM::Script overlay = baseline;
+        overlay.mScriptText = "Begin runtime_test_script\nshort state\nEnd runtime_test_script\n";
+        ASSERT_NE(esmStore.overrideRecord(overlay, true), nullptr);
+        const auto& store = esmStore.get<ESM::Script>();
+        EXPECT_EQ(store.getSize(), 1u);
+        EXPECT_EQ(std::distance(store.begin(), store.end()), 1);
+        EXPECT_EQ(store.search(baseline.mId)->mScriptText, overlay.mScriptText);
+        EXPECT_EQ(store.searchStatic(baseline.mId)->mScriptText, baseline.mScriptText);
+
+        EXPECT_TRUE(esmStore.eraseDynamic<ESM::Script>(baseline.mId));
+        EXPECT_EQ(store.search(baseline.mId)->mScriptText, baseline.mScriptText);
+    }
+
+    TEST(MWWorldStoreTest, journalRestoreWaitsForDynamicallySuppliedDialogueInfo)
+    {
+        MWWorld::ESMStore esmStore;
+        mwmp::BasePlayer::JournalChanges changes;
+        changes.action = mwmp::BasePlayer::JournalChanges::Action::Set;
+        mwmp::BasePlayer::JournalItem entry;
+        entry.quest = "runtime_quest";
+        entry.infoId = "runtime_quest_10";
+        entry.index = 10;
+        changes.items.push_back(entry);
+
+        std::string missingQuest;
+        std::string missingInfo;
+        EXPECT_FALSE(mwmp::PlayerSync::journalDefinitionsAvailable(
+            esmStore, changes, &missingQuest, &missingInfo));
+        EXPECT_EQ(missingQuest, "runtime_quest");
+
+        ESM::Dialogue dialogue;
+        dialogue.blank();
+        dialogue.mId = ESM::RefId::stringRefId("runtime_quest");
+        dialogue.mStringId = "Runtime Quest";
+        dialogue.mType = ESM::Dialogue::Journal;
+        ESM::DialInfo info;
+        info.blank();
+        info.mId = ESM::RefId::stringRefId("runtime_quest_10");
+        info.mData.mType = ESM::Dialogue::Journal;
+        info.mData.mJournalIndex = 10;
+        info.mResponse = "Runtime journal state";
+        info.mResultScript = "set must_not_run_during_restore to 1";
+        dialogue.mInfo.push_back(std::move(info));
+        ASSERT_NE(esmStore.overrideRecord(dialogue), nullptr);
+
+        EXPECT_TRUE(mwmp::PlayerSync::journalDefinitionsAvailable(esmStore, changes));
     }
 }

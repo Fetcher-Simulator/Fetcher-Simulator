@@ -46,11 +46,23 @@ shared quest state on recipients after a journal update arrives.
 
 ## Restore ordering
 
-The server sends the authoritative journal snapshot before `CharacterData`, so
-the client queues it while still outside the world. The snapshot is applied on
-the first running-world update before new journal deltas are detected. Large
-snapshots are chunked without displaying journal-entry notifications during
-login; live shared additions display the normal notification once.
+The server sends runtime record definitions before `CharacterData` and sends
+the authoritative journal during the same ordered bootstrap. The client queues
+journal state while still outside the world. Large snapshots use `Set` followed
+by `Append` chunks and carry an explicit final-chunk marker, so no partial
+snapshot is exposed.
+
+Before clearing or mutating the local journal, the client verifies that every
+referenced quest Dialogue and INFO exists in the effective ESM store. A
+snapshot or live `Add` remains queued if its typed Dialogue definition has not
+arrived yet and is retried after dynamic-record insertion. Snapshot replacement
+is therefore atomic and definition-first; reconnect cannot silently discard a
+dynamically supplied journal entry. Snapshot entries suppress notifications,
+while live shared additions display the normal notification once.
+
+Applying either form directly constructs the semantic journal entry/index. It
+does not run the INFO result script and does not replay any MWScript instruction
+that originally produced the state.
 
 The current packet and database implementation covers quest entries and quest
 indices. Dialogue topic-response history and read-book tracking use separate

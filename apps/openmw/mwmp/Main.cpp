@@ -84,6 +84,7 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerCharGen.hpp>
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
+#include "../mwbase/scriptmanager.hpp"
 #include "../mwbase/statemanager.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/windowmanager.hpp"
@@ -95,6 +96,7 @@
 #include "../mwgui/mode.hpp"
 #include "../mwworld/player.hpp"
 #include "../mwworld/esmstore.hpp"
+#include "../mwdialogue/scripttest.hpp"
 #include <sstream>
 #include <filesystem>
 #include <components/esm/position.hpp>
@@ -169,7 +171,11 @@ bool Main::init(const std::string& host, uint16_t port,
                 const std::string& passwordHash,
                 bool isRegistration,
                 bool useKeypair,
-                const std::string& autoCharacterName)
+                const std::string& autoCharacterName,
+                bool compileAllScripts,
+                bool compileAllDialogue,
+                const Compiler::Extensions* compilerExtensions,
+                int warningsMode)
 {
     if (sInstance)
     {
@@ -185,6 +191,10 @@ bool Main::init(const std::string& host, uint16_t port,
         sInstance->mIsRegistration = isRegistration;
         sInstance->mUseKeypair     = useKeypair;
         sInstance->mAutoCharacterName = autoCharacterName;
+        sInstance->mCompileAllScriptsAfterBootstrap = compileAllScripts;
+        sInstance->mCompileAllDialogueAfterBootstrap = compileAllDialogue;
+        sInstance->mCompilerExtensions = compilerExtensions;
+        sInstance->mCompilerWarningsMode = warningsMode;
         sInstance->mHost           = host;
         sInstance->mPort           = port;
         sInstance->mPlayerSync->localPlayer().name = playerName;
@@ -616,6 +626,7 @@ void Main::onDisconnected()
         mUnexpectedDisconnect = true;
     mWorldReady         = false;
     mCharacterDataReady = false;
+    mBootstrapCompilationComplete = false;
     mHasSavedSpellbook  = false;
     mCharacterId        = 0;
     mCharSelectError.clear();
@@ -632,10 +643,15 @@ void Main::onDisconnected()
     // references from the now-dying game world are never accessed on reconnect.
     if (mActorSync)
         mActorSync->resetSessionState();
+    if (mWorldStateSync)
+        mWorldStateSync->resetSessionState();
     // Spellbook sync state is per-session: the authoritative revision token,
     // baseline and in-flight gate must not leak into the next connection.
     if (mPlayerSync)
+    {
         mPlayerSync->resetSpellbookSyncState();
+        mPlayerSync->resetJournalSyncState();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1138,6 +1154,31 @@ void Main::registerProtocolHandlers()
                              << " rot=(" << mSpawnRot[0] << "," << mSpawnRot[1] << "," << mSpawnRot[2] << ")"
                              << " race=" << mRestoredRace
                              << " class=" << mRestoredClassName;
+
+            // Reliable bootstrap packets are ordered before CharacterData.
+            // Run optional whole-content diagnostics only after typed SCPT and
+            // Dialogue overlays have reached the effective store.
+            if (!mBootstrapCompilationComplete)
+            {
+                if (mCompileAllScriptsAfterBootstrap)
+                {
+                    const auto result = MWBase::Environment::get().getScriptManager()->compileAll();
+                    if (result.first)
+                        Log(Debug::Info) << "compiled " << result.second << " of " << result.first
+                                         << " scripts after multiplayer content bootstrap ("
+                                         << 100 * static_cast<double>(result.second) / result.first << "%)";
+                }
+                if (mCompileAllDialogueAfterBootstrap && mCompilerExtensions != nullptr)
+                {
+                    const auto result = MWDialogue::ScriptTest::compileAll(
+                        mCompilerExtensions, mCompilerWarningsMode);
+                    if (result.first)
+                        Log(Debug::Info) << "compiled " << result.second << " of " << result.first
+                                         << " dialogue scripts after multiplayer content bootstrap ("
+                                         << 100 * static_cast<double>(result.second) / result.first << "%)";
+                }
+                mBootstrapCompilationComplete = true;
+            }
 
             mCharacterDataReady = true;
             if (!mAutoCharacterName.empty())

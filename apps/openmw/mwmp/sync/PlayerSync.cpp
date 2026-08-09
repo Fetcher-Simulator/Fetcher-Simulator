@@ -848,7 +848,8 @@ void PlayerSync::queueAuthoritativeSpellbook(const BasePlayer& authoritative)
 
 void PlayerSync::onDynamicRecordsChanged()
 {
-    if (!mPendingInventoryRestore && !mPendingEquipmentRestore && !mPendingSpellbookRestore)
+    if (!mPendingInventoryRestore && !mPendingEquipmentRestore && !mPendingSpellbookRestore
+        && mPendingJournalChanges.empty())
         return;
     MWBase::World* world = MWBase::Environment::get().getWorld();
     if (world == nullptr)
@@ -861,18 +862,72 @@ void PlayerSync::onDynamicRecordsChanged()
 void PlayerSync::queueAuthoritativeJournal(const BasePlayer& authoritative)
 {
     const BasePlayer::JournalChanges& incoming = authoritative.journalChanges;
-    if (incoming.action == BasePlayer::JournalChanges::Action::Set || !mPendingJournalRestore)
-        mAuthoritativeJournal = incoming;
-    else
+    if (incoming.action == BasePlayer::JournalChanges::Action::Set)
     {
-        mAuthoritativeJournal.items.insert(mAuthoritativeJournal.items.end(),
-            incoming.items.begin(), incoming.items.end());
+        mPendingJournalChanges.clear();
+        mPendingJournalChanges.push_back(incoming);
     }
-    mPendingJournalRestore = true;
+    else if (incoming.action == BasePlayer::JournalChanges::Action::Append)
+    {
+        if (mPendingJournalChanges.empty()
+            || mPendingJournalChanges.back().action != BasePlayer::JournalChanges::Action::Set
+            || mPendingJournalChanges.back().snapshotComplete)
+        {
+            Log(Debug::Warning) << "[MP] Ignoring journal snapshot continuation without an open Set";
+            return;
+        }
+        auto& snapshot = mPendingJournalChanges.back();
+        snapshot.items.insert(snapshot.items.end(), incoming.items.begin(), incoming.items.end());
+        snapshot.snapshotComplete = incoming.snapshotComplete;
+    }
+    else
+        mPendingJournalChanges.push_back(incoming);
 
     Log(Debug::Verbose) << "[MP] PlayerSync: queued authoritative journal"
                         << " action=" << static_cast<int>(incoming.action)
-                        << " items=" << incoming.items.size();
+                        << " items=" << incoming.items.size()
+                        << " complete=" << incoming.snapshotComplete;
+}
+
+bool PlayerSync::journalDefinitionsAvailable(const MWWorld::ESMStore& store,
+    const BasePlayer::JournalChanges& changes, std::string* missingQuest, std::string* missingInfo)
+{
+    const auto& dialogues = store.get<ESM::Dialogue>();
+    for (const BasePlayer::JournalItem& item : changes.items)
+    {
+        if (item.quest.empty())
+            continue;
+        try
+        {
+            const ESM::RefId questId = ESM::RefId::deserializeText(item.quest);
+            const ESM::Dialogue* dialogue = dialogues.search(questId);
+            if (dialogue == nullptr)
+            {
+                if (missingQuest)
+                    *missingQuest = item.quest;
+                return false;
+            }
+            if (item.type != BasePlayer::JournalItem::Type::Entry || item.infoId.empty())
+                continue;
+            const ESM::RefId infoId = ESM::RefId::deserializeText(item.infoId);
+            const auto info = std::find_if(dialogue->mInfo.begin(), dialogue->mInfo.end(),
+                [&](const ESM::DialInfo& value) { return value.mId == infoId; });
+            if (info == dialogue->mInfo.end())
+            {
+                if (missingQuest)
+                    *missingQuest = item.quest;
+                if (missingInfo)
+                    *missingInfo = item.infoId;
+                return false;
+            }
+        }
+        catch (const std::exception&)
+        {
+            // Invalid identities are rejected item-by-item during application;
+            // they do not permanently block otherwise valid state.
+        }
+    }
+    return true;
 }
 
 void PlayerSync::queueRestoredStats(const BasePlayer& restored)
@@ -2805,6 +2860,17 @@ void PlayerSync::resetSpellbookSyncState()
     mLocal.spellbookChanges.revision = 0;
 }
 
+void PlayerSync::resetJournalSyncState()
+{
+    mPendingJournalChanges.clear();
+    mJournalAuthoritativeInitialized = false;
+    mLastJournalEntries.clear();
+    mLastJournalIndices.clear();
+    mLocal.journalChanges.items.clear();
+    mLocal.journalChanges.action = BasePlayer::JournalChanges::Action::Add;
+    mLocal.journalChanges.snapshotComplete = true;
+}
+
 void PlayerSync::applyAuthoritativeSpellbook(const MWWorld::Ptr& player)
 {
     const MWBase::Environment& environment = MWBase::Environment::get();
@@ -2903,15 +2969,29 @@ void PlayerSync::applyPendingAuthoritativeState(const MWWorld::Ptr& player)
         || player.isEmpty() || !player.isInCell())
         return;
 
-    if (mPendingJournalRestore)
+    while (!mPendingJournalChanges.empty())
     {
+        const BasePlayer::JournalChanges& changes = mPendingJournalChanges.front();
+        if (changes.action == BasePlayer::JournalChanges::Action::Set && !changes.snapshotComplete)
+            break;
+
+        std::string missingQuest;
+        std::string missingInfo;
+        if (!journalDefinitionsAvailable(
+                *environment.getESMStore(), changes, &missingQuest, &missingInfo))
+        {
+            Log(Debug::Verbose) << "[MP] Deferring authoritative journal until definitions arrive"
+                                << " quest=" << missingQuest << " info=" << missingInfo;
+            break;
+        }
+
         MWBase::Journal* journal = environment.getJournal();
-        const bool replace = mAuthoritativeJournal.action == BasePlayer::JournalChanges::Action::Set;
-        const bool notify = mAuthoritativeJournal.action == BasePlayer::JournalChanges::Action::Add;
+        const bool replace = changes.action == BasePlayer::JournalChanges::Action::Set;
+        const bool notify = changes.action == BasePlayer::JournalChanges::Action::Add;
         if (replace)
             journal->clearQuestJournal();
 
-        for (const BasePlayer::JournalItem& item : mAuthoritativeJournal.items)
+        for (const BasePlayer::JournalItem& item : changes.items)
         {
             if (item.quest.empty())
                 continue;
@@ -2948,12 +3028,12 @@ void PlayerSync::applyPendingAuthoritativeState(const MWWorld::Ptr& player)
             }
         }
 
-        mPendingJournalRestore = false;
         mJournalAuthoritativeInitialized = true;
         captureJournalSnapshot();
         Log(Debug::Verbose) << "[MP] PlayerSync: applied authoritative journal"
                             << " replace=" << replace
-                            << " items=" << mAuthoritativeJournal.items.size();
+                            << " items=" << changes.items.size();
+        mPendingJournalChanges.pop_front();
     }
 
     if (mPendingSpellbookRestore)
