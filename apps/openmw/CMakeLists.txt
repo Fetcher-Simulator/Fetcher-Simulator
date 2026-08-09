@@ -124,7 +124,7 @@ if (BUILD_MULTIPLAYER)
         PlayerSync RemotePlayer Nameplate ActorSync CellSync ObjectSync WorldObjectSync WorldStateSync InventoryIdentity
     )
     add_openmw_dir (mwmp/records
-        RecordCreationManager ResolvedContentFingerprint
+        RecordCreationManager ResolvedContentFingerprint TypedDynamicRecordInstaller
     )
     add_openmw_dir (mwmp/alchemy
         AlchemyCreationManager

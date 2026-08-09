@@ -7,6 +7,7 @@
 #include <osg/Vec3f>
 #include <string>
 #include <vector>
+#include <components/openmw-mp/RuntimeContentBootstrapGate.hpp>
 #include <components/openmw-mp/Packets/System/PacketGameSettings.hpp>
 #include <components/openmw-mp/Packets/System/PacketHandshake.hpp>
 
@@ -148,6 +149,9 @@ namespace mwmp
         void onDisconnected();
         void tryAutoSelectCharacter();
         void tryAutoEnterWorld();
+        void tryFinalizePendingCharacterData();
+        void finalizeCharacterData(PacketCharacterData characterData);
+        void failRuntimeContentBootstrap(std::string error);
         void applySelectedCharacterSpawn(const std::string& spawnCell, const char* context);
         bool captureCurrentChargenData(const char* context);
         std::string currentChargenDataKey();
@@ -181,6 +185,7 @@ namespace mwmp
         bool        mCompileAllScriptsAfterBootstrap = false;
         bool        mCompileAllDialogueAfterBootstrap = false;
         bool        mBootstrapCompilationComplete = false;
+        RuntimeContentBootstrapGate<PacketCharacterData> mRuntimeContentBootstrapGate;
         const Compiler::Extensions* mCompilerExtensions = nullptr;
         int         mCompilerWarningsMode = 1;
         std::string mCharSelectError;

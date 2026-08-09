@@ -10,7 +10,8 @@
 
 namespace mwmp
 {
-    inline constexpr int MultiplayerProtocolVersion = 2;
+    // Version 3 adds the explicit runtime-content bootstrap completion barrier.
+    inline constexpr int MultiplayerProtocolVersion = 3;
     inline constexpr std::string_view MultiplayerBuildVersion = "0.1.0";
     inline constexpr std::string_view DefaultMasterServerUrl = "https://master.fetchers.org";
 

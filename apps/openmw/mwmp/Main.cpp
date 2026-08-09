@@ -32,6 +32,7 @@
 #include <components/openmw-mp/Packets/System/PacketGameSettings.hpp>
 #include <components/openmw-mp/Packets/System/PacketHandshake.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketRecordDynamic.hpp>
+#include <components/openmw-mp/Packets/Worldstate/PacketRuntimeContentBootstrapComplete.hpp>
 #include <components/openmw-mp/Packets/Records/PacketRecordCreateResult.hpp>
 #include <components/openmw-mp/Packets/Records/PacketAlchemyResult.hpp>
 #include <components/openmw-mp/Packets/Records/PacketEnchantingResult.hpp>
@@ -537,6 +538,11 @@ void Main::onConnected()
 {
     Log(Debug::Info) << "[MP] Connected Ã¢â‚¬â€ sending handshake";
 
+    mCharacterDataReady = false;
+    mBootstrapCompilationComplete = false;
+    mRuntimeContentBootstrapGate.reset();
+    mWorldStateSync->resetSessionState();
+
     // Build and send handshake
     PacketHandshake hs;
     hs.clientVersion   = std::string(MultiplayerBuildVersion);
@@ -646,6 +652,7 @@ void Main::onDisconnected()
     mWorldReady         = false;
     mCharacterDataReady = false;
     mBootstrapCompilationComplete = false;
+    mRuntimeContentBootstrapGate.reset();
     mHasSavedSpellbook  = false;
     mCharacterId        = 0;
     mCharSelectError.clear();
@@ -720,6 +727,9 @@ void Main::sendCharacterSelect(const std::string& charName, bool isNew)
 
     mCharSelectError.clear();
     mCharacterDataReady = false;
+    mBootstrapCompilationComplete = false;
+    mRuntimeContentBootstrapGate.reset();
+    mWorldStateSync->beginRuntimeContentBootstrap();
     mCharacterId = 0;
 
     PacketCharacterSelect pkt;
@@ -961,6 +971,133 @@ void Main::tryAutoEnterWorld()
 }
 
 // ---------------------------------------------------------------------------
+void Main::tryFinalizePendingCharacterData()
+{
+    auto characterData = mRuntimeContentBootstrapGate.takeReadyCharacterData();
+    if (characterData)
+        finalizeCharacterData(std::move(*characterData));
+}
+
+// ---------------------------------------------------------------------------
+void Main::failRuntimeContentBootstrap(std::string error)
+{
+    mRuntimeContentBootstrapGate.finish(false, std::move(error));
+    mCharacterDataReady = false;
+    mRejectReason = "Runtime content bootstrap failed: " + mRuntimeContentBootstrapGate.error();
+    Log(Debug::Error) << "[MP] " << mRejectReason;
+    disconnect(mRejectReason);
+}
+
+// ---------------------------------------------------------------------------
+void Main::finalizeCharacterData(PacketCharacterData cd)
+{
+    mIsNewCharacter = cd.isNewCharacter;
+    mHasSavedSpellbook = cd.hasSavedSpellbook;
+    mCharacterId    = cd.characterId;
+    mCharacterName  = cd.characterName;
+    // Update the sync layer name to the character slot name so
+    // PacketPlayerBaseInfo (sent by forceFullSync in CharacterSelectDialog
+    // after setPlayerRace()) broadcasts the correct name to other players.
+    if (!cd.characterName.empty())
+        mPlayerSync->localPlayer().name = cd.characterName;
+    mSpawnCell      = cd.spawnCell;
+    mSpawnPos[0] = cd.spawnX;
+    mSpawnPos[1] = cd.spawnY;
+    mSpawnPos[2] = cd.spawnZ;
+    mSpawnRot[0] = cd.spawnRotX;
+    mSpawnRot[1] = cd.spawnRotY;
+    mSpawnRot[2] = cd.spawnRotZ;
+
+    mRestoredRace      = cd.race;
+    mRestoredHeadMesh  = cd.headMesh;
+    mRestoredHairMesh  = cd.hairMesh;
+    mRestoredIsMale    = cd.isMale;
+    mRestoredClassId   = cd.classId;
+    mRestoredClassName = cd.className;
+    mRestoredBirthSign = cd.birthSign;
+    mRestoredClassData = cd.classData;
+    BasePlayer& localPlayer = mPlayerSync->localPlayer();
+    localPlayer.hasSavedStats = cd.hasSavedStats;
+    localPlayer.dynamicStats = cd.dynamicStats;
+    localPlayer.attributes = cd.attributes;
+    localPlayer.skills = cd.skills;
+    localPlayer.level = cd.level;
+    localPlayer.levelProgress = cd.levelProgress;
+    if (cd.hasSavedStats)
+    {
+        BasePlayer restoredStats;
+        restoredStats.hasSavedStats = true;
+        restoredStats.dynamicStats = cd.dynamicStats;
+        restoredStats.attributes = cd.attributes;
+        restoredStats.skills = cd.skills;
+        restoredStats.level = cd.level;
+        restoredStats.levelProgress = cd.levelProgress;
+        mPlayerSync->queueRestoredStats(restoredStats);
+    }
+
+    if (!cd.classData.empty())
+    {
+        std::istringstream ss(cd.classData);
+        char sep;
+        auto& d = localPlayer.charClass.mData;
+        ss >> d.mSpecialization;
+        for (auto& v : d.mAttribute)  { ss >> sep >> v; }
+        for (auto& row : d.mSkills)   for (auto& v : row) { ss >> sep >> v; }
+        ss >> sep >> d.mIsPlayable;
+        ss >> sep >> d.mServices;
+        localPlayer.charClass.mName = cd.className;
+    }
+
+    Log(Debug::Info) << "[MP] CharacterData finalized after runtime content bootstrap: newChar="
+                     << (mIsNewCharacter ? "yes" : "no")
+                     << " charId=" << mCharacterId
+                     << " charName=" << mCharacterName
+                     << " cell=" << mSpawnCell
+                     << " pos=(" << mSpawnPos[0] << "," << mSpawnPos[1] << "," << mSpawnPos[2] << ")"
+                     << " rot=(" << mSpawnRot[0] << "," << mSpawnRot[1] << "," << mSpawnRot[2] << ")"
+                     << " race=" << mRestoredRace
+                     << " class=" << mRestoredClassName;
+
+    // Run optional whole-content diagnostics only after typed SCPT and
+    // Dialogue overlays have reached the effective store.
+    if (!mBootstrapCompilationComplete)
+    {
+        if (mCompileAllScriptsAfterBootstrap)
+        {
+            const auto result = MWBase::Environment::get().getScriptManager()->compileAll();
+            if (result.first)
+                Log(Debug::Info) << "compiled " << result.second << " of " << result.first
+                                 << " scripts after multiplayer content bootstrap ("
+                                 << 100 * static_cast<double>(result.second) / result.first << "%)";
+        }
+        if (mCompileAllDialogueAfterBootstrap && mCompilerExtensions != nullptr)
+        {
+            const auto result = MWDialogue::ScriptTest::compileAll(
+                mCompilerExtensions, mCompilerWarningsMode);
+            if (result.first)
+                Log(Debug::Info) << "compiled " << result.second << " of " << result.first
+                                 << " dialogue scripts after multiplayer content bootstrap ("
+                                 << 100 * static_cast<double>(result.second) / result.first << "%)";
+        }
+        mBootstrapCompilationComplete = true;
+    }
+
+    mCharacterDataReady = true;
+    if (!mAutoCharacterName.empty())
+    {
+        if (mIsNewCharacter)
+            mAutoEnterAllowNewCharacterUi = true;
+        mAutoEnterPending = true;
+    }
+    // NOTE: do NOT call forceFullSync() here for returning players.
+    // At this point world->getPlayerPtr() still has the blank template
+    // NPC record - setPlayerRace() has not been called yet.
+    // CharacterSelectDialog::startReturningPlayer() calls forceFullSync()
+    // *after* setPlayerRace() so the BaseInfo packet carries the real
+    // race/head/hair. New characters use the chargen-complete watcher.
+}
+
+// ---------------------------------------------------------------------------
 void Main::registerProtocolHandlers()
 {
     auto& proto = *mProtocol;
@@ -1106,112 +1243,8 @@ void Main::registerProtocolHandlers()
         {
             PacketCharacterData cd;
             if (!cd.decode(data, size)) return;
-
-            mIsNewCharacter = cd.isNewCharacter;
-            mHasSavedSpellbook = cd.hasSavedSpellbook;
-            mCharacterId    = cd.characterId;
-            mCharacterName  = cd.characterName;
-            // Update the sync layer name to the character slot name so
-            // PacketPlayerBaseInfo (sent by forceFullSync in CharacterSelectDialog
-            // after setPlayerRace()) broadcasts the correct name to other players.
-            if (!cd.characterName.empty())
-                mPlayerSync->localPlayer().name = cd.characterName;
-            mSpawnCell      = cd.spawnCell;
-            mSpawnPos[0] = cd.spawnX;
-            mSpawnPos[1] = cd.spawnY;
-            mSpawnPos[2] = cd.spawnZ;
-            mSpawnRot[0] = cd.spawnRotX;
-            mSpawnRot[1] = cd.spawnRotY;
-            mSpawnRot[2] = cd.spawnRotZ;
-
-            mRestoredRace      = cd.race;
-            mRestoredHeadMesh  = cd.headMesh;
-            mRestoredHairMesh  = cd.hairMesh;
-            mRestoredIsMale    = cd.isMale;
-            mRestoredClassId   = cd.classId;
-            mRestoredClassName = cd.className;
-            mRestoredBirthSign = cd.birthSign;
-            mRestoredClassData = cd.classData;
-            BasePlayer& localPlayer = mPlayerSync->localPlayer();
-            localPlayer.hasSavedStats = cd.hasSavedStats;
-            localPlayer.dynamicStats = cd.dynamicStats;
-            localPlayer.attributes = cd.attributes;
-            localPlayer.skills = cd.skills;
-            localPlayer.level = cd.level;
-            localPlayer.levelProgress = cd.levelProgress;
-            if (cd.hasSavedStats)
-            {
-                BasePlayer restoredStats;
-                restoredStats.hasSavedStats = true;
-                restoredStats.dynamicStats = cd.dynamicStats;
-                restoredStats.attributes = cd.attributes;
-                restoredStats.skills = cd.skills;
-                restoredStats.level = cd.level;
-                restoredStats.levelProgress = cd.levelProgress;
-                mPlayerSync->queueRestoredStats(restoredStats);
-            }
-
-            if (!cd.classData.empty())
-            {
-                std::istringstream ss(cd.classData);
-                char sep;
-                auto& d = localPlayer.charClass.mData;
-                ss >> d.mSpecialization;
-                for (auto& v : d.mAttribute)  { ss >> sep >> v; }
-                for (auto& row : d.mSkills)   for (auto& v : row) { ss >> sep >> v; }
-                ss >> sep >> d.mIsPlayable;
-                ss >> sep >> d.mServices;
-                localPlayer.charClass.mName = cd.className;
-            }
-
-            Log(Debug::Info) << "[MP] CharacterData received: newChar="
-                             << (mIsNewCharacter ? "yes" : "no")
-                             << " charId=" << mCharacterId
-                             << " charName=" << mCharacterName
-                             << " cell=" << mSpawnCell
-                             << " pos=(" << mSpawnPos[0] << "," << mSpawnPos[1] << "," << mSpawnPos[2] << ")"
-                             << " rot=(" << mSpawnRot[0] << "," << mSpawnRot[1] << "," << mSpawnRot[2] << ")"
-                             << " race=" << mRestoredRace
-                             << " class=" << mRestoredClassName;
-
-            // Reliable bootstrap packets are ordered before CharacterData.
-            // Run optional whole-content diagnostics only after typed SCPT and
-            // Dialogue overlays have reached the effective store.
-            if (!mBootstrapCompilationComplete)
-            {
-                if (mCompileAllScriptsAfterBootstrap)
-                {
-                    const auto result = MWBase::Environment::get().getScriptManager()->compileAll();
-                    if (result.first)
-                        Log(Debug::Info) << "compiled " << result.second << " of " << result.first
-                                         << " scripts after multiplayer content bootstrap ("
-                                         << 100 * static_cast<double>(result.second) / result.first << "%)";
-                }
-                if (mCompileAllDialogueAfterBootstrap && mCompilerExtensions != nullptr)
-                {
-                    const auto result = MWDialogue::ScriptTest::compileAll(
-                        mCompilerExtensions, mCompilerWarningsMode);
-                    if (result.first)
-                        Log(Debug::Info) << "compiled " << result.second << " of " << result.first
-                                         << " dialogue scripts after multiplayer content bootstrap ("
-                                         << 100 * static_cast<double>(result.second) / result.first << "%)";
-                }
-                mBootstrapCompilationComplete = true;
-            }
-
-            mCharacterDataReady = true;
-            if (!mAutoCharacterName.empty())
-            {
-                if (mIsNewCharacter)
-                    mAutoEnterAllowNewCharacterUi = true;
-                mAutoEnterPending = true;
-            }
-            // NOTE: do NOT call forceFullSync() here for returning players.
-            // At this point world->getPlayerPtr() still has the blank template
-            // NPC record - setPlayerRace() has not been called yet.
-            // CharacterSelectDialog::startReturningPlayer() calls forceFullSync()
-            // *after* setPlayerRace() so the BaseInfo packet carries the real
-            // race/head/hair. New characters use the chargen-complete watcher.
+            mRuntimeContentBootstrapGate.retainCharacterData(std::move(cd));
+            tryFinalizePendingCharacterData();
         });
 
     // --- Remote player position ---
@@ -1403,8 +1436,35 @@ void Main::registerProtocolHandlers()
         [this](const uint8_t* data, size_t size)
         {
             PacketRecordDynamic pkt;
-            if (!pkt.decode(data, size)) return;
+            if (!pkt.decode(data, size))
+            {
+                mWorldStateSync->noteRuntimeContentBootstrapError("malformed RecordDynamic bootstrap packet");
+                return;
+            }
             mWorldStateSync->onServerRecordDynamic(pkt.action, pkt.recordType, std::move(pkt.entries));
+        });
+
+    proto.registerHandler(PacketType::RuntimeContentBootstrapComplete,
+        [this](const uint8_t* data, size_t size)
+        {
+            PacketRuntimeContentBootstrapComplete packet;
+            if (!packet.decode(data, size))
+            {
+                failRuntimeContentBootstrap("malformed RuntimeContentBootstrapComplete packet");
+                return;
+            }
+
+            const WorldStateSync::RuntimeContentBootstrapResult result
+                = mWorldStateSync->finishRuntimeContentBootstrap();
+            if (!result.complete)
+            {
+                failRuntimeContentBootstrap(result.error);
+                return;
+            }
+
+            mRuntimeContentBootstrapGate.finish(true);
+            Log(Debug::Info) << "[MP] Runtime content bootstrap complete";
+            tryFinalizePendingCharacterData();
         });
 
     proto.registerHandler(PacketType::RecordCreateResult,
