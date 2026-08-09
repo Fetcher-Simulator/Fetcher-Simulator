@@ -255,11 +255,13 @@ namespace MWWorld
 
         /// Insert a record with set ID, and allow it to override a pre-existing static record.
         template <class T>
-        const T* overrideRecord(const T& x)
+        const T* overrideRecord(const T& x, bool overrideOnly = false)
         {
             Store<T>& store = getWritable<T>();
 
-            T* ptr = store.insert(x);
+            T* ptr = store.insert(x, overrideOnly);
+            if (ptr == nullptr)
+                return nullptr;
             if constexpr (std::is_convertible_v<Store<T>*, DynamicStore*>)
             {
                 setIdType(ptr->mId, T::sRecordId);

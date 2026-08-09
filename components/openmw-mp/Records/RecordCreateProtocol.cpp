@@ -54,6 +54,20 @@ namespace mwmp::records
                 return "request_pending";
             case CreateError::ServerError:
                 return "server_error";
+            case CreateError::InvalidAuthoringMode:
+                return "invalid_authoring_mode";
+            case CreateError::NewRecordStaticCollision:
+                return "new_record_static_collision";
+            case CreateError::OverrideMissingStatic:
+                return "override_missing_static";
+            case CreateError::FixedRecordConflict:
+                return "fixed_record_conflict";
+            case CreateError::OverrideNotBootstrap:
+                return "override_not_bootstrap";
+            case CreateError::DurableReferenceConflict:
+                return "durable_reference_conflict";
+            case CreateError::ScriptCompileFailed:
+                return "script_compile_failed";
         }
         return "unknown_error";
     }

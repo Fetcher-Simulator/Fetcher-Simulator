@@ -1,6 +1,7 @@
 #include "EsmDynamicRecordConversion.hpp"
 
 #include <stdexcept>
+#include <iterator>
 #include <type_traits>
 
 namespace mwmp::records
@@ -118,6 +119,81 @@ namespace mwmp::records
                 result.push_back({ source.mPart, idText(source.mMale), idText(source.mFemale) });
             return result;
         }
+
+        ESM::DialogueCondition toEsmCondition(const DialogueCondition& source)
+        {
+            ESM::DialogueCondition target;
+            target.mVariable = source.variable;
+            target.mValue = source.value;
+            target.mIndex = source.index;
+            target.mFunction = static_cast<ESM::DialogueCondition::Function>(source.function);
+            target.mComparison = static_cast<ESM::DialogueCondition::Comparison>(source.comparison);
+            return target;
+        }
+
+        DialogueCondition fromEsmCondition(const ESM::DialogueCondition& source)
+        {
+            DialogueCondition target;
+            target.variable = source.mVariable;
+            target.value = source.mValue;
+            target.index = source.mIndex;
+            target.function = static_cast<std::int8_t>(source.mFunction);
+            target.comparison = static_cast<char>(source.mComparison);
+            return target;
+        }
+
+        ESM::DialInfo toEsmDialogueInfo(const DialogueInfo& source)
+        {
+            ESM::DialInfo target;
+            target.blank();
+            target.mId = refId(source.infoId);
+            target.mData.mType = source.dialogueType;
+            target.mData.mDisposition = source.dispositionOrJournalIndex;
+            target.mData.mRank = source.rank;
+            target.mData.mGender = source.gender;
+            target.mData.mPCrank = source.pcRank;
+            target.mSelects.reserve(source.conditions.size());
+            for (const DialogueCondition& condition : source.conditions)
+                target.mSelects.push_back(toEsmCondition(condition));
+            target.mActor = refId(source.actorId);
+            target.mRace = refId(source.raceId);
+            target.mClass = refId(source.classId);
+            target.mFaction = refId(source.factionId);
+            target.mPcFaction = refId(source.pcFactionId);
+            target.mCell = refId(source.cellId);
+            target.mSound = source.sound;
+            target.mResponse = source.response;
+            target.mResultScript = source.resultScript;
+            target.mFactionLess = source.factionLess;
+            target.mQuestStatus = static_cast<ESM::DialInfo::QuestStatus>(source.questStatus);
+            return target;
+        }
+
+        DialogueInfo fromEsmDialogueInfo(const ESM::DialInfo& source)
+        {
+            DialogueInfo target;
+            target.infoId = idText(source.mId);
+            target.dialogueType = source.mData.mType;
+            target.dispositionOrJournalIndex = source.mData.mDisposition;
+            target.rank = source.mData.mRank;
+            target.gender = source.mData.mGender;
+            target.pcRank = source.mData.mPCrank;
+            target.conditions.reserve(source.mSelects.size());
+            for (const ESM::DialogueCondition& condition : source.mSelects)
+                target.conditions.push_back(fromEsmCondition(condition));
+            target.actorId = idText(source.mActor);
+            target.raceId = idText(source.mRace);
+            target.classId = idText(source.mClass);
+            target.factionId = idText(source.mFaction);
+            target.pcFactionId = idText(source.mPcFaction);
+            target.cellId = idText(source.mCell);
+            target.sound = source.mSound;
+            target.response = source.mResponse;
+            target.resultScript = source.mResultScript;
+            target.factionLess = source.mFactionLess;
+            target.questStatus = static_cast<std::int8_t>(source.mQuestStatus);
+            return target;
+        }
     }
 
     EsmDynamicRecord toEsmRecord(const DynamicRecordDefinition& definition)
@@ -198,7 +274,7 @@ namespace mwmp::records
                     target.mParts = toEsmParts(source.parts);
                     return target;
                 }
-                else
+                else if constexpr (std::is_same_v<Record, Book>)
                 {
                     ESM::Book target;
                     target.blank();
@@ -210,6 +286,34 @@ namespace mwmp::records
                     target.mData.mSkillId = source.skillId;
                     target.mData.mEnchant = source.enchantCapacity;
                     target.mText = source.text;
+                    return target;
+                }
+                else if constexpr (std::is_same_v<Record, Dialogue>)
+                {
+                    ESM::Dialogue target;
+                    target.blank();
+                    target.mStringId = source.stringId;
+                    target.mType = static_cast<ESM::Dialogue::Type>(source.type);
+                    for (const DialogueInfo& info : source.infos)
+                        target.mInfo.push_back(toEsmDialogueInfo(info));
+                    for (auto it = target.mInfo.begin(); it != target.mInfo.end(); ++it)
+                    {
+                        it->mPrev = it == target.mInfo.begin() ? ESM::RefId{} : std::prev(it)->mId;
+                        const auto next = std::next(it);
+                        it->mNext = next == target.mInfo.end() ? ESM::RefId{} : next->mId;
+                    }
+                    return target;
+                }
+                else
+                {
+                    ESM::Script target;
+                    target.mRecordFlags = source.recordFlags;
+                    target.mNumShorts = 0;
+                    target.mNumLongs = 0;
+                    target.mNumFloats = 0;
+                    target.mVarNames.clear();
+                    target.mScriptData.clear();
+                    target.mScriptText = source.sourceText;
                     return target;
                 }
             },
@@ -292,6 +396,25 @@ namespace mwmp::records
         target.isScroll = source.mData.mIsScroll != 0;
         target.skillId = source.mData.mSkillId;
         target.enchantCapacity = source.mData.mEnchant;
+        return { CurrentSchemaVersion, std::move(target) };
+    }
+
+    DynamicRecordDefinition fromEsmRecord(const ESM::Dialogue& source)
+    {
+        Dialogue target;
+        target.stringId = source.mStringId;
+        target.type = static_cast<std::int8_t>(source.mType);
+        target.infos.reserve(source.mInfo.size());
+        for (const ESM::DialInfo& info : source.mInfo)
+            target.infos.push_back(fromEsmDialogueInfo(info));
+        return { CurrentSchemaVersion, std::move(target) };
+    }
+
+    DynamicRecordDefinition fromEsmRecord(const ESM::Script& source)
+    {
+        Script target;
+        target.recordFlags = source.mRecordFlags;
+        target.sourceText = source.mScriptText;
         return { CurrentSchemaVersion, std::move(target) };
     }
 }

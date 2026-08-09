@@ -15,6 +15,8 @@ namespace mwmp::records
         std::size_t maxDependenciesPerBundle = 16;
         std::size_t maxEffectsPerRecord = 64;
         std::size_t maxBodyPartsPerRecord = 64;
+        std::size_t maxInfosPerDialogue = 4096;
+        std::size_t maxConditionsPerInfo = 64;
         std::size_t maxIdLength = 255;
         std::size_t maxNameLength = 1024;
         std::size_t maxTextLength = 1 << 20;
@@ -35,6 +37,11 @@ namespace mwmp::records
 
     DynamicRecordDefinition canonicalize(DynamicRecordDefinition definition);
     DynamicRecordBundle canonicalize(DynamicRecordBundle bundle);
+
+    /// Upgrade a supported historical OMDR definition to the current schema.
+    /// Schema v1 predates durable authoring mode and is unambiguously the
+    /// existing generated-record behavior.
+    DynamicRecordDefinition upgradeDefinition(DynamicRecordDefinition definition);
 }
 
 #endif

@@ -500,6 +500,8 @@ namespace MWWorld
     {
         typedef std::unordered_map<ESM::RefId, ESM::Dialogue> Static;
         Static mStatic;
+        typedef std::unordered_map<ESM::RefId, ESM::Dialogue> Dynamic;
+        Dynamic mDynamic;
         /// @par mShared usually preserves the record order as it came from the content files (this
         /// is relevant for the spell autocalc code and selection order
         /// for heads/hairs in the character creation)
@@ -508,20 +510,30 @@ namespace MWWorld
 
         mutable bool mKeywordSearchModFlag{ true };
 
+        void rebuildShared();
+
     public:
         Store();
 
         typedef SharedIterator<ESM::Dialogue> iterator;
 
         void setUp() override;
+        void clearDynamic() override;
 
         const ESM::Dialogue* search(const ESM::RefId& id) const;
+        const ESM::Dialogue* searchStatic(const ESM::RefId& id) const;
         const ESM::Dialogue* find(const ESM::RefId& id) const;
+        bool isDynamic(const ESM::RefId& id) const;
 
         iterator begin() const;
         iterator end() const;
 
         size_t getSize() const override;
+        size_t getDynamicSize() const override;
+
+        ESM::Dialogue* insert(const ESM::Dialogue& dialogue, bool overrideOnly = false);
+        ESM::Dialogue* insertStatic(const ESM::Dialogue& dialogue);
+        bool erase(const ESM::RefId& id);
 
         bool eraseStatic(const ESM::RefId& id) override;
 

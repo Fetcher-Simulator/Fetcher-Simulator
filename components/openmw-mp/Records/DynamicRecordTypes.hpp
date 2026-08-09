@@ -2,6 +2,7 @@
 #define OPENMW_MP_DYNAMIC_RECORD_TYPES_HPP
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -10,8 +11,10 @@
 
 namespace mwmp::records
 {
-    inline constexpr std::uint16_t CurrentSchemaVersion = 1;
-    inline constexpr std::uint16_t CurrentWireVersion = 1;
+    inline constexpr std::uint16_t CurrentSchemaVersion = 2;
+    inline constexpr std::uint16_t CurrentWireVersion = 2;
+    inline constexpr std::size_t MaximumDefinitionBytes = 8 * 1024 * 1024;
+    inline constexpr std::size_t MaximumBundleBytes = 16 * 1024 * 1024;
 
     enum class RecordType : std::uint8_t
     {
@@ -21,6 +24,18 @@ namespace mwmp::records
         Armor = 4,
         Clothing = 5,
         Book = 6,
+        Dialogue = 7,
+        Script = 8,
+    };
+
+    /// Durable authoring intent. Generated is the existing content-addressed
+    /// record path; New and Override are explicit fixed-identity server
+    /// content modes and must never be inferred from a store collision.
+    enum class AuthoringMode : std::uint8_t
+    {
+        Generated = 0,
+        New = 1,
+        Override = 2,
     };
 
     enum class ReferenceKind : std::uint8_t
@@ -138,12 +153,68 @@ namespace mwmp::records
         bool operator==(const Book&) const = default;
     };
 
-    using DefinitionData = std::variant<Potion, Enchantment, Weapon, Armor, Clothing, Book>;
+    struct DialogueCondition
+    {
+        std::string variable;
+        std::variant<std::int32_t, float> value = std::int32_t{ 0 };
+        std::uint8_t index = 0;
+        std::int8_t function = 0;
+        char comparison = '0';
+        bool operator==(const DialogueCondition&) const = default;
+    };
+
+    struct DialogueInfo
+    {
+        std::string infoId;
+        std::int32_t dialogueType = 0;
+        std::int32_t dispositionOrJournalIndex = 0;
+        std::int8_t rank = -1;
+        std::int8_t gender = -1;
+        std::int8_t pcRank = -1;
+        std::vector<DialogueCondition> conditions;
+        std::string actorId;
+        std::string raceId;
+        std::string classId;
+        std::string factionId;
+        std::string pcFactionId;
+        std::string cellId;
+        std::string sound;
+        std::string response;
+        std::string resultScript;
+        bool factionLess = false;
+        std::int8_t questStatus = 0;
+        bool operator==(const DialogueInfo&) const = default;
+    };
+
+    /// Dialogue is persisted and replicated atomically with its complete,
+    /// authoritative INFO order. mPrev/mNext are derived during ESM conversion.
+    struct Dialogue
+    {
+        std::string stringId;
+        std::int8_t type = 0;
+        std::vector<DialogueInfo> infos;
+        std::vector<std::string> declaredDependencies;
+        bool operator==(const Dialogue&) const = default;
+    };
+
+    /// MWScript definitions are source-authoritative. Compiled bytecode,
+    /// locals, and interpreter state are deliberately not part of OMDR.
+    struct Script
+    {
+        std::uint32_t recordFlags = 0;
+        std::string sourceText;
+        std::vector<std::string> declaredDependencies;
+        bool operator==(const Script&) const = default;
+    };
+
+    using DefinitionData
+        = std::variant<Potion, Enchantment, Weapon, Armor, Clothing, Book, Dialogue, Script>;
 
     struct DynamicRecordDefinition
     {
         std::uint16_t schemaVersion = CurrentSchemaVersion;
         DefinitionData data;
+        AuthoringMode authoringMode = AuthoringMode::Generated;
         bool operator==(const DynamicRecordDefinition&) const = default;
     };
 

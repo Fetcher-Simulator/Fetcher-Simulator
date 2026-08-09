@@ -3,6 +3,7 @@
 
 #include <components/openmw-mp/Packets/BasePacket.hpp>
 #include <components/openmw-mp/Records/RecordCreateProtocol.hpp>
+#include <components/openmw-mp/Records/DynamicRecordTypes.hpp>
 
 namespace mwmp
 {
@@ -55,7 +56,7 @@ namespace mwmp
                 record.temporaryKey = stream.readString();
                 record.recordId = stream.readString();
                 stream.read(record.reused);
-                record.definition = stream.readBytes();
+                record.definition = stream.readBytes(records::MaximumDefinitionBytes);
             }
             if (!stream.eof())
                 throw std::runtime_error("Trailing bytes in record create result");

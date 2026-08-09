@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <limits>
 #include <stdexcept>
 #include <type_traits>
 
@@ -103,10 +104,12 @@ namespace mwmp
             return s;
         }
 
-        std::string readBytes()
+        std::string readBytes(std::size_t maximumSize = std::numeric_limits<std::size_t>::max())
         {
             uint32_t len = 0;
             read(len);
+            if (len > maximumSize)
+                throw std::runtime_error("ReadStream: byte string exceeds limit");
             need(len);
             std::string bytes(reinterpret_cast<const char*>(mData + mPos), len);
             mPos += len;

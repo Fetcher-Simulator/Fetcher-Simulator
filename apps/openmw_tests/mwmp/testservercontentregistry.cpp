@@ -3,10 +3,12 @@
 #include <components/esm3/loadalch.hpp>
 #include <components/esm3/loadappa.hpp>
 #include <components/esm3/loadcrea.hpp>
+#include <components/esm3/loaddial.hpp>
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadingr.hpp>
 #include <components/esm3/loadmgef.hpp>
 #include <components/esm3/loadnpc.hpp>
+#include <components/esm3/loadscpt.hpp>
 #include <components/lua/configuration.hpp>
 #include <components/lua/luastate.hpp>
 #include <components/resource/resourcesystem.hpp>
@@ -75,6 +77,34 @@ namespace
         setting.mValue.setType(ESM::VT_Float);
         setting.mValue.setFloat(value);
         return setting;
+    }
+
+    ESM::Dialogue makeDialogue(std::string response)
+    {
+        ESM::Dialogue dialogue;
+        dialogue.blank();
+        dialogue.mId = ESM::RefId::stringRefId("content_dialogue");
+        dialogue.mStringId = "Content Dialogue";
+        dialogue.mType = ESM::Dialogue::Topic;
+        ESM::DialInfo info;
+        info.blank();
+        info.mId = ESM::RefId::stringRefId("content_info");
+        info.mData.mType = ESM::Dialogue::Topic;
+        info.mResponse = std::move(response);
+        dialogue.mInfo.push_back(std::move(info));
+        return dialogue;
+    }
+
+    ESM::Script makeScript(std::string source)
+    {
+        ESM::Script script;
+        script.mId = ESM::RefId::stringRefId("content_script");
+        script.mRecordFlags = 0;
+        script.mNumShorts = 0;
+        script.mNumLongs = 0;
+        script.mNumFloats = 0;
+        script.mScriptText = std::move(source);
+        return script;
     }
 
     std::string runLoadScript(float templateWeight, std::string script)
@@ -218,6 +248,24 @@ TEST(ServerContentRegistry, enchantingInputsChangeResolvedFingerprint)
     }
 }
 
+TEST(ServerContentRegistry, dialogueAndScriptBaselineChangeResolvedFingerprint)
+{
+    {
+        MWWorld::ESMStore first;
+        MWWorld::ESMStore second;
+        first.insertStatic(makeDialogue("First response"));
+        second.insertStatic(makeDialogue("Second response"));
+        EXPECT_NE(MWMP::resolvedContentFingerprint(first), MWMP::resolvedContentFingerprint(second));
+    }
+    {
+        MWWorld::ESMStore first;
+        MWWorld::ESMStore second;
+        first.insertStatic(makeScript("Begin content_script\nEnd content_script\n"));
+        second.insertStatic(makeScript("Begin content_script\nshort state\nEnd content_script\n"));
+        EXPECT_NE(MWMP::resolvedContentFingerprint(first), MWMP::resolvedContentFingerprint(second));
+    }
+}
+
 TEST(ServerContentRegistry, playerNpcPromotionDoesNotChangeResolvedFingerprint)
 {
     ESM::NPC player;
@@ -253,5 +301,21 @@ TEST(ServerContentRegistry, runtimeDynamicRecordsDoNotChangeContentFingerprint)
     ESM::Potion runtime = makePotion("ignored", 99.f);
     runtime.mId = ESM::RefId::stringRefId("$custom_potion_1");
     store.overrideRecord(runtime);
+    EXPECT_EQ(before, MWMP::resolvedContentFingerprint(store));
+}
+
+TEST(ServerContentRegistry, runtimeOverridesDoNotReplaceResolvedBaselineFingerprint)
+{
+    MWWorld::ESMStore store;
+    ESM::Dialogue dialogue = makeDialogue("Static response");
+    ESM::Script script = makeScript("Begin content_script\nEnd content_script\n");
+    store.insertStatic(dialogue);
+    store.insertStatic(script);
+    const std::string before = MWMP::resolvedContentFingerprint(store);
+
+    dialogue.mInfo.front().mResponse = "Runtime response";
+    script.mScriptText = "Begin content_script\nshort state\nEnd content_script\n";
+    store.overrideRecord(dialogue, true);
+    store.overrideRecord(script, true);
     EXPECT_EQ(before, MWMP::resolvedContentFingerprint(store));
 }

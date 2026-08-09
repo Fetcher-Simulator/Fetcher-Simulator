@@ -10,7 +10,7 @@
 
 namespace mwmp::records
 {
-    inline constexpr std::uint16_t CurrentCreateProtocolVersion = 1;
+    inline constexpr std::uint16_t CurrentCreateProtocolVersion = 2;
 
     enum class CreateOperation : std::uint8_t
     {
@@ -46,6 +46,13 @@ namespace mwmp::records
         DuplicateRequestConflict = 21,
         RequestPending = 22,
         ServerError = 23,
+        InvalidAuthoringMode = 24,
+        NewRecordStaticCollision = 25,
+        OverrideMissingStatic = 26,
+        FixedRecordConflict = 27,
+        OverrideNotBootstrap = 28,
+        DurableReferenceConflict = 29,
+        ScriptCompileFailed = 30,
     };
 
     struct RecordCreateRequest

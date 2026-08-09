@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <stdexcept>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
@@ -88,6 +89,24 @@ namespace mwmp::records
             }
             while (result.starts_with("./"))
                 result.erase(0, 2);
+            return result;
+        }
+
+        std::string normalizeLineEndings(std::string value)
+        {
+            std::string result;
+            result.reserve(value.size());
+            for (std::size_t i = 0; i < value.size(); ++i)
+            {
+                if (value[i] == '\r')
+                {
+                    if (i + 1 < value.size() && value[i + 1] == '\n')
+                        ++i;
+                    result.push_back('\n');
+                }
+                else
+                    result.push_back(value[i]);
+            }
             return result;
         }
 
@@ -201,6 +220,72 @@ namespace mwmp::records
             }
         }
 
+        void checkDialogueConditions(std::vector<ValidationError>& errors,
+            const std::vector<DialogueCondition>& conditions, const ValidationLimits& limits,
+            const std::string& path)
+        {
+            if (conditions.size() > limits.maxConditionsPerInfo)
+                add(errors, "too_many_dialogue_conditions", path, "Dialogue condition count exceeds the configured limit");
+            for (std::size_t i = 0; i < conditions.size(); ++i)
+            {
+                const DialogueCondition& condition = conditions[i];
+                const std::string itemPath = path + "[" + std::to_string(i) + "]";
+                checkId(errors, condition.variable, limits, itemPath + ".variable");
+                if (condition.index > 9)
+                    add(errors, "invalid_dialogue_condition", itemPath + ".index", "Condition index must be between 0 and 9");
+                if (condition.function < 0 || condition.function > 84)
+                    add(errors, "invalid_dialogue_condition", itemPath + ".function", "Condition function is out of range");
+                if (condition.comparison < '0' || condition.comparison > '5')
+                    add(errors, "invalid_dialogue_condition", itemPath + ".comparison", "Condition comparison is out of range");
+                if (const auto* value = std::get_if<float>(&condition.value); value && !std::isfinite(*value))
+                    add(errors, "invalid_number", itemPath + ".value", "Condition value must be finite");
+            }
+        }
+
+        void checkDialogue(std::vector<ValidationError>& errors, const Dialogue& dialogue,
+            const ValidationLimits& limits)
+        {
+            checkString(errors, dialogue.stringId, limits.maxNameLength, "dialogue.stringId");
+            if (dialogue.type < 0 || dialogue.type > 4)
+                add(errors, "invalid_dialogue_type", "dialogue.type", "Dialogue type is out of range");
+            if (dialogue.infos.size() > limits.maxInfosPerDialogue)
+                add(errors, "too_many_dialogue_infos", "dialogue.infos", "INFO count exceeds the configured limit");
+
+            std::unordered_set<std::string> infoIds;
+            for (std::size_t i = 0; i < dialogue.infos.size(); ++i)
+            {
+                const DialogueInfo& info = dialogue.infos[i];
+                const std::string path = "dialogue.infos[" + std::to_string(i) + "]";
+                checkId(errors, info.infoId, limits, path + ".infoId", true);
+                if (!info.infoId.empty() && !infoIds.insert(lowerAscii(info.infoId)).second)
+                    add(errors, "duplicate_dialogue_info", path + ".infoId", "INFO id is duplicated beneath this Dialogue");
+                if (info.dialogueType < 0 || info.dialogueType > 4)
+                    add(errors, "invalid_dialogue_type", path + ".dialogueType", "INFO Dialogue type is out of range");
+                if (info.rank < -1 || info.rank > 9 || info.pcRank < -1 || info.pcRank > 9)
+                    add(errors, "invalid_dialogue_rank", path, "Dialogue faction rank is out of range");
+                if (info.gender < -1 || info.gender > 1)
+                    add(errors, "invalid_dialogue_gender", path + ".gender", "Dialogue gender is out of range");
+                if (info.questStatus < 0 || info.questStatus > 3)
+                    add(errors, "invalid_dialogue_quest_status", path + ".questStatus", "Dialogue quest status is out of range");
+                checkDialogueConditions(errors, info.conditions, limits, path + ".conditions");
+                checkId(errors, info.actorId, limits, path + ".actorId");
+                checkId(errors, info.raceId, limits, path + ".raceId");
+                checkId(errors, info.classId, limits, path + ".classId");
+                checkId(errors, info.factionId, limits, path + ".factionId");
+                checkId(errors, info.pcFactionId, limits, path + ".pcFactionId");
+                checkId(errors, info.cellId, limits, path + ".cellId");
+                checkPath(errors, info.sound, limits, path + ".sound");
+                checkString(errors, info.response, limits.maxTextLength, path + ".response");
+                checkString(errors, info.resultScript, limits.maxTextLength, path + ".resultScript");
+            }
+            if (dialogue.declaredDependencies.size() > limits.maxDependenciesPerBundle)
+                add(errors, "too_many_dependencies", "dialogue.declaredDependencies",
+                    "Declared dependency count exceeds the configured limit");
+            for (std::size_t i = 0; i < dialogue.declaredDependencies.size(); ++i)
+                checkId(errors, dialogue.declaredDependencies[i], limits,
+                    "dialogue.declaredDependencies[" + std::to_string(i) + "]", true);
+        }
+
         void normalizeReference(RecordReference& reference)
         {
             reference.value = lowerAscii(std::move(reference.value));
@@ -252,6 +337,9 @@ namespace mwmp::records
         std::vector<ValidationError> errors;
         if (definition.schemaVersion != CurrentSchemaVersion)
             add(errors, "unsupported_schema", "schemaVersion", "Dynamic record schema version is not supported");
+        if (definition.authoringMode != AuthoringMode::Generated && definition.authoringMode != AuthoringMode::New
+            && definition.authoringMode != AuthoringMode::Override)
+            add(errors, "invalid_authoring_mode", "authoringMode", "Dynamic record authoring mode is not supported");
 
         std::visit(
             [&](const auto& record) {
@@ -307,6 +395,18 @@ namespace mwmp::records
                     checkString(errors, record.text, limits.maxTextLength, "book.text");
                     if (record.skillId < -1 || record.skillId > 26 || record.enchantCapacity < 0)
                         add(errors, "invalid_number", "book", "Book skill or enchantment capacity is out of range");
+                }
+                else if constexpr (std::is_same_v<Record, Dialogue>)
+                    checkDialogue(errors, record, limits);
+                else if constexpr (std::is_same_v<Record, Script>)
+                {
+                    checkString(errors, record.sourceText, limits.maxTextLength, "script.sourceText", true);
+                    if (record.declaredDependencies.size() > limits.maxDependenciesPerBundle)
+                        add(errors, "too_many_dependencies", "script.declaredDependencies",
+                            "Declared dependency count exceeds the configured limit");
+                    for (std::size_t i = 0; i < record.declaredDependencies.size(); ++i)
+                        checkId(errors, record.declaredDependencies[i], limits,
+                            "script.declaredDependencies[" + std::to_string(i) + "]", true);
                 }
             },
             definition.data);
@@ -388,7 +488,9 @@ namespace mwmp::records
         std::visit(
             [](auto& record) {
                 using Record = std::decay_t<decltype(record)>;
-                if constexpr (!std::is_same_v<Record, Enchantment>)
+                if constexpr (std::is_same_v<Record, Potion> || std::is_same_v<Record, Weapon>
+                    || std::is_same_v<Record, Armor> || std::is_same_v<Record, Clothing>
+                    || std::is_same_v<Record, Book>)
                     normalizeItem(record.item);
                 if constexpr (std::is_same_v<Record, Potion> || std::is_same_v<Record, Enchantment>)
                     normalizeEffects(record.effects);
@@ -403,6 +505,43 @@ namespace mwmp::records
                         record.speed = 0.f;
                     if (record.reach == 0.f)
                         record.reach = 0.f;
+                }
+                if constexpr (std::is_same_v<Record, Dialogue>)
+                {
+                    for (DialogueInfo& info : record.infos)
+                    {
+                        info.infoId = lowerAscii(std::move(info.infoId));
+                        info.actorId = lowerAscii(std::move(info.actorId));
+                        info.raceId = lowerAscii(std::move(info.raceId));
+                        info.classId = lowerAscii(std::move(info.classId));
+                        info.factionId = lowerAscii(std::move(info.factionId));
+                        info.pcFactionId = lowerAscii(std::move(info.pcFactionId));
+                        info.cellId = lowerAscii(std::move(info.cellId));
+                        info.sound = normalizePath(std::move(info.sound));
+                        info.resultScript = normalizeLineEndings(std::move(info.resultScript));
+                        for (DialogueCondition& condition : info.conditions)
+                        {
+                            condition.variable = lowerAscii(std::move(condition.variable));
+                            if (auto* value = std::get_if<float>(&condition.value); value && *value == 0.f)
+                                *value = 0.f;
+                        }
+                    }
+                    for (std::string& dependency : record.declaredDependencies)
+                        dependency = lowerAscii(std::move(dependency));
+                    std::sort(record.declaredDependencies.begin(), record.declaredDependencies.end());
+                    record.declaredDependencies.erase(
+                        std::unique(record.declaredDependencies.begin(), record.declaredDependencies.end()),
+                        record.declaredDependencies.end());
+                }
+                if constexpr (std::is_same_v<Record, Script>)
+                {
+                    record.sourceText = normalizeLineEndings(std::move(record.sourceText));
+                    for (std::string& dependency : record.declaredDependencies)
+                        dependency = lowerAscii(std::move(dependency));
+                    std::sort(record.declaredDependencies.begin(), record.declaredDependencies.end());
+                    record.declaredDependencies.erase(
+                        std::unique(record.declaredDependencies.begin(), record.declaredDependencies.end()),
+                        record.declaredDependencies.end());
                 }
             },
             definition.data);
@@ -428,5 +567,21 @@ namespace mwmp::records
             return std::tie(lhs.ownerKey, lhs.dependencyKey) < std::tie(rhs.ownerKey, rhs.dependencyKey);
         });
         return bundle;
+    }
+
+    DynamicRecordDefinition upgradeDefinition(DynamicRecordDefinition definition)
+    {
+        if (definition.schemaVersion == CurrentSchemaVersion)
+            return definition;
+        if (definition.schemaVersion == 1)
+        {
+            const RecordType type = getRecordType(definition);
+            if (type == RecordType::Dialogue || type == RecordType::Script)
+                throw std::runtime_error("Dialogue and Script do not exist in dynamic record schema v1");
+            definition.schemaVersion = CurrentSchemaVersion;
+            definition.authoringMode = AuthoringMode::Generated;
+            return definition;
+        }
+        throw std::runtime_error("Unsupported dynamic record schema version");
     }
 }
