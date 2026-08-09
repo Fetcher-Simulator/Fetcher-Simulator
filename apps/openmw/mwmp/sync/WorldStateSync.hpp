@@ -2,6 +2,7 @@
 #define OPENMW_MWMP_SYNC_WORLDSTATESYNC_HPP
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <components/openmw-mp/Base/DynamicRecord.hpp>
 #include <components/openmw-mp/Base/BaseStructs.hpp>
@@ -19,6 +20,7 @@ namespace mwmp
                                    const std::string& regionName);
         void onServerRecordDynamic(
             DynamicRecordAction action, const std::string& recordType, std::vector<DynamicRecordEntry> entries);
+        void resetSessionState();
         void setDynamicRecordChangeCallback(std::function<void()> callback)
         {
             mDynamicRecordChangeCallback = std::move(callback);
@@ -63,6 +65,7 @@ namespace mwmp
         bool applyDynamicRecord(const PendingDynamicRecord& record, std::string* error = nullptr);
         void processPendingDynamicRecords();
         std::vector<PendingDynamicRecord> mPendingDynamicRecords;
+        std::unordered_map<std::string, std::string> mInstalledTypedDefinitions;
         std::function<void()> mDynamicRecordChangeCallback;
 
         static constexpr float SYNC_RATE           = 5.f;

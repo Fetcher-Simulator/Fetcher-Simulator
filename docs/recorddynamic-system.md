@@ -10,9 +10,10 @@ configured OpenMW content and load scripts, then the handshake compares ordered
 base files, configured Lua script paths and hashes, content/API versions, the
 runtime wire version, and a canonical post-load SHA-256.
 
-Resolved-content identity is explicitly versioned. `ContentManifestVersion = 4`
-and the `OMRC` v4 fingerprint cover the six typed runtime-record stores
-(Potion, Enchantment, Weapon, Armor, Clothing, and Book) plus the load-time
+Resolved-content identity is explicitly versioned. `ContentManifestVersion = 5`
+and the `OMRC` v5 fingerprint cover the eight typed runtime-record stores
+(Potion, Enchantment, Weapon, Armor, Clothing, Book, Dialogue/INFO, and Script)
+plus the load-time
 records that currently feed authoritative crafting mechanics: Ingredient,
 Apparatus, MagicEffect, GameSetting, Skill, Class, Creature, and NPC. The
 mechanics-only records use their own stable fingerprint tags and deterministic
@@ -20,7 +21,9 @@ little-endian field encodings; they are not being promoted to runtime-create
 DTOs. Any future authoritative mechanic that consumes another load-script-mutable
 record kind must add that record kind to the resolved fingerprint and bump the
 content/fingerprint version. Runtime `$custom_*` records remain excluded from
-resolved-content identity.
+resolved-content identity. Dialogue and Script overlays do not replace the
+static baseline in that fingerprint: an override is a server-authoritative
+bootstrap layer delivered only after the static manifest has matched.
 
 The server derives the content, Lua-script, and resolved-record manifests from
 its own `[content] openmw_cfg`; `Config.RESOLVED_CONTENT_FINGERPRINT` is only an
@@ -59,6 +62,49 @@ server-Lua call supplies a fixed record ID, `DynamicRecordService` does not
 deduplicate that request onto a different existing ID merely because the
 definitions have the same fingerprint. Content-addressed deduplication remains
 the normal policy for generated client/runtime records without a fixed identity.
+
+## Typed server content: Dialogue/INFO and SCPT
+
+Trusted server Lua may submit typed Dialogue and Script definitions with a
+fixed ID and an explicit authoring mode:
+
+- `new` requires that the ID does not collide with a static record.
+- `override` requires a static Dialogue or Script with the same ID and is
+  accepted only at the bootstrap activation boundary, before clients are in
+  the session.
+- `generated` remains the mode for the six player/runtime-created DTO kinds
+  and is invalid for Dialogue and Script.
+
+A Dialogue definition is one atomic aggregate containing the DIAL fields and
+the complete ordered INFO sequence. INFO identity is `(dialogueId, infoId)`;
+ESM `mPrev` and `mNext` links are derived from vector order during insertion
+and are not persisted or sent. An override must retain every INFO ID referenced
+by any durable journal entry. Dialogue and Script definitions are durable
+content and are not garbage-collected through gameplay-state links.
+
+A Script definition contains record flags and canonical UTF-8 source only.
+Editor bytecode, variable tables, compiled programs, locals, and interpreter
+state are not part of OMDR. The server compiles submitted source as validation;
+clients insert the SCPT definition, invalidate cached program/locals, and
+compile locally before execution. Installing or replicating a Script never
+executes it. Optional whole-content compilation in multiplayer is deferred
+until the runtime-definition bootstrap has completed.
+
+Typed dependencies are extracted centrally from DTO fields and explicit
+declared dependency IDs. SQLite stores those edges, and reconnect bootstrap
+uses deterministic dependency-first order with persisted sequence as its
+tie-breaker. The headless server also installs persisted Dialogue/Script
+definitions into its effective store after restart while static-only resolved
+fingerprinting remains unchanged.
+
+Runtime record definitions remain separate from player/world gameplay state.
+A dialogue result script is never replayed on another client to reproduce a
+journal result; the resulting journal entry/index is the semantic state that is
+persisted and replicated.
+
+Server Lua package distribution remains a separate future executable-code
+system with its own trust, package manifests, and activation. Lua source
+packages must not be encoded as RecordDynamic definitions or folded into OMDR.
 
 ## Permissions and validation
 
@@ -535,7 +581,7 @@ and error code.
 
 ## Trusted server-Lua compatibility
 
-Potion, Enchantment, Weapon, Armor, Clothing, and Book server-Lua writes use the
+Potion, Enchantment, Weapon, Armor, Clothing, Book, Dialogue, and Script server-Lua writes use the
 canonical parser/DTO/`DynamicRecordService` path. That path owns persistence,
 provenance, validation, fingerprinting, idempotency, and canonical record data.
 

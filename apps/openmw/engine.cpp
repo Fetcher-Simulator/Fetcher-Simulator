@@ -1089,8 +1089,10 @@ void OMW::Engine::prepareEngine()
 
 #ifdef BUILD_MULTIPLAYER
     const bool mpAutoLaunch = mMPEnabled && mMPAutoEnter && !mMPCharacterName.empty();
+    const bool deferScriptCompilationForMultiplayer = mMPEnabled;
 #else
     const bool mpAutoLaunch = false;
+    const bool deferScriptCompilationForMultiplayer = false;
 #endif
 
     if (!mSkipMenu && !mpAutoLaunch)
@@ -1117,14 +1119,14 @@ void OMW::Engine::prepareEngine()
     mLuaManager->initPostLoad();
 
     // scripts
-    if (mCompileAll)
+    if (mCompileAll && !deferScriptCompilationForMultiplayer)
     {
         std::pair<int, int> result = mScriptManager->compileAll();
         if (result.first)
             Log(Debug::Info) << "compiled " << result.second << " of " << result.first << " scripts ("
                              << 100 * static_cast<double>(result.second) / result.first << "%)";
     }
-    if (mCompileAllDialogue)
+    if (mCompileAllDialogue && !deferScriptCompilationForMultiplayer)
     {
         std::pair<int, int> result = MWDialogue::ScriptTest::compileAll(&mExtensions, mWarningsMode);
         if (result.first)
@@ -1247,7 +1249,8 @@ void OMW::Engine::go()
     {
         Log(Debug::Info) << "Initialising multiplayer: " << mMPServerAddress << ":" << mMPServerPort;
         if (!mwmp::Main::init(mMPServerAddress, mMPServerPort, mMPPlayerName, mMPPasswordHash,
-                false, true, mMPAutoEnter ? mMPCharacterName : std::string{}))
+                false, true, mMPAutoEnter ? mMPCharacterName : std::string{},
+                mCompileAll, mCompileAllDialogue, &mExtensions, mWarningsMode))
             Log(Debug::Error) << "Multiplayer init failed — continuing in single-player mode";
     }
 #endif

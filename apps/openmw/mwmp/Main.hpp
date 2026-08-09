@@ -12,6 +12,7 @@
 
 namespace MWWorld { class Ptr; }
 namespace Files { class Collections; }
+namespace Compiler { class Extensions; }
 
 namespace mwmp
 {
@@ -55,7 +56,11 @@ namespace mwmp
                             const std::string& passwordHash,
                             bool isRegistration = false,
                             bool useKeypair     = true,
-                            const std::string& autoCharacterName = {});
+                            const std::string& autoCharacterName = {},
+                            bool compileAllScripts = false,
+                            bool compileAllDialogue = false,
+                            const Compiler::Extensions* compilerExtensions = nullptr,
+                            int warningsMode = 1);
         static void destroy();
 
         // Per-frame update — call from engine frame loop
@@ -173,6 +178,11 @@ namespace mwmp
         int64_t     mCharacterId          = 0;
         std::string mCharacterName;       ///< selected character slot name (may differ from login name)
         bool        mCharacterDataReady   = false;
+        bool        mCompileAllScriptsAfterBootstrap = false;
+        bool        mCompileAllDialogueAfterBootstrap = false;
+        bool        mBootstrapCompilationComplete = false;
+        const Compiler::Extensions* mCompilerExtensions = nullptr;
+        int         mCompilerWarningsMode = 1;
         std::string mCharSelectError;
         bool                     mDeleteCharResponseReady = false;
         PacketDeleteCharResponse mDeleteCharResponse;
