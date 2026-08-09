@@ -293,8 +293,14 @@ namespace
         out << "Content-file validation failed";
         if (!mismatches.empty())
         {
-            out << ": " << (mismatches.front().filename.empty() ? "content list" : mismatches.front().filename)
-                << " (" << mismatches.front().reason << ")";
+            const auto& mismatch = mismatches.front();
+            out << ": " << (mismatch.filename.empty() ? "content list" : mismatch.filename)
+                << " (" << mismatch.reason;
+            if (!mismatch.expectedSha256.empty())
+                out << "; expected SHA-256=" << mismatch.expectedSha256;
+            if (!mismatch.actualSha256.empty())
+                out << "; actual SHA-256=" << mismatch.actualSha256;
+            out << ")";
         }
         out << ". Update your required mods and load order.";
         if (!helpUrl.empty())
