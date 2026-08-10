@@ -4,6 +4,7 @@
 #include <components/openmw-mp/Packets/Lua/PacketLuaEvent.hpp>
 #include <components/openmw-mp/Packets/Lua/PacketLuaStorage.hpp>
 #include <components/openmw-mp/Records/EsmDynamicRecordConversion.hpp>
+#include <components/openmw-mp/ServerLuaPackage.hpp>
 #include <components/lua/scriptscontainer.hpp>
 
 #include "../mwbase/environment.hpp"
@@ -271,6 +272,7 @@ namespace mwmp
         return sol::make_object(lua, sol::as_function([context](const sol::table& hiddenData) {
         sol::state_view lua = context.sol();
         sol::table mp(lua, sol::create);
+        mp["API_VERSION"] = serverlua::MultiplayerLuaApiVersion;
 
         std::string scriptPackageId;
         const sol::optional<LuaUtil::ScriptId> scriptId

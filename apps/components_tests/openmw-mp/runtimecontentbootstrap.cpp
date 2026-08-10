@@ -94,3 +94,55 @@ TEST(RuntimeContentBootstrap, ResetPreventsPriorSessionCompletionFromReleasingRe
     ASSERT_TRUE(gate.finish(true));
     EXPECT_EQ(gate.takeReadyCharacterData(), CharacterData{ 6 });
 }
+
+TEST(RuntimeContentBootstrap, CharacterDataWaitsForRuntimeContentAndServerLuaActivation)
+{
+    Gate gate;
+    gate.retainCharacterData({ 7 });
+
+    ASSERT_TRUE(gate.finishRuntimeContent(true));
+    EXPECT_TRUE(gate.isRuntimeContentReady());
+    EXPECT_FALSE(gate.isServerLuaReady());
+    EXPECT_FALSE(gate.takeReadyCharacterData().has_value());
+
+    ASSERT_TRUE(gate.finishServerLua(true));
+    EXPECT_EQ(gate.takeReadyCharacterData(), CharacterData{ 7 });
+}
+
+TEST(RuntimeContentBootstrap, CrossLaneServerLuaFirstStillWaitsForRuntimeContent)
+{
+    Gate gate;
+    gate.retainCharacterData({ 8 });
+
+    ASSERT_TRUE(gate.finishServerLua(true));
+    EXPECT_TRUE(gate.isServerLuaReady());
+    EXPECT_FALSE(gate.isRuntimeContentReady());
+    EXPECT_FALSE(gate.takeReadyCharacterData().has_value());
+
+    ASSERT_TRUE(gate.finishRuntimeContent(true));
+    EXPECT_EQ(gate.takeReadyCharacterData(), CharacterData{ 8 });
+}
+
+TEST(RuntimeContentBootstrap, ServerLuaActivationFailurePreventsWorldEntry)
+{
+    Gate gate;
+    gate.retainCharacterData({ 9 });
+    ASSERT_TRUE(gate.finishRuntimeContent(true));
+
+    EXPECT_FALSE(gate.finishServerLua(false, "compile failed"));
+    EXPECT_EQ(gate.state(), Gate::State::Failed);
+    EXPECT_EQ(gate.error(), "compile failed");
+    EXPECT_FALSE(gate.takeReadyCharacterData().has_value());
+}
+
+TEST(RuntimeContentBootstrap, ResetClearsBothIndependentRequirements)
+{
+    Gate gate;
+    ASSERT_TRUE(gate.finishRuntimeContent(true));
+    ASSERT_TRUE(gate.finishServerLua(true));
+
+    gate.reset();
+    EXPECT_FALSE(gate.isRuntimeContentReady());
+    EXPECT_FALSE(gate.isServerLuaReady());
+    EXPECT_EQ(gate.state(), Gate::State::Waiting);
+}
