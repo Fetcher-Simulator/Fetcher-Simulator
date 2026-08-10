@@ -47,6 +47,8 @@
 #include "../mwbase/world.hpp"
 
 #ifdef BUILD_MULTIPLAYER
+#include <components/version/version.hpp>
+
 #include "../mwmp/Main.hpp"
 #include "../mwmp/MpNetworkBridge.hpp"
 #endif
@@ -358,13 +360,139 @@ namespace MWLua
 
     void LuaManager::initConfiguration(bool reload)
     {
-        mConfiguration.init(MWBase::Environment::get().getESMStore()->getLuaScriptsCfg(), reload);
+        ESM::LuaScriptsCfg scripts = MWBase::Environment::get().getESMStore()->getLuaScriptsCfg();
+#ifdef BUILD_MULTIPLAYER
+        if (mActiveMultiplayerLuaLayer)
+        {
+            scripts.mScripts.insert(scripts.mScripts.end(), mActiveMultiplayerLuaLayer->mScripts.mScripts.begin(),
+                mActiveMultiplayerLuaLayer->mScripts.mScripts.end());
+        }
+#endif
+        mConfiguration.init(std::move(scripts), reload);
         Log(Debug::Verbose) << "Lua scripts configuration (" << mConfiguration.size() << " scripts):";
         for (size_t i = 0; i < mConfiguration.size(); ++i)
             Log(Debug::Verbose) << "#" << i << " " << LuaUtil::scriptCfgToString(mConfiguration[i]);
         mMenuScripts.setAutoStartConf(mConfiguration.getMenuConf());
         mGlobalScripts.setAutoStartConf(mConfiguration.getGlobalConf());
     }
+
+#ifdef BUILD_MULTIPLAYER
+    bool LuaManager::stageMultiplayerLuaPackages(mwmp::serverlua::PackageSet packageSet, std::string& error)
+    {
+        error.clear();
+        mStagedMultiplayerLuaLayer.reset();
+
+        const auto validation = mwmp::serverlua::validatePackageSet(packageSet,
+            static_cast<std::uint32_t>(Version::getLuaApiRevision()),
+            mwmp::serverlua::MultiplayerLuaApiVersion, true);
+        if (!validation.empty())
+        {
+            const auto& first = validation.front();
+            error = first.path + " [" + first.code + "]: " + first.message;
+            return false;
+        }
+
+        static_assert(mwmp::serverlua::ScriptGlobal == ESM::LuaScriptCfg::sGlobal);
+        static_assert(mwmp::serverlua::ScriptCustom == ESM::LuaScriptCfg::sCustom);
+        static_assert(mwmp::serverlua::ScriptPlayer == ESM::LuaScriptCfg::sPlayer);
+
+        MultiplayerLuaLayer layer;
+        layer.mGeneration = packageSet.generation;
+        layer.mPackageSetHash = std::move(packageSet.packageSetHash);
+        try
+        {
+            for (auto& package : packageSet.packages)
+            {
+                for (auto& file : package.files)
+                {
+                    VFS::Path::Normalized path(
+                        mwmp::serverlua::virtualPath(package.packageId, file.path));
+                    mLua.compileSource(path, file.source);
+                    const auto [it, inserted] = layer.mSources.emplace(std::move(path), std::move(file.source));
+                    if (!inserted)
+                        throw std::runtime_error("duplicate multiplayer Lua virtual path: " + it->first.value());
+                }
+                for (const auto& registration : package.registrations)
+                {
+                    ESM::LuaScriptCfg script;
+                    script.mScriptPath = VFS::Path::Normalized(
+                        mwmp::serverlua::virtualPath(package.packageId, registration.path));
+                    script.mFlags = registration.flags;
+                    layer.mScripts.mScripts.push_back(std::move(script));
+                }
+            }
+        }
+        catch (const std::exception& e)
+        {
+            error = e.what();
+            return false;
+        }
+
+        mStagedMultiplayerLuaLayer = std::move(layer);
+        Log(Debug::Info) << "[ServerLuaPackages] Staged generation="
+                         << mStagedMultiplayerLuaLayer->mGeneration
+                         << " scripts=" << mStagedMultiplayerLuaLayer->mScripts.mScripts.size()
+                         << " files=" << mStagedMultiplayerLuaLayer->mSources.size();
+        return true;
+    }
+
+    bool LuaManager::activateStagedMultiplayerLuaPackages(std::string& error)
+    {
+        error.clear();
+        if (!mStagedMultiplayerLuaLayer)
+        {
+            error = "no staged multiplayer Lua package set";
+            return false;
+        }
+        if (mActiveMultiplayerLuaLayer)
+        {
+            error = "a multiplayer Lua package set is already active";
+            return false;
+        }
+
+        mActiveMultiplayerLuaLayer = std::move(mStagedMultiplayerLuaLayer);
+        mStagedMultiplayerLuaLayer.reset();
+        try
+        {
+            mLua.setSourceOverlay(std::move(mActiveMultiplayerLuaLayer->mSources));
+            initConfiguration(true);
+        }
+        catch (const std::exception& e)
+        {
+            error = e.what();
+            mLua.clearSourceOverlay();
+            mActiveMultiplayerLuaLayer.reset();
+            try
+            {
+                initConfiguration(true);
+            }
+            catch (const std::exception& restoreError)
+            {
+                error += "; base Lua configuration restore failed: ";
+                error += restoreError.what();
+            }
+            return false;
+        }
+
+        Log(Debug::Info) << "[ServerLuaPackages] Activated generation="
+                         << mActiveMultiplayerLuaLayer->mGeneration
+                         << " setHash=" << mActiveMultiplayerLuaLayer->mPackageSetHash;
+        return true;
+    }
+
+    void LuaManager::clearMultiplayerLuaPackages()
+    {
+        const bool changed = mStagedMultiplayerLuaLayer.has_value() || mActiveMultiplayerLuaLayer.has_value()
+            || mLua.hasSourceOverlay();
+        mStagedMultiplayerLuaLayer.reset();
+        mActiveMultiplayerLuaLayer.reset();
+        mLua.clearSourceOverlay();
+        if (changed && mInitialized)
+            initConfiguration(true);
+        if (changed)
+            Log(Debug::Info) << "[ServerLuaPackages] Cleared session package layer";
+    }
+#endif
 
     void LuaManager::initPreLoad()
     {

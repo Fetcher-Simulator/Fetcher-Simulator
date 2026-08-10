@@ -1,5 +1,6 @@
 #include <components/openmw-mp/Packets/System/PacketServerLuaPackage.hpp>
 #include <components/openmw-mp/ServerLuaPackage.hpp>
+#include <components/openmw-mp/ServerLuaPackageTransfer.hpp>
 #include <components/openmw-mp/Sha256.hpp>
 
 #include <gtest/gtest.h>
@@ -195,4 +196,88 @@ TEST(ServerLuaPackage, ReservedNamespaceCannotShadowBuiltinScripts)
     EXPECT_EQ(mwmp::serverlua::virtualPath("fetcher.crime", "main.lua"),
         "scripts/multiplayer/fetcher/crime/main.lua");
     EXPECT_FALSE(mwmp::serverlua::virtualPath("fetcher.crime", "main.lua").starts_with("scripts/omw/"));
+}
+
+TEST(ServerLuaPackageTransfer, AssemblesOutOfOrderChunksAndAcceptsIdenticalDuplicates)
+{
+    const auto expected = makeSet();
+    auto manifest = expected;
+    for (auto& package : manifest.packages)
+        for (auto& file : package.files)
+            file.source.clear();
+
+    mwmp::serverlua::PackageTransfer transfer;
+    ASSERT_TRUE(transfer.begin(manifest, OpenMWLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion));
+    for (std::size_t fileIndex = expected.packages[0].files.size(); fileIndex > 0; --fileIndex)
+    {
+        const auto& file = expected.packages[0].files[fileIndex - 1];
+        const std::size_t split = file.source.size() / 2;
+        ASSERT_TRUE(transfer.receive(expected.generation, expected.packages[0].packageId,
+            expected.packages[0].packageHash, file.path, static_cast<std::uint32_t>(split),
+            std::string_view(file.source).substr(split)));
+        ASSERT_TRUE(transfer.receive(expected.generation, expected.packages[0].packageId,
+            expected.packages[0].packageHash, file.path, 0, std::string_view(file.source).substr(0, split)));
+        ASSERT_TRUE(transfer.receive(expected.generation, expected.packages[0].packageId,
+            expected.packages[0].packageHash, file.path, 0, std::string_view(file.source).substr(0, split)));
+    }
+    ASSERT_TRUE(transfer.finish(expected.generation, expected.packageSetHash, OpenMWLuaApi,
+        mwmp::serverlua::MultiplayerLuaApiVersion));
+    ASSERT_NE(transfer.readyPackageSet(), nullptr);
+    EXPECT_EQ(*transfer.readyPackageSet(), expected);
+    const auto ready = transfer.takeReadyPackageSet();
+    ASSERT_TRUE(ready.has_value());
+    EXPECT_EQ(*ready, expected);
+    EXPECT_EQ(transfer.state(), mwmp::serverlua::PackageTransfer::State::Empty);
+}
+
+TEST(ServerLuaPackageTransfer, RejectsConflictingOutOfRangeAndStaleChunks)
+{
+    const auto expected = makeSet();
+    auto manifest = expected;
+    for (auto& package : manifest.packages)
+        for (auto& file : package.files)
+            file.source.clear();
+    const auto& package = expected.packages[0];
+    const auto& file = package.files[0];
+
+    mwmp::serverlua::PackageTransfer transfer;
+    ASSERT_TRUE(transfer.begin(manifest, OpenMWLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion));
+    EXPECT_FALSE(transfer.receive(expected.generation + 1, package.packageId, package.packageHash,
+        file.path, 0, "x"));
+    EXPECT_EQ(transfer.state(), mwmp::serverlua::PackageTransfer::State::Failed);
+
+    ASSERT_TRUE(transfer.begin(manifest, OpenMWLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion));
+    EXPECT_FALSE(transfer.receive(expected.generation, package.packageId, package.packageHash,
+        file.path, file.sourceSize, "x"));
+
+    ASSERT_TRUE(transfer.begin(manifest, OpenMWLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion));
+    ASSERT_TRUE(transfer.receive(expected.generation, package.packageId, package.packageHash,
+        file.path, 0, "a"));
+    EXPECT_FALSE(transfer.receive(expected.generation, package.packageId, package.packageHash,
+        file.path, 0, "b"));
+}
+
+TEST(ServerLuaPackageTransfer, CompletionFailsClosedForIncompleteOrWrongHash)
+{
+    const auto expected = makeSet();
+    auto manifest = expected;
+    for (auto& package : manifest.packages)
+        for (auto& file : package.files)
+            file.source.clear();
+
+    mwmp::serverlua::PackageTransfer transfer;
+    ASSERT_TRUE(transfer.begin(manifest, OpenMWLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion));
+    EXPECT_FALSE(transfer.finish(expected.generation, expected.packageSetHash, OpenMWLuaApi,
+        mwmp::serverlua::MultiplayerLuaApiVersion));
+
+    manifest.packages[0].files[0].sourceHash.assign(64, '0');
+    manifest.packages[0].packageHash = mwmp::serverlua::hashPackage(expected.packages[0]);
+    manifest.packageSetHash = mwmp::serverlua::hashPackageSet(manifest);
+    manifest.generation = mwmp::serverlua::generationFromHash(manifest.packageSetHash);
+    ASSERT_TRUE(transfer.begin(manifest, OpenMWLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion));
+    for (const auto& file : expected.packages[0].files)
+        ASSERT_TRUE(transfer.receive(manifest.generation, manifest.packages[0].packageId,
+            manifest.packages[0].packageHash, file.path, 0, file.source));
+    EXPECT_FALSE(transfer.finish(manifest.generation, manifest.packageSetHash, OpenMWLuaApi,
+        mwmp::serverlua::MultiplayerLuaApiVersion));
 }
