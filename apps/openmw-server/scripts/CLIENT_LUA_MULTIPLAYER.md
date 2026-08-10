@@ -7,6 +7,8 @@ This document summarizes the current state of Fetcher's work to make ordinary cl
 This README is intended to stand on its own for players, mod authors, and server operators. It describes the implemented compatibility features, current limitations, authority model, testing targets, and remaining work.
 
 For the dedicated server Lua API and tutorials, see [Dedicated Server Lua Scripting](README.md).
+For server-distributed, session-owned OpenMW Lua gameplay code, see
+[Server-supplied OpenMW Lua packages](../../../docs/server-lua-packages.md).
 
 ## The goal
 

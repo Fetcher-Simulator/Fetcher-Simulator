@@ -102,9 +102,10 @@ A dialogue result script is never replayed on another client to reproduce a
 journal result; the resulting journal entry/index is the semantic state that is
 persisted and replicated.
 
-Server Lua package distribution remains a separate future executable-code
-system with its own trust, package manifests, and activation. Lua source
-packages must not be encoded as RecordDynamic definitions or folded into OMDR.
+Server Lua package distribution is a separate executable-code system with its
+own trust, package manifests, staging, and activation. Lua source packages must
+not be encoded as RecordDynamic definitions or folded into OMDR. See
+[Server-supplied OpenMW Lua packages](server-lua-packages.md).
 
 ## Permissions and validation
 
