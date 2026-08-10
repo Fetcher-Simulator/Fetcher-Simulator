@@ -19,6 +19,9 @@
 #include <components/lua/storage.hpp>
 #include <components/lua_ui/resources.hpp>
 #include <components/misc/color.hpp>
+#ifdef BUILD_MULTIPLAYER
+#include <components/openmw-mp/ServerLuaPackage.hpp>
+#endif
 
 #include "../mwbase/luamanager.hpp"
 #include "../mwbase/windowmanager.hpp"
@@ -66,6 +69,13 @@ namespace MWLua
         void restorePendingMultiplayerPlayerScripts() override;
         void requestMultiplayerPlayerScriptsCheckpoint() override { mPlayerScriptsCheckpointRequested = true; }
         bool checkpointMultiplayerPlayerScripts(std::string& error) override;
+#ifdef BUILD_MULTIPLAYER
+        bool stageMultiplayerLuaPackages(mwmp::serverlua::PackageSet packageSet, std::string& error) override;
+        bool activateStagedMultiplayerLuaPackages(std::string& error) override;
+        void clearMultiplayerLuaPackages() override;
+        bool hasStagedMultiplayerLuaPackages() const override { return mStagedMultiplayerLuaLayer.has_value(); }
+        bool hasActiveMultiplayerLuaPackages() const override { return mActiveMultiplayerLuaLayer.has_value(); }
+#endif
 
         // \brief Executes lua handlers. Defaults to running in parallel with OSG Cull.
         //
@@ -224,6 +234,17 @@ namespace MWLua
         bool mNewGameStarted = false;
         bool mReloadAllScriptsRequested = false;
         bool mRunningSynchronizedUpdates = false;
+#ifdef BUILD_MULTIPLAYER
+        struct MultiplayerLuaLayer
+        {
+            std::uint64_t mGeneration = 0;
+            std::string mPackageSetHash;
+            LuaUtil::LuaState::SourceOverlay mSources;
+            ESM::LuaScriptsCfg mScripts;
+        };
+        std::optional<MultiplayerLuaLayer> mStagedMultiplayerLuaLayer;
+        std::optional<MultiplayerLuaLayer> mActiveMultiplayerLuaLayer;
+#endif
         LuaUtil::ScriptsConfiguration mConfiguration;
         LuaUtil::LuaState mLua;
         LuaUi::ResourceManager mUiResourceManager;

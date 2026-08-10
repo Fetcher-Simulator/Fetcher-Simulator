@@ -32,6 +32,7 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerResurrect.hpp>
 #include <components/openmw-mp/Packets/System/PacketGameSettings.hpp>
 #include <components/openmw-mp/Packets/System/PacketHandshake.hpp>
+#include <components/openmw-mp/Packets/System/PacketServerLuaPackage.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketRecordDynamic.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketRuntimeContentBootstrapComplete.hpp>
 #include <components/openmw-mp/Packets/Records/PacketRecordCreateResult.hpp>
@@ -312,8 +313,12 @@ void Main::frame(float dt)
         mCharGenWatching = false;
         Log(Debug::Warning) << "[MP] Unexpected disconnect Ã¢â‚¬â€ returning to main menu";
         MWBase::Environment::get().getStateManager()->returnToMainMenu();
+        clearServerLuaPackageSession();
         return;
     }
+
+    if (mServerLuaCleanupPending)
+        clearServerLuaPackageSession();
 
     if (!mClient->isConnected()) return;
 
@@ -523,6 +528,8 @@ void Main::onConnected()
     mCharacterDataReady = false;
     mBootstrapCompilationComplete = false;
     mRuntimeContentBootstrapGate.reset();
+    mServerLuaPackageTransfer.reset();
+    mServerLuaPackagesStaged = false;
     mWorldStateSync->resetSessionState();
 
     // Build and send handshake
@@ -636,6 +643,9 @@ void Main::onDisconnected()
     mCharacterDataReady = false;
     mBootstrapCompilationComplete = false;
     mRuntimeContentBootstrapGate.reset();
+    mServerLuaPackageTransfer.reset();
+    mServerLuaPackagesStaged = false;
+    mServerLuaCleanupPending = true;
     mHasSavedSpellbook  = false;
     mCharacterId        = 0;
     mCharSelectError.clear();
@@ -972,6 +982,26 @@ void Main::failRuntimeContentBootstrap(std::string error)
 }
 
 // ---------------------------------------------------------------------------
+void Main::failServerLuaPackageBootstrap(std::string error)
+{
+    mServerLuaPackageTransfer.reset();
+    mServerLuaPackagesStaged = false;
+    mCharacterDataReady = false;
+    mRejectReason = "Server Lua package bootstrap failed: " + std::move(error);
+    Log(Debug::Error) << "[MP] " << mRejectReason;
+    disconnect(mRejectReason);
+}
+
+// ---------------------------------------------------------------------------
+void Main::clearServerLuaPackageSession()
+{
+    mServerLuaCleanupPending = false;
+    mServerLuaPackageTransfer.reset();
+    mServerLuaPackagesStaged = false;
+    MWBase::Environment::get().getLuaManager()->clearMultiplayerLuaPackages();
+}
+
+// ---------------------------------------------------------------------------
 void Main::finalizeCharacterData(PacketCharacterData cd)
 {
     mIsNewCharacter = cd.isNewCharacter;
@@ -1141,6 +1171,80 @@ void Main::registerProtocolHandlers()
                              << " protocol=" << rsp.protocolVersion
                              << " actorSyncProtocol=" << rsp.actorSyncProtocolVersion;
             // mWorldReady is set when PacketCharacterList arrives.
+        });
+
+    proto.registerHandler(PacketType::ServerLuaPackageManifest,
+        [this](const uint8_t* data, size_t size)
+        {
+            if (mServerLuaPackagesStaged
+                || mServerLuaPackageTransfer.state() != serverlua::PackageTransfer::State::Empty)
+            {
+                failServerLuaPackageBootstrap("duplicate package manifest");
+                return;
+            }
+            PacketServerLuaPackageManifest packet;
+            if (!packet.decode(data, size))
+            {
+                failServerLuaPackageBootstrap("malformed package manifest");
+                return;
+            }
+            const std::uint64_t generation = packet.packageSet.generation;
+            if (!mServerLuaPackageTransfer.begin(std::move(packet.packageSet),
+                    static_cast<std::uint32_t>(Version::getLuaApiRevision()),
+                    serverlua::MultiplayerLuaApiVersion))
+            {
+                failServerLuaPackageBootstrap(mServerLuaPackageTransfer.error());
+                return;
+            }
+            Log(Debug::Info) << "[ServerLuaPackages] Receiving generation="
+                             << generation;
+        });
+
+    proto.registerHandler(PacketType::ServerLuaPackageChunk,
+        [this](const uint8_t* data, size_t size)
+        {
+            PacketServerLuaPackageChunk packet;
+            if (!packet.decode(data, size))
+            {
+                failServerLuaPackageBootstrap("malformed package chunk");
+                return;
+            }
+            if (!mServerLuaPackageTransfer.receive(packet.generation, packet.packageId,
+                    packet.packageHash, packet.filePath, packet.offset, packet.bytes))
+                failServerLuaPackageBootstrap(mServerLuaPackageTransfer.error());
+        });
+
+    proto.registerHandler(PacketType::ServerLuaPackageBootstrapComplete,
+        [this](const uint8_t* data, size_t size)
+        {
+            PacketServerLuaPackageBootstrapComplete packet;
+            if (!packet.decode(data, size))
+            {
+                failServerLuaPackageBootstrap("malformed package completion marker");
+                return;
+            }
+            if (!mServerLuaPackageTransfer.finish(packet.generation, packet.packageSetHash,
+                    static_cast<std::uint32_t>(Version::getLuaApiRevision()),
+                    serverlua::MultiplayerLuaApiVersion))
+            {
+                failServerLuaPackageBootstrap(mServerLuaPackageTransfer.error());
+                return;
+            }
+            auto packageSet = mServerLuaPackageTransfer.takeReadyPackageSet();
+            if (!packageSet)
+            {
+                failServerLuaPackageBootstrap("verified package set was not available for staging");
+                return;
+            }
+            std::string error;
+            if (!MWBase::Environment::get().getLuaManager()->stageMultiplayerLuaPackages(
+                    std::move(*packageSet), error))
+            {
+                failServerLuaPackageBootstrap("Lua staging failed: " + error);
+                return;
+            }
+            mServerLuaPackagesStaged = true;
+            Log(Debug::Info) << "[ServerLuaPackages] Bootstrap staged and awaiting pre-world activation";
         });
 
     // --- Ed25519 challenge - server sends 32-byte nonce, we sign and respond ---

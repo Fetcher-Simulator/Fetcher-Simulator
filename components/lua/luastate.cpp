@@ -21,21 +21,6 @@
 
 namespace LuaUtil
 {
-    static VFS::Path::Normalized packageNameToVfsPath(std::string_view packageName, const VFS::Manager& vfs)
-    {
-        std::string pathValue(packageName);
-        std::replace(pathValue.begin(), pathValue.end(), '.', '/');
-        VFS::Path::Normalized pathWithInit(pathValue + "/init.lua");
-        pathValue.append(".lua");
-        VFS::Path::Normalized path(pathValue);
-        if (vfs.exists(path))
-            return path;
-        else if (vfs.exists(pathWithInit))
-            return pathWithInit;
-        else
-            throw std::runtime_error("module not found: " + std::string(packageName));
-    }
-
     static std::filesystem::path packageNameToPath(
         std::string_view packageName, const std::vector<std::filesystem::path>& searchDirs)
     {
@@ -218,7 +203,7 @@ namespace LuaUtil
             sol["setEnvironment"]
                 = [](const sol::environment& env, const sol::function& fn) { sol::set_environment(env, fn); };
             sol["loadFromVFS"] = [this](std::string_view packageName) {
-                return loadScriptAndCache(packageNameToVfsPath(packageName, *mVFS));
+                return loadScriptAndCache(resolveModulePath(packageName));
             };
             sol["loadInternalLib"] = [this](std::string_view packageName) { return loadInternalLib(packageName); };
 
@@ -431,11 +416,49 @@ namespace LuaUtil
 
     sol::function LuaState::loadFromVFS(const VFS::Path::Normalized& path)
     {
-        std::string fileContent(std::istreambuf_iterator<char>(*mVFS->get(path)), {});
+        std::string fileContent;
+        const auto overlay = mSourceOverlay.find(path);
+        if (overlay != mSourceOverlay.end())
+            fileContent = overlay->second;
+        else
+            fileContent.assign(std::istreambuf_iterator<char>(*mVFS->get(path)), {});
         sol::load_result res = mSol.load(fileContent, path.value(), sol::load_mode::text);
         if (!res.valid())
             throw std::runtime_error(std::string("Lua error: ") += res.get<sol::error>().what());
         return res;
+    }
+
+    VFS::Path::Normalized LuaState::resolveModulePath(std::string_view packageName) const
+    {
+        std::string pathValue(packageName);
+        std::replace(pathValue.begin(), pathValue.end(), '.', '/');
+        VFS::Path::Normalized pathWithInit(pathValue + "/init.lua");
+        pathValue.append(".lua");
+        VFS::Path::Normalized path(pathValue);
+        if (mSourceOverlay.contains(path) || mVFS->exists(path))
+            return path;
+        if (mSourceOverlay.contains(pathWithInit) || mVFS->exists(pathWithInit))
+            return pathWithInit;
+        throw std::runtime_error("module not found: " + std::string(packageName));
+    }
+
+    void LuaState::setSourceOverlay(SourceOverlay overlay)
+    {
+        mSourceOverlay = std::move(overlay);
+        dropScriptCache();
+    }
+
+    void LuaState::clearSourceOverlay()
+    {
+        mSourceOverlay.clear();
+        dropScriptCache();
+    }
+
+    void LuaState::compileSource(const VFS::Path::Normalized& path, std::string_view source)
+    {
+        sol::load_result result = mSol.load(source, path.value(), sol::load_mode::text);
+        if (!result.valid())
+            throw std::runtime_error(std::string("Lua error: ") += result.get<sol::error>().what());
     }
 
     sol::function LuaState::loadInternalLib(std::string_view libName)

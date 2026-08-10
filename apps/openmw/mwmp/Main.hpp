@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <components/openmw-mp/RuntimeContentBootstrapGate.hpp>
+#include <components/openmw-mp/ServerLuaPackageTransfer.hpp>
 #include <components/openmw-mp/Packets/System/PacketGameSettings.hpp>
 #include <components/openmw-mp/Packets/System/PacketHandshake.hpp>
 
@@ -151,6 +152,8 @@ namespace mwmp
         void tryFinalizePendingCharacterData();
         void finalizeCharacterData(PacketCharacterData characterData);
         void failRuntimeContentBootstrap(std::string error);
+        void failServerLuaPackageBootstrap(std::string error);
+        void clearServerLuaPackageSession();
         void applySelectedCharacterSpawn(const std::string& spawnCell, const char* context);
         bool captureCurrentChargenData(const char* context);
         std::string currentChargenDataKey();
@@ -185,6 +188,9 @@ namespace mwmp
         bool        mCompileAllDialogueAfterBootstrap = false;
         bool        mBootstrapCompilationComplete = false;
         RuntimeContentBootstrapGate<PacketCharacterData> mRuntimeContentBootstrapGate;
+        serverlua::PackageTransfer mServerLuaPackageTransfer;
+        bool        mServerLuaPackagesStaged = false;
+        bool        mServerLuaCleanupPending = false;
         const Compiler::Extensions* mCompilerExtensions = nullptr;
         int         mCompilerWarningsMode = 1;
         std::string mCharSelectError;

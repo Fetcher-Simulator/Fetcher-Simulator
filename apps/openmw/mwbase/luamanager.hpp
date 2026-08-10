@@ -45,6 +45,13 @@ namespace LuaUtil
     }
 }
 
+#ifdef BUILD_MULTIPLAYER
+namespace mwmp::serverlua
+{
+    struct PackageSet;
+}
+#endif
+
 namespace osg
 {
     class Vec3f;
@@ -108,6 +115,19 @@ namespace MWBase
         virtual void restorePendingMultiplayerPlayerScripts() = 0;
         virtual void requestMultiplayerPlayerScriptsCheckpoint() = 0;
         virtual bool checkpointMultiplayerPlayerScripts(std::string& error) = 0;
+#ifdef BUILD_MULTIPLAYER
+        /// Validates and compiles a complete server-selected package set without
+        /// exposing its sources or registering scripts in the live Lua world.
+        virtual bool stageMultiplayerLuaPackages(mwmp::serverlua::PackageSet packageSet, std::string& error) = 0;
+        /// Makes the already-staged package set visible to Lua and updates the
+        /// normal OpenMW script configuration at the pre-world boundary.
+        virtual bool activateStagedMultiplayerLuaPackages(std::string& error) = 0;
+        /// Removes all staged/active executable policy owned by the multiplayer session.
+        /// Call only after gameplay script containers have been torn down.
+        virtual void clearMultiplayerLuaPackages() = 0;
+        virtual bool hasStagedMultiplayerLuaPackages() const = 0;
+        virtual bool hasActiveMultiplayerLuaPackages() const = 0;
+#endif
 
         // TODO: notify LuaManager about other events
         // virtual void objectOnHit(const MWWorld::Ptr &ptr, float damage, bool ishealth, const MWWorld::Ptr &object,

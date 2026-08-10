@@ -164,6 +164,36 @@ return {
         EXPECT_ERROR(LuaUtil::call(script["incorrectRequire"]), "module not found: counter");
     }
 
+    TEST_F(LuaStateTest, SessionSourceOverlayIsInvisibleUntilInstalledAndClearsWithoutChangingBaseVfs)
+    {
+        const VFS::Path::Normalized mainPath("scripts/multiplayer/fetcher/gameplay/main.lua");
+        const VFS::Path::Normalized modulePath("scripts/multiplayer/fetcher/gameplay/module.lua");
+        const std::string mainSource
+            = "local module = require('scripts.multiplayer.fetcher.gameplay.module'); "
+              "return { value = module.value }";
+        const std::string moduleSource = "return { value = 73 }";
+
+        EXPECT_NO_THROW(mLua.compileSource(mainPath, mainSource));
+        EXPECT_THROW(mLua.compileSource(mainPath, "this is not valid Lua"), std::exception);
+        EXPECT_FALSE(mLua.hasSourceOverlay());
+        EXPECT_THROW(mLua.runInNewSandbox(mainPath), std::exception);
+
+        LuaUtil::LuaState::SourceOverlay overlay;
+        overlay.emplace(mainPath, mainSource);
+        overlay.emplace(modulePath, moduleSource);
+        mLua.setSourceOverlay(std::move(overlay));
+
+        const sol::table packageScript = mLua.runInNewSandbox(mainPath);
+        EXPECT_EQ(packageScript["value"].get<int>(), 73);
+        const sol::table baseBeforeClear = mLua.runInNewSandbox(VFS::Path::Normalized(counterPath));
+        EXPECT_EQ(LuaUtil::call(baseBeforeClear["get"]).get<int>(), 42);
+
+        mLua.clearSourceOverlay();
+        EXPECT_THROW(mLua.runInNewSandbox(mainPath), std::exception);
+        const sol::table baseAfterClear = mLua.runInNewSandbox(VFS::Path::Normalized(counterPath));
+        EXPECT_EQ(LuaUtil::call(baseAfterClear["get"]).get<int>(), 42);
+    }
+
     TEST_F(LuaStateTest, ReadOnly)
     {
         const VFS::Path::Normalized path("bbb/tests.lua");

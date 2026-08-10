@@ -161,6 +161,12 @@ namespace LuaUtil
 
         void dropScriptCache() { mCompiledScripts.clear(); }
 
+        using SourceOverlay = std::map<VFS::Path::Normalized, std::string>;
+        void setSourceOverlay(SourceOverlay overlay);
+        void clearSourceOverlay();
+        bool hasSourceOverlay() const { return !mSourceOverlay.empty(); }
+        void compileSource(const VFS::Path::Normalized& path, std::string_view source);
+
         const ScriptsConfiguration& getConfiguration() const { return *mConf; }
 
         // Returns the script currently executing through LuaUtil::call. This is
@@ -206,6 +212,7 @@ namespace LuaUtil
             ScriptId scriptId, const sol::protected_function& fn, Args&&... args);
 
         sol::function loadScriptAndCache(const VFS::Path::Normalized& path);
+        VFS::Path::Normalized resolveModulePath(std::string_view packageName) const;
         static void countHook(lua_State* state, lua_Debug* ar);
         static void* trackingAllocator(void* ud, void* ptr, size_t osize, size_t nsize);
 
@@ -235,6 +242,7 @@ namespace LuaUtil
         const ScriptsConfiguration* mConf;
         sol::table mSandboxEnv;
         std::map<VFS::Path::Normalized, sol::bytecode> mCompiledScripts;
+        SourceOverlay mSourceOverlay;
         std::map<std::string, sol::object> mCommonPackages;
         const VFS::Manager* mVFS;
         std::vector<std::filesystem::path> mLibSearchPaths;
