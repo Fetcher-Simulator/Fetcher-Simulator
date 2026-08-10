@@ -33,6 +33,9 @@ jobs:
     - uses: actions/checkout@v6
       with:
         submodules: recursive
+    - name: Test multiplayer authority builder
+      run: python3 CI/Test-ServerAuthorityBuilder.py
+
     - run: echo "CMAKE_BUILD_TYPE=${{ inputs.build-type }}" >> $GITHUB_ENV
 
     - run: echo "MACOS_AMD64=true" >> $GITHUB_ENV
@@ -75,5 +78,5 @@ jobs:
           -Tag "${{ inputs.release-tag }}" `
           -TargetCommit "${{ github.sha }}" `
           -Title "${{ inputs.release-name }}" `
-          -Notes "Fetcher Simulator macOS prerelease. Download the arm64 DMG for Apple Silicon or the x86_64 DMG for Intel. Morrowind game data is required and is not included." `
+          -Notes "Fetcher Simulator macOS prerelease. Download the arm64 DMG for Apple Silicon or the x86_64 DMG for Intel. The DMG includes Build-OpenMWServerAuthority.py and server-setup-guide.md for multiplayer hosting setup. Morrowind game data is required and is not included." `
           -Assets (Get-ChildItem "${{ github.workspace }}/build/OpenMW-*.dmg").FullName

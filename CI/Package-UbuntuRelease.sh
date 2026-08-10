@@ -62,7 +62,8 @@ mods.
 
 Launch the client with openmw-launcher or openmw. Launch the dedicated server
 with openmw-server. Server Lua files are installed under
-/usr/share/games/openmw/server-scripts.
+/usr/share/games/openmw/server-scripts. The authority builder and complete
+hosting guide are installed under /usr/share/games/openmw/server-tools.
 EOF
 
 # GameNetworkingSockets participates in the top-level CMake install and emits
@@ -152,6 +153,7 @@ if [[ -z "$dependencies" || "$dependencies" == "$shlib_output" ]]; then
     echo "dpkg-shlibdeps did not produce package dependencies" >&2
     exit 1
 fi
+dependencies="$dependencies, python3 (>= 3.10)"
 if grep -Eqi 'libmygui|librecast' <<<"$dependencies"; then
     echo "package unexpectedly depends on an external MyGUI or Recast runtime: $dependencies" >&2
     exit 1
@@ -198,7 +200,9 @@ for required in \
     usr/bin/openmw-launcher \
     usr/bin/openmw-server \
     usr/share/games/openmw/server-scripts/core.lua \
-    usr/share/games/openmw/lua_libs/util.lua; do
+    usr/share/games/openmw/lua_libs/util.lua \
+    usr/share/games/openmw/server-tools/Build-OpenMWServerAuthority.py \
+    usr/share/games/openmw/server-tools/server-setup-guide.md; do
     if [[ ! -f "$verify_root/$required" ]]; then
         echo "packaged file is missing: $required" >&2
         exit 1

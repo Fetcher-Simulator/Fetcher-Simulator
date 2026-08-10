@@ -63,6 +63,11 @@ docker run --rm --platform linux/amd64 \
         manifest="$scripts_dir/release-files.txt"
         test -f "$manifest"
         test -f /usr/share/games/openmw/lua_libs/util.lua
+        authority_builder=/usr/share/games/openmw/server-tools/Build-OpenMWServerAuthority.py
+        setup_guide=/usr/share/games/openmw/server-tools/server-setup-guide.md
+        test -x "$authority_builder"
+        test -f "$setup_guide"
+        python3 "$authority_builder" --help >/dev/null
 
         mapfile -t expected_scripts < <(
             sed -e "s/^[[:space:]]*//" -e "s/[[:space:]]*$//" "$manifest" |

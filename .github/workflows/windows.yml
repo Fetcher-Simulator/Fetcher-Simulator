@@ -217,6 +217,12 @@ jobs:
         cmake @configureArgs 2>&1 | Tee-Object -FilePath "${{ github.workspace }}/ci-logs/02-configure.txt"
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+    - name: Test multiplayer authority builder
+      shell: pwsh
+      run: |
+        python "${{ github.workspace }}\CI\Test-ServerAuthorityBuilder.py"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
     - name: Build OpenMW
       shell: pwsh
       run: |
@@ -301,6 +307,16 @@ jobs:
           "-DSERVER_SCRIPT_MANIFEST=${{ github.workspace }}\apps\openmw-server\scripts\release-files.txt" `
           "-DLUA_LIBS_DIR=$installRoot\resources\lua_libs" `
           -P "${{ github.workspace }}\CI\Verify-ServerScripts.cmake"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        $authorityBuilder = Join-Path $installRoot "Build-OpenMWServerAuthority.py"
+        $serverGuide = Join-Path $installRoot "server-setup-guide.md"
+        foreach ($required in @($authorityBuilder, $serverGuide)) {
+          if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
+            throw "Packaged multiplayer hosting file is missing: $required"
+          }
+        }
+        python $authorityBuilder --help | Out-Null
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     - name: Remove extra pdb files

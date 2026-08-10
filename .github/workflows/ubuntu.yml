@@ -48,6 +48,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Test multiplayer authority builder
+        run: python3 CI/Test-ServerAuthorityBuilder.py
+
       - name: Install Ubuntu build and packaging dependencies
         run: |
           sudo CI/install_debian_deps.sh --no-openmw-ppa gcc openmw-deps openmw-deps-dynamic-no-mygui openmw-multiplayer
@@ -143,7 +146,7 @@ jobs:
 
               sudo apt install ./fetcher-simulator-ubuntu-24.04-amd64.deb
 
-          Installed executables: **openmw**, **openmw-launcher**, and **openmw-server**. Morrowind game data is required and is not included. Uninstall with **sudo apt remove fetcher-simulator**.
+          Installed executables: **openmw**, **openmw-launcher**, and **openmw-server**. The multiplayer authority builder and full hosting guide are installed under **/usr/share/games/openmw/server-tools/**. Morrowind game data is required and is not included. Uninstall with **sudo apt remove fetcher-simulator**.
 
           GitHub's Source code ZIP and TAR.GZ entries are developer source archives, not Ubuntu installers.
           "@
