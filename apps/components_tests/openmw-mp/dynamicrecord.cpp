@@ -316,6 +316,8 @@ TEST(DynamicRecord, HandshakeRoundTripsResolvedContentAndRuntimeManifest)
     ASSERT_TRUE(incoming.decode(outgoing.encode()));
     EXPECT_EQ(incoming.contentManifestVersion, mwmp::ContentManifestVersion);
     EXPECT_EQ(incoming.dynamicRecordWireVersion, mwmp::records::CurrentWireVersion);
+    EXPECT_EQ(incoming.serverLuaPackageManifestVersion, mwmp::serverlua::ServerLuaPackageManifestVersion);
+    EXPECT_EQ(incoming.multiplayerLuaApiVersion, mwmp::serverlua::MultiplayerLuaApiVersion);
     EXPECT_EQ(incoming.resolvedContentFingerprint, outgoing.resolvedContentFingerprint);
     ASSERT_EQ(incoming.luaScripts.size(), 1u);
     EXPECT_EQ(incoming.luaScripts.front().filename, "scripts/load.lua");
@@ -326,5 +328,7 @@ TEST(DynamicRecord, HandshakeRoundTripsResolvedContentAndRuntimeManifest)
     response.supportedRuntimeRecordTypes = { 1, 2, 6 };
     mwmp::PacketHandshakeResponse decoded;
     ASSERT_TRUE(decoded.decode(response.encode()));
+    EXPECT_EQ(decoded.serverLuaPackageManifestVersion, mwmp::serverlua::ServerLuaPackageManifestVersion);
+    EXPECT_EQ(decoded.multiplayerLuaApiVersion, mwmp::serverlua::MultiplayerLuaApiVersion);
     EXPECT_EQ(decoded.supportedRuntimeRecordTypes, response.supportedRuntimeRecordTypes);
 }
