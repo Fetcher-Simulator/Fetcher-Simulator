@@ -8,6 +8,7 @@ A legally obtained copy of Morrowind is required. Game data is not included.
 
 - [Downloads and releases](https://github.com/Fetcher-Simulator/Fetcher-Simulator/releases)
 - [Project Discord and public testing](https://discord.gg/wXqQeSWRZF)
+- [Multiplayer server setup guide](files/server/server-setup-guide.md)
 - [Dedicated server Lua guide](apps/openmw-server/scripts/README.md)
 - [Client-side Lua multiplayer compatibility](apps/openmw-server/scripts/CLIENT_LUA_MULTIPLAYER.md)
 
@@ -31,7 +32,7 @@ A legally obtained copy of Morrowind is required. Game data is not included.
 - Persistence recovery during disconnects, authority changes, exterior transitions, server restarts, and long-running sessions.
 - Broader generic support for client-side OpenMW Lua mods through validated server-authoritative requests and shared-state routes.
 - More complete quest, dialogue outcome, and world-progression synchronization.
-- Server browser and master-server polish, latency reporting, administration tooling, hosting documentation, and automated regression tests.
+- Server browser and master-server polish, latency reporting, administration tooling, and automated regression tests.
 - Larger multiplayer stress tests, protocol migration handling, and stronger compatibility guarantees between releases.
 
 ## Releases
@@ -41,7 +42,8 @@ Release packages are published through [GitHub Releases](https://github.com/Fetc
 - the `openmw` multiplayer client;
 - `openmw-launcher`;
 - the `openmw-server` dedicated server;
-- the required server Lua runtime and documentation.
+- the required server Lua runtime and documentation;
+- `Build-OpenMWServerAuthority.py` and `server-setup-guide.md` for self-hosting and authoritative-content generation.
 
 The Ubuntu 24.04 amd64 package can be installed with:
 
@@ -53,9 +55,11 @@ sudo apt install ./fetcher-simulator-ubuntu-24.04-amd64.deb
 
 The dedicated server lives under `apps/openmw-server`. Shared multiplayer protocol code lives under `components/openmw-mp`, and client multiplayer integration lives under `apps/openmw/mwmp`.
 
+Release packages ship `Build-OpenMWServerAuthority.py` and `server-setup-guide.md`. The Python builder creates the portable `content-authority/` input used by `ServerContentRegistry` from a known-good client's effective OpenMW content stack. In a packaged release, open `server-setup-guide.md` beside this README; the source copy is the [multiplayer server setup guide](files/server/server-setup-guide.md). It covers port forwarding, firewall configuration, `server.cfg`, public listing, authority generation, deployment, updates, and mismatch troubleshooting.
+
 Server Lua can implement authoritative commands, moderation, persistence, shared gameplay systems, spawning, records, inventory operations, travel, world changes, and validated client requests.
 
-See the [dedicated server Lua guide](apps/openmw-server/scripts/README.md) for setup, scripting, security, persistence, packaging, and event examples.
+See the [dedicated server Lua guide](apps/openmw-server/scripts/README.md) for scripting, security, persistence, packaging, and event examples.
 
 ## Source-Style Surfing
 

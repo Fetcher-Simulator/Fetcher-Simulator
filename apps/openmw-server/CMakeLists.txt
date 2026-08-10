@@ -186,6 +186,12 @@ add_custom_command(TARGET openmw-server POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_SOURCE_DIR}/components/lua/util.lua"
         "$<TARGET_FILE_DIR:openmw-server>/resources/lua_libs/util.lua"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/files/server/Build-OpenMWServerAuthority.py"
+        "$<TARGET_FILE_DIR:openmw-server>/Build-OpenMWServerAuthority.py"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/files/server/server-setup-guide.md"
+        "$<TARGET_FILE_DIR:openmw-server>/server-setup-guide.md"
     COMMAND_EXPAND_LISTS
     VERBATIM
 )

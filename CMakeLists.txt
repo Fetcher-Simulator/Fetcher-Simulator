@@ -829,6 +829,24 @@ endif()
 
 set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CUSTOM_CPACK_OS_NAME}-${CUSTOM_CPACK_ARCHITECTURE}")
 
+# Multiplayer server setup assets are shipped with the normal client/server
+# packages so hosting documentation and the authority builder are available
+# without requiring any external updater tooling.
+set(OPENMW_SERVER_AUTHORITY_BUILDER
+    "${OpenMW_SOURCE_DIR}/files/server/Build-OpenMWServerAuthority.py")
+set(OPENMW_SERVER_SETUP_GUIDE
+    "${OpenMW_SOURCE_DIR}/files/server/server-setup-guide.md")
+
+if(WIN32 OR APPLE)
+    install(PROGRAMS "${OPENMW_SERVER_AUTHORITY_BUILDER}" DESTINATION "." COMPONENT Runtime)
+    install(FILES "${OPENMW_SERVER_SETUP_GUIDE}" DESTINATION "." COMPONENT Runtime)
+elseif(UNIX)
+    install(PROGRAMS "${OPENMW_SERVER_AUTHORITY_BUILDER}"
+        DESTINATION "${DATADIR}/server-tools" COMPONENT Runtime)
+    install(FILES "${OPENMW_SERVER_SETUP_GUIDE}"
+        DESTINATION "${DATADIR}/server-tools" COMPONENT Runtime)
+endif()
+
 # Apple bundling
 if (APPLE)
     if(CMAKE_VERSION VERSION_LESS 3.19)
