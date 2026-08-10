@@ -151,6 +151,7 @@ namespace mwmp
         void tryAutoSelectCharacter();
         void tryAutoEnterWorld();
         void tryFinalizePendingCharacterData();
+        void tryActivateServerLuaPackages();
         void finalizeCharacterData(PacketCharacterData characterData);
         void failRuntimeContentBootstrap(std::string error);
         void failServerLuaPackageBootstrap(std::string error);

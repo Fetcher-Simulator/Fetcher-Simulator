@@ -991,9 +991,44 @@ void Main::tryFinalizePendingCharacterData()
 }
 
 // ---------------------------------------------------------------------------
+void Main::tryActivateServerLuaPackages()
+{
+    if (!mRuntimeContentBootstrapGate.isRuntimeContentReady()
+        || mRuntimeContentBootstrapGate.isServerLuaReady()
+        || mRuntimeContentBootstrapGate.state()
+            == RuntimeContentBootstrapGate<PacketCharacterData>::State::Failed)
+        return;
+
+    MWBase::LuaManager* luaManager = MWBase::Environment::get().getLuaManager();
+    if (luaManager->hasActiveMultiplayerLuaPackages())
+    {
+        mRuntimeContentBootstrapGate.finishServerLua(true);
+        tryFinalizePendingCharacterData();
+        return;
+    }
+    if (!mServerLuaPackagesStaged)
+        return;
+    if (!luaManager->hasStagedMultiplayerLuaPackages())
+    {
+        failServerLuaPackageBootstrap("staged package readiness was lost before activation");
+        return;
+    }
+
+    std::string error;
+    if (!luaManager->activateStagedMultiplayerLuaPackages(error))
+    {
+        failServerLuaPackageBootstrap("activation failed: " + error);
+        return;
+    }
+    mRuntimeContentBootstrapGate.finishServerLua(true);
+    Log(Debug::Info) << "[ServerLuaPackages] Activated after runtime content bootstrap";
+    tryFinalizePendingCharacterData();
+}
+
+// ---------------------------------------------------------------------------
 void Main::failRuntimeContentBootstrap(std::string error)
 {
-    mRuntimeContentBootstrapGate.finish(false, std::move(error));
+    mRuntimeContentBootstrapGate.finishRuntimeContent(false, std::move(error));
     mCharacterDataReady = false;
     mRejectReason = "Runtime content bootstrap failed: " + mRuntimeContentBootstrapGate.error();
     Log(Debug::Error) << "[MP] " << mRejectReason;
@@ -1003,6 +1038,7 @@ void Main::failRuntimeContentBootstrap(std::string error)
 // ---------------------------------------------------------------------------
 void Main::failServerLuaPackageBootstrap(std::string error)
 {
+    mRuntimeContentBootstrapGate.finishServerLua(false, error);
     mServerLuaPackageTransfer.reset();
     mServerLuaPackagesStaged = false;
     mCharacterDataReady = false;
@@ -1264,6 +1300,7 @@ void Main::registerProtocolHandlers()
             }
             mServerLuaPackagesStaged = true;
             Log(Debug::Info) << "[ServerLuaPackages] Bootstrap staged and awaiting pre-world activation";
+            tryActivateServerLuaPackages();
         });
 
     // --- Ed25519 challenge - server sends 32-byte nonce, we sign and respond ---
@@ -1571,8 +1608,9 @@ void Main::registerProtocolHandlers()
                 return;
             }
 
-            mRuntimeContentBootstrapGate.finish(true);
+            mRuntimeContentBootstrapGate.finishRuntimeContent(true);
             Log(Debug::Info) << "[MP] Runtime content bootstrap complete";
+            tryActivateServerLuaPackages();
             tryFinalizePendingCharacterData();
         });
 
