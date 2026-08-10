@@ -6,6 +6,7 @@
 #include <components/openmw-mp/ContentManifest.hpp>
 #include <components/openmw-mp/MasterServerProtocol.hpp>
 #include <components/openmw-mp/Records/DynamicRecordTypes.hpp>
+#include <components/openmw-mp/ServerLuaPackage.hpp>
 #include <components/openmw-mp/Packets/BasePacket.hpp>
 #include <string>
 #include <vector>
@@ -32,6 +33,9 @@ namespace mwmp
         uint16_t    contentApiVersion = ContentApiVersion;
         uint16_t    dynamicRecordWireVersion = records::CurrentWireVersion;
         uint16_t    capabilityManifestVersion = RuntimeRecordCapabilityManifestVersion;
+        uint16_t    serverLuaPackageManifestVersion = serverlua::ServerLuaPackageManifestVersion;
+        uint16_t    multiplayerLuaApiVersion = serverlua::MultiplayerLuaApiVersion;
+        uint32_t    openMWLuaApiVersion = 0;
         std::string resolvedContentFingerprint;
 
         struct PluginEntry
@@ -58,6 +62,9 @@ namespace mwmp
             ws.write(contentApiVersion);
             ws.write(dynamicRecordWireVersion);
             ws.write(capabilityManifestVersion);
+            ws.write(serverLuaPackageManifestVersion);
+            ws.write(multiplayerLuaApiVersion);
+            ws.write(openMWLuaApiVersion);
             ws.writeString(resolvedContentFingerprint);
 
             // Plugin list — not yet populated by the client, but must be
@@ -90,6 +97,9 @@ namespace mwmp
             rs.read(contentApiVersion);
             rs.read(dynamicRecordWireVersion);
             rs.read(capabilityManifestVersion);
+            rs.read(serverLuaPackageManifestVersion);
+            rs.read(multiplayerLuaApiVersion);
+            rs.read(openMWLuaApiVersion);
             resolvedContentFingerprint = rs.readString();
 
             uint32_t count = 0;
@@ -135,6 +145,9 @@ namespace mwmp
         uint16_t    contentApiVersion = ContentApiVersion;
         uint16_t    dynamicRecordWireVersion = records::CurrentWireVersion;
         uint16_t    capabilityManifestVersion = RuntimeRecordCapabilityManifestVersion;
+        uint16_t    serverLuaPackageManifestVersion = serverlua::ServerLuaPackageManifestVersion;
+        uint16_t    multiplayerLuaApiVersion = serverlua::MultiplayerLuaApiVersion;
+        uint32_t    openMWLuaApiVersion = 0;
         std::string resolvedContentFingerprint;
         std::vector<uint8_t> supportedRuntimeRecordTypes;
 
@@ -162,6 +175,9 @@ namespace mwmp
             ws.write(contentApiVersion);
             ws.write(dynamicRecordWireVersion);
             ws.write(capabilityManifestVersion);
+            ws.write(serverLuaPackageManifestVersion);
+            ws.write(multiplayerLuaApiVersion);
+            ws.write(openMWLuaApiVersion);
             ws.writeString(resolvedContentFingerprint);
             ws.write(static_cast<uint32_t>(supportedRuntimeRecordTypes.size()));
             for (uint8_t type : supportedRuntimeRecordTypes)
@@ -190,6 +206,9 @@ namespace mwmp
             rs.read(contentApiVersion);
             rs.read(dynamicRecordWireVersion);
             rs.read(capabilityManifestVersion);
+            rs.read(serverLuaPackageManifestVersion);
+            rs.read(multiplayerLuaApiVersion);
+            rs.read(openMWLuaApiVersion);
             resolvedContentFingerprint = rs.readString();
             uint32_t typeCount = 0;
             rs.read(typeCount);

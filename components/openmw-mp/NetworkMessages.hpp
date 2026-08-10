@@ -150,6 +150,9 @@ namespace mwmp
         EnchantingRequest   = 144,  // Semantic server-authoritative enchanting request
         EnchantingResult    = 145,  // Authoritative enchanting result
         RuntimeContentBootstrapComplete = 146, // Ordered RecordDynamic bootstrap completion marker
+        ServerLuaPackageManifest = 152, // Server-selected immutable OpenMW Lua package set
+        ServerLuaPackageChunk = 153, // Bounded source chunk for a staged package generation
+        ServerLuaPackageBootstrapComplete = 154, // Explicit end of required package transfer
 
         // --- Lua bridge (7C+) ---
         // IDs 150-199 reserved; exact assignments TBD in Phase 7C/7D.
