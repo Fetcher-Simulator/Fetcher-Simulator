@@ -42,6 +42,7 @@
 #include <components/openmw-mp/Packets/BasePacket.hpp>
 #include <components/openmw-mp/Packets/System/PacketGameSettings.hpp>
 #include <components/openmw-mp/Packets/System/PacketHandshake.hpp>
+#include <components/openmw-mp/Packets/System/PacketServerLuaPackage.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerBaseInfo.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerCharGen.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerPosition.hpp>
@@ -84,6 +85,7 @@
 #include <components/openmw-mp/Records/DynamicRecordFingerprint.hpp>
 #include <components/openmw-mp/Records/DynamicRecordValidation.hpp>
 #include <components/openmw-mp/Sha256.hpp>
+#include <components/version/version.hpp>
 #include <components/openmw-mp/SpellbookSync.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerSpellbook.hpp>
 #include <components/esm3/loadspel.hpp>
@@ -1828,6 +1830,8 @@ void MPServer::run()
         throw std::runtime_error(
             "Authoritative content is not configured; set [content] openmw_cfg in server.cfg");
     mContentRegistry = std::make_unique<ServerContentRegistry>(mContentRegistryConfig);
+    mServerLuaPackageRegistry
+        = std::make_unique<ServerLuaPackageRegistry>(mServerLuaPackageRoot, Version::getLuaApiRevision());
 
     // Create listen socket
     SteamNetworkingIPAddr listenAddr;
@@ -5050,6 +5054,9 @@ void MPServer::sendGameSettingsToClient(HSteamNetConnection conn, const std::str
 
 void MPServer::populateRuntimeManifest(PacketHandshakeResponse& response) const
 {
+    response.serverLuaPackageManifestVersion = serverlua::ServerLuaPackageManifestVersion;
+    response.multiplayerLuaApiVersion = serverlua::MultiplayerLuaApiVersion;
+    response.openMWLuaApiVersion = Version::getLuaApiRevision();
     response.resolvedContentFingerprint = mResolvedContentFingerprint;
     std::unordered_set<uint8_t> seen;
     for (const auto& [packageId, types] : mRuntimeRecordCapabilities)
@@ -5063,6 +5070,41 @@ void MPServer::populateRuntimeManifest(PacketHandshakeResponse& response) const
         }
     }
     std::sort(response.supportedRuntimeRecordTypes.begin(), response.supportedRuntimeRecordTypes.end());
+}
+
+void MPServer::sendServerLuaPackages(HSteamNetConnection connection)
+{
+    if (!mServerLuaPackageRegistry)
+        throw std::logic_error("Server Lua package registry is unavailable");
+    const serverlua::PackageSet& packageSet = mServerLuaPackageRegistry->packageSet();
+    PacketServerLuaPackageManifest manifest;
+    manifest.packageSet = packageSet;
+    sendTo(connection, manifest.encode());
+
+    for (const serverlua::Package& package : packageSet.packages)
+    {
+        for (const serverlua::File& file : package.files)
+        {
+            for (std::size_t offset = 0; offset < file.source.size(); offset += serverlua::MaxChunkSize)
+            {
+                PacketServerLuaPackageChunk chunk;
+                chunk.generation = packageSet.generation;
+                chunk.packageId = package.packageId;
+                chunk.packageHash = package.packageHash;
+                chunk.filePath = file.path;
+                chunk.offset = static_cast<std::uint32_t>(offset);
+                chunk.bytes = file.source.substr(offset, serverlua::MaxChunkSize);
+                sendTo(connection, chunk.encode());
+            }
+        }
+    }
+
+    PacketServerLuaPackageBootstrapComplete complete;
+    complete.generation = packageSet.generation;
+    complete.packageSetHash = packageSet.packageSetHash;
+    sendTo(connection, complete.encode());
+    Log(Debug::Verbose) << "[ServerLuaPackages] Sent package set generation=" << packageSet.generation
+                        << " packages=" << packageSet.packages.size() << " to connection=" << connection;
 }
 
 // ---------------------------------------------------------------------------
@@ -5135,6 +5177,38 @@ void MPServer::handleHandshake(ConnectedClient& c, const uint8_t* data, size_t s
         rsp.rejectReason = "Runtime capability manifest version mismatch";
         sendTo(c.conn, rsp.encode());
         mInterface->CloseConnection(c.conn, 0, "Capability manifest version mismatch", true);
+        return;
+    }
+    if (hs.serverLuaPackageManifestVersion != serverlua::ServerLuaPackageManifestVersion)
+    {
+        PacketHandshakeResponse rsp;
+        populateRuntimeManifest(rsp);
+        rsp.rejectReason = "Server Lua package manifest mismatch: server="
+            + std::to_string(serverlua::ServerLuaPackageManifestVersion) + " client="
+            + std::to_string(hs.serverLuaPackageManifestVersion);
+        sendTo(c.conn, rsp.encode());
+        mInterface->CloseConnection(c.conn, 0, "Server Lua package manifest mismatch", true);
+        return;
+    }
+    if (hs.multiplayerLuaApiVersion != serverlua::MultiplayerLuaApiVersion)
+    {
+        PacketHandshakeResponse rsp;
+        populateRuntimeManifest(rsp);
+        rsp.rejectReason = "Multiplayer Lua API mismatch: server="
+            + std::to_string(serverlua::MultiplayerLuaApiVersion) + " client="
+            + std::to_string(hs.multiplayerLuaApiVersion);
+        sendTo(c.conn, rsp.encode());
+        mInterface->CloseConnection(c.conn, 0, "Multiplayer Lua API mismatch", true);
+        return;
+    }
+    if (hs.openMWLuaApiVersion != static_cast<std::uint32_t>(Version::getLuaApiRevision()))
+    {
+        PacketHandshakeResponse rsp;
+        populateRuntimeManifest(rsp);
+        rsp.rejectReason = "OpenMW Lua API mismatch: server=" + std::to_string(Version::getLuaApiRevision())
+            + " client=" + std::to_string(hs.openMWLuaApiVersion);
+        sendTo(c.conn, rsp.encode());
+        mInterface->CloseConnection(c.conn, 0, "OpenMW Lua API mismatch", true);
         return;
     }
 
@@ -5370,6 +5444,7 @@ void MPServer::handleHandshake(ConnectedClient& c, const uint8_t* data, size_t s
     rsp.actorSyncProtocolVersion = c.actorSyncProtocolVersion;
     populateRuntimeManifest(rsp);
     sendTo(c.conn, rsp.encode());
+    sendServerLuaPackages(c.conn);
 
     Log(Debug::Info) << "[Server] Handshake accepted: " << c.name
                      << " guid=" << c.guid
@@ -13794,6 +13869,7 @@ void MPServer::handleChallengeResponse(ConnectedClient& c,
     rsp.actorSyncProtocolVersion = c.actorSyncProtocolVersion;
     populateRuntimeManifest(rsp);
     sendTo(c.conn, rsp.encode());
+    sendServerLuaPackages(c.conn);
 
     Log(Debug::Info) << "[Server] Keypair handshake accepted: " << c.name
                      << " guid=" << c.guid;

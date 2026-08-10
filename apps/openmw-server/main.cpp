@@ -220,6 +220,10 @@ static void writeDefaultConfig(const std::filesystem::path& cfgPath)
          "encoding        = win1252\n"
          "verify_determinism = true\n"
          "\n"
+         "[client_lua]\n"
+         "# Session-only OpenMW Lua packages distributed to connected clients.\n"
+         "packages         = server-lua-packages\n"
+         "\n"
          "[master]\n"
          "public_listing  = false       # set true to appear in the server browser\n"
          "master_url      = " << mwmp::DefaultMasterServerUrl << "\n"
@@ -277,6 +281,7 @@ int main(int argc, char* argv[])
     std::filesystem::path contentResources = cfgStr(cfg, "content.resources", "");
     const std::string contentEncoding = cfgStr(cfg, "content.encoding", "win1252");
     const bool verifyContentDeterminism = cfgBool(cfg, "content.verify_determinism", true);
+    std::filesystem::path serverLuaPackages = cfgStr(cfg, "client_lua.packages", "server-lua-packages");
     bool        publicListing = cfgBool(cfg, "master.public_listing", false);
     std::string masterUrl     = cfgStr(
         cfg, "master.master_url", std::string(mwmp::DefaultMasterServerUrl));
@@ -304,6 +309,8 @@ int main(int argc, char* argv[])
         contentResources = exeDir / "resources";
     else if (contentResources.is_relative())
         contentResources = cfgDir / contentResources;
+    if (serverLuaPackages.is_relative())
+        serverLuaPackages = cfgDir / serverLuaPackages;
 
     std::cout << "[Server] Config: " << cfgPath.string() << "\n"
               << "[Server] Port: " << port
@@ -329,6 +336,7 @@ int main(int argc, char* argv[])
         server.setActorAuthorityPreferExactCell(actorAuthorityPreferExactCell);
         server.setContentRegistryConfig({ std::move(contentConfig), std::move(contentResources),
             contentEncoding, verifyContentDeterminism });
+        server.setServerLuaPackageRoot(std::move(serverLuaPackages));
         if (publicListing && !masterUrl.empty())
         {
             server.setMasterUrl(masterUrl);

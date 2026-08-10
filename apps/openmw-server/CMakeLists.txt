@@ -10,6 +10,7 @@ set(OPENMW_SERVER_SOURCES
     EnchantingService.cpp
     ServerContentRegistry.cpp
     ServerLuaRecordParser.cpp
+    ServerLuaPackageRegistry.cpp
     bindings/PlayerBindings.cpp
     bindings/ServerBindings.cpp
     bindings/TypesStubBindings.cpp
@@ -29,6 +30,7 @@ set(OPENMW_SERVER_HEADERS
     EnchantingService.hpp
     ServerContentRegistry.hpp
     ServerLuaRecordParser.hpp
+    ServerLuaPackageRegistry.hpp
     bindings/PlayerBindings.hpp
     bindings/ServerBindings.hpp
     bindings/TypesStubBindings.hpp
