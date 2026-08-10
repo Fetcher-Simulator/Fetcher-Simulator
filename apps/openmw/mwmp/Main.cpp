@@ -19,6 +19,7 @@
 #include <components/debug/debuglog.hpp>
 #include <components/files/collections.hpp>
 #include <components/resource/resourcesystem.hpp>
+#include <components/version/version.hpp>
 #include <components/vfs/manager.hpp>
 #include <components/openmw-mp/MasterServerProtocol.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerPosition.hpp>
@@ -532,6 +533,7 @@ void Main::onConnected()
     hs.passwordHash    = mPasswordHash;
     hs.isRegistration  = mIsRegistration;
     hs.actorSyncProtocolVersion = ActorSyncProtocolVersionV2;
+    hs.openMWLuaApiVersion = Version::getLuaApiRevision();
 
     try
     {
@@ -1110,9 +1112,12 @@ void Main::registerProtocolHandlers()
             if (rsp.contentManifestVersion != ContentManifestVersion
                 || rsp.contentApiVersion != ContentApiVersion
                 || rsp.dynamicRecordWireVersion != records::CurrentWireVersion
-                || rsp.capabilityManifestVersion != RuntimeRecordCapabilityManifestVersion)
+                || rsp.capabilityManifestVersion != RuntimeRecordCapabilityManifestVersion
+                || rsp.serverLuaPackageManifestVersion != serverlua::ServerLuaPackageManifestVersion
+                || rsp.multiplayerLuaApiVersion != serverlua::MultiplayerLuaApiVersion
+                || rsp.openMWLuaApiVersion != static_cast<std::uint32_t>(Version::getLuaApiRevision()))
             {
-                mRejectReason = "Server content/runtime manifest versions are incompatible";
+                mRejectReason = "Server content/runtime/Lua manifest versions are incompatible";
                 Log(Debug::Error) << "[MP] " << mRejectReason;
                 mClient->disconnect(mRejectReason);
                 return;

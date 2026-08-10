@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <filesystem>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -33,6 +34,7 @@
 #include "MasterServerClient.hpp"
 #include "PlayerDatabase.hpp"
 #include "ServerContentRegistry.hpp"
+#include "ServerLuaPackageRegistry.hpp"
 #include <optional>
 
 namespace mwmp
@@ -284,6 +286,7 @@ public:
     {
         mContentRegistryConfig = std::move(config);
     }
+    void setServerLuaPackageRoot(std::filesystem::path root) { mServerLuaPackageRoot = std::move(root); }
 
 private:
     // ── GNS callbacks ─────────────────────────────────────────────────────
@@ -305,6 +308,7 @@ private:
     // ── Packet handlers ───────────────────────────────────────────────────
     void handleHandshake          (ConnectedClient& c, const uint8_t* data, size_t size);
     void populateRuntimeManifest  (PacketHandshakeResponse& response) const;
+    void sendServerLuaPackages(HSteamNetConnection connection);
     void handleCharacterSelect    (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleChallengeResponse  (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleLinkKeyRequest     (ConnectedClient& c, const uint8_t* data, size_t size);
@@ -667,6 +671,8 @@ private:
     std::optional<PlayerDatabase> mPlayerDb;
     ServerContentRegistry::Config mContentRegistryConfig;
     std::unique_ptr<ServerContentRegistry> mContentRegistry;
+    std::filesystem::path mServerLuaPackageRoot;
+    std::unique_ptr<ServerLuaPackageRegistry> mServerLuaPackageRegistry;
     std::string                   mDbPath            = "playerdata.db";
     std::string                   mDefaultSpawnCell  = "toddtest";
     Position                      mDefaultSpawnPosition;

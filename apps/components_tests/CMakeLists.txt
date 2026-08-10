@@ -113,6 +113,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         openmw-mp/masterserverprotocol.cpp
         openmw-mp/runtimecontentbootstrap.cpp
         openmw-mp/serverluapackage.cpp
+        openmw-mp/serverluapackageregistry.cpp
         openmw-mp/dynamicrecord.cpp
         openmw-mp/dynamicrecorddatabase.cpp
         openmw-mp/dynamicrecordservice.cpp
@@ -120,6 +121,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         openmw-mp/enchantingprotocol.cpp
         ../openmw-server/PlayerDatabase.cpp
         ../openmw-server/DynamicRecordService.cpp
+        ../openmw-server/ServerLuaPackageRegistry.cpp
     )
 endif()
 
