@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <components/openmw-mp/RuntimeContentBootstrapGate.hpp>
+#include <components/openmw-mp/SemanticService.hpp>
 #include <components/openmw-mp/ServerLuaPackageTransfer.hpp>
 #include <components/openmw-mp/Packets/System/PacketGameSettings.hpp>
 #include <components/openmw-mp/Packets/System/PacketHandshake.hpp>
@@ -189,6 +190,7 @@ namespace mwmp
         bool        mCompileAllDialogueAfterBootstrap = false;
         bool        mBootstrapCompilationComplete = false;
         RuntimeContentBootstrapGate<PacketCharacterData> mRuntimeContentBootstrapGate;
+        AuthoritativeStateBootstrapGate<PacketCharacterData> mAuthoritativeStateBootstrapGate;
         serverlua::PackageTransfer mServerLuaPackageTransfer;
         bool        mServerLuaPackagesStaged = false;
         bool        mServerLuaCleanupPending = false;

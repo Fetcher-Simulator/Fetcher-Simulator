@@ -113,6 +113,8 @@ namespace MWWorld
         int getNewCrimeId(); // get new id for witnesses
         void recordCrimeId(); // record the paid crime id when bounty is 0
         int getCrimeId() const; // get the last paid crime id
+        int getCurrentCrimeId() const;
+        void setCrimeIds(int currentCrimeId, int paidCrimeId);
 
         void setPreviousItem(const ESM::RefId& boundItemId, const ESM::RefId& previousItemId);
         ESM::RefId getPreviousItem(const ESM::RefId& boundItemId);

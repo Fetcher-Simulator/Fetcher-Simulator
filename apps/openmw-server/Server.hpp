@@ -201,6 +201,8 @@ public:
     bool teleportPlayer(uint32_t guid, const std::string& cellId, const Position& position);
     bool upsertPlayerMark(uint32_t guid, const PlayerMark& mark);
     bool deletePlayerMark(uint32_t guid, std::string_view name);
+    bool mutatePlayerBounty(uint32_t guid, CrimeMutationKind kind, std::int64_t value,
+        const std::string& requestId, const std::string& source = "server_lua");
 
     // Disconnect a player by guid with a reason string.
     void kickClient(uint32_t guid, const std::string& reason);
@@ -400,6 +402,7 @@ private:
         ConnectedClient& c, bool includeOthers = true, bool includeSelf = true);
     void sendAuthoritativeJournal(ConnectedClient& c);
     void sendAuthoritativeSpellbook(ConnectedClient& c);
+    void sendAuthoritativeCrimeState(ConnectedClient& c);
     std::string journalGroupFor(const ConnectedClient& c) const;
     bool shouldShareJournal(const ConnectedClient& source, const ConnectedClient& target) const;
     std::vector<int64_t> journalSourceCharacterIds(const ConnectedClient& c);
