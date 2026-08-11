@@ -508,6 +508,19 @@ namespace MWWorld
         return mPaidCrimeId;
     }
 
+    int Player::getCurrentCrimeId() const
+    {
+        return mCurrentCrimeId;
+    }
+
+    void Player::setCrimeIds(int currentCrimeId, int paidCrimeId)
+    {
+        if (currentCrimeId < -1 || paidCrimeId < -1 || paidCrimeId > currentCrimeId)
+            throw std::invalid_argument("Invalid player crime ids");
+        mCurrentCrimeId = currentCrimeId;
+        mPaidCrimeId = paidCrimeId;
+    }
+
     void Player::setPreviousItem(const ESM::RefId& boundItemId, const ESM::RefId& previousItemId)
     {
         mPreviousItems[boundItemId] = previousItemId;

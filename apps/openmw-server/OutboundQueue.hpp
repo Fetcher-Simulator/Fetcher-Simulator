@@ -52,6 +52,8 @@ enum class OutboundLuaActionType
     PlaySpeech,
     SetPlayerVehicleState,
     KillPlayer,
+    SetPlayerBounty,
+    ModifyPlayerBounty,
 };
 
 struct OutboundLuaAction
@@ -61,6 +63,7 @@ struct OutboundLuaAction
     uint32_t mpNum = 0;
     float worldHour = 0.f;
     int itemCount = 0;
+    std::int64_t semanticValue = 0;
     bool recordPersistent = true;
     bool actorPersistent = true;
     bool vehicleActive = false;
@@ -70,6 +73,7 @@ struct OutboundLuaAction
     Position position;
     PlayerMark playerMark;
     std::string text;
+    std::string semanticRequestId;
     std::string eventName;
     std::string cellId;
     std::string recordType;

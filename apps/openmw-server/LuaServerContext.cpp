@@ -325,6 +325,14 @@ void LuaServerContext::drainOutbound()
             case OutboundLuaActionType::KillPlayer:
                 mServer->killPlayer(action.guid, action.text);
                 break;
+            case OutboundLuaActionType::SetPlayerBounty:
+                mServer->mutatePlayerBounty(action.guid, CrimeMutationKind::SetBounty,
+                    action.semanticValue, action.semanticRequestId);
+                break;
+            case OutboundLuaActionType::ModifyPlayerBounty:
+                mServer->mutatePlayerBounty(action.guid, CrimeMutationKind::ModifyBounty,
+                    action.semanticValue, action.semanticRequestId);
+                break;
             case OutboundLuaActionType::PlaceObject:
                 mServer->placeObject(action.text, action.itemCount, action.cellId, action.position);
                 break;
@@ -1276,6 +1284,28 @@ void LuaServerContext::queueKillPlayer(uint32_t guid, const std::string& deathMe
     action.type = OutboundLuaActionType::KillPlayer;
     action.guid = guid;
     action.text = deathMessage;
+    mOutboundQueue.push(std::move(action));
+}
+
+void LuaServerContext::queueSetPlayerBounty(
+    uint32_t guid, std::int64_t bounty, const std::string& requestId)
+{
+    OutboundLuaAction action;
+    action.type = OutboundLuaActionType::SetPlayerBounty;
+    action.guid = guid;
+    action.semanticValue = bounty;
+    action.semanticRequestId = requestId;
+    mOutboundQueue.push(std::move(action));
+}
+
+void LuaServerContext::queueModifyPlayerBounty(
+    uint32_t guid, std::int64_t delta, const std::string& requestId)
+{
+    OutboundLuaAction action;
+    action.type = OutboundLuaActionType::ModifyPlayerBounty;
+    action.guid = guid;
+    action.semanticValue = delta;
+    action.semanticRequestId = requestId;
     mOutboundQueue.push(std::move(action));
 }
 

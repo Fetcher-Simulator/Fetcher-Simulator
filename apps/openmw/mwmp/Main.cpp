@@ -26,6 +26,7 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerCellChange.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerStatsDynamic.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerBaseInfo.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerBounty.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerEquipment.hpp>
 #include <components/openmw-mp/Packets/Player/PacketChatMessage.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerDeath.hpp>
@@ -547,9 +548,11 @@ void Main::onConnected()
     mCharacterDataReady = false;
     mBootstrapCompilationComplete = false;
     mRuntimeContentBootstrapGate.reset();
+    mAuthoritativeStateBootstrapGate.reset();
     mServerLuaPackageTransfer.reset();
     mServerLuaPackagesStaged = false;
     mWorldStateSync->resetSessionState();
+    mPlayerSync->resetCrimeStateSync();
 
     // Build and send handshake
     PacketHandshake hs;
@@ -662,6 +665,7 @@ void Main::onDisconnected()
     mCharacterDataReady = false;
     mBootstrapCompilationComplete = false;
     mRuntimeContentBootstrapGate.reset();
+    mAuthoritativeStateBootstrapGate.reset();
     mServerLuaPackageTransfer.reset();
     mServerLuaPackagesStaged = false;
     mServerLuaCleanupPending = true;
@@ -689,6 +693,7 @@ void Main::onDisconnected()
     {
         mPlayerSync->resetSpellbookSyncState();
         mPlayerSync->resetJournalSyncState();
+        mPlayerSync->resetCrimeStateSync();
     }
 }
 
@@ -741,7 +746,9 @@ void Main::sendCharacterSelect(const std::string& charName, bool isNew)
     mCharacterDataReady = false;
     mBootstrapCompilationComplete = false;
     mRuntimeContentBootstrapGate.reset();
+    mAuthoritativeStateBootstrapGate.reset();
     mWorldStateSync->beginRuntimeContentBootstrap();
+    mPlayerSync->resetCrimeStateSync();
     mCharacterId = 0;
 
     PacketCharacterSelect pkt;
@@ -821,6 +828,7 @@ bool Main::enterSelectedCharacterWorld(bool allowNewCharacterUi)
         mCharGenAppearanceSyncTimer = 0.f;
         MWBase::Environment::get().getStateManager()->newGame(true);
         applySelectedCharacterSpawn(spawnCell, "new character");
+        getPlayerSync().applyAuthoritativeCrimeStateToPlayer();
         windowManager->updatePlayer();
         if (!worldName.empty())
             MWBase::Environment::get().getMechanicsManager()->setPlayerName(worldName);
@@ -881,6 +889,7 @@ bool Main::enterSelectedCharacterWorld(bool allowNewCharacterUi)
 
     applySelectedCharacterSpawn(spawnCell, "returning player");
 
+    getPlayerSync().applyAuthoritativeCrimeStateToPlayer();
     getPlayerSync().applyRestoredStatsToPlayer();
     MWBase::Environment::get().getLuaManager()->restorePendingMultiplayerPlayerScripts();
     Log(Debug::Info) << "[MP] Returning player restore complete - sending full sync";
@@ -985,7 +994,12 @@ void Main::tryAutoEnterWorld()
 // ---------------------------------------------------------------------------
 void Main::tryFinalizePendingCharacterData()
 {
-    auto characterData = mRuntimeContentBootstrapGate.takeReadyCharacterData();
+    // Runtime definitions/policy and authoritative gameplay state remain
+    // separate bootstrap domains and meet only at this final world-entry gate.
+    if (auto contentReady = mRuntimeContentBootstrapGate.takeReadyCharacterData())
+        mAuthoritativeStateBootstrapGate.retainCharacterData(std::move(*contentReady));
+    mAuthoritativeStateBootstrapGate.setStateReady(mPlayerSync->hasAuthoritativeCrimeState());
+    auto characterData = mAuthoritativeStateBootstrapGate.takeReadyCharacterData();
     if (characterData)
         finalizeCharacterData(std::move(*characterData));
 }
@@ -1611,6 +1625,33 @@ void Main::registerProtocolHandlers()
             mRuntimeContentBootstrapGate.finishRuntimeContent(true);
             Log(Debug::Info) << "[MP] Runtime content bootstrap complete";
             tryActivateServerLuaPackages();
+            tryFinalizePendingCharacterData();
+        });
+
+    proto.registerHandler(PacketType::PlayerBounty,
+        [this](const uint8_t* data, size_t size)
+        {
+            BasePlayer authoritative;
+            PacketPlayerBounty packet;
+            packet.setPlayer(&authoritative);
+            if (!packet.decode(data, size))
+            {
+                disconnect("Malformed authoritative player crime state");
+                return;
+            }
+            if (authoritative.guid != mPlayerSync->localPlayer().guid)
+            {
+                disconnect("Authoritative player crime state identity mismatch");
+                return;
+            }
+
+            const RevisionDecision decision
+                = mPlayerSync->receiveAuthoritativeCrimeState(authoritative.crimeState);
+            if (decision == RevisionDecision::Conflict)
+            {
+                disconnect("Conflicting authoritative player crime revision");
+                return;
+            }
             tryFinalizePendingCharacterData();
         });
 

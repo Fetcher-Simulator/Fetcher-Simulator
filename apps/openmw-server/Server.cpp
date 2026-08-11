@@ -1,5 +1,6 @@
 #include "Server.hpp"
 #include "AlchemyService.hpp"
+#include "CrimeService.hpp"
 #include "DynamicRecordService.hpp"
 #include "EnchantingService.hpp"
 #include "MasterServerClient.hpp"
@@ -44,6 +45,7 @@
 #include <components/openmw-mp/Packets/System/PacketHandshake.hpp>
 #include <components/openmw-mp/Packets/System/PacketServerLuaPackage.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerBaseInfo.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerBounty.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerCharGen.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerPosition.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerCellChange.hpp>
@@ -1450,6 +1452,56 @@ bool MPServer::deletePlayerMark(uint32_t guid, std::string_view name)
 
     mPlayerDb->deleteCharacterMark(client->dbCharacterId, name);
     return true;
+}
+
+bool MPServer::mutatePlayerBounty(uint32_t guid, CrimeMutationKind kind, std::int64_t value,
+    const std::string& requestId, const std::string& source)
+{
+    ConnectedClient* client = findClientByGuid(guid);
+    if (!client || !client->charSelectComplete || !mPlayerDb
+        || client->dbAccountId <= 0 || client->dbCharacterId <= 0)
+        return false;
+
+    CrimeMutationRequest request;
+    request.requestId = requestId;
+    request.kind = kind;
+    request.value = value;
+    request.source = source;
+
+    try
+    {
+        const PlayerCrimeState previousState = client->player.crimeState;
+        CrimeService service(*mPlayerDb);
+        CrimeService::Context context;
+        context.accountId = client->dbAccountId;
+        context.characterId = client->dbCharacterId;
+        const CrimeService::Outcome outcome = service.execute(request, context);
+
+        // A durable duplicate result describes the original transition and may
+        // predate later commits. Always mirror the current authoritative row.
+        client->player.crimeState = mPlayerDb->loadPlayerCrimeState(client->dbCharacterId);
+        client->player.bounty = client->player.crimeState.bounty;
+        sendAuthoritativeCrimeState(*client);
+        syncLuaPlayerSnapshot();
+
+        Log(outcome.result.accepted ? Debug::Info : Debug::Warning)
+            << "[CrimeService] request=" << requestId
+            << " player=" << client->slotName
+            << " source=" << source
+            << " accepted=" << outcome.result.accepted
+            << " replayed=" << outcome.replayed
+            << " error=" << getCrimeErrorCode(outcome.result.error)
+            << " bounty=" << previousState.bounty << "->" << client->player.crimeState.bounty
+            << " revision=" << previousState.revision << "->" << client->player.crimeState.revision;
+        return outcome.result.accepted;
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[CrimeService] persistence failure request=" << requestId
+                          << " player=" << client->slotName
+                          << " error=" << e.what();
+        return false;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -5553,6 +5605,8 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
     c.player.spellbookChanges.action = BasePlayer::SpellbookChanges::Action::Set;
     c.player.spellbookChanges.spellIds.clear();
     c.player.spellbookChanges.revision = 0;
+    c.player.crimeState = {};
+    c.player.bounty = 0;
 
     for (int slot = 0; slot < BasePlayer::NUM_EQUIPMENT_SLOTS; ++slot)
         c.player.equipment[slot].slot = slot;
@@ -5787,6 +5841,8 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
             c.player.inventoryChanges.revision = c.inventoryRevision;
             c.spellbookRevision = mPlayerDb->loadSpellbookRevision(c.dbCharacterId);
             c.player.spellbookChanges.revision = c.spellbookRevision;
+            c.player.crimeState = mPlayerDb->loadPlayerCrimeState(c.dbCharacterId);
+            c.player.bounty = c.player.crimeState.bounty;
             mPlayerDb->touch(c.dbCharacterId);
             mLua.setPlayerMarks(c.guid, mPlayerDb->loadCharacterMarks(c.dbCharacterId));
         }
@@ -5832,6 +5888,10 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
                             << " cell=" << cdPkt.spawnCell;
     }
 
+    // PlayerBounty is authoritative gameplay state, not runtime content. It is
+    // nevertheless an explicit world-entry prerequisite and shares the ordered
+    // bootstrap lane with CharacterData so the latter cannot overtake it.
+    sendAuthoritativeCrimeState(c);
     sendTo(c.conn, cdPkt.encode());
     c.charSelectComplete = true;
 
@@ -13093,6 +13153,7 @@ void MPServer::syncLuaPlayerSnapshot()
         snapshot.dynamicStats = client.player.dynamicStats;
         snapshot.skills = client.player.skills;
         snapshot.inventory = client.player.inventoryChanges.items;
+        snapshot.crimeState = client.player.crimeState;
         players.push_back(std::move(snapshot));
     }
 
@@ -13208,6 +13269,14 @@ void MPServer::sendAuthoritativeSpellbook(ConnectedClient& c)
     PacketPlayerSpellbook spellbook;
     spellbook.setPlayer(&c.player);
     sendTo(c.conn, spellbook.encode());
+}
+
+void MPServer::sendAuthoritativeCrimeState(ConnectedClient& c)
+{
+    c.player.bounty = c.player.crimeState.bounty;
+    PacketPlayerBounty packet;
+    packet.setPlayer(&c.player);
+    sendTo(c.conn, packet.encode());
 }
 
 // ---------------------------------------------------------------------------
@@ -13700,13 +13769,15 @@ EResult MPServer::sendPacketOnConfiguredLane(HSteamNetConnection conn,
     const bool actorPacket = hasHeader
         && header.type >= static_cast<uint16_t>(PacketType::ActorList)
         && header.type <= static_cast<uint16_t>(PacketType::ActorAttackV2);
-    // CharacterData is the client's enter-world gate. Route it on the same
+    // CharacterData is the client's enter-world gate. Route it and its
+    // authoritative crime-state prerequisite on the same
     // reliable lane as ActorDeath so a pre-world corpse bootstrap cannot be
     // overtaken by the load trigger merely because actor and system packets use
     // separate SteamNetworkingSockets lanes.
-    const bool characterDataPacket = hasHeader && type == PacketType::CharacterData;
+    const bool characterBootstrapPacket = hasHeader
+        && (type == PacketType::CharacterData || type == PacketType::PlayerBounty);
 
-    if (!actorPacket && !characterDataPacket)
+    if (!actorPacket && !characterBootstrapPacket)
     {
         return mInterface->SendMessageToConnection(
             conn, data.data(), static_cast<uint32_t>(data.size()), flags, nullptr);
@@ -13719,7 +13790,7 @@ EResult MPServer::sendPacketOnConfiguredLane(HSteamNetConnection conn,
     std::memcpy(message->m_pData, data.data(), data.size());
     message->m_conn = conn;
     message->m_nFlags = flags;
-    const bool realtimeActorPacket = characterDataPacket
+    const bool realtimeActorPacket = characterBootstrapPacket
         || type == PacketType::ActorPosition
         || type == PacketType::ActorAnimFlags
         || type == PacketType::ActorAnimPlay

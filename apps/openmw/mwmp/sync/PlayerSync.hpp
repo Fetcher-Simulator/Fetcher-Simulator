@@ -11,12 +11,18 @@
 #include <components/openmw-mp/Base/BasePlayer.hpp>
 #include <components/openmw-mp/InventorySync.hpp>
 #include <components/openmw-mp/NetworkMessages.hpp>
+#include <components/openmw-mp/PlayerCrimeState.hpp>
+#include <components/openmw-mp/SemanticService.hpp>
 #include <components/openmw-mp/SpellbookSync.hpp>
 
-namespace MWWorld { class ESMStore; class Ptr; }
+namespace MWMechanics { class NpcStats; }
+namespace MWWorld { class ESMStore; class Player; class Ptr; }
 
 namespace mwmp
 {
+    void applyAuthoritativeCrimeState(
+        MWMechanics::NpcStats& npcStats, MWWorld::Player& player, const PlayerCrimeState& state);
+
     class NetworkClient;
     class Protocol;
 
@@ -87,6 +93,10 @@ namespace mwmp
         // connection.
         void resetSpellbookSyncState();
         void resetJournalSyncState();
+        void resetCrimeStateSync();
+        RevisionDecision receiveAuthoritativeCrimeState(PlayerCrimeState state);
+        bool hasAuthoritativeCrimeState() const { return mCrimeStateGate.hasState(); }
+        void applyAuthoritativeCrimeStateToPlayer();
         static bool journalDefinitionsAvailable(const MWWorld::ESMStore& store,
             const BasePlayer::JournalChanges& changes, std::string* missingQuest = nullptr,
             std::string* missingInfo = nullptr);
@@ -214,6 +224,7 @@ namespace mwmp
         float mSpellbookTimer = 0.f;
         static constexpr float SPELLBOOK_RATE = 0.25f; // 4 Hz learned-set comparison
         SpellbookRevisionGate mSpellbookRevisionGate;
+        RevisionedStateGate<PlayerCrimeState> mCrimeStateGate;
 
         struct StatsSnapshot
         {

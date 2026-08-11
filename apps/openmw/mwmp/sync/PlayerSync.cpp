@@ -85,6 +85,13 @@
 namespace mwmp
 {
 
+void applyAuthoritativeCrimeState(
+    MWMechanics::NpcStats& npcStats, MWWorld::Player& player, const PlayerCrimeState& state)
+{
+    npcStats.setBounty(state.bounty);
+    player.setCrimeIds(state.currentCrimeId, state.paidCrimeId);
+}
+
 namespace
 {
     constexpr std::string_view sVehicleVisualEffectId = "mwmp_vehicle_visual";
@@ -3458,6 +3465,47 @@ void PlayerSync::resetJournalSyncState()
     mLocal.journalChanges.snapshotComplete = true;
 }
 
+void PlayerSync::resetCrimeStateSync()
+{
+    mCrimeStateGate.reset();
+    mLocal.crimeState = {};
+    mLocal.bounty = 0;
+}
+
+RevisionDecision PlayerSync::receiveAuthoritativeCrimeState(PlayerCrimeState state)
+{
+    const RevisionDecision decision = mCrimeStateGate.receive(std::move(state));
+    if (decision == RevisionDecision::AcceptedNewer)
+        applyAuthoritativeCrimeStateToPlayer();
+    return decision;
+}
+
+void PlayerSync::applyAuthoritativeCrimeStateToPlayer()
+{
+    const MWBase::Environment& environment = MWBase::Environment::get();
+    if (environment.getStateManager()->getState() != MWBase::StateManager::State_Running)
+        return;
+
+    MWBase::World* world = environment.getWorld();
+    MWWorld::Ptr player = world ? world->getPlayerPtr() : MWWorld::Ptr{};
+    if (player.isEmpty() || !player.isInCell() || !player.getClass().isActor())
+        return;
+
+    const std::optional<PlayerCrimeState> state = mCrimeStateGate.takePending();
+    if (!state)
+        return;
+
+    applyAuthoritativeCrimeState(
+        player.getClass().getNpcStats(player), world->getPlayer(), *state);
+    mLocal.crimeState = *state;
+    mLocal.bounty = state->bounty;
+    Log(Debug::Info) << "[CrimeService] Applied authoritative player crime state"
+                     << " bounty=" << state->bounty
+                     << " currentCrimeId=" << state->currentCrimeId
+                     << " paidCrimeId=" << state->paidCrimeId
+                     << " revision=" << state->revision;
+}
+
 void PlayerSync::applyAuthoritativeSpellbook(const MWWorld::Ptr& player)
 {
     const MWBase::Environment& environment = MWBase::Environment::get();
@@ -3555,6 +3603,9 @@ void PlayerSync::applyPendingAuthoritativeState(const MWWorld::Ptr& player)
     if (environment.getStateManager()->getState() != MWBase::StateManager::State_Running
         || player.isEmpty() || !player.isInCell())
         return;
+
+    if (mCrimeStateGate.hasPending())
+        applyAuthoritativeCrimeStateToPlayer();
 
     while (!mPendingJournalChanges.empty())
     {

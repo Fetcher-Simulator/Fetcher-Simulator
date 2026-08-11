@@ -132,3 +132,27 @@ TEST(PlayerCrimeRevisionGate, ResetPreventsPriorSessionStateFromWinning)
     ASSERT_TRUE(gate.latest());
     EXPECT_EQ(gate.latest()->revision, 7u);
 }
+
+TEST(PlayerCrimeBootstrap, RetainsWorldEntryUntilAuthoritativeStateArrives)
+{
+    mwmp::AuthoritativeStateBootstrapGate<int> gate;
+    gate.retainCharacterData(42);
+    EXPECT_FALSE(gate.takeReadyCharacterData().has_value());
+
+    gate.setStateReady();
+    ASSERT_EQ(gate.takeReadyCharacterData(), 42);
+    EXPECT_FALSE(gate.takeReadyCharacterData().has_value());
+}
+
+TEST(PlayerCrimeBootstrap, ReconnectClearsPriorSessionReadinessAndData)
+{
+    mwmp::AuthoritativeStateBootstrapGate<int> gate;
+    gate.setStateReady();
+    gate.retainCharacterData(41);
+    gate.reset();
+
+    gate.retainCharacterData(42);
+    EXPECT_FALSE(gate.takeReadyCharacterData().has_value());
+    gate.setStateReady();
+    EXPECT_EQ(gate.takeReadyCharacterData(), 42);
+}

@@ -53,6 +53,7 @@ struct LuaPlayerSnapshot
     DynamicStats dynamicStats;
     std::array<Skill, BasePlayer::NUM_SKILLS> skills;
     std::vector<Item> inventory;
+    PlayerCrimeState crimeState;
 };
 
 struct LuaActorSnapshot
@@ -164,6 +165,8 @@ public:
     void queueSetPlayerVehicleState(
         uint32_t guid, bool active, const std::string& profileId = std::string(), uint32_t parkedObjectMpNum = 0);
     void queueKillPlayer(uint32_t guid, const std::string& deathMessage = std::string());
+    void queueSetPlayerBounty(uint32_t guid, std::int64_t bounty, const std::string& requestId);
+    void queueModifyPlayerBounty(uint32_t guid, std::int64_t delta, const std::string& requestId);
     void queuePlaceObject(const std::string& refId, int count, const std::string& cellId, const Position& position);
     void queueSpawnActor(
         const std::string& refId, uint32_t refNum, uint32_t mpNum, const std::string& cellId, const Position& position,

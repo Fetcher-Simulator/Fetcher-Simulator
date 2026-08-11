@@ -61,6 +61,38 @@ namespace mwmp
         std::optional<State> mLatest;
         bool mPending = false;
     };
+
+    /// Final world-entry barrier for authoritative gameplay state. Runtime
+    /// content/policy readiness remains owned by RuntimeContentBootstrapGate;
+    /// its ready CharacterData is retained here until all required semantic
+    /// player-state snapshots have arrived.
+    template <class CharacterData>
+    class AuthoritativeStateBootstrapGate
+    {
+    public:
+        void reset()
+        {
+            mStateReady = false;
+            mPendingCharacterData.reset();
+        }
+
+        void setStateReady(bool ready = true) { mStateReady = ready; }
+        bool isStateReady() const { return mStateReady; }
+        void retainCharacterData(CharacterData data) { mPendingCharacterData = std::move(data); }
+
+        std::optional<CharacterData> takeReadyCharacterData()
+        {
+            if (!mStateReady || !mPendingCharacterData)
+                return std::nullopt;
+            std::optional<CharacterData> result(std::move(mPendingCharacterData));
+            mPendingCharacterData.reset();
+            return result;
+        }
+
+    private:
+        bool mStateReady = false;
+        std::optional<CharacterData> mPendingCharacterData;
+    };
 }
 
 #endif

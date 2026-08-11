@@ -51,6 +51,31 @@ static sol::table scriptPlayer_getPosition(const ScriptPlayer& p, sol::this_stat
     return t;
 }
 
+static sol::table scriptPlayer_getCrimeState(const ScriptPlayer& p, sol::this_state ts)
+{
+    sol::state_view lua(ts);
+    sol::table state = lua.create_table();
+    state["bounty"] = p.data.crimeState.bounty;
+    state["currentCrimeId"] = p.data.crimeState.currentCrimeId;
+    state["paidCrimeId"] = p.data.crimeState.paidCrimeId;
+    state["revision"] = p.data.crimeState.revision;
+    return state;
+}
+
+static void scriptPlayer_setBounty(
+    const ScriptPlayer& p, std::int64_t bounty, const std::string& requestId)
+{
+    if (p.context)
+        p.context->queueSetPlayerBounty(p.data.guid, bounty, requestId);
+}
+
+static void scriptPlayer_modifyBounty(
+    const ScriptPlayer& p, std::int64_t delta, const std::string& requestId)
+{
+    if (p.context)
+        p.context->queueModifyPlayerBounty(p.data.guid, delta, requestId);
+}
+
 static void scriptPlayer_sendMessage(const ScriptPlayer& p, const std::string& text)
 {
     if (p.context) p.context->queueSendServerMessage(p.data.guid, text);
@@ -119,6 +144,7 @@ void initPlayerBindings(LuaUtil::LuaView& view, sol::table& mp, LuaServerContext
         "cell",     sol::property(&scriptPlayer_getCell),
         "loadedActorCells", sol::property(&scriptPlayer_getLoadedActorCells),
         "position", sol::property(&scriptPlayer_getPosition),
+        "crimeState", sol::property(&scriptPlayer_getCrimeState),
         "race",     sol::property(&scriptPlayer_getRace),
         "isMale",   sol::property(&scriptPlayer_getIsMale),
         "gender",   sol::property(&scriptPlayer_getGender),
@@ -128,7 +154,9 @@ void initPlayerBindings(LuaUtil::LuaView& view, sol::table& mp, LuaServerContext
         "setData",       &scriptPlayer_setData,
         "getData",       &scriptPlayer_getData,
         "getNickname",   &scriptPlayer_getNickname,
-        "setNickname",   &scriptPlayer_setNickname
+        "setNickname",   &scriptPlayer_setNickname,
+        "setBounty",     &scriptPlayer_setBounty,
+        "modifyBounty",  &scriptPlayer_modifyBounty
     );
 
     mp.set_function("getPlayer", [context](uint32_t guid) -> sol::optional<ScriptPlayer>
