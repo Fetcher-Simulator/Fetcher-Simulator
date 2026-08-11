@@ -46,11 +46,15 @@ shared quest state on recipients after a journal update arrives.
 
 ## Restore ordering
 
-The server sends runtime record definitions before `CharacterData` and sends
-the authoritative journal during the same ordered bootstrap. The client queues
-journal state while still outside the world. Large snapshots use `Set` followed
-by `Append` chunks and carry an explicit final-chunk marker, so no partial
-snapshot is exposed.
+The server begins the pre-world bootstrap by sending runtime record definitions
+and the authoritative journal while the client is still outside the world.
+`CharacterData` can travel on a different transport lane and may arrive early,
+so its arrival is not itself permission to enter the world. The client retains
+it until `RuntimeContentBootstrapComplete` has been observed, all required
+runtime definitions have installed successfully, and the required
+server-supplied OpenMW Lua package set has staged and activated. Large journal
+snapshots use `Set` followed by `Append` chunks and carry an explicit
+final-chunk marker, so no partial snapshot is exposed.
 
 Before clearing or mutating the local journal, the client verifies that every
 referenced quest Dialogue and INFO exists in the effective ESM store. A

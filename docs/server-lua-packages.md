@@ -7,6 +7,12 @@ player or world state. A package may call existing typed multiplayer APIs, but
 package transport never means “execute this command” and never replays semantic
 gameplay results as Lua calls.
 
+## Implementation status
+
+The safe bootstrap path is implemented through package contracts, server discovery/transfer, client staging, temporary Lua/VFS overlay activation, and the combined pre-world gate. The current wire contract uses `MultiplayerProtocolVersion = 4`, `ServerLuaPackageManifestVersion = 1`, and `MultiplayerLuaApiVersion = 1`. Package sets are immutable for a connection.
+
+Transactional runtime hot reload/state handoff is intentionally not implemented. The next multiplayer architecture phase can build typed semantic authority services (for example crime/bounty) on top of the existing package/API layer without changing package transport into a gameplay-state channel.
+
 ## Server configuration
 
 `server.cfg` selects a package root relative to the server configuration file:

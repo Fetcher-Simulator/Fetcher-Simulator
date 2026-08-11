@@ -27,7 +27,9 @@ bootstrap layer delivered only after the static manifest has matched.
 
 The server derives the content, Lua-script, and resolved-record manifests from
 its own `[content] openmw_cfg`; `Config.RESOLVED_CONTENT_FINGERPRINT` is only an
-optional startup assertion.
+optional startup assertion. Multiplayer protocol negotiation also carries the
+independent server-Lua-package manifest/API versions described below; those
+versions do not alter OMDR or the resolved-content fingerprint.
 
 `world.createRecord` remains synchronous in single-player. A connected client
 gets a descriptive error instead of inserting a local record. Draft constructors
@@ -102,10 +104,17 @@ A dialogue result script is never replayed on another client to reproduce a
 journal result; the resulting journal entry/index is the semantic state that is
 persisted and replicated.
 
-Server Lua package distribution is a separate executable-code system with its
-own trust, package manifests, staging, and activation. Lua source packages must
-not be encoded as RecordDynamic definitions or folded into OMDR. See
-[Server-supplied OpenMW Lua packages](server-lua-packages.md).
+Server-supplied OpenMW Lua packages are now implemented as a separate
+executable-policy system with their own manifest/API versions, deterministic
+package-set hashing, bounded transfer/staging, a temporary multiplayer Lua/VFS
+overlay, and a pre-world activation gate. They remain deliberately outside
+RecordDynamic: Lua source packages are never encoded as OMDR definitions, and
+package transport does not represent authoritative gameplay state. World entry
+now requires both the runtime-definition bootstrap and the required server Lua
+package set to be ready. See
+[Server-supplied OpenMW Lua packages](server-lua-packages.md). Runtime package
+hot reload remains deferred because the current `reloadlua` path cannot provide
+package-set transactional rollback.
 
 ## Permissions and validation
 
