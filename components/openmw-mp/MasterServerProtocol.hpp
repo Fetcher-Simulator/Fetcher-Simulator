@@ -13,7 +13,8 @@ namespace mwmp
     // Version 3 adds the explicit runtime-content bootstrap completion barrier.
     // Version 4 adds independently versioned server-supplied OpenMW Lua package
     // negotiation and bounded manifest/chunk/bootstrap packets.
-    inline constexpr int MultiplayerProtocolVersion = 4;
+    // Version 5 adds authoritative revisioned PlayerBounty semantic state.
+    inline constexpr int MultiplayerProtocolVersion = 5;
     inline constexpr std::string_view MultiplayerBuildVersion = "0.1.0";
     inline constexpr std::string_view DefaultMasterServerUrl = "https://master.fetchers.org";
 
