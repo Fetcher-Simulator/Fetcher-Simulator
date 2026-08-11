@@ -9,9 +9,17 @@ gameplay results as Lua calls.
 
 ## Implementation status
 
-The safe bootstrap path is implemented through package contracts, server discovery/transfer, client staging, temporary Lua/VFS overlay activation, and the combined pre-world gate. The current wire contract uses `MultiplayerProtocolVersion = 4`, `ServerLuaPackageManifestVersion = 1`, and `MultiplayerLuaApiVersion = 1`. Package sets are immutable for a connection.
+The safe bootstrap path is implemented through package contracts, server discovery/transfer, client staging, temporary Lua/VFS overlay activation, and the combined pre-world gate. The current wire contract uses `MultiplayerProtocolVersion = 5`, `ServerLuaPackageManifestVersion = 1`, and `MultiplayerLuaApiVersion = 1`. Package sets are immutable for a connection. Protocol version 5 adds authoritative crime-state transport; it does not change either Lua package contract version.
 
 Transactional runtime hot reload/state handoff is intentionally not implemented. The next multiplayer architecture phase can build typed semantic authority services (for example crime/bounty) on top of the existing package/API layer without changing package transport into a gameplay-state channel.
+
+That first service now exists as `CrimeService`; see
+[Semantic gameplay services](semantic-gameplay-services.md). Trusted dedicated
+server Lua may use `player:setBounty(value, requestId)` and
+`player:modifyBounty(delta, requestId)`. Both enter the typed service and its
+atomic transaction. Distributed client Lua packages still cannot write
+authoritative crime state, and package transport remains executable policy
+rather than gameplay-state replication.
 
 ## Server configuration
 
