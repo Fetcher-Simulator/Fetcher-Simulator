@@ -99,7 +99,7 @@ Therefore a package cannot shadow `scripts/omw/*` or arbitrary mod files.
 
 ## Bootstrap and activation
 
-The handshake negotiates `MultiplayerProtocolVersion = 4`,
+The handshake negotiates `MultiplayerProtocolVersion = 5`,
 `ServerLuaPackageManifestVersion = 1`, `MultiplayerLuaApiVersion = 1`, and the
 exact OpenMW Lua API revision independently.
 
