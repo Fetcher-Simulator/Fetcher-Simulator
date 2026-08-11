@@ -32,6 +32,7 @@
 #include <components/openmw-mp/Base/BaseObject.hpp>
 #include <components/openmw-mp/Base/DynamicRecord.hpp>
 #include <components/openmw-mp/Packets/Object/PacketDoorState.hpp>
+#include <components/openmw-mp/PlayerCrimeState.hpp>
 
 #include "PlayerMark.hpp"
 
@@ -106,6 +107,55 @@ namespace mwmp
         std::string resultPayload;
         int64_t createdAt = 0;
         int64_t updatedAt = 0;
+    };
+
+    struct SemanticRequestRecord
+    {
+        std::string service;
+        int64_t accountId = 0;
+        int64_t characterId = 0;
+        std::string requestId;
+        std::string requestHash;
+        std::string status;
+        std::uint16_t errorCode = 0;
+        std::string resultPayload;
+        std::string source;
+        int64_t createdAt = 0;
+        int64_t updatedAt = 0;
+    };
+
+    enum class CrimeCommitStatus
+    {
+        Committed,
+        DuplicateRequest,
+        DuplicateRequestConflict,
+        StaleRevision,
+    };
+
+    enum class CrimeCommitFailurePoint
+    {
+        None,
+        AfterStateWrite,
+    };
+
+    struct CrimeMutationCommit
+    {
+        int64_t accountId = 0;
+        int64_t characterId = 0;
+        std::string requestId;
+        std::string requestHash;
+        std::string resultPayload;
+        std::string source;
+        std::uint64_t expectedRevision = 0;
+        PlayerCrimeState resultingState;
+        CrimeCommitFailurePoint failurePoint = CrimeCommitFailurePoint::None;
+    };
+
+    struct CrimeCommitResult
+    {
+        CrimeCommitStatus status = CrimeCommitStatus::Committed;
+        PlayerCrimeState currentState;
+        std::string storedResultPayload;
     };
 
     struct DynamicRecordCommitEntry
@@ -403,6 +453,23 @@ namespace mwmp
             const CraftRequestRecord& request, std::string_view resultPayload);
         void completeCraftRequest(int64_t accountId, int64_t characterId, std::string_view requestId,
             std::string_view requestHash, std::string_view status, std::string_view resultPayload);
+
+        /// Load the durable global player crime state. Characters without a
+        /// row receive the vanilla-compatible revision-zero defaults.
+        PlayerCrimeState loadPlayerCrimeState(int64_t characterId);
+
+        /// Load one terminal/pending request from the shared semantic-service
+        /// idempotency journal.
+        std::optional<SemanticRequestRecord> loadSemanticRequest(std::string_view service,
+            int64_t accountId, int64_t characterId, std::string_view requestId);
+
+        /// Persist a terminal rejected request that changed no gameplay state.
+        bool insertRejectedSemanticRequest(const SemanticRequestRecord& request);
+
+        /// Atomically update every authoritative crime field and insert the
+        /// accepted terminal request result. The revision is rechecked inside
+        /// BEGIN IMMEDIATE and duplicate request identity is resolved there.
+        CrimeCommitResult commitPlayerCrimeMutation(const CrimeMutationCommit& commit);
 
         /// Atomically persists a terminal idempotency result, canonical record
         /// bundle, dependencies, and (when supplied) the resulting inventory.
