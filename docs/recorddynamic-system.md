@@ -116,6 +116,11 @@ package set to be ready. See
 hot reload remains deferred because the current `reloadlua` path cannot provide
 package-set transactional rollback.
 
+The first implemented authoritative gameplay-state example is `CrimeService`;
+see [Semantic gameplay services](semantic-gameplay-services.md). Its revisioned
+bounty/crime tuple is persistent character state sent by `PacketPlayerBounty`.
+It is never an OMDR definition or `RecordDynamic` action.
+
 ## Permissions and validation
 
 Generic client creation is default-deny. Configure exact script paths in
