@@ -568,6 +568,26 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         "  updated_at INTEGER NOT NULL DEFAULT 0,"
         "  PRIMARY KEY(account_id, character_id, request_id))",
         "CREATE INDEX IF NOT EXISTS idx_craft_requests_updated ON craft_requests(updated_at)",
+        "CREATE TABLE IF NOT EXISTS semantic_requests ("
+        "  service TEXT NOT NULL,"
+        "  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,"
+        "  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,"
+        "  request_id TEXT NOT NULL, request_hash TEXT NOT NULL, status TEXT NOT NULL,"
+        "  error_code INTEGER NOT NULL DEFAULT 0, result_payload BLOB NOT NULL,"
+        "  source TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL DEFAULT 0,"
+        "  updated_at INTEGER NOT NULL DEFAULT 0,"
+        "  PRIMARY KEY(service, account_id, character_id, request_id))",
+        "CREATE INDEX IF NOT EXISTS idx_semantic_requests_updated"
+        " ON semantic_requests(service, updated_at)",
+        "CREATE TABLE IF NOT EXISTS character_crime_state ("
+        "  character_id INTEGER PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,"
+        "  bounty INTEGER NOT NULL DEFAULT 0 CHECK(bounty >= 0 AND bounty <= 2147483647),"
+        "  current_crime_id INTEGER NOT NULL DEFAULT -1"
+        "    CHECK(current_crime_id >= -1 AND current_crime_id <= 2147483647),"
+        "  paid_crime_id INTEGER NOT NULL DEFAULT -1"
+        "    CHECK(paid_crime_id >= -1 AND paid_crime_id <= current_crime_id),"
+        "  revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),"
+        "  updated_at INTEGER NOT NULL DEFAULT 0)",
         "CREATE TABLE IF NOT EXISTS server_record_requests ("
         "  source TEXT NOT NULL,"
         "  request_id TEXT NOT NULL,"
@@ -674,6 +694,7 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
             { "world_dynamic_record_catalog", "created_at, record_type, record_id" },
             { "world_dynamic_record_links", "record_id, link_kind, owner_a, owner_b, owner_c, owner_index" },
             { "craft_requests", "updated_at, account_id, character_id, request_id" },
+            { "semantic_requests", "service, updated_at, account_id, character_id, request_id" },
             { "server_record_requests", "updated_at, source, request_id" },
             { "world_dynamic_record_legacy_backup", "backed_up_at, record_type, record_id" },
             { "world_dynamic_record_migration_failures", "last_attempt_at, record_type, record_id" },
@@ -686,6 +707,7 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
             { "character_journal_quests", "character_id, quest_id" },
             { "character_marks", "character_id, mark_name" },
             { "character_lua_storage", "character_id, storage_namespace, storage_key" },
+            { "character_crime_state", "character_id" },
         };
 
         void checkSqlite(int rc, sqlite3* db, const char* op)
@@ -3025,6 +3047,238 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         sqlite3_finalize(s);
         if (!updated)
             throw std::runtime_error("[PlayerDB] craft request completion did not match one pending request");
+    }
+
+    PlayerCrimeState PlayerDatabase::loadPlayerCrimeState(int64_t characterId)
+    {
+        sqlite3_stmt* statement = prepare(
+            "SELECT s.bounty, s.current_crime_id, s.paid_crime_id, s.revision"
+            " FROM characters c LEFT JOIN character_crime_state s ON s.character_id=c.id"
+            " WHERE c.id=?1 LIMIT 1");
+        sqlite3_bind_int64(statement, 1, characterId);
+        const int rc = sqlite3_step(statement);
+        if (rc != SQLITE_ROW)
+        {
+            sqlite3_finalize(statement);
+            if (rc == SQLITE_DONE)
+                throw std::runtime_error("[PlayerDB] character not found while loading crime state");
+            checkSqlite(rc, mDb, "loadPlayerCrimeState");
+        }
+
+        PlayerCrimeState state;
+        if (sqlite3_column_type(statement, 0) != SQLITE_NULL)
+        {
+            if (sqlite3_column_type(statement, 0) != SQLITE_INTEGER
+                || sqlite3_column_type(statement, 1) != SQLITE_INTEGER
+                || sqlite3_column_type(statement, 2) != SQLITE_INTEGER
+                || sqlite3_column_type(statement, 3) != SQLITE_INTEGER)
+            {
+                sqlite3_finalize(statement);
+                throw std::runtime_error("[PlayerDB] persisted crime state has non-integer fields");
+            }
+
+            const sqlite3_int64 bounty = sqlite3_column_int64(statement, 0);
+            const sqlite3_int64 currentCrimeId = sqlite3_column_int64(statement, 1);
+            const sqlite3_int64 paidCrimeId = sqlite3_column_int64(statement, 2);
+            const sqlite3_int64 revision = sqlite3_column_int64(statement, 3);
+            if (bounty < 0 || bounty > std::numeric_limits<std::int32_t>::max()
+                || currentCrimeId < -1 || currentCrimeId > std::numeric_limits<std::int32_t>::max()
+                || paidCrimeId < -1 || paidCrimeId > std::numeric_limits<std::int32_t>::max()
+                || revision < 0)
+            {
+                sqlite3_finalize(statement);
+                throw std::runtime_error("[PlayerDB] persisted crime state is out of range");
+            }
+            state.bounty = static_cast<std::int32_t>(bounty);
+            state.currentCrimeId = static_cast<std::int32_t>(currentCrimeId);
+            state.paidCrimeId = static_cast<std::int32_t>(paidCrimeId);
+            state.revision = static_cast<std::uint64_t>(revision);
+        }
+        sqlite3_finalize(statement);
+        if (const CrimeError error = validatePlayerCrimeState(state); error != CrimeError::None)
+            throw std::runtime_error("[PlayerDB] invalid persisted crime state: " + std::string(getCrimeErrorCode(error)));
+        return state;
+    }
+
+    std::optional<SemanticRequestRecord> PlayerDatabase::loadSemanticRequest(std::string_view service,
+        int64_t accountId, int64_t characterId, std::string_view requestId)
+    {
+        sqlite3_stmt* statement = prepare(
+            "SELECT request_hash, status, error_code, result_payload, source, created_at, updated_at"
+            " FROM semantic_requests"
+            " WHERE service=?1 AND account_id=?2 AND character_id=?3 AND request_id=?4 LIMIT 1");
+        sqlite3_bind_text(statement, 1, service.data(), static_cast<int>(service.size()), SQLITE_TRANSIENT);
+        sqlite3_bind_int64(statement, 2, accountId);
+        sqlite3_bind_int64(statement, 3, characterId);
+        sqlite3_bind_text(statement, 4, requestId.data(), static_cast<int>(requestId.size()), SQLITE_TRANSIENT);
+
+        std::optional<SemanticRequestRecord> result;
+        if (sqlite3_step(statement) == SQLITE_ROW)
+        {
+            auto text = [&](int column) {
+                const auto* value = reinterpret_cast<const char*>(sqlite3_column_text(statement, column));
+                return value ? std::string(value, static_cast<std::size_t>(sqlite3_column_bytes(statement, column)))
+                             : std::string{};
+            };
+            SemanticRequestRecord record;
+            record.service = std::string(service);
+            record.accountId = accountId;
+            record.characterId = characterId;
+            record.requestId = std::string(requestId);
+            record.requestHash = text(0);
+            record.status = text(1);
+            record.errorCode = static_cast<std::uint16_t>(sqlite3_column_int(statement, 2));
+            const void* payload = sqlite3_column_blob(statement, 3);
+            const int payloadSize = sqlite3_column_bytes(statement, 3);
+            if (payload != nullptr && payloadSize > 0)
+                record.resultPayload.assign(static_cast<const char*>(payload), static_cast<std::size_t>(payloadSize));
+            record.source = text(4);
+            record.createdAt = sqlite3_column_int64(statement, 5);
+            record.updatedAt = sqlite3_column_int64(statement, 6);
+            result = std::move(record);
+        }
+        sqlite3_finalize(statement);
+        return result;
+    }
+
+    bool PlayerDatabase::insertRejectedSemanticRequest(const SemanticRequestRecord& request)
+    {
+        if (request.service.empty() || request.accountId <= 0 || request.characterId <= 0
+            || request.requestId.empty() || request.requestHash.empty() || request.resultPayload.empty()
+            || request.status != "rejected")
+            throw std::invalid_argument("[PlayerDB] invalid rejected semantic request");
+
+        const int64_t now = static_cast<int64_t>(std::time(nullptr));
+        sqlite3_stmt* statement = prepare(
+            "INSERT OR IGNORE INTO semantic_requests(service, account_id, character_id, request_id, request_hash,"
+            " status, error_code, result_payload, source, created_at, updated_at)"
+            " VALUES(?1, ?2, ?3, ?4, ?5, 'rejected', ?6, ?7, ?8, ?9, ?9)");
+        sqlite3_bind_text(statement, 1, request.service.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(statement, 2, request.accountId);
+        sqlite3_bind_int64(statement, 3, request.characterId);
+        sqlite3_bind_text(statement, 4, request.requestId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 5, request.requestHash.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(statement, 6, request.errorCode);
+        sqlite3_bind_blob(statement, 7, request.resultPayload.data(),
+            static_cast<int>(request.resultPayload.size()), SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 8, request.source.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(statement, 9, request.createdAt != 0 ? request.createdAt : now);
+        checkSqlite(sqlite3_step(statement), mDb, "insertRejectedSemanticRequest");
+        const bool inserted = sqlite3_changes(mDb) != 0;
+        sqlite3_finalize(statement);
+        return inserted;
+    }
+
+    CrimeCommitResult PlayerDatabase::commitPlayerCrimeMutation(const CrimeMutationCommit& commit)
+    {
+        if (commit.accountId <= 0 || commit.characterId <= 0 || commit.requestId.empty()
+            || commit.requestHash.empty() || commit.resultPayload.empty() || commit.source.empty()
+            || validatePlayerCrimeState(commit.resultingState) != CrimeError::None
+            || commit.expectedRevision >= MaximumPersistedRevision
+            || commit.resultingState.revision != commit.expectedRevision + 1)
+            throw std::invalid_argument("[PlayerDB] invalid player crime mutation commit");
+
+        CrimeCommitResult result;
+        exec("BEGIN IMMEDIATE");
+        try
+        {
+            sqlite3_stmt* existing = prepare(
+                "SELECT request_hash, result_payload FROM semantic_requests"
+                " WHERE service='crime' AND account_id=?1 AND character_id=?2 AND request_id=?3");
+            sqlite3_bind_int64(existing, 1, commit.accountId);
+            sqlite3_bind_int64(existing, 2, commit.characterId);
+            sqlite3_bind_text(existing, 3, commit.requestId.c_str(), -1, SQLITE_TRANSIENT);
+            const int existingRc = sqlite3_step(existing);
+            if (existingRc == SQLITE_ROW)
+            {
+                const char* hash = reinterpret_cast<const char*>(sqlite3_column_text(existing, 0));
+                const bool sameHash = hash != nullptr && commit.requestHash == hash;
+                const void* payload = sqlite3_column_blob(existing, 1);
+                const int payloadSize = sqlite3_column_bytes(existing, 1);
+                if (payload != nullptr && payloadSize > 0)
+                    result.storedResultPayload.assign(
+                        static_cast<const char*>(payload), static_cast<std::size_t>(payloadSize));
+                sqlite3_finalize(existing);
+                exec("ROLLBACK");
+                result.status = sameHash ? CrimeCommitStatus::DuplicateRequest
+                                         : CrimeCommitStatus::DuplicateRequestConflict;
+                return result;
+            }
+            checkSqlite(existingRc, mDb, "commitPlayerCrimeMutation(existing)");
+            sqlite3_finalize(existing);
+
+            sqlite3_stmt* identity = prepare(
+                "SELECT 1 FROM characters WHERE id=?1 AND account_id=?2 LIMIT 1");
+            sqlite3_bind_int64(identity, 1, commit.characterId);
+            sqlite3_bind_int64(identity, 2, commit.accountId);
+            const int identityRc = sqlite3_step(identity);
+            sqlite3_finalize(identity);
+            if (identityRc != SQLITE_ROW)
+                throw std::runtime_error("[PlayerDB] crime mutation character/account mismatch");
+
+            result.currentState = loadPlayerCrimeState(commit.characterId);
+            if (result.currentState.revision != commit.expectedRevision)
+            {
+                exec("ROLLBACK");
+                result.status = CrimeCommitStatus::StaleRevision;
+                return result;
+            }
+
+            const int64_t now = static_cast<int64_t>(std::time(nullptr));
+            sqlite3_stmt* state = prepare(
+                "INSERT INTO character_crime_state(character_id, bounty, current_crime_id, paid_crime_id, revision,"
+                " updated_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6)"
+                " ON CONFLICT(character_id) DO UPDATE SET bounty=excluded.bounty,"
+                " current_crime_id=excluded.current_crime_id, paid_crime_id=excluded.paid_crime_id,"
+                " revision=excluded.revision, updated_at=excluded.updated_at"
+                " WHERE character_crime_state.revision=?7");
+            sqlite3_bind_int64(state, 1, commit.characterId);
+            sqlite3_bind_int(state, 2, commit.resultingState.bounty);
+            sqlite3_bind_int(state, 3, commit.resultingState.currentCrimeId);
+            sqlite3_bind_int(state, 4, commit.resultingState.paidCrimeId);
+            sqlite3_bind_int64(state, 5, static_cast<sqlite3_int64>(commit.resultingState.revision));
+            sqlite3_bind_int64(state, 6, now);
+            sqlite3_bind_int64(state, 7, static_cast<sqlite3_int64>(commit.expectedRevision));
+            checkSqlite(sqlite3_step(state), mDb, "commitPlayerCrimeMutation(state)");
+            const bool stateWritten = sqlite3_changes(mDb) == 1;
+            sqlite3_finalize(state);
+            if (!stateWritten)
+                throw std::runtime_error("[PlayerDB] crime revision changed during commit");
+
+            if (commit.failurePoint == CrimeCommitFailurePoint::AfterStateWrite)
+                throw std::runtime_error("[PlayerDB] injected failure after crime state write");
+
+            sqlite3_stmt* request = prepare(
+                "INSERT INTO semantic_requests(service, account_id, character_id, request_id, request_hash, status,"
+                " error_code, result_payload, source, created_at, updated_at)"
+                " VALUES('crime', ?1, ?2, ?3, ?4, 'accepted', 0, ?5, ?6, ?7, ?7)");
+            sqlite3_bind_int64(request, 1, commit.accountId);
+            sqlite3_bind_int64(request, 2, commit.characterId);
+            sqlite3_bind_text(request, 3, commit.requestId.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(request, 4, commit.requestHash.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_blob(request, 5, commit.resultPayload.data(),
+                static_cast<int>(commit.resultPayload.size()), SQLITE_TRANSIENT);
+            sqlite3_bind_text(request, 6, commit.source.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(request, 7, now);
+            checkSqlite(sqlite3_step(request), mDb, "commitPlayerCrimeMutation(request)");
+            sqlite3_finalize(request);
+
+            exec("COMMIT");
+            result.status = CrimeCommitStatus::Committed;
+            result.currentState = commit.resultingState;
+            return result;
+        }
+        catch (...)
+        {
+            try
+            {
+                exec("ROLLBACK");
+            }
+            catch (...)
+            {
+            }
+            throw;
+        }
     }
 
     uint64_t PlayerDatabase::loadInventoryRevision(int64_t characterId)
