@@ -10,6 +10,7 @@
 #include <components/esm3/loadclas.hpp>
 #include <components/esm3/loadspel.hpp>
 #include <components/esm3/npcstats.hpp>
+#include <components/openmw-mp/PlayerCrimeState.hpp>
 
 #include "BaseStructs.hpp"
 
@@ -160,6 +161,9 @@ namespace mwmp
         // ------------------------------------------------------------------
         // RPG state
         // ------------------------------------------------------------------
+        PlayerCrimeState crimeState;
+        // Compatibility mirror used by existing server-side calculations.
+        // CrimeService owns updates and keeps this equal to crimeState.bounty.
         int   bounty         = 0;
         int   reputation     = 0;
         float charGenStage   = 0.f;
