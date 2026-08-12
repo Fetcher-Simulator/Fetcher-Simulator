@@ -1,0 +1,3 @@
+scripts/update-master-protocol.sh text eol=lf
+scripts/vps-deploy-server.sh text eol=lf
+scripts/vps-post-receive-hook.sh text eol=lf
