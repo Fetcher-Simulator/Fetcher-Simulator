@@ -12,7 +12,7 @@ gameplay results as Lua calls.
 The safe bootstrap path is implemented through package contracts, server
 discovery/transfer, client staging, temporary Lua/VFS overlay activation, and
 the combined pre-world gate. The current wire contract uses
-`MultiplayerProtocolVersion = 7`, `ServerLuaPackageManifestVersion = 2`, and
+`MultiplayerProtocolVersion = 8`, `ServerLuaPackageManifestVersion = 2`, and
 `MultiplayerLuaApiVersion = 1`. Manifest version 2 adds explicit compatibility
 overrides. Multiplayer protocol versions 5, 6, and 7 add crime, known-topic,
 and faction-state transport respectively; those semantic services do not use
@@ -158,7 +158,7 @@ above.
 
 ## Bootstrap and activation
 
-The handshake negotiates `MultiplayerProtocolVersion = 7`,
+The handshake negotiates `MultiplayerProtocolVersion = 8`,
 `ServerLuaPackageManifestVersion = 2`, `MultiplayerLuaApiVersion = 1`, and the
 exact OpenMW Lua API revision independently.
 
