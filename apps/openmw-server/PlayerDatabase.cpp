@@ -597,6 +597,17 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         "  topic_id TEXT NOT NULL, PRIMARY KEY(character_id, topic_id))",
         "CREATE INDEX IF NOT EXISTS idx_character_known_topics_character"
         " ON character_known_topics(character_id)",
+        "CREATE TABLE IF NOT EXISTS character_faction_state ("
+        "  character_id INTEGER PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,"
+        "  revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),"
+        "  updated_at INTEGER NOT NULL DEFAULT 0)",
+        "CREATE TABLE IF NOT EXISTS character_factions ("
+        "  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,"
+        "  faction_id TEXT NOT NULL, rank INTEGER NOT NULL DEFAULT -1,"
+        "  reputation INTEGER NOT NULL DEFAULT 0, expelled INTEGER NOT NULL DEFAULT 0 CHECK(expelled IN (0,1)),"
+        "  PRIMARY KEY(character_id, faction_id))",
+        "CREATE INDEX IF NOT EXISTS idx_character_factions_character"
+        " ON character_factions(character_id)",
         "CREATE TABLE IF NOT EXISTS server_record_requests ("
         "  source TEXT NOT NULL,"
         "  request_id TEXT NOT NULL,"
@@ -719,6 +730,8 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
             { "character_crime_state", "character_id" },
             { "character_topic_state", "character_id" },
             { "character_known_topics", "character_id, topic_id" },
+            { "character_faction_state", "character_id" },
+            { "character_factions", "character_id, faction_id" },
         };
 
         void checkSqlite(int rc, sqlite3* db, const char* op)
@@ -3180,6 +3193,57 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         }
     }
 
+    PlayerFactionState PlayerDatabase::loadPlayerFactionState(int64_t characterId)
+    {
+        sqlite3_stmt* revision = prepare(
+            "SELECT s.revision FROM characters c LEFT JOIN character_faction_state s ON s.character_id=c.id"
+            " WHERE c.id=?1 LIMIT 1");
+        sqlite3_bind_int64(revision, 1, characterId);
+        const int revisionRc = sqlite3_step(revision);
+        if (revisionRc != SQLITE_ROW)
+        {
+            sqlite3_finalize(revision);
+            if (revisionRc == SQLITE_DONE)
+                throw std::runtime_error("[PlayerDB] character not found while loading faction state");
+            checkSqlite(revisionRc, mDb, "loadPlayerFactionState(revision)");
+        }
+
+        PlayerFactionState state;
+        if (sqlite3_column_type(revision, 0) != SQLITE_NULL)
+        {
+            const sqlite3_int64 value = sqlite3_column_int64(revision, 0);
+            if (value < 0)
+            {
+                sqlite3_finalize(revision);
+                throw std::runtime_error("[PlayerDB] invalid persisted faction revision");
+            }
+            state.revision = static_cast<std::uint64_t>(value);
+        }
+        sqlite3_finalize(revision);
+
+        sqlite3_stmt* factions = prepare(
+            "SELECT faction_id, rank, reputation, expelled FROM character_factions"
+            " WHERE character_id=?1 ORDER BY faction_id");
+        sqlite3_bind_int64(factions, 1, characterId);
+        while (sqlite3_step(factions) == SQLITE_ROW)
+        {
+            const char* id = reinterpret_cast<const char*>(sqlite3_column_text(factions, 0));
+            PlayerFactionEntry entry;
+            entry.factionId = id ? id : "";
+            entry.rank = sqlite3_column_int(factions, 1);
+            entry.reputation = sqlite3_column_int(factions, 2);
+            entry.expelled = sqlite3_column_int(factions, 3) != 0;
+            state.factions.push_back(std::move(entry));
+        }
+        sqlite3_finalize(factions);
+        if (const FactionError error = validatePlayerFactionState(state); error != FactionError::None)
+        {
+            throw std::runtime_error(
+                "[PlayerDB] invalid persisted faction state: " + std::string(getFactionErrorCode(error)));
+        }
+        return state;
+    }
+
     PlayerCrimeState PlayerDatabase::loadPlayerCrimeState(int64_t characterId)
     {
         sqlite3_stmt* statement = prepare(
@@ -3396,6 +3460,133 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
 
             exec("COMMIT");
             result.status = CrimeCommitStatus::Committed;
+            result.currentState = commit.resultingState;
+            return result;
+        }
+        catch (...)
+        {
+            try
+            {
+                exec("ROLLBACK");
+            }
+            catch (...)
+            {
+            }
+            throw;
+        }
+    }
+
+    FactionCommitResult PlayerDatabase::commitPlayerFactionMutation(const FactionMutationCommit& commit)
+    {
+        if (commit.accountId <= 0 || commit.characterId <= 0 || commit.requestId.empty()
+            || commit.requestHash.empty() || commit.resultPayload.empty() || commit.source.empty()
+            || validatePlayerFactionState(commit.resultingState) != FactionError::None
+            || commit.expectedRevision >= MaximumPersistedRevision
+            || commit.resultingState.revision != commit.expectedRevision + 1)
+            throw std::invalid_argument("[PlayerDB] invalid player faction mutation commit");
+
+        FactionCommitResult result;
+        exec("BEGIN IMMEDIATE");
+        try
+        {
+            sqlite3_stmt* existing = prepare(
+                "SELECT request_hash, result_payload FROM semantic_requests"
+                " WHERE service='faction' AND account_id=?1 AND character_id=?2 AND request_id=?3");
+            sqlite3_bind_int64(existing, 1, commit.accountId);
+            sqlite3_bind_int64(existing, 2, commit.characterId);
+            sqlite3_bind_text(existing, 3, commit.requestId.c_str(), -1, SQLITE_TRANSIENT);
+            const int existingRc = sqlite3_step(existing);
+            if (existingRc == SQLITE_ROW)
+            {
+                const char* hash = reinterpret_cast<const char*>(sqlite3_column_text(existing, 0));
+                const bool sameHash = hash != nullptr && commit.requestHash == hash;
+                const void* payload = sqlite3_column_blob(existing, 1);
+                const int payloadSize = sqlite3_column_bytes(existing, 1);
+                if (payload != nullptr && payloadSize > 0)
+                    result.storedResultPayload.assign(
+                        static_cast<const char*>(payload), static_cast<std::size_t>(payloadSize));
+                sqlite3_finalize(existing);
+                exec("ROLLBACK");
+                result.status = sameHash ? FactionCommitStatus::DuplicateRequest
+                                         : FactionCommitStatus::DuplicateRequestConflict;
+                return result;
+            }
+            checkSqlite(existingRc, mDb, "commitPlayerFactionMutation(existing)");
+            sqlite3_finalize(existing);
+
+            sqlite3_stmt* identity = prepare(
+                "SELECT 1 FROM characters WHERE id=?1 AND account_id=?2 LIMIT 1");
+            sqlite3_bind_int64(identity, 1, commit.characterId);
+            sqlite3_bind_int64(identity, 2, commit.accountId);
+            const int identityRc = sqlite3_step(identity);
+            sqlite3_finalize(identity);
+            if (identityRc != SQLITE_ROW)
+                throw std::runtime_error("[PlayerDB] faction mutation character/account mismatch");
+
+            result.currentState = loadPlayerFactionState(commit.characterId);
+            if (result.currentState.revision != commit.expectedRevision)
+            {
+                exec("ROLLBACK");
+                result.status = FactionCommitStatus::StaleRevision;
+                return result;
+            }
+
+            const int64_t now = static_cast<int64_t>(std::time(nullptr));
+            sqlite3_stmt* state = prepare(
+                "INSERT INTO character_faction_state(character_id, revision, updated_at) VALUES(?1, ?2, ?3)"
+                " ON CONFLICT(character_id) DO UPDATE SET revision=excluded.revision, updated_at=excluded.updated_at"
+                " WHERE character_faction_state.revision=?4");
+            sqlite3_bind_int64(state, 1, commit.characterId);
+            sqlite3_bind_int64(state, 2, static_cast<sqlite3_int64>(commit.resultingState.revision));
+            sqlite3_bind_int64(state, 3, now);
+            sqlite3_bind_int64(state, 4, static_cast<sqlite3_int64>(commit.expectedRevision));
+            checkSqlite(sqlite3_step(state), mDb, "commitPlayerFactionMutation(state)");
+            const bool stateWritten = sqlite3_changes(mDb) == 1;
+            sqlite3_finalize(state);
+            if (!stateWritten)
+                throw std::runtime_error("[PlayerDB] faction revision changed during commit");
+
+            sqlite3_stmt* clear = prepare("DELETE FROM character_factions WHERE character_id=?1");
+            sqlite3_bind_int64(clear, 1, commit.characterId);
+            checkSqlite(sqlite3_step(clear), mDb, "commitPlayerFactionMutation(clear)");
+            sqlite3_finalize(clear);
+
+            sqlite3_stmt* insert = prepare(
+                "INSERT INTO character_factions(character_id, faction_id, rank, reputation, expelled)"
+                " VALUES(?1, ?2, ?3, ?4, ?5)");
+            for (const PlayerFactionEntry& entry : commit.resultingState.factions)
+            {
+                sqlite3_bind_int64(insert, 1, commit.characterId);
+                sqlite3_bind_text(insert, 2, entry.factionId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int(insert, 3, entry.rank);
+                sqlite3_bind_int(insert, 4, entry.reputation);
+                sqlite3_bind_int(insert, 5, entry.expelled ? 1 : 0);
+                checkSqlite(sqlite3_step(insert), mDb, "commitPlayerFactionMutation(entry)");
+                sqlite3_reset(insert);
+                sqlite3_clear_bindings(insert);
+            }
+            sqlite3_finalize(insert);
+
+            if (commit.failurePoint == FactionCommitFailurePoint::AfterStateWrite)
+                throw std::runtime_error("[PlayerDB] injected failure after faction state write");
+
+            sqlite3_stmt* request = prepare(
+                "INSERT INTO semantic_requests(service, account_id, character_id, request_id, request_hash, status,"
+                " error_code, result_payload, source, created_at, updated_at)"
+                " VALUES('faction', ?1, ?2, ?3, ?4, 'accepted', 0, ?5, ?6, ?7, ?7)");
+            sqlite3_bind_int64(request, 1, commit.accountId);
+            sqlite3_bind_int64(request, 2, commit.characterId);
+            sqlite3_bind_text(request, 3, commit.requestId.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(request, 4, commit.requestHash.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_blob(request, 5, commit.resultPayload.data(),
+                static_cast<int>(commit.resultPayload.size()), SQLITE_TRANSIENT);
+            sqlite3_bind_text(request, 6, commit.source.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(request, 7, now);
+            checkSqlite(sqlite3_step(request), mDb, "commitPlayerFactionMutation(request)");
+            sqlite3_finalize(request);
+
+            exec("COMMIT");
+            result.status = FactionCommitStatus::Committed;
             result.currentState = commit.resultingState;
             return result;
         }

@@ -1,6 +1,7 @@
 #include "Server.hpp"
 #include "AlchemyService.hpp"
 #include "CrimeService.hpp"
+#include "FactionService.hpp"
 #include "DynamicRecordService.hpp"
 #include "EnchantingService.hpp"
 #include "MasterServerClient.hpp"
@@ -39,6 +40,7 @@
 #include <components/debug/debuglog.hpp>
 #include <components/esm/refid.hpp>
 #include <components/esm3/loaddial.hpp>
+#include <components/esm3/loadfact.hpp>
 #include <components/misc/constants.hpp>
 #include <components/openmw-mp/MasterServerProtocol.hpp>
 #include <components/openmw-mp/Packets/BasePacket.hpp>
@@ -47,6 +49,7 @@
 #include <components/openmw-mp/Packets/System/PacketServerLuaPackage.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerBaseInfo.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerBounty.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerFaction.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerTopic.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerCharGen.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerPosition.hpp>
@@ -1502,6 +1505,60 @@ bool MPServer::mutatePlayerBounty(uint32_t guid, CrimeMutationKind kind, std::in
         Log(Debug::Error) << "[CrimeService] persistence failure request=" << requestId
                           << " player=" << client->slotName
                           << " error=" << e.what();
+        return false;
+    }
+}
+
+bool MPServer::mutatePlayerFaction(uint32_t guid, FactionMutationKind kind, const std::string& factionId,
+    std::int64_t value, const std::string& requestId, const std::string& source)
+{
+    ConnectedClient* client = findClientByGuid(guid);
+    if (!client || !client->charSelectComplete || !mPlayerDb
+        || client->dbAccountId <= 0 || client->dbCharacterId <= 0)
+        return false;
+
+    FactionMutationRequest request;
+    request.requestId = requestId;
+    request.mutations.push_back({ kind, factionId, value });
+    request.source = source;
+
+    try
+    {
+        FactionService service(*mPlayerDb);
+        FactionService::Context context;
+        context.accountId = client->dbAccountId;
+        context.characterId = client->dbCharacterId;
+        context.findFaction = [this](std::string_view id)
+            -> std::optional<FactionService::FactionDefinition> {
+            const ESM::Faction* faction = mContentRegistry->store().get<ESM::Faction>().search(
+                ESM::RefId::stringRefId(id));
+            if (!faction)
+                return std::nullopt;
+            FactionService::FactionDefinition definition;
+            definition.validRanks.resize(faction->mRanks.size());
+            for (std::size_t index = 0; index < faction->mRanks.size(); ++index)
+                definition.validRanks[index] = index == 0 || !faction->mRanks[index].empty();
+            return definition;
+        };
+        const FactionService::Outcome outcome = service.execute(std::move(request), context);
+        client->player.factionState = mPlayerDb->loadPlayerFactionState(client->dbCharacterId);
+        sendAuthoritativeFactionState(*client, outcome.result.requestId,
+            outcome.result.accepted, outcome.result.error);
+        syncLuaPlayerSnapshot();
+        Log(outcome.result.accepted ? Debug::Info : Debug::Warning)
+            << "[FactionService] trusted request=" << requestId
+            << " player=" << client->slotName
+            << " source=" << source
+            << " accepted=" << outcome.result.accepted
+            << " replayed=" << outcome.replayed
+            << " error=" << getFactionErrorCode(outcome.result.error)
+            << " revision=" << client->player.factionState.revision;
+        return outcome.result.accepted;
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[FactionService] trusted persistence failure request=" << requestId
+                          << " player=" << client->slotName << " error=" << e.what();
         return false;
     }
 }
@@ -4219,6 +4276,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::PlayerCast:       handlePlayerCast(client, data, size);         break;
         case PacketType::PlayerInventory:  handlePlayerInventory(client, data, size);    break;
         case PacketType::PlayerSpellbook:  handlePlayerSpellbook(client, data, size);    break;
+        case PacketType::PlayerFaction:    handlePlayerFaction(client, data, size);      break;
         case PacketType::PlayerTopic:      handlePlayerTopic(client, data, size);        break;
         case PacketType::RecordCreateRequest: handleRecordCreateRequest(client, data, size); break;
         case PacketType::AlchemyRequest:   handleAlchemyRequest(client, data, size);     break;
@@ -5609,6 +5667,7 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
     c.player.spellbookChanges.spellIds.clear();
     c.player.spellbookChanges.revision = 0;
     c.player.crimeState = {};
+    c.player.factionState = {};
     c.player.bounty = 0;
 
     for (int slot = 0; slot < BasePlayer::NUM_EQUIPMENT_SLOTS; ++slot)
@@ -5845,6 +5904,7 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
             c.spellbookRevision = mPlayerDb->loadSpellbookRevision(c.dbCharacterId);
             c.player.spellbookChanges.revision = c.spellbookRevision;
             c.player.crimeState = mPlayerDb->loadPlayerCrimeState(c.dbCharacterId);
+            c.player.factionState = mPlayerDb->loadPlayerFactionState(c.dbCharacterId);
             c.player.topicState = mPlayerDb->loadPlayerTopicState(c.dbCharacterId);
             c.player.bounty = c.player.crimeState.bounty;
             mPlayerDb->touch(c.dbCharacterId);
@@ -5893,9 +5953,10 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
     }
 
     // Semantic player state is distinct from runtime content, but both crime
-    // and known topics are explicit world-entry prerequisites. They share the
+    // faction state, and known topics are explicit world-entry prerequisites. They share the
     // ordered bootstrap lane with CharacterData so it cannot overtake them.
     sendAuthoritativeCrimeState(c);
+    sendAuthoritativeFactionState(c);
     sendAuthoritativeTopicState(c);
     sendTo(c.conn, cdPkt.encode());
     c.charSelectComplete = true;
@@ -7094,6 +7155,67 @@ void MPServer::handlePlayerTopic(ConnectedClient& c, const uint8_t* data, size_t
         Log(Debug::Error) << "[PlayerTopic] persistence failure player=" << c.name << " error=" << e.what();
         c.player.topicState = mPlayerDb->loadPlayerTopicState(c.dbCharacterId);
         sendAuthoritativeTopicState(c);
+    }
+}
+
+// ---------------------------------------------------------------------------
+void MPServer::handlePlayerFaction(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    BasePlayer incoming;
+    PacketPlayerFaction packet;
+    packet.setPlayer(&incoming);
+    if (!packet.decode(data, size) || packet.mode != PacketPlayerFaction::Mode::Proposal
+        || incoming.guid != c.guid || !packet.request.expectedRevision
+        || packet.request.source != "client:faction-observation" || !c.charSelectComplete
+        || !mPlayerDb || c.dbAccountId <= 0 || c.dbCharacterId <= 0)
+    {
+        Log(Debug::Warning) << "[FactionService] rejected malformed or unauthorized proposal player=" << c.name;
+        sendAuthoritativeFactionState(
+            c, packet.request.requestId, false, FactionError::InvalidRequest);
+        return;
+    }
+
+    try
+    {
+        FactionService service(*mPlayerDb);
+        FactionService::Context context;
+        context.accountId = c.dbAccountId;
+        context.characterId = c.dbCharacterId;
+        context.findFaction = [this](std::string_view id)
+            -> std::optional<FactionService::FactionDefinition> {
+            const ESM::Faction* faction = mContentRegistry->store().get<ESM::Faction>().search(
+                ESM::RefId::stringRefId(id));
+            if (!faction)
+                return std::nullopt;
+            FactionService::FactionDefinition definition;
+            definition.validRanks.resize(faction->mRanks.size());
+            for (std::size_t index = 0; index < faction->mRanks.size(); ++index)
+                definition.validRanks[index] = index == 0 || !faction->mRanks[index].empty();
+            return definition;
+        };
+
+        const FactionService::Outcome outcome = service.execute(std::move(packet.request), context);
+        // Durable replays describe their original transition. Always send the
+        // latest row so a delayed duplicate cannot roll the client backward.
+        c.player.factionState = mPlayerDb->loadPlayerFactionState(c.dbCharacterId);
+        sendAuthoritativeFactionState(c, outcome.result.requestId,
+            outcome.result.accepted, outcome.result.error);
+        Log(outcome.result.accepted ? Debug::Info : Debug::Warning)
+            << "[FactionService] request=" << outcome.result.requestId
+            << " player=" << c.name
+            << " accepted=" << outcome.result.accepted
+            << " replayed=" << outcome.replayed
+            << " error=" << getFactionErrorCode(outcome.result.error)
+            << " revision=" << c.player.factionState.revision
+            << " factions=" << c.player.factionState.factions.size();
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[FactionService] persistence failure player=" << c.name
+                          << " error=" << e.what();
+        c.player.factionState = mPlayerDb->loadPlayerFactionState(c.dbCharacterId);
+        sendAuthoritativeFactionState(
+            c, packet.request.requestId, false, FactionError::PersistenceFailure);
     }
 }
 
@@ -13207,6 +13329,7 @@ void MPServer::syncLuaPlayerSnapshot()
         snapshot.skills = client.player.skills;
         snapshot.inventory = client.player.inventoryChanges.items;
         snapshot.crimeState = client.player.crimeState;
+        snapshot.factionState = client.player.factionState;
         players.push_back(std::move(snapshot));
     }
 
@@ -13336,6 +13459,18 @@ void MPServer::sendAuthoritativeTopicState(ConnectedClient& c)
 {
     PacketPlayerTopic packet;
     packet.action = PacketPlayerTopic::Action::Set;
+    packet.setPlayer(&c.player);
+    sendTo(c.conn, packet.encode());
+}
+
+void MPServer::sendAuthoritativeFactionState(
+    ConnectedClient& c, std::string requestId, bool accepted, FactionError error)
+{
+    PacketPlayerFaction packet;
+    packet.mode = PacketPlayerFaction::Mode::Result;
+    packet.resultRequestId = std::move(requestId);
+    packet.accepted = accepted;
+    packet.error = error;
     packet.setPlayer(&c.player);
     sendTo(c.conn, packet.encode());
 }

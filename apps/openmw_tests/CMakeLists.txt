@@ -11,6 +11,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwworld/testtimestamp.cpp
     mwworld/testptr.cpp
     mwworld/testplayercrime.cpp
+    mwworld/testplayerfaction.cpp
     mwworld/testweather.cpp
 
     mwdialogue/testkeywordsearch.cpp
@@ -28,6 +29,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwmp/testplayerspellbook.cpp
     mwmp/testcrimeservice.cpp
     mwmp/testtopicpersistence.cpp
+    mwmp/testfactionservice.cpp
 )
 
 if (MSVC)
@@ -55,6 +57,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         ../openmw-server/AlchemyService.cpp
         ../openmw-server/EnchantingService.cpp
         ../openmw-server/CrimeService.cpp
+        ../openmw-server/FactionService.cpp
     )
 endif()
 

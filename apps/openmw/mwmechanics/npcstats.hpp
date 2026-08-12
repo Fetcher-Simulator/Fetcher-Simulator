@@ -72,6 +72,7 @@ namespace MWMechanics
 
         int getFactionRank(const ESM::RefId& faction) const;
         const std::map<ESM::RefId, int>& getFactionRanks() const;
+        const std::map<ESM::RefId, int>& getFactionReputations() const { return mFactionReputation; }
 
         /// Join this faction, setting the initial rank to 0.
         void joinFaction(const ESM::RefId& faction);
@@ -84,6 +85,12 @@ namespace MWMechanics
         void clearExpelled(const ESM::RefId& factionID);
 
         bool isInFaction(const ESM::RefId& faction) const;
+
+        /// Replace only the player-facing faction domain. This is narrower
+        /// than readState and leaves skills, disposition, crime, and all other
+        /// NPC state untouched.
+        void setFactionState(std::map<ESM::RefId, int> ranks,
+            std::map<ESM::RefId, int> reputations, std::set<ESM::RefId> expelled);
 
         float getSkillProgressRequirement(ESM::RefId id, const ESM::Class& npcClass) const;
 

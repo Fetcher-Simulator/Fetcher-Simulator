@@ -11,6 +11,7 @@
 #include <components/esm3/loadspel.hpp>
 #include <components/esm3/npcstats.hpp>
 #include <components/openmw-mp/PlayerCrimeState.hpp>
+#include <components/openmw-mp/PlayerFactionState.hpp>
 #include <components/openmw-mp/PlayerTopicState.hpp>
 
 #include "BaseStructs.hpp"
@@ -163,6 +164,7 @@ namespace mwmp
         // RPG state
         // ------------------------------------------------------------------
         PlayerCrimeState crimeState;
+        PlayerFactionState factionState;
         PlayerTopicState topicState;
         // Compatibility mirror used by existing server-side calculations.
         // CrimeService owns updates and keeps this equal to crimeState.bounty.

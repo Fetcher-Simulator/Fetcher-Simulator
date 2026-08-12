@@ -207,6 +207,8 @@ public:
     bool deletePlayerMark(uint32_t guid, std::string_view name);
     bool mutatePlayerBounty(uint32_t guid, CrimeMutationKind kind, std::int64_t value,
         const std::string& requestId, const std::string& source = "server_lua");
+    bool mutatePlayerFaction(uint32_t guid, FactionMutationKind kind, const std::string& factionId,
+        std::int64_t value, const std::string& requestId, const std::string& source = "server_lua");
 
     // Disconnect a player by guid with a reason string.
     void kickClient(uint32_t guid, const std::string& reason);
@@ -332,6 +334,7 @@ private:
     void handlePlayerCast       (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerInventory  (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerSpellbook  (ConnectedClient& c, const uint8_t* data, size_t size);
+    void handlePlayerFaction    (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerTopic      (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleAlchemyRequest   (ConnectedClient& c, const uint8_t* data, size_t size);
@@ -409,6 +412,8 @@ private:
     void sendAuthoritativeJournal(ConnectedClient& c);
     void sendAuthoritativeSpellbook(ConnectedClient& c);
     void sendAuthoritativeCrimeState(ConnectedClient& c);
+    void sendAuthoritativeFactionState(ConnectedClient& c, std::string requestId = {},
+        bool accepted = true, FactionError error = FactionError::None);
     void sendAuthoritativeTopicState(ConnectedClient& c);
     std::string journalGroupFor(const ConnectedClient& c) const;
     bool shouldShareJournal(const ConnectedClient& source, const ConnectedClient& target) const;

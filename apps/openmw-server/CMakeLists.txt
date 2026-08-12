@@ -9,6 +9,7 @@ set(OPENMW_SERVER_SOURCES
     AlchemyService.cpp
     EnchantingService.cpp
     CrimeService.cpp
+    FactionService.cpp
     ServerContentRegistry.cpp
     ServerLuaRecordParser.cpp
     ServerLuaPackageRegistry.cpp
@@ -30,6 +31,7 @@ set(OPENMW_SERVER_HEADERS
     AlchemyService.hpp
     EnchantingService.hpp
     CrimeService.hpp
+    FactionService.hpp
     ServerContentRegistry.hpp
     ServerLuaRecordParser.hpp
     ServerLuaPackageRegistry.hpp

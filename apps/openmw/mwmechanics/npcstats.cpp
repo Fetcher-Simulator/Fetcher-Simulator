@@ -3,6 +3,7 @@
 #include <cassert>
 #include <iomanip>
 #include <sstream>
+#include <utility>
 
 #include <components/esm3/loadclas.hpp>
 #include <components/esm3/loadfact.hpp>
@@ -150,6 +151,14 @@ void MWMechanics::NpcStats::clearExpelled(const ESM::RefId& factionID)
 bool MWMechanics::NpcStats::isInFaction(const ESM::RefId& faction) const
 {
     return (mFactionRank.find(faction) != mFactionRank.end());
+}
+
+void MWMechanics::NpcStats::setFactionState(std::map<ESM::RefId, int> ranks,
+    std::map<ESM::RefId, int> reputations, std::set<ESM::RefId> expelled)
+{
+    mFactionRank = std::move(ranks);
+    mFactionReputation = std::move(reputations);
+    mExpelled = std::move(expelled);
 }
 
 int MWMechanics::NpcStats::getFactionReputation(const ESM::RefId& faction) const

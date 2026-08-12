@@ -33,6 +33,7 @@
 #include <components/openmw-mp/Base/DynamicRecord.hpp>
 #include <components/openmw-mp/Packets/Object/PacketDoorState.hpp>
 #include <components/openmw-mp/PlayerCrimeState.hpp>
+#include <components/openmw-mp/PlayerFactionState.hpp>
 #include <components/openmw-mp/PlayerTopicState.hpp>
 
 #include "PlayerMark.hpp"
@@ -170,6 +171,40 @@ namespace mwmp
     {
         TopicMutationStatus status = TopicMutationStatus::Committed;
         PlayerTopicState state;
+    };
+
+    enum class FactionCommitStatus
+    {
+        Committed,
+        DuplicateRequest,
+        DuplicateRequestConflict,
+        StaleRevision,
+    };
+
+    enum class FactionCommitFailurePoint
+    {
+        None,
+        AfterStateWrite,
+    };
+
+    struct FactionMutationCommit
+    {
+        int64_t accountId = 0;
+        int64_t characterId = 0;
+        std::string requestId;
+        std::string requestHash;
+        std::string resultPayload;
+        std::string source;
+        std::uint64_t expectedRevision = 0;
+        PlayerFactionState resultingState;
+        FactionCommitFailurePoint failurePoint = FactionCommitFailurePoint::None;
+    };
+
+    struct FactionCommitResult
+    {
+        FactionCommitStatus status = FactionCommitStatus::Committed;
+        PlayerFactionState currentState;
+        std::string storedResultPayload;
     };
 
     struct DynamicRecordCommitEntry
@@ -472,6 +507,7 @@ namespace mwmp
         /// row receive the vanilla-compatible revision-zero defaults.
         PlayerCrimeState loadPlayerCrimeState(int64_t characterId);
         PlayerTopicState loadPlayerTopicState(int64_t characterId);
+        PlayerFactionState loadPlayerFactionState(int64_t characterId);
         TopicMutationResult addKnownTopics(
             int64_t characterId, uint64_t expectedRevision, const std::vector<std::string>& topicIds);
 
@@ -487,6 +523,7 @@ namespace mwmp
         /// accepted terminal request result. The revision is rechecked inside
         /// BEGIN IMMEDIATE and duplicate request identity is resolved there.
         CrimeCommitResult commitPlayerCrimeMutation(const CrimeMutationCommit& commit);
+        FactionCommitResult commitPlayerFactionMutation(const FactionMutationCommit& commit);
 
         /// Atomically persists a terminal idempotency result, canonical record
         /// bundle, dependencies, and (when supplied) the resulting inventory.
