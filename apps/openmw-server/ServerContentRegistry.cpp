@@ -400,9 +400,14 @@ void mwmp::ServerContentRegistry::installRuntimeDefinition(
     std::string_view id, const records::DynamicRecordDefinition& definition)
 {
     const records::RecordType type = records::getRecordType(definition);
-    if (type != records::RecordType::Dialogue && type != records::RecordType::Script)
+    const bool durableScriptContent
+        = type == records::RecordType::Dialogue || type == records::RecordType::Script;
+    const bool explicitClothingContent
+        = type == records::RecordType::Clothing
+        && definition.authoringMode != records::AuthoringMode::Generated;
+    if (!durableScriptContent && !explicitClothingContent)
         return;
-    if (definition.authoringMode == records::AuthoringMode::Generated)
+    if (durableScriptContent && definition.authoringMode == records::AuthoringMode::Generated)
         throw std::runtime_error("Server content definition requires explicit authoring mode");
 
     const ESM::RefId refId = ESM::RefId::stringRefId(id);
@@ -410,7 +415,9 @@ void mwmp::ServerContentRegistry::installRuntimeDefinition(
     records::EsmDynamicRecord converted = records::toEsmRecord(definition);
     std::visit([&](auto& record) {
         using Record = std::decay_t<decltype(record)>;
-        if constexpr (std::is_same_v<Record, ESM::Dialogue> || std::is_same_v<Record, ESM::Script>)
+        if constexpr (std::is_same_v<Record, ESM::Dialogue>
+            || std::is_same_v<Record, ESM::Script>
+            || std::is_same_v<Record, ESM::Clothing>)
         {
             record.mId = refId;
             if constexpr (std::is_same_v<Record, ESM::Dialogue>)

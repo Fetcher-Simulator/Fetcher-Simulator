@@ -4,6 +4,7 @@
 #include <type_traits>
 #include <variant>
 
+#include <components/esm3/loadclot.hpp>
 #include <components/esm3/loaddial.hpp>
 #include <components/esm3/loadscpt.hpp>
 #include <components/openmw-mp/Records/EsmDynamicRecordConversion.hpp>
@@ -40,7 +41,9 @@ namespace mwmp
                             throw std::runtime_error("new_record_collides_with_static_content");
                         break;
                     case records::AuthoringMode::Override:
-                        if constexpr (!std::is_same_v<Record, ESM::Dialogue> && !std::is_same_v<Record, ESM::Script>)
+                        if constexpr (!std::is_same_v<Record, ESM::Dialogue>
+                            && !std::is_same_v<Record, ESM::Script>
+                            && !std::is_same_v<Record, ESM::Clothing>)
                             throw std::runtime_error("static_override_type_not_supported");
                         if (gameplayRunning)
                             throw std::runtime_error("static_override_requires_bootstrap");

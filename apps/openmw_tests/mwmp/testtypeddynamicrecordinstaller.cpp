@@ -5,8 +5,10 @@
 
 #include <components/compiler/extensions.hpp>
 #include <components/compiler/extensions0.hpp>
+#include <components/esm3/loadclot.hpp>
 #include <components/esm3/loaddial.hpp>
 #include <components/esm3/loadscpt.hpp>
+#include <components/openmw-mp/Records/EsmDynamicRecordConversion.hpp>
 
 #include <gtest/gtest.h>
 
@@ -88,4 +90,37 @@ TEST(TypedDynamicRecordInstaller, ExplicitOverrideModeControlsStaticDialogueOver
     definition.authoringMode = mwmp::records::AuthoringMode::New;
     EXPECT_THROW(
         mwmp::installTypedDynamicRecord(store, "durable_override_dialogue", definition, false, {}), std::runtime_error);
+}
+
+TEST(TypedDynamicRecordInstaller, ClothingOverrideIsBootstrapOnlyAndPreservesStaticBase)
+{
+    const ESM::RefId clothingId = ESM::RefId::stringRefId("runtime_override_tunic");
+    const ESM::RefId enchantmentId = ESM::RefId::stringRefId("runtime_tunic_enchantment");
+
+    MWWorld::ESMStore store;
+    ESM::Clothing baseline;
+    baseline.blank();
+    baseline.mId = clothingId;
+    baseline.mName = "Runtime Tunic";
+    baseline.mModel = "c\\runtime_tunic.nif";
+    baseline.mIcon = "c\\runtime_tunic.dds";
+    baseline.mEnchant = enchantmentId;
+    baseline.mData.mType = ESM::Clothing::Shirt;
+    baseline.mData.mWeight = 1.f;
+    baseline.mData.mValue = 10;
+    store.insertStatic(baseline);
+    store.setUp();
+
+    auto definition = mwmp::records::fromEsmRecord(baseline);
+    definition.authoringMode = mwmp::records::AuthoringMode::Override;
+    std::get<mwmp::records::Clothing>(definition.data).enchantment = {};
+
+    mwmp::installTypedDynamicRecord(store, "runtime_override_tunic", definition, false, {});
+    ASSERT_NE(store.get<ESM::Clothing>().search(clothingId), nullptr);
+    EXPECT_TRUE(store.get<ESM::Clothing>().search(clothingId)->mEnchant.empty());
+    ASSERT_NE(store.get<ESM::Clothing>().searchStatic(clothingId), nullptr);
+    EXPECT_EQ(store.get<ESM::Clothing>().searchStatic(clothingId)->mEnchant, enchantmentId);
+
+    EXPECT_THROW(
+        mwmp::installTypedDynamicRecord(store, "runtime_override_tunic", definition, true, {}), std::runtime_error);
 }

@@ -100,6 +100,29 @@ namespace
         return request;
     }
 
+    mwmp::records::RecordCreateRequest makeClothingRequest(
+        std::string requestId, mwmp::records::AuthoringMode mode)
+    {
+        using namespace mwmp::records;
+        Clothing clothing;
+        clothing.item.name = "Runtime Tunic";
+        clothing.item.model = "c/runtime_tunic.nif";
+        clothing.item.icon = "c/runtime_tunic.dds";
+        clothing.item.weight = 1.f;
+        clothing.item.value = 10;
+        clothing.type = 0;
+
+        DynamicRecordDefinition definition;
+        definition.data = std::move(clothing);
+        definition.authoringMode = mode;
+
+        RecordCreateRequest request;
+        request.requestId = std::move(requestId);
+        request.operation = CreateOperation::ServerScript;
+        request.bundle.records.push_back({ "clothing", std::move(definition) });
+        return request;
+    }
+
     mwmp::DynamicRecordService::Context makeTrustedContentContext(std::string key, std::string id)
     {
         mwmp::DynamicRecordService::Context context;
@@ -391,6 +414,22 @@ TEST(DynamicRecordService, EnforcesExplicitNewAndBootstrapOverrideModes)
     auto missing = service.execute(makeDialogueRequest("dialogue-missing", mwmp::records::AuthoringMode::Override),
         "dialogue-missing-hash", overrideContext, noEquivalent, noAllocation, [&] { return sequence++; });
     EXPECT_EQ(missing.result.error, mwmp::records::CreateError::OverrideMissingStatic);
+
+    auto clothingContext = makeTrustedContentContext("clothing", "static_tunic");
+    clothingContext.allowStaticOverrides = true;
+    clothingContext.hasStaticRecord = [](auto type, auto) {
+        return type == mwmp::records::RecordType::Clothing;
+    };
+    auto clothingOverride = service.execute(
+        makeClothingRequest("clothing-override", mwmp::records::AuthoringMode::Override),
+        "clothing-override-hash", clothingContext, noEquivalent, noAllocation, [&] { return sequence++; });
+    EXPECT_TRUE(clothingOverride.result.accepted);
+
+    clothingContext.trustedServerRequest = false;
+    auto untrustedClothingOverride = service.execute(
+        makeClothingRequest("clothing-untrusted", mwmp::records::AuthoringMode::Override),
+        "clothing-untrusted-hash", clothingContext, noEquivalent, noAllocation, [&] { return sequence++; });
+    EXPECT_EQ(untrustedClothingOverride.result.error, mwmp::records::CreateError::Unauthorized);
 }
 
 TEST(DynamicRecordService, ProtectsFixedIdentityDurableJournalAndScriptCompilation)

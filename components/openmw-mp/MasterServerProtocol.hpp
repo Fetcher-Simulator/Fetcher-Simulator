@@ -16,7 +16,8 @@ namespace mwmp
     // Version 5 adds authoritative revisioned PlayerBounty semantic state.
     // Version 6 adds authoritative revisioned player known-topic state.
     // Version 7 adds typed faction transitions and authoritative faction state.
-    inline constexpr int MultiplayerProtocolVersion = 7;
+    // Version 8 adds bootstrap-only trusted static Clothing record overrides.
+    inline constexpr int MultiplayerProtocolVersion = 8;
     inline constexpr std::string_view MultiplayerBuildVersion = "0.1.0";
     inline constexpr std::string_view DefaultMasterServerUrl = "https://master.fetchers.org";
 

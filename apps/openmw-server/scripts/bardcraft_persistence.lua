@@ -1,5 +1,6 @@
 local mp = require("mp")
 local networkPolicy = require("bardcraft_network_policy")
+local contentOverrides = require("bardcraft_content_overrides")
 local generatedBards = require("bardcraft_generated_bards")
 local config = require("config")
 
@@ -4676,6 +4677,7 @@ end
 M.eventHandlers = {
     OnServerInit = function(_)
         networkPolicy.reset()
+        contentOverrides.initialize()
         generatedBards.initialize()
         if TEST_WATERWALK_ENABLED then
             ensureTestWaterWalkingAmulet()

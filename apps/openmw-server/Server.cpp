@@ -12439,10 +12439,13 @@ bool MPServer::upsertDynamicRecord(const std::string& recordType, const std::str
             throw std::runtime_error("authoring mode does not match the typed definition");
         const bool durableServerContent
             = normalizedType == "dialogue" || normalizedType == "script";
+        const bool durableStaticOverride
+            = mode == records::AuthoringMode::Override && normalizedType == "clothing";
         if (durableServerContent && mode == records::AuthoringMode::Generated)
             throw std::runtime_error("Dialogue and Script require explicit mode=new or mode=override");
-        if (durableServerContent && (normalizedScope != "permanent" || !persistent))
-            throw std::runtime_error("Dialogue and Script definitions must be permanent and persistent");
+        if ((durableServerContent || durableStaticOverride)
+            && (normalizedScope != "permanent" || !persistent))
+            throw std::runtime_error("Explicit server content definitions must be permanent and persistent");
 
         records::RecordCreateRequest request;
         request.operation = records::CreateOperation::ServerScript;

@@ -35,7 +35,12 @@ namespace
         if constexpr (requires { definition.enchantment; })
         {
             if (const auto enchantment = table.get<sol::optional<std::string>>("enchant"))
-                definition.enchantment = { mwmp::records::ReferenceKind::ContentId, *enchantment };
+            {
+                if (enchantment->empty())
+                    definition.enchantment = {};
+                else
+                    definition.enchantment = { mwmp::records::ReferenceKind::ContentId, *enchantment };
+            }
         }
         return definition;
     }
