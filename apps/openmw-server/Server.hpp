@@ -243,6 +243,7 @@ public:
     bool removeDynamicRecord(const std::string& recordType, const std::string& recordId);
     bool setDynamicRecordDependencies(
         const std::string& recordType, const std::string& recordId, const std::vector<std::string>& dependencyRecordIds);
+    bool hasStaticNpcRecord(std::string_view recordId) const;
     std::vector<DynamicRecordCatalogEntry> listDynamicRecordCatalog();
     std::optional<DynamicRecordCatalogEntry> getDynamicRecordInfo(
         std::string_view recordType, std::string_view recordId);

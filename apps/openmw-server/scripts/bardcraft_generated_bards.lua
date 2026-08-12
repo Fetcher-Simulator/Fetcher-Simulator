@@ -180,6 +180,16 @@ local function dynamicRecordData(entry)
     return data
 end
 
+local function validateSourceNpc(sourceRefId)
+    if type(mp.hasStaticNpcRecord) ~= "function" then
+        return false, "Server does not provide static NPC validation."
+    end
+    if not mp.hasStaticNpcRecord(sourceRefId) then
+        return false, "Source record is missing or is not an NPC: " .. tostring(sourceRefId)
+    end
+    return true
+end
+
 local function upsertDynamic(entry)
     if not shouldSendDynamic(entry) then
         return true, "not-required"
@@ -198,6 +208,16 @@ end
 
 local function syncDynamic(entry)
     if shouldSendDynamic(entry) then
+        local valid, reason = validateSourceNpc(entry.sourceRefId)
+        if not valid then
+            if type(mp.removeDynamicRecord) == "function" then
+                -- Fail closed: an old registry entry with a missing or wrong-type
+                -- base must not remain in persistent dynamic-record state where it
+                -- can poison client runtime-content bootstrap.
+                mp.removeDynamicRecord("npc", entry.recordId)
+            end
+            return false, reason
+        end
         return upsertDynamic(entry)
     end
     if type(mp.removeDynamicRecord) == "function" then
@@ -285,6 +305,11 @@ function M.make(sourceRefId, displayName)
     sourceRefId = normalizeLookup(stripWrappingQuotes(sourceRefId))
     if sourceRefId == "" then
         return nil, "Source NPC record ID is required."
+    end
+
+    local valid, reason = validateSourceNpc(sourceRefId)
+    if not valid then
+        return nil, reason
     end
 
     local existing = findRecordBySource(sourceRefId)

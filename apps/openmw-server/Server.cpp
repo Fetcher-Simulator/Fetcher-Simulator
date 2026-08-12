@@ -4739,6 +4739,11 @@ std::unordered_map<std::string, uint64_t> MPServer::buildGeneratedDynamicRecordC
     return nextGeneratedNumbers;
 }
 
+bool MPServer::hasStaticNpcRecord(std::string_view recordId) const
+{
+    return mContentRegistry && mContentRegistry->hasStaticNpcRecord(recordId);
+}
+
 std::vector<DynamicRecordCatalogEntry> MPServer::listDynamicRecordCatalog()
 {
     std::vector<DynamicRecordCatalogEntry> entries;

@@ -1516,6 +1516,11 @@ std::string LuaServerContext::getGeneratedRecordIdPrefix() const
     return mGeneratedRecordIdPrefix;
 }
 
+bool LuaServerContext::hasStaticNpcRecord(const std::string& recordId) const
+{
+    return mServer && mServer->hasStaticNpcRecord(recordId);
+}
+
 std::string LuaServerContext::generateDynamicRecordId(const std::string& recordType)
 {
     if (recordType.empty())

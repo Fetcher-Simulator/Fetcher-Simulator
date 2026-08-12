@@ -205,6 +205,7 @@ public:
     void queueRefreshCellGameSettings(const std::string& cellId);
     void queueRefreshPlayerGameSettings(uint32_t guid);
     std::string getGeneratedRecordIdPrefix() const;
+    bool hasStaticNpcRecord(const std::string& recordId) const;
     std::string generateDynamicRecordId(const std::string& recordType);
     void syncGeneratedRecordState(
         std::string prefix, const std::unordered_map<std::string, uint64_t>& nextGeneratedNumbers);
