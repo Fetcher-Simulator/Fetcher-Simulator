@@ -461,6 +461,16 @@ namespace LuaUtil
             throw std::runtime_error(std::string("Lua error: ") += result.get<sol::error>().what());
     }
 
+    bool LuaState::baseSourceExists(const VFS::Path::Normalized& path) const
+    {
+        return mVFS->exists(path);
+    }
+
+    std::string LuaState::readBaseSource(const VFS::Path::Normalized& path) const
+    {
+        return std::string(std::istreambuf_iterator<char>(*mVFS->get(path)), {});
+    }
+
     sol::function LuaState::loadInternalLib(std::string_view libName)
     {
         const auto path = packageNameToPath(libName, mLibSearchPaths);

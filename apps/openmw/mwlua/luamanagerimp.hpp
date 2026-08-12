@@ -237,10 +237,19 @@ namespace MWLua
 #ifdef BUILD_MULTIPLAYER
         struct MultiplayerLuaLayer
         {
+            struct CompatibilityOverride
+            {
+                std::string mPackageId;
+                std::string mTarget;
+                std::string mBaseHash;
+                std::string mReplacementHash;
+            };
+
             std::uint64_t mGeneration = 0;
             std::string mPackageSetHash;
             LuaUtil::LuaState::SourceOverlay mSources;
             ESM::LuaScriptsCfg mScripts;
+            std::vector<CompatibilityOverride> mOverrides;
         };
         std::optional<MultiplayerLuaLayer> mStagedMultiplayerLuaLayer;
         std::optional<MultiplayerLuaLayer> mActiveMultiplayerLuaLayer;

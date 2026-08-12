@@ -166,6 +166,9 @@ namespace LuaUtil
         void clearSourceOverlay();
         bool hasSourceOverlay() const { return !mSourceOverlay.empty(); }
         void compileSource(const VFS::Path::Normalized& path, std::string_view source);
+        bool baseSourceExists(const VFS::Path::Normalized& path) const;
+        std::string readBaseSource(const VFS::Path::Normalized& path) const;
+        bool hasCompiledSource(const VFS::Path::Normalized& path) const { return mCompiledScripts.contains(path); }
 
         const ScriptsConfiguration& getConfiguration() const { return *mConf; }
 

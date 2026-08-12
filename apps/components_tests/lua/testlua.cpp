@@ -181,17 +181,23 @@ return {
         LuaUtil::LuaState::SourceOverlay overlay;
         overlay.emplace(mainPath, mainSource);
         overlay.emplace(modulePath, moduleSource);
+        overlay.emplace(VFS::Path::Normalized(counterPath),
+            "return { get = function() return 99 end }");
+        const std::string baseCounterSource = mLua.readBaseSource(VFS::Path::Normalized(counterPath));
         mLua.setSourceOverlay(std::move(overlay));
 
         const sol::table packageScript = mLua.runInNewSandbox(mainPath);
         EXPECT_EQ(packageScript["value"].get<int>(), 73);
         const sol::table baseBeforeClear = mLua.runInNewSandbox(VFS::Path::Normalized(counterPath));
-        EXPECT_EQ(LuaUtil::call(baseBeforeClear["get"]).get<int>(), 42);
+        EXPECT_EQ(LuaUtil::call(baseBeforeClear["get"]).get<int>(), 99);
+        EXPECT_EQ(mLua.readBaseSource(VFS::Path::Normalized(counterPath)), baseCounterSource);
+        EXPECT_TRUE(mLua.hasCompiledSource(VFS::Path::Normalized(counterPath)));
 
         mLua.clearSourceOverlay();
         EXPECT_THROW(mLua.runInNewSandbox(mainPath), std::exception);
         const sol::table baseAfterClear = mLua.runInNewSandbox(VFS::Path::Normalized(counterPath));
         EXPECT_EQ(LuaUtil::call(baseAfterClear["get"]).get<int>(), 42);
+        EXPECT_EQ(mLua.readBaseSource(VFS::Path::Normalized(counterPath)), baseCounterSource);
     }
 
     TEST_F(LuaStateTest, ReadOnly)
