@@ -5,6 +5,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
+#include <functional>
 #include <fstream>
 #include <map>
 #include <set>
