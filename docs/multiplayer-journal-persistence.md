@@ -52,9 +52,14 @@ and the authoritative journal while the client is still outside the world.
 so its arrival is not itself permission to enter the world. The client retains
 it until `RuntimeContentBootstrapComplete` has been observed, all required
 runtime definitions have installed successfully, and the required
-server-supplied OpenMW Lua package set has staged and activated. Large journal
-snapshots use `Set` followed by `Append` chunks and carry an explicit
-final-chunk marker, so no partial snapshot is exposed.
+server-supplied OpenMW Lua package set has staged and activated. The final
+semantic-state gate also requires authoritative crime, faction, and known-topic
+snapshots. Faction state is mirrored into normal `NpcStats` before returning-
+player Lua `onLoad`, and known topics are mirrored into the normal
+`DialogueManager`; neither operation replays the script or dialogue result that
+originally caused it. Large journal snapshots use `Set` followed by `Append`
+chunks and carry an explicit final-chunk marker, so no partial snapshot is
+exposed.
 
 Before clearing or mutating the local journal, the client verifies that every
 referenced quest Dialogue and INFO exists in the effective ESM store. A
@@ -67,6 +72,24 @@ while live shared additions display the normal notification once.
 Applying either form directly constructs the semantic journal entry/index. It
 does not run the INFO result script and does not replay any MWScript instruction
 that originally produced the state.
+
+The ordering relevant to dynamically supplied quests is therefore:
+
+```text
+typed Dialogue/INFO definitions installed in the effective ESM store
+    -> server Lua executable policy activated
+    -> authoritative crime/faction/topic snapshots received
+    -> CharacterData released
+    -> faction tuple applied to normal NpcStats
+    -> known topics applied to normal DialogueManager
+    -> journal entries and indices applied against those definitions
+```
+
+On reconnect or server restart, a dynamically supplied quest giver sees the
+restored faction tuple and known topic set through ordinary dialogue filters,
+while journal state is reconstructed directly. No client re-executes another
+player's INFO result script merely because a semantic result was persisted or
+shared.
 
 The current packet and database implementation covers quest entries and quest
 indices. Dialogue topic-response history and read-book tracking use separate

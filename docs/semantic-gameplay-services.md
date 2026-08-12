@@ -2,7 +2,7 @@
 
 Multiplayer gameplay authority synchronizes typed semantic state, not the
 scripting-language operation that caused it. Implemented domains include
-global player crime state and learned dialogue topics:
+global player crime state, player faction state, and learned dialogue topics:
 
 ```text
 trusted gameplay mutation
@@ -15,14 +15,14 @@ trusted gameplay mutation
 
 This is distinct from runtime content definitions (`RecordDynamic`/OMDR) and
 executable client policy (server Lua packages). Neither transport stores or
-replays authoritative crime state.
+replays authoritative gameplay state.
 
 ## Reusable foundation
 
-`PlayerCrimeState` is a strongly typed domain DTO. `CrimeMutationRequest` and
-`CrimeMutationResult` provide typed mutation and terminal-result contracts.
-Their canonical little-endian encodings are independent of C++ object layout
-and are used for deterministic request hashing and durable result replay.
+Each mutable domain has a strongly typed state DTO plus typed mutation and
+terminal-result contracts. Their canonical little-endian encodings are
+independent of C++ object layout and are used for deterministic request hashing
+and durable result replay.
 
 `RevisionedStateGate<State>` supplies client ordering:
 
@@ -188,3 +188,73 @@ MWScript, Lua, INFO result script, or dialogue interaction that caused the
 topic to be learned. Normal dialogue UI, MWScript, and OpenMW Lua therefore
 observe the restored semantic result naturally. Single-player save/load paths
 remain unchanged.
+
+## Authoritative player faction state
+
+`PlayerFactionState` is an independently revisioned character domain. Each
+canonical faction entry stores the complete vanilla-compatible tuple:
+
+```text
+factionId  : canonical case-insensitive record ID
+rank       : -1 when not a member, otherwise a validated FACT rank
+reputation : signed int32
+expelled   : boolean
+```
+
+Reputation and expulsion are retained even when rank is `-1`, matching
+`ESM::NpcStats`. A tuple with rank `-1`, reputation `0`, and no expulsion is
+omitted from the canonical state. Entries are sorted and unique, IDs and packet
+counts are bounded, and invalid UTF-8, unsupported schemas, invalid ranks,
+trailing bytes, and same-revision conflicts fail validation.
+
+Clients and trusted server Lua can submit only typed transitions:
+
+```text
+JoinFaction              LeaveFaction
+SetFactionRank           ModifyFactionRank
+SetFactionReputation     ModifyFactionReputation
+ExpelFromFaction         ClearFactionExpulsion
+```
+
+There is no client operation that replaces the authoritative tuple directly.
+The ordinary MWScript and OpenMW Lua APIs remain synchronous: they first mutate
+normal local `NpcStats` as they do in single player. The multiplayer sync layer
+observes the resulting tuple, derives the minimum ordered typed transitions,
+and proposes those transitions with the expected faction revision. The server
+validates every faction and rank against its effective `FACT` store, applies
+the operations to the previous authoritative state, and returns a full result
+snapshot. A rejection or stale response corrects optimistic local state. Local
+changes made while a proposal is in flight are retained and proposed after the
+authoritative result arrives.
+
+The server persists the revision in `character_faction_state` and entries in
+`character_factions`. Both are keyed by the authenticated selected character
+and cascade on deletion. An accepted operation uses `BEGIN IMMEDIATE`, rechecks
+the revision, replaces the tuple rows, writes the new revision, and inserts the
+terminal result into the service-namespaced `semantic_requests` journal in one
+transaction. Duplicate request IDs with the same canonical hash replay their
+stored result; the same ID with different content conflicts. Restart and
+reconnect load the exact tuple and revision.
+
+Multiplayer protocol version 7 assigns the reserved `PlayerFaction` message ID
+a typed proposal/result contract. Initial character selection sends an empty-
+request authoritative snapshot after runtime definitions and before the topic
+snapshot and `CharacterData`. World entry requires crime, faction, and topic
+snapshots as well as the separate runtime-content and server-Lua-package gates.
+Faction application checks that referenced definitions are visible in the
+effective ESM store and is retried after dynamic-record insertion.
+
+The client replaces only the faction rank, reputation, and expulsion maps in
+normal `MWMechanics::NpcStats`; bounty, skills, disposition, and other NPC state
+are untouched. Dialogue faction/rank/reputation/expulsion filters, MWScript,
+OpenMW Lua, and UI code already read those same maps, so they observe restored
+state without multiplayer-specific branches. The script or dialogue result
+that caused a transition is never replayed on another client. Single-player
+mutation and save/load behavior remains unchanged.
+
+Trusted dedicated-server Lua receives `player.factionState` and may enqueue the
+same eight typed operations through `joinFaction`, `leaveFaction`, rank and
+reputation set/modify methods, and expel/clear methods. Every call requires a
+stable request ID and enters `FactionService` on the server main thread. This is
+not executable-code distribution and does not give distributed client packages
+direct SQLite access.
