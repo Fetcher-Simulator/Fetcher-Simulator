@@ -28,6 +28,7 @@
 #include <components/esm3/loadclot.hpp>
 #include <components/esm3/loadench.hpp>
 #include <components/esm3/loadmgef.hpp>
+#include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadscpt.hpp>
 #include <components/esm3/loadskil.hpp>
 #include <components/esm3/loadspel.hpp>
@@ -336,6 +337,23 @@ bool mwmp::ServerContentRegistry::hasContentId(std::string_view id) const
             || content.get<ESM::Script>().search(refId) != nullptr
             || content.get<ESM::BodyPart>().search(refId) != nullptr
             || content.get<ESM::Spell>().search(refId) != nullptr;
+    }
+    catch (const std::exception&)
+    {
+        return false;
+    }
+}
+
+bool mwmp::ServerContentRegistry::hasStaticNpcRecord(std::string_view id) const
+{
+    if (id.empty())
+        return false;
+    try
+    {
+        ESM::RefId refId = ESM::RefId::deserializeText(id);
+        if (refId.empty())
+            refId = ESM::RefId::stringRefId(id);
+        return store().get<ESM::NPC>().searchStatic(refId) != nullptr;
     }
     catch (const std::exception&)
     {

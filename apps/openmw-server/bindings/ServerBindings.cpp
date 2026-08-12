@@ -701,6 +701,10 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
     {
         return context ? context->getGeneratedRecordIdPrefix() : std::string("$custom");
     });
+    mp.set_function("hasStaticNpcRecord", [context](const std::string& recordId) -> bool
+    {
+        return context && context->hasStaticNpcRecord(recordId);
+    });
     mp.set_function("GenerateDynamicRecordId", [context](const std::string& recordType, sol::this_state ts) -> sol::object
     {
         if (!context)
