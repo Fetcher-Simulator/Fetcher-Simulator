@@ -170,14 +170,17 @@ namespace mwmp
                 const bool hasFixedId = fixed != context.fixedRecordIds.end();
                 const bool serverContentType
                     = type == records::RecordType::Dialogue || type == records::RecordType::Script;
+                const bool staticOverrideType
+                    = serverContentType || type == records::RecordType::Clothing;
 
-                if (serverContentType && !context.trustedServerRequest)
+                if ((serverContentType || (mode == records::AuthoringMode::Override && staticOverrideType))
+                    && !context.trustedServerRequest)
                     return records::CreateError::Unauthorized;
                 if (serverContentType && (!hasFixedId || mode == records::AuthoringMode::Generated))
                     return records::CreateError::InvalidAuthoringMode;
                 if (mode != records::AuthoringMode::Generated && !hasFixedId)
                     return records::CreateError::InvalidAuthoringMode;
-                if (mode == records::AuthoringMode::Override && !serverContentType)
+                if (mode == records::AuthoringMode::Override && !staticOverrideType)
                     return records::CreateError::InvalidAuthoringMode;
                 if (!hasFixedId)
                     continue;

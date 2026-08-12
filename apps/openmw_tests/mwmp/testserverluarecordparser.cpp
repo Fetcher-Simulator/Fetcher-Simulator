@@ -16,13 +16,14 @@
 
 namespace
 {
-    LuaUtil::BinaryData legacyClothingPayload(std::string_view name)
+    LuaUtil::BinaryData legacyClothingPayload(
+        std::string_view name, std::string_view enchantment = "server_enchantment")
     {
         sol::state lua;
         sol::table value = lua.create_table();
         value["baseId"] = "base_amulet";
         value["name"] = name;
-        value["enchant"] = "server_enchantment";
+        value["enchant"] = enchantment;
         return LuaUtil::serialize(value);
     }
 
@@ -127,6 +128,14 @@ TEST(ServerLuaRecordParser, ConvertsLegacyTableToCanonicalTypedDefinition)
     EXPECT_EQ(clothing.item.model, "m\\amulet.nif");
     EXPECT_EQ(clothing.enchantment.kind, mwmp::records::ReferenceKind::ContentId);
     EXPECT_EQ(clothing.enchantment.value, "server_enchantment");
+
+    const auto cleared = mwmp::parseServerLuaRecord(
+        "clothing", legacyClothingPayload("Canonical Amulet", ""),
+        mwmp::records::AuthoringMode::Override);
+    const auto& clearedClothing = std::get<mwmp::records::Clothing>(cleared.data);
+    EXPECT_EQ(clearedClothing.enchantment.kind, mwmp::records::ReferenceKind::None);
+    EXPECT_TRUE(clearedClothing.enchantment.value.empty());
+    EXPECT_EQ(clearedClothing.item.model, "m\\amulet.nif");
 
     const std::string encoded = mwmp::records::encodeDefinition(first);
     EXPECT_EQ(mwmp::records::decodeDefinition(encoded), first);

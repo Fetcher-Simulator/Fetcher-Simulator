@@ -21,9 +21,10 @@ little-endian field encodings; they are not being promoted to runtime-create
 DTOs. Any future authoritative mechanic that consumes another load-script-mutable
 record kind must add that record kind to the resolved fingerprint and bump the
 content/fingerprint version. Runtime `$custom_*` records remain excluded from
-resolved-content identity. Dialogue and Script overlays do not replace the
-static baseline in that fingerprint: an override is a server-authoritative
-bootstrap layer delivered only after the static manifest has matched.
+resolved-content identity. Dialogue, Script, and trusted Clothing overlays do
+not replace the static baseline in that fingerprint: an override is a
+server-authoritative bootstrap layer delivered only after the static manifest
+has matched.
 
 The server derives the content, Lua-script, and resolved-record manifests from
 its own `[content] openmw_cfg`; `Config.RESOLVED_CONTENT_FINGERPRINT` is only an
@@ -65,17 +66,21 @@ deduplicate that request onto a different existing ID merely because the
 definitions have the same fingerprint. Content-addressed deduplication remains
 the normal policy for generated client/runtime records without a fixed identity.
 
-## Typed server content: Dialogue/INFO and SCPT
+## Typed server content: Dialogue/INFO, SCPT, and Clothing overrides
 
 Trusted server Lua may submit typed Dialogue and Script definitions with a
-fixed ID and an explicit authoring mode:
+fixed ID and an explicit authoring mode. Protocol 8 additionally permits
+trusted static Clothing overrides:
 
 - `new` requires that the ID does not collide with a static record.
-- `override` requires a static Dialogue or Script with the same ID and is
-  accepted only at the bootstrap activation boundary, before clients are in
-  the session.
+- `override` requires a matching static record and is accepted only at the
+  bootstrap activation boundary, before clients are in the session. Dialogue,
+  Script, and Clothing are the supported override types.
 - `generated` remains the mode for the six player/runtime-created DTO kinds
   and is invalid for Dialogue and Script.
+- Clothing overrides must be permanent and persistent. They may use `baseId`
+  to clone the configured static Clothing record and change selected fields;
+  for example an explicit empty `enchant` clears the inherited enchantment.
 
 A Dialogue definition is one atomic aggregate containing the DIAL fields and
 the complete ordered INFO sequence. INFO identity is `(dialogueId, infoId)`;
@@ -96,8 +101,8 @@ Typed dependencies are extracted centrally from DTO fields and explicit
 declared dependency IDs. SQLite stores those edges, and reconnect bootstrap
 uses deterministic dependency-first order with persisted sequence as its
 tie-breaker. The headless server also installs persisted Dialogue/Script
-definitions into its effective store after restart while static-only resolved
-fingerprinting remains unchanged.
+content and explicit Clothing overrides into its effective store after restart
+while static-only resolved fingerprinting remains unchanged.
 
 Runtime record definitions remain separate from player/world gameplay state.
 A dialogue result script is never replayed on another client to reproduce a
