@@ -139,7 +139,6 @@ if (BUILD_MULTIPLAYER)
     add_openmw_dir (mwmp
         Main Identity MpNetworkBridge
     )
-    add_compile_definitions(BUILD_MULTIPLAYER)
 endif()
 
 # Main executable
@@ -148,6 +147,13 @@ add_library(openmw-lib STATIC
     ${OPENMW_FILES}
     ${OPENMW_SOURCES}
 )
+
+# BUILD_MULTIPLAYER changes public class/vtable layout in headers consumed by
+# openmw-lib users (for example MWBase::LuaManager and MWLua::LuaManager).
+# Propagate it to every consumer so they compile those headers with the same ABI.
+if (BUILD_MULTIPLAYER)
+    target_compile_definitions(openmw-lib PUBLIC BUILD_MULTIPLAYER)
+endif()
 
 if (MSVC)
     # these TUs take a lot of memory for codegen
