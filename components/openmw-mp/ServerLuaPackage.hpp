@@ -3,18 +3,21 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace mwmp::serverlua
 {
-    inline constexpr std::uint16_t ServerLuaPackageManifestVersion = 1;
+    inline constexpr std::uint16_t ServerLuaPackageManifestVersion = 2;
     inline constexpr std::uint16_t MultiplayerLuaApiVersion = 1;
 
     inline constexpr std::size_t MaxPackages = 64;
     inline constexpr std::size_t MaxFilesPerPackage = 256;
     inline constexpr std::size_t MaxRegistrationsPerPackage = 128;
+    inline constexpr std::size_t MaxOverridesPerPackage = 128;
+    inline constexpr std::size_t MaxAcceptedBaseHashesPerOverride = 32;
     inline constexpr std::size_t MaxDependenciesPerPackage = 64;
     inline constexpr std::size_t MaxPackageIdLength = 96;
     inline constexpr std::size_t MaxRelativePathLength = 192;
@@ -48,6 +51,22 @@ namespace mwmp::serverlua
         bool operator==(const ScriptRegistration&) const = default;
     };
 
+    enum class OverrideBasePolicy : std::uint8_t
+    {
+        AcceptedHashes = 0,
+        Any = 1,
+    };
+
+    struct CompatibilityOverride
+    {
+        std::string target;
+        std::string source;
+        OverrideBasePolicy basePolicy = OverrideBasePolicy::AcceptedHashes;
+        std::vector<std::string> acceptedBaseHashes;
+
+        bool operator==(const CompatibilityOverride&) const = default;
+    };
+
     struct Package
     {
         std::uint16_t manifestVersion = ServerLuaPackageManifestVersion;
@@ -58,6 +77,7 @@ namespace mwmp::serverlua
         std::vector<std::string> dependencies;
         std::vector<File> files;
         std::vector<ScriptRegistration> registrations;
+        std::vector<CompatibilityOverride> overrides;
         std::string packageHash;
 
         bool operator==(const Package&) const = default;
@@ -82,6 +102,14 @@ namespace mwmp::serverlua
         bool operator==(const ValidationError&) const = default;
     };
 
+    struct OverrideBaseValidation
+    {
+        std::string baseHash;
+        std::optional<ValidationError> error;
+
+        explicit operator bool() const { return !error.has_value(); }
+    };
+
     std::string normalizePackageId(std::string_view value);
     std::string normalizeRelativePath(std::string_view value);
     std::string virtualPath(std::string_view packageId, std::string_view relativePath);
@@ -100,6 +128,8 @@ namespace mwmp::serverlua
     std::vector<ValidationError> validatePackageSet(const PackageSet& packageSet,
         std::uint32_t supportedOpenMWLuaApi, std::uint16_t supportedMultiplayerLuaApi,
         bool requireSources = true);
+    OverrideBaseValidation validateOverrideBase(const CompatibilityOverride& override,
+        std::optional<std::string_view> baseSource, bool targetAlreadyLoaded);
 }
 
 #endif

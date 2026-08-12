@@ -36,6 +36,13 @@ namespace
         return set;
     }
 
+    mwmp::serverlua::CompatibilityOverride makeOverride(
+        std::string target = "scripts/inventoryextender/item.lua")
+    {
+        return { std::move(target), "main.lua", mwmp::serverlua::OverrideBasePolicy::AcceptedHashes,
+            { std::string(64, 'a') } };
+    }
+
     bool hasCode(const std::vector<mwmp::serverlua::ValidationError>& errors, std::string_view code)
     {
         return std::any_of(errors.begin(), errors.end(), [&](const auto& error) { return error.code == code; });
@@ -67,6 +74,107 @@ TEST(ServerLuaPackage, PackageSetIdentityIsDeterministic)
 
     EXPECT_EQ(first.packageSetHash, mwmp::serverlua::hashPackageSet(second));
     EXPECT_EQ(first.generation, mwmp::serverlua::generationFromHash(mwmp::serverlua::hashPackageSet(second)));
+}
+
+TEST(ServerLuaPackage, CompatibilityOverrideMeaningIsCanonicalAndChangesIdentity)
+{
+    auto left = makePackage();
+    left.overrides = { makeOverride("Scripts\\InventoryExtender\\ITEM.LUA") };
+    left.packageHash.clear();
+    auto right = left;
+    right.overrides[0].target = "scripts/inventoryextender/item.lua";
+    std::reverse(right.overrides[0].acceptedBaseHashes.begin(), right.overrides[0].acceptedBaseHashes.end());
+    EXPECT_EQ(mwmp::serverlua::hashPackage(left), mwmp::serverlua::hashPackage(right));
+
+    right.overrides[0].acceptedBaseHashes = { std::string(64, 'b') };
+    EXPECT_NE(mwmp::serverlua::hashPackage(left), mwmp::serverlua::hashPackage(right));
+    right = left;
+    right.overrides[0].target = "scripts/inventoryextender/other.lua";
+    EXPECT_NE(mwmp::serverlua::hashPackage(left), mwmp::serverlua::hashPackage(right));
+}
+
+TEST(ServerLuaPackage, ValidatesCompatibilityOverrideTargetsSourcesAndBasePolicies)
+{
+    auto package = makePackage();
+    package.registrations.clear();
+    package.overrides = { makeOverride() };
+    package.packageHash.clear();
+    EXPECT_TRUE(mwmp::serverlua::validatePackage(
+                    package, OpenMWLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion)
+                    .empty());
+
+    for (const std::string target : { "../evil.lua", "/scripts/foo.lua", "C:/scripts/foo.lua",
+             "scripts/foo.txt", "scripts/omw/player.lua", "scripts/multiplayer/foo.lua" })
+    {
+        auto invalid = package;
+        invalid.overrides[0].target = target;
+        EXPECT_TRUE(hasCode(mwmp::serverlua::validatePackage(invalid, OpenMWLuaApi,
+                                mwmp::serverlua::MultiplayerLuaApiVersion),
+            "override_target_forbidden")) << target;
+    }
+
+    auto missingSource = package;
+    missingSource.overrides[0].source = "missing.lua";
+    EXPECT_TRUE(hasCode(mwmp::serverlua::validatePackage(missingSource, OpenMWLuaApi,
+                            mwmp::serverlua::MultiplayerLuaApiVersion),
+        "override_source_missing"));
+
+    auto missingPolicy = package;
+    missingPolicy.overrides[0].acceptedBaseHashes.clear();
+    EXPECT_TRUE(hasCode(mwmp::serverlua::validatePackage(missingPolicy, OpenMWLuaApi,
+                            mwmp::serverlua::MultiplayerLuaApiVersion),
+        "missing_base_hash_policy"));
+
+    auto anyPolicy = missingPolicy;
+    anyPolicy.overrides[0].basePolicy = mwmp::serverlua::OverrideBasePolicy::Any;
+    EXPECT_TRUE(mwmp::serverlua::validatePackage(
+                    anyPolicy, OpenMWLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion)
+                    .empty());
+}
+
+TEST(ServerLuaPackage, ValidatesInstalledBaseBeforeOverrideActivation)
+{
+    const std::string baseSource = "return { value = 1 }";
+    auto override = makeOverride();
+    override.acceptedBaseHashes = { mwmp::crypto::sha256hex(baseSource) };
+
+    const auto accepted = mwmp::serverlua::validateOverrideBase(override, baseSource, false);
+    EXPECT_TRUE(accepted);
+    EXPECT_EQ(accepted.baseHash, override.acceptedBaseHashes[0]);
+
+    override.acceptedBaseHashes = { std::string(64, 'b') };
+    const auto mismatch = mwmp::serverlua::validateOverrideBase(override, baseSource, false);
+    ASSERT_FALSE(mismatch);
+    EXPECT_EQ(mismatch.error->code, "override_base_hash_mismatch");
+    EXPECT_EQ(mismatch.baseHash, mwmp::crypto::sha256hex(baseSource));
+
+    const auto missing = mwmp::serverlua::validateOverrideBase(override, std::nullopt, false);
+    ASSERT_FALSE(missing);
+    EXPECT_EQ(missing.error->code, "override_target_missing");
+
+    const auto loaded = mwmp::serverlua::validateOverrideBase(override, baseSource, true);
+    ASSERT_FALSE(loaded);
+    EXPECT_EQ(loaded.error->code, "override_target_already_loaded");
+
+    override.basePolicy = mwmp::serverlua::OverrideBasePolicy::Any;
+    override.acceptedBaseHashes.clear();
+    EXPECT_TRUE(mwmp::serverlua::validateOverrideBase(override, baseSource, false));
+}
+
+TEST(ServerLuaPackage, RejectsDuplicateOverrideTargetAcrossPackageSet)
+{
+    auto set = makeSet();
+    set.packages[0].overrides = { makeOverride() };
+    set.packages[0].packageHash.clear();
+    auto second = makePackage("fetcher.second");
+    second.overrides = { makeOverride("SCRIPTS/INVENTORYEXTENDER/ITEM.LUA") };
+    second.packageHash.clear();
+    set.packages.push_back(std::move(second));
+    set.packageSetHash.clear();
+    set.generation = 0;
+    EXPECT_TRUE(hasCode(mwmp::serverlua::validatePackageSet(set, OpenMWLuaApi,
+                            mwmp::serverlua::MultiplayerLuaApiVersion),
+        "duplicate_override_target"));
 }
 
 TEST(ServerLuaPackage, RejectsUnsafeAndCollidingPaths)
@@ -158,6 +266,10 @@ TEST(ServerLuaPackage, RejectsWrongPackageAndSetIdentity)
 TEST(ServerLuaPackage, ManifestAndTransferPacketsRoundTrip)
 {
     auto set = makeSet();
+    set.packages[0].overrides = { makeOverride() };
+    set.packages[0].packageHash = mwmp::serverlua::hashPackage(set.packages[0]);
+    set.packageSetHash = mwmp::serverlua::hashPackageSet(set);
+    set.generation = mwmp::serverlua::generationFromHash(set.packageSetHash);
     mwmp::PacketServerLuaPackageManifest outgoing;
     outgoing.packageSet = set;
     mwmp::PacketServerLuaPackageManifest incoming;
@@ -166,6 +278,7 @@ TEST(ServerLuaPackage, ManifestAndTransferPacketsRoundTrip)
     EXPECT_EQ(incoming.packageSet.packageSetHash, set.packageSetHash);
     EXPECT_EQ(incoming.packageSet.packages[0].files[0].sourceSize, set.packages[0].files[0].sourceSize);
     EXPECT_TRUE(incoming.packageSet.packages[0].files[0].source.empty());
+    EXPECT_EQ(incoming.packageSet.packages[0].overrides, set.packages[0].overrides);
     EXPECT_TRUE(mwmp::serverlua::validatePackageSet(incoming.packageSet, OpenMWLuaApi,
                     mwmp::serverlua::MultiplayerLuaApiVersion, false)
                     .empty());

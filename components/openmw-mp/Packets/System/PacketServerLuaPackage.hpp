@@ -49,6 +49,16 @@ namespace mwmp
                     stream.writeString(registration.path);
                     stream.write(registration.flags);
                 }
+                stream.write(static_cast<std::uint16_t>(package.overrides.size()));
+                for (const serverlua::CompatibilityOverride& override : package.overrides)
+                {
+                    stream.writeString(override.target);
+                    stream.writeString(override.source);
+                    stream.write(static_cast<std::uint8_t>(override.basePolicy));
+                    stream.write(static_cast<std::uint16_t>(override.acceptedBaseHashes.size()));
+                    for (const std::string& hash : override.acceptedBaseHashes)
+                        stream.writeString(hash);
+                }
             }
         }
 
@@ -96,7 +106,7 @@ namespace mwmp
                     throw std::runtime_error("PacketServerLuaPackageManifest: package too large");
                 totalSize += packageSize;
                 stream.read(count);
-                if (count == 0 || count > serverlua::MaxRegistrationsPerPackage)
+                if (count > serverlua::MaxRegistrationsPerPackage)
                     throw std::runtime_error("PacketServerLuaPackageManifest: invalid registration count");
                 package.registrations.resize(count);
                 for (serverlua::ScriptRegistration& registration : package.registrations)
@@ -104,6 +114,27 @@ namespace mwmp
                     registration.path = stream.readString();
                     stream.read(registration.flags);
                 }
+                stream.read(count);
+                if (count > serverlua::MaxOverridesPerPackage)
+                    throw std::runtime_error("PacketServerLuaPackageManifest: too many compatibility overrides");
+                package.overrides.resize(count);
+                for (serverlua::CompatibilityOverride& override : package.overrides)
+                {
+                    override.target = stream.readString();
+                    override.source = stream.readString();
+                    std::uint8_t basePolicy = 0;
+                    stream.read(basePolicy);
+                    override.basePolicy = static_cast<serverlua::OverrideBasePolicy>(basePolicy);
+                    std::uint16_t hashCount = 0;
+                    stream.read(hashCount);
+                    if (hashCount > serverlua::MaxAcceptedBaseHashesPerOverride)
+                        throw std::runtime_error("PacketServerLuaPackageManifest: too many accepted base hashes");
+                    override.acceptedBaseHashes.resize(hashCount);
+                    for (std::string& hash : override.acceptedBaseHashes)
+                        hash = stream.readString();
+                }
+                if (package.registrations.empty() && package.overrides.empty())
+                    throw std::runtime_error("PacketServerLuaPackageManifest: package has no executable policy");
             }
             if (totalSize > serverlua::MaxPackageSetSize || !stream.eof())
                 throw std::runtime_error("PacketServerLuaPackageManifest: invalid package-set size or trailing data");

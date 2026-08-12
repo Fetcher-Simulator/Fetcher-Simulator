@@ -112,6 +112,15 @@ namespace mwmp::serverlua
             return false;
         }
 
+        bool isSafeOverrideTarget(std::string_view path)
+        {
+            return !path.empty() && path.size() <= MaxRelativePathLength && isValidUtf8(path)
+                && path.starts_with("scripts/") && !path.starts_with("scripts/omw/")
+                && !path.starts_with("scripts/multiplayer/") && !path.starts_with('/')
+                && path.find(':') == std::string_view::npos && !hasTraversalComponent(path)
+                && path.ends_with(".lua");
+        }
+
         bool isPackageId(std::string_view value)
         {
             if (value.empty() || value.front() == '.' || value.back() == '.' || value.find("..") != std::string_view::npos)
@@ -181,6 +190,19 @@ namespace mwmp::serverlua
             [](const ScriptRegistration& left, const ScriptRegistration& right) {
                 return std::tie(left.path, left.flags) < std::tie(right.path, right.flags);
             });
+        for (CompatibilityOverride& override : package.overrides)
+        {
+            override.target = normalizeRelativePath(override.target);
+            override.source = normalizeRelativePath(override.source);
+            for (std::string& hash : override.acceptedBaseHashes)
+                hash = normalizePackageId(hash);
+            std::sort(override.acceptedBaseHashes.begin(), override.acceptedBaseHashes.end());
+        }
+        std::sort(package.overrides.begin(), package.overrides.end(),
+            [](const CompatibilityOverride& left, const CompatibilityOverride& right) {
+                return std::tie(left.target, left.source, left.basePolicy, left.acceptedBaseHashes)
+                    < std::tie(right.target, right.source, right.basePolicy, right.acceptedBaseHashes);
+            });
         package.packageHash = normalizePackageId(package.packageHash);
     }
 
@@ -209,6 +231,16 @@ namespace mwmp::serverlua
         {
             appendString(canonical, registration.path);
             appendU32(canonical, registration.flags);
+        }
+        appendU32(canonical, static_cast<std::uint32_t>(package.overrides.size()));
+        for (const CompatibilityOverride& override : package.overrides)
+        {
+            appendString(canonical, override.target);
+            appendString(canonical, override.source);
+            canonical.push_back(static_cast<char>(override.basePolicy));
+            appendU32(canonical, static_cast<std::uint32_t>(override.acceptedBaseHashes.size()));
+            for (const std::string& hash : override.acceptedBaseHashes)
+                appendString(canonical, hash);
         }
         return crypto::sha256hex(canonical);
     }
@@ -310,9 +342,10 @@ namespace mwmp::serverlua
         if (packageSize > MaxPackageSize)
             add(errors, "package_too_large", "files", "Package source bytes exceed the package limit");
 
-        if (package.registrations.empty() || package.registrations.size() > MaxRegistrationsPerPackage)
+        if ((package.registrations.empty() && package.overrides.empty())
+            || package.registrations.size() > MaxRegistrationsPerPackage)
             add(errors, "invalid_registration_count", "registrations",
-                "Package must contain a bounded non-empty registration list");
+                "Package must contain at least one script registration or compatibility override");
         std::set<std::string> registeredPaths;
         constexpr std::uint32_t allowedFlags = ScriptGlobal | ScriptCustom | ScriptPlayer;
         for (std::size_t i = 0; i < package.registrations.size(); ++i)
@@ -326,6 +359,50 @@ namespace mwmp::serverlua
             if (registration.flags == 0 || (registration.flags & ~allowedFlags) != 0
                 || ((registration.flags & ScriptGlobal) && registration.flags != ScriptGlobal))
                 add(errors, "invalid_script_flags", path + ".flags", "Script registration flags are unsupported");
+        }
+
+        if (package.overrides.size() > MaxOverridesPerPackage)
+            add(errors, "too_many_overrides", "overrides", "Compatibility override count exceeds its limit");
+        std::set<std::string> overrideTargets;
+        for (std::size_t i = 0; i < package.overrides.size(); ++i)
+        {
+            const CompatibilityOverride& override = package.overrides[i];
+            const std::string path = "overrides[" + std::to_string(i) + "]";
+            if (!isSafeOverrideTarget(override.target))
+                add(errors, "override_target_forbidden", path + ".target",
+                    "Override target must be an existing third-party scripts/*.lua VFS path");
+            if (!overrideTargets.insert(override.target).second)
+                add(errors, "duplicate_override_target", path + ".target",
+                    "Compatibility override target is declared more than once");
+            if (!paths.contains(override.source))
+                add(errors, "override_source_missing", path + ".source",
+                    "Compatibility override source is absent from package files");
+            if (override.acceptedBaseHashes.size() > MaxAcceptedBaseHashesPerOverride)
+                add(errors, "too_many_base_hashes", path + ".acceptedBaseHashes",
+                    "Accepted base hash count exceeds its limit");
+            std::set<std::string> acceptedHashes;
+            for (std::size_t hashIndex = 0; hashIndex < override.acceptedBaseHashes.size(); ++hashIndex)
+            {
+                const std::string& hash = override.acceptedBaseHashes[hashIndex];
+                if (!isHexHash(hash))
+                    add(errors, "invalid_base_hash",
+                        path + ".acceptedBaseHashes[" + std::to_string(hashIndex) + "]",
+                        "Accepted base SHA-256 is malformed");
+                if (!acceptedHashes.insert(hash).second)
+                    add(errors, "duplicate_base_hash", path + ".acceptedBaseHashes",
+                        "Accepted base SHA-256 is declared more than once");
+            }
+            if (override.basePolicy == OverrideBasePolicy::AcceptedHashes
+                && override.acceptedBaseHashes.empty())
+                add(errors, "missing_base_hash_policy", path,
+                    "Compatibility override must declare acceptedBaseHashes or explicit basePolicy:any");
+            else if (override.basePolicy == OverrideBasePolicy::Any
+                && !override.acceptedBaseHashes.empty())
+                add(errors, "conflicting_base_hash_policy", path,
+                    "basePolicy:any cannot be combined with acceptedBaseHashes");
+            else if (override.basePolicy != OverrideBasePolicy::AcceptedHashes
+                && override.basePolicy != OverrideBasePolicy::Any)
+                add(errors, "invalid_base_policy", path + ".basePolicy", "Compatibility override base policy is invalid");
         }
 
         if (!input.packageHash.empty())
@@ -362,6 +439,18 @@ namespace mwmp::serverlua
                 add(errors, "duplicate_package", prefix + "packageId", "Duplicate canonical package ID");
             for (const File& file : package.files)
                 totalSize += requireSources ? file.source.size() : file.sourceSize;
+        }
+
+        std::map<std::string, std::size_t, std::less<>> overrideOwners;
+        for (std::size_t i = 0; i < input.packages.size(); ++i)
+        {
+            Package package = canonicalCopy(input.packages[i]);
+            for (const CompatibilityOverride& override : package.overrides)
+            {
+                if (!overrideOwners.emplace(override.target, i).second)
+                    add(errors, "duplicate_override_target", "packages[" + std::to_string(i) + "].overrides",
+                        "Only one package may own a compatibility override target");
+            }
         }
         if (totalSize > MaxPackageSetSize)
             add(errors, "package_set_too_large", "packages", "Package-set source bytes exceed the session limit");
@@ -411,5 +500,40 @@ namespace mwmp::serverlua
         if (input.generation != 0 && input.generation != computedGeneration)
             add(errors, "wrong_generation", "generation", "Package-set generation does not match its hash");
         return errors;
+    }
+
+    OverrideBaseValidation validateOverrideBase(const CompatibilityOverride& override,
+        std::optional<std::string_view> baseSource, bool targetAlreadyLoaded)
+    {
+        OverrideBaseValidation result;
+        if (!baseSource)
+        {
+            result.error = ValidationError{ "override_target_missing", override.target,
+                "Compatibility override target is absent from the base VFS" };
+            return result;
+        }
+
+        result.baseHash = crypto::sha256hex(*baseSource);
+        if (targetAlreadyLoaded)
+        {
+            result.error = ValidationError{ "override_target_already_loaded", override.target,
+                "Compatibility override target was loaded before package activation" };
+            return result;
+        }
+        if (override.basePolicy == OverrideBasePolicy::AcceptedHashes)
+        {
+            if (std::find(override.acceptedBaseHashes.begin(), override.acceptedBaseHashes.end(), result.baseHash)
+                == override.acceptedBaseHashes.end())
+            {
+                result.error = ValidationError{ "override_base_hash_mismatch", override.target,
+                    "Installed base source hash is not accepted by this compatibility override" };
+            }
+        }
+        else if (override.basePolicy != OverrideBasePolicy::Any)
+        {
+            result.error = ValidationError{ "invalid_base_policy", override.target,
+                "Compatibility override base policy is invalid" };
+        }
+        return result;
     }
 }

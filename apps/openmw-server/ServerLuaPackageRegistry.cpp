@@ -194,17 +194,59 @@ namespace mwmp
             package.files.push_back(std::move(file));
         }
 
-        const YAML::Node scripts = root["scripts"];
-        if (!scripts || !scripts.IsSequence())
-            throw std::runtime_error(manifest.string() + ": scripts must be a sequence");
-        for (const YAML::Node& entry : scripts)
+        if (const YAML::Node scripts = root["scripts"])
         {
-            if (!entry.IsMap())
-                throw std::runtime_error(manifest.string() + ": each script registration must be a map");
-            serverlua::ScriptRegistration registration;
-            registration.path = requiredScalar<std::string>(entry, "path", manifest);
-            registration.flags = parseFlags(entry["flags"], manifest);
-            package.registrations.push_back(std::move(registration));
+            if (!scripts.IsSequence())
+                throw std::runtime_error(manifest.string() + ": scripts must be a sequence");
+            for (const YAML::Node& entry : scripts)
+            {
+                if (!entry.IsMap())
+                    throw std::runtime_error(manifest.string() + ": each script registration must be a map");
+                serverlua::ScriptRegistration registration;
+                registration.path = requiredScalar<std::string>(entry, "path", manifest);
+                registration.flags = parseFlags(entry["flags"], manifest);
+                package.registrations.push_back(std::move(registration));
+            }
+        }
+
+        if (const YAML::Node overrides = root["overrides"])
+        {
+            if (!overrides.IsSequence())
+                throw std::runtime_error(manifest.string() + ": overrides must be a sequence");
+            for (const YAML::Node& entry : overrides)
+            {
+                if (!entry.IsMap())
+                    throw std::runtime_error(manifest.string() + ": each compatibility override must be a map");
+                serverlua::CompatibilityOverride override;
+                override.target = requiredScalar<std::string>(entry, "target", manifest);
+                override.source = requiredScalar<std::string>(entry, "source", manifest);
+                if (override.target != serverlua::normalizeRelativePath(override.target)
+                    || override.source != serverlua::normalizeRelativePath(override.source))
+                {
+                    throw std::runtime_error(
+                        manifest.string() + ": compatibility override paths must already be canonical");
+                }
+
+                const YAML::Node acceptedBaseHashes = entry["acceptedBaseHashes"];
+                const YAML::Node basePolicy = entry["basePolicy"];
+                if (acceptedBaseHashes && basePolicy)
+                    throw std::runtime_error(manifest.string()
+                        + ": compatibility override cannot combine acceptedBaseHashes with basePolicy");
+                if (acceptedBaseHashes)
+                {
+                    if (!acceptedBaseHashes.IsSequence())
+                        throw std::runtime_error(manifest.string() + ": acceptedBaseHashes must be a sequence");
+                    for (const YAML::Node& hash : acceptedBaseHashes)
+                        override.acceptedBaseHashes.push_back(hash.as<std::string>());
+                }
+                else if (basePolicy)
+                {
+                    if (!basePolicy.IsScalar() || basePolicy.as<std::string>() != "any")
+                        throw std::runtime_error(manifest.string() + ": supported basePolicy value is 'any'");
+                    override.basePolicy = serverlua::OverrideBasePolicy::Any;
+                }
+                package.overrides.push_back(std::move(override));
+            }
         }
 
         serverlua::canonicalize(package);

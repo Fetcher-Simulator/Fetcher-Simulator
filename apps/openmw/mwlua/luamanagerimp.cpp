@@ -9,6 +9,7 @@
 
 #include "luamanagerimp.hpp"
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <filesystem>
@@ -408,6 +409,52 @@ namespace MWLua
                     VFS::Path::Normalized path(
                         mwmp::serverlua::virtualPath(package.packageId, file.path));
                     mLua.compileSource(path, file.source);
+                }
+                for (const auto& override : package.overrides)
+                {
+                    const auto source = std::find_if(package.files.begin(), package.files.end(), [&](const auto& file) {
+                        return file.path == override.source;
+                    });
+                    if (source == package.files.end())
+                    {
+                        throw std::runtime_error("reason=override_source_missing package=" + package.packageId
+                            + " target=" + override.target + " source=" + override.source);
+                    }
+
+                    const VFS::Path::Normalized target(override.target);
+                    std::optional<std::string> baseSource;
+                    if (mLua.baseSourceExists(target))
+                        baseSource = mLua.readBaseSource(target);
+                    const auto baseValidation = mwmp::serverlua::validateOverrideBase(
+                        override, baseSource, mLua.hasCompiledSource(target));
+                    if (!baseValidation)
+                    {
+                        std::string accepted;
+                        for (const std::string& hash : override.acceptedBaseHashes)
+                        {
+                            if (!accepted.empty())
+                                accepted += ',';
+                            accepted += hash;
+                        }
+                        throw std::runtime_error("reason=" + baseValidation.error->code + " package="
+                            + package.packageId + " target=" + target.value() + " installedBaseHash="
+                            + baseValidation.baseHash
+                            + " acceptedBaseHashes=" + accepted);
+                    }
+
+                    const auto [it, inserted] = layer.mSources.emplace(target, source->source);
+                    if (!inserted)
+                    {
+                        throw std::runtime_error("reason=duplicate_override_target package=" + package.packageId
+                            + " target=" + it->first.value());
+                    }
+                    layer.mOverrides.push_back(
+                        { package.packageId, target.value(), baseValidation.baseHash, source->sourceHash });
+                }
+                for (auto& file : package.files)
+                {
+                    VFS::Path::Normalized path(
+                        mwmp::serverlua::virtualPath(package.packageId, file.path));
                     const auto [it, inserted] = layer.mSources.emplace(std::move(path), std::move(file.source));
                     if (!inserted)
                         throw std::runtime_error("duplicate multiplayer Lua virtual path: " + it->first.value());
@@ -477,6 +524,15 @@ namespace MWLua
         Log(Debug::Info) << "[ServerLuaPackages] Activated generation="
                          << mActiveMultiplayerLuaLayer->mGeneration
                          << " setHash=" << mActiveMultiplayerLuaLayer->mPackageSetHash;
+        for (const auto& override : mActiveMultiplayerLuaLayer->mOverrides)
+        {
+            Log(Debug::Info) << "[ServerLuaPackages] Applied compatibility override"
+                             << " package=" << override.mPackageId
+                             << " target=" << override.mTarget
+                             << " baseHash=" << override.mBaseHash
+                             << " replacementHash=" << override.mReplacementHash
+                             << " generation=" << mActiveMultiplayerLuaLayer->mGeneration;
+        }
         return true;
     }
 
