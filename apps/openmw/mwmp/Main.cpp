@@ -27,6 +27,7 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerStatsDynamic.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerBaseInfo.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerBounty.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerTopic.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerEquipment.hpp>
 #include <components/openmw-mp/Packets/Player/PacketChatMessage.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerDeath.hpp>
@@ -553,6 +554,7 @@ void Main::onConnected()
     mServerLuaPackagesStaged = false;
     mWorldStateSync->resetSessionState();
     mPlayerSync->resetCrimeStateSync();
+    mPlayerSync->resetTopicStateSync();
 
     // Build and send handshake
     PacketHandshake hs;
@@ -694,6 +696,7 @@ void Main::onDisconnected()
         mPlayerSync->resetSpellbookSyncState();
         mPlayerSync->resetJournalSyncState();
         mPlayerSync->resetCrimeStateSync();
+        mPlayerSync->resetTopicStateSync();
     }
 }
 
@@ -749,6 +752,7 @@ void Main::sendCharacterSelect(const std::string& charName, bool isNew)
     mAuthoritativeStateBootstrapGate.reset();
     mWorldStateSync->beginRuntimeContentBootstrap();
     mPlayerSync->resetCrimeStateSync();
+    mPlayerSync->resetTopicStateSync();
     mCharacterId = 0;
 
     PacketCharacterSelect pkt;
@@ -998,7 +1002,8 @@ void Main::tryFinalizePendingCharacterData()
     // separate bootstrap domains and meet only at this final world-entry gate.
     if (auto contentReady = mRuntimeContentBootstrapGate.takeReadyCharacterData())
         mAuthoritativeStateBootstrapGate.retainCharacterData(std::move(*contentReady));
-    mAuthoritativeStateBootstrapGate.setStateReady(mPlayerSync->hasAuthoritativeCrimeState());
+    mAuthoritativeStateBootstrapGate.setStateReady(
+        mPlayerSync->hasAuthoritativeCrimeState() && mPlayerSync->hasAuthoritativeTopicState());
     auto characterData = mAuthoritativeStateBootstrapGate.takeReadyCharacterData();
     if (characterData)
         finalizeCharacterData(std::move(*characterData));
@@ -1650,6 +1655,33 @@ void Main::registerProtocolHandlers()
             if (decision == RevisionDecision::Conflict)
             {
                 disconnect("Conflicting authoritative player crime revision");
+                return;
+            }
+            tryFinalizePendingCharacterData();
+        });
+
+    proto.registerHandler(PacketType::PlayerTopic,
+        [this](const uint8_t* data, size_t size)
+        {
+            BasePlayer authoritative;
+            PacketPlayerTopic packet;
+            packet.setPlayer(&authoritative);
+            if (!packet.decode(data, size) || packet.action != PacketPlayerTopic::Action::Set)
+            {
+                disconnect("Malformed authoritative player topic state");
+                return;
+            }
+            if (authoritative.guid != mPlayerSync->localPlayer().guid)
+            {
+                disconnect("Authoritative player topic state identity mismatch");
+                return;
+            }
+
+            const RevisionDecision decision
+                = mPlayerSync->receiveAuthoritativeTopicState(std::move(authoritative.topicState));
+            if (decision == RevisionDecision::Conflict)
+            {
+                disconnect("Conflicting authoritative player topic revision");
                 return;
             }
             tryFinalizePendingCharacterData();

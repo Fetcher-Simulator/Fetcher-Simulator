@@ -11,6 +11,7 @@
 #include <components/esm3/loadspel.hpp>
 #include <components/esm3/npcstats.hpp>
 #include <components/openmw-mp/PlayerCrimeState.hpp>
+#include <components/openmw-mp/PlayerTopicState.hpp>
 
 #include "BaseStructs.hpp"
 
@@ -162,6 +163,7 @@ namespace mwmp
         // RPG state
         // ------------------------------------------------------------------
         PlayerCrimeState crimeState;
+        PlayerTopicState topicState;
         // Compatibility mirror used by existing server-side calculations.
         // CrimeService owns updates and keeps this equal to crimeState.bounty.
         int   bounty         = 0;
@@ -209,7 +211,6 @@ namespace mwmp
             // received. Add packets are always complete.
             bool snapshotComplete = true;
         } journalChanges;
-        std::vector<std::string> topicChanges;
         std::vector<std::string> bookChanges;
 
         // ------------------------------------------------------------------

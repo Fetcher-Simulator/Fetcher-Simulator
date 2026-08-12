@@ -33,6 +33,7 @@
 #include <components/openmw-mp/Base/DynamicRecord.hpp>
 #include <components/openmw-mp/Packets/Object/PacketDoorState.hpp>
 #include <components/openmw-mp/PlayerCrimeState.hpp>
+#include <components/openmw-mp/PlayerTopicState.hpp>
 
 #include "PlayerMark.hpp"
 
@@ -156,6 +157,19 @@ namespace mwmp
         CrimeCommitStatus status = CrimeCommitStatus::Committed;
         PlayerCrimeState currentState;
         std::string storedResultPayload;
+    };
+
+    enum class TopicMutationStatus
+    {
+        Committed,
+        Idempotent,
+        StaleRevision,
+    };
+
+    struct TopicMutationResult
+    {
+        TopicMutationStatus status = TopicMutationStatus::Committed;
+        PlayerTopicState state;
     };
 
     struct DynamicRecordCommitEntry
@@ -457,6 +471,9 @@ namespace mwmp
         /// Load the durable global player crime state. Characters without a
         /// row receive the vanilla-compatible revision-zero defaults.
         PlayerCrimeState loadPlayerCrimeState(int64_t characterId);
+        PlayerTopicState loadPlayerTopicState(int64_t characterId);
+        TopicMutationResult addKnownTopics(
+            int64_t characterId, uint64_t expectedRevision, const std::vector<std::string>& topicIds);
 
         /// Load one terminal/pending request from the shared semantic-service
         /// idempotency journal.

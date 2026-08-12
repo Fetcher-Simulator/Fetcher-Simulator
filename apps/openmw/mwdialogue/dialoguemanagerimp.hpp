@@ -95,6 +95,8 @@ namespace MWDialogue
         bool inJournal(const ESM::RefId& topicId, const ESM::RefId& infoId) const override;
 
         void addTopic(const ESM::RefId& topic) override;
+        std::vector<ESM::RefId> getKnownTopics() const override;
+        void setKnownTopics(const std::vector<ESM::RefId>& topics) override;
 
         void addChoice(std::string_view text, int choice) override;
         const std::vector<std::pair<std::string, int>>& getChoices() const override;

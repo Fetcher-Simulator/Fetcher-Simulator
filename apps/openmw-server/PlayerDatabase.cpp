@@ -588,6 +588,15 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         "    CHECK(paid_crime_id >= -1 AND paid_crime_id <= current_crime_id),"
         "  revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),"
         "  updated_at INTEGER NOT NULL DEFAULT 0)",
+        "CREATE TABLE IF NOT EXISTS character_topic_state ("
+        "  character_id INTEGER PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,"
+        "  revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),"
+        "  updated_at INTEGER NOT NULL DEFAULT 0)",
+        "CREATE TABLE IF NOT EXISTS character_known_topics ("
+        "  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,"
+        "  topic_id TEXT NOT NULL, PRIMARY KEY(character_id, topic_id))",
+        "CREATE INDEX IF NOT EXISTS idx_character_known_topics_character"
+        " ON character_known_topics(character_id)",
         "CREATE TABLE IF NOT EXISTS server_record_requests ("
         "  source TEXT NOT NULL,"
         "  request_id TEXT NOT NULL,"
@@ -708,6 +717,8 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
             { "character_marks", "character_id, mark_name" },
             { "character_lua_storage", "character_id, storage_namespace, storage_key" },
             { "character_crime_state", "character_id" },
+            { "character_topic_state", "character_id" },
+            { "character_known_topics", "character_id, topic_id" },
         };
 
         void checkSqlite(int rc, sqlite3* db, const char* op)
@@ -3047,6 +3058,126 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         sqlite3_finalize(s);
         if (!updated)
             throw std::runtime_error("[PlayerDB] craft request completion did not match one pending request");
+    }
+
+    PlayerTopicState PlayerDatabase::loadPlayerTopicState(int64_t characterId)
+    {
+        PlayerTopicState state;
+        sqlite3_stmt* revision = prepare(
+            "SELECT s.revision FROM characters c LEFT JOIN character_topic_state s ON s.character_id=c.id"
+            " WHERE c.id=?1");
+        sqlite3_bind_int64(revision, 1, characterId);
+        if (sqlite3_step(revision) == SQLITE_ROW && sqlite3_column_type(revision, 0) != SQLITE_NULL)
+        {
+            const sqlite3_int64 value = sqlite3_column_int64(revision, 0);
+            if (value < 0)
+            {
+                sqlite3_finalize(revision);
+                throw std::runtime_error("[PlayerDB] invalid persisted topic revision");
+            }
+            state.revision = static_cast<std::uint64_t>(value);
+        }
+        sqlite3_finalize(revision);
+
+        sqlite3_stmt* topics = prepare(
+            "SELECT topic_id FROM character_known_topics WHERE character_id=?1 ORDER BY topic_id");
+        sqlite3_bind_int64(topics, 1, characterId);
+        while (sqlite3_step(topics) == SQLITE_ROW)
+        {
+            const char* id = reinterpret_cast<const char*>(sqlite3_column_text(topics, 0));
+            if (id)
+                state.knownTopicIds.emplace_back(id);
+        }
+        sqlite3_finalize(topics);
+        if (const TopicStateError error = validatePlayerTopicState(state); error != TopicStateError::None)
+        {
+            throw std::runtime_error(
+                "[PlayerDB] invalid persisted topic state: " + std::string(getTopicStateErrorCode(error)));
+        }
+        return state;
+    }
+
+    TopicMutationResult PlayerDatabase::addKnownTopics(
+        int64_t characterId, uint64_t expectedRevision, const std::vector<std::string>& topicIds)
+    {
+        const std::vector<std::string> additions = canonicalizeTopicIds(topicIds);
+        PlayerTopicState proposal;
+        proposal.revision = expectedRevision;
+        proposal.knownTopicIds = additions;
+        if (const TopicStateError error = validatePlayerTopicState(proposal); error != TopicStateError::None)
+        {
+            throw std::runtime_error(
+                "[PlayerDB] invalid topic proposal: " + std::string(getTopicStateErrorCode(error)));
+        }
+        exec("BEGIN IMMEDIATE");
+        try
+        {
+            TopicMutationResult result;
+            result.state = loadPlayerTopicState(characterId);
+            if (result.state.revision != expectedRevision)
+            {
+                result.status = TopicMutationStatus::StaleRevision;
+                exec("COMMIT");
+                return result;
+            }
+
+            std::vector<std::string> merged = result.state.knownTopicIds;
+            merged.insert(merged.end(), additions.begin(), additions.end());
+            merged = canonicalizeTopicIds(merged);
+            PlayerTopicState candidate = result.state;
+            candidate.knownTopicIds = merged;
+            if (const TopicStateError error = validatePlayerTopicState(candidate); error != TopicStateError::None)
+            {
+                throw std::runtime_error(
+                    "[PlayerDB] invalid resulting topic state: " + std::string(getTopicStateErrorCode(error)));
+            }
+            if (merged == result.state.knownTopicIds)
+            {
+                result.status = TopicMutationStatus::Idempotent;
+                exec("COMMIT");
+                return result;
+            }
+            if (result.state.revision >= MaximumPersistedRevision)
+                throw std::runtime_error("[PlayerDB] topic state limit exceeded");
+
+            sqlite3_stmt* insert = prepare(
+                "INSERT OR IGNORE INTO character_known_topics(character_id, topic_id) VALUES(?1, ?2)");
+            for (const std::string& id : additions)
+            {
+                sqlite3_bind_int64(insert, 1, characterId);
+                sqlite3_bind_text(insert, 2, id.c_str(), static_cast<int>(id.size()), SQLITE_TRANSIENT);
+                checkSqlite(sqlite3_step(insert), mDb, "addKnownTopics(topic)");
+                sqlite3_reset(insert);
+                sqlite3_clear_bindings(insert);
+            }
+            sqlite3_finalize(insert);
+
+            ++result.state.revision;
+            result.state.knownTopicIds = std::move(merged);
+            sqlite3_stmt* update = prepare(
+                "INSERT INTO character_topic_state(character_id, revision, updated_at) VALUES(?1, ?2, ?3)"
+                " ON CONFLICT(character_id) DO UPDATE SET revision=excluded.revision, updated_at=excluded.updated_at");
+            sqlite3_bind_int64(update, 1, characterId);
+            sqlite3_bind_int64(update, 2, static_cast<sqlite3_int64>(result.state.revision));
+            sqlite3_bind_int64(update, 3, static_cast<sqlite3_int64>(std::time(nullptr)));
+            checkSqlite(sqlite3_step(update), mDb, "addKnownTopics(state)");
+            sqlite3_finalize(update);
+
+            result.status = TopicMutationStatus::Committed;
+            exec("COMMIT");
+            return result;
+        }
+        catch (...)
+        {
+            try
+            {
+                exec("ROLLBACK");
+            }
+            catch (...)
+            {
+            }
+            throw;
+        }
     }
 
     PlayerCrimeState PlayerDatabase::loadPlayerCrimeState(int64_t characterId)
