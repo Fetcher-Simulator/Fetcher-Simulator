@@ -12,6 +12,7 @@
 #include <components/openmw-mp/InventorySync.hpp>
 #include <components/openmw-mp/NetworkMessages.hpp>
 #include <components/openmw-mp/PlayerCrimeState.hpp>
+#include <components/openmw-mp/PlayerTopicState.hpp>
 #include <components/openmw-mp/SemanticService.hpp>
 #include <components/openmw-mp/SpellbookSync.hpp>
 
@@ -79,9 +80,13 @@ namespace mwmp
         void resetSpellbookSyncState();
         void resetJournalSyncState();
         void resetCrimeStateSync();
+        void resetTopicStateSync();
         RevisionDecision receiveAuthoritativeCrimeState(PlayerCrimeState state);
+        RevisionDecision receiveAuthoritativeTopicState(PlayerTopicState state);
         bool hasAuthoritativeCrimeState() const { return mCrimeStateGate.hasState(); }
+        bool hasAuthoritativeTopicState() const { return mTopicStateGate.hasState(); }
         void applyAuthoritativeCrimeStateToPlayer();
+        void applyAuthoritativeTopicState();
         static bool journalDefinitionsAvailable(const MWWorld::ESMStore& store,
             const BasePlayer::JournalChanges& changes, std::string* missingQuest = nullptr,
             std::string* missingInfo = nullptr);
@@ -91,6 +96,7 @@ namespace mwmp
         void tickPosition(float dt);
         void tickDynamicStats(float dt);
         void tickJournal();
+        void tickTopics();
         void tickSpellbook(float dt);
 
         // ---- send helpers ----
@@ -195,6 +201,8 @@ namespace mwmp
         static constexpr float SPELLBOOK_RATE = 0.25f; // 4 Hz learned-set comparison
         SpellbookRevisionGate mSpellbookRevisionGate;
         RevisionedStateGate<PlayerCrimeState> mCrimeStateGate;
+        RevisionedStateGate<PlayerTopicState> mTopicStateGate;
+        bool mTopicMutationInFlight = false;
 
         struct StatsSnapshot
         {

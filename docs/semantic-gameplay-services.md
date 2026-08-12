@@ -1,8 +1,8 @@
 # Semantic gameplay services
 
 Multiplayer gameplay authority synchronizes typed semantic state, not the
-scripting-language operation that caused it. The first implemented service is
-global player crime state:
+scripting-language operation that caused it. Implemented domains include
+global player crime state and learned dialogue topics:
 
 ```text
 trusted gameplay mutation
@@ -141,3 +141,50 @@ remain deferred.
 Phase 4 should introduce typed semantic crime proposals/reporting that feed
 this same service, then build arrest as a separate authoritative transaction.
 It must not use client final-state snapshots or remote MWScript/Lua execution.
+
+## Authoritative known dialogue topics
+
+`PlayerTopicState` is a separate revisioned, add-only gameplay domain:
+
+```text
+local MWScript/OpenMW Lua/dialogue result
+        -> normal DialogueManager topic set
+        -> AddKnownTopic proposal
+        -> server effective-content validation
+        -> atomic SQLite commit
+        -> authoritative full topic set
+        -> normal DialogueManager topic set
+```
+
+The server stores the revision in `character_topic_state` and the canonical,
+case-insensitive IDs in `character_known_topics`. Both tables are keyed by the
+authenticated selected character and cascade on character deletion. Duplicate
+adds are idempotent and do not advance the revision. Stale proposals receive
+the current authoritative state without mutation.
+
+Protocol version 6 assigns the reserved `PlayerTopic` message ID a typed
+contract. Clients may send only an `Add` proposal with their expected revision;
+they cannot replace or remove the complete set. The server replies only with a
+`Set` snapshot containing its full canonical state. Packet validation bounds
+the set and ID sizes, requires valid UTF-8, and rejects noncanonical ordering,
+duplicates, unsupported schemas, trailing bytes, and identity mismatches.
+
+The current client proposal is deliberately transitional: the server proves
+that every proposed ID is a Topic DIAL in its effective static or runtime
+content, but it does not yet prove which dialogue response or script entitled
+that player to learn it. Stronger source-specific entitlement can later feed
+the same add-only service without changing the persisted result model.
+
+At character selection the topic snapshot is an explicit world-entry
+prerequisite alongside crime state. Runtime definitions remain a separate
+bootstrap domain and are installed first. If a restored topic references a
+dynamically supplied DIAL that is not yet visible, the snapshot stays queued
+and is retried after record insertion; it is never silently discarded.
+
+The client mirrors an accepted snapshot through a narrow replacement seam for
+`DialogueManager::mKnownTopics`. It does not call `DialogueManager::clear()`,
+does not maintain a competing multiplayer topic cache, and does not replay the
+MWScript, Lua, INFO result script, or dialogue interaction that caused the
+topic to be learned. Normal dialogue UI, MWScript, and OpenMW Lua therefore
+observe the restored semantic result naturally. Single-player save/load paths
+remain unchanged.

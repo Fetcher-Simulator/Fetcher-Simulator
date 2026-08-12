@@ -38,6 +38,7 @@
 
 #include <components/debug/debuglog.hpp>
 #include <components/esm/refid.hpp>
+#include <components/esm3/loaddial.hpp>
 #include <components/misc/constants.hpp>
 #include <components/openmw-mp/MasterServerProtocol.hpp>
 #include <components/openmw-mp/Packets/BasePacket.hpp>
@@ -46,6 +47,7 @@
 #include <components/openmw-mp/Packets/System/PacketServerLuaPackage.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerBaseInfo.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerBounty.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerTopic.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerCharGen.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerPosition.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerCellChange.hpp>
@@ -4006,6 +4008,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::PlayerCast:       handlePlayerCast(client, data, size);         break;
         case PacketType::PlayerInventory:  handlePlayerInventory(client, data, size);    break;
         case PacketType::PlayerSpellbook:  handlePlayerSpellbook(client, data, size);    break;
+        case PacketType::PlayerTopic:      handlePlayerTopic(client, data, size);        break;
         case PacketType::RecordCreateRequest: handleRecordCreateRequest(client, data, size); break;
         case PacketType::AlchemyRequest:   handleAlchemyRequest(client, data, size);     break;
         case PacketType::EnchantingRequest: handleEnchantingRequest(client, data, size); break;
@@ -5630,6 +5633,7 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
             c.spellbookRevision = mPlayerDb->loadSpellbookRevision(c.dbCharacterId);
             c.player.spellbookChanges.revision = c.spellbookRevision;
             c.player.crimeState = mPlayerDb->loadPlayerCrimeState(c.dbCharacterId);
+            c.player.topicState = mPlayerDb->loadPlayerTopicState(c.dbCharacterId);
             c.player.bounty = c.player.crimeState.bounty;
             mPlayerDb->touch(c.dbCharacterId);
             mLua.setPlayerMarks(c.guid, mPlayerDb->loadCharacterMarks(c.dbCharacterId));
@@ -5676,10 +5680,11 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
                             << " cell=" << cdPkt.spawnCell;
     }
 
-    // PlayerBounty is authoritative gameplay state, not runtime content. It is
-    // nevertheless an explicit world-entry prerequisite and shares the ordered
-    // bootstrap lane with CharacterData so the latter cannot overtake it.
+    // Semantic player state is distinct from runtime content, but both crime
+    // and known topics are explicit world-entry prerequisites. They share the
+    // ordered bootstrap lane with CharacterData so it cannot overtake them.
     sendAuthoritativeCrimeState(c);
+    sendAuthoritativeTopicState(c);
     sendTo(c.conn, cdPkt.encode());
     c.charSelectComplete = true;
 
@@ -6748,6 +6753,54 @@ void MPServer::handlePlayerSpellbook(ConnectedClient& c, const uint8_t* data, si
         Log(Debug::Info) << "[Spellbook] accepted player=" << c.name
                          << " action=set spells=" << c.player.spellbookChanges.spellIds.size()
                          << " revision=" << c.spellbookRevision;
+    }
+}
+
+// ---------------------------------------------------------------------------
+void MPServer::handlePlayerTopic(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    BasePlayer incoming;
+    PacketPlayerTopic packet;
+    packet.setPlayer(&incoming);
+    if (!packet.decode(data, size) || packet.action != PacketPlayerTopic::Action::Add
+        || incoming.guid != c.guid || !mPlayerDb || c.dbCharacterId <= 0)
+    {
+        Log(Debug::Warning) << "[PlayerTopic] rejected malformed or unauthorized proposal player=" << c.name;
+        sendAuthoritativeTopicState(c);
+        return;
+    }
+
+    const auto& dialogues = mContentRegistry->store().get<ESM::Dialogue>();
+    for (const std::string& id : incoming.topicState.knownTopicIds)
+    {
+        const ESM::Dialogue* dialogue = dialogues.search(ESM::RefId::stringRefId(id));
+        if (!dialogue || dialogue->mType != ESM::Dialogue::Topic)
+        {
+            Log(Debug::Warning) << "[PlayerTopic] rejected invalid topic player=" << c.name
+                                << " topic=" << id;
+            sendAuthoritativeTopicState(c);
+            return;
+        }
+    }
+
+    try
+    {
+        const TopicMutationResult result = mPlayerDb->addKnownTopics(
+            c.dbCharacterId, incoming.topicState.revision, incoming.topicState.knownTopicIds);
+        c.player.topicState = result.state;
+        sendAuthoritativeTopicState(c);
+        Log(result.status == TopicMutationStatus::StaleRevision ? Debug::Warning : Debug::Info)
+            << "[PlayerTopic] "
+            << (result.status == TopicMutationStatus::Committed ? "accepted"
+                : result.status == TopicMutationStatus::Idempotent ? "idempotent" : "stale")
+            << " player=" << c.name << " revision=" << result.state.revision
+            << " topics=" << result.state.knownTopicIds.size();
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[PlayerTopic] persistence failure player=" << c.name << " error=" << e.what();
+        c.player.topicState = mPlayerDb->loadPlayerTopicState(c.dbCharacterId);
+        sendAuthoritativeTopicState(c);
     }
 }
 
@@ -12725,6 +12778,14 @@ void MPServer::sendAuthoritativeCrimeState(ConnectedClient& c)
 {
     c.player.bounty = c.player.crimeState.bounty;
     PacketPlayerBounty packet;
+    packet.setPlayer(&c.player);
+    sendTo(c.conn, packet.encode());
+}
+
+void MPServer::sendAuthoritativeTopicState(ConnectedClient& c)
+{
+    PacketPlayerTopic packet;
+    packet.action = PacketPlayerTopic::Action::Set;
     packet.setPlayer(&c.player);
     sendTo(c.conn, packet.encode());
 }

@@ -27,6 +27,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwmp/testenchantingservice.cpp
     mwmp/testplayerspellbook.cpp
     mwmp/testcrimeservice.cpp
+    mwmp/testtopicpersistence.cpp
 )
 
 if (MSVC)

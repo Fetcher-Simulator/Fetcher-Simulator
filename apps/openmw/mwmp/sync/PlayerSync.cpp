@@ -24,6 +24,7 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerInventory.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerJournal.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerSpellbook.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerTopic.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerDeath.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerResurrect.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAnimPlay.hpp>
@@ -36,6 +37,7 @@
 // OpenMW world/player access
 #include "../../mwbase/environment.hpp"
 #include "../../mwbase/journal.hpp"
+#include "../../mwbase/dialoguemanager.hpp"
 #include "../../mwbase/world.hpp"
 #include "../../mwbase/inputmanager.hpp"
 #include "../../mwbase/luamanager.hpp"
@@ -856,7 +858,7 @@ void PlayerSync::queueAuthoritativeSpellbook(const BasePlayer& authoritative)
 void PlayerSync::onDynamicRecordsChanged()
 {
     if (!mPendingInventoryRestore && !mPendingEquipmentRestore && !mPendingSpellbookRestore
-        && mPendingJournalChanges.empty())
+        && mPendingJournalChanges.empty() && !mTopicStateGate.hasPending())
         return;
     MWBase::World* world = MWBase::Environment::get().getWorld();
     if (world == nullptr)
@@ -1132,6 +1134,7 @@ void PlayerSync::update(float dt)
     }
     tickDynamicStats(dt);
     tickJournal();
+    tickTopics();
     tickSpellbook(dt);
     sendAnimFlags(dt);
     sendAnimPlay();
@@ -1299,6 +1302,37 @@ void PlayerSync::tickJournal()
 
     mLocal.journalChanges.items = std::move(changes);
     sendJournal();
+}
+
+void PlayerSync::tickTopics()
+{
+    if (!mTopicStateGate.hasState() || mTopicMutationInFlight)
+        return;
+
+    MWBase::DialogueManager* dialogue = MWBase::Environment::get().getDialogueManager();
+    if (!dialogue)
+        return;
+    std::vector<std::string> local;
+    for (const ESM::RefId& id : dialogue->getKnownTopics())
+        local.push_back(id.serializeText());
+    local = canonicalizeTopicIds(local);
+
+    const PlayerTopicState& authoritative = *mTopicStateGate.latest();
+    std::vector<std::string> additions;
+    std::set_difference(local.begin(), local.end(), authoritative.knownTopicIds.begin(),
+        authoritative.knownTopicIds.end(), std::back_inserter(additions));
+    if (additions.empty())
+        return;
+
+    BasePlayer proposal;
+    proposal.guid = mLocal.guid;
+    proposal.topicState.revision = authoritative.revision;
+    proposal.topicState.knownTopicIds = std::move(additions);
+    PacketPlayerTopic packet;
+    packet.action = PacketPlayerTopic::Action::Add;
+    packet.setPlayer(&proposal);
+    mClient.sendReliable(packet.encode(mSeqCounter++));
+    mTopicMutationInFlight = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -2885,12 +2919,63 @@ void PlayerSync::resetCrimeStateSync()
     mLocal.bounty = 0;
 }
 
+void PlayerSync::resetTopicStateSync()
+{
+    mTopicStateGate.reset();
+    mTopicMutationInFlight = false;
+    mLocal.topicState = {};
+}
+
 RevisionDecision PlayerSync::receiveAuthoritativeCrimeState(PlayerCrimeState state)
 {
     const RevisionDecision decision = mCrimeStateGate.receive(std::move(state));
     if (decision == RevisionDecision::AcceptedNewer)
         applyAuthoritativeCrimeStateToPlayer();
     return decision;
+}
+
+RevisionDecision PlayerSync::receiveAuthoritativeTopicState(PlayerTopicState state)
+{
+    const RevisionDecision decision = mTopicStateGate.receive(std::move(state));
+    if (decision != RevisionDecision::Stale && decision != RevisionDecision::Conflict)
+        mTopicMutationInFlight = false;
+    if (decision == RevisionDecision::AcceptedNewer)
+        applyAuthoritativeTopicState();
+    return decision;
+}
+
+void PlayerSync::applyAuthoritativeTopicState()
+{
+    if (!mTopicStateGate.hasPending())
+        return;
+    const MWBase::Environment& environment = MWBase::Environment::get();
+    if (environment.getStateManager()->getState() != MWBase::StateManager::State_Running)
+        return;
+
+    const PlayerTopicState& state = *mTopicStateGate.latest();
+    const auto& dialogues = environment.getESMStore()->get<ESM::Dialogue>();
+    std::vector<ESM::RefId> topics;
+    topics.reserve(state.knownTopicIds.size());
+    for (const std::string& id : state.knownTopicIds)
+    {
+        const ESM::RefId refId = ESM::RefId::stringRefId(id);
+        const ESM::Dialogue* record = dialogues.search(refId);
+        if (!record || record->mType != ESM::Dialogue::Topic)
+        {
+            Log(Debug::Verbose) << "[PlayerTopic] Deferring authoritative topic state until definition arrives"
+                                << " topic=" << id << " revision=" << state.revision;
+            return;
+        }
+        topics.push_back(refId);
+    }
+
+    const std::optional<PlayerTopicState> pending = mTopicStateGate.takePending();
+    if (!pending)
+        return;
+    environment.getDialogueManager()->setKnownTopics(topics);
+    mLocal.topicState = *pending;
+    Log(Debug::Info) << "[PlayerTopic] Applied authoritative known topics"
+                     << " revision=" << pending->revision << " topics=" << pending->knownTopicIds.size();
 }
 
 void PlayerSync::applyAuthoritativeCrimeStateToPlayer()
@@ -3019,6 +3104,8 @@ void PlayerSync::applyPendingAuthoritativeState(const MWWorld::Ptr& player)
 
     if (mCrimeStateGate.hasPending())
         applyAuthoritativeCrimeStateToPlayer();
+    if (mTopicStateGate.hasPending())
+        applyAuthoritativeTopicState();
 
     while (!mPendingJournalChanges.empty())
     {

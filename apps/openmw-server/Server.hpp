@@ -328,6 +328,7 @@ private:
     void handlePlayerCast       (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerInventory  (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerSpellbook  (ConnectedClient& c, const uint8_t* data, size_t size);
+    void handlePlayerTopic      (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleAlchemyRequest   (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleEnchantingRequest(ConnectedClient& c, const uint8_t* data, size_t size);
@@ -403,6 +404,7 @@ private:
     void sendAuthoritativeJournal(ConnectedClient& c);
     void sendAuthoritativeSpellbook(ConnectedClient& c);
     void sendAuthoritativeCrimeState(ConnectedClient& c);
+    void sendAuthoritativeTopicState(ConnectedClient& c);
     std::string journalGroupFor(const ConnectedClient& c) const;
     bool shouldShareJournal(const ConnectedClient& source, const ConnectedClient& target) const;
     std::vector<int64_t> journalSourceCharacterIds(const ConnectedClient& c);
