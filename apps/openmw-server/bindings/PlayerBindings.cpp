@@ -62,6 +62,81 @@ static sol::table scriptPlayer_getCrimeState(const ScriptPlayer& p, sol::this_st
     return state;
 }
 
+static sol::table scriptPlayer_getFactionState(const ScriptPlayer& p, sol::this_state ts)
+{
+    sol::state_view lua(ts);
+    sol::table state = lua.create_table();
+    state["revision"] = p.data.factionState.revision;
+    sol::table factions = lua.create_table(static_cast<int>(p.data.factionState.factions.size()), 0);
+    int index = 1;
+    for (const PlayerFactionEntry& entry : p.data.factionState.factions)
+    {
+        sol::table faction = lua.create_table();
+        faction["factionId"] = entry.factionId;
+        faction["rank"] = entry.rank;
+        faction["reputation"] = entry.reputation;
+        faction["expelled"] = entry.expelled;
+        factions[index++] = std::move(faction);
+    }
+    state["factions"] = std::move(factions);
+    return state;
+}
+
+static void queueFactionMutation(const ScriptPlayer& player, FactionMutationKind kind,
+    const std::string& factionId, std::int64_t value, const std::string& requestId)
+{
+    if (player.context)
+        player.context->queuePlayerFactionMutation(player.data.guid, kind, factionId, value, requestId);
+}
+
+static void scriptPlayer_joinFaction(
+    const ScriptPlayer& player, const std::string& factionId, const std::string& requestId)
+{
+    queueFactionMutation(player, FactionMutationKind::JoinFaction, factionId, 0, requestId);
+}
+
+static void scriptPlayer_leaveFaction(
+    const ScriptPlayer& player, const std::string& factionId, const std::string& requestId)
+{
+    queueFactionMutation(player, FactionMutationKind::LeaveFaction, factionId, 0, requestId);
+}
+
+static void scriptPlayer_setFactionRank(const ScriptPlayer& player,
+    const std::string& factionId, std::int64_t value, const std::string& requestId)
+{
+    queueFactionMutation(player, FactionMutationKind::SetFactionRank, factionId, value, requestId);
+}
+
+static void scriptPlayer_modifyFactionRank(const ScriptPlayer& player,
+    const std::string& factionId, std::int64_t value, const std::string& requestId)
+{
+    queueFactionMutation(player, FactionMutationKind::ModifyFactionRank, factionId, value, requestId);
+}
+
+static void scriptPlayer_setFactionReputation(const ScriptPlayer& player,
+    const std::string& factionId, std::int64_t value, const std::string& requestId)
+{
+    queueFactionMutation(player, FactionMutationKind::SetFactionReputation, factionId, value, requestId);
+}
+
+static void scriptPlayer_modifyFactionReputation(const ScriptPlayer& player,
+    const std::string& factionId, std::int64_t value, const std::string& requestId)
+{
+    queueFactionMutation(player, FactionMutationKind::ModifyFactionReputation, factionId, value, requestId);
+}
+
+static void scriptPlayer_expelFromFaction(
+    const ScriptPlayer& player, const std::string& factionId, const std::string& requestId)
+{
+    queueFactionMutation(player, FactionMutationKind::ExpelFromFaction, factionId, 0, requestId);
+}
+
+static void scriptPlayer_clearFactionExpulsion(
+    const ScriptPlayer& player, const std::string& factionId, const std::string& requestId)
+{
+    queueFactionMutation(player, FactionMutationKind::ClearFactionExpulsion, factionId, 0, requestId);
+}
+
 static void scriptPlayer_setBounty(
     const ScriptPlayer& p, std::int64_t bounty, const std::string& requestId)
 {
@@ -145,6 +220,7 @@ void initPlayerBindings(LuaUtil::LuaView& view, sol::table& mp, LuaServerContext
         "loadedActorCells", sol::property(&scriptPlayer_getLoadedActorCells),
         "position", sol::property(&scriptPlayer_getPosition),
         "crimeState", sol::property(&scriptPlayer_getCrimeState),
+        "factionState", sol::property(&scriptPlayer_getFactionState),
         "race",     sol::property(&scriptPlayer_getRace),
         "isMale",   sol::property(&scriptPlayer_getIsMale),
         "gender",   sol::property(&scriptPlayer_getGender),
@@ -156,7 +232,15 @@ void initPlayerBindings(LuaUtil::LuaView& view, sol::table& mp, LuaServerContext
         "getNickname",   &scriptPlayer_getNickname,
         "setNickname",   &scriptPlayer_setNickname,
         "setBounty",     &scriptPlayer_setBounty,
-        "modifyBounty",  &scriptPlayer_modifyBounty
+        "modifyBounty",  &scriptPlayer_modifyBounty,
+        "joinFaction", &scriptPlayer_joinFaction,
+        "leaveFaction", &scriptPlayer_leaveFaction,
+        "setFactionRank", &scriptPlayer_setFactionRank,
+        "modifyFactionRank", &scriptPlayer_modifyFactionRank,
+        "setFactionReputation", &scriptPlayer_setFactionReputation,
+        "modifyFactionReputation", &scriptPlayer_modifyFactionReputation,
+        "expelFromFaction", &scriptPlayer_expelFromFaction,
+        "clearFactionExpulsion", &scriptPlayer_clearFactionExpulsion
     );
 
     mp.set_function("getPlayer", [context](uint32_t guid) -> sol::optional<ScriptPlayer>

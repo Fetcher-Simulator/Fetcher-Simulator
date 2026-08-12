@@ -330,6 +330,10 @@ void LuaServerContext::drainOutbound()
                 mServer->mutatePlayerBounty(action.guid, CrimeMutationKind::ModifyBounty,
                     action.semanticValue, action.semanticRequestId);
                 break;
+            case OutboundLuaActionType::MutatePlayerFaction:
+                mServer->mutatePlayerFaction(action.guid, action.factionMutationKind,
+                    action.semanticFactionId, action.semanticValue, action.semanticRequestId);
+                break;
             case OutboundLuaActionType::PlaceObject:
                 mServer->placeObject(action.text, action.itemCount, action.cellId, action.position);
                 break;
@@ -1287,6 +1291,19 @@ void LuaServerContext::queueModifyPlayerBounty(
     action.type = OutboundLuaActionType::ModifyPlayerBounty;
     action.guid = guid;
     action.semanticValue = delta;
+    action.semanticRequestId = requestId;
+    mOutboundQueue.push(std::move(action));
+}
+
+void LuaServerContext::queuePlayerFactionMutation(uint32_t guid, FactionMutationKind kind,
+    const std::string& factionId, std::int64_t value, const std::string& requestId)
+{
+    OutboundLuaAction action;
+    action.type = OutboundLuaActionType::MutatePlayerFaction;
+    action.guid = guid;
+    action.factionMutationKind = kind;
+    action.semanticFactionId = factionId;
+    action.semanticValue = value;
     action.semanticRequestId = requestId;
     mOutboundQueue.push(std::move(action));
 }

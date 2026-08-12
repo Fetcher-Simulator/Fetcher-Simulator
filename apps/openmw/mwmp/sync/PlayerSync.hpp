@@ -12,6 +12,7 @@
 #include <components/openmw-mp/InventorySync.hpp>
 #include <components/openmw-mp/NetworkMessages.hpp>
 #include <components/openmw-mp/PlayerCrimeState.hpp>
+#include <components/openmw-mp/PlayerFactionState.hpp>
 #include <components/openmw-mp/PlayerTopicState.hpp>
 #include <components/openmw-mp/SemanticService.hpp>
 #include <components/openmw-mp/SpellbookSync.hpp>
@@ -23,6 +24,9 @@ namespace mwmp
 {
     void applyAuthoritativeCrimeState(
         MWMechanics::NpcStats& npcStats, MWWorld::Player& player, const PlayerCrimeState& state);
+    PlayerFactionState capturePlayerFactionState(
+        const MWMechanics::NpcStats& npcStats, std::uint64_t revision);
+    void applyPlayerFactionState(MWMechanics::NpcStats& npcStats, const PlayerFactionState& state);
 
     class NetworkClient;
     class Protocol;
@@ -80,12 +84,17 @@ namespace mwmp
         void resetSpellbookSyncState();
         void resetJournalSyncState();
         void resetCrimeStateSync();
+        void resetFactionStateSync();
         void resetTopicStateSync();
         RevisionDecision receiveAuthoritativeCrimeState(PlayerCrimeState state);
+        RevisionDecision receiveAuthoritativeFactionResult(PlayerFactionState state,
+            std::string_view requestId, bool accepted, FactionError error);
         RevisionDecision receiveAuthoritativeTopicState(PlayerTopicState state);
         bool hasAuthoritativeCrimeState() const { return mCrimeStateGate.hasState(); }
+        bool hasAuthoritativeFactionState() const { return mFactionStateGate.hasState(); }
         bool hasAuthoritativeTopicState() const { return mTopicStateGate.hasState(); }
         void applyAuthoritativeCrimeStateToPlayer();
+        void applyAuthoritativeFactionState();
         void applyAuthoritativeTopicState();
         static bool journalDefinitionsAvailable(const MWWorld::ESMStore& store,
             const BasePlayer::JournalChanges& changes, std::string* missingQuest = nullptr,
@@ -96,6 +105,7 @@ namespace mwmp
         void tickPosition(float dt);
         void tickDynamicStats(float dt);
         void tickJournal();
+        void tickFactions();
         void tickTopics();
         void tickSpellbook(float dt);
 
@@ -201,6 +211,12 @@ namespace mwmp
         static constexpr float SPELLBOOK_RATE = 0.25f; // 4 Hz learned-set comparison
         SpellbookRevisionGate mSpellbookRevisionGate;
         RevisionedStateGate<PlayerCrimeState> mCrimeStateGate;
+        RevisionedStateGate<PlayerFactionState> mFactionStateGate;
+        std::string mFactionRequestPrefix;
+        std::uint64_t mNextFactionRequest = 0;
+        std::string mFactionMutationInFlight;
+        std::optional<PlayerFactionState> mFactionProposalObservedState;
+        std::optional<PlayerFactionState> mDeferredFactionState;
         RevisionedStateGate<PlayerTopicState> mTopicStateGate;
         bool mTopicMutationInFlight = false;
 

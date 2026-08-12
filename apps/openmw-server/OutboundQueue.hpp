@@ -10,6 +10,7 @@
 #include <components/openmw-mp/Base/BaseStructs.hpp>
 #include <components/openmw-mp/Base/DynamicRecord.hpp>
 #include <components/openmw-mp/Packets/Lua/PacketLuaStorage.hpp>
+#include <components/openmw-mp/PlayerFactionState.hpp>
 
 #include "PlayerMark.hpp"
 
@@ -53,6 +54,7 @@ enum class OutboundLuaActionType
     KillPlayer,
     SetPlayerBounty,
     ModifyPlayerBounty,
+    MutatePlayerFaction,
 };
 
 struct OutboundLuaAction
@@ -63,6 +65,7 @@ struct OutboundLuaAction
     float worldHour = 0.f;
     int itemCount = 0;
     std::int64_t semanticValue = 0;
+    FactionMutationKind factionMutationKind = FactionMutationKind::JoinFaction;
     bool recordPersistent = true;
     bool actorPersistent = true;
     uint32_t actorRefNum = 0;
@@ -72,6 +75,7 @@ struct OutboundLuaAction
     PlayerMark playerMark;
     std::string text;
     std::string semanticRequestId;
+    std::string semanticFactionId;
     std::string eventName;
     std::string cellId;
     std::string recordType;

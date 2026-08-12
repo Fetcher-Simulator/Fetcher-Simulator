@@ -106,6 +106,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         openmw-mp/playerjournal.cpp
         openmw-mp/playercrime.cpp
         openmw-mp/playertopic.cpp
+        openmw-mp/playerfaction.cpp
         openmw-mp/playerjournaldatabase.cpp
         openmw-mp/playerinventory.cpp
         openmw-mp/inventorysync.cpp
@@ -124,6 +125,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         ../openmw-server/PlayerDatabase.cpp
         ../openmw-server/DynamicRecordService.cpp
         ../openmw-server/CrimeService.cpp
+        ../openmw-server/FactionService.cpp
         ../openmw-server/ServerLuaPackageRegistry.cpp
     )
 endif()

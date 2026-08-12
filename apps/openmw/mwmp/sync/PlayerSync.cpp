@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstring>
 #include <optional>
+#include <random>
+#include <sstream>
 #include <string_view>
 
 #include <components/debug/debuglog.hpp>
@@ -12,6 +14,7 @@
 #include <components/esm/util.hpp>
 #include <components/esm3/loadcell.hpp>
 #include <components/esm3/loaddial.hpp>
+#include <components/esm3/loadfact.hpp>
 #include <components/esm3/loadinfo.hpp>
 #include <components/esm3/journalentry.hpp>
 #include <components/misc/rng.hpp>
@@ -24,6 +27,7 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerInventory.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerJournal.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerSpellbook.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerFaction.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerTopic.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerDeath.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerResurrect.hpp>
@@ -84,6 +88,49 @@ void applyAuthoritativeCrimeState(
 {
     npcStats.setBounty(state.bounty);
     player.setCrimeIds(state.currentCrimeId, state.paidCrimeId);
+}
+
+PlayerFactionState capturePlayerFactionState(
+    const MWMechanics::NpcStats& npcStats, std::uint64_t revision)
+{
+    std::set<ESM::RefId> ids;
+    for (const auto& [id, rank] : npcStats.getFactionRanks())
+        ids.insert(id);
+    for (const auto& [id, reputation] : npcStats.getFactionReputations())
+        ids.insert(id);
+    ids.insert(npcStats.getExpelled().begin(), npcStats.getExpelled().end());
+
+    PlayerFactionState state;
+    state.revision = revision;
+    for (const ESM::RefId& id : ids)
+    {
+        PlayerFactionEntry entry;
+        entry.factionId = id.serializeText();
+        entry.rank = npcStats.getFactionRank(id);
+        entry.reputation = npcStats.getFactionReputation(id);
+        entry.expelled = npcStats.getExpelled(id);
+        if (entry.rank >= 0 || entry.reputation != 0 || entry.expelled)
+            state.factions.push_back(std::move(entry));
+    }
+    return canonicalizePlayerFactionState(std::move(state));
+}
+
+void applyPlayerFactionState(MWMechanics::NpcStats& npcStats, const PlayerFactionState& state)
+{
+    std::map<ESM::RefId, int> ranks;
+    std::map<ESM::RefId, int> reputations;
+    std::set<ESM::RefId> expelled;
+    for (const PlayerFactionEntry& entry : state.factions)
+    {
+        const ESM::RefId id = ESM::RefId::stringRefId(entry.factionId);
+        if (entry.rank >= 0)
+            ranks.emplace(id, entry.rank);
+        if (entry.reputation != 0)
+            reputations.emplace(id, entry.reputation);
+        if (entry.expelled)
+            expelled.insert(id);
+    }
+    npcStats.setFactionState(std::move(ranks), std::move(reputations), std::move(expelled));
 }
 
 namespace
@@ -420,6 +467,12 @@ namespace
 PlayerSync::PlayerSync(NetworkClient& client, Protocol& protocol)
     : mClient(client), mProtocol(protocol)
 {
+    std::random_device random;
+    const auto timestamp = std::chrono::system_clock::now().time_since_epoch().count();
+    std::ostringstream prefix;
+    prefix << "client-faction-" << timestamp << '-' << random() << random();
+    mFactionRequestPrefix = prefix.str();
+
     for (int i = 0; i < BasePlayer::NUM_EQUIPMENT_SLOTS; ++i)
     {
         mLocal.equipment[i].slot = i;
@@ -858,7 +911,8 @@ void PlayerSync::queueAuthoritativeSpellbook(const BasePlayer& authoritative)
 void PlayerSync::onDynamicRecordsChanged()
 {
     if (!mPendingInventoryRestore && !mPendingEquipmentRestore && !mPendingSpellbookRestore
-        && mPendingJournalChanges.empty() && !mTopicStateGate.hasPending())
+        && mPendingJournalChanges.empty() && !mFactionStateGate.hasPending()
+        && !mTopicStateGate.hasPending())
         return;
     MWBase::World* world = MWBase::Environment::get().getWorld();
     if (world == nullptr)
@@ -1134,6 +1188,7 @@ void PlayerSync::update(float dt)
     }
     tickDynamicStats(dt);
     tickJournal();
+    tickFactions();
     tickTopics();
     tickSpellbook(dt);
     sendAnimFlags(dt);
@@ -1333,6 +1388,43 @@ void PlayerSync::tickTopics()
     packet.setPlayer(&proposal);
     mClient.sendReliable(packet.encode(mSeqCounter++));
     mTopicMutationInFlight = true;
+}
+
+void PlayerSync::tickFactions()
+{
+    if (!mFactionStateGate.hasState() || !mFactionMutationInFlight.empty())
+        return;
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    MWWorld::Ptr player = world ? world->getPlayerPtr() : MWWorld::Ptr{};
+    if (player.isEmpty() || !player.getClass().isNpc())
+        return;
+
+    const PlayerFactionState& authoritative = *mFactionStateGate.latest();
+    PlayerFactionState desired = capturePlayerFactionState(
+        player.getClass().getNpcStats(player), authoritative.revision);
+    if (desired == authoritative)
+        return;
+
+    const std::vector<FactionMutation> mutations
+        = deriveFactionMutations(authoritative, desired);
+    if (mutations.empty())
+        return;
+
+    FactionMutationRequest request;
+    request.requestId = mFactionRequestPrefix + '-' + std::to_string(mNextFactionRequest++);
+    request.mutations = mutations;
+    request.expectedRevision = authoritative.revision;
+    request.source = "client:faction-observation";
+
+    BasePlayer proposal;
+    proposal.guid = mLocal.guid;
+    PacketPlayerFaction packet;
+    packet.mode = PacketPlayerFaction::Mode::Proposal;
+    packet.request = request;
+    packet.setPlayer(&proposal);
+    mClient.sendReliable(packet.encode(mSeqCounter++));
+    mFactionMutationInFlight = request.requestId;
+    mFactionProposalObservedState = std::move(desired);
 }
 
 // ---------------------------------------------------------------------------
@@ -2919,6 +3011,15 @@ void PlayerSync::resetCrimeStateSync()
     mLocal.bounty = 0;
 }
 
+void PlayerSync::resetFactionStateSync()
+{
+    mFactionStateGate.reset();
+    mFactionMutationInFlight.clear();
+    mFactionProposalObservedState.reset();
+    mDeferredFactionState.reset();
+    mLocal.factionState = {};
+}
+
 void PlayerSync::resetTopicStateSync()
 {
     mTopicStateGate.reset();
@@ -2942,6 +3043,89 @@ RevisionDecision PlayerSync::receiveAuthoritativeTopicState(PlayerTopicState sta
     if (decision == RevisionDecision::AcceptedNewer)
         applyAuthoritativeTopicState();
     return decision;
+}
+
+RevisionDecision PlayerSync::receiveAuthoritativeFactionResult(PlayerFactionState state,
+    std::string_view requestId, bool accepted, FactionError error)
+{
+    const bool completesInFlight = !mFactionMutationInFlight.empty()
+        && (requestId.empty() || requestId == mFactionMutationInFlight);
+    if (completesInFlight && mFactionProposalObservedState
+        && MWBase::Environment::get().getStateManager()->getState() == MWBase::StateManager::State_Running)
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        MWWorld::Ptr player = world ? world->getPlayerPtr() : MWWorld::Ptr{};
+        if (!player.isEmpty() && player.getClass().isNpc())
+        {
+            PlayerFactionState live = capturePlayerFactionState(
+                player.getClass().getNpcStats(player), mFactionProposalObservedState->revision);
+            if (live != *mFactionProposalObservedState)
+                mDeferredFactionState = std::move(live);
+        }
+    }
+    if (completesInFlight)
+    {
+        mFactionMutationInFlight.clear();
+        mFactionProposalObservedState.reset();
+    }
+
+    const RevisionDecision decision = mFactionStateGate.receive(std::move(state));
+    if (completesInFlight && decision != RevisionDecision::AcceptedNewer
+        && decision != RevisionDecision::Conflict)
+        mFactionStateGate.restageLatest();
+    if (decision == RevisionDecision::AcceptedNewer
+        || (completesInFlight && decision != RevisionDecision::Conflict))
+        applyAuthoritativeFactionState();
+
+    Log(accepted ? Debug::Info : Debug::Warning)
+        << "[FactionService] Received authoritative faction result"
+        << " request=" << requestId
+        << " accepted=" << accepted
+        << " error=" << getFactionErrorCode(error)
+        << " decision=" << static_cast<int>(decision);
+    return decision;
+}
+
+void PlayerSync::applyAuthoritativeFactionState()
+{
+    if (!mFactionStateGate.hasPending())
+        return;
+    const MWBase::Environment& environment = MWBase::Environment::get();
+    if (environment.getStateManager()->getState() != MWBase::StateManager::State_Running)
+        return;
+    MWBase::World* world = environment.getWorld();
+    MWWorld::Ptr player = world ? world->getPlayerPtr() : MWWorld::Ptr{};
+    if (player.isEmpty() || !player.isInCell() || !player.getClass().isNpc())
+        return;
+
+    const PlayerFactionState& state = *mFactionStateGate.latest();
+    const auto& definitions = environment.getESMStore()->get<ESM::Faction>();
+    for (const PlayerFactionEntry& entry : state.factions)
+    {
+        if (!definitions.search(ESM::RefId::stringRefId(entry.factionId)))
+        {
+            Log(Debug::Verbose) << "[FactionService] Deferring faction state until definition arrives"
+                                << " faction=" << entry.factionId << " revision=" << state.revision;
+            return;
+        }
+    }
+
+    const std::optional<PlayerFactionState> pending = mFactionStateGate.takePending();
+    if (!pending)
+        return;
+    MWMechanics::NpcStats& stats = player.getClass().getNpcStats(player);
+    applyPlayerFactionState(stats, *pending);
+    mLocal.factionState = *pending;
+
+    if (mDeferredFactionState)
+    {
+        applyPlayerFactionState(stats, *mDeferredFactionState);
+        mDeferredFactionState.reset();
+        Log(Debug::Verbose) << "[FactionService] Reapplied local faction transitions observed during acknowledgement";
+    }
+    Log(Debug::Info) << "[FactionService] Applied authoritative player faction state"
+                     << " revision=" << pending->revision
+                     << " factions=" << pending->factions.size();
 }
 
 void PlayerSync::applyAuthoritativeTopicState()
@@ -3104,6 +3288,8 @@ void PlayerSync::applyPendingAuthoritativeState(const MWWorld::Ptr& player)
 
     if (mCrimeStateGate.hasPending())
         applyAuthoritativeCrimeStateToPlayer();
+    if (mFactionStateGate.hasPending())
+        applyAuthoritativeFactionState();
     if (mTopicStateGate.hasPending())
         applyAuthoritativeTopicState();
 

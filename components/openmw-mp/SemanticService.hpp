@@ -49,6 +49,16 @@ namespace mwmp
         bool hasPending() const { return mPending; }
         const std::optional<State>& latest() const { return mLatest; }
 
+        /// Re-apply the current authoritative state after an optimistic local
+        /// mutation is rejected or acknowledged without advancing revision.
+        bool restageLatest()
+        {
+            if (!mLatest)
+                return false;
+            mPending = true;
+            return true;
+        }
+
         std::optional<State> takePending()
         {
             if (!mPending || !mLatest)

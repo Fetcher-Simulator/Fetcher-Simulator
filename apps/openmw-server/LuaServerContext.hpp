@@ -54,6 +54,7 @@ struct LuaPlayerSnapshot
     std::array<Skill, BasePlayer::NUM_SKILLS> skills;
     std::vector<Item> inventory;
     PlayerCrimeState crimeState;
+    PlayerFactionState factionState;
 };
 
 struct LuaActorSnapshot
@@ -165,6 +166,8 @@ public:
     void queueKillPlayer(uint32_t guid, const std::string& deathMessage = std::string());
     void queueSetPlayerBounty(uint32_t guid, std::int64_t bounty, const std::string& requestId);
     void queueModifyPlayerBounty(uint32_t guid, std::int64_t delta, const std::string& requestId);
+    void queuePlayerFactionMutation(uint32_t guid, FactionMutationKind kind,
+        const std::string& factionId, std::int64_t value, const std::string& requestId);
     void queuePlaceObject(const std::string& refId, int count, const std::string& cellId, const Position& position);
     void queueSpawnActor(
         const std::string& refId, uint32_t refNum, uint32_t mpNum, const std::string& cellId, const Position& position,
