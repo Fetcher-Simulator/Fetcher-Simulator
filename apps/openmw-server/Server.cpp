@@ -42,6 +42,8 @@
 #include <components/debug/debuglog.hpp>
 #include <components/esm/refid.hpp>
 #include <components/esm3/loaddial.hpp>
+#include <components/esm3/loadarmo.hpp>
+#include <components/esm3/loadclot.hpp>
 #include <components/esm3/loadfact.hpp>
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadnpc.hpp>
@@ -1962,6 +1964,23 @@ void MPServer::run()
             mDoorInteractionRadius = std::max(512.f, static_cast<float>(configuredDistance));
     }
     mCollisionWorld = std::make_unique<ServerCollisionWorld>(*mContentRegistry);
+    auto gameSettingFloat = [&](std::string_view id, float fallback) {
+        const ESM::GameSetting* setting = mContentRegistry->store().get<ESM::GameSetting>().search(
+            ESM::RefId::stringRefId(id));
+        return setting ? setting->mValue.getFloat() : fallback;
+    };
+    AwarenessSettings awarenessSettings;
+    awarenessSettings.sneakSkillMultiplier = gameSettingFloat("fSneakSkillMult", 1.f);
+    awarenessSettings.sneakBootMultiplier = gameSettingFloat("fSneakBootMult", 1.f);
+    awarenessSettings.sneakDistanceBase = gameSettingFloat("fSneakDistanceBase", 1.f);
+    awarenessSettings.sneakDistanceMultiplier = gameSettingFloat("fSneakDistanceMultiplier", 0.f);
+    awarenessSettings.sneakNoViewMultiplier = gameSettingFloat("fSneakNoViewMult", 1.f);
+    awarenessSettings.sneakViewMultiplier = gameSettingFloat("fSneakViewMult", 1.f);
+    awarenessSettings.fatigueBase = gameSettingFloat("fFatigueBase", 1.f);
+    awarenessSettings.fatigueMultiplier = gameSettingFloat("fFatigueMult", 0.f);
+    mObservationRollSource = std::make_unique<ServerAwarenessRollSource>();
+    mObservationService = std::make_unique<ObservationService>(
+        awarenessSettings, *mCollisionWorld, *mObservationRollSource);
     mServerLuaPackageRegistry
         = std::make_unique<ServerLuaPackageRegistry>(mServerLuaPackageRoot, Version::getLuaApiRevision());
 
@@ -2150,6 +2169,7 @@ void MPServer::run()
     mAdminHttpHost = mLua.getString("Config", "ADMIN_HTTP_HOST", "127.0.0.1");
     mAdminHttpPort = std::max(1, mLua.getInt("Config", "ADMIN_HTTP_PORT", 8081));
     mAdminHttpTimeoutMs = std::max(1, mLua.getInt("Config", "ADMIN_HTTP_TIMEOUT_MS", 250));
+    mObservationDiagnosticsEnabled = mLua.getBool("Config", "OBSERVATION_DIAGNOSTICS_ENABLED", false);
 
     std::string normalizedAdminHttpHost = mAdminHttpHost;
     std::transform(normalizedAdminHttpHost.begin(), normalizedAdminHttpHost.end(), normalizedAdminHttpHost.begin(),
@@ -2527,6 +2547,243 @@ void MPServer::releaseCollisionInterest(uint32_t playerGuid)
 }
 
 // ---------------------------------------------------------------------------
+float MPServer::playerBootWeight(const ConnectedClient& player) const
+{
+    constexpr std::size_t BootsSlot = 7;
+    if (!mContentRegistry || BootsSlot >= player.player.equipment.size())
+        return 0.f;
+    const std::string& refId = player.player.equipment[BootsSlot].item.refId;
+    if (refId.empty())
+        return 0.f;
+
+    const ESM::RefId id = ESM::RefId::stringRefId(refId);
+    if (const ESM::Armor* armor = mContentRegistry->store().get<ESM::Armor>().search(id))
+        return armor->mData.mWeight;
+    if (const ESM::Clothing* clothing = mContentRegistry->store().get<ESM::Clothing>().search(id))
+        return clothing->mData.mWeight;
+    return 0.f;
+}
+
+std::vector<MPServer::LiveObservationDiagnostic> MPServer::observeNpcCandidates(
+    std::uint32_t targetPlayerGuid, std::optional<ActorInstanceId> observerFilter, std::string_view eventId)
+{
+    constexpr std::uint64_t MaximumSnapshotAgeMs = 1000;
+    constexpr float ObservationEndpointHeight = 128.f;
+    constexpr std::size_t MaximumCandidates = 64;
+
+    std::vector<LiveObservationDiagnostic> diagnostics;
+    if (!mObservationService || eventId.empty())
+        return diagnostics;
+    ConnectedClient* targetClient = findClientByGuid(targetPlayerGuid);
+    if (!targetClient || !targetClient->charSelectComplete)
+        return diagnostics;
+
+    const std::uint64_t nowMs = currentServerTimeMs();
+    const AcceptedMechanicsSnapshot* targetAccepted = mMechanicsSnapshots.findFresh(
+        { MechanicsSubjectKind::Player, targetPlayerGuid, 0 }, nowMs, MaximumSnapshotAgeMs);
+    if (!targetAccepted || targetAccepted->snapshot.cellId != makeCellKey(targetClient->player.cell)
+        || targetAccepted->snapshot.migrationGeneration != 1
+        || targetAccepted->snapshot.authorityGeneration != targetPlayerGuid)
+        return diagnostics;
+
+    updateCollisionInterest(*targetClient);
+    const std::string ownerId = "player:" + std::to_string(targetPlayerGuid);
+    const std::vector<std::string> collisionCells = mCollisionOwnership.cells(ownerId);
+    if (collisionCells.empty())
+        return diagnostics;
+
+    std::vector<CollisionCellGeneration> collisionGenerations;
+    collisionGenerations.reserve(collisionCells.size());
+    for (const std::string& cellId : collisionCells)
+    {
+        const std::uint64_t generation = mCollisionWorld->cellGeneration(cellId);
+        if (generation == 0 || mCollisionWorld->cellRefCount(cellId) == 0)
+            return {};
+        collisionGenerations.push_back({ cellId, generation });
+    }
+
+    const MechanicsSnapshot& targetMechanics = targetAccepted->snapshot;
+    const float alarmRadiusSquared = mObservationAlarmRadius * mObservationAlarmRadius;
+    std::unordered_set<ActorInstanceId> seenActors;
+    for (const std::string& cellId : collisionCells)
+    {
+        const auto cellIt = mWorld.actorCells.find(cellId);
+        if (cellIt == mWorld.actorCells.end())
+            continue;
+        for (const auto& [actorKey, record] : cellIt->second.actors)
+        {
+            if (diagnostics.size() >= MaximumCandidates)
+                return diagnostics;
+            if (!isValidActorInstanceId(record.actorNetId)
+                || (observerFilter && record.actorNetId != *observerFilter)
+                || !seenActors.insert(record.actorNetId).second)
+                continue;
+
+            const ESM::RefId refId = ESM::RefId::stringRefId(record.actor.refId);
+            if (mContentRegistry->store().get<ESM::NPC>().search(refId) == nullptr)
+                continue;
+
+            const AcceptedMechanicsSnapshot* observerAccepted = mMechanicsSnapshots.findFresh(
+                { MechanicsSubjectKind::Npc, 0, record.actorNetId }, nowMs, MaximumSnapshotAgeMs);
+            const bool leased = isActorAuthorityLeaseValid(record, cellId, nowMs);
+            const std::uint32_t expectedAuthorityGeneration
+                = leased ? record.actorAuthorityGeneration : cellIt->second.authorityGeneration;
+            if (!observerAccepted || observerAccepted->snapshot.cellId != cellId
+                || observerAccepted->snapshot.migrationGeneration != record.migrationGeneration
+                || observerAccepted->snapshot.authorityGeneration != expectedAuthorityGeneration)
+                continue;
+
+            const MechanicsSnapshot& observerMechanics = observerAccepted->snapshot;
+            const float dx = observerMechanics.position.pos[0] - targetMechanics.position.pos[0];
+            const float dy = observerMechanics.position.pos[1] - targetMechanics.position.pos[1];
+            const float dz = observerMechanics.position.pos[2] - targetMechanics.position.pos[2];
+            const float distanceSquared = dx * dx + dy * dy + dz * dz;
+            if (!std::isfinite(distanceSquared) || distanceSquared > alarmRadiusSquared)
+                continue;
+
+            ObservationQuery query;
+            query.eventId = std::string(eventId) + ":" + std::to_string(record.actorNetId);
+            query.cellId = targetMechanics.cellId;
+            query.observer = makeLiveObservationSnapshot(*observerAccepted, 0.f);
+            query.target = makeLiveObservationSnapshot(*targetAccepted, playerBootWeight(*targetClient));
+            // Actor collision shapes are deliberately absent from the query-only
+            // server world. Use the canonical humanoid observation height until
+            // content-derived actor bounds become part of the server snapshot.
+            query.observer.position.z += ObservationEndpointHeight;
+            query.target.position.z += ObservationEndpointHeight;
+            query.path = ObservationPath::LineOfSightAwareness;
+            query.observerPolicy = ObservationObserverPolicy::VanillaCrimeWitness;
+            query.eventAuthority = ObservationAuthority::ServerAuthoritative;
+            query.observedAtMs = nowMs;
+            query.maximumSnapshotAgeMs = MaximumSnapshotAgeMs;
+            query.collisionGenerations = collisionGenerations;
+
+            LiveObservationDiagnostic diagnostic;
+            diagnostic.observerActorNetId = record.actorNetId;
+            diagnostic.observerRefId = record.actor.refId;
+            diagnostic.observerCellId = cellId;
+            diagnostic.targetPlayerGuid = targetPlayerGuid;
+            diagnostic.distance = std::sqrt(distanceSquared);
+            diagnostic.observerSnapshotAgeMs = nowMs - observerAccepted->receivedAtMs;
+            diagnostic.targetSnapshotAgeMs = nowMs - targetAccepted->receivedAtMs;
+            diagnostic.result = mObservationService->observe(query);
+            diagnostics.push_back(std::move(diagnostic));
+        }
+    }
+    return diagnostics;
+}
+
+bool MPServer::handleObservationDiagnosticCommand(ConnectedClient& requester, std::string_view message)
+{
+    if (message != "/observe" && !message.starts_with("/observe "))
+        return false;
+    if (!mObservationDiagnosticsEnabled)
+    {
+        sendServerMessage(requester.guid, "Observation diagnostics are disabled on this server.");
+        return true;
+    }
+
+    std::istringstream input{ std::string(message) };
+    std::string command;
+    std::string observerText;
+    std::string targetText;
+    input >> command >> observerText >> targetText;
+    ActorInstanceId observerActorNetId = 0;
+    std::uint32_t targetGuid = requester.guid;
+    auto parseInteger = [](std::string_view value, auto& output) {
+        if (value.empty())
+            return false;
+        const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), output);
+        return error == std::errc() && end == value.data() + value.size();
+    };
+    if (!parseInteger(observerText, observerActorNetId)
+        || (!targetText.empty() && !parseInteger(targetText, targetGuid)) || targetGuid == 0)
+    {
+        sendServerMessage(requester.guid, "Usage: /observe <actorNetId|0 for all> [targetPlayerGuid]");
+        return true;
+    }
+
+    const std::optional<ActorInstanceId> filter
+        = observerActorNetId == 0 ? std::nullopt : std::optional<ActorInstanceId>(observerActorNetId);
+    const std::string eventId = "diagnostic:" + std::to_string(requester.guid)
+        + ":" + std::to_string(currentServerTimeMs());
+    const std::vector<LiveObservationDiagnostic> diagnostics
+        = observeNpcCandidates(targetGuid, filter, eventId);
+    if (diagnostics.empty())
+    {
+        sendServerMessage(requester.guid,
+            "Observation: no eligible fresh NPC candidate (check identity, range, authority, and snapshots).");
+        return true;
+    }
+
+    auto reasonName = [](ObservationReason reason) {
+        switch (reason)
+        {
+            case ObservationReason::Observed: return "observed";
+            case ObservationReason::InvalidQuery: return "invalid_query";
+            case ObservationReason::ObserverKindRejected: return "observer_kind_rejected";
+            case ObservationReason::ObserverIneligible: return "observer_ineligible";
+            case ObservationReason::StaleActorSnapshot: return "stale_snapshot";
+            case ObservationReason::CollisionUnavailable: return "collision_unavailable";
+            case ObservationReason::CollisionGenerationMismatch: return "collision_generation_mismatch";
+            case ObservationReason::BlockedLineOfSight: return "blocked_los";
+            case ObservationReason::AwarenessFailed: return "awareness_failed";
+        }
+        return "unknown";
+    };
+    auto optionalBool = [](const std::optional<bool>& value) {
+        return value ? (*value ? "true" : "false") : "n/a";
+    };
+    auto authorityName = [](ObservationAuthority authority) {
+        switch (authority)
+        {
+            case ObservationAuthority::ServerAuthoritative: return "server";
+            case ObservationAuthority::ActorAuthorityDelegated: return "actor-delegated";
+            case ObservationAuthority::PlayerClientDelegated: return "player-delegated";
+            case ObservationAuthority::MixedDelegated: return "mixed-delegated";
+        }
+        return "unknown";
+    };
+
+    constexpr std::size_t MaximumChatResults = 8;
+    for (std::size_t i = 0; i < std::min(diagnostics.size(), MaximumChatResults); ++i)
+    {
+        const LiveObservationDiagnostic& diagnostic = diagnostics[i];
+        const ObservationResult& result = diagnostic.result;
+        std::ostringstream text;
+        text << "Observation npc=" << diagnostic.observerActorNetId
+             << " ref=" << diagnostic.observerRefId
+             << " target=" << diagnostic.targetPlayerGuid
+             << " cell=" << diagnostic.observerCellId
+             << " distance=" << static_cast<int>(diagnostic.distance)
+             << " snapshot=" << result.observerSnapshotGeneration
+             << " authorityGen=" << result.observerAuthorityGeneration
+             << " ageMs=" << diagnostic.observerSnapshotAgeMs << "/" << diagnostic.targetSnapshotAgeMs
+             << " collision=";
+        for (std::size_t generation = 0; generation < result.collisionGenerations.size(); ++generation)
+        {
+            if (generation != 0)
+                text << ',';
+            text << result.collisionGenerations[generation].cellId << '@'
+                 << result.collisionGenerations[generation].generation;
+        }
+        text << " los=" << optionalBool(result.lineOfSight)
+             << " awareness=" << optionalBool(result.awareness)
+             << " observable=" << result.observable
+             << " reason=" << reasonName(result.reason)
+             << " provenance=" << authorityName(result.authority);
+        sendServerMessage(requester.guid, text.str());
+        Log(Debug::Info) << "[ObservationDiagnostic] " << text.str();
+    }
+    if (diagnostics.size() > MaximumChatResults)
+    {
+        sendServerMessage(requester.guid, "Observation results truncated: "
+            + std::to_string(diagnostics.size()) + " eligible candidates, first 8 shown.");
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 void MPServer::onClientDisconnected(HSteamNetConnection conn, const std::string& reason)
 {
     auto it = mClients.find(conn);
@@ -2580,6 +2837,8 @@ void MPServer::onClientDisconnected(HSteamNetConnection conn, const std::string&
 
     const uint32_t disconnectedGuid = client.guid;
     releaseCollisionInterest(disconnectedGuid);
+    if (mObservationService)
+        mObservationService->invalidateObserver({ ObservationActorKind::Player, disconnectedGuid, 0 });
     mMechanicsSnapshots.erasePlayer(disconnectedGuid);
     std::vector<std::pair<std::string, ActorRegistryRecord*>> revokedActorLeases;
     for (auto& [cellId, cellState] : mWorld.actorCells)
@@ -3940,6 +4199,11 @@ void MPServer::forgetActorNetId(ActorInstanceId actorNetId, const BaseActor& act
 
     mMechanicsSnapshots.erase({ MechanicsSubjectKind::Npc, 0, actorNetId });
     mMechanicsSnapshots.erase({ MechanicsSubjectKind::Creature, 0, actorNetId });
+    if (mObservationService)
+    {
+        mObservationService->invalidateObserver({ ObservationActorKind::Npc, 0, actorNetId });
+        mObservationService->invalidateObserver({ ObservationActorKind::Creature, 0, actorNetId });
+    }
 
     const auto keyIt = mWorld.actorKeysByNetId.find(actorNetId);
     if (keyIt != mWorld.actorKeysByNetId.end())
@@ -12501,6 +12765,9 @@ void MPServer::handleChatMessage(ConnectedClient& c, const uint8_t* data, size_t
     // nickname if one has been set, and to prevent the decode from corrupting
     // c.player.name for subsequent operations.
     c.player.name = c.name;
+
+    if (handleObservationDiagnosticCommand(c, pkt.message))
+        return;
 
     Log(Debug::Info) << "[Server] Chat [" << c.name << "] "
                      << "(server time " << mWorld.gameHour << "h "

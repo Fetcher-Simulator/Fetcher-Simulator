@@ -34,6 +34,7 @@
 #include "MasterServerClient.hpp"
 #include "MechanicsSnapshotRegistry.hpp"
 #include "CollisionCellOwnership.hpp"
+#include "LiveObservationRuntime.hpp"
 #include "PlayerDatabase.hpp"
 #include "ServerContentRegistry.hpp"
 #include "ServerLuaPackageRegistry.hpp"
@@ -403,6 +404,21 @@ private:
     void updateCollisionInterest(ConnectedClient& client);
     void releaseCollisionInterest(uint32_t playerGuid);
     void applyCollisionOwnershipTransition(const CollisionCellOwnership::Transition& transition);
+    struct LiveObservationDiagnostic
+    {
+        ActorInstanceId observerActorNetId = 0;
+        std::string observerRefId;
+        std::string observerCellId;
+        std::uint32_t targetPlayerGuid = 0;
+        float distance = 0.f;
+        std::uint64_t observerSnapshotAgeMs = 0;
+        std::uint64_t targetSnapshotAgeMs = 0;
+        ObservationResult result;
+    };
+    std::vector<LiveObservationDiagnostic> observeNpcCandidates(
+        std::uint32_t targetPlayerGuid, std::optional<ActorInstanceId> observerFilter, std::string_view eventId);
+    bool handleObservationDiagnosticCommand(ConnectedClient& requester, std::string_view message);
+    float playerBootWeight(const ConnectedClient& player) const;
 
     struct ActorRegistryRecord;
 
@@ -707,9 +723,12 @@ private:
     ServerContentRegistry::Config mContentRegistryConfig;
     std::unique_ptr<ServerContentRegistry> mContentRegistry;
     std::unique_ptr<ServerCollisionWorld> mCollisionWorld;
+    std::unique_ptr<ServerAwarenessRollSource> mObservationRollSource;
+    std::unique_ptr<ObservationService> mObservationService;
     CollisionCellOwnership mCollisionOwnership;
     float mObservationAlarmRadius = 2000.f;
     float mDoorInteractionRadius = 512.f;
+    bool mObservationDiagnosticsEnabled = false;
     std::filesystem::path mServerLuaPackageRoot;
     std::unique_ptr<ServerLuaPackageRegistry> mServerLuaPackageRegistry;
     std::string                   mDbPath            = "playerdata.db";
