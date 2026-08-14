@@ -1,7 +1,9 @@
 #include "ObjectSync.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <limits>
 #include <utility>
 
 #include <components/debug/debuglog.hpp>
@@ -26,6 +28,16 @@
 
 namespace mwmp
 {
+namespace
+{
+    std::string doorIdentityKey(const std::string& cellId, const std::string& refId, std::uint32_t refNum)
+    {
+        std::string normalizedRefId = refId;
+        std::transform(normalizedRefId.begin(), normalizedRefId.end(), normalizedRefId.begin(),
+            [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+        return cellId + "|" + normalizedRefId + "|" + std::to_string(refNum);
+    }
+}
 
 ObjectSync::ObjectSync(NetworkClient& client)
     : mClient(client)
@@ -47,6 +59,10 @@ void ObjectSync::onDoorStateChanged(const std::string& cellId,
     entry.isOpen    = isOpen;
     entry.isLocked  = isLocked;
     entry.lockLevel = lockLevel;
+    std::uint64_t& revision = mDoorRevisions[doorIdentityKey(cellId, refId, refNum)];
+    if (revision == std::numeric_limits<std::uint64_t>::max())
+        return;
+    entry.revision = ++revision;
 
     mOutgoingDoors.push_back({ cellId, std::move(entry) });
 }
@@ -132,8 +148,10 @@ bool ObjectSync::tryApplyDoorState(const std::string& refId,
 void ObjectSync::onServerDoorState(const std::string& cellId,
                                    const std::string& refId,
                                    uint32_t           refNum,
-                                   bool               isOpen)
+                                   bool               isOpen,
+                                   std::uint64_t       revision)
 {
+    mDoorRevisions[doorIdentityKey(cellId, refId, refNum)] = revision;
     if (!tryApplyDoorState(refId, refNum, isOpen))
     {
         // Cell not loaded yet (e.g. catch-up packet arrived during loading).
@@ -141,6 +159,13 @@ void ObjectSync::onServerDoorState(const std::string& cellId,
         Log(Debug::Verbose) << "[MP] ObjectSync: queuing door state for retry: " << refId;
         mPendingDoors.push_back({ cellId, refId, refNum, isOpen, 0.f });
     }
+}
+
+void ObjectSync::resetSessionState()
+{
+    mOutgoingDoors.clear();
+    mPendingDoors.clear();
+    mDoorRevisions.clear();
 }
 
 // ---------------------------------------------------------------------------

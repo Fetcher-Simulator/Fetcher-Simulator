@@ -32,6 +32,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwmp/testservercollisionlifecycle.cpp
     mwmp/testmechanicssnapshotregistry.cpp
     mwmp/testcollisioncellownership.cpp
+    mwmp/testdoorstateauthority.cpp
     mwmp/testtopicpersistence.cpp
     mwmp/testfactionservice.cpp
 )
@@ -64,6 +65,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         ../openmw-server/ObservationService.cpp
         ../openmw-server/MechanicsSnapshotRegistry.cpp
         ../openmw-server/CollisionCellOwnership.cpp
+        ../openmw-server/DoorStateAuthority.cpp
         ../openmw-server/FactionService.cpp
     )
 endif()

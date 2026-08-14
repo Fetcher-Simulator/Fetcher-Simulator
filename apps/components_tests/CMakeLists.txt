@@ -115,6 +115,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         openmw-mp/playerspellbookdatabase.cpp
         openmw-mp/masterserverprotocol.cpp
         openmw-mp/mechanicssnapshot.cpp
+        openmw-mp/doorstate.cpp
         openmw-mp/runtimecontentbootstrap.cpp
         openmw-mp/serverluapackage.cpp
         openmw-mp/serverluapackageregistry.cpp

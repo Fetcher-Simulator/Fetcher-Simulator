@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <components/openmw-mp/Packets/Object/PacketDoorState.hpp>
@@ -24,7 +25,9 @@ namespace mwmp
         // Called by the protocol handler when the server broadcasts a door state.
         // Attempts to apply immediately; queues for retry if cells aren't loaded yet.
         void onServerDoorState(const std::string& cellId, const std::string& refId,
-                               uint32_t refNum, bool isOpen);
+                               uint32_t refNum, bool isOpen, std::uint64_t revision);
+
+        void resetSessionState();
 
         // Called each frame — retries any pending door states that failed to apply.
         void update(float dt);
@@ -43,6 +46,7 @@ namespace mwmp
 
         NetworkClient& mClient;
         std::vector<OutgoingDoor> mOutgoingDoors;
+        std::unordered_map<std::string, std::uint64_t> mDoorRevisions;
 
         struct PendingDoor
         {

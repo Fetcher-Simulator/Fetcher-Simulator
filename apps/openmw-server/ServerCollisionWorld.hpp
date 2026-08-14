@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -53,6 +54,13 @@ namespace mwmp
             std::size_t actorSamples = 0;
         };
 
+        struct DoorReference
+        {
+            std::string refId;
+            std::uint32_t refNum = 0;
+            osg::Vec3f position;
+        };
+
         explicit ServerCollisionWorld(ServerContentRegistry& content);
         ~ServerCollisionWorld();
 
@@ -66,6 +74,8 @@ namespace mwmp
         std::uint64_t cellGeneration(std::string_view cellId) const;
         std::size_t cellRefCount(std::string_view cellId) const;
         std::size_t setDoorOpen(std::string_view cellId, std::string_view refId, std::uint32_t refNum, bool open);
+        std::optional<DoorReference> findDoor(
+            std::string_view cellId, std::string_view refId, std::uint32_t refNum) const;
 
         bool hasLineOfSight(const osg::Vec3f& from, const osg::Vec3f& to) const;
         CollisionObservation lineOfSight(const std::vector<std::string>& cellIds, const ObservationVector& from,
