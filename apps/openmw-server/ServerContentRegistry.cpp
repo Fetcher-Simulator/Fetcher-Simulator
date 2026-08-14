@@ -313,6 +313,16 @@ const MWWorld::ESMStore& mwmp::ServerContentRegistry::store() const
     return mRuntime->world->getStore();
 }
 
+Resource::ResourceSystem& mwmp::ServerContentRegistry::resourceSystem() const
+{
+    return *mRuntime->resources;
+}
+
+MWWorld::WorldModel& mwmp::ServerContentRegistry::worldModel() const
+{
+    return mRuntime->world->getWorldModel();
+}
+
 bool mwmp::ServerContentRegistry::hasContentId(std::string_view id) const
 {
     if (id.empty())
