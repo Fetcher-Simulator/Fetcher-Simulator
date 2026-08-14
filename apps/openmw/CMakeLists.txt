@@ -121,7 +121,7 @@ if (BUILD_MULTIPLAYER)
         Client Protocol Serialization
     )
     add_openmw_dir (mwmp/sync
-        PlayerSync RemotePlayer Nameplate ActorSync CellSync ObjectSync WorldObjectSync WorldStateSync InventoryIdentity
+        PlayerSync RemotePlayer Nameplate ActorSync CellSync ObjectSync WorldObjectSync WorldStateSync InventoryIdentity MechanicsSnapshotBuilder
     )
     add_openmw_dir (mwmp/records
         RecordCreationManager ResolvedContentFingerprint TypedDynamicRecordInstaller

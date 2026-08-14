@@ -26,6 +26,7 @@
 #include <components/openmw-mp/Packets/Actor/PacketActorDeath.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorIdentity.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorStatsDynamic.hpp>
+#include <components/openmw-mp/Packets/Actor/PacketMechanicsSnapshot.hpp>
 #include <components/sceneutil/positionattitudetransform.hpp>
 #include <components/vfs/pathutil.hpp>
 
@@ -58,6 +59,7 @@
 #include "../network/Client.hpp"
 #include "PlayerSync.hpp"
 #include "RemotePlayer.hpp"
+#include "MechanicsSnapshotBuilder.hpp"
 #include <components/openmw-mp/Packets/Actor/PacketActorAttackV2.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorSpeech.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorEquipment.hpp>
@@ -951,6 +953,8 @@ namespace mwmp
         mCells.clear();
         mAuthority.clear();
         mActorAuthorityGuids.clear();
+        mActorAuthorityGenerations.clear();
+        mMechanicsSnapshotSequences.clear();
         mNextSpeechEventIds.clear();
         mNextSpeechSequence = 1;
         mMpNumsByLocalActor.clear();
@@ -1591,9 +1595,15 @@ namespace mwmp
                 if (actorNetId == 0)
                     continue;
                 if (list.authorityGuid == 0)
+                {
                     mActorAuthorityGuids.erase(actorNetId);
+                    mActorAuthorityGenerations.erase(actorNetId);
+                }
                 else
+                {
                     mActorAuthorityGuids[actorNetId] = list.authorityGuid;
+                    mActorAuthorityGenerations[actorNetId] = list.authorityGeneration;
+                }
                 Log(Debug::Verbose) << "[MP] ActorSync: actor authority lease"
                                  << " actorNetId=" << actorNetId
                                  << " refId=" << actor.refId
@@ -1626,6 +1636,7 @@ namespace mwmp
             cell.initialListSent = false;
             cell.positionSendTimer = 0.f;
             cell.positionDiagnosticsTimer = 0.f;
+            cell.mechanicsSnapshotTimer = 0.f;
             cell.positionSendCursor = 0;
             cell.priorityPositionSendCursor = 0;
             cell.outboundCellId = list.cellId;
@@ -6014,6 +6025,9 @@ namespace mwmp
         outgoing.cellId = cell.outboundCellId;
         outgoing.isAuthority = true;
         outgoing.authorityGuid = mwmp::Main::get().getPlayerSync().localPlayer().guid;
+        cell.mechanicsSnapshotTimer += std::max(0.f, dt);
+        const bool mechanicsSnapshotDue = cell.mechanicsSnapshotTimer >= 0.25f;
+        MechanicsSnapshotBatch mechanicsBatch;
         struct DuplicateServerSpawnedActor
         {
             MWWorld::Ptr ptr;
@@ -6608,6 +6622,36 @@ namespace mwmp
                 return true;
             }
 
+            if (mechanicsSnapshotDue)
+            {
+                std::uint32_t authorityGeneration = cell.latest.authorityGeneration;
+                const auto leaseOwner = mActorAuthorityGuids.find(outgoingActorNetId);
+                if (leaseOwner != mActorAuthorityGuids.end())
+                {
+                    const auto leaseGeneration = mActorAuthorityGenerations.find(outgoingActorNetId);
+                    authorityGeneration = leaseGeneration == mActorAuthorityGenerations.end()
+                        ? 0 : leaseGeneration->second;
+                }
+
+                std::uint32_t& sequence = mMechanicsSnapshotSequences[outgoingActorNetId];
+                if (++sequence == 0)
+                    ++sequence;
+                const MechanicsSubjectKind kind
+                    = ptr.getClass().isNpc() ? MechanicsSubjectKind::Npc : MechanicsSubjectKind::Creature;
+                MechanicsSnapshot mechanics = captureMechanicsSnapshot(ptr, kind, 0, outgoingActorNetId,
+                    cell.outboundCellId, actor.migrationGeneration, authorityGeneration, sequence);
+                if (validateMechanicsSnapshot(mechanics))
+                    mechanicsBatch.snapshots.push_back(std::move(mechanics));
+                else
+                {
+                    Log(Debug::Warning) << "[MP] ActorSync: suppressed invalid mechanics snapshot"
+                                        << " actorNetId=" << outgoingActorNetId
+                                        << " cell=" << cell.outboundCellId
+                                        << " migrationGeneration=" << actor.migrationGeneration
+                                        << " authorityGeneration=" << authorityGeneration;
+                }
+            }
+
             outgoing.actors.push_back(std::move(actor));
             return true;
         };
@@ -6846,6 +6890,24 @@ namespace mwmp
                              << " mpNum=" << duplicate.mpNum;
             forgetServerSpawnedActorPtrMappings(duplicate.ptr, duplicate.mpNum);
             world->deleteObject(duplicate.ptr);
+        }
+
+        if (mechanicsSnapshotDue)
+        {
+            cell.mechanicsSnapshotTimer = std::fmod(cell.mechanicsSnapshotTimer, 0.25f);
+            for (std::size_t begin = 0; begin < mechanicsBatch.snapshots.size();
+                 begin += MaximumMechanicsSnapshotsPerPacket)
+            {
+                const std::size_t end = std::min(
+                    mechanicsBatch.snapshots.size(), begin + MaximumMechanicsSnapshotsPerPacket);
+                MechanicsSnapshotBatch chunk;
+                chunk.snapshots.insert(chunk.snapshots.end(),
+                    mechanicsBatch.snapshots.begin() + static_cast<std::ptrdiff_t>(begin),
+                    mechanicsBatch.snapshots.begin() + static_cast<std::ptrdiff_t>(end));
+                PacketMechanicsSnapshot mechanicsPacket;
+                mechanicsPacket.setBatch(&chunk);
+                mClient.sendUnreliable(mechanicsPacket.encode());
+            }
         }
 
         std::sort(outgoing.actors.begin(), outgoing.actors.end(), [](const BaseActor& lhs, const BaseActor& rhs) {

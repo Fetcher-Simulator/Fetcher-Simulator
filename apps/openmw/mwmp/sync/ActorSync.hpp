@@ -286,6 +286,7 @@ namespace mwmp
             std::unordered_map<std::string, ActorRuntime> actors;
             float positionSendTimer = 0.f;
             float positionDiagnosticsTimer = 0.f;
+            float mechanicsSnapshotTimer = 0.f;
             std::size_t positionSendCursor = 0;
             std::size_t priorityPositionSendCursor = 0;
             uint32_t latestPositionSequence = 0;
@@ -356,6 +357,8 @@ namespace mwmp
             mChanceNoneLeveledSpawnersByCell;
         std::unordered_map<ActorInstanceId, ActorRuntime>   mActorsByNetId;
         std::unordered_map<ActorInstanceId, uint32_t>       mActorAuthorityGuids;
+        std::unordered_map<ActorInstanceId, uint32_t>       mActorAuthorityGenerations;
+        std::unordered_map<ActorInstanceId, uint32_t>       mMechanicsSnapshotSequences;
         std::unordered_map<ActorInstanceId, uint32_t>       mNextSpeechEventIds;
         uint32_t mNextSpeechSequence = 1;
         std::unordered_set<ActorInstanceId> mPendingPresentationSampleRequests;

@@ -10,6 +10,7 @@ set(OPENMW_SERVER_SOURCES
     EnchantingService.cpp
     CrimeService.cpp
     ObservationService.cpp
+    MechanicsSnapshotRegistry.cpp
     FactionService.cpp
     ServerContentRegistry.cpp
     ServerCollisionWorld.cpp
@@ -34,6 +35,7 @@ set(OPENMW_SERVER_HEADERS
     EnchantingService.hpp
     CrimeService.hpp
     ObservationService.hpp
+    MechanicsSnapshotRegistry.hpp
     ServerCollisionLifecycle.hpp
     FactionService.hpp
     ServerContentRegistry.hpp

@@ -41,6 +41,8 @@
 #include <components/esm/refid.hpp>
 #include <components/esm3/loaddial.hpp>
 #include <components/esm3/loadfact.hpp>
+#include <components/esm3/loadnpc.hpp>
+#include <components/esm3/loadcrea.hpp>
 #include <components/misc/constants.hpp>
 #include <components/openmw-mp/MasterServerProtocol.hpp>
 #include <components/openmw-mp/Packets/BasePacket.hpp>
@@ -116,6 +118,7 @@
 #include <components/openmw-mp/Packets/Actor/PacketActorStatsDynamic.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCombatRequest.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketCorpseDispose.hpp>
+#include <components/openmw-mp/Packets/Actor/PacketMechanicsSnapshot.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketWorldTime.hpp>
 // PacketWorldWeather is defined in PacketWorldTime.hpp
 
@@ -2448,6 +2451,7 @@ void MPServer::onClientDisconnected(HSteamNetConnection conn, const std::string&
     }
 
     const uint32_t disconnectedGuid = client.guid;
+    mMechanicsSnapshots.erasePlayer(disconnectedGuid);
     std::vector<std::pair<std::string, ActorRegistryRecord*>> revokedActorLeases;
     for (auto& [cellId, cellState] : mWorld.actorCells)
     {
@@ -3053,6 +3057,98 @@ bool MPServer::isAllowedActorSender(
         return record.actorAuthorityGuid == sender.guid;
     const auto cellIt = mWorld.actorCells.find(cellId);
     return cellIt != mWorld.actorCells.end() && cellIt->second.authorityGuid == sender.guid;
+}
+
+void MPServer::handleMechanicsSnapshot(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    MechanicsSnapshotBatch batch;
+    PacketMechanicsSnapshot packet;
+    packet.setBatch(&batch);
+    if (!packet.decode(data, size))
+    {
+        Log(Debug::Warning) << "[Server] Rejecting malformed MechanicsSnapshot from " << c.name;
+        return;
+    }
+
+    const std::uint64_t receivedAtMs = currentServerTimeMs();
+    for (const MechanicsSnapshot& snapshot : batch.snapshots)
+    {
+        std::optional<MechanicsSnapshotExpectation> expected;
+        if (snapshot.kind == MechanicsSubjectKind::Player)
+        {
+            MechanicsSnapshotExpectation player;
+            player.subject = { MechanicsSubjectKind::Player, c.guid, 0 };
+            player.cellId = makeCellKey(c.player.cell);
+            // Player mechanics authority is scoped to the authenticated
+            // connection. The connection GUID is its server-issued epoch; cell
+            // mismatch independently invalidates snapshots after migration.
+            player.migrationGeneration = 1;
+            player.authorityGeneration = c.guid;
+            player.authenticatedPlayerGuid = c.guid;
+            expected = std::move(player);
+        }
+        else
+        {
+            const auto keyIt = mWorld.actorKeysByNetId.find(snapshot.actorInstanceId);
+            if (keyIt != mWorld.actorKeysByNetId.end())
+            {
+                const auto locationIt = mWorld.actorLocations.find(keyIt->second);
+                if (locationIt != mWorld.actorLocations.end())
+                {
+                    const auto cellIt = mWorld.actorCells.find(locationIt->second);
+                    if (cellIt != mWorld.actorCells.end())
+                    {
+                        const auto actorIt = cellIt->second.actors.find(keyIt->second);
+                        if (actorIt != cellIt->second.actors.end())
+                        {
+                            const ActorRegistryRecord& record = actorIt->second;
+                            const ESM::RefId refId = ESM::RefId::stringRefId(record.actor.refId);
+                            std::optional<MechanicsSubjectKind> canonicalKind;
+                            if (mContentRegistry->store().get<ESM::NPC>().search(refId) != nullptr)
+                                canonicalKind = MechanicsSubjectKind::Npc;
+                            else if (mContentRegistry->store().get<ESM::Creature>().search(refId) != nullptr)
+                                canonicalKind = MechanicsSubjectKind::Creature;
+
+                            if (canonicalKind)
+                            {
+                                MechanicsSnapshotExpectation actor;
+                                actor.subject = { *canonicalKind, 0, record.actorNetId };
+                                actor.cellId = locationIt->second;
+                                actor.migrationGeneration = record.migrationGeneration;
+                                const bool leased = isActorAuthorityLeaseValid(record, locationIt->second,
+                                    receivedAtMs);
+                                actor.authorityGeneration = leased
+                                    ? record.actorAuthorityGeneration : cellIt->second.authorityGeneration;
+                                actor.actorSenderEntitled = isAllowedActorSender(c, record, locationIt->second);
+                                expected = std::move(actor);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        bool coordinateCellMismatch = false;
+        if (expected && isExteriorCellKey(expected->cellId))
+            coordinateCellMismatch = exteriorCellIdForPosition(snapshot.position) != expected->cellId;
+
+        const MechanicsSnapshotError error = coordinateCellMismatch
+            ? MechanicsSnapshotError::WrongCell
+            : mMechanicsSnapshots.accept(snapshot, expected, receivedAtMs);
+        if (error != MechanicsSnapshotError::None)
+        {
+            Log(Debug::Verbose) << "[Server] Rejected MechanicsSnapshot"
+                                << " sender=" << c.name
+                                << " kind=" << static_cast<unsigned>(snapshot.kind)
+                                << " playerGuid=" << snapshot.playerGuid
+                                << " actorNetId=" << snapshot.actorInstanceId
+                                << " cell=" << snapshot.cellId
+                                << " migrationGeneration=" << snapshot.migrationGeneration
+                                << " authorityGeneration=" << snapshot.authorityGeneration
+                                << " sequence=" << snapshot.snapshotSequence
+                                << " error=" << static_cast<unsigned>(error);
+        }
+    }
 }
 
 void MPServer::updateActorAuthorityLeaseFromAi(const std::string& cellId,
@@ -3713,6 +3809,9 @@ void MPServer::forgetActorNetId(ActorInstanceId actorNetId, const BaseActor& act
     if (actorNetId == 0)
         return;
 
+    mMechanicsSnapshots.erase({ MechanicsSubjectKind::Npc, 0, actorNetId });
+    mMechanicsSnapshots.erase({ MechanicsSubjectKind::Creature, 0, actorNetId });
+
     const auto keyIt = mWorld.actorKeysByNetId.find(actorNetId);
     if (keyIt != mWorld.actorKeysByNetId.end())
     {
@@ -4297,6 +4396,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::ActorList:        handleActorList(client, data, size);          break;
         case PacketType::ActorPosition:    handleActorPosition(client, data, size);      break;
         case PacketType::ActorPositionV2:  handleActorPositionV2(client, data, size);    break;
+        case PacketType::MechanicsSnapshot: handleMechanicsSnapshot(client, data, size); break;
         case PacketType::ActorPresentationV2: handleActorPresentationV2(client, data, size); break;
         case PacketType::ActorIdentityAck: handleActorIdentityAck(client, data, size);   break;
         case PacketType::ActorAnimFlags:   handleActorAnimFlags(client, data, size);     break;

@@ -120,6 +120,9 @@ TEST(MechanicsSnapshotProtocol, RejectsIdentityGenerationSequenceAndCellErrors)
     EXPECT_FALSE(mwmp::validateMechanicsSnapshot(snapshot));
     snapshot.cellId = "bad\ncell";
     EXPECT_FALSE(mwmp::validateMechanicsSnapshot(snapshot));
+    snapshot = makeNpcSnapshot();
+    snapshot.stateFlags |= 0x80;
+    EXPECT_FALSE(mwmp::validateMechanicsSnapshot(snapshot));
 }
 
 TEST(MechanicsSnapshotProtocol, RejectsNonFiniteAndAbsurdNumericValues)

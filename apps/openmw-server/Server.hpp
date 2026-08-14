@@ -32,6 +32,7 @@
 #include "LuaServerContext.hpp"
 #include "AdminHttpServer.hpp"
 #include "MasterServerClient.hpp"
+#include "MechanicsSnapshotRegistry.hpp"
 #include "PlayerDatabase.hpp"
 #include "ServerContentRegistry.hpp"
 #include "ServerLuaPackageRegistry.hpp"
@@ -357,6 +358,7 @@ private:
     void handleActorList        (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorPosition    (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorPositionV2  (ConnectedClient& c, const uint8_t* data, size_t size);
+    void handleMechanicsSnapshot(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorPresentationV2(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorIdentityAck (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorAnimFlags   (ConnectedClient& c, const uint8_t* data, size_t size);
@@ -627,6 +629,7 @@ private:
     int mAdminHttpTimeoutMs = 250;
     std::string mAdminHttpHost = "127.0.0.1";
     std::unique_ptr<AdminHttpServer> mAdminHttpServer;
+    MechanicsSnapshotRegistry mMechanicsSnapshots;
 
     // ── World state ───────────────────────────────────────────────────────
     // Server is the authoritative clock. Day/month/year are tracked so new
