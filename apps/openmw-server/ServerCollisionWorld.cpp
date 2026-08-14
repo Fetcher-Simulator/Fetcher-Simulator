@@ -30,6 +30,7 @@
 #include <components/bullethelpers/heightfield.hpp>
 #include <components/debug/debuglog.hpp>
 #include <components/esm/util.hpp>
+#include <components/esm3/loadcell.hpp>
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadland.hpp>
 #include <components/esm3/loadligh.hpp>
@@ -262,7 +263,8 @@ void mwmp::ServerCollisionWorld::loadCell(const CellSpec& spec)
 {
     MWWorld::CellStore* cell = nullptr;
     if (spec.exterior)
-        cell = &mContent.worldModel().getExterior(ESM::ExteriorCellLocation(spec.x, spec.y, ESM::RefId{}));
+        cell = &mContent.worldModel().getExterior(
+            ESM::ExteriorCellLocation(spec.x, spec.y, ESM::Cell::sDefaultWorldspaceId));
     else
         cell = &mContent.worldModel().getInterior(spec.interior);
 
