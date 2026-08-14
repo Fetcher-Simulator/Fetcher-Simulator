@@ -214,6 +214,12 @@ struct mwmp::ServerCollisionWorld::CollisionEntry
 {
     osg::ref_ptr<Resource::BulletShapeInstance> shape;
     std::unique_ptr<btCollisionObject> object;
+    ESM::RefId refId;
+    std::uint32_t refNum = 0;
+    ESM::Position closedPosition;
+    bool door = false;
+    bool open = false;
+    std::size_t triangles = 0;
 };
 
 struct mwmp::ServerCollisionWorld::HeightfieldEntry
@@ -224,6 +230,15 @@ struct mwmp::ServerCollisionWorld::HeightfieldEntry
 #endif
     std::unique_ptr<btHeightfieldTerrainShape> shape;
     std::unique_ptr<btCollisionObject> object;
+    std::size_t triangles = 0;
+};
+
+struct mwmp::ServerCollisionWorld::CellCollisionState
+{
+    CellSpec spec;
+    std::vector<std::unique_ptr<CollisionEntry>> objects;
+    std::vector<std::unique_ptr<HeightfieldEntry>> heightfields;
+    std::vector<osg::Vec3f> actorEyeSamples;
 };
 
 mwmp::ServerCollisionWorld::ServerCollisionWorld(ServerContentRegistry& content)
@@ -255,11 +270,78 @@ double mwmp::ServerCollisionWorld::load(const std::vector<CellSpec>& cells)
 {
     const Clock::time_point start = Clock::now();
     for (const CellSpec& cell : cells)
-        loadCell(cell);
+        acquireCell(cell);
     return elapsedMilliseconds(start);
 }
 
-void mwmp::ServerCollisionWorld::loadCell(const CellSpec& spec)
+std::string mwmp::ServerCollisionWorld::cellKey(const CellSpec& cell)
+{
+    if (!cell.exterior)
+        return cell.interior;
+    return "EXT:" + std::to_string(cell.x) + "," + std::to_string(cell.y);
+}
+
+std::uint64_t mwmp::ServerCollisionWorld::acquireCell(const CellSpec& spec)
+{
+    const std::string key = cellKey(spec);
+    if (key.empty())
+        throw std::invalid_argument("collision cell identity must not be empty");
+    const ServerCollisionLifecycle::State current = mLifecycle.state(key);
+    if ((current.refCount != 0) != (mCells.find(key) != mCells.end()))
+        throw std::logic_error("collision cell lifecycle and loaded state disagree");
+    const ServerCollisionLifecycle::Transition acquired = mLifecycle.acquire(key);
+    if (!acquired.load)
+        return acquired.state.generation;
+
+    auto state = std::make_unique<CellCollisionState>();
+    state->spec = spec;
+    try
+    {
+        loadCell(spec, *state);
+        mCells.emplace(key, std::move(state));
+    }
+    catch (...)
+    {
+        if (state)
+            unloadCell(*state);
+        mLifecycle.release(key);
+        throw;
+    }
+
+    rebuildStats();
+    return acquired.state.generation;
+}
+
+bool mwmp::ServerCollisionWorld::releaseCell(const CellSpec& spec)
+{
+    const std::string key = cellKey(spec);
+    const ServerCollisionLifecycle::Transition released = mLifecycle.release(key);
+    if (!released.accepted)
+        return false;
+    if (!released.unload)
+        return true;
+
+    const auto it = mCells.find(key);
+    if (it != mCells.end())
+    {
+        unloadCell(*it->second);
+        mCells.erase(it);
+    }
+    rebuildStats();
+    return true;
+}
+
+std::uint64_t mwmp::ServerCollisionWorld::cellGeneration(std::string_view cellId) const
+{
+    return mLifecycle.state(cellId).generation;
+}
+
+std::size_t mwmp::ServerCollisionWorld::cellRefCount(std::string_view cellId) const
+{
+    return mLifecycle.state(cellId).refCount;
+}
+
+void mwmp::ServerCollisionWorld::loadCell(const CellSpec& spec, CellCollisionState& state)
 {
     MWWorld::CellStore* cell = nullptr;
     if (spec.exterior)
@@ -269,15 +351,12 @@ void mwmp::ServerCollisionWorld::loadCell(const CellSpec& spec)
         cell = &mContent.worldModel().getInterior(spec.interior);
 
     cell->load();
-    ++mStats.cells;
-
     cell->forEachConst([&](const MWWorld::ConstPtr& ptr) {
         if (ptr.getClass().isActor())
         {
             osg::Vec3f eye = ptr.getRefData().getPosition().asVec3();
             eye.z() += 128.f;
-            mActorEyeSamples.push_back(eye);
-            ++mStats.actorSamples;
+            state.actorEyeSamples.push_back(eye);
             return true;
         }
         if (!isStaticLosBlocker(ptr)
@@ -309,18 +388,21 @@ void mwmp::ServerCollisionWorld::loadCell(const CellSpec& spec)
 
             auto entry = std::make_unique<CollisionEntry>();
             entry->shape = std::move(shape);
+            entry->refId = ptr.getCellRef().getRefId();
+            entry->refNum = ptr.getCellRef().getRefNum().mIndex;
+            entry->closedPosition = position;
+            entry->door = ptr.getClass().isDoor();
             entry->object = BulletHelpers::makeCollisionObject(entry->shape->mCollisionShape.get(),
                 Misc::Convert::toBullet(position.asVec3()), Misc::Convert::toBullet(rotation));
             mCollisionWorld->addCollisionObject(entry->object.get(), group,
                 MWPhysics::CollisionType_Actor | MWPhysics::CollisionType_HeightMap
                     | MWPhysics::CollisionType_Projectile);
-            mStats.triangles += triangleCount(*entry->shape->mCollisionShape);
-            ++mStats.objects;
-            mObjects.push_back(std::move(entry));
+            entry->triangles = triangleCount(*entry->shape->mCollisionShape);
+            state.objects.push_back(std::move(entry));
         }
         catch (const std::exception& e)
         {
-            Log(Debug::Warning) << "[CollisionBenchmark] Failed blocker ref="
+            Log(Debug::Warning) << "[ServerCollision] Failed blocker ref="
                                 << ptr.getCellRef().getRefId() << " model=" << model.value()
                                 << " error=" << e.what();
         }
@@ -376,24 +458,79 @@ void mwmp::ServerCollisionWorld::loadCell(const CellSpec& spec)
         BulletHelpers::getHeightfieldShift(x, y, worldSize, minHeight, maxHeight)));
     mCollisionWorld->addCollisionObject(heightfield->object.get(), MWPhysics::CollisionType_HeightMap,
         MWPhysics::CollisionType_Actor | MWPhysics::CollisionType_Projectile);
-    mStats.triangles += static_cast<std::size_t>((verts - 1) * (verts - 1) * 2);
-    ++mStats.heightfields;
-    mHeightfields.push_back(std::move(heightfield));
+    heightfield->triangles = static_cast<std::size_t>((verts - 1) * (verts - 1) * 2);
+    state.heightfields.push_back(std::move(heightfield));
 }
 
 double mwmp::ServerCollisionWorld::clear()
 {
     const Clock::time_point start = Clock::now();
-    for (const std::unique_ptr<CollisionEntry>& entry : mObjects)
-        mCollisionWorld->removeCollisionObject(entry->object.get());
-    for (const std::unique_ptr<HeightfieldEntry>& entry : mHeightfields)
-        mCollisionWorld->removeCollisionObject(entry->object.get());
-    mObjects.clear();
-    mHeightfields.clear();
-    mActorEyeSamples.clear();
-    mStats = {};
+    for (auto& [cellId, state] : mCells)
+        unloadCell(*state);
+    mCells.clear();
+    mLifecycle.clear();
+    rebuildStats();
     mShapeManager->clearCache();
     return elapsedMilliseconds(start);
+}
+
+void mwmp::ServerCollisionWorld::unloadCell(CellCollisionState& state)
+{
+    for (const std::unique_ptr<CollisionEntry>& entry : state.objects)
+        mCollisionWorld->removeCollisionObject(entry->object.get());
+    for (const std::unique_ptr<HeightfieldEntry>& entry : state.heightfields)
+        mCollisionWorld->removeCollisionObject(entry->object.get());
+    state.objects.clear();
+    state.heightfields.clear();
+    state.actorEyeSamples.clear();
+}
+
+void mwmp::ServerCollisionWorld::rebuildStats()
+{
+    mStats = {};
+    mActorEyeSamples.clear();
+    mStats.cells = mCells.size();
+    for (const auto& [cellId, state] : mCells)
+    {
+        mStats.objects += state->objects.size();
+        mStats.heightfields += state->heightfields.size();
+        mStats.actorSamples += state->actorEyeSamples.size();
+        mActorEyeSamples.insert(mActorEyeSamples.end(), state->actorEyeSamples.begin(), state->actorEyeSamples.end());
+        for (const std::unique_ptr<CollisionEntry>& entry : state->objects)
+            mStats.triangles += entry->triangles;
+        for (const std::unique_ptr<HeightfieldEntry>& entry : state->heightfields)
+            mStats.triangles += entry->triangles;
+    }
+}
+
+std::size_t mwmp::ServerCollisionWorld::setDoorOpen(
+    std::string_view cellId, std::string_view refId, std::uint32_t refNum, bool open)
+{
+    const auto cellIt = mCells.find(std::string(cellId));
+    if (cellIt == mCells.end() || refId.empty())
+        return 0;
+
+    const ESM::RefId requestedRefId = ESM::RefId::stringRefId(refId);
+    std::size_t changed = 0;
+    for (const std::unique_ptr<CollisionEntry>& entry : cellIt->second->objects)
+    {
+        if (!entry->door || entry->refId != requestedRefId || (refNum != 0 && entry->refNum != refNum)
+            || entry->open == open)
+            continue;
+
+        ESM::Position position = entry->closedPosition;
+        if (open)
+            position.rot[2] += 1.5707963267948966f;
+        const osg::Quat rotation = Misc::Convert::makeOsgQuat(position);
+        entry->object->setWorldTransform(
+            btTransform(Misc::Convert::toBullet(rotation), Misc::Convert::toBullet(position.asVec3())));
+        mCollisionWorld->updateSingleAabb(entry->object.get());
+        entry->open = open;
+        ++changed;
+    }
+    if (changed != 0)
+        mLifecycle.touch(cellId);
+    return changed;
 }
 
 bool mwmp::ServerCollisionWorld::hasLineOfSight(const osg::Vec3f& from, const osg::Vec3f& to) const
@@ -408,6 +545,32 @@ bool mwmp::ServerCollisionWorld::hasLineOfSight(const osg::Vec3f& from, const os
         | MWPhysics::CollisionType_HeightMap | MWPhysics::CollisionType_Door;
     mCollisionWorld->rayTest(bulletFrom, bulletTo, callback);
     return !callback.hasHit();
+}
+
+mwmp::CollisionObservation mwmp::ServerCollisionWorld::lineOfSight(
+    const std::vector<std::string>& cellIds, const ObservationVector& from, const ObservationVector& to) const
+{
+    CollisionObservation result;
+    if (cellIds.empty() || !std::is_sorted(cellIds.begin(), cellIds.end())
+        || std::adjacent_find(cellIds.begin(), cellIds.end()) != cellIds.end()
+        || std::any_of(cellIds.begin(), cellIds.end(), [](const std::string& cellId) { return cellId.empty(); }))
+        return result;
+
+    result.generations.reserve(cellIds.size());
+    for (const std::string& cellId : cellIds)
+    {
+        const ServerCollisionLifecycle::State state = mLifecycle.state(cellId);
+        if (state.refCount == 0 || state.generation == 0 || mCells.find(cellId) == mCells.end())
+        {
+            result.generations.clear();
+            return result;
+        }
+        result.generations.push_back({ cellId, state.generation });
+    }
+
+    result.available = true;
+    result.clear = hasLineOfSight(osg::Vec3f(from.x, from.y, from.z), osg::Vec3f(to.x, to.y, to.z));
+    return result;
 }
 
 int mwmp::runServerCollisionBenchmark(ServerContentRegistry& content,

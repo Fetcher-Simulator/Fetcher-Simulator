@@ -138,7 +138,7 @@ namespace mwmp
     public:
         virtual ~ObservationCollisionBackend() = default;
         virtual CollisionObservation lineOfSight(
-            const std::string& cellId, const ObservationVector& from, const ObservationVector& to) const
+            const std::vector<std::string>& cellIds, const ObservationVector& from, const ObservationVector& to) const
             = 0;
     };
 

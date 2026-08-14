@@ -208,14 +208,20 @@ namespace mwmp
             return result;
         }
 
-        if (!hasFiniteAwarenessInputs(query.target) || !hasCanonicalCollisionGenerations(query.collisionGenerations))
+        if (!hasFiniteAwarenessInputs(query.target) || !hasCanonicalCollisionGenerations(query.collisionGenerations)
+            || std::none_of(query.collisionGenerations.begin(), query.collisionGenerations.end(),
+                [&](const CollisionCellGeneration& generation) { return generation.cellId == query.cellId; }))
         {
             result.reason = ObservationReason::InvalidQuery;
             return result;
         }
 
+        std::vector<std::string> collisionCellIds;
+        collisionCellIds.reserve(query.collisionGenerations.size());
+        for (const CollisionCellGeneration& generation : query.collisionGenerations)
+            collisionCellIds.push_back(generation.cellId);
         const CollisionObservation collision
-            = mCollision.lineOfSight(query.cellId, query.target.position, query.observer.position);
+            = mCollision.lineOfSight(collisionCellIds, query.target.position, query.observer.position);
         result.collisionGenerations = collision.generations;
         if (!collision.available)
         {

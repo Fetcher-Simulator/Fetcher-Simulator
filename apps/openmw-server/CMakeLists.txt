@@ -34,6 +34,7 @@ set(OPENMW_SERVER_HEADERS
     EnchantingService.hpp
     CrimeService.hpp
     ObservationService.hpp
+    ServerCollisionLifecycle.hpp
     FactionService.hpp
     ServerContentRegistry.hpp
     ServerCollisionWorld.hpp

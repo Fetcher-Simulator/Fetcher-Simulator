@@ -4,12 +4,16 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <osg/Vec3f>
+
+#include "ObservationService.hpp"
+#include "ServerCollisionLifecycle.hpp"
 
 class btBroadphaseInterface;
 class btCollisionConfiguration;
@@ -25,10 +29,11 @@ namespace mwmp
 {
     class ServerContentRegistry;
 
-    /// Query-only collision backend used to measure dedicated-server LOS
-    /// feasibility. It owns static world/door/heightfield collision only and
-    /// never creates actors, steps simulation, or initializes rendering.
-    class ServerCollisionWorld
+    /// Query-only server collision backend. It owns static world, door, and
+    /// heightfield collision only and never creates actors, steps simulation,
+    /// or initializes rendering. The benchmark is one consumer of this reusable
+    /// cell-lifecycle API.
+    class ServerCollisionWorld : public ObservationCollisionBackend
     {
     public:
         struct CellSpec
@@ -56,7 +61,17 @@ namespace mwmp
 
         double load(const std::vector<CellSpec>& cells);
         double clear();
+        std::uint64_t acquireCell(const CellSpec& cell);
+        bool releaseCell(const CellSpec& cell);
+        std::uint64_t cellGeneration(std::string_view cellId) const;
+        std::size_t cellRefCount(std::string_view cellId) const;
+        std::size_t setDoorOpen(std::string_view cellId, std::string_view refId, std::uint32_t refNum, bool open);
+
         bool hasLineOfSight(const osg::Vec3f& from, const osg::Vec3f& to) const;
+        CollisionObservation lineOfSight(const std::vector<std::string>& cellIds, const ObservationVector& from,
+            const ObservationVector& to) const override;
+
+        static std::string cellKey(const CellSpec& cell);
 
         const Stats& stats() const { return mStats; }
         const std::vector<osg::Vec3f>& actorEyeSamples() const { return mActorEyeSamples; }
@@ -64,8 +79,11 @@ namespace mwmp
     private:
         struct CollisionEntry;
         struct HeightfieldEntry;
+        struct CellCollisionState;
 
-        void loadCell(const CellSpec& cell);
+        void loadCell(const CellSpec& cell, CellCollisionState& state);
+        void unloadCell(CellCollisionState& state);
+        void rebuildStats();
 
         ServerContentRegistry& mContent;
         std::unique_ptr<Resource::BulletShapeManager> mShapeManager;
@@ -73,8 +91,8 @@ namespace mwmp
         std::unique_ptr<btCollisionDispatcher> mDispatcher;
         std::unique_ptr<btBroadphaseInterface> mBroadphase;
         std::unique_ptr<btCollisionWorld> mCollisionWorld;
-        std::vector<std::unique_ptr<CollisionEntry>> mObjects;
-        std::vector<std::unique_ptr<HeightfieldEntry>> mHeightfields;
+        ServerCollisionLifecycle mLifecycle;
+        std::map<std::string, std::unique_ptr<CellCollisionState>> mCells;
         std::vector<osg::Vec3f> mActorEyeSamples;
         Stats mStats;
     };

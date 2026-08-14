@@ -29,6 +29,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwmp/testplayerspellbook.cpp
     mwmp/testcrimeservice.cpp
     mwmp/testobservationservice.cpp
+    mwmp/testservercollisionlifecycle.cpp
     mwmp/testtopicpersistence.cpp
     mwmp/testfactionservice.cpp
 )
