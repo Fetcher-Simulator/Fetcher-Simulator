@@ -113,7 +113,7 @@ namespace mwmp
 
         std::uint32_t migrationGeneration = 0;
         std::uint32_t authorityGeneration = 0;
-        std::uint32_t snapshotGeneration = 0;
+        std::uint64_t snapshotGeneration = 0;
         std::uint64_t sampledAtMs = 0;
         ObservationAuthority authority = ObservationAuthority::ServerAuthoritative;
     };
@@ -185,8 +185,8 @@ namespace mwmp
         ObservationAuthority authority = ObservationAuthority::ServerAuthoritative;
         std::uint32_t observerMigrationGeneration = 0;
         std::uint32_t observerAuthorityGeneration = 0;
-        std::uint32_t observerSnapshotGeneration = 0;
-        std::uint32_t targetSnapshotGeneration = 0;
+        std::uint64_t observerSnapshotGeneration = 0;
+        std::uint64_t targetSnapshotGeneration = 0;
         std::vector<CollisionCellGeneration> collisionGenerations;
     };
 
