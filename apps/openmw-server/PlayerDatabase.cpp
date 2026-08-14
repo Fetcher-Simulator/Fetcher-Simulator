@@ -188,6 +188,7 @@ CREATE TABLE IF NOT EXISTS world_doors (
     is_open      INTEGER NOT NULL DEFAULT 0,
     is_locked    INTEGER NOT NULL DEFAULT 0,
     lock_level   INTEGER NOT NULL DEFAULT 0,
+    revision     INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY(cell_id, ref_id, ref_num)
 );
 
@@ -557,6 +558,7 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         "ALTER TABLE world_dynamic_record_catalog ADD COLUMN creation_source TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE world_dynamic_record_catalog ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE world_dynamic_record_catalog ADD COLUMN validation_version INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE world_doors ADD COLUMN revision INTEGER NOT NULL DEFAULT 1",
         "CREATE TABLE IF NOT EXISTS craft_requests ("
         "  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,"
         "  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,"
@@ -2627,7 +2629,7 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
     std::vector<DoorEntry> PlayerDatabase::loadDoorStates()
     {
         sqlite3_stmt* s = prepare(
-            "SELECT cell_id, ref_id, ref_num, mp_num, is_open, is_locked, lock_level"
+            "SELECT cell_id, ref_id, ref_num, mp_num, is_open, is_locked, lock_level, revision"
             " FROM world_doors ORDER BY cell_id, ref_id, ref_num");
 
         std::vector<DoorEntry> entries;
@@ -2646,6 +2648,7 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
             entry.isOpen = sqlite3_column_int(s, 4) != 0;
             entry.isLocked = sqlite3_column_int(s, 5) != 0;
             entry.lockLevel = sqlite3_column_int(s, 6);
+            entry.revision = static_cast<std::uint64_t>(sqlite3_column_int64(s, 7));
             entries.push_back(std::move(entry));
         }
         sqlite3_finalize(s);
@@ -2660,13 +2663,14 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
             const std::string ownerC = std::to_string(entry.refNum);
 
             sqlite3_stmt* s = prepare(
-                "INSERT INTO world_doors(cell_id, ref_id, ref_num, mp_num, is_open, is_locked, lock_level)"
-                " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)"
+                "INSERT INTO world_doors(cell_id, ref_id, ref_num, mp_num, is_open, is_locked, lock_level, revision)"
+                " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
                 " ON CONFLICT(cell_id, ref_id, ref_num) DO UPDATE SET"
                 " mp_num=excluded.mp_num,"
                 " is_open=excluded.is_open,"
                 " is_locked=excluded.is_locked,"
-                " lock_level=excluded.lock_level");
+                " lock_level=excluded.lock_level,"
+                " revision=excluded.revision");
             sqlite3_bind_text(s, 1, entry.cellId.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_bind_text(s, 2, entry.refId.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_bind_int64(s, 3, entry.refNum);
@@ -2674,6 +2678,7 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
             sqlite3_bind_int(s, 5, entry.isOpen ? 1 : 0);
             sqlite3_bind_int(s, 6, entry.isLocked ? 1 : 0);
             sqlite3_bind_int(s, 7, entry.lockLevel);
+            sqlite3_bind_int64(s, 8, static_cast<sqlite3_int64>(entry.revision));
             checkSqlite(sqlite3_step(s), mDb, "upsertDoorState");
             sqlite3_finalize(s);
 

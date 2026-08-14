@@ -239,6 +239,7 @@ struct mwmp::ServerCollisionWorld::CellCollisionState
     std::vector<std::unique_ptr<CollisionEntry>> objects;
     std::vector<std::unique_ptr<HeightfieldEntry>> heightfields;
     std::vector<osg::Vec3f> actorEyeSamples;
+    std::vector<DoorReference> doors;
 };
 
 mwmp::ServerCollisionWorld::ServerCollisionWorld(ServerContentRegistry& content)
@@ -358,6 +359,11 @@ void mwmp::ServerCollisionWorld::loadCell(const CellSpec& spec, CellCollisionSta
             eye.z() += 128.f;
             state.actorEyeSamples.push_back(eye);
             return true;
+        }
+        if (ptr.getClass().isDoor())
+        {
+            state.doors.push_back({ ptr.getCellRef().getRefId().toString(),
+                ptr.getCellRef().getRefNum().mIndex, ptr.getRefData().getPosition().asVec3() });
         }
         if (!isStaticLosBlocker(ptr)
             || Misc::ResourceHelpers::isHiddenMarker(ptr.getCellRef().getRefId()))
@@ -483,6 +489,7 @@ void mwmp::ServerCollisionWorld::unloadCell(CellCollisionState& state)
     state.objects.clear();
     state.heightfields.clear();
     state.actorEyeSamples.clear();
+    state.doors.clear();
 }
 
 void mwmp::ServerCollisionWorld::rebuildStats()
@@ -531,6 +538,27 @@ std::size_t mwmp::ServerCollisionWorld::setDoorOpen(
     if (changed != 0)
         mLifecycle.touch(cellId);
     return changed;
+}
+
+std::optional<mwmp::ServerCollisionWorld::DoorReference> mwmp::ServerCollisionWorld::findDoor(
+    std::string_view cellId, std::string_view refId, std::uint32_t refNum) const
+{
+    const auto cellIt = mCells.find(std::string(cellId));
+    if (cellIt == mCells.end() || refId.empty())
+        return std::nullopt;
+
+    const ESM::RefId requestedRefId = ESM::RefId::stringRefId(refId);
+    const DoorReference* match = nullptr;
+    for (const DoorReference& door : cellIt->second->doors)
+    {
+        if (ESM::RefId::stringRefId(door.refId) != requestedRefId
+            || (refNum != 0 && door.refNum != refNum))
+            continue;
+        if (match != nullptr)
+            return std::nullopt;
+        match = &door;
+    }
+    return match == nullptr ? std::nullopt : std::optional<DoorReference>(*match);
 }
 
 bool mwmp::ServerCollisionWorld::hasLineOfSight(const osg::Vec3f& from, const osg::Vec3f& to) const

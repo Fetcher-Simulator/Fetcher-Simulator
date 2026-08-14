@@ -694,6 +694,7 @@ private:
     std::unique_ptr<ServerCollisionWorld> mCollisionWorld;
     CollisionCellOwnership mCollisionOwnership;
     float mObservationAlarmRadius = 2000.f;
+    float mDoorInteractionRadius = 512.f;
     std::filesystem::path mServerLuaPackageRoot;
     std::unique_ptr<ServerLuaPackageRegistry> mServerLuaPackageRegistry;
     std::string                   mDbPath            = "playerdata.db";

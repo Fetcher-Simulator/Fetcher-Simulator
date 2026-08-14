@@ -535,6 +535,7 @@ void Main::onConnected()
     mServerLuaPackageTransfer.reset();
     mServerLuaPackagesStaged = false;
     mWorldStateSync->resetSessionState();
+    mObjectSync->resetSessionState();
     mPlayerSync->resetCrimeStateSync();
     mPlayerSync->resetFactionStateSync();
     mPlayerSync->resetTopicStateSync();
@@ -673,6 +674,8 @@ void Main::onDisconnected()
         mActorSync->resetSessionState();
     if (mWorldStateSync)
         mWorldStateSync->resetSessionState();
+    if (mObjectSync)
+        mObjectSync->resetSessionState();
     // Spellbook sync state is per-session: the authoritative revision token,
     // baseline and in-flight gate must not leak into the next connection.
     if (mPlayerSync)
@@ -1579,10 +1582,8 @@ void Main::registerProtocolHandlers()
         {
             PacketDoorState pkt;
             if (!pkt.decode(data, size)) return;
-            // Ignore echo of our own packets (server rebroadcasts to all)
-            if (pkt.authorGuid == mPlayerSync->localPlayer().guid) return;
             for (const auto& d : pkt.doors)
-                mObjectSync->onServerDoorState(d.cellId, d.refId, d.refNum, d.isOpen);
+                mObjectSync->onServerDoorState(d.cellId, d.refId, d.refNum, d.isOpen, d.revision);
         });
 
     proto.registerHandler(PacketType::RecordDynamic,

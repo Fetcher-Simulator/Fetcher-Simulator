@@ -12,6 +12,7 @@ set(OPENMW_SERVER_SOURCES
     ObservationService.cpp
     MechanicsSnapshotRegistry.cpp
     CollisionCellOwnership.cpp
+    DoorStateAuthority.cpp
     FactionService.cpp
     ServerContentRegistry.cpp
     ServerCollisionWorld.cpp
@@ -38,6 +39,7 @@ set(OPENMW_SERVER_HEADERS
     ObservationService.hpp
     MechanicsSnapshotRegistry.hpp
     CollisionCellOwnership.hpp
+    DoorStateAuthority.hpp
     ServerCollisionLifecycle.hpp
     FactionService.hpp
     ServerContentRegistry.hpp

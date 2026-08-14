@@ -4,6 +4,7 @@
 #include "FactionService.hpp"
 #include "DynamicRecordService.hpp"
 #include "EnchantingService.hpp"
+#include "DoorStateAuthority.hpp"
 #include "MasterServerClient.hpp"
 #include "ServerCollisionWorld.hpp"
 #include "ServerLuaRecordParser.hpp"
@@ -1747,6 +1748,13 @@ void MPServer::run()
         const float configuredRadius = setting->mValue.getFloat();
         if (std::isfinite(configuredRadius) && configuredRadius > 0.f)
             mObservationAlarmRadius = configuredRadius;
+    }
+    if (const ESM::GameSetting* setting = mContentRegistry->store().get<ESM::GameSetting>().search(
+            ESM::RefId::stringRefId("iMaxActivateDist")))
+    {
+        const int configuredDistance = setting->mValue.getInteger();
+        if (configuredDistance > 0)
+            mDoorInteractionRadius = std::max(512.f, static_cast<float>(configuredDistance));
     }
     mCollisionWorld = std::make_unique<ServerCollisionWorld>(*mContentRegistry);
     mServerLuaPackageRegistry
@@ -11780,37 +11788,153 @@ void MPServer::handleDoorState(ConnectedClient& c, const uint8_t* data, size_t s
                         << " cell=" << pkt.cellId
                         << " doors=" << pkt.doors.size();
 
-    // Store each entry as authoritative state, keyed by cellId.
-    // Last write wins - the server is the authority.
-    for (const auto& entry : pkt.doors)
-    {
-        auto& cellDoors = mWorld.doorStates[entry.cellId];
-
-        // Update existing entry for this refId/refNum, or append.
-        bool found = false;
-        for (auto& existing : cellDoors)
+    auto findCurrent = [&](const DoorEntry& requested) -> DoorEntry* {
+        const auto cellIt = mWorld.doorStates.find(requested.cellId);
+        if (cellIt == mWorld.doorStates.end())
+            return nullptr;
+        const ESM::RefId requestedId = ESM::RefId::stringRefId(requested.refId);
+        for (DoorEntry& current : cellIt->second)
         {
-            if (existing.refId == entry.refId
-                && (entry.refNum == 0 || existing.refNum == entry.refNum))
+            if (current.refNum == requested.refNum
+                && ESM::RefId::stringRefId(current.refId) == requestedId)
+                return &current;
+        }
+        return nullptr;
+    };
+    auto sendCorrection = [&]() {
+        PacketDoorState correction;
+        correction.authorGuid = c.guid;
+        correction.cellId = pkt.cellId;
+        for (const DoorEntry& requested : pkt.doors)
+        {
+            if (DoorEntry* current = findCurrent(requested))
+                correction.doors.push_back(*current);
+            else
             {
-                existing = entry;
-                found = true;
-                break;
+                DoorEntry initial = requested;
+                initial.isOpen = false;
+                initial.isLocked = false;
+                initial.lockLevel = 0;
+                initial.revision = 0;
+                correction.doors.push_back(std::move(initial));
             }
         }
-        if (!found)
-            cellDoors.push_back(entry);
+        if (!correction.doors.empty())
+            sendTo(c.conn, correction.encode());
+    };
 
-        if (mPlayerDb)
-            mPlayerDb->upsertDoorState(entry);
+    const std::optional<CellId> parsedCell = parseCellKey(pkt.cellId);
+    if (pkt.doors.size() != 1 || !parsedCell || makeCellKey(*parsedCell) != pkt.cellId)
+    {
+        Log(Debug::Warning) << "[Server] DoorState rejected player=" << c.name
+                            << " reason=invalid_or_noncanonical_batch";
+        return;
     }
 
-    // Relay to all other clients so they apply the state immediately.
-    broadcastToCell(pkt.cellId, std::vector<uint8_t>(data, data + size), c.conn);
+    constexpr std::uint64_t MaximumDoorSnapshotAgeMs = 1500;
+    const std::uint64_t nowMs = currentServerTimeMs();
+    const AcceptedMechanicsSnapshot* playerSnapshot = mMechanicsSnapshots.findFresh(
+        { MechanicsSubjectKind::Player, c.guid, 0 }, nowMs, MaximumDoorSnapshotAgeMs);
+    if (playerSnapshot == nullptr || playerSnapshot->snapshot.cellId != makeCellKey(c.player.cell))
+    {
+        Log(Debug::Warning) << "[Server] DoorState rejected player=" << c.name
+                            << " reason=missing_or_stale_mechanics_snapshot";
+        sendCorrection();
+        return;
+    }
 
-    // Notify scripts - fire once per door entry.
-    for (const auto& entry : pkt.doors)
-        mLua.onDoorState(pkt.cellId, entry.refId, entry.isOpen);
+    DoorEntry accepted = pkt.doors.front();
+    const std::optional<ServerCollisionWorld::DoorReference> door
+        = mCollisionWorld ? mCollisionWorld->findDoor(accepted.cellId, accepted.refId, accepted.refNum) : std::nullopt;
+    std::vector<std::string> relevantCells
+        = mCollisionOwnership.cells("player:" + std::to_string(c.guid));
+
+    DoorStateProposalContext context;
+    context.packetCellId = pkt.cellId;
+    context.relevantCellIds = std::move(relevantCells);
+    context.playerPosition = { playerSnapshot->snapshot.position.pos[0],
+        playerSnapshot->snapshot.position.pos[1], playerSnapshot->snapshot.position.pos[2] };
+    context.maximumDistance = mDoorInteractionRadius;
+    if (DoorEntry* current = findCurrent(accepted))
+        context.current = *current;
+    if (door)
+    {
+        context.reference = DoorStateReference { accepted.cellId, door->refId, door->refNum,
+            { door->position.x(), door->position.y(), door->position.z() } };
+        accepted.refId = door->refId;
+        accepted.refNum = door->refNum;
+    }
+
+    const DoorStateProposalError validation = validateDoorStateProposal(accepted, context);
+    if (validation != DoorStateProposalError::None)
+    {
+        Log(Debug::Warning) << "[Server] DoorState rejected player=" << c.name
+                            << " cell=" << pkt.cellId
+                            << " refId=" << accepted.refId
+                            << " refNum=" << accepted.refNum
+                            << " revision=" << accepted.revision
+                            << " reason=" << doorStateProposalErrorName(validation);
+        sendCorrection();
+        return;
+    }
+
+    accepted.mpNum = 0;
+    if (context.current)
+    {
+        accepted.isLocked = context.current->isLocked;
+        accepted.lockLevel = context.current->lockLevel;
+    }
+    else
+    {
+        accepted.isLocked = false;
+        accepted.lockLevel = 0;
+    }
+
+    try
+    {
+        if (mPlayerDb)
+            mPlayerDb->upsertDoorState(accepted);
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[Server] DoorState persistence rejected player=" << c.name
+                          << " error=" << e.what();
+        sendCorrection();
+        return;
+    }
+
+    auto& cellDoors = mWorld.doorStates[accepted.cellId];
+    if (DoorEntry* current = findCurrent(accepted))
+        *current = accepted;
+    else
+        cellDoors.push_back(accepted);
+
+    std::size_t collisionChanges = 0;
+    std::uint64_t collisionGeneration = 0;
+    if (mCollisionWorld)
+    {
+        collisionChanges = mCollisionWorld->setDoorOpen(
+            accepted.cellId, accepted.refId, accepted.refNum, accepted.isOpen);
+        collisionGeneration = mCollisionWorld->cellGeneration(accepted.cellId);
+    }
+
+    PacketDoorState authoritative;
+    authoritative.authorGuid = c.guid;
+    authoritative.cellId = accepted.cellId;
+    authoritative.doors.push_back(accepted);
+    const std::vector<std::uint8_t> encoded = authoritative.encode();
+    sendTo(c.conn, encoded);
+    broadcastToCell(accepted.cellId, encoded, c.conn);
+    mLua.onDoorState(accepted.cellId, accepted.refId, accepted.isOpen);
+
+    Log(Debug::Info) << "[Server] DoorState accepted player=" << c.name
+                     << " cell=" << accepted.cellId
+                     << " refId=" << accepted.refId
+                     << " refNum=" << accepted.refNum
+                     << " open=" << accepted.isOpen
+                     << " revision=" << accepted.revision
+                     << " collisionChanges=" << collisionChanges
+                     << " collisionGeneration=" << collisionGeneration;
 }
 
 // ---------------------------------------------------------------------------
