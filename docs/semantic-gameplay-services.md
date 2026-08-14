@@ -1,5 +1,19 @@
 # Semantic gameplay services
 
+## Observation foundation (protocol 9)
+
+`ObservationService` is a read-only semantic service. Protocol-9 mechanics
+snapshots provide one coherent transient input revision, but the server does not
+network or replay the script, dialogue result, or Lua callback that produced any
+of those mechanics values. The server validates canonical identity, actor kind,
+cell, migration/authority generation, sender entitlement, sequence, and receipt
+freshness before an accepted snapshot can participate in observation.
+
+Observation results are not yet connected to crime mutation. In particular,
+this phase does not add CrimeIntent, `reportCrime`, bounty, arrest, or a scripting
+command replay path. Server Lua packages remain a separate executable-code
+distribution system and are not runtime records or observation state.
+
 Multiplayer gameplay authority synchronizes typed semantic state, not the
 scripting-language operation that caused it. Implemented domains include
 global player crime state, player faction state, and learned dialogue topics:
