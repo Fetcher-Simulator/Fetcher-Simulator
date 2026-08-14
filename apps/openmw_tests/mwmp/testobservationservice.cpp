@@ -53,12 +53,14 @@ namespace
     struct FakeCollision final : ObservationCollisionBackend
     {
         mutable int calls = 0;
+        mutable std::vector<std::string> requestedCells;
         CollisionObservation result{ true, true, { { "Balmora", 7 } } };
 
         CollisionObservation lineOfSight(
-            const std::vector<std::string>&, const ObservationVector&, const ObservationVector&) const override
+            const std::vector<std::string>& cellIds, const ObservationVector&, const ObservationVector&) const override
         {
             ++calls;
+            requestedCells = cellIds;
             return result;
         }
     };
@@ -200,6 +202,9 @@ TEST(ObservationService, VictimAwarenessAndMurderHearingPreserveSpecialPaths)
     ObservationResult victimAware = service.observe(query);
     EXPECT_TRUE(victimAware.observable);
     EXPECT_EQ(victimAware.reason, ObservationReason::Observed);
+    EXPECT_EQ(victimAware.path, ObservationPath::VictimAware);
+    EXPECT_FALSE(victimAware.lineOfSight.has_value());
+    EXPECT_FALSE(victimAware.awareness.has_value());
     EXPECT_EQ(victimAware.authority, ObservationAuthority::ActorAuthorityDelegated);
 
     query.path = ObservationPath::MurderHearing;
@@ -207,6 +212,9 @@ TEST(ObservationService, VictimAwarenessAndMurderHearingPreserveSpecialPaths)
     ObservationResult murderHearing = service.observe(query);
     EXPECT_TRUE(murderHearing.observable);
     EXPECT_EQ(murderHearing.reason, ObservationReason::Observed);
+    EXPECT_EQ(murderHearing.path, ObservationPath::MurderHearing);
+    EXPECT_FALSE(murderHearing.lineOfSight.has_value());
+    EXPECT_FALSE(murderHearing.awareness.has_value());
     EXPECT_EQ(collision.calls, 0);
     EXPECT_EQ(rolls.calls, 0);
 
@@ -243,6 +251,23 @@ TEST(ObservationService, GenericObservationAllowsCreatureObserver)
     EXPECT_EQ(collision.calls, 1);
 }
 
+TEST(ObservationService, VanillaWitnessPolicyAllowsOnlyCanonicalNpcKind)
+{
+    FakeCollision collision;
+    SequenceRolls rolls({ 99 });
+    ObservationService service({}, collision, rolls);
+    ObservationQuery query = normalQuery();
+    query.observerPolicy = ObservationObserverPolicy::VanillaCrimeWitness;
+
+    EXPECT_TRUE(service.observe(query).observable);
+
+    query.observer = snapshot(actor(ObservationActorKind::Creature, 77), ObservationAuthority::ActorAuthorityDelegated);
+    EXPECT_EQ(service.observe(query).reason, ObservationReason::ObserverKindRejected);
+
+    query.observer = snapshot(player(77), ObservationAuthority::PlayerClientDelegated);
+    EXPECT_EQ(service.observe(query).reason, ObservationReason::ObserverKindRejected);
+}
+
 TEST(ObservationService, NormalPathRequiresMatchingCanonicalCollisionGenerations)
 {
     FakeCollision collision;
@@ -264,6 +289,28 @@ TEST(ObservationService, NormalPathRequiresMatchingCanonicalCollisionGenerations
     collision.result.available = false;
     collision.result.generations.clear();
     EXPECT_EQ(service.observe(query).reason, ObservationReason::CollisionUnavailable);
+}
+
+TEST(ObservationService, MultiCellLineOfSightUsesCanonicalGenerationsAndRejectsOneCellChange)
+{
+    FakeCollision collision;
+    collision.result.generations = { { "EXT:-2,-2", 3 }, { "EXT:-3,-2", 7 } };
+    SequenceRolls rolls({ 99 });
+    ObservationService service({}, collision, rolls);
+    ObservationQuery query = normalQuery();
+    query.cellId = "EXT:-3,-2";
+    query.collisionGenerations = collision.result.generations;
+
+    const ObservationResult valid = service.observe(query);
+    EXPECT_TRUE(valid.observable);
+    EXPECT_EQ(collision.requestedCells, (std::vector<std::string>{ "EXT:-2,-2", "EXT:-3,-2" }));
+
+    collision.result.generations[0].generation = 4;
+    const ObservationResult changed = service.observe(query);
+    EXPECT_FALSE(changed.observable);
+    EXPECT_EQ(changed.reason, ObservationReason::CollisionGenerationMismatch);
+    EXPECT_EQ(changed.collisionGenerations[0].generation, 4u);
+    EXPECT_EQ(changed.collisionGenerations[1].generation, 7u);
 }
 
 TEST(ObservationService, CachedRollIsPerObserverAndExpiresAtFiveSeconds)
@@ -309,6 +356,56 @@ TEST(ObservationService, CachedRollIsPerObserverAndExpiresAtFiveSeconds)
     EXPECT_EQ(rolls.calls, 3);
 }
 
+TEST(ObservationService, AwarenessRollCacheIsPerObserverNotTarget)
+{
+    FakeCollision collision;
+    SequenceRolls rolls({ 11, 22 });
+    ObservationService service({}, collision, rolls);
+    ObservationQuery query = normalQuery();
+
+    const ObservationResult first = service.observe(query);
+    ASSERT_TRUE(first.awarenessRoll);
+    EXPECT_EQ(*first.awarenessRoll, 11);
+
+    query.eventId = "different-target";
+    query.target = snapshot(player(21), ObservationAuthority::PlayerClientDelegated);
+    query.target.position = { 0.f, 20.f, 0.f };
+    const ObservationResult sameObserver = service.observe(query);
+    ASSERT_TRUE(sameObserver.awarenessRoll);
+    EXPECT_EQ(*sameObserver.awarenessRoll, 11);
+
+    query.eventId = "different-observer";
+    query.observer = snapshot(actor(ObservationActorKind::Npc, 11), ObservationAuthority::ActorAuthorityDelegated);
+    const ObservationResult differentObserver = service.observe(query);
+    ASSERT_TRUE(differentObserver.awarenessRoll);
+    EXPECT_EQ(*differentObserver.awarenessRoll, 22);
+    EXPECT_EQ(rolls.calls, 2);
+}
+
+TEST(ObservationService, AwarenessRollCacheInvalidatesOnlyForAuditedTransitions)
+{
+    FakeCollision collision;
+    SequenceRolls rolls({ 10, 20, 30, 40 });
+    ObservationService service({}, collision, rolls);
+    ObservationQuery query = normalQuery();
+
+    EXPECT_EQ(*service.observe(query).awarenessRoll, 10);
+
+    ++query.observer.snapshotGeneration;
+    query.observer.sampledAtMs = ++query.observedAtMs;
+    query.target.sampledAtMs = query.observedAtMs;
+    EXPECT_EQ(*service.observe(query).awarenessRoll, 10);
+
+    ++query.observer.migrationGeneration;
+    EXPECT_EQ(*service.observe(query).awarenessRoll, 20);
+
+    service.invalidateObserver(query.observer.identity);
+    EXPECT_EQ(*service.observe(query).awarenessRoll, 30);
+
+    service.clearAwarenessRolls();
+    EXPECT_EQ(*service.observe(query).awarenessRoll, 40);
+}
+
 TEST(ObservationService, NormalResultMakesDelegatedProvenanceVisible)
 {
     FakeCollision collision;
@@ -325,6 +422,20 @@ TEST(ObservationService, NormalResultMakesDelegatedProvenanceVisible)
     EXPECT_TRUE(*result.awareness);
 }
 
+TEST(ObservationService, ServerOnlyInputsRemainServerAuthoritative)
+{
+    FakeCollision collision;
+    SequenceRolls rolls({ 99 });
+    ObservationService service({}, collision, rolls);
+    ObservationQuery query = normalQuery();
+    query.observer.authority = ObservationAuthority::ServerAuthoritative;
+    query.target.authority = ObservationAuthority::ServerAuthoritative;
+
+    const ObservationResult result = service.observe(query);
+    EXPECT_TRUE(result.observable);
+    EXPECT_EQ(result.authority, ObservationAuthority::ServerAuthoritative);
+}
+
 TEST(ObservationService, RejectsStaleOrNonCanonicalInputBeforeQueryingCollision)
 {
     FakeCollision collision;
@@ -333,6 +444,18 @@ TEST(ObservationService, RejectsStaleOrNonCanonicalInputBeforeQueryingCollision)
     ObservationQuery query = normalQuery();
 
     query.observedAtMs = 3000;
+    EXPECT_EQ(service.observe(query).reason, ObservationReason::StaleActorSnapshot);
+
+    query = normalQuery();
+    query.observer.authorityGeneration = 0;
+    EXPECT_EQ(service.observe(query).reason, ObservationReason::StaleActorSnapshot);
+
+    query = normalQuery();
+    query.observer.migrationGeneration = 0;
+    EXPECT_EQ(service.observe(query).reason, ObservationReason::StaleActorSnapshot);
+
+    query = normalQuery();
+    query.target.snapshotGeneration = 0;
     EXPECT_EQ(service.observe(query).reason, ObservationReason::StaleActorSnapshot);
 
     query = normalQuery();

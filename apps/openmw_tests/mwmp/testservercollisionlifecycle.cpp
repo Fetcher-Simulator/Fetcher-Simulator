@@ -42,6 +42,25 @@ TEST(ServerCollisionLifecycle, ReloadAdvancesRetainedGeneration)
     EXPECT_EQ(reloaded.state.generation, 3u);
 }
 
+TEST(ServerCollisionLifecycle, MultiCellGenerationsInvalidateOnlyChangedCell)
+{
+    mwmp::ServerCollisionLifecycle lifecycle;
+    const auto first = lifecycle.acquire("EXT:-3,-2");
+    const auto adjacent = lifecycle.acquire("EXT:-2,-2");
+
+    EXPECT_EQ(first.state.generation, 1u);
+    EXPECT_EQ(adjacent.state.generation, 1u);
+
+    const auto changed = lifecycle.touch("EXT:-2,-2");
+    EXPECT_EQ(changed.generation, 2u);
+    EXPECT_EQ(lifecycle.state("EXT:-3,-2").generation, 1u);
+
+    EXPECT_TRUE(lifecycle.release("EXT:-2,-2").unload);
+    EXPECT_EQ(lifecycle.state("EXT:-2,-2").generation, 3u);
+    EXPECT_EQ(lifecycle.acquire("EXT:-2,-2").state.generation, 4u);
+    EXPECT_EQ(lifecycle.state("EXT:-3,-2").generation, 1u);
+}
+
 TEST(ServerCollisionLifecycle, DynamicBlockerTouchInvalidatesLoadedCell)
 {
     mwmp::ServerCollisionLifecycle lifecycle;

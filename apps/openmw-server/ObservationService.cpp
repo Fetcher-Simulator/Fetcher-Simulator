@@ -25,7 +25,8 @@ namespace
 
     bool isFresh(const mwmp::ObservationActorSnapshot& snapshot, std::uint64_t observedAtMs, std::uint64_t maximumAgeMs)
     {
-        return snapshot.snapshotGeneration != 0 && observedAtMs >= snapshot.sampledAtMs
+        return snapshot.migrationGeneration != 0 && snapshot.authorityGeneration != 0
+            && snapshot.snapshotGeneration != 0 && observedAtMs >= snapshot.sampledAtMs
             && observedAtMs - snapshot.sampledAtMs <= maximumAgeMs;
     }
 
