@@ -28,6 +28,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwmp/testenchantingservice.cpp
     mwmp/testplayerspellbook.cpp
     mwmp/testcrimeservice.cpp
+    mwmp/testobservationservice.cpp
     mwmp/testtopicpersistence.cpp
     mwmp/testfactionservice.cpp
 )
@@ -57,6 +58,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         ../openmw-server/AlchemyService.cpp
         ../openmw-server/EnchantingService.cpp
         ../openmw-server/CrimeService.cpp
+        ../openmw-server/ObservationService.cpp
         ../openmw-server/FactionService.cpp
     )
 endif()
