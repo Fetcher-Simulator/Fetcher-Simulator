@@ -208,6 +208,34 @@ namespace
             result.emplace_back(samples[0], samples[1]);
         return result;
     }
+
+    std::vector<std::pair<osg::Vec3f, osg::Vec3f>> blockedDoorwayRays(
+        const mwmp::ServerCollisionWorld& world, const osg::Vec3f& doorPosition)
+    {
+        std::vector<std::pair<osg::Vec3f, osg::Vec3f>> result;
+        constexpr float Pi = 3.14159265358979323846f;
+        for (int angleIndex = 0; angleIndex < 36; ++angleIndex)
+        {
+            const float angle = Pi * static_cast<float>(angleIndex) / 36.f;
+            const osg::Vec3f direction(std::cos(angle), std::sin(angle), 0.f);
+            const osg::Vec3f perpendicular(-direction.y(), direction.x(), 0.f);
+            for (float offset = -256.f; offset <= 256.f; offset += 32.f)
+            {
+                for (float height = 16.f; height <= 256.f; height += 16.f)
+                {
+                    const osg::Vec3f center = doorPosition + perpendicular * offset + osg::Vec3f(0.f, 0.f, height);
+                    for (float halfLength : { 128.f, 256.f, 384.f })
+                    {
+                        const osg::Vec3f from = center - direction * halfLength;
+                        const osg::Vec3f to = center + direction * halfLength;
+                        if (!world.hasLineOfSight(from, to))
+                            result.emplace_back(from, to);
+                    }
+                }
+            }
+        }
+        return result;
+    }
 }
 
 struct mwmp::ServerCollisionWorld::CollisionEntry
@@ -745,6 +773,12 @@ int mwmp::runServerCollisionBenchmark(ServerContentRegistry& content,
         if (scenario.name == "exterior_open")
         {
             const std::string& cellId = collisionCellIds.front();
+            const std::optional<ServerCollisionWorld::DoorReference> door
+                = world.findDoor(cellId, "Ex_De_SN_Gate", 321262);
+            if (!door)
+                throw std::runtime_error("Representative doorway identity was not loaded");
+            const std::vector<std::pair<osg::Vec3f, osg::Vec3f>> closedDoorwayRays
+                = blockedDoorwayRays(world, door->position);
             const std::uint64_t closedGeneration = world.cellGeneration(cellId);
             const std::size_t opened = world.setDoorOpen(cellId, "Ex_De_SN_Gate", 321262, true);
             const CollisionObservation openLos = queryProductionLos();
@@ -752,11 +786,17 @@ int mwmp::runServerCollisionBenchmark(ServerContentRegistry& content,
                 || openLos.generations == initialProductionLos.generations)
                 throw std::runtime_error("Dynamic door open did not invalidate collision generation");
 
+            const auto visibilityFlip = std::find_if(closedDoorwayRays.begin(), closedDoorwayRays.end(),
+                [&](const auto& ray) { return world.hasLineOfSight(ray.first, ray.second); });
+            if (visibilityFlip == closedDoorwayRays.end())
+                throw std::runtime_error("Representative doorway did not expose a closed-to-open LOS ray");
+
             const std::uint64_t openGeneration = world.cellGeneration(cellId);
             const std::size_t closed = world.setDoorOpen(cellId, "Ex_De_SN_Gate", 321262, false);
             const CollisionObservation closedLos = queryProductionLos();
             if (closed != 1 || !closedLos.available || world.cellGeneration(cellId) == openGeneration
-                || closedLos.generations == openLos.generations)
+                || closedLos.generations == openLos.generations
+                || world.hasLineOfSight(visibilityFlip->first, visibilityFlip->second))
                 throw std::runtime_error("Dynamic door close did not invalidate collision generation");
 
             std::cout << "COLLISION_BENCHMARK door_transition scenario=" << scenario.name
@@ -764,7 +804,12 @@ int mwmp::runServerCollisionBenchmark(ServerContentRegistry& content,
                       << " open_los=" << openLos.clear << " restored_los=" << closedLos.clear
                       << " closed_generation=" << closedGeneration
                       << " open_generation=" << openGeneration
-                      << " restored_generation=" << world.cellGeneration(cellId) << '\n';
+                      << " restored_generation=" << world.cellGeneration(cellId)
+                      << " doorway_flip=blocked-visible-blocked"
+                      << " ray_from=" << visibilityFlip->first.x() << ':' << visibilityFlip->first.y() << ':'
+                      << visibilityFlip->first.z()
+                      << " ray_to=" << visibilityFlip->second.x() << ':' << visibilityFlip->second.y() << ':'
+                      << visibilityFlip->second.z() << '\n';
         }
 
         if (scenario.name == "balmora_3x3")
