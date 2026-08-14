@@ -1,4 +1,6 @@
 #include "Server.hpp"
+#include "ServerCollisionWorld.hpp"
+#include "ServerContentRegistry.hpp"
 
 #include <components/openmw-mp/MasterServerProtocol.hpp>
 
@@ -243,6 +245,9 @@ int main(int argc, char* argv[])
     const std::filesystem::path exeDir = std::filesystem::path(argv[0]).parent_path();
     std::filesystem::path cfgPath  = exeDir / "server.cfg";
     std::filesystem::path logDir   = exeDir / "logs";
+    bool collisionBenchmark = false;
+    std::string collisionBenchmarkScenario = "all";
+    std::filesystem::path collisionBenchmarkOutput;
 
     // Quick pre-scan for --config / --help before loading cfg
     for (int i = 1; i < argc; ++i)
@@ -255,7 +260,11 @@ int main(int argc, char* argv[])
             std::cout << "openmw-server [options]\n"
                       << "  --config, -c <path>   Path to server.cfg (default: <exe dir>/server.cfg)\n"
                       << "  --port,   -p <port>   UDP port override (default: from config or 25565)\n"
-                      << "  --log-dir,-l <dir>    Log directory override\n";
+                      << "  --log-dir,-l <dir>    Log directory override\n"
+                      << "  --collision-benchmark Run the query-only collision benchmark and exit\n"
+                      << "  --benchmark-scenario <name>  interior, exterior_open, balmora_dense,\n"
+                      << "                               balmora_3x3, disjoint_areas, or all\n"
+                      << "  --benchmark-output <path>    CSV output path\n";
             return 0;
         }
     }
@@ -297,6 +306,12 @@ int main(int argc, char* argv[])
             port = static_cast<uint16_t>(std::atoi(argv[++i]));
         else if ((arg == "--log-dir" || arg == "-l") && i + 1 < argc)
             logDir = argv[++i];
+        else if (arg == "--collision-benchmark")
+            collisionBenchmark = true;
+        else if (arg == "--benchmark-scenario" && i + 1 < argc)
+            collisionBenchmarkScenario = argv[++i];
+        else if (arg == "--benchmark-output" && i + 1 < argc)
+            collisionBenchmarkOutput = argv[++i];
         else if (arg == "--config" || arg == "-c") ++i; // already handled
     }
 
@@ -311,6 +326,10 @@ int main(int argc, char* argv[])
         contentResources = cfgDir / contentResources;
     if (serverLuaPackages.is_relative())
         serverLuaPackages = cfgDir / serverLuaPackages;
+    if (collisionBenchmarkOutput.empty())
+        collisionBenchmarkOutput = logDir / "collision-benchmark.csv";
+    else if (collisionBenchmarkOutput.is_relative())
+        collisionBenchmarkOutput = cfgDir / collisionBenchmarkOutput;
 
     std::cout << "[Server] Config: " << cfgPath.string() << "\n"
               << "[Server] Port: " << port
@@ -328,6 +347,17 @@ int main(int argc, char* argv[])
 
     try
     {
+        if (collisionBenchmark)
+        {
+            std::cout << "[CollisionBenchmark] Loading query-only content environment\n";
+            mwmp::ServerContentRegistry content({ std::move(contentConfig), std::move(contentResources),
+                contentEncoding, verifyContentDeterminism });
+            const int result = mwmp::runServerCollisionBenchmark(
+                content, collisionBenchmarkOutput, collisionBenchmarkScenario);
+            teardownServerLogging();
+            return result;
+        }
+
         mwmp::MPServer server(port);
         server.setDbPath(dbPath);
         server.setMaxPlayers(maxPlayers);

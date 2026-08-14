@@ -11,6 +11,7 @@ set(OPENMW_SERVER_SOURCES
     CrimeService.cpp
     FactionService.cpp
     ServerContentRegistry.cpp
+    ServerCollisionWorld.cpp
     ServerLuaRecordParser.cpp
     ServerLuaPackageRegistry.cpp
     bindings/PlayerBindings.cpp
@@ -33,6 +34,7 @@ set(OPENMW_SERVER_HEADERS
     CrimeService.hpp
     FactionService.hpp
     ServerContentRegistry.hpp
+    ServerCollisionWorld.hpp
     ServerLuaRecordParser.hpp
     ServerLuaPackageRegistry.hpp
     bindings/PlayerBindings.hpp

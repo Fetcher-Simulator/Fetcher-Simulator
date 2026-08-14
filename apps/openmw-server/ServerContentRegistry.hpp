@@ -11,6 +11,11 @@
 namespace MWWorld
 {
     class ESMStore;
+    class WorldModel;
+}
+namespace Resource
+{
+    class ResourceSystem;
 }
 namespace mwmp::records
 {
@@ -52,6 +57,8 @@ namespace mwmp
         const std::vector<ManifestEntry>& luaScripts() const { return mLuaScripts; }
 
         const MWWorld::ESMStore& store() const;
+        Resource::ResourceSystem& resourceSystem() const;
+        MWWorld::WorldModel& worldModel() const;
         bool hasContentId(std::string_view id) const;
         bool hasStaticNpcRecord(std::string_view id) const;
         bool hasAsset(std::string_view path) const;
