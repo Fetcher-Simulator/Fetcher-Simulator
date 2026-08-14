@@ -101,6 +101,7 @@ namespace mwmp
         ActorAttackV2       = 70,  // ActorSync v2 reliable attack events by actorNetId
         ActorCombatRequest  = 65,  // Non-authority client → server → authority: NPC hit event
         CorpseDispose       = 71,  // Client → server: request corpse disposal
+        MechanicsSnapshot   = 72,  // Atomic player/actor-authority observation mechanics state
 
         // --- Object ---
         ObjectActivate      = 90,

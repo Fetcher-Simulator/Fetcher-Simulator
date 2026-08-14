@@ -17,7 +17,10 @@ namespace mwmp
     // Version 6 adds authoritative revisioned player known-topic state.
     // Version 7 adds typed faction transitions and authoritative faction state.
     // Version 8 adds bootstrap-only trusted static Clothing record overrides.
-    inline constexpr int MultiplayerProtocolVersion = 8;
+    // Protocol 9 adds an atomic mechanics-grade observation snapshot. Protocol
+    // 8 peers cannot safely reconstruct this state from the independent
+    // position, stats, effects, and presentation lanes.
+    inline constexpr int MultiplayerProtocolVersion = 9;
     inline constexpr std::string_view MultiplayerBuildVersion = "0.1.0";
     inline constexpr std::string_view DefaultMasterServerUrl = "https://master.fetchers.org";
 
