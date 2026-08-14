@@ -1,10 +1,11 @@
-#include "Server.hpp"
+﻿#include "Server.hpp"
 #include "AlchemyService.hpp"
 #include "CrimeService.hpp"
 #include "FactionService.hpp"
 #include "DynamicRecordService.hpp"
 #include "EnchantingService.hpp"
 #include "MasterServerClient.hpp"
+#include "ServerCollisionWorld.hpp"
 #include "ServerLuaRecordParser.hpp"
 #include <extern/bcrypt/bcrypt.h>
 
@@ -41,6 +42,7 @@
 #include <components/esm/refid.hpp>
 #include <components/esm3/loaddial.hpp>
 #include <components/esm3/loadfact.hpp>
+#include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadcrea.hpp>
 #include <components/misc/constants.hpp>
@@ -1739,6 +1741,14 @@ void MPServer::run()
         throw std::runtime_error(
             "Authoritative content is not configured; set [content] openmw_cfg in server.cfg");
     mContentRegistry = std::make_unique<ServerContentRegistry>(mContentRegistryConfig);
+    if (const ESM::GameSetting* setting = mContentRegistry->store().get<ESM::GameSetting>().search(
+            ESM::RefId::stringRefId("fAlarmRadius")))
+    {
+        const float configuredRadius = setting->mValue.getFloat();
+        if (std::isfinite(configuredRadius) && configuredRadius > 0.f)
+            mObservationAlarmRadius = configuredRadius;
+    }
+    mCollisionWorld = std::make_unique<ServerCollisionWorld>(*mContentRegistry);
     mServerLuaPackageRegistry
         = std::make_unique<ServerLuaPackageRegistry>(mServerLuaPackageRoot, Version::getLuaApiRevision());
 
@@ -2039,6 +2049,10 @@ void MPServer::shutdown()
             mInterface->CloseConnection(conn, 0, "Server shutdown", true);
         mClients.clear();
 
+        mCollisionOwnership = {};
+        if (mCollisionWorld)
+            mCollisionWorld->clear();
+
         mInterface->CloseListenSocket(mListenSocket);
         mListenSocket = k_HSteamListenSocket_Invalid;
     }
@@ -2194,6 +2208,112 @@ void MPServer::onClientConnected(HSteamNetConnection conn)
 // not here - the client has no name yet at this point.
 
 // ---------------------------------------------------------------------------
+void MPServer::applyCollisionOwnershipTransition(const CollisionCellOwnership::Transition& transition)
+{
+    if (!mCollisionWorld)
+        return;
+
+    auto makeSpec = [](const std::string& cellId) {
+        const std::optional<CellId> parsed = parseCellKey(cellId);
+        if (!parsed || makeCellKey(*parsed) != cellId)
+            throw std::invalid_argument("non-canonical collision cell identity: " + cellId);
+        ServerCollisionWorld::CellSpec spec;
+        spec.exterior = parsed->isExterior;
+        spec.x = parsed->gridX;
+        spec.y = parsed->gridY;
+        spec.interior = parsed->cellName;
+        return spec;
+    };
+
+    // Acquire the complete new set before releasing the old set so a boundary
+    // transition never creates a query window with missing collision geometry.
+    for (const std::string& cellId : transition.acquire)
+    {
+        const ServerCollisionWorld::CellSpec spec = makeSpec(cellId);
+        const bool newlyLoaded = mCollisionWorld->cellRefCount(cellId) == 0;
+        std::uint64_t generation = mCollisionWorld->acquireCell(spec);
+        if (newlyLoaded)
+        {
+            const auto doorsIt = mWorld.doorStates.find(cellId);
+            if (doorsIt != mWorld.doorStates.end())
+            {
+                for (const DoorEntry& door : doorsIt->second)
+                    mCollisionWorld->setDoorOpen(cellId, door.refId, door.refNum, door.isOpen);
+                generation = mCollisionWorld->cellGeneration(cellId);
+            }
+        }
+        Log(Debug::Verbose) << "[ServerCollision] Acquired live cell=" << cellId
+                            << " refs=" << mCollisionWorld->cellRefCount(cellId)
+                            << " generation=" << generation;
+    }
+
+    for (const std::string& cellId : transition.release)
+    {
+        const ServerCollisionWorld::CellSpec spec = makeSpec(cellId);
+        mCollisionWorld->releaseCell(spec);
+        Log(Debug::Verbose) << "[ServerCollision] Released live cell=" << cellId
+                            << " refs=" << mCollisionWorld->cellRefCount(cellId)
+                            << " generation=" << mCollisionWorld->cellGeneration(cellId);
+    }
+}
+
+void MPServer::updateCollisionInterest(ConnectedClient& client)
+{
+    if (!client.charSelectComplete || !mCollisionWorld)
+        return;
+
+    const std::string ownerId = "player:" + std::to_string(client.guid);
+    const std::vector<std::string> previous = mCollisionOwnership.cells(ownerId);
+    CollisionCellOwnership::Transition transition = mCollisionOwnership.update(ownerId,
+        collisionCellsForPlayer(client.player.cell, client.player.position, mObservationAlarmRadius));
+    if (transition.acquire.empty() && transition.release.empty())
+        return;
+
+    try
+    {
+        applyCollisionOwnershipTransition(transition);
+    }
+    catch (const std::exception& e)
+    {
+        // Acquisitions precede releases. Restore the logical owner and undo
+        // every possibly completed acquire; the failed acquire is a no-op to
+        // release because ServerCollisionWorld rolls back its own lifecycle.
+        mCollisionOwnership.update(ownerId, previous);
+        CollisionCellOwnership::Transition rollback;
+        rollback.release = transition.acquire;
+        try
+        {
+            applyCollisionOwnershipTransition(rollback);
+        }
+        catch (const std::exception& rollbackError)
+        {
+            Log(Debug::Error) << "[ServerCollision] Interest rollback failed player=" << client.name
+                              << " error=" << rollbackError.what();
+        }
+        Log(Debug::Warning) << "[ServerCollision] Interest update rejected player=" << client.name
+                            << " cell=" << makeCellKey(client.player.cell)
+                            << " error=" << e.what();
+    }
+}
+
+void MPServer::releaseCollisionInterest(uint32_t playerGuid)
+{
+    if (!mCollisionWorld || playerGuid == 0)
+        return;
+    const CollisionCellOwnership::Transition transition
+        = mCollisionOwnership.remove("player:" + std::to_string(playerGuid));
+    try
+    {
+        applyCollisionOwnershipTransition(transition);
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[ServerCollision] Failed to release player interest guid=" << playerGuid
+                          << " error=" << e.what();
+    }
+}
+
+// ---------------------------------------------------------------------------
 void MPServer::onClientDisconnected(HSteamNetConnection conn, const std::string& reason)
 {
     auto it = mClients.find(conn);
@@ -2240,6 +2360,7 @@ void MPServer::onClientDisconnected(HSteamNetConnection conn, const std::string&
     }
 
     const uint32_t disconnectedGuid = client.guid;
+    releaseCollisionInterest(disconnectedGuid);
     mMechanicsSnapshots.erasePlayer(disconnectedGuid);
     std::vector<std::pair<std::string, ActorRegistryRecord*>> revokedActorLeases;
     for (auto& [cellId, cellState] : mWorld.actorCells)
@@ -5889,6 +6010,7 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
     c.player.position.rot[2] = cdPkt.spawnRotZ;
     c.player.position.isTeleporting = true;
     c.player.velocity = {};
+    updateCollisionInterest(c);
 
     if (sendSavedInventory)
     {
@@ -6127,6 +6249,7 @@ void MPServer::handlePlayerPosition(ConnectedClient& c, const uint8_t* data, siz
     c.player.position = proposed.position;
     c.player.velocity = proposed.velocity;
     c.player.positionSampleTimeUs = proposed.positionSampleTimeUs;
+    updateCollisionInterest(c);
 
     // Relay to all other clients (unreliable is fine - we use raw broadcast)
     if (forceReliableTeleportRelay)
@@ -6168,7 +6291,7 @@ void MPServer::handlePlayerCellChange(ConnectedClient& c, const uint8_t* data, s
         c.player.position.isTeleporting = true;
     }
 
-    Log(Debug::Info) << "[Server] " << c.name << " â†’ cell: " << newCell;
+    Log(Debug::Info) << "[Server] " << c.name << " Ã¢â€ â€™ cell: " << newCell;
     Log(Debug::Info) << "[MPDIAG] PlayerCellChange continuity"
                      << " player=" << c.slotName
                      << " oldCell=" << oldCell
@@ -6180,6 +6303,8 @@ void MPServer::handlePlayerCellChange(ConnectedClient& c, const uint8_t* data, s
                      << " velocity=" << c.player.velocity.linear[0] << ","
                      << c.player.velocity.linear[1] << "," << c.player.velocity.linear[2]
                      << " sequence=" << cellChangeSequence;
+
+    updateCollisionInterest(c);
 
     if (oldCell == newCell)
     {
@@ -6208,6 +6333,7 @@ void MPServer::handlePlayerCellChange(ConnectedClient& c, const uint8_t* data, s
         positionPacket.setPlayer(&c.player);
         broadcastToAll(positionPacket.encode(cellChangeSequence), c.conn);
     }
+
     const std::string cellKey = makeCellKey(c.player.cell);
     if (!cellKey.empty() && c.loadedActorCells.find(cellKey) == c.loadedActorCells.end())
         sendCellStateToClient(c.conn, cellKey);
