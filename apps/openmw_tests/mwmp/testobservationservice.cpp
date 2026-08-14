@@ -56,7 +56,7 @@ namespace
         CollisionObservation result{ true, true, { { "Balmora", 7 } } };
 
         CollisionObservation lineOfSight(
-            const std::string&, const ObservationVector&, const ObservationVector&) const override
+            const std::vector<std::string>&, const ObservationVector&, const ObservationVector&) const override
         {
             ++calls;
             return result;
@@ -341,6 +341,11 @@ TEST(ObservationService, RejectsStaleOrNonCanonicalInputBeforeQueryingCollision)
 
     query = normalQuery();
     query.collisionGenerations = { { "Balmora", 7 }, { "Ald-ruhn", 3 } };
+    EXPECT_EQ(service.observe(query).reason, ObservationReason::InvalidQuery);
+    EXPECT_EQ(collision.calls, 0);
+
+    query = normalQuery();
+    query.collisionGenerations = { { "Ald-ruhn", 3 } };
     EXPECT_EQ(service.observe(query).reason, ObservationReason::InvalidQuery);
     EXPECT_EQ(collision.calls, 0);
 }
