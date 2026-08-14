@@ -33,6 +33,7 @@
 #include "AdminHttpServer.hpp"
 #include "MasterServerClient.hpp"
 #include "MechanicsSnapshotRegistry.hpp"
+#include "CollisionCellOwnership.hpp"
 #include "PlayerDatabase.hpp"
 #include "ServerContentRegistry.hpp"
 #include "ServerLuaPackageRegistry.hpp"
@@ -40,6 +41,8 @@
 
 namespace mwmp
 {
+
+class ServerCollisionWorld;
 
 // ---------------------------------------------------------------------------
 // ConnectedClient — server-side representation of one connected player.
@@ -397,6 +400,9 @@ private:
 
     // ── Validation ────────────────────────────────────────────────────────
     bool validateMovement(const ConnectedClient& c, const BasePlayer& proposed) const;
+    void updateCollisionInterest(ConnectedClient& client);
+    void releaseCollisionInterest(uint32_t playerGuid);
+    void applyCollisionOwnershipTransition(const CollisionCellOwnership::Transition& transition);
 
     struct ActorRegistryRecord;
 
@@ -700,6 +706,9 @@ private:
     std::optional<PlayerDatabase> mPlayerDb;
     ServerContentRegistry::Config mContentRegistryConfig;
     std::unique_ptr<ServerContentRegistry> mContentRegistry;
+    std::unique_ptr<ServerCollisionWorld> mCollisionWorld;
+    CollisionCellOwnership mCollisionOwnership;
+    float mObservationAlarmRadius = 2000.f;
     std::filesystem::path mServerLuaPackageRoot;
     std::unique_ptr<ServerLuaPackageRegistry> mServerLuaPackageRegistry;
     std::string                   mDbPath            = "playerdata.db";

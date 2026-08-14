@@ -11,6 +11,7 @@ set(OPENMW_SERVER_SOURCES
     CrimeService.cpp
     ObservationService.cpp
     MechanicsSnapshotRegistry.cpp
+    CollisionCellOwnership.cpp
     FactionService.cpp
     ServerContentRegistry.cpp
     ServerCollisionWorld.cpp
@@ -36,6 +37,7 @@ set(OPENMW_SERVER_HEADERS
     CrimeService.hpp
     ObservationService.hpp
     MechanicsSnapshotRegistry.hpp
+    CollisionCellOwnership.hpp
     ServerCollisionLifecycle.hpp
     FactionService.hpp
     ServerContentRegistry.hpp
