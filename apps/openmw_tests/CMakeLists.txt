@@ -30,6 +30,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwmp/testcrimeservice.cpp
     mwmp/testobservationservice.cpp
     mwmp/testservercollisionlifecycle.cpp
+    mwmp/testmechanicssnapshotregistry.cpp
     mwmp/testtopicpersistence.cpp
     mwmp/testfactionservice.cpp
 )
@@ -60,6 +61,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         ../openmw-server/EnchantingService.cpp
         ../openmw-server/CrimeService.cpp
         ../openmw-server/ObservationService.cpp
+        ../openmw-server/MechanicsSnapshotRegistry.cpp
         ../openmw-server/FactionService.cpp
     )
 endif()
