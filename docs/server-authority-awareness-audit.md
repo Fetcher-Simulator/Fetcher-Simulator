@@ -469,6 +469,65 @@ complexity before profiling production traffic.
 
 ## 8. Implementation phases
 
+### Phase 4A.4 implementation status
+
+Protocol 9 now carries one versioned, atomic `MechanicsSnapshot` representation
+for authenticated players and actor-authority NPCs/creatures. The server derives
+the canonical subject/kind/cell/generations, validates sender entitlement and a
+strictly increasing snapshot sequence, and replaces the accepted transient
+snapshot only after complete validation. Freshness uses server receipt time;
+these volatile snapshots are intentionally not written to SQLite.
+
+Live observation now follows this path:
+
+```text
+protocol-9 MechanicsSnapshot
+    -> MechanicsSnapshotRegistry
+    -> current actor/player registry generation check
+    -> mWorld.actorCells candidate bucket
+    -> canonical NPC + distance + eligibility filters
+    -> current collision-cell generations
+    -> ObservationService
+    -> diagnostic ObservationResult
+```
+
+Connected players own collision cells derived from their authenticated current
+cell and accepted position. Interiors own one cell. Exterior ownership adds only
+cells whose rectangle intersects the `fAlarmRadius` circle; reported loaded-cell
+lists and actor-authority leases do not retain collision geometry. Set-difference
+transitions acquire before release, and final-owner release unloads the cell
+while preserving generation history.
+
+Door state is also versioned under protocol 9. Client proposals require an exact
+next durable revision, a fresh player mechanics snapshot, a unique static door
+instance in an owned collision cell, and server-checked activation distance.
+Duplicate state, stale revision, lock mutation, unknown identity, and dynamic
+doors without authoritative collision geometry are rejected. Accepted state is
+persisted to `world_doors`, echoed/broadcast as a semantic final state, and then
+applied through `ServerCollisionWorld::setDoorOpen`, which advances the cell
+generation. Existing rows migrate to revision 1.
+
+The disabled-by-default `OBSERVATION_DIAGNOSTICS_ENABLED` switch exposes the
+bounded in-game command `/observe <actorNetId|0> [targetPlayerGuid]`. It reports
+identity, distance, snapshot/authority age and generations, collision
+generations, LOS, awareness, semantic reason, and provenance. It does not mutate
+crime, bounty, Alarm, AI, dialogue, or any player/world gameplay state.
+
+The accurate authority classification remains:
+
+```text
+SERVER-AUTHORITATIVE LOS + VALIDATED ATOMIC DELEGATED MECHANICS SNAPSHOTS
+```
+
+Player/NPC position and facing, enabled/alive/conscious flags, sneak/on-ground
+state, modified Sneak/Agility/Luck, fatigue, Chameleon, Invisibility, and Blind
+remain delegated to the authenticated player or current actor authority. The
+server owns identity, canonical kind, cell/generation expectations, freshness,
+candidate selection, static content and GMSTs, boot-weight derivation,
+collision, awareness rolls, formula evaluation, and the final observation
+result. Live humanoid LOS endpoints currently use a server-owned 128-unit eye
+height pending content-derived actor collision bounds.
+
 1. **Audit and pure domain foundation**: this report, typed identity/authority
    metadata, exact formula, observer roll cache, special observation paths, and
    focused tests. No protocol/database change.

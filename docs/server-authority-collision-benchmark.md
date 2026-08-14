@@ -68,6 +68,23 @@ The prototype is an opt-in `openmw-server --collision-benchmark` executable
 mode that exits before socket, database, and gameplay-service initialization.
 It is instrumentation, not the final ObservationService.
 
+The Phase 4A.4 benchmark additionally resolves the real
+`Ex_De_SN_Gate`/`321262` door instance and searches bounded rays around its
+placed transform. It requires one representative ray to transition
+`blocked -> visible -> blocked` across close/open/close while collision
+generation advances on both transforms. On the 82-file Windows content set the
+accepted ray was:
+
+```text
+from -9712.44,-72253.7,229.923
+to   -9457.42,-72231.4,229.923
+generation 1 -> 2 -> 3
+```
+
+The earlier generic actor-pair ray remains blocked by unrelated geometry and is
+retained as a separate regression; it is no longer mistaken for the doorway
+visibility assertion.
+
 ## Baseline
 
 The isolated normal server reached UDP-ready in 14.553 seconds. Three five-second
@@ -209,4 +226,3 @@ remain separate from persistent player/world gameplay state.
 - ARM64 CLI smoke test: pass.
 - Isolated normal-server baseline and all five collision scenarios: pass.
 - UDP 25569 was free after every bounded run; UDP 25564 remained PID 82701.
-
