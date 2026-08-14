@@ -1,10 +1,13 @@
 # Server-authoritative awareness audit
 
-Status: Phase 4A.2 design decision, 2026-08-14
+Status: Phase 4A.2 design decision with Phase 4A.4 implementation addendum,
+2026-08-14
 
-This report audits the current source at `1a8b706d55782d3a169923514434661e775f99a0`.
-It is intentionally limited to perception infrastructure. It does not design or
-implement `CrimeIntent`, protocol 9, arrest, or broad native crime networking.
+Sections 1-7 audit the Phase 4A.2 source at
+`1a8b706d55782d3a169923514434661e775f99a0`. Section 8 records the subsequent
+Phase 4A.4 implementation, including protocol 9. The work remains intentionally
+limited to perception infrastructure: it does not design or implement
+`CrimeIntent`, arrest, or broad native crime networking.
 
 ## Decision
 
