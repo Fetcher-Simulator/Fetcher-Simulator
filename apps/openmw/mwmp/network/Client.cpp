@@ -168,9 +168,12 @@ namespace mwmp
     EResult NetworkClient::sendOnConfiguredLane(const std::vector<uint8_t>& data, int flags)
     {
         PacketHeader header;
-        const bool actorPacket = BasePacket::peekHeader(data.data(), data.size(), header)
-            && header.type >= static_cast<uint16_t>(PacketType::ActorList)
-            && header.type <= static_cast<uint16_t>(PacketType::ActorAttackV2);
+        const bool hasHeader = BasePacket::peekHeader(data.data(), data.size(), header);
+        const PacketType packetType = hasHeader ? static_cast<PacketType>(header.type) : PacketType::Handshake;
+        const bool actorPacket = hasHeader
+            && ((header.type >= static_cast<uint16_t>(PacketType::ActorList)
+                    && header.type <= static_cast<uint16_t>(PacketType::ActorAttackV2))
+                || packetType == PacketType::MechanicsSnapshot);
 
         if (!actorPacket)
         {
@@ -185,7 +188,7 @@ namespace mwmp
         std::memcpy(message->m_pData, data.data(), data.size());
         message->m_conn = mConnection;
         message->m_nFlags = flags;
-        const PacketType type = static_cast<PacketType>(header.type);
+        const PacketType type = packetType;
         const bool realtimeActorPacket = type == PacketType::ActorPosition
             || type == PacketType::ActorAnimFlags
             || type == PacketType::ActorAnimPlay
@@ -196,7 +199,8 @@ namespace mwmp
             || type == PacketType::ActorCombatRequest
             || type == PacketType::ActorPositionV2
             || type == PacketType::ActorPresentationV2
-            || type == PacketType::ActorAttackV2;
+            || type == PacketType::ActorAttackV2
+            || type == PacketType::MechanicsSnapshot;
         message->m_idxLane = realtimeActorPacket ? 1 : 2;
 
         int64 result = 0;

@@ -116,9 +116,11 @@ namespace mwmp
 
     inline bool validateMechanicsSnapshot(const MechanicsSnapshot& snapshot)
     {
+        constexpr std::uint8_t KnownStateFlags = MechanicsEnabled | MechanicsAlive
+            | MechanicsConscious | MechanicsSneaking | MechanicsOnGround;
         if (!isKnownMechanicsSubjectKind(snapshot.kind) || !isCanonicalMechanicsCellId(snapshot.cellId)
             || snapshot.migrationGeneration == 0 || snapshot.authorityGeneration == 0
-            || snapshot.snapshotSequence == 0)
+            || snapshot.snapshotSequence == 0 || (snapshot.stateFlags & ~KnownStateFlags) != 0)
             return false;
 
         if (snapshot.kind == MechanicsSubjectKind::Player)

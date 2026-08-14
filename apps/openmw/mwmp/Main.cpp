@@ -538,6 +538,7 @@ void Main::onConnected()
     mPlayerSync->resetCrimeStateSync();
     mPlayerSync->resetFactionStateSync();
     mPlayerSync->resetTopicStateSync();
+    mPlayerSync->resetMechanicsSnapshotState();
 
     // Build and send handshake
     PacketHandshake hs;
@@ -681,6 +682,7 @@ void Main::onDisconnected()
         mPlayerSync->resetCrimeStateSync();
         mPlayerSync->resetFactionStateSync();
         mPlayerSync->resetTopicStateSync();
+        mPlayerSync->resetMechanicsSnapshotState();
     }
 }
 

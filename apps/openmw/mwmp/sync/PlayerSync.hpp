@@ -86,6 +86,7 @@ namespace mwmp
         void resetCrimeStateSync();
         void resetFactionStateSync();
         void resetTopicStateSync();
+        void resetMechanicsSnapshotState();
         RevisionDecision receiveAuthoritativeCrimeState(PlayerCrimeState state);
         RevisionDecision receiveAuthoritativeFactionResult(PlayerFactionState state,
             std::string_view requestId, bool accepted, FactionError error);
@@ -125,6 +126,7 @@ namespace mwmp
         void sendBaseInfo();
         void sendDeath();
         void sendResurrect();
+        void sendMechanicsSnapshot(const MWWorld::Ptr& player, bool reliable);
         void respawnLocally(const MWWorld::Ptr& player);
 
         // ---- change detection ----
@@ -175,6 +177,7 @@ namespace mwmp
         // --- send-rate accumulators ---
         float mPositionTimer    = 0.f;
         float mStatsTimer       = 0.f;
+        float mMechanicsSnapshotTimer = 0.f;
         float mPositionDiagTimer = 0.f;
         float mPositionDiagFrameDtMax = 0.f;
         std::size_t mPositionDiagFrames = 0;
@@ -186,6 +189,7 @@ namespace mwmp
         //static constexpr float POSITION_RATE = 0.166f; // 60 Hz
         static constexpr float POSITION_RATE = 0.033f; // 30 Hz
         static constexpr float STATS_RATE    = 0.25f;  // 4 Hz on change
+        static constexpr float MECHANICS_SNAPSHOT_RATE = 0.25f;
 
         // --- last-sent snapshots for delta detection ---
         struct PositionSnapshot { float pos[3]; float rot[3]; float velocity[3]; };
@@ -281,6 +285,7 @@ namespace mwmp
         static constexpr float PLAYER_ATTACKER_CONTEXT_SECONDS = 15.f;
 
         uint32_t mSeqCounter = 0;
+        uint32_t mMechanicsSnapshotSequence = 0;
 
         bool mPendingEquipmentRestore = false;
         bool mPendingInventoryRestore = false;

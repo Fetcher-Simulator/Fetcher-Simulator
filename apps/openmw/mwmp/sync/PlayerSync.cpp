@@ -31,6 +31,7 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerTopic.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerDeath.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerResurrect.hpp>
+#include <components/openmw-mp/Packets/Actor/PacketMechanicsSnapshot.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAnimPlay.hpp>
 #include <components/sceneutil/positionattitudetransform.hpp>
 
@@ -79,6 +80,7 @@
 
 #include "WorldObjectSync.hpp"
 #include "InventoryIdentity.hpp"
+#include "MechanicsSnapshotBuilder.hpp"
 
 namespace mwmp
 {
@@ -561,6 +563,12 @@ void PlayerSync::forceFullSync(bool includeInventoryAndEquipment, bool includeSp
     sendBaseInfo();
     sendCellChange();
     sendLoadedActorCells(true);
+    if (world)
+    {
+        MWWorld::Ptr player = world->getPlayerPtr();
+        if (!player.isEmpty())
+            sendMechanicsSnapshot(player, true);
+    }
     bool deferredInventorySync = false;
     if (includeInventoryAndEquipment)
     {
@@ -1205,6 +1213,13 @@ void PlayerSync::update(float dt)
     }
     else
         sendLoadedActorCells();
+
+    mMechanicsSnapshotTimer += safeDt;
+    if (mMechanicsSnapshotTimer >= MECHANICS_SNAPSHOT_RATE)
+    {
+        mMechanicsSnapshotTimer = std::fmod(mMechanicsSnapshotTimer, MECHANICS_SNAPSHOT_RATE);
+        sendMechanicsSnapshot(player, false);
+    }
     if (equipmentChanged())
     {
         snapshotEquipment();
@@ -1215,6 +1230,32 @@ void PlayerSync::update(float dt)
         snapshotInventory();
         sendInventory();
     }
+}
+
+void PlayerSync::sendMechanicsSnapshot(const MWWorld::Ptr& player, bool reliable)
+{
+    if (player.isEmpty() || mLocal.guid == 0)
+        return;
+    if (++mMechanicsSnapshotSequence == 0)
+        ++mMechanicsSnapshotSequence;
+
+    MechanicsSnapshotBatch batch;
+    batch.snapshots.push_back(captureMechanicsSnapshot(player, MechanicsSubjectKind::Player,
+        mLocal.guid, 0, cellIdFromCell(mLocal.cell), 1, mLocal.guid, mMechanicsSnapshotSequence));
+    if (!validateMechanicsSnapshot(batch.snapshots.front()))
+    {
+        Log(Debug::Warning) << "[MP] PlayerSync: suppressed invalid mechanics snapshot"
+                            << " guid=" << mLocal.guid
+                            << " cell=" << batch.snapshots.front().cellId;
+        return;
+    }
+
+    PacketMechanicsSnapshot packet;
+    packet.setBatch(&batch);
+    if (reliable)
+        mClient.sendReliable(packet.encode());
+    else
+        mClient.sendUnreliable(packet.encode());
 }
 
 // ---------------------------------------------------------------------------
@@ -2991,6 +3032,12 @@ void PlayerSync::resetSpellbookSyncState()
     mLocal.spellbookChanges.action = BasePlayer::SpellbookChanges::Action::Set;
     mLocal.spellbookChanges.spellIds.clear();
     mLocal.spellbookChanges.revision = 0;
+}
+
+void PlayerSync::resetMechanicsSnapshotState()
+{
+    mMechanicsSnapshotTimer = 0.f;
+    mMechanicsSnapshotSequence = 0;
 }
 
 void PlayerSync::resetJournalSyncState()
