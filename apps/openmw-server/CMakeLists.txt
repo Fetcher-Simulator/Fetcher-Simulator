@@ -9,6 +9,7 @@ set(OPENMW_SERVER_SOURCES
     AlchemyService.cpp
     EnchantingService.cpp
     CrimeService.cpp
+    ObservationService.cpp
     FactionService.cpp
     ServerContentRegistry.cpp
     ServerCollisionWorld.cpp
@@ -32,6 +33,7 @@ set(OPENMW_SERVER_HEADERS
     AlchemyService.hpp
     EnchantingService.hpp
     CrimeService.hpp
+    ObservationService.hpp
     FactionService.hpp
     ServerContentRegistry.hpp
     ServerCollisionWorld.hpp
