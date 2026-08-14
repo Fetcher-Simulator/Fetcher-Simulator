@@ -633,6 +633,23 @@ int mwmp::runServerCollisionBenchmark(ServerContentRegistry& content,
         const std::vector<std::pair<osg::Vec3f, osg::Vec3f>> pairs
             = makeActorPairs(world.actorEyeSamples(), alarmRadius);
 
+        std::vector<std::string> collisionCellIds;
+        collisionCellIds.reserve(scenario.cells.size());
+        for (const ServerCollisionWorld::CellSpec& cell : scenario.cells)
+            collisionCellIds.push_back(ServerCollisionWorld::cellKey(cell));
+        std::sort(collisionCellIds.begin(), collisionCellIds.end());
+        collisionCellIds.erase(
+            std::unique(collisionCellIds.begin(), collisionCellIds.end()), collisionCellIds.end());
+        auto queryProductionLos = [&]() {
+            const osg::Vec3f& from = pairs.front().first;
+            const osg::Vec3f& to = pairs.front().second;
+            return world.lineOfSight(collisionCellIds, { from.x(), from.y(), from.z() },
+                { to.x(), to.y(), to.z() });
+        };
+        const CollisionObservation initialProductionLos = queryProductionLos();
+        if (!initialProductionLos.available || initialProductionLos.generations.size() != collisionCellIds.size())
+            throw std::runtime_error("Production collision API rejected loaded scenario " + scenario.name);
+
         output << "load," << scenario.name << ',' << stats.cells << ',' << stats.objects << ','
                << stats.heightfields << ',' << stats.triangles << ',' << stats.actorSamples
                << ",0,0,0,0," << loadedRss << ',' << static_cast<std::int64_t>(loadedRss) - beforeRss
@@ -695,6 +712,58 @@ int mwmp::runServerCollisionBenchmark(ServerContentRegistry& content,
                           << " wall_ms=" << measured.wallMs
                           << " per_event_ms=" << measured.wallMs / Events << '\n';
             }
+        }
+
+        if (scenario.name == "exterior_open")
+        {
+            const std::string& cellId = collisionCellIds.front();
+            const std::uint64_t closedGeneration = world.cellGeneration(cellId);
+            const std::size_t opened = world.setDoorOpen(cellId, "Ex_De_SN_Gate", 321262, true);
+            const CollisionObservation openLos = queryProductionLos();
+            if (opened != 1 || !openLos.available || world.cellGeneration(cellId) == closedGeneration
+                || openLos.generations == initialProductionLos.generations)
+                throw std::runtime_error("Dynamic door open did not invalidate collision generation");
+
+            const std::uint64_t openGeneration = world.cellGeneration(cellId);
+            const std::size_t closed = world.setDoorOpen(cellId, "Ex_De_SN_Gate", 321262, false);
+            const CollisionObservation closedLos = queryProductionLos();
+            if (closed != 1 || !closedLos.available || world.cellGeneration(cellId) == openGeneration
+                || closedLos.generations == openLos.generations)
+                throw std::runtime_error("Dynamic door close did not invalidate collision generation");
+
+            std::cout << "COLLISION_BENCHMARK door_transition scenario=" << scenario.name
+                      << " cell=" << cellId << " closed_los=" << initialProductionLos.clear
+                      << " open_los=" << openLos.clear << " restored_los=" << closedLos.clear
+                      << " closed_generation=" << closedGeneration
+                      << " open_generation=" << openGeneration
+                      << " restored_generation=" << world.cellGeneration(cellId) << '\n';
+        }
+
+        if (scenario.name == "balmora_3x3")
+        {
+            const ServerCollisionWorld::CellSpec& participatingCell = scenario.cells.back();
+            const std::string participatingCellId = ServerCollisionWorld::cellKey(participatingCell);
+            const std::uint64_t initialGeneration = world.cellGeneration(participatingCellId);
+
+            if (world.acquireCell(participatingCell) != initialGeneration
+                || world.cellRefCount(participatingCellId) != 2
+                || !world.releaseCell(participatingCell)
+                || world.cellRefCount(participatingCellId) != 1)
+                throw std::runtime_error("Duplicate collision-cell ownership changed loaded geometry");
+
+            if (!world.releaseCell(participatingCell) || queryProductionLos().available)
+                throw std::runtime_error("Multi-cell LOS remained available after participating cell unload");
+
+            const std::uint64_t reloadedGeneration = world.acquireCell(participatingCell);
+            const CollisionObservation reloadedLos = queryProductionLos();
+            if (reloadedGeneration == initialGeneration || !reloadedLos.available
+                || reloadedLos.generations == initialProductionLos.generations)
+                throw std::runtime_error("Reloaded collision cell reused a stale multi-cell generation");
+
+            std::cout << "COLLISION_BENCHMARK multi_cell_generation scenario=" << scenario.name
+                      << " cell=" << participatingCellId << " initial_generation=" << initialGeneration
+                      << " reloaded_generation=" << reloadedGeneration
+                      << " cells=" << collisionCellIds.size() << '\n';
         }
 
         const double unloadMs = world.clear();
