@@ -355,6 +355,7 @@ private:
     void handleChatMessage      (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleLuaEvent         (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleObjectPlace      (ConnectedClient& c, const uint8_t* data, size_t size);
+    void handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleObjectDelete     (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleObjectMove       (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleContainer        (ConnectedClient& c, const uint8_t* data, size_t size);
@@ -687,6 +688,7 @@ private:
         // Authoritative door states: cellId → list of door entries.
         std::map<std::string, std::vector<mwmp::DoorEntry>> doorStates;
         std::map<std::string, std::vector<mwmp::PlacedObject>> placedObjects;
+        std::map<std::string, std::vector<mwmp::PlacedObjectIdentity>> takenItemReferences;
         std::unordered_map<std::string, mwmp::ContainerRecord> containers;
         std::unordered_map<std::string, StoredDynamicRecord> dynamicRecords;
         std::unordered_map<std::string, CellActorState> actorCells;

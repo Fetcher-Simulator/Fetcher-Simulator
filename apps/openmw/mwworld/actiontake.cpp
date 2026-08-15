@@ -35,16 +35,20 @@ namespace MWWorld
             }
         }
 
+#ifdef BUILD_MULTIPLAYER
+        if (mwmp::Main::isConnected() && actor == MWBase::Environment::get().getWorld()->getPlayerPtr())
+        {
+            mwmp::Main::get().getWorldObjectSync().requestLocalObjectTake(getTarget());
+            return;
+        }
+#endif
+
         int count = getTarget().getCellRef().getCount();
         if (getTarget().getClass().isGold(getTarget()))
             count *= getTarget().getClass().getValue(getTarget());
 
         MWBase::Environment::get().getMechanicsManager()->itemTaken(actor, getTarget(), MWWorld::Ptr(), count);
         MWWorld::Ptr newitem = *actor.getClass().getContainerStore(actor).add(getTarget(), count);
-#ifdef BUILD_MULTIPLAYER
-        if (mwmp::Main::isConnected() && actor == MWBase::Environment::get().getWorld()->getPlayerPtr())
-            mwmp::Main::get().getWorldObjectSync().onLocalObjectTaken(getTarget(), newitem);
-#endif
         MWBase::Environment::get().getWorld()->deleteObject(getTarget());
         setTarget(newitem);
     }

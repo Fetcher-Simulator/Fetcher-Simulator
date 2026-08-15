@@ -2,11 +2,10 @@
 
 ## Status and boundary
 
-Phase 4B.1 provides a server-only, independently testable semantic crime engine.
-Phase 4B.2 adds a production live-witness source, but intentionally does not
-connect a native crime producer because the current pickup path fails the
-authoritative-cause gate described below. MWScript and OpenMW Lua producers also
-remain disconnected. There is no packet or protocol change.
+The semantic crime engine, production live-witness source, and native placed-
+world Theft producer are active. Protocol 10 adds generation-bound witness state
+and typed authoritative world-item take request/result packets. MWScript and
+OpenMW Lua producers remain disconnected.
 
 The authoritative pipeline is:
 
@@ -88,32 +87,30 @@ Creatures are also excluded, matching native `canReportCrime` behavior.
 
 ### Alarm provenance
 
-The server content store supplies `ESM::NPC::mAiData.mAlarm`, classified as
-`CrimeAlarmProvenance::StaticContentBase`. Values outside the ESM Alarm range
-0 through 100 are rejected. Missing or unavailable provenance cannot become a
-reporter.
-
-This is explicitly the static content base, not a claim about the NPC's current
-effective live Alarm. Native `SetAlarm` can modify runtime AI settings, and the
-current actor/mechanics snapshots do not carry a validated effective Alarm
-value. A later effective-AI-state authority layer may supersede the base value;
-it must preserve explicit provenance and freshness.
+The server content store supplies `ESM::NPC::mAiData.mAlarm` as an explicitly
+classified static fallback. A fresh protocol-10 actor-authority mechanics
+snapshot supersedes it with the current `CreatureStats` Alarm base under
+`ValidatedActorAuthorityDelegated` provenance. The snapshot is accepted only
+for the canonical actor, current authority sender, migration generation,
+authority generation, monotonically newer sequence, and freshness window.
+Values outside 0 through 100 are rejected.
 
 ### Relationship provenance
 
-The actor registry contains delegated ActorAI packages, but it does not yet
-record an independently fresh, generation-bound assertion suitable for proving
-crime follower/combat relationships. The production adapter therefore sets
-`CrimeRelationshipProvenance::Unavailable` and `Unknown`; the builder fails
-closed. It does not infer a safe relationship merely because the latest package
-is not `Follow` or `Combat`, and it does not accept a new client boolean.
+Protocol 10 extends the same accepted atomic mechanics snapshot with recursive
+player-follower membership and canonical combat-target identity. Actor authority
+computes follower membership through `getActorsSidingWith(player)` and retains
+the native Follow-package condition. Combat targets are encoded as canonical
+player GUID or actor instance identity. A known follower or an actor whose
+combat target equals the canonical victim is excluded; a known safe result can
+continue to observation. Missing, stale, or generation-mismatched relationship
+state remains `Unknown` and fails closed. The server never treats the absence of
+an ActorAI package as proof of safety.
 
-The typed builder can consume `ServerAuthoritative` or
-`ValidatedActorAuthorityDelegated` relationship classifications once such a
-source exists. Known followers and actors in combat with the victim are always
-excluded. Consequently the Phase 4B.2 production adapter is ready to construct
-and diagnose canonical live candidates, but it cannot yet produce an eligible
-reporter from current relationship state.
+`/crimewitness [victimActorNetId]` calls the production builder and reports the
+identity, cell, distance, generations, snapshot age, Alarm and relationship
+provenance, and terminal inclusion reason. It shares the disabled-by-default
+observation diagnostics switch and performs no mutation.
 
 ## Witness eligibility and observation
 
@@ -138,45 +135,41 @@ the accepted awareness calculation/cache. The special cases remain explicit:
 Assault derives victim awareness in the semantic core, matching native
 `commitCrime`.
 
-## Native placed-item Theft authority audit
+## Authoritative placed-world take and Theft
 
-The current native `ActionTake` order is local `itemTaken`, local inventory
-insertion, `WorldObjectSync::onLocalObjectTaken`, and local world deletion.
-`onLocalObjectTaken` returns immediately when `getMpNumForObject` is zero.
-Ordinary content-placed world objects do not have a server multiplayer number,
-so their successful pickup emits no mandatory object-take event at all.
+Connected `ActionTake` and inventory-window pickup are request-first. They send
+`WorldItemTakeRequest` and return without locally adding inventory, deleting the
+world object, or running `itemTaken`. Accepted state arrives through the normal
+authoritative inventory snapshot and canonical object-deletion replication.
+Single-player retains the original synchronous path.
 
-For a multiplayer-placed object, deletion emits `PacketObjectDelete` only when
-the object has a nonzero multiplayer number. `MPServer::handleObjectDelete` can
-then resolve and remove an entry from `mWorld.placedObjects` and retain its
-`mpNum`, `refId`, count, position, and cell for inventory identity transfer.
-That record does not contain ESM ownership, faction ownership, or a canonical
-content refnum. The handler checks that the placed object exists but does not
-currently validate activation distance before removal.
+Content references use `(cellId, refId, RefNum.index, RefNum.contentFile)`;
+server-placed objects use `(cellId, refId, mpNum)`. Mixed or incomplete keys are
+invalid. The server resolves content references from its ordered content world,
+and derives enabled/present state, count, transform, owner, faction/rank,
+ownership global, gold conversion, charge, soul, item value, and record type.
+It validates the authenticated player's canonical cell, fresh mechanics
+position/generations, exact requested count, and interaction range. Server-
+placed objects resolve from authoritative `mWorld.placedObjects` and are
+unowned drops.
 
-The later `PlayerInventory` Set snapshot is revision checked and validates
-generated record references and instance identities, but it does not prove that
-an added item came from the deleted world object. A modified client can omit the
-object deletion and still propose the inventory addition. It can also take an
-ordinary content-placed object without any object event because that object has
-no multiplayer number. Therefore no current server event is both unavoidable
-and sufficient to establish placed-world-item Theft, and no native Theft
-producer is connected in Phase 4B.2.
+`world_taken_references` stores durable global tombstones and
+`world_item_take_requests` stores terminal accepted request identity/results.
+One SQLite `BEGIN IMMEDIATE` transaction inserts the tombstone, removes a
+server-placed row when applicable, rewrites the authoritative inventory and its
+dynamic-record links, advances the inventory revision, and journals the result.
+The server then replicates the inventory and deletion. Cell bootstrap replays
+content tombstones, so reconnect and restart cannot resurrect a taken reference.
+Duplicate request identity returns the stored result; a different hash conflicts,
+and a different request for the same reference is already-taken.
 
-The audited native value rule remains local-only today: `itemTaken` uses the
-requested count directly for gold, otherwise `count * item value`; after a crime
-is seen, `reportCrime` computes `max(1, int(value * fCrimeStealing))`. A future
-producer must derive the item, count, ownership/faction, and value from the same
-server-accepted transfer rather than trusting those conclusions from the
-client.
-
-Before authoritative Theft can be wired, the mandatory pickup operation needs
-a canonical server-known identity for ordinary and multiplayer-placed objects,
-validated object existence/cell/position/ownership/value/count, authenticated
-sender and fresh player cell/position, interaction-range validation, and an
-atomic or idempotently linked world-removal/inventory-add acceptance. The crime
-event ID must be derived from that accepted operation. Adding an optional
-`CrimeIntent` packet would not satisfy this boundary.
+Ownership is evaluated from server content and authoritative player faction
+state. An accepted unowned take performs no crime mutation. An owned take emits
+the deterministic event `world-item-take:<account>:<character>:<request>` and
+feeds the production witness builder and `CrimeSemanticService`. Crime value is
+gold count for gold and `count * item value` otherwise; reporting retains
+`max(1, int(value * fCrimeStealing))` in the semantic policy. The client never
+supplies ownership, Theft, value, witness, bounty, or crime IDs.
 
 ## Persistence and idempotency
 
@@ -202,9 +195,6 @@ cause result and resulting gameplay state are durable.
 The following remain explicit later Phase 4B work:
 
 - native/MWScript/OpenMW Lua crime producer wiring;
-- authoritative placed-world-item transfer acceptance required by Theft;
-- fresh generation-bound follower/combat relationship state;
-- effective live Alarm authority for runtime-modified NPC AI settings;
 - authoritative pickpocket detection and container transfer authority;
 - connecting authoritative combat/damage events to Assault and Murder causes;
 - relationship derivation beyond the fail-closed live witness adapter;

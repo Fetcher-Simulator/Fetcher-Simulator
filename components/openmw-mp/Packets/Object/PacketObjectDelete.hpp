@@ -20,6 +20,7 @@ namespace mwmp
         std::string cellId;
         std::string refId;
         uint32_t    refNum = 0;
+        int32_t     refContentFile = -1;
         bool        takenIntoInventory = false;
 
         PacketObjectDelete() : BasePacket(PacketType::ObjectDelete) {}
@@ -31,6 +32,7 @@ namespace mwmp
             ws.writeString(cellId);
             ws.writeString(refId);
             ws.write(refNum);
+            ws.write(refContentFile);
             ws.write(takenIntoInventory);
         }
 
@@ -40,6 +42,7 @@ namespace mwmp
             cellId = rs.readString();
             refId = rs.readString();
             rs.read(refNum);
+            rs.read(refContentFile);
             rs.read(takenIntoInventory);
         }
     };
