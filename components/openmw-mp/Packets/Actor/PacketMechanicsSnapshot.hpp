@@ -79,6 +79,11 @@ namespace mwmp
             stream.write(snapshot.chameleon);
             stream.write(snapshot.invisibility);
             stream.write(snapshot.blind);
+            stream.write(snapshot.witnessStateFlags);
+            stream.write(snapshot.effectiveAlarm);
+            stream.write(static_cast<std::uint8_t>(snapshot.combatTargetKind));
+            stream.write(snapshot.combatTargetPlayerGuid);
+            stream.write(snapshot.combatTargetActorInstanceId);
             stream.write(snapshot.migrationGeneration);
             stream.write(snapshot.authorityGeneration);
             stream.write(snapshot.snapshotSequence);
@@ -105,6 +110,13 @@ namespace mwmp
             stream.read(snapshot.chameleon);
             stream.read(snapshot.invisibility);
             stream.read(snapshot.blind);
+            stream.read(snapshot.witnessStateFlags);
+            stream.read(snapshot.effectiveAlarm);
+            std::uint8_t combatTargetKind = 0;
+            stream.read(combatTargetKind);
+            snapshot.combatTargetKind = static_cast<MechanicsSubjectKind>(combatTargetKind);
+            stream.read(snapshot.combatTargetPlayerGuid);
+            stream.read(snapshot.combatTargetActorInstanceId);
             stream.read(snapshot.migrationGeneration);
             stream.read(snapshot.authorityGeneration);
             stream.read(snapshot.snapshotSequence);

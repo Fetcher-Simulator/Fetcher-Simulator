@@ -51,6 +51,27 @@ namespace
             ? ObservationAuthority::ActorAuthorityDelegated
             : ObservationAuthority::ServerAuthoritative;
     }
+
+    ObservationActorIdentity combatTargetIdentity(const MechanicsSnapshot& snapshot)
+    {
+        ObservationActorIdentity result;
+        switch (snapshot.combatTargetKind)
+        {
+            case MechanicsSubjectKind::Player:
+                result.kind = ObservationActorKind::Player;
+                result.playerGuid = snapshot.combatTargetPlayerGuid;
+                break;
+            case MechanicsSubjectKind::Npc:
+                result.kind = ObservationActorKind::Npc;
+                result.actorInstanceId = snapshot.combatTargetActorInstanceId;
+                break;
+            case MechanicsSubjectKind::Creature:
+                result.kind = ObservationActorKind::Creature;
+                result.actorInstanceId = snapshot.combatTargetActorInstanceId;
+                break;
+        }
+        return result;
+    }
 }
 
 namespace mwmp
@@ -115,8 +136,14 @@ namespace mwmp
             const LiveCrimeWitnessActor& actor = sourced.actor;
             CrimeWitnessBuildDecision decision;
             decision.identity = actor.identity;
+            decision.refId = actor.refId;
+            decision.cellId = actor.cellId;
+            decision.alarm = actor.alarm;
             decision.alarmProvenance = actor.alarmProvenance;
+            decision.relationship = actor.relationship;
             decision.relationshipProvenance = actor.relationshipProvenance;
+            decision.migrationGeneration = actor.migrationGeneration;
+            decision.authorityGeneration = actor.authorityGeneration;
 
             if (identityCounts[actor.identity] != 1)
                 decision.reason = CrimeWitnessBuildReason::DuplicateIdentity;
@@ -143,33 +170,65 @@ namespace mwmp
                 else
                 {
                     ObservationActorSnapshot snapshot = makeLiveObservationSnapshot(*accepted, actor.bootWeight);
+                    decision.snapshotAgeMs = request.observedAtMs - accepted->receivedAtMs;
                     const bool victim = request.victim && actor.identity == *request.victim;
                     const float actorDistanceSquared = distanceSquared(request.offender.position, snapshot.position);
+                    if (std::isfinite(actorDistanceSquared) && actorDistanceSquared >= 0.f)
+                        decision.distance = std::sqrt(actorDistanceSquared);
+
+                    std::optional<std::int32_t> alarm = actor.alarm;
+                    CrimeAlarmProvenance alarmProvenance = actor.alarmProvenance;
+                    CrimeWitnessRelationship relationship = actor.relationship;
+                    CrimeRelationshipProvenance relationshipProvenance = actor.relationshipProvenance;
+                    const MechanicsSnapshot& mechanics = accepted->snapshot;
+                    if ((mechanics.witnessStateFlags & MechanicsWitnessEffectiveAlarmKnown) != 0)
+                    {
+                        alarm = mechanics.effectiveAlarm;
+                        alarmProvenance = CrimeAlarmProvenance::ValidatedActorAuthorityDelegated;
+                    }
+                    if ((mechanics.witnessStateFlags & MechanicsWitnessRelationshipKnown) != 0)
+                    {
+                        relationshipProvenance
+                            = CrimeRelationshipProvenance::ValidatedActorAuthorityDelegated;
+                        if ((mechanics.witnessStateFlags & MechanicsWitnessPlayerFollower) != 0)
+                            relationship = CrimeWitnessRelationship::PlayerFollower;
+                        else if (request.victim
+                            && (mechanics.witnessStateFlags & MechanicsWitnessHasCombatTarget) != 0
+                            && combatTargetIdentity(mechanics) == *request.victim)
+                            relationship = CrimeWitnessRelationship::InCombatWithVictim;
+                        else
+                            relationship = CrimeWitnessRelationship::Eligible;
+                    }
+                    decision.alarm = alarm;
+                    decision.alarmProvenance = alarmProvenance;
+                    decision.relationship = relationship;
+                    decision.relationshipProvenance = relationshipProvenance;
+
                     if (!finitePosition(snapshot.position) || !std::isfinite(actorDistanceSquared)
                         || (!victim && actorDistanceSquared > radiusSquared))
                         decision.reason = CrimeWitnessBuildReason::OutsideAlarmRadius;
                     else if (!snapshot.eligibilityKnown || !snapshot.enabled || !snapshot.alive
                         || !snapshot.conscious)
                         decision.reason = CrimeWitnessBuildReason::ActorIneligible;
-                    else if (!actor.alarm || actor.alarmProvenance == CrimeAlarmProvenance::Unavailable)
+                    else if (!alarm || alarmProvenance == CrimeAlarmProvenance::Unavailable)
                         decision.reason = CrimeWitnessBuildReason::AlarmUnavailable;
-                    else if (*actor.alarm < 0 || *actor.alarm > 100)
+                    else if (*alarm < 0 || *alarm > 100)
                         decision.reason = CrimeWitnessBuildReason::AlarmInvalid;
-                    else if (actor.relationship == CrimeWitnessRelationship::InCombatWithVictim)
+                    else if (relationship == CrimeWitnessRelationship::InCombatWithVictim)
                         decision.reason = CrimeWitnessBuildReason::InCombatWithVictim;
-                    else if (actor.relationship == CrimeWitnessRelationship::PlayerFollower)
+                    else if (relationship == CrimeWitnessRelationship::PlayerFollower)
                         decision.reason = CrimeWitnessBuildReason::PlayerFollower;
-                    else if (actor.relationship != CrimeWitnessRelationship::Eligible
-                        || actor.relationshipProvenance == CrimeRelationshipProvenance::Unavailable)
+                    else if (relationship != CrimeWitnessRelationship::Eligible
+                        || relationshipProvenance == CrimeRelationshipProvenance::Unavailable)
                         decision.reason = CrimeWitnessBuildReason::RelationshipUnknown;
                     else
                     {
                         CrimeWitnessCandidate witness;
                         witness.actor = std::move(snapshot);
-                        witness.alarm = *actor.alarm;
-                        witness.relationship = actor.relationship;
+                        witness.alarm = *alarm;
+                        witness.relationship = relationship;
                         witness.relationshipAuthority
-                            = relationshipAuthority(actor.relationshipProvenance);
+                            = relationshipAuthority(relationshipProvenance);
                         result.witnesses.push_back(std::move(witness));
                         decision.reason = CrimeWitnessBuildReason::Included;
                     }

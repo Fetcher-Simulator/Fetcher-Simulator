@@ -44,9 +44,10 @@ Config.ADMIN_HTTP_HOST = "127.0.0.1"
 Config.ADMIN_HTTP_PORT = 8081
 Config.ADMIN_HTTP_TIMEOUT_MS = 250
 
--- Protocol-9 live observation diagnostics. When enabled, connected testers can
--- invoke /observe <actorNetId|0 for all> [targetPlayerGuid]. Keep disabled on
--- normal servers; this surface reports authority and collision internals.
+-- Protocol-10 live observation diagnostics. When enabled, connected testers can
+-- invoke /observe <actorNetId|0 for all> [targetPlayerGuid] or
+-- /crimewitness [victimActorNetId]. Keep disabled on normal servers; this
+-- surface reports authority, collision, and witness-decision internals.
 Config.OBSERVATION_DIAGNOSTICS_ENABLED = false
 
 ------------------------------------------------------------------------

@@ -415,6 +415,7 @@ private:
         std::uint32_t targetPlayerGuid, std::optional<ActorInstanceId> observerFilter, std::string_view eventId);
     CrimeWitnessBuildResult buildLiveCrimeWitnesses(const CrimeWitnessBuildRequest& request);
     bool handleObservationDiagnosticCommand(ConnectedClient& requester, std::string_view message);
+    bool handleCrimeWitnessDiagnosticCommand(ConnectedClient& requester, std::string_view message);
     float playerBootWeight(const ConnectedClient& player) const;
 
     struct ActorRegistryRecord;

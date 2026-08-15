@@ -12,12 +12,14 @@ gameplay results as Lua calls.
 The safe bootstrap path is implemented through package contracts, server
 discovery/transfer, client staging, temporary Lua/VFS overlay activation, and
 the combined pre-world gate. The current wire contract uses
-`MultiplayerProtocolVersion = 9`, `ServerLuaPackageManifestVersion = 2`, and
+`MultiplayerProtocolVersion = 10`, `ServerLuaPackageManifestVersion = 2`, and
 `MultiplayerLuaApiVersion = 1`. Manifest version 2 adds explicit compatibility
 overrides. Multiplayer protocol versions 5, 6, and 7 add crime, known-topic,
 and faction-state transport respectively. Protocol 9 adds the independent
-atomic observation-mechanics snapshot lane. None of those semantic/mechanics
-services use package transport. Package sets are immutable for a connection.
+atomic observation-mechanics snapshot lane, and protocol 10 extends it with
+validated witness relationship and effective-Alarm authority. None of those
+semantic/mechanics services use package transport. Package sets are immutable
+for a connection.
 
 Transactional runtime hot reload/state handoff is intentionally not
 implemented. Typed semantic authority services build beside the package/API
@@ -159,7 +161,7 @@ above.
 
 ## Bootstrap and activation
 
-The handshake negotiates `MultiplayerProtocolVersion = 9`,
+The handshake negotiates `MultiplayerProtocolVersion = 10`,
 `ServerLuaPackageManifestVersion = 2`, `MultiplayerLuaApiVersion = 1`, and the
 exact OpenMW Lua API revision independently.
 
