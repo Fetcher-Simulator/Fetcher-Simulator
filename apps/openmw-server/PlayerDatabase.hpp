@@ -142,6 +142,7 @@ namespace mwmp
 
     struct CrimeMutationCommit
     {
+        std::string service = "crime";
         int64_t accountId = 0;
         int64_t characterId = 0;
         std::string requestId;
@@ -519,9 +520,11 @@ namespace mwmp
         /// Persist a terminal rejected request that changed no gameplay state.
         bool insertRejectedSemanticRequest(const SemanticRequestRecord& request);
 
-        /// Atomically update every authoritative crime field and insert the
-        /// accepted terminal request result. The revision is rechecked inside
-        /// BEGIN IMMEDIATE and duplicate request identity is resolved there.
+        /// Atomically update authoritative crime fields (when changed) and
+        /// insert the accepted terminal request result. Revision-preserving
+        /// commits journal accepted no-state-change semantic events. The
+        /// revision is rechecked inside BEGIN IMMEDIATE and duplicate request
+        /// identity is resolved there.
         CrimeCommitResult commitPlayerCrimeMutation(const CrimeMutationCommit& commit);
         FactionCommitResult commitPlayerFactionMutation(const FactionMutationCommit& commit);
 

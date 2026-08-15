@@ -9,6 +9,7 @@ set(OPENMW_SERVER_SOURCES
     AlchemyService.cpp
     EnchantingService.cpp
     CrimeService.cpp
+    CrimeSemanticService.cpp
     ObservationService.cpp
     MechanicsSnapshotRegistry.cpp
     CollisionCellOwnership.cpp
@@ -37,6 +38,7 @@ set(OPENMW_SERVER_HEADERS
     AlchemyService.hpp
     EnchantingService.hpp
     CrimeService.hpp
+    CrimeSemanticService.hpp
     ObservationService.hpp
     MechanicsSnapshotRegistry.hpp
     CollisionCellOwnership.hpp

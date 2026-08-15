@@ -3371,11 +3371,14 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
 
     CrimeCommitResult PlayerDatabase::commitPlayerCrimeMutation(const CrimeMutationCommit& commit)
     {
-        if (commit.accountId <= 0 || commit.characterId <= 0 || commit.requestId.empty()
+        if (commit.service.empty() || commit.service.size() > 64 || commit.service.find('\0') != std::string::npos
+            || commit.accountId <= 0 || commit.characterId <= 0 || commit.requestId.empty()
             || commit.requestHash.empty() || commit.resultPayload.empty() || commit.source.empty()
             || validatePlayerCrimeState(commit.resultingState) != CrimeError::None
-            || commit.expectedRevision >= MaximumPersistedRevision
-            || commit.resultingState.revision != commit.expectedRevision + 1)
+            || commit.expectedRevision > MaximumPersistedRevision
+            || (commit.resultingState.revision != commit.expectedRevision
+                && (commit.expectedRevision >= MaximumPersistedRevision
+                    || commit.resultingState.revision != commit.expectedRevision + 1)))
             throw std::invalid_argument("[PlayerDB] invalid player crime mutation commit");
 
         CrimeCommitResult result;
@@ -3384,10 +3387,11 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
         {
             sqlite3_stmt* existing = prepare(
                 "SELECT request_hash, result_payload FROM semantic_requests"
-                " WHERE service='crime' AND account_id=?1 AND character_id=?2 AND request_id=?3");
-            sqlite3_bind_int64(existing, 1, commit.accountId);
-            sqlite3_bind_int64(existing, 2, commit.characterId);
-            sqlite3_bind_text(existing, 3, commit.requestId.c_str(), -1, SQLITE_TRANSIENT);
+                " WHERE service=?1 AND account_id=?2 AND character_id=?3 AND request_id=?4");
+            sqlite3_bind_text(existing, 1, commit.service.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(existing, 2, commit.accountId);
+            sqlite3_bind_int64(existing, 3, commit.characterId);
+            sqlite3_bind_text(existing, 4, commit.requestId.c_str(), -1, SQLITE_TRANSIENT);
             const int existingRc = sqlite3_step(existing);
             if (existingRc == SQLITE_ROW)
             {
@@ -3424,42 +3428,50 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
                 return result;
             }
 
-            const int64_t now = static_cast<int64_t>(std::time(nullptr));
-            sqlite3_stmt* state = prepare(
-                "INSERT INTO character_crime_state(character_id, bounty, current_crime_id, paid_crime_id, revision,"
-                " updated_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6)"
-                " ON CONFLICT(character_id) DO UPDATE SET bounty=excluded.bounty,"
-                " current_crime_id=excluded.current_crime_id, paid_crime_id=excluded.paid_crime_id,"
-                " revision=excluded.revision, updated_at=excluded.updated_at"
-                " WHERE character_crime_state.revision=?7");
-            sqlite3_bind_int64(state, 1, commit.characterId);
-            sqlite3_bind_int(state, 2, commit.resultingState.bounty);
-            sqlite3_bind_int(state, 3, commit.resultingState.currentCrimeId);
-            sqlite3_bind_int(state, 4, commit.resultingState.paidCrimeId);
-            sqlite3_bind_int64(state, 5, static_cast<sqlite3_int64>(commit.resultingState.revision));
-            sqlite3_bind_int64(state, 6, now);
-            sqlite3_bind_int64(state, 7, static_cast<sqlite3_int64>(commit.expectedRevision));
-            checkSqlite(sqlite3_step(state), mDb, "commitPlayerCrimeMutation(state)");
-            const bool stateWritten = sqlite3_changes(mDb) == 1;
-            sqlite3_finalize(state);
-            if (!stateWritten)
-                throw std::runtime_error("[PlayerDB] crime revision changed during commit");
+            const bool advancesRevision = commit.resultingState.revision == commit.expectedRevision + 1;
+            if (!advancesRevision && commit.resultingState != result.currentState)
+                throw std::invalid_argument("[PlayerDB] revision-preserving crime commit changed state");
 
-            if (commit.failurePoint == CrimeCommitFailurePoint::AfterStateWrite)
-                throw std::runtime_error("[PlayerDB] injected failure after crime state write");
+            const int64_t now = static_cast<int64_t>(std::time(nullptr));
+            if (advancesRevision)
+            {
+                sqlite3_stmt* state = prepare(
+                    "INSERT INTO character_crime_state(character_id, bounty, current_crime_id, paid_crime_id, revision,"
+                    " updated_at) VALUES(?1, ?2, ?3, ?4, ?5, ?6)"
+                    " ON CONFLICT(character_id) DO UPDATE SET bounty=excluded.bounty,"
+                    " current_crime_id=excluded.current_crime_id, paid_crime_id=excluded.paid_crime_id,"
+                    " revision=excluded.revision, updated_at=excluded.updated_at"
+                    " WHERE character_crime_state.revision=?7");
+                sqlite3_bind_int64(state, 1, commit.characterId);
+                sqlite3_bind_int(state, 2, commit.resultingState.bounty);
+                sqlite3_bind_int(state, 3, commit.resultingState.currentCrimeId);
+                sqlite3_bind_int(state, 4, commit.resultingState.paidCrimeId);
+                sqlite3_bind_int64(state, 5, static_cast<sqlite3_int64>(commit.resultingState.revision));
+                sqlite3_bind_int64(state, 6, now);
+                sqlite3_bind_int64(state, 7, static_cast<sqlite3_int64>(commit.expectedRevision));
+                checkSqlite(sqlite3_step(state), mDb, "commitPlayerCrimeMutation(state)");
+                const bool stateWritten = sqlite3_changes(mDb) == 1;
+                sqlite3_finalize(state);
+                if (!stateWritten)
+                    throw std::runtime_error("[PlayerDB] crime revision changed during commit");
+
+                if (commit.failurePoint == CrimeCommitFailurePoint::AfterStateWrite)
+                    throw std::runtime_error("[PlayerDB] injected failure after crime state write");
+            }
 
             sqlite3_stmt* request = prepare(
                 "INSERT INTO semantic_requests(service, account_id, character_id, request_id, request_hash, status,"
                 " error_code, result_payload, source, created_at, updated_at)"
-                " VALUES('crime', ?1, ?2, ?3, ?4, 'accepted', 0, ?5, ?6, ?7, ?7)");
-            sqlite3_bind_int64(request, 1, commit.accountId);
-            sqlite3_bind_int64(request, 2, commit.characterId);
-            sqlite3_bind_text(request, 3, commit.requestId.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(request, 4, commit.requestHash.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_blob(request, 5, commit.resultPayload.data(),
+                " VALUES(?1, ?2, ?3, ?4, ?5, 'accepted', 0, ?6, ?7, ?8, ?8)");
+            sqlite3_bind_text(request, 1, commit.service.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(request, 2, commit.accountId);
+            sqlite3_bind_int64(request, 3, commit.characterId);
+            sqlite3_bind_text(request, 4, commit.requestId.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(request, 5, commit.requestHash.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_blob(request, 6, commit.resultPayload.data(),
                 static_cast<int>(commit.resultPayload.size()), SQLITE_TRANSIENT);
-            sqlite3_bind_text(request, 6, commit.source.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_int64(request, 7, now);
+            sqlite3_bind_text(request, 7, commit.source.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(request, 8, now);
             checkSqlite(sqlite3_step(request), mDb, "commitPlayerCrimeMutation(request)");
             sqlite3_finalize(request);
 
