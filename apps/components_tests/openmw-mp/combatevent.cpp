@@ -83,4 +83,8 @@ TEST(CombatEventProtocol, ProposalAndDelegatedResultRoundTrip)
     EXPECT_EQ(decodedResult.combatResultSequence, result.combatResultSequence);
     EXPECT_EQ(decodedResult.combatResultFlags, result.combatResultFlags);
     EXPECT_EQ(decodedResult.combatAppliedDamage, result.combatAppliedDamage);
+
+    auto trailing = resultBytes;
+    trailing.push_back(0);
+    EXPECT_FALSE(incomingResult.decode(trailing.data(), trailing.size()));
 }

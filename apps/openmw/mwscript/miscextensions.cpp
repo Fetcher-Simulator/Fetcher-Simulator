@@ -58,6 +58,10 @@
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
 
+#ifdef BUILD_MULTIPLAYER
+#include "../mwmp/Main.hpp"
+#endif
+
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/containerstore.hpp"
@@ -1390,6 +1394,10 @@ namespace MWScript
         public:
             void execute(Interpreter::Runtime& runtime) override
             {
+#ifdef BUILD_MULTIPLAYER
+                if (mwmp::Main::isInitialised())
+                    return;
+#endif
                 MWBase::World* world = MWBase::Environment::get().getWorld();
                 world->goToJail();
             }
@@ -1400,6 +1408,10 @@ namespace MWScript
         public:
             void execute(Interpreter::Runtime& runtime) override
             {
+#ifdef BUILD_MULTIPLAYER
+                if (mwmp::Main::isInitialised())
+                    return;
+#endif
                 MWWorld::Ptr player = MWMechanics::getPlayer();
                 player.getClass().getNpcStats(player).setBounty(0);
                 MWBase::World* world = MWBase::Environment::get().getWorld();
@@ -1414,6 +1426,10 @@ namespace MWScript
         public:
             void execute(Interpreter::Runtime& runtime) override
             {
+#ifdef BUILD_MULTIPLAYER
+                if (mwmp::Main::isInitialised())
+                    return;
+#endif
                 MWWorld::Ptr player = MWMechanics::getPlayer();
                 player.getClass().getNpcStats(player).setBounty(0);
                 MWBase::Environment::get().getWorld()->getPlayer().recordCrimeId();

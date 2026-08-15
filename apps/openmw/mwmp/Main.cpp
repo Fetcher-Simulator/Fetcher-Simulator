@@ -167,6 +167,59 @@ void Main::sendActorNpcPlayerHit(uint32_t victimGuid, const MWWorld::Ptr& npcAtt
         mActorSync->sendNpcPlayerDamage(victimGuid, damage, healthDamage, isDead, attackType, npcAttacker);
 }
 
+bool Main::requestCrimeMutation(CrimeMutationKind kind, std::int64_t value, std::string source)
+{
+    if (!mWorldReady || !mClient || !mPlayerSync)
+        return false;
+
+    CrimeMutationRequest request;
+    request.requestId = "client-crime-" + std::to_string(mPlayerSync->localPlayer().guid)
+        + '-' + std::to_string(mNextCrimeMutationRequest++);
+    request.kind = kind;
+    request.value = value;
+    request.source = std::move(source);
+    if (validateCrimeMutationRequest(request) != CrimeError::None)
+        return false;
+
+    mPendingCrimeMutations.push_back(std::move(request));
+    sendNextCrimeMutation();
+    return true;
+}
+
+void Main::sendNextCrimeMutation()
+{
+    if (!mCrimeMutationInFlight.empty() || mPendingCrimeMutations.empty() || !mPlayerSync)
+        return;
+
+    CrimeMutationRequest& request = mPendingCrimeMutations.front();
+    request.expectedRevision = mPlayerSync->localPlayer().crimeState.revision;
+    PacketPlayerBounty packet;
+    packet.mode = PacketPlayerBounty::Mode::Proposal;
+    packet.request = request;
+    packet.setPlayer(&mPlayerSync->localPlayer());
+    mCrimeMutationInFlight = request.requestId;
+    mClient->sendReliable(packet.encode());
+}
+
+void Main::finishCrimeMutation(std::string_view requestId, bool accepted, CrimeError error)
+{
+    if (requestId.empty())
+        return;
+    if (requestId != mCrimeMutationInFlight || mPendingCrimeMutations.empty()
+        || mPendingCrimeMutations.front().requestId != requestId)
+    {
+        Log(Debug::Warning) << "[MP] Ignoring unmatched crime mutation result request=" << requestId;
+        return;
+    }
+
+    Log(accepted ? Debug::Info : Debug::Warning)
+        << "[MP] Crime mutation result request=" << requestId
+        << " accepted=" << accepted << " error=" << getCrimeErrorCode(error);
+    mPendingCrimeMutations.pop_front();
+    mCrimeMutationInFlight.clear();
+    sendNextCrimeMutation();
+}
+
 bool Main::isInitialised()
 {
     return sInstance != nullptr;
@@ -535,6 +588,8 @@ void Main::onConnected()
     mAuthoritativeStateBootstrapGate.reset();
     mServerLuaPackageTransfer.reset();
     mServerLuaPackagesStaged = false;
+    mPendingCrimeMutations.clear();
+    mCrimeMutationInFlight.clear();
     mWorldStateSync->resetSessionState();
     mObjectSync->resetSessionState();
     mPlayerSync->resetCrimeStateSync();
@@ -656,6 +711,8 @@ void Main::onDisconnected()
     mAuthoritativeStateBootstrapGate.reset();
     mServerLuaPackageTransfer.reset();
     mServerLuaPackagesStaged = false;
+    mPendingCrimeMutations.clear();
+    mCrimeMutationInFlight.clear();
     mServerLuaCleanupPending = true;
     mHasSavedSpellbook  = false;
     mCharacterId        = 0;
@@ -1629,7 +1686,7 @@ void Main::registerProtocolHandlers()
             BasePlayer authoritative;
             PacketPlayerBounty packet;
             packet.setPlayer(&authoritative);
-            if (!packet.decode(data, size))
+            if (!packet.decode(data, size) || packet.mode != PacketPlayerBounty::Mode::Result)
             {
                 disconnect("Malformed authoritative player crime state");
                 return;
@@ -1647,6 +1704,7 @@ void Main::registerProtocolHandlers()
                 disconnect("Conflicting authoritative player crime revision");
                 return;
             }
+            finishCrimeMutation(packet.resultRequestId, packet.accepted, packet.error);
             tryFinalizePendingCharacterData();
         });
 

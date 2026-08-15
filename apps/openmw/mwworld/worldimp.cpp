@@ -3658,6 +3658,13 @@ namespace MWWorld
 
     void World::goToJail()
     {
+#ifdef BUILD_MULTIPLAYER
+        // Arrest, confiscation, sentence calculation, and jail teleport need a
+        // dedicated authoritative transaction. Until that deferred system
+        // exists, never let the local path erase durable crime state.
+        if (mwmp::Main::isInitialised())
+            return;
+#endif
         const MWWorld::Ptr player = getPlayerPtr();
         if (!mGoToJail)
         {

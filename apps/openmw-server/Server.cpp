@@ -4806,6 +4806,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::PlayerInventory:  handlePlayerInventory(client, data, size);    break;
         case PacketType::PlayerSpellbook:  handlePlayerSpellbook(client, data, size);    break;
         case PacketType::PlayerFaction:    handlePlayerFaction(client, data, size);      break;
+        case PacketType::PlayerBounty:     handlePlayerBounty(client, data, size);       break;
         case PacketType::PlayerTopic:      handlePlayerTopic(client, data, size);        break;
         case PacketType::RecordCreateRequest: handleRecordCreateRequest(client, data, size); break;
         case PacketType::AlchemyRequest:   handleAlchemyRequest(client, data, size);     break;
@@ -7699,6 +7700,61 @@ void MPServer::handlePlayerFaction(ConnectedClient& c, const uint8_t* data, size
         c.player.factionState = mPlayerDb->loadPlayerFactionState(c.dbCharacterId);
         sendAuthoritativeFactionState(
             c, packet.request.requestId, false, FactionError::PersistenceFailure);
+    }
+}
+
+// ---------------------------------------------------------------------------
+void MPServer::handlePlayerBounty(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    BasePlayer incoming;
+    PacketPlayerBounty packet;
+    packet.setPlayer(&incoming);
+    if (!packet.decode(data, size) || packet.mode != PacketPlayerBounty::Mode::Proposal
+        || incoming.guid != c.guid || !packet.request.expectedRevision
+        || !c.charSelectComplete || !mPlayerDb || c.dbAccountId <= 0 || c.dbCharacterId <= 0)
+    {
+        Log(Debug::Warning) << "[CrimeService] rejected malformed or unauthorized proposal player=" << c.name;
+        sendAuthoritativeCrimeState(c, packet.request.requestId, false, CrimeError::InvalidRequest);
+        return;
+    }
+
+    const std::string_view source = packet.request.source;
+    if (source != "mwscript:setpccrimelevel" && source != "mwscript:modpccrimelevel"
+        && source != "openmw-lua:setcrimelevel")
+    {
+        Log(Debug::Warning) << "[CrimeService] rejected unsupported client source player=" << c.name
+                            << " source=" << source;
+        sendAuthoritativeCrimeState(c, packet.request.requestId, false, CrimeError::Unauthorized);
+        return;
+    }
+    packet.request.source = "client:" + packet.request.source;
+
+    try
+    {
+        CrimeService service(*mPlayerDb);
+        CrimeService::Context context;
+        context.accountId = c.dbAccountId;
+        context.characterId = c.dbCharacterId;
+        const CrimeService::Outcome outcome = service.execute(packet.request, context);
+        c.player.crimeState = mPlayerDb->loadPlayerCrimeState(c.dbCharacterId);
+        c.player.bounty = c.player.crimeState.bounty;
+        sendAuthoritativeCrimeState(c, outcome.result.requestId,
+            outcome.result.accepted, outcome.result.error);
+        syncLuaPlayerSnapshot();
+        Log(outcome.result.accepted ? Debug::Info : Debug::Warning)
+            << "[CrimeService] client request=" << outcome.result.requestId
+            << " player=" << c.name << " source=" << packet.request.source
+            << " accepted=" << outcome.result.accepted << " replayed=" << outcome.replayed
+            << " error=" << getCrimeErrorCode(outcome.result.error)
+            << " bounty=" << c.player.crimeState.bounty
+            << " revision=" << c.player.crimeState.revision;
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[CrimeService] client mutation persistence failure player=" << c.name
+                          << " error=" << e.what();
+        c.player.crimeState = mPlayerDb->loadPlayerCrimeState(c.dbCharacterId);
+        sendAuthoritativeCrimeState(c, packet.request.requestId, false, CrimeError::PersistenceFailure);
     }
 }
 
@@ -11924,37 +11980,44 @@ void MPServer::handleActorCombatResult(ConnectedClient& c, const uint8_t* data, 
         || !isAllowedActorSender(c, actorRecord, event->cellId))
         return;
 
+    const bool victimIsNpc = mContentRegistry->store().get<ESM::NPC>().search(
+        ESM::RefId::stringRefId(actorRecord.actor.refId)) != nullptr;
+    const bool qualifyingCrime = victimIsNpc && isQualifyingCriminalAttack(result.combatResultFlags);
+
+    // Do not durably consume a qualifying result until the authenticated
+    // offender snapshot needed to create its semantic cause is available.
+    // Otherwise a transient snapshot gap could permanently lose Assault while
+    // an identical reliable replay is treated as terminal.
+    ConnectedClient* attacker = nullptr;
+    const AcceptedMechanicsSnapshot* offender = nullptr;
+    constexpr std::uint64_t MaximumSnapshotAgeMs = 1000;
+    if (qualifyingCrime)
+    {
+        for (auto& [connection, candidate] : mClients)
+        {
+            if (candidate.guid == event->attackerGuid && candidate.dbAccountId == event->accountId
+                && candidate.dbCharacterId == event->characterId)
+            {
+                attacker = &candidate;
+                break;
+            }
+        }
+        offender = attacker ? mMechanicsSnapshots.findFresh(
+            { MechanicsSubjectKind::Player, attacker->guid, 0 }, nowMs, MaximumSnapshotAgeMs) : nullptr;
+        if (!attacker || !offender || offender->snapshot.cellId != event->cellId)
+            return;
+    }
+
     std::uint32_t& lastSequence = mCombatResultSequencesByAuthority[c.guid];
     if (lastSequence != 0 && result.combatResultSequence <= lastSequence)
         return;
     lastSequence = result.combatResultSequence;
-    const bool victimIsNpc = mContentRegistry->store().get<ESM::NPC>().search(
-        ESM::RefId::stringRefId(actorRecord.actor.refId)) != nullptr;
-    const bool qualifyingCrime = victimIsNpc && isQualifyingCriminalAttack(result.combatResultFlags);
     const CombatEventCommitStatus committed = mPlayerDb->acceptCombatEvent(result.combatEventId,
         result.combatResultSequence, result.combatResultFlags, result.combatAppliedDamage, qualifyingCrime);
     if (committed == CombatEventCommitStatus::UnknownEvent
         || committed == CombatEventCommitStatus::ConflictingReplay)
         return;
     if (committed == CombatEventCommitStatus::IdenticalReplay || !qualifyingCrime)
-        return;
-
-    ConnectedClient* attacker = nullptr;
-    for (auto& [connection, candidate] : mClients)
-    {
-        if (candidate.guid == event->attackerGuid && candidate.dbAccountId == event->accountId
-            && candidate.dbCharacterId == event->characterId)
-        {
-            attacker = &candidate;
-            break;
-        }
-    }
-    if (!attacker)
-        return;
-    constexpr std::uint64_t MaximumSnapshotAgeMs = 1000;
-    const AcceptedMechanicsSnapshot* offender = mMechanicsSnapshots.findFresh(
-        { MechanicsSubjectKind::Player, attacker->guid, 0 }, nowMs, MaximumSnapshotAgeMs);
-    if (!offender || offender->snapshot.cellId != event->cellId)
         return;
 
     ObservationActorIdentity victimIdentity;
@@ -14424,10 +14487,15 @@ void MPServer::sendAuthoritativeSpellbook(ConnectedClient& c)
     sendTo(c.conn, spellbook.encode());
 }
 
-void MPServer::sendAuthoritativeCrimeState(ConnectedClient& c)
+void MPServer::sendAuthoritativeCrimeState(
+    ConnectedClient& c, std::string requestId, bool accepted, CrimeError error)
 {
     c.player.bounty = c.player.crimeState.bounty;
     PacketPlayerBounty packet;
+    packet.mode = PacketPlayerBounty::Mode::Result;
+    packet.resultRequestId = std::move(requestId);
+    packet.accepted = accepted;
+    packet.error = error;
     packet.setPlayer(&c.player);
     sendTo(c.conn, packet.encode());
 }

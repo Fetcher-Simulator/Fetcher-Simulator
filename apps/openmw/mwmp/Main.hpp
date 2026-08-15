@@ -2,12 +2,15 @@
 #define OPENMW_MWMP_MAIN_HPP
 
 #include <cstdint>
+#include <deque>
 #include <filesystem>
 #include <memory>
 #include <osg/Vec3f>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <components/openmw-mp/RuntimeContentBootstrapGate.hpp>
+#include <components/openmw-mp/PlayerCrimeState.hpp>
 #include <components/openmw-mp/SemanticService.hpp>
 #include <components/openmw-mp/ServerLuaPackageTransfer.hpp>
 #include <components/openmw-mp/Packets/System/PacketGameSettings.hpp>
@@ -127,6 +130,7 @@ namespace mwmp
             bool knocked, const osg::Vec3f& hitPos, int attackType, float attackStrength);
         void               sendActorNpcPlayerHit(uint32_t victimGuid, const MWWorld::Ptr& npcAttacker, float damage,
             bool healthDamage, bool isDead, int attackType);
+        bool requestCrimeMutation(CrimeMutationKind kind, std::int64_t value, std::string source);
 
         // Restored chargen data — populated from PacketCharacterData after character selection
         const std::string& getRestoredRace()      const { return mRestoredRace; }
@@ -161,6 +165,8 @@ namespace mwmp
         std::string currentChargenDataKey();
         void sendChargenUpdate(bool complete, const char* reason, bool includeInventoryAndEquipment);
         void pollChargenAppearance(float dt);
+        void sendNextCrimeMutation();
+        void finishCrimeMutation(std::string_view requestId, bool accepted, CrimeError error);
 
         static Main* sInstance;
 
@@ -220,6 +226,9 @@ namespace mwmp
         uint16_t    mPort           = 25565;
         std::string mRejectReason;
         GuardArrestMode mGuardArrestMode = GuardArrestMode::Combat;
+        std::deque<CrimeMutationRequest> mPendingCrimeMutations;
+        std::string mCrimeMutationInFlight;
+        std::uint64_t mNextCrimeMutationRequest = 1;
 
         // Chargen restore data (returning players)
         std::string mRestoredRace;

@@ -31,6 +31,10 @@
 
 #include "ref.hpp"
 
+#ifdef BUILD_MULTIPLAYER
+#include "../mwmp/Main.hpp"
+#endif
+
 namespace
 {
     ESM::RefId getDialogueActorFaction(const MWWorld::ConstPtr& actor)
@@ -470,6 +474,14 @@ namespace MWScript
 
                 int bounty = static_cast<int>(runtime[0].mFloat);
                 runtime.pop();
+#ifdef BUILD_MULTIPLAYER
+                if (mwmp::Main::isInitialised())
+                {
+                    mwmp::Main::get().requestCrimeMutation(mwmp::CrimeMutationKind::SetBounty,
+                        std::max(0, bounty), "mwscript:setpccrimelevel");
+                    return;
+                }
+#endif
                 player.getClass().getNpcStats(player).setBounty(bounty);
 
                 if (bounty == 0)
@@ -484,10 +496,18 @@ namespace MWScript
             {
                 MWBase::World* world = MWBase::Environment::get().getWorld();
                 MWWorld::Ptr player = world->getPlayerPtr();
-                int bounty = std::max(
-                    0, static_cast<int>(runtime[0].mFloat) + player.getClass().getNpcStats(player).getBounty());
-                player.getClass().getNpcStats(player).setBounty(bounty);
+                const int amount = static_cast<int>(runtime[0].mFloat);
+                int bounty = std::max(0, amount + player.getClass().getNpcStats(player).getBounty());
                 runtime.pop();
+#ifdef BUILD_MULTIPLAYER
+                if (mwmp::Main::isInitialised())
+                {
+                    mwmp::Main::get().requestCrimeMutation(mwmp::CrimeMutationKind::SetBounty,
+                        bounty, "mwscript:modpccrimelevel");
+                    return;
+                }
+#endif
+                player.getClass().getNpcStats(player).setBounty(bounty);
                 if (bounty == 0)
                     MWBase::Environment::get().getWorld()->getPlayer().recordCrimeId();
             }

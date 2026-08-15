@@ -338,6 +338,7 @@ private:
     void handlePlayerInventory  (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerSpellbook  (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerFaction    (ConnectedClient& c, const uint8_t* data, size_t size);
+    void handlePlayerBounty     (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerTopic      (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleAlchemyRequest   (ConnectedClient& c, const uint8_t* data, size_t size);
@@ -436,7 +437,8 @@ private:
         ConnectedClient& c, bool includeOthers = true, bool includeSelf = true);
     void sendAuthoritativeJournal(ConnectedClient& c);
     void sendAuthoritativeSpellbook(ConnectedClient& c);
-    void sendAuthoritativeCrimeState(ConnectedClient& c);
+    void sendAuthoritativeCrimeState(ConnectedClient& c, std::string requestId = {},
+        bool accepted = true, CrimeError error = CrimeError::None);
     void sendAuthoritativeFactionState(ConnectedClient& c, std::string requestId = {},
         bool accepted = true, FactionError error = FactionError::None);
     void sendAuthoritativeTopicState(ConnectedClient& c);

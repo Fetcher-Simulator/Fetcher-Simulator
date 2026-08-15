@@ -2459,16 +2459,8 @@ void PlayerSync::respawnLocally(const MWWorld::Ptr& player)
     stats.setAttackingOrSpell(false);
     stats.setDrawState(MWMechanics::DrawState::Nothing);
 
-    // Clear bounty so guards at the respawn location do not immediately
-    // spam "you violated the law" dialogue.  In single-player death simply
-    // reloads a save; in MP the player keeps playing, so we forgive crimes
-    // on death just like paying at a guard would.
     if (player.getClass().isNpc())
     {
-        player.getClass().getNpcStats(player).setBounty(0);
-        // Record the crime-id threshold so NPCs restore their disposition
-        // (same mechanism as OpPayFineThief / vanilla "pay bounty" path).
-        world->getPlayer().recordCrimeId();
         // Stop any NPCs that are still in combat with the player from
         // the pre-death fight — otherwise they resume attacking on sight.
         if (MWBase::MechanicsManager* mm = MWBase::Environment::get().getMechanicsManager())
