@@ -34,6 +34,7 @@
 #include "MasterServerClient.hpp"
 #include "MechanicsSnapshotRegistry.hpp"
 #include "CollisionCellOwnership.hpp"
+#include "CrimeWitnessBuilder.hpp"
 #include "LiveObservationRuntime.hpp"
 #include "PlayerDatabase.hpp"
 #include "ServerContentRegistry.hpp"
@@ -412,6 +413,7 @@ private:
     };
     std::vector<LiveObservationDiagnostic> observeNpcCandidates(
         std::uint32_t targetPlayerGuid, std::optional<ActorInstanceId> observerFilter, std::string_view eventId);
+    CrimeWitnessBuildResult buildLiveCrimeWitnesses(const CrimeWitnessBuildRequest& request);
     bool handleObservationDiagnosticCommand(ConnectedClient& requester, std::string_view message);
     float playerBootWeight(const ConnectedClient& player) const;
 

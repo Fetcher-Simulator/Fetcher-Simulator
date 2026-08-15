@@ -29,6 +29,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwmp/testplayerspellbook.cpp
     mwmp/testcrimeservice.cpp
     mwmp/testcrimesemanticservice.cpp
+    mwmp/testcrimewitnessbuilder.cpp
     mwmp/testobservationservice.cpp
     mwmp/testservercollisionlifecycle.cpp
     mwmp/testmechanicssnapshotregistry.cpp
@@ -65,6 +66,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         ../openmw-server/EnchantingService.cpp
         ../openmw-server/CrimeService.cpp
         ../openmw-server/CrimeSemanticService.cpp
+        ../openmw-server/CrimeWitnessBuilder.cpp
         ../openmw-server/ObservationService.cpp
         ../openmw-server/MechanicsSnapshotRegistry.cpp
         ../openmw-server/CollisionCellOwnership.cpp
