@@ -33,8 +33,32 @@ TEST(PlayerCrimeProtocol, PacketRoundTripsSemanticState)
     mwmp::PacketPlayerBounty decoder;
     decoder.setPlayer(&incoming);
     ASSERT_TRUE(decoder.decode(bytes));
+    EXPECT_EQ(decoder.mode, mwmp::PacketPlayerBounty::Mode::Result);
     EXPECT_EQ(incoming.guid, 77u);
     EXPECT_EQ(incoming.crimeState, outgoing.crimeState);
+}
+
+TEST(PlayerCrimeProtocol, PacketRoundTripsTypedMutationProposal)
+{
+    mwmp::BasePlayer outgoing;
+    outgoing.guid = 77;
+
+    mwmp::PacketPlayerBounty encoder;
+    encoder.mode = mwmp::PacketPlayerBounty::Mode::Proposal;
+    encoder.request.requestId = "client-crime-77-1";
+    encoder.request.kind = mwmp::CrimeMutationKind::SetBounty;
+    encoder.request.value = 250;
+    encoder.request.expectedRevision = 9;
+    encoder.request.source = "mwscript:setpccrimelevel";
+    encoder.setPlayer(&outgoing);
+
+    mwmp::BasePlayer incoming;
+    mwmp::PacketPlayerBounty decoder;
+    decoder.setPlayer(&incoming);
+    ASSERT_TRUE(decoder.decode(encoder.encode()));
+    EXPECT_EQ(incoming.guid, outgoing.guid);
+    EXPECT_EQ(decoder.mode, mwmp::PacketPlayerBounty::Mode::Proposal);
+    EXPECT_EQ(decoder.request, encoder.request);
 }
 
 TEST(PlayerCrimeProtocol, RejectsTruncationTrailingBytesAndHeaderLengthMismatch)

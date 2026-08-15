@@ -1,5 +1,7 @@
 #include "types.hpp"
 
+#include <algorithm>
+
 #include <components/esm3/loadbsgn.hpp>
 #include <components/esm3/loadfact.hpp>
 #include <components/lua/util.hpp>
@@ -18,6 +20,10 @@
 #include "apps/openmw/mwworld/esmstore.hpp"
 #include "apps/openmw/mwworld/globals.hpp"
 #include "apps/openmw/mwworld/player.hpp"
+
+#ifdef BUILD_MULTIPLAYER
+#include "apps/openmw/mwmp/Main.hpp"
+#endif
 
 namespace MWLua
 {
@@ -443,6 +449,14 @@ namespace MWLua
             if (!o.isGObject())
                 throw std::runtime_error("Only global scripts can change crime level");
             auditNativeMutation(context, "player.setCrimeLevel", o.ptr(), std::to_string(amount));
+#ifdef BUILD_MULTIPLAYER
+            if (mwmp::Main::isInitialised())
+            {
+                mwmp::Main::get().requestCrimeMutation(mwmp::CrimeMutationKind::SetBounty,
+                    std::max(0, amount), "openmw-lua:setcrimelevel");
+                return;
+            }
+#endif
             const MWWorld::Class& cls = o.ptr().getClass();
             cls.getNpcStats(o.ptr()).setBounty(amount);
             if (amount == 0)
@@ -476,6 +490,14 @@ namespace MWLua
                 throw std::runtime_error("Faction does not exist");
 
             auditNativeMutation(context, "player.commitCrime", o.ptr(), std::to_string(type));
+
+#ifdef BUILD_MULTIPLAYER
+            // Client Lua cannot prove the gameplay cause, witness set, or
+            // reporting result. Mandatory authoritative native transactions
+            // emit their semantic crime causes separately.
+            if (mwmp::Main::isInitialised())
+                return false;
+#endif
 
             MWWorld::Ptr victimObj = nullptr;
             if (victim.has_value())

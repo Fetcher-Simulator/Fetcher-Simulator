@@ -61,6 +61,8 @@ namespace mwmp
                     mActorList->combatResultSequence, mActorList->combatResultFlags,
                     mActorList->combatAppliedDamage))
                 throw std::runtime_error("PacketActorCombatResult: invalid result");
+            if (!stream.eof() || mHeader.payloadSize + PacketHeader::WIRE_SIZE != stream.pos())
+                throw std::runtime_error("PacketActorCombatResult: malformed payload length or trailing bytes");
         }
     };
 }
