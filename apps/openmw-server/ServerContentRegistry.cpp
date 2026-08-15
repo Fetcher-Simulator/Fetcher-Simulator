@@ -22,11 +22,19 @@
 #include <components/fallback/validate.hpp>
 #include <components/esm/attr.hpp>
 #include <components/esm3/loadalch.hpp>
+#include <components/esm3/loadappa.hpp>
 #include <components/esm3/loadarmo.hpp>
 #include <components/esm3/loadbody.hpp>
 #include <components/esm3/loadbook.hpp>
 #include <components/esm3/loadclot.hpp>
 #include <components/esm3/loadench.hpp>
+#include <components/esm3/loadglob.hpp>
+#include <components/esm3/loadingr.hpp>
+#include <components/esm3/loadligh.hpp>
+#include <components/esm3/loadlock.hpp>
+#include <components/esm3/loadmisc.hpp>
+#include <components/esm3/loadprob.hpp>
+#include <components/esm3/loadrepa.hpp>
 #include <components/esm3/loadmgef.hpp>
 #include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadscpt.hpp>
@@ -54,6 +62,8 @@
 #include <apps/openmw/mwscript/extensions.hpp>
 #include <apps/openmw/mwscript/scriptmanagerimp.hpp>
 #include <apps/openmw/mwworld/esmstore.hpp>
+#include <apps/openmw/mwworld/cellstore.hpp>
+#include <apps/openmw/mwworld/class.hpp>
 #include <apps/openmw/mwworld/worldimp.hpp>
 
 namespace bpo = boost::program_options;
@@ -404,6 +414,76 @@ bool mwmp::ServerContentRegistry::validateScriptSource(std::string_view id, std:
     if (refId.empty())
         refId = ESM::RefId::stringRefId(id);
     return mRuntime->scriptManager->validateSource(refId, source);
+}
+
+std::optional<mwmp::ServerContentRegistry::PlacedItemReference>
+mwmp::ServerContentRegistry::findPlacedItemReference(const PlacedObjectIdentity& identity) const
+{
+    if (!isCanonicalPlacedObjectIdentity(identity)
+        || identity.kind != PlacedObjectKind::ContentReference)
+        return std::nullopt;
+
+    MWWorld::CellStore* cell = nullptr;
+    if (identity.cellId.rfind("EXT:", 0) == 0)
+    {
+        int x = 0;
+        int y = 0;
+        if (std::sscanf(identity.cellId.c_str(), "EXT:%d,%d", &x, &y) != 2)
+            return std::nullopt;
+        cell = &mRuntime->world->getWorldModel().getExterior(
+            ESM::ExteriorCellLocation(x, y, ESM::Cell::sDefaultWorldspaceId));
+    }
+    else
+        cell = &mRuntime->world->getWorldModel().getInterior(identity.cellId);
+
+    cell->load();
+    std::optional<PlacedItemReference> result;
+    const ESM::RefNum expected { identity.refIndex, identity.refContentFile };
+    cell->forEachConst([&](const MWWorld::ConstPtr& ptr) {
+        if (ptr.getCellRef().getRefNum() != expected
+            || ptr.getCellRef().getRefId().serializeText() != identity.refId)
+            return true;
+
+        const auto type = ptr.getType();
+        const bool itemType = type == ESM::Apparatus::sRecordId || type == ESM::Armor::sRecordId
+            || type == ESM::Book::sRecordId || type == ESM::Clothing::sRecordId
+            || type == ESM::Ingredient::sRecordId || type == ESM::Light::sRecordId
+            || type == ESM::Miscellaneous::sRecordId || type == ESM::Lockpick::sRecordId
+            || type == ESM::Probe::sRecordId || type == ESM::Repair::sRecordId
+            || type == ESM::Weapon::sRecordId || type == ESM::Potion::sRecordId;
+        if (!itemType)
+            return false;
+
+        PlacedItemReference item;
+        item.identity = identity;
+        item.worldCount = ptr.getCellRef().getCount();
+        item.gold = ptr.getClass().isGold(ptr);
+        item.itemValue = ptr.getClass().getValue(ptr);
+        item.inventoryCount = item.gold ? item.worldCount * item.itemValue : item.worldCount;
+        item.charge = static_cast<std::int32_t>(ptr.getCellRef().getCharge());
+        item.enchantmentCharge = ptr.getCellRef().getEnchantmentCharge();
+        item.soul = ptr.getCellRef().getSoul().serializeText();
+        item.ownerId = ptr.getCellRef().getOwner().serializeText();
+        item.factionId = ptr.getCellRef().getFaction().serializeText();
+        item.factionRank = ptr.getCellRef().getFactionRank();
+        item.enabled = ptr.getRefData().isEnabled() && item.worldCount > 0;
+        const ESM::Position& position = ptr.getRefData().getPosition();
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            item.position.pos[axis] = position.pos[axis];
+            item.position.rot[axis] = position.rot[axis];
+        }
+        const std::string& globalName = ptr.getCellRef().getGlobalVariable();
+        if (!globalName.empty())
+        {
+            const ESM::Global* global
+                = store().get<ESM::Global>().search(ESM::RefId::stringRefId(globalName));
+            item.ownershipGlobalAllowsUse = global && global->mValue.getInteger() != 0;
+        }
+        result = std::move(item);
+        return false;
+    });
+    return result;
 }
 
 void mwmp::ServerContentRegistry::installRuntimeDefinition(

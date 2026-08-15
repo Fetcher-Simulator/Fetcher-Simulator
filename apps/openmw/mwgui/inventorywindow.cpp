@@ -874,16 +874,19 @@ namespace MWGui
         if (playerStats.isParalyzed() || playerStats.getKnockedDown() || playerStats.isDead())
             return;
 
+#ifdef BUILD_MULTIPLAYER
+        if (mwmp::Main::isConnected())
+        {
+            mwmp::Main::get().getWorldObjectSync().requestLocalObjectTake(object);
+            return;
+        }
+#endif
+
         MWBase::Environment::get().getMechanicsManager()->itemTaken(player, object, MWWorld::Ptr(), count);
 
         // add to player inventory
         // can't use ActionTake here because we need an MWWorld::Ptr to the newly inserted object
         MWWorld::Ptr newObject = *player.getClass().getContainerStore(player).add(object, count);
-
-#ifdef BUILD_MULTIPLAYER
-        if (mwmp::Main::isConnected())
-            mwmp::Main::get().getWorldObjectSync().onLocalObjectTaken(object, newObject);
-#endif
 
         // remove from world
         MWBase::Environment::get().getWorld()->deleteObject(object);

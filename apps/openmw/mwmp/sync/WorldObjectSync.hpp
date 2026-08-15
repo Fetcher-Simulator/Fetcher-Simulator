@@ -9,6 +9,7 @@
 
 #include <components/openmw-mp/Base/BaseObject.hpp>
 #include <components/openmw-mp/Base/BaseStructs.hpp>
+#include <components/openmw-mp/WorldItemTake.hpp>
 #include "../../mwworld/ptr.hpp"
 
 namespace mwmp
@@ -47,6 +48,10 @@ namespace mwmp
         // inventory Ptr. Its mpNum becomes the stack's stable instanceId.
         void onLocalObjectTaken(const MWWorld::Ptr& worldObject, const MWWorld::Ptr& inventoryObject);
 
+        // Connected pickup is request-first. No local inventory/world mutation
+        // occurs until the authoritative inventory and deletion arrive.
+        void requestLocalObjectTake(const MWWorld::Ptr& worldObject);
+
         // Lua split() creates a disabled detached world Ptr before a later
         // moveInto() or teleport(). Preserve whether that detached object came
         // from the local player's inventory so a later world placement can use
@@ -81,7 +86,8 @@ namespace mwmp
                                   int count, const Position& pos,
                                   const std::string& cellId);
 
-        void onServerObjectDelete(uint32_t mpNum, const std::string& cellId);
+        void onServerObjectDelete(const PlacedObjectIdentity& identity);
+        void onServerWorldItemTakeResult(const WorldItemTakeResult& result);
 
         void onServerObjectMove  (uint32_t mpNum, const std::string& cellId,
                                   const Position& pos);
@@ -98,7 +104,7 @@ namespace mwmp
         bool tryPlaceObject (uint32_t mpNum, const std::string& refId,
                              int count, const Position& pos,
                              const std::string& cellId);
-        bool tryDeleteObject(uint32_t mpNum);
+        bool tryDeleteObject(const PlacedObjectIdentity& identity);
         bool tryMoveObject  (uint32_t mpNum, const Position& pos);
         bool tryApplyContainer(const ContainerRecord& record, ContainerAction action);
         void registerObject(uint32_t mpNum, const MWWorld::Ptr& ptr);
@@ -114,7 +120,7 @@ namespace mwmp
         struct PendingPlace  { uint32_t mpNum; std::string refId; int count;
                                Position pos; std::string cellId; float timer; };
         struct PendingLocalPlace { MWWorld::Ptr ptr; std::string refId; int count; Position pos; std::string cellId; };
-        struct PendingDelete { uint32_t mpNum; float timer; };
+        struct PendingDelete { PlacedObjectIdentity identity; float timer; };
         struct PendingMove   { uint32_t mpNum; Position pos; float timer; };
         struct PendingContainer { ContainerRecord record; ContainerAction action; float timer; };
 
@@ -126,6 +132,7 @@ namespace mwmp
         bool mSuppressLocalDelete = false;
         std::unordered_set<uint32_t> mPendingTakenMpNums;
         std::unordered_set<ESM::RefNum> mLocalPlayerInventoryDetached;
+        std::uint64_t mNextTakeRequestId = 1;
 
         static constexpr float RETRY_RATE = 0.25f;
     };

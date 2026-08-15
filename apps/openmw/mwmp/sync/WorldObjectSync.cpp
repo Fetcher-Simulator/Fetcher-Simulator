@@ -1,4 +1,4 @@
-#include "WorldObjectSync.hpp"
+﻿#include "WorldObjectSync.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -16,6 +16,7 @@
 #include <components/openmw-mp/Packets/Object/PacketObjectDelete.hpp>
 #include <components/openmw-mp/Packets/Object/PacketObjectMove.hpp>
 #include <components/openmw-mp/Packets/Object/PacketContainer.hpp>
+#include <components/openmw-mp/Packets/Object/PacketWorldItemTake.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketCorpseDispose.hpp>
 
 #include "../../mwbase/environment.hpp"
@@ -116,6 +117,16 @@ namespace
         return nullptr;
     }
 
+    std::string cellIdForPtr(const MWWorld::Ptr& ptr)
+    {
+        if (ptr.isEmpty() || !ptr.isInCell() || ptr.getCell()->getCell() == nullptr)
+            return {};
+        const MWWorld::Cell* cell = ptr.getCell()->getCell();
+        if (!cell->isExterior())
+            return std::string(cell->getNameId());
+        return "EXT:" + std::to_string(cell->getGridX()) + "," + std::to_string(cell->getGridY());
+    }
+
     void appendOrMerge(std::vector<ContainerItem>& items, const ContainerItem& item)
     {
         if (item.refId.empty() || item.count <= 0)
@@ -209,7 +220,7 @@ WorldObjectSync::WorldObjectSync(NetworkClient& client)
 }
 
 // ---------------------------------------------------------------------------
-// update — retry queued operations that failed because the cell wasn't loaded
+// update â€” retry queued operations that failed because the cell wasn't loaded
 // ---------------------------------------------------------------------------
 void WorldObjectSync::update(float dt)
 {
@@ -231,7 +242,7 @@ void WorldObjectSync::update(float dt)
                 p.timer += dt;
                 if (p.timer < RETRY_RATE) return false;
                 p.timer = 0.f;
-                return tryDeleteObject(p.mpNum);
+                return tryDeleteObject(p.identity);
             }),
         mPendingDelete.end());
 
@@ -259,7 +270,7 @@ void WorldObjectSync::update(float dt)
 }
 
 // ---------------------------------------------------------------------------
-// Outbound — local player places an object
+// Outbound â€” local player places an object
 // ---------------------------------------------------------------------------
 void WorldObjectSync::onLocalObjectPlaced(const MWWorld::Ptr& ptr, const std::string& refId, int count,
                                           const Position& pos,
@@ -293,6 +304,51 @@ void WorldObjectSync::onLocalObjectTaken(
     // transfer keeps its server identity without invalidating live script/UI
     // handles that were created during moveInto().
     setInventoryInstanceAlias(inventoryObject.getCellRef().getRefNum(), mpNum);
+}
+
+void WorldObjectSync::requestLocalObjectTake(const MWWorld::Ptr& worldObject)
+{
+    if (worldObject.isEmpty() || !worldObject.isInCell())
+        return;
+
+    WorldItemTakeRequest request;
+    request.requestId = "take-" + std::to_string(Main::get().getPlayerSync().localPlayer().guid)
+        + "-" + std::to_string(mNextTakeRequestId++);
+    request.object.cellId = cellIdForPtr(worldObject);
+    request.object.refId = worldObject.getCellRef().getRefId().serializeText();
+    request.requestedCount = worldObject.getCellRef().getCount();
+    request.expectedInventoryRevision
+        = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
+
+    const std::uint32_t mpNum = getMpNumForObject(worldObject);
+    if (mpNum != 0)
+    {
+        request.object.kind = PlacedObjectKind::ServerPlaced;
+        request.object.mpNum = mpNum;
+    }
+    else
+    {
+        const ESM::RefNum refNum = worldObject.getCellRef().getRefNum();
+        request.object.kind = PlacedObjectKind::ContentReference;
+        request.object.refIndex = refNum.mIndex;
+        request.object.refContentFile = refNum.mContentFile;
+    }
+
+    if (validateWorldItemTakeRequest(request) != WorldItemTakeError::None)
+    {
+        Log(Debug::Warning) << "[MP] WorldObjectSync: cannot request take without canonical identity"
+                            << " refId=" << request.object.refId
+                            << " cell=" << request.object.cellId;
+        return;
+    }
+
+    PacketWorldItemTakeRequest packet;
+    packet.request = request;
+    mClient.sendReliable(packet.encode());
+    Log(Debug::Verbose) << "[MP] WorldObjectSync: requested authoritative take"
+                        << " request=" << request.requestId
+                        << " refId=" << request.object.refId
+                        << " cell=" << request.object.cellId;
 }
 
 void WorldObjectSync::markLocalPlayerInventoryDetached(const MWWorld::Ptr& ptr)
@@ -420,7 +476,7 @@ void WorldObjectSync::onLocalCorpseDisposed(const MWWorld::Ptr& ptr)
 }
 
 // ---------------------------------------------------------------------------
-// Outbound — local player opens a container
+// Outbound â€” local player opens a container
 // ---------------------------------------------------------------------------
 void WorldObjectSync::onLocalContainerOpened(const std::string& cellId,
                                               const std::string& refId,
@@ -505,7 +561,7 @@ void WorldObjectSync::onLocalContainerOpened(const std::string& cellId,
 }
 
 // ---------------------------------------------------------------------------
-// Outbound — local player modifies container contents
+// Outbound â€” local player modifies container contents
 // ---------------------------------------------------------------------------
 void WorldObjectSync::onLocalContainerChanged(const std::string& cellId,
                                                const std::string& refId,
@@ -529,7 +585,7 @@ void WorldObjectSync::onLocalContainerChanged(const std::string& cellId,
 }
 
 // ---------------------------------------------------------------------------
-// Inbound — server tells us to place an object
+// Inbound â€” server tells us to place an object
 // ---------------------------------------------------------------------------
 void WorldObjectSync::onServerObjectPlace(uint32_t mpNum, const std::string& refId,
                                            int count, const Position& pos,
@@ -562,13 +618,27 @@ void WorldObjectSync::onServerObjectPlace(uint32_t mpNum, const std::string& ref
 }
 
 // ---------------------------------------------------------------------------
-void WorldObjectSync::onServerObjectDelete(uint32_t mpNum, const std::string& /*cellId*/)
+void WorldObjectSync::onServerObjectDelete(const PlacedObjectIdentity& identity)
 {
-    if (!tryDeleteObject(mpNum))
+    if (!tryDeleteObject(identity))
     {
-        Log(Debug::Verbose) << "[MP] WorldObjectSync: queuing ObjectDelete mpNum=" << mpNum;
-        mPendingDelete.push_back({mpNum, 0.f});
+        Log(Debug::Verbose) << "[MP] WorldObjectSync: queuing ObjectDelete mpNum=" << identity.mpNum
+                            << " refId=" << identity.refId;
+        mPendingDelete.push_back({identity, 0.f});
     }
+}
+
+void WorldObjectSync::onServerWorldItemTakeResult(const WorldItemTakeResult& result)
+{
+    Log(result.accepted ? Debug::Info : Debug::Warning)
+        << "[MP] WorldObjectSync: authoritative take result"
+        << " request=" << result.requestId
+        << " accepted=" << result.accepted
+        << " replayed=" << result.replayed
+        << " error=" << getWorldItemTakeErrorCode(result.error)
+        << " refId=" << result.itemRefId
+        << " count=" << result.itemCount
+        << " inventoryRevision=" << result.inventoryRevision;
 }
 
 // ---------------------------------------------------------------------------
@@ -635,7 +705,7 @@ void WorldObjectSync::unregisterObject(uint32_t mpNum)
 }
 
 // ---------------------------------------------------------------------------
-// tryPlaceObject — attempt to spawn the object in the world right now.
+// tryPlaceObject â€” attempt to spawn the object in the world right now.
 // Returns true on success (object is now registered in mObjects).
 // ---------------------------------------------------------------------------
 bool WorldObjectSync::tryPlaceObject(uint32_t mpNum, const std::string& refId,
@@ -693,23 +763,65 @@ bool WorldObjectSync::tryPlaceObject(uint32_t mpNum, const std::string& refId,
 }
 
 // ---------------------------------------------------------------------------
-bool WorldObjectSync::tryDeleteObject(uint32_t mpNum)
+bool WorldObjectSync::tryDeleteObject(const PlacedObjectIdentity& identity)
 {
-    auto it = mObjects.find(mpNum);
-    if (it == mObjects.end()) return false;   // not yet placed — keep pending
-
     MWBase::World* world = MWBase::Environment::get().getWorld();
     if (!world) return false;
 
-    MWWorld::Ptr object = it->second;
-    unregisterObject(mpNum);
+    MWWorld::Ptr object;
+    if (identity.kind == PlacedObjectKind::ServerPlaced)
+    {
+        const auto it = mObjects.find(identity.mpNum);
+        if (it == mObjects.end())
+            return false;
+        object = it->second;
+    }
+    else
+    {
+        auto* worldImpl = static_cast<MWWorld::World*>(world);
+        MWWorld::CellStore* cell = findActiveCellById(*worldImpl, identity.cellId);
+        if (!cell)
+            return false;
+        const ESM::RefNum requested { identity.refIndex, identity.refContentFile };
+        cell->forEach([&](MWWorld::Ptr candidate) {
+            if (candidate.getCellRef().getRefNum() == requested
+                && candidate.getCellRef().getRefId().serializeText() == identity.refId)
+            {
+                object = candidate;
+                return false;
+            }
+            return true;
+        });
+        // A replayed tombstone against an already-loaded cell is complete.
+        if (object.isEmpty())
+            return true;
+    }
+
+    if (!object.isEmpty())
+    {
+        Position lastKnownPosition;
+        const ESM::Position& esmPosition = object.getRefData().getPosition();
+        for (int index = 0; index < 3; ++index)
+        {
+            lastKnownPosition.pos[index] = esmPosition.pos[index];
+            lastKnownPosition.rot[index] = esmPosition.rot[index];
+        }
+        if (identity.mpNum != 0)
+            mLastKnownObjectPositions[identity.mpNum] = lastKnownPosition;
+    }
+    if (identity.mpNum != 0)
+        unregisterObject(identity.mpNum);
+
 
     if (!object.isEmpty())
     {
         mSuppressLocalDelete = true;
         world->deleteObject(object);
         mSuppressLocalDelete = false;
-        Log(Debug::Info) << "[MP] WorldObjectSync: deleted mpNum=" << mpNum;
+        Log(Debug::Info) << "[MP] WorldObjectSync: applied authoritative deletion"
+                         << " mpNum=" << identity.mpNum
+                         << " refId=" << identity.refId
+                         << " cell=" << identity.cellId;
     }
     return true;
 }

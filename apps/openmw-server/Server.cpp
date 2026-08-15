@@ -1,6 +1,7 @@
 ﻿#include "Server.hpp"
 #include "AlchemyService.hpp"
 #include "CrimeService.hpp"
+#include "CrimeSemanticService.hpp"
 #include "FactionService.hpp"
 #include "DynamicRecordService.hpp"
 #include "EnchantingService.hpp"
@@ -80,6 +81,7 @@
 #include <components/openmw-mp/Packets/Object/PacketObjectDelete.hpp>
 #include <components/openmw-mp/Packets/Object/PacketObjectMove.hpp>
 #include <components/openmw-mp/Packets/Object/PacketContainer.hpp>
+#include <components/openmw-mp/Packets/Object/PacketWorldItemTake.hpp>
 #include <components/openmw-mp/Packets/Object/PacketDoorState.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketRecordDynamic.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketRuntimeContentBootstrapComplete.hpp>
@@ -101,6 +103,8 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerSpellbook.hpp>
 #include <components/esm3/loadspel.hpp>
 #include <apps/openmw/mwworld/esmstore.hpp>
+#include <apps/openmw/mwworld/class.hpp>
+#include <apps/openmw/mwworld/manualref.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAI.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAnimFlags.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAnimPlay.hpp>
@@ -2445,9 +2449,10 @@ CrimeWitnessBuildResult MPServer::buildLiveCrimeWitnesses(const CrimeWitnessBuil
             else
                 continue;
 
-            // ActorAI is delegated simulation state and does not yet carry a
-            // freshness/generation assertion for crime relationships. Until
-            // that provenance exists, follower/combat eligibility fails closed.
+            // The static adapter is only a fallback. A fresh accepted protocol-10
+            // mechanics snapshot supersedes it with generation-bound effective
+            // Alarm and relationship authority; absent delegated state still
+            // fails closed.
             actor.relationship = CrimeWitnessRelationship::Unknown;
             actor.relationshipProvenance = CrimeRelationshipProvenance::Unavailable;
             destination.push_back(std::move(actor));
@@ -4811,6 +4816,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::ChatMessage:      handleChatMessage(client, data, size);        break;
         case PacketType::PacketLuaEvent:   handleLuaEvent(client, data, size);           break;
         case PacketType::ObjectPlace:      handleObjectPlace(client, data, size);        break;
+        case PacketType::WorldItemTakeRequest: handleWorldItemTakeRequest(client, data, size); break;
         case PacketType::ObjectDelete:     handleObjectDelete(client, data, size);       break;
         case PacketType::ObjectMove:       handleObjectMove(client, data, size);         break;
         case PacketType::Container:        handleContainer(client, data, size);          break;
@@ -4880,6 +4886,13 @@ void MPServer::loadPersistentWorldState()
         if (object.mpNum != 0)
             worldObjectMpNums.insert(object.mpNum);
         ++objectCount;
+    }
+
+    std::size_t takenReferenceCount = 0;
+    for (PlacedObjectIdentity identity : mPlayerDb->loadTakenWorldItemReferences())
+    {
+        mWorld.takenItemReferences[identity.cellId].push_back(std::move(identity));
+        ++takenReferenceCount;
     }
 
     for (const auto& record : mPlayerDb->loadContainerRecords())
@@ -5140,6 +5153,7 @@ void MPServer::loadPersistentWorldState()
                      << " containers=" << mWorld.containers.size()
                      << " doorCells=" << mWorld.doorStates.size()
                      << " dynamicRecords=" << dynamicRecordCount
+                     << " takenReferences=" << takenReferenceCount
                      << " nextMpNum=" << nextMpNum;
 }
 
@@ -5172,6 +5186,21 @@ void MPServer::sendCellObjectStateToClient(HSteamNetConnection conn, const std::
         pkt.container = record;
         pkt.mAction = static_cast<uint8_t>(ContainerAction::Set);
         sendTo(conn, pkt.encode());
+    }
+
+    const auto takenIt = mWorld.takenItemReferences.find(cellId);
+    if (takenIt != mWorld.takenItemReferences.end())
+    {
+        for (const PlacedObjectIdentity& identity : takenIt->second)
+        {
+            PacketObjectDelete packet;
+            packet.mpNum = identity.mpNum;
+            packet.cellId = identity.cellId;
+            packet.refId = identity.refId;
+            packet.refNum = identity.refIndex;
+            packet.refContentFile = identity.refContentFile;
+            sendTo(conn, packet.encode());
+        }
     }
 
     auto doorsIt = mWorld.doorStates.find(cellId);
@@ -11977,6 +12006,328 @@ void MPServer::handleObjectPlace(ConnectedClient& c, const uint8_t* data, size_t
 
     sendTo(c.conn, pkt.encode());
     broadcastToCell(pkt.object.cellId, pkt.encode(), c.conn);
+}
+
+// ---------------------------------------------------------------------------
+void MPServer::handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    PacketWorldItemTakeRequest packet;
+    WorldItemTakeResult result;
+    auto sendResult = [&] {
+        PacketWorldItemTakeResult response;
+        response.result = result;
+        sendTo(c.conn, response.encode());
+    };
+    if (!packet.decode(data, size))
+        return;
+    const WorldItemTakeRequest& request = packet.request;
+    result.requestId = request.requestId;
+    result.object = request.object;
+
+    const WorldItemTakeError requestError = validateWorldItemTakeRequest(request);
+    if (requestError != WorldItemTakeError::None || !mPlayerDb || !mContentRegistry
+        || c.dbAccountId <= 0 || c.dbCharacterId <= 0)
+    {
+        result.error = requestError != WorldItemTakeError::None
+            ? requestError : WorldItemTakeError::PersistenceFailure;
+        sendResult();
+        return;
+    }
+
+    const std::string canonicalPlayerCell = makeCellKey(c.player.cell);
+    if (request.object.cellId != canonicalPlayerCell)
+    {
+        result.error = WorldItemTakeError::WrongCell;
+        sendResult();
+        return;
+    }
+
+    constexpr std::uint64_t MaximumSnapshotAgeMs = 1000;
+    const std::uint64_t nowMs = currentServerTimeMs();
+    const AcceptedMechanicsSnapshot* acceptedPlayer = mMechanicsSnapshots.findFresh(
+        { MechanicsSubjectKind::Player, c.guid, 0 }, nowMs, MaximumSnapshotAgeMs);
+    if (!acceptedPlayer || acceptedPlayer->snapshot.cellId != canonicalPlayerCell
+        || acceptedPlayer->snapshot.migrationGeneration != 1
+        || acceptedPlayer->snapshot.authorityGeneration != c.guid)
+    {
+        result.error = WorldItemTakeError::PlayerSnapshotUnavailable;
+        sendResult();
+        return;
+    }
+
+    ServerContentRegistry::PlacedItemReference item;
+    if (request.object.kind == PlacedObjectKind::ContentReference)
+    {
+        const auto found = mContentRegistry->findPlacedItemReference(request.object);
+        if (!found)
+        {
+            result.error = WorldItemTakeError::UnknownObject;
+            sendResult();
+            return;
+        }
+        item = *found;
+    }
+    else
+    {
+        const auto objectsIt = mWorld.placedObjects.find(request.object.cellId);
+        if (objectsIt == mWorld.placedObjects.end())
+        {
+            result.error = WorldItemTakeError::UnknownObject;
+            sendResult();
+            return;
+        }
+        const auto found = std::find_if(objectsIt->second.begin(), objectsIt->second.end(),
+            [&](const PlacedObject& object) {
+                return object.mpNum == request.object.mpNum && object.refId == request.object.refId;
+            });
+        if (found == objectsIt->second.end())
+        {
+            result.error = WorldItemTakeError::UnknownObject;
+            sendResult();
+            return;
+        }
+        item.identity = request.object;
+        item.position = found->position;
+        item.worldCount = found->count;
+        item.inventoryCount = found->count;
+        item.enabled = found->count > 0;
+        try
+        {
+            ESM::RefId contentId = ESM::RefId::deserializeText(found->refId);
+            if (contentId.empty())
+                contentId = ESM::RefId::stringRefId(found->refId);
+            MWWorld::ManualRef contentRef(mContentRegistry->store(), contentId, found->count);
+            const MWWorld::Ptr ptr = contentRef.getPtr();
+            item.gold = ptr.getClass().isGold(ptr);
+            item.itemValue = ptr.getClass().getValue(ptr);
+            if (item.gold)
+                item.inventoryCount = item.worldCount * item.itemValue;
+            item.charge = static_cast<std::int32_t>(ptr.getCellRef().getCharge());
+            item.enchantmentCharge = ptr.getCellRef().getEnchantmentCharge();
+            item.soul = ptr.getCellRef().getSoul().serializeText();
+        }
+        catch (const std::exception&)
+        {
+            result.error = WorldItemTakeError::UnknownObject;
+            sendResult();
+            return;
+        }
+    }
+
+    if (!item.enabled)
+    {
+        result.error = WorldItemTakeError::ObjectUnavailable;
+        sendResult();
+        return;
+    }
+    if (request.requestedCount != item.worldCount)
+    {
+        result.error = WorldItemTakeError::InvalidCount;
+        sendResult();
+        return;
+    }
+
+    const MechanicsSnapshot& playerMechanics = acceptedPlayer->snapshot;
+    const float dx = playerMechanics.position.pos[0] - item.position.pos[0];
+    const float dy = playerMechanics.position.pos[1] - item.position.pos[1];
+    const float dz = playerMechanics.position.pos[2] - item.position.pos[2];
+    const float distanceSquared = dx * dx + dy * dy + dz * dz;
+    if (!std::isfinite(distanceSquared) || distanceSquared > mDoorInteractionRadius * mDoorInteractionRadius)
+    {
+        result.error = WorldItemTakeError::OutOfRange;
+        sendResult();
+        return;
+    }
+
+    bool factionAllowsUse = item.factionId.empty();
+    if (!item.factionId.empty())
+    {
+        const std::string wanted = lowerAscii(item.factionId);
+        const auto membership = std::find_if(c.player.factionState.factions.begin(),
+            c.player.factionState.factions.end(), [&](const PlayerFactionEntry& entry) {
+                return lowerAscii(entry.factionId) == wanted;
+            });
+        factionAllowsUse = membership != c.player.factionState.factions.end()
+            && !membership->expelled && membership->rank >= item.factionRank;
+    }
+    const bool ownerAllowsUse = item.ownerId.empty() || lowerAscii(item.ownerId) == "player";
+    const bool theft = !item.ownershipGlobalAllowsUse && (!ownerAllowsUse || !factionAllowsUse);
+    const std::int64_t crimeValue = theft
+        ? (item.gold ? item.inventoryCount
+                     : static_cast<std::int64_t>(item.worldCount) * item.itemValue)
+        : 0;
+
+    std::vector<Item> inventory = c.player.inventoryChanges.items;
+    Item added;
+    added.instanceId = request.object.kind == PlacedObjectKind::ServerPlaced
+        ? request.object.mpNum : reserveWorldMpNum().value_or(0);
+    if (added.instanceId == 0)
+    {
+        result.error = WorldItemTakeError::PersistenceFailure;
+        sendResult();
+        return;
+    }
+    added.refId = item.identity.refId;
+    added.count = item.inventoryCount;
+    added.charge = item.charge;
+    added.enchantmentCharge = item.enchantmentCharge;
+    added.soul = item.soul;
+    inventory.push_back(added);
+
+    result.accepted = true;
+    result.itemRefId = added.refId;
+    result.itemCount = added.count;
+    result.crimeValue = crimeValue;
+    result.theft = theft;
+    result.inventoryRevision = c.inventoryRevision + 1;
+
+    WorldItemTakeCommit commit;
+    commit.accountId = c.dbAccountId;
+    commit.characterId = c.dbCharacterId;
+    commit.requestId = request.requestId;
+    commit.requestHash = crypto::sha256hex(canonicalWorldItemTakeRequest(request));
+    commit.object = request.object;
+    commit.result = result;
+    commit.expectedInventoryRevision = request.expectedInventoryRevision;
+    commit.resultingInventoryRevision = result.inventoryRevision;
+    commit.inventory = inventory;
+
+    WorldItemTakeCommitResult committed;
+    try
+    {
+        committed = mPlayerDb->commitWorldItemTake(commit);
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[WorldItemTake] persistence failure request=" << request.requestId
+                          << " player=" << c.name << " error=" << e.what();
+        result.accepted = false;
+        result.error = WorldItemTakeError::PersistenceFailure;
+        sendResult();
+        return;
+    }
+
+    if (committed.status == WorldItemTakeCommitStatus::DuplicateRequestConflict)
+    {
+        result.accepted = false;
+        result.error = WorldItemTakeError::DuplicateConflict;
+        sendResult();
+        return;
+    }
+    if (committed.status == WorldItemTakeCommitStatus::ObjectAlreadyTaken)
+    {
+        result.accepted = false;
+        result.error = WorldItemTakeError::ObjectUnavailable;
+        sendResult();
+        return;
+    }
+    if (committed.status == WorldItemTakeCommitStatus::StaleInventoryRevision)
+    {
+        result.accepted = false;
+        result.error = WorldItemTakeError::StaleInventoryRevision;
+        sendAuthoritativeInventory(c);
+        sendResult();
+        return;
+    }
+
+    result = committed.result;
+    result.requestId = request.requestId;
+    result.replayed = committed.status == WorldItemTakeCommitStatus::DuplicateRequest;
+    if (!result.replayed)
+    {
+        c.player.inventoryChanges.action = BasePlayer::InventoryChanges::Action::Set;
+        c.player.inventoryChanges.items = std::move(inventory);
+        c.inventoryRevision = result.inventoryRevision;
+        c.player.inventoryChanges.revision = c.inventoryRevision;
+        c.restoredInventorySnapshot = c.player.inventoryChanges.items;
+        c.hasRestoredInventorySnapshot = true;
+        mWorld.takenItemReferences[result.object.cellId].push_back(result.object);
+
+        if (result.object.kind == PlacedObjectKind::ServerPlaced)
+            removePlacedObjectAuthoritative(result.object.mpNum, result.object.cellId);
+        else
+        {
+            PacketObjectDelete deletion;
+            deletion.cellId = result.object.cellId;
+            deletion.refId = result.object.refId;
+            deletion.refNum = result.object.refIndex;
+            deletion.refContentFile = result.object.refContentFile;
+            broadcastToCell(result.object.cellId, deletion.encode());
+        }
+        syncLuaPlayerSnapshot();
+        scheduleGeneratedDynamicRecordGc("world_item_take");
+    }
+    sendAuthoritativeInventory(c);
+
+    if (result.theft && mObservationService)
+    {
+        CrimeWitnessBuildRequest witnessRequest;
+        witnessRequest.eventCell = c.player.cell;
+        witnessRequest.offender = makeLiveObservationSnapshot(*acceptedPlayer, playerBootWeight(c));
+        witnessRequest.alarmRadius = mObservationAlarmRadius;
+        witnessRequest.observedAtMs = nowMs;
+        witnessRequest.maximumSnapshotAgeMs = MaximumSnapshotAgeMs;
+        CrimeWitnessBuildResult witnesses = buildLiveCrimeWitnesses(witnessRequest);
+
+        CrimeIntent intent;
+        intent.eventId = "world-item-take:" + std::to_string(c.dbAccountId) + ":"
+            + std::to_string(c.dbCharacterId) + ":" + request.requestId;
+        intent.source = "world_item_take";
+        intent.type = CrimeType::Theft;
+        intent.cellId = canonicalPlayerCell;
+        intent.offender = witnessRequest.offender;
+        intent.value = result.crimeValue;
+        intent.observedAtMs = nowMs;
+        intent.maximumSnapshotAgeMs = MaximumSnapshotAgeMs;
+        for (const std::string& cellId : witnesses.candidateCellIds)
+        {
+            const std::uint64_t generation = mCollisionWorld ? mCollisionWorld->cellGeneration(cellId) : 0;
+            if (generation != 0)
+                intent.collisionGenerations.push_back({ cellId, generation });
+        }
+
+        const auto gmstInt = [&](std::string_view id) {
+            return mContentRegistry->store().get<ESM::GameSetting>()
+                .find(id)->mValue.getInteger();
+        };
+        CrimePolicy policy;
+        policy.alarmRadius = mObservationAlarmRadius;
+        policy.theftBountyMultiplier = mContentRegistry->store().get<ESM::GameSetting>()
+            .find("fCrimeStealing")->mValue.getFloat();
+        policy.pickpocketBounty = gmstInt("iCrimePickPocket");
+        policy.trespassBounty = gmstInt("iCrimeTresspass");
+        policy.assaultBounty = gmstInt("iCrimeAttack");
+        policy.murderBounty = gmstInt("iCrimeKilling");
+
+        CrimeService crime(*mPlayerDb);
+        CrimeSemanticService semantics(*mPlayerDb, crime, *mObservationService, policy);
+        CrimeSemanticService::Context context;
+        context.accountId = c.dbAccountId;
+        context.characterId = c.dbCharacterId;
+        context.playerGuid = c.guid;
+        const CrimeSemanticService::Outcome crimeOutcome
+            = semantics.evaluate(intent, std::move(witnesses.witnesses), context);
+        c.player.crimeState = mPlayerDb->loadPlayerCrimeState(c.dbCharacterId);
+        c.player.bounty = c.player.crimeState.bounty;
+        sendAuthoritativeCrimeState(c);
+        Log(crimeOutcome.result.accepted ? Debug::Info : Debug::Warning)
+            << "[CrimeSemanticResult] type=Theft eventId=" << intent.eventId
+            << " crimeSeen=" << crimeOutcome.result.crimeSeen
+            << " reportingRan=" << crimeOutcome.result.reportingStageRun
+            << " bountyDelta=" << crimeOutcome.result.bountyDelta
+            << " crimeIdAdvanced=" << crimeOutcome.result.currentCrimeIdAdvanced
+            << " finalBounty=" << c.player.crimeState.bounty
+            << " finalCurrentCrimeId=" << c.player.crimeState.currentCrimeId
+            << " revision=" << c.player.crimeState.revision;
+    }
+
+    Log(Debug::Info) << "[CrimeCauseAccepted] type=" << (result.theft ? "Theft" : "None")
+                     << " eventId=" << request.requestId
+                     << " offenderGuid=" << c.guid
+                     << " object=" << result.object.refId
+                     << " value=" << result.crimeValue
+                     << " replayed=" << result.replayed;
+    sendResult();
 }
 
 // ---------------------------------------------------------------------------

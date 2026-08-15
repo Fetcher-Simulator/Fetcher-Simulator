@@ -35,6 +35,7 @@
 #include <components/openmw-mp/PlayerCrimeState.hpp>
 #include <components/openmw-mp/PlayerFactionState.hpp>
 #include <components/openmw-mp/PlayerTopicState.hpp>
+#include <components/openmw-mp/WorldItemTake.hpp>
 
 #include "PlayerMark.hpp"
 
@@ -242,6 +243,34 @@ namespace mwmp
         /// Non-empty for trusted server-side requests that have no player
         /// account or inventory revision. These use a separate durable journal.
         std::string serverSource;
+    };
+
+    enum class WorldItemTakeCommitStatus
+    {
+        Committed,
+        DuplicateRequest,
+        DuplicateRequestConflict,
+        ObjectAlreadyTaken,
+        StaleInventoryRevision,
+    };
+
+    struct WorldItemTakeCommit
+    {
+        int64_t accountId = 0;
+        int64_t characterId = 0;
+        std::string requestId;
+        std::string requestHash;
+        PlacedObjectIdentity object;
+        WorldItemTakeResult result;
+        std::uint64_t expectedInventoryRevision = 0;
+        std::uint64_t resultingInventoryRevision = 0;
+        std::vector<Item> inventory;
+    };
+
+    struct WorldItemTakeCommitResult
+    {
+        WorldItemTakeCommitStatus status = WorldItemTakeCommitStatus::Committed;
+        WorldItemTakeResult result;
     };
 
     struct DatabaseTableInfo
@@ -531,6 +560,8 @@ namespace mwmp
         /// Atomically persists a terminal idempotency result, canonical record
         /// bundle, dependencies, and (when supplied) the resulting inventory.
         DynamicRecordCommitStatus commitDynamicRecordRequest(const DynamicRecordCommit& commit);
+        WorldItemTakeCommitResult commitWorldItemTake(const WorldItemTakeCommit& commit);
+        std::vector<PlacedObjectIdentity> loadTakenWorldItemReferences();
         uint64_t loadInventoryRevision(int64_t characterId);
 
         /// Load dynamic-record catalog metadata for both persistent and session-only ids.

@@ -47,6 +47,7 @@
 #include <components/openmw-mp/Packets/Object/PacketObjectDelete.hpp>
 #include <components/openmw-mp/Packets/Object/PacketObjectMove.hpp>
 #include <components/openmw-mp/Packets/Object/PacketContainer.hpp>
+#include <components/openmw-mp/Packets/Object/PacketWorldItemTake.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAnimFlags.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAnimPlay.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAttack.hpp>
@@ -1745,7 +1746,24 @@ void Main::registerProtocolHandlers()
         {
             PacketObjectDelete pkt;
             if (!pkt.decode(data, size)) return;
-            mWorldObjectSync->onServerObjectDelete(pkt.mpNum, pkt.cellId);
+            PlacedObjectIdentity identity;
+            identity.cellId = pkt.cellId;
+            identity.refId = pkt.refId;
+            identity.refIndex = pkt.refNum;
+            identity.refContentFile = pkt.refContentFile;
+            identity.mpNum = pkt.mpNum;
+            identity.kind = pkt.mpNum != 0
+                ? PlacedObjectKind::ServerPlaced : PlacedObjectKind::ContentReference;
+            mWorldObjectSync->onServerObjectDelete(identity);
+        });
+
+    proto.registerHandler(PacketType::WorldItemTakeResult,
+        [this](const uint8_t* data, size_t size)
+        {
+            PacketWorldItemTakeResult packet;
+            if (!packet.decode(data, size))
+                return;
+            mWorldObjectSync->onServerWorldItemTakeResult(packet.result);
         });
 
     proto.registerHandler(PacketType::ObjectMove,

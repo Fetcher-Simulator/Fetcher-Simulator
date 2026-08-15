@@ -30,6 +30,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwmp/testcrimeservice.cpp
     mwmp/testcrimesemanticservice.cpp
     mwmp/testcrimewitnessbuilder.cpp
+    mwmp/testworlditemtake.cpp
     mwmp/testobservationservice.cpp
     mwmp/testservercollisionlifecycle.cpp
     mwmp/testmechanicssnapshotregistry.cpp

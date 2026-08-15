@@ -4,9 +4,13 @@
 #include <filesystem>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <components/openmw-mp/Base/BaseStructs.hpp>
+#include <components/openmw-mp/WorldItemTake.hpp>
 
 namespace MWWorld
 {
@@ -46,6 +50,24 @@ namespace mwmp
             bool operator==(const ManifestEntry&) const = default;
         };
 
+        struct PlacedItemReference
+        {
+            PlacedObjectIdentity identity;
+            Position position;
+            std::int32_t worldCount = 0;
+            std::int32_t inventoryCount = 0;
+            std::int32_t charge = -1;
+            float enchantmentCharge = -1.f;
+            std::string soul;
+            std::string ownerId;
+            std::string factionId;
+            std::int32_t factionRank = -1;
+            bool ownershipGlobalAllowsUse = false;
+            std::int32_t itemValue = 0;
+            bool gold = false;
+            bool enabled = false;
+        };
+
         explicit ServerContentRegistry(Config config);
         ~ServerContentRegistry();
 
@@ -66,6 +88,8 @@ namespace mwmp
         bool hasIcon(std::string_view path) const;
         bool hasStaticRecord(std::uint8_t recordType, std::string_view id) const;
         bool validateScriptSource(std::string_view id, std::string_view source) const;
+        std::optional<PlacedItemReference> findPlacedItemReference(
+            const PlacedObjectIdentity& identity) const;
         void installRuntimeDefinition(
             std::string_view id, const records::DynamicRecordDefinition& definition);
 
