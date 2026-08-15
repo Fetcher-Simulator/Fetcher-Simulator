@@ -199,6 +199,41 @@ carry a monotonically increasing generation. Dynamic doors and future runtime
 world blockers must invalidate that generation. Runtime collision definitions
 remain separate from persistent player/world gameplay state.
 
+## Rendered-client acceptance
+
+Phase 4A.4 subsequently exercised the collision backend through the live
+protocol-9 observation path rather than the benchmark harness alone. The final
+rendered test used the real hinged door and vanilla NPCs in `Balmora, Guild of
+Fighters`.
+
+The first authority-client pass selected `flaenia amiulusus` (actorNetId 67613)
+and held the player on the opposite side of the same real door. Close/open/close
+advanced the authoritative collision generation `2 -> 3 -> 4` and produced:
+
+```text
+closed  -> los=false, reason=blocked_los
+open    -> los=true,  awareness=true, observable=1, reason=observed
+closed  -> los=false, reason=blocked_los
+```
+
+A second simultaneous rendered client then joined the same cell while the first
+client retained actor authority. The second client was not actor authority and
+only issued observation queries. Its close/open/close sequence advanced the same
+server-owned collision timeline `4 -> 5 -> 6` and again produced
+`los=false -> true -> false`. The NPC mechanics snapshot sequence continued to
+advance (`5093 -> 5176 -> 5256`) with non-zero generation metadata, proving that
+the non-authority result consumed server collision state plus the authoritative
+NPC snapshot stream rather than a local-client LOS decision.
+
+The live test also exposed and fixed a protocol-9 generation bootstrap defect:
+ordinary placed actors could retain migration generation zero, and the authority
+client could overwrite its current cell authority generation with zero while
+constructing outbound authority state. Signed commit
+`5b6e6fab15fc42f10d6eb5d4ec5407dec8042c28` seeds the initial canonical actor
+lifetime at generation 1 and preserves the server-issued authority generation.
+Both one-client and authority/non-authority rendered acceptance passed after the
+fix.
+
 ## Remaining risks and non-results
 
 - The benchmark uses placed ESM3 geometry and base door transforms. A final
@@ -218,11 +253,19 @@ remain separate from persistent player/world gameplay state.
 
 ## Verification
 
-- Local `openmw-server` RelWithDebInfo build: pass (`--parallel 24`).
-- Local server-focused `openmw-tests`: 641/641 pass.
-- Local `components-tests`: 1,594/1,595 pass; only the known
-  `LuaL10nTest.L10n` stdout-capture failure occurred.
-- ARM64 dedicated-server build: pass.
-- ARM64 CLI smoke test: pass.
-- Isolated normal-server baseline and all five collision scenarios: pass.
-- UDP 25569 was free after every bounded run; UDP 25564 remained PID 82701.
+- Local `openmw` and `openmw-server` RelWithDebInfo builds: pass (`--parallel 24`).
+- Post-fix Windows `openmw-tests`: 683/683 pass.
+- Post-fix Windows `components-tests`: 1,604/1,605 pass; only the established
+  `LuaL10nTest.L10n` failure occurred.
+- ARM64 dedicated-server build after generation-bootstrap fix: pass.
+- ARM64 isolated start/bind/stop smoke: pass.
+- Isolated normal-server baseline and all five collision benchmark scenarios: pass.
+- Synthetic real-door benchmark: `blocked -> visible -> blocked`, generation
+  `1 -> 2 -> 3`: pass.
+- Rendered authority-client Fighters Guild doorway test: `blocked -> observed -> blocked`,
+  collision generation `2 -> 3 -> 4`: pass.
+- Rendered non-authority second-client doorway test while the first client retained
+  actor authority: `blocked -> observed -> blocked`, collision generation
+  `4 -> 5 -> 6`: pass.
+- After acceptance, isolated UDP 25569 was stopped and verified free; production
+  UDP 25564 remained running.
