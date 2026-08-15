@@ -133,6 +133,8 @@ namespace mwmp
             std::int64_t characterId = 0;
             std::uint32_t playerGuid = 0;
             CrimeCommitFailurePoint failurePoint = CrimeCommitFailurePoint::None;
+            bool deferCommit = false;
+            std::optional<PlayerCrimeState> startingState;
         };
 
         struct Outcome
@@ -140,6 +142,7 @@ namespace mwmp
             CrimeSemanticResult result;
             bool replayed = false;
             bool committed = false;
+            std::optional<CrimeMutationCommit> pendingCommit;
         };
 
         CrimeSemanticService(PlayerDatabase& database, CrimeService& crimeService,

@@ -60,6 +60,25 @@ namespace
         commit.inventory.push_back(item);
         return commit;
     }
+
+    mwmp::CrimeMutationCommit makeCrimeCommit(std::int64_t account, std::int64_t character,
+        std::string requestId = "inventory-take-crime")
+    {
+        mwmp::CrimeMutationCommit crime;
+        crime.service = "crime-event";
+        crime.accountId = account;
+        crime.characterId = character;
+        crime.requestId = std::move(requestId);
+        crime.requestHash = mwmp::crypto::sha256hex(crime.requestId);
+        crime.resultPayload = "terminal-crime-result";
+        crime.source = "inventory-take-test";
+        crime.expectedRevision = 0;
+        crime.resultingState.bounty = 5;
+        crime.resultingState.currentCrimeId = 0;
+        crime.resultingState.paidCrimeId = -1;
+        crime.resultingState.revision = 1;
+        return crime;
+    }
 }
 
 TEST(InventoryTakePersistence, SourceDestinationAndReplayAreAtomicAcrossRestart)
@@ -104,6 +123,48 @@ TEST(InventoryTakePersistence, SourceDestinationAndReplayAreAtomicAcrossRestart)
     ASSERT_TRUE(stored);
     EXPECT_EQ(stored->result.detectionRoll, -1);
     EXPECT_EQ(stored->result.inventoryRevision, 1u);
+}
+
+TEST(InventoryTakePersistence, CrimeResultCommitsInSameTransactionAsTransfer)
+{
+    TemporaryDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+    const std::int64_t account = database.createAccount("inventory-crime-account");
+    const std::int64_t character = database.createCharacter(account, "Inventory Crime Tester").characterId;
+    auto commit = makeCommit(account, character);
+    database.upsertContainerRecord(*commit.expectedSource);
+    commit.crimeMutation = makeCrimeCommit(account, character);
+
+    EXPECT_EQ(database.commitInventoryTake(commit).status, mwmp::InventoryTakeCommitStatus::Committed);
+    const mwmp::PlayerCrimeState state = database.loadPlayerCrimeState(character);
+    EXPECT_EQ(state.bounty, 5);
+    EXPECT_EQ(state.currentCrimeId, 0);
+    EXPECT_EQ(state.revision, 1u);
+    EXPECT_TRUE(database.loadSemanticRequest(
+        "crime-event", account, character, commit.crimeMutation->requestId).has_value());
+    EXPECT_TRUE(database.loadInventoryTake(account, character, commit.requestId).has_value());
+}
+
+TEST(InventoryTakePersistence, CrimeFailureRollsBackTransferSourceAndJournal)
+{
+    TemporaryDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+    const std::int64_t account = database.createAccount("inventory-rollback-account");
+    const std::int64_t character = database.createCharacter(account, "Inventory Rollback Tester").characterId;
+    auto commit = makeCommit(account, character);
+    database.upsertContainerRecord(*commit.expectedSource);
+    commit.crimeMutation = makeCrimeCommit(account, character, "inventory-crime-failure");
+    commit.crimeMutation->failurePoint = mwmp::CrimeCommitFailurePoint::AfterStateWrite;
+
+    EXPECT_THROW(database.commitInventoryTake(commit), std::runtime_error);
+    EXPECT_EQ(database.loadInventoryRevision(character), 0u);
+    EXPECT_TRUE(database.loadCharacterInventory(character).empty());
+    ASSERT_EQ(database.loadContainerRecords().size(), 1u);
+    EXPECT_EQ(database.loadContainerRecords().front().items, commit.expectedSource->items);
+    EXPECT_FALSE(database.loadInventoryTake(account, character, commit.requestId).has_value());
+    EXPECT_FALSE(database.loadSemanticRequest(
+        "crime-event", account, character, commit.crimeMutation->requestId).has_value());
+    EXPECT_EQ(database.loadPlayerCrimeState(character), mwmp::PlayerCrimeState{});
 }
 
 TEST(InventoryTakePersistence, DetectedPickpocketPersistsRollWithoutMovingItems)

@@ -11,6 +11,7 @@
 #include <vector>
 #include <components/openmw-mp/RuntimeContentBootstrapGate.hpp>
 #include <components/openmw-mp/PlayerCrimeState.hpp>
+#include <components/openmw-mp/CrimeInteraction.hpp>
 #include <components/openmw-mp/SemanticService.hpp>
 #include <components/openmw-mp/ServerLuaPackageTransfer.hpp>
 #include <components/openmw-mp/Packets/System/PacketGameSettings.hpp>
@@ -131,6 +132,7 @@ namespace mwmp
         void               sendActorNpcPlayerHit(uint32_t victimGuid, const MWWorld::Ptr& npcAttacker, float damage,
             bool healthDamage, bool isDead, int attackType);
         bool requestCrimeMutation(CrimeMutationKind kind, std::int64_t value, std::string source);
+        bool requestCrimeInteraction(CrimeInteractionKind kind, const MWWorld::Ptr& target);
 
         // Restored chargen data — populated from PacketCharacterData after character selection
         const std::string& getRestoredRace()      const { return mRestoredRace; }

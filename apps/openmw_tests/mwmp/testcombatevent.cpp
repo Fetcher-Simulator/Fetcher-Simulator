@@ -43,6 +43,26 @@ namespace
         event.createdAtMs = 5000;
         return event;
     }
+
+    mwmp::CrimeMutationCommit crimeCommit(std::int64_t account, std::int64_t character,
+        std::string requestId, std::uint64_t expectedRevision, std::int32_t bounty,
+        std::int32_t currentCrimeId, std::uint64_t resultingRevision)
+    {
+        mwmp::CrimeMutationCommit crime;
+        crime.service = "crime-event";
+        crime.accountId = account;
+        crime.characterId = character;
+        crime.requestId = std::move(requestId);
+        crime.requestHash = mwmp::crypto::sha256hex(crime.requestId);
+        crime.resultPayload = "terminal-combat-crime-result";
+        crime.source = "combat-test";
+        crime.expectedRevision = expectedRevision;
+        crime.resultingState.bounty = bounty;
+        crime.resultingState.currentCrimeId = currentCrimeId;
+        crime.resultingState.paidCrimeId = -1;
+        crime.resultingState.revision = resultingRevision;
+        return crime;
+    }
 }
 
 TEST(CombatEventPersistence, AcceptedAttributionIsIdempotentAndRestartDurable)
@@ -78,6 +98,53 @@ TEST(CombatEventPersistence, AcceptedAttributionIsIdempotentAndRestartDurable)
     EXPECT_TRUE(reopened.hasReportedCriminalAssault(character, victim, 3));
 }
 
+TEST(CombatEventPersistence, AssaultAndMurderCrimeResultsCommitWithAcceptedLethalResult)
+{
+    TemporaryDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+    const std::int64_t account = database.createAccount("combat-crime-account");
+    const std::int64_t character = database.createCharacter(account, "Combat Crime Tester").characterId;
+    const std::uint64_t eventId = database.createCombatEvent(proposal(account, character));
+    auto assault = crimeCommit(account, character, "combat-assault", 0, 10, 0, 1);
+    auto murder = crimeCommit(account, character, "combat-murder", 1, 1010, 1, 2);
+
+    EXPECT_EQ(database.acceptCombatEvent(eventId, 4,
+        mwmp::CombatResultApplied | mwmp::CombatVictimDied, 8.f, true, { assault, murder }, true),
+        mwmp::CombatEventCommitStatus::Committed);
+    const auto event = database.loadCombatEvent(eventId);
+    ASSERT_TRUE(event);
+    EXPECT_TRUE(event->accepted);
+    EXPECT_TRUE(event->assaultReported);
+    const mwmp::PlayerCrimeState state = database.loadPlayerCrimeState(character);
+    EXPECT_EQ(state.bounty, 1010);
+    EXPECT_EQ(state.currentCrimeId, 1);
+    EXPECT_EQ(state.revision, 2u);
+    EXPECT_TRUE(database.loadSemanticRequest("crime-event", account, character, assault.requestId).has_value());
+    EXPECT_TRUE(database.loadSemanticRequest("crime-event", account, character, murder.requestId).has_value());
+}
+
+TEST(CombatEventPersistence, CrimeFailureRollsBackCombatAcceptanceAndEarlierSemanticWrites)
+{
+    TemporaryDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+    const std::int64_t account = database.createAccount("combat-rollback-account");
+    const std::int64_t character = database.createCharacter(account, "Combat Rollback Tester").characterId;
+    const std::uint64_t eventId = database.createCombatEvent(proposal(account, character));
+    auto assault = crimeCommit(account, character, "combat-assault-rollback", 0, 10, 0, 1);
+    auto murder = crimeCommit(account, character, "combat-murder-rollback", 1, 1010, 1, 2);
+    murder.failurePoint = mwmp::CrimeCommitFailurePoint::AfterStateWrite;
+
+    EXPECT_THROW(database.acceptCombatEvent(eventId, 4,
+        mwmp::CombatResultApplied | mwmp::CombatVictimDied, 8.f, true, { assault, murder }, true),
+        std::runtime_error);
+    const auto event = database.loadCombatEvent(eventId);
+    ASSERT_TRUE(event);
+    EXPECT_FALSE(event->accepted);
+    EXPECT_FALSE(database.loadSemanticRequest("crime-event", account, character, assault.requestId).has_value());
+    EXPECT_FALSE(database.loadSemanticRequest("crime-event", account, character, murder.requestId).has_value());
+    EXPECT_EQ(database.loadPlayerCrimeState(character), mwmp::PlayerCrimeState{});
+}
+
 TEST(WerewolfStatePersistence, TransformationEdgesAreRestartDurableAndIdempotent)
 {
     TemporaryDatabase temporary;
@@ -109,4 +176,37 @@ TEST(WerewolfStatePersistence, TransformationEdgesAreRestartDurableAndIdempotent
     EXPECT_TRUE(reverted.changed);
     EXPECT_FALSE(reverted.transformed);
     EXPECT_EQ(reverted.transition, 2u);
+}
+
+TEST(WerewolfStatePersistence, TransformationAndCrimeResultCommitAtomically)
+{
+    TemporaryDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+    const std::int64_t account = database.createAccount("werewolf-crime-account");
+    const std::int64_t character = database.createCharacter(account, "Werewolf Crime Tester").characterId;
+    auto crime = crimeCommit(account, character, "werewolf:1:1", 0, 1000, -1, 1);
+
+    const auto transformed = database.updateWerewolfState(character, true, crime);
+    EXPECT_TRUE(transformed.transformed);
+    EXPECT_EQ(transformed.transition, 1u);
+    EXPECT_EQ(database.loadWerewolfState(character).transition, 1u);
+    EXPECT_EQ(database.loadPlayerCrimeState(character).bounty, 1000);
+    EXPECT_TRUE(database.loadSemanticRequest("crime-event", account, character, crime.requestId).has_value());
+}
+
+TEST(WerewolfStatePersistence, CrimeFailureRollsBackTransformationEdge)
+{
+    TemporaryDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+    const std::int64_t account = database.createAccount("werewolf-rollback-account");
+    const std::int64_t character = database.createCharacter(account, "Werewolf Rollback Tester").characterId;
+    auto crime = crimeCommit(account, character, "werewolf:rollback:1", 0, 1000, -1, 1);
+    crime.failurePoint = mwmp::CrimeCommitFailurePoint::AfterStateWrite;
+
+    EXPECT_THROW(database.updateWerewolfState(character, true, crime), std::runtime_error);
+    const auto state = database.loadWerewolfState(character);
+    EXPECT_FALSE(state.isWerewolf);
+    EXPECT_EQ(state.transition, 0u);
+    EXPECT_EQ(database.loadPlayerCrimeState(character), mwmp::PlayerCrimeState{});
+    EXPECT_FALSE(database.loadSemanticRequest("crime-event", account, character, crime.requestId).has_value());
 }

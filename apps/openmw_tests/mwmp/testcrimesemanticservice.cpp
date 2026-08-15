@@ -190,6 +190,31 @@ TEST(CrimeSemanticService, AlarmOneHundredReportsAndAppliesBountyOnce)
     EXPECT_EQ(outcome.result.state.currentCrimeId, 0);
 }
 
+TEST(CrimeSemanticService, DeferredPreparationPreservesObservationUntilOuterCommit)
+{
+    Fixture fixture;
+    fixture.context.deferCommit = true;
+    const CrimeIntent request = intent("deferred-crime", CrimeType::Theft);
+    const auto prepared = fixture.semantic.evaluate(request, { witness(npc(1), 100) }, fixture.context);
+
+    ASSERT_TRUE(prepared.result.accepted);
+    EXPECT_FALSE(prepared.committed);
+    EXPECT_FALSE(prepared.replayed);
+    ASSERT_TRUE(prepared.pendingCommit);
+    EXPECT_TRUE(prepared.result.crimeSeen);
+    EXPECT_EQ(prepared.result.bountyDelta, 50);
+    EXPECT_EQ(prepared.result.state.bounty, 50);
+    EXPECT_EQ(fixture.database.loadPlayerCrimeState(fixture.context.characterId), PlayerCrimeState{});
+    EXPECT_FALSE(fixture.database.loadSemanticRequest(
+        "crime-event", fixture.context.accountId, fixture.context.characterId, request.eventId).has_value());
+
+    const CrimeCommitResult committed = fixture.database.commitPlayerCrimeMutation(*prepared.pendingCommit);
+    EXPECT_EQ(committed.status, CrimeCommitStatus::Committed);
+    EXPECT_EQ(fixture.database.loadPlayerCrimeState(fixture.context.characterId), prepared.result.state);
+    EXPECT_TRUE(fixture.database.loadSemanticRequest(
+        "crime-event", fixture.context.accountId, fixture.context.characterId, request.eventId).has_value());
+}
+
 TEST(CrimeSemanticService, WerewolfExposureReportsWithoutAdvancingCrimeIdAndReplays)
 {
     Fixture fixture;

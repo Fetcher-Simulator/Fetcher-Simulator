@@ -78,6 +78,19 @@ namespace mwmp
             bool enabled = false;
         };
 
+        struct CrimeInteractionReference
+        {
+            Position position;
+            std::string ownerId;
+            std::string factionId;
+            std::int32_t factionRank = -1;
+            bool ownershipGlobalAllowsUse = false;
+            bool enabled = false;
+            bool locked = false;
+            std::int32_t lockLevel = 0;
+            bool trapped = false;
+        };
+
         explicit ServerContentRegistry(Config config);
         ~ServerContentRegistry();
 
@@ -102,6 +115,9 @@ namespace mwmp
             const PlacedObjectIdentity& identity) const;
         std::optional<ContainerReference> findContainerReference(
             std::string_view cellId, std::string_view refId, std::uint32_t refIndex) const;
+        std::optional<CrimeInteractionReference> findCrimeInteractionReference(
+            std::string_view cellId, std::string_view refId, std::uint32_t refIndex,
+            std::int32_t refContentFile) const;
         void installRuntimeDefinition(
             std::string_view id, const records::DynamicRecordDefinition& definition);
 

@@ -27,6 +27,8 @@
 #include <components/esm3/loadbody.hpp>
 #include <components/esm3/loadbook.hpp>
 #include <components/esm3/loadclot.hpp>
+#include <components/esm3/loadcont.hpp>
+#include <components/esm3/loaddoor.hpp>
 #include <components/esm3/loadench.hpp>
 #include <components/esm3/loadglob.hpp>
 #include <components/esm3/loadingr.hpp>
@@ -525,6 +527,69 @@ mwmp::ServerContentRegistry::findContainerReference(
         reference.factionId = ptr.getCellRef().getFaction().serializeText();
         reference.factionRank = ptr.getCellRef().getFactionRank();
         reference.enabled = ptr.getRefData().isEnabled();
+        const ESM::Position& position = ptr.getRefData().getPosition();
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            reference.position.pos[axis] = position.pos[axis];
+            reference.position.rot[axis] = position.rot[axis];
+        }
+        const std::string& globalName = ptr.getCellRef().getGlobalVariable();
+        if (!globalName.empty())
+        {
+            const ESM::Global* global
+                = store().get<ESM::Global>().search(ESM::RefId::stringRefId(globalName));
+            reference.ownershipGlobalAllowsUse = global && global->mValue.getInteger() != 0;
+        }
+        result = std::move(reference);
+        return true;
+    });
+    return ambiguous ? std::nullopt : result;
+}
+
+std::optional<mwmp::ServerContentRegistry::CrimeInteractionReference>
+mwmp::ServerContentRegistry::findCrimeInteractionReference(
+    std::string_view cellId, std::string_view refId, std::uint32_t refIndex,
+    std::int32_t refContentFile) const
+{
+    if (cellId.empty() || refId.empty() || refIndex == 0 || refContentFile < 0)
+        return std::nullopt;
+    MWWorld::CellStore* cell = nullptr;
+    const std::string cellName(cellId);
+    if (cellId.starts_with("EXT:"))
+    {
+        int x = 0;
+        int y = 0;
+        if (std::sscanf(cellName.c_str(), "EXT:%d,%d", &x, &y) != 2)
+            return std::nullopt;
+        cell = &mRuntime->world->getWorldModel().getExterior(
+            ESM::ExteriorCellLocation(x, y, ESM::Cell::sDefaultWorldspaceId));
+    }
+    else
+        cell = &mRuntime->world->getWorldModel().getInterior(cellName);
+
+    cell->load();
+    std::optional<CrimeInteractionReference> result;
+    bool ambiguous = false;
+    cell->forEachConst([&](const MWWorld::ConstPtr& ptr) {
+        if (ptr.getCellRef().getRefNum() != ESM::RefNum{ refIndex, refContentFile }
+            || ptr.getCellRef().getRefId().serializeText() != refId)
+            return true;
+        const auto type = ptr.getType();
+        if (type != ESM::Door::sRecordId && type != ESM::Container::sRecordId)
+            return false;
+        if (result)
+        {
+            ambiguous = true;
+            return false;
+        }
+        CrimeInteractionReference reference;
+        reference.ownerId = ptr.getCellRef().getOwner().serializeText();
+        reference.factionId = ptr.getCellRef().getFaction().serializeText();
+        reference.factionRank = ptr.getCellRef().getFactionRank();
+        reference.enabled = ptr.getRefData().isEnabled();
+        reference.locked = ptr.getCellRef().isLocked();
+        reference.lockLevel = ptr.getCellRef().getLockLevel();
+        reference.trapped = !ptr.getCellRef().getTrap().empty();
         const ESM::Position& position = ptr.getRefData().getPosition();
         for (int axis = 0; axis < 3; ++axis)
         {

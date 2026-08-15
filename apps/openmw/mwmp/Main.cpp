@@ -50,6 +50,7 @@
 #include <components/openmw-mp/Packets/Object/PacketContainer.hpp>
 #include <components/openmw-mp/Packets/Object/PacketWorldItemTake.hpp>
 #include <components/openmw-mp/Packets/Object/PacketInventoryTake.hpp>
+#include <components/openmw-mp/Packets/Object/PacketCrimeInteraction.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAnimFlags.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAnimPlay.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAttack.hpp>
@@ -104,6 +105,8 @@
 #include <components/vfs/pathutil.hpp>
 #include "../mwgui/mode.hpp"
 #include "../mwworld/player.hpp"
+#include "../mwworld/class.hpp"
+#include "../mwworld/cellstore.hpp"
 #include "../mwworld/esmstore.hpp"
 #include "../mwdialogue/scripttest.hpp"
 #include <sstream>
@@ -185,6 +188,32 @@ bool Main::requestCrimeMutation(CrimeMutationKind kind, std::int64_t value, std:
 
     mPendingCrimeMutations.push_back(std::move(request));
     sendNextCrimeMutation();
+    return true;
+}
+
+bool Main::requestCrimeInteraction(CrimeInteractionKind kind, const MWWorld::Ptr& target)
+{
+    if (!mWorldReady || !mClient || target.isEmpty() || !target.isInCell()
+        || target.getCell() == nullptr || target.getCell()->getCell() == nullptr)
+        return false;
+
+    CrimeInteractionRequest request;
+    request.requestId = mCrimeMutationRequestPrefix + "-interaction-"
+        + std::to_string(mNextCrimeMutationRequest++);
+    request.kind = kind;
+    request.refId = target.getCellRef().getRefId().serializeText();
+    const ESM::RefNum refNum = target.getCellRef().getRefNum();
+    request.refNum = refNum.mIndex;
+    request.refContentFile = refNum.mContentFile;
+    const MWWorld::Cell* cell = target.getCell()->getCell();
+    request.cellId = cell->isExterior()
+        ? "EXT:" + std::to_string(cell->getGridX()) + ',' + std::to_string(cell->getGridY())
+        : std::string(cell->getNameId());
+    if (!validateCrimeInteractionRequest(request))
+        return false;
+    PacketCrimeInteraction packet;
+    packet.request = std::move(request);
+    mClient->sendReliable(packet.encode());
     return true;
 }
 
