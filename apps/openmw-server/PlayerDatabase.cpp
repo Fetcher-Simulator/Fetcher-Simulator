@@ -468,6 +468,15 @@ CREATE INDEX IF NOT EXISTS idx_combat_events_victim
     ON combat_events(character_id, victim_actor_id, migration_generation, status);
 )SQL";
 
+    static const char* kWerewolfStateSchema = R"SQL(
+CREATE TABLE IF NOT EXISTS character_werewolf_state (
+    character_id INTEGER PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+    is_werewolf INTEGER NOT NULL DEFAULT 0,
+    transition_counter INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL DEFAULT 0
+);
+)SQL";
+
     // Migration: add chargen columns to databases created before they existed.
     static const char* kMigrations[] = {
         "ALTER TABLE characters ADD COLUMN race       TEXT NOT NULL DEFAULT ''",
@@ -863,6 +872,7 @@ CREATE INDEX IF NOT EXISTS idx_combat_events_victim
         exec(kSchema);
         exec(kWorldItemTakeSchema);
         exec(kCombatEventSchema);
+        exec(kWerewolfStateSchema);
 
         // Run migrations — ALTER TABLE errors on "duplicate column name" for columns
         // that already exist; we ignore those errors so this is idempotent.
@@ -1698,6 +1708,66 @@ CREATE INDEX IF NOT EXISTS idx_combat_events_victim
         const bool found = sqlite3_step(statement) == SQLITE_ROW;
         sqlite3_finalize(statement);
         return found;
+    }
+
+    WerewolfStateTransition PlayerDatabase::updateWerewolfState(
+        std::int64_t characterId, bool isWerewolf)
+    {
+        if (characterId <= 0)
+            throw std::invalid_argument("Werewolf state requires a character");
+
+        exec("BEGIN IMMEDIATE");
+        try
+        {
+            WerewolfStateTransition result;
+            result.isWerewolf = isWerewolf;
+            bool exists = false;
+            bool previous = false;
+            sqlite3_stmt* select = prepare(
+                "SELECT is_werewolf, transition_counter FROM character_werewolf_state WHERE character_id=?1");
+            sqlite3_bind_int64(select, 1, characterId);
+            if (sqlite3_step(select) == SQLITE_ROW)
+            {
+                exists = true;
+                previous = sqlite3_column_int(select, 0) != 0;
+                const sqlite3_int64 counter = sqlite3_column_int64(select, 1);
+                if (counter < 0)
+                {
+                    sqlite3_finalize(select);
+                    throw std::runtime_error("Corrupt werewolf transition counter");
+                }
+                result.transition = static_cast<std::uint64_t>(counter);
+            }
+            sqlite3_finalize(select);
+
+            result.changed = !exists ? isWerewolf : previous != isWerewolf;
+            result.transformed = result.changed && isWerewolf;
+            if (result.changed)
+            {
+                if (result.transition >= MaximumPersistedRevision)
+                    throw std::overflow_error("Werewolf transition counter overflow");
+                ++result.transition;
+            }
+
+            sqlite3_stmt* upsert = prepare(
+                "INSERT INTO character_werewolf_state(character_id, is_werewolf, transition_counter, updated_at)"
+                " VALUES(?1, ?2, ?3, ?4)"
+                " ON CONFLICT(character_id) DO UPDATE SET is_werewolf=excluded.is_werewolf,"
+                " transition_counter=excluded.transition_counter, updated_at=excluded.updated_at");
+            sqlite3_bind_int64(upsert, 1, characterId);
+            sqlite3_bind_int(upsert, 2, isWerewolf ? 1 : 0);
+            sqlite3_bind_int64(upsert, 3, static_cast<sqlite3_int64>(result.transition));
+            sqlite3_bind_int64(upsert, 4, static_cast<sqlite3_int64>(std::time(nullptr)));
+            checkSqlite(sqlite3_step(upsert), mDb, "updateWerewolfState");
+            sqlite3_finalize(upsert);
+            exec("COMMIT");
+            return result;
+        }
+        catch (...)
+        {
+            try { exec("ROLLBACK"); } catch (...) {}
+            throw;
+        }
     }
 
     std::vector<EquipmentItem> PlayerDatabase::loadCharacterEquipment(int64_t characterId)

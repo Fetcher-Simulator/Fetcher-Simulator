@@ -9,6 +9,7 @@
 #include "../../mwbase/world.hpp"
 #include "../../mwmechanics/creaturestats.hpp"
 #include "../../mwmechanics/magiceffects.hpp"
+#include "../../mwmechanics/npcstats.hpp"
 #include "../../mwworld/class.hpp"
 #include "../../mwworld/ptr.hpp"
 
@@ -50,6 +51,8 @@ namespace mwmp
             snapshot.stateFlags |= MechanicsSneaking;
         if (world != nullptr && world->isOnGround(ptr))
             snapshot.stateFlags |= MechanicsOnGround;
+        if (ptr.getClass().isNpc() && ptr.getClass().getNpcStats(ptr).isWerewolf())
+            snapshot.stateFlags |= MechanicsWerewolf;
 
         snapshot.sneakSkill = ptr.getClass().getSkill(ptr, ESM::Skill::Sneak);
         snapshot.agility = stats.getAttribute(ESM::Attribute::Agility).getModified();

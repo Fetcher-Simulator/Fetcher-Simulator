@@ -129,6 +129,7 @@ namespace
         value.trespassBounty = 5;
         value.assaultBounty = 40;
         value.murderBounty = 1000;
+        value.werewolfBounty = 250;
         return value;
     }
 
@@ -187,6 +188,26 @@ TEST(CrimeSemanticService, AlarmOneHundredReportsAndAppliesBountyOnce)
     EXPECT_EQ(outcome.result.bountyDelta, 50);
     EXPECT_EQ(outcome.result.state.bounty, 50);
     EXPECT_EQ(outcome.result.state.currentCrimeId, 0);
+}
+
+TEST(CrimeSemanticService, WerewolfExposureReportsWithoutAdvancingCrimeIdAndReplays)
+{
+    Fixture fixture;
+    CrimeIntent exposure = intent("werewolf:1", CrimeType::WerewolfExposure);
+    const auto first = fixture.semantic.evaluate(exposure, { witness(npc(1), 100) }, fixture.context);
+    ASSERT_TRUE(first.result.accepted);
+    EXPECT_TRUE(first.result.reportingStageRun);
+    EXPECT_TRUE(first.result.bountyApplied);
+    EXPECT_EQ(first.result.bountyDelta, 250);
+    EXPECT_FALSE(first.result.currentCrimeIdAdvanced);
+    EXPECT_EQ(first.result.state.bounty, 250);
+    EXPECT_EQ(first.result.state.currentCrimeId, -1);
+    EXPECT_EQ(first.result.state.revision, 1u);
+
+    const auto replay = fixture.semantic.evaluate(exposure, { witness(npc(1), 100) }, fixture.context);
+    EXPECT_TRUE(replay.replayed);
+    EXPECT_EQ(replay.result.state, first.result.state);
+    EXPECT_EQ(fixture.database.loadPlayerCrimeState(fixture.context.characterId), first.result.state);
 }
 
 TEST(CrimeSemanticService, BlockedAuthoritativeLosDoesNotReachReporting)

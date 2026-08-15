@@ -41,6 +41,10 @@
 #include "npcstats.hpp"
 #include "spellutil.hpp"
 
+#ifdef BUILD_MULTIPLAYER
+#include "../mwmp/Main.hpp"
+#endif
+
 namespace
 {
 
@@ -1983,6 +1987,10 @@ namespace MWMechanics
 
                 if (reported)
                 {
+#ifdef BUILD_MULTIPLAYER
+                    if (mwmp::Main::isInitialised())
+                        return;
+#endif
                     npcStats.setBounty(
                         std::max(0, npcStats.getBounty() + gmst.find("iWereWolfBounty")->mValue.getInteger()));
                 }

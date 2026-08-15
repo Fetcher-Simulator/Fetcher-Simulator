@@ -305,6 +305,14 @@ namespace mwmp
         UnknownEvent,
     };
 
+    struct WerewolfStateTransition
+    {
+        bool isWerewolf = false;
+        bool changed = false;
+        bool transformed = false;
+        std::uint64_t transition = 0;
+    };
+
     struct DatabaseTableInfo
     {
         std::string name;
@@ -605,6 +613,7 @@ namespace mwmp
         void markCombatAssaultReported(std::uint64_t eventId, bool reported);
         bool hasReportedCriminalAssault(std::int64_t characterId,
             std::uint64_t victimActorInstanceId, std::uint32_t migrationGeneration);
+        WerewolfStateTransition updateWerewolfState(std::int64_t characterId, bool isWerewolf);
         uint64_t loadInventoryRevision(int64_t characterId);
 
         /// Load dynamic-record catalog metadata for both persistent and session-only ids.

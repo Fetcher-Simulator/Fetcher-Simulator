@@ -407,7 +407,9 @@ namespace
         if (result.eventId.empty() || result.bountyDelta < 0
             || (result.accepted && result.error != mwmp::CrimeSemanticError::None)
             || (!result.accepted && result.error == mwmp::CrimeSemanticError::None)
-            || result.reportingStageRun != result.crimeSeen || result.currentCrimeIdAdvanced != result.reportingStageRun
+            || result.reportingStageRun != result.crimeSeen
+            || result.currentCrimeIdAdvanced
+                != (result.reportingStageRun && result.type != mwmp::CrimeType::WerewolfExposure)
             || (result.bountyDelta != 0 && !result.bountyApplied))
             throw std::runtime_error("Inconsistent stored crime semantic result");
         return result;
@@ -415,7 +417,7 @@ namespace
 
     bool validType(mwmp::CrimeType type)
     {
-        return type >= mwmp::CrimeType::Theft && type <= mwmp::CrimeType::Murder;
+        return type >= mwmp::CrimeType::Theft && type <= mwmp::CrimeType::WerewolfExposure;
     }
 
     bool canonicalGenerations(const std::vector<mwmp::CollisionCellGeneration>& generations)
@@ -475,6 +477,8 @@ namespace
                 return policy.assaultBounty;
             case mwmp::CrimeType::Murder:
                 return policy.murderBounty;
+            case mwmp::CrimeType::WerewolfExposure:
+                return policy.werewolfBounty;
             case mwmp::CrimeType::Theft:
                 break;
         }
@@ -494,7 +498,8 @@ namespace mwmp
         if (!std::isfinite(policy.alarmRadius) || policy.alarmRadius < 0.f
             || !std::isfinite(policy.alarmRadius * policy.alarmRadius) || !std::isfinite(policy.theftBountyMultiplier)
             || policy.theftBountyMultiplier < 0.f || policy.pickpocketBounty < 0 || policy.trespassBounty < 0
-            || policy.assaultBounty < 0 || policy.murderBounty < 0 || policy.reportingAlarmThreshold != 100)
+            || policy.assaultBounty < 0 || policy.murderBounty < 0 || policy.werewolfBounty < 0
+            || policy.reportingAlarmThreshold != 100)
             throw std::invalid_argument("Invalid authoritative crime policy");
     }
 
@@ -651,7 +656,11 @@ namespace mwmp
             return outcome;
         }
         outcome.result.bountyDelta = outcome.result.bountyApplied ? *bounty : 0;
-        outcome.result.currentCrimeIdAdvanced = outcome.result.reportingStageRun;
+        // Native werewolf exposure changes bounty directly and does not record
+        // a normal crime-id threshold. Preserve that distinction while still
+        // journaling perception/reporting idempotently.
+        outcome.result.currentCrimeIdAdvanced
+            = outcome.result.reportingStageRun && intent.type != CrimeType::WerewolfExposure;
         outcome.result.accepted = true;
         outcome.result.error = CrimeSemanticError::None;
 
