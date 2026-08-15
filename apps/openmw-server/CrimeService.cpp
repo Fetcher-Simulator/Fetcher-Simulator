@@ -7,6 +7,61 @@
 
 namespace mwmp
 {
+    CrimeService::TransitionOutcome CrimeService::commitAuthoritativeTransition(
+        const AuthoritativeTransition& transition, const Context& context)
+    {
+        if (context.accountId <= 0 || context.characterId <= 0)
+            throw std::invalid_argument("Crime transition requires an authenticated character");
+        if (transition.requestId.empty() || transition.requestId.size() > MaximumSemanticRequestIdLength
+            || transition.requestId.find('\0') != std::string::npos || transition.requestHash.size() != 64
+            || transition.source.empty() || transition.source.size() > MaximumSemanticSourceLength
+            || transition.source.find('\0') != std::string::npos || transition.bountyDelta < 0
+            || transition.terminalResultPayload.empty())
+            throw std::invalid_argument("Invalid authoritative crime transition");
+
+        const PlayerCrimeState current = mDatabase.loadPlayerCrimeState(context.characterId);
+        TransitionOutcome outcome;
+        outcome.state = current;
+        if (current.revision != transition.expectedRevision)
+        {
+            outcome.status = CrimeCommitStatus::StaleRevision;
+            return outcome;
+        }
+
+        const bool changesState = transition.bountyDelta != 0 || transition.advanceCurrentCrimeId;
+        if (changesState && current.revision >= MaximumPersistedRevision)
+            throw std::overflow_error("Authoritative crime-state revision overflow");
+        if (transition.bountyDelta > std::numeric_limits<std::int32_t>::max() - current.bounty)
+            throw std::overflow_error("Authoritative crime bounty overflow");
+        if (transition.advanceCurrentCrimeId && current.currentCrimeId == std::numeric_limits<std::int32_t>::max())
+            throw std::overflow_error("Authoritative current crime id overflow");
+
+        PlayerCrimeState next = current;
+        next.bounty += static_cast<std::int32_t>(transition.bountyDelta);
+        if (transition.advanceCurrentCrimeId)
+            ++next.currentCrimeId;
+        if (changesState)
+            ++next.revision;
+
+        CrimeMutationCommit commit;
+        commit.service = "crime-event";
+        commit.accountId = context.accountId;
+        commit.characterId = context.characterId;
+        commit.requestId = transition.requestId;
+        commit.requestHash = transition.requestHash;
+        commit.resultPayload = transition.terminalResultPayload;
+        commit.source = transition.source;
+        commit.expectedRevision = current.revision;
+        commit.resultingState = next;
+        commit.failurePoint = context.failurePoint;
+
+        const CrimeCommitResult committed = mDatabase.commitPlayerCrimeMutation(commit);
+        outcome.status = committed.status;
+        outcome.state = committed.status == CrimeCommitStatus::Committed ? next : committed.currentState;
+        outcome.storedResultPayload = committed.storedResultPayload;
+        return outcome;
+    }
+
     CrimeService::Outcome CrimeService::execute(const CrimeMutationRequest& request, const Context& context)
     {
         Outcome outcome;
@@ -20,8 +75,8 @@ namespace mwmp
 
         const std::string canonicalRequest = encodeCrimeMutationRequest(request);
         const std::string requestHash = crypto::sha256hex(canonicalRequest);
-        const auto existing = mDatabase.loadSemanticRequest(
-            "crime", context.accountId, context.characterId, request.requestId);
+        const auto existing
+            = mDatabase.loadSemanticRequest("crime", context.accountId, context.characterId, request.requestId);
         if (existing)
         {
             if (existing->requestHash != requestHash)
@@ -88,8 +143,7 @@ namespace mwmp
         else
         {
             const std::int64_t current = outcome.result.state.bounty;
-            if (request.value > std::numeric_limits<std::int32_t>::max() - current
-                || request.value < -current)
+            if (request.value > std::numeric_limits<std::int32_t>::max() - current || request.value < -current)
             {
                 reject(CrimeError::InvalidBounty);
                 return outcome;
