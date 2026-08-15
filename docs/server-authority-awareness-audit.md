@@ -1,6 +1,6 @@
 # Server-authoritative awareness audit
 
-Status: Phase 4A.2 design decision with Phase 4A.4 implementation addendum,
+Status: Phase 4A complete; Phase 4A.4 rendered single-client and authority/non-authority acceptance passed,
 2026-08-14
 
 Sections 1-7 audit the Phase 4A.2 source at
@@ -515,6 +515,32 @@ bounded in-game command `/observe <actorNetId|0> [targetPlayerGuid]`. It reports
 identity, distance, snapshot/authority age and generations, collision
 generations, LOS, awareness, semantic reason, and provenance. It does not mutate
 crime, bounty, Alarm, AI, dialogue, or any player/world gameplay state.
+
+Rendered-client acceptance is complete. The first live Fighters Guild run exposed
+a bootstrap defect in which ordinary placed NPCs retained
+`migrationGeneration=0` and the authority client overwrote the server-issued
+cell `authorityGeneration` with zero while constructing its outgoing ActorList.
+That caused protocol-9 mechanics snapshots to be rejected locally before send.
+Signed commit `5b6e6fab15fc42f10d6eb5d4ec5407dec8042c28`
+(`fix(multiplayer): seed observation actor generations`) seeds the initial
+canonical actor lifetime at migration generation 1 and preserves the current
+server-issued authority generation in outbound authority state. After the fix,
+Windows `openmw-tests` passed 683/683 and `components-tests` passed 1604/1605
+with only the established `LuaL10nTest.L10n` failure; the isolated ARM64 server
+also rebuilt and passed its start/bind/stop smoke.
+
+The rendered doorway acceptance used vanilla NPC `flaenia amiulusus`
+(actorNetId 67613) in `Balmora, Guild of Fighters`. With one client acting as
+actor authority, close/open/close produced collision generations `2 -> 3 -> 4`
+and observation results `blocked_los -> observed -> blocked_los`. A second
+simultaneous client then joined the same cell as a non-authority player while
+the first client retained actor authority. The non-authority client's
+`/observe 67613` queries produced collision generations `4 -> 5 -> 6` with the
+same `los=false -> true -> false` transition. The observer mechanics snapshot
+sequence advanced `5093 -> 5176 -> 5256`, `authorityGen` remained 1, and the
+server evaluated the second player's target state without transferring NPC
+actor authority. This closes the Phase 4A rendered-client authority-boundary
+acceptance gate.
 
 The accurate authority classification remains:
 
