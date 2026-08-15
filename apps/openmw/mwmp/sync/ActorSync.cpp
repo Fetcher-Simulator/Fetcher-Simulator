@@ -3,10 +3,13 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <limits>
 #include <map>
+#include <optional>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -892,6 +895,30 @@ namespace
         }
 
         return false;
+    }
+
+    std::optional<std::uint32_t> networkPlayerGuid(const MWWorld::Ptr& ptr)
+    {
+        if (ptr.isEmpty())
+            return std::nullopt;
+
+        if (auto* baseNode = ptr.getRefData().getBaseNode())
+        {
+            int guid = 0;
+            if (baseNode->getUserValue("mp_player_guid", guid) && guid > 0)
+                return static_cast<std::uint32_t>(guid);
+        }
+
+        constexpr std::string_view Prefix = "mp_remote_";
+        const std::string refId = ptr.getCellRef().getRefId().serializeText();
+        if (!refId.starts_with(Prefix))
+            return std::nullopt;
+        const std::string_view value(refId.data() + Prefix.size(), refId.size() - Prefix.size());
+        std::uint32_t guid = 0;
+        const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), guid);
+        if (error != std::errc() || end != value.data() + value.size() || guid == 0)
+            return std::nullopt;
+        return guid;
     }
 
     // Resolve a cast spellId to either a spell or an enchantment.
@@ -6027,7 +6054,7 @@ namespace mwmp
         outgoing.authorityGuid = mwmp::Main::get().getPlayerSync().localPlayer().guid;
         // Preserve the server-issued cell authority generation while constructing
         // the authority snapshot. Replacing cell.latest with an outgoing list that
-        // leaves this at zero makes protocol-9 mechanics snapshots invalid.
+        // leaves this at zero makes protocol-10 mechanics snapshots invalid.
         outgoing.authorityGeneration = cell.latest.authorityGeneration;
         cell.mechanicsSnapshotTimer += std::max(0.f, dt);
         const bool mechanicsSnapshotDue = cell.mechanicsSnapshotTimer >= 0.25f;
@@ -6133,6 +6160,13 @@ namespace mwmp
         std::unordered_set<ActorInstanceId> collectedAuthorityActorNetIds;
 
         MWWorld::Ptr playerPtr = world->getPlayerPtr();
+        std::set<MWWorld::Ptr> playerFollowers;
+        if (mechanicsSnapshotDue)
+        {
+            if (MWBase::MechanicsManager* mechanics
+                = MWBase::Environment::get().getMechanicsManager())
+                mechanics->getActorsSidingWith(playerPtr, playerFollowers);
+        }
         auto collectAuthorityActor = [&](MWWorld::Ptr ptr) -> bool
         {
             if (ptr.isEmpty() || !ptr.getClass().isActor())
@@ -6644,6 +6678,54 @@ namespace mwmp
                     = ptr.getClass().isNpc() ? MechanicsSubjectKind::Npc : MechanicsSubjectKind::Creature;
                 MechanicsSnapshot mechanics = captureMechanicsSnapshot(ptr, kind, 0, outgoingActorNetId,
                     cell.outboundCellId, actor.migrationGeneration, authorityGeneration, sequence);
+                if (kind == MechanicsSubjectKind::Npc)
+                {
+                    MWMechanics::CreatureStats& witnessStats = ptr.getClass().getCreatureStats(ptr);
+                    mechanics.effectiveAlarm
+                        = witnessStats.getAiSetting(MWMechanics::AiSetting::Alarm).getBase();
+                    mechanics.witnessStateFlags |= MechanicsWitnessEffectiveAlarmKnown;
+
+                    MWMechanics::AiSequence& witnessAiSequence = witnessStats.getAiSequence();
+                    mechanics.witnessStateFlags |= MechanicsWitnessRelationshipKnown;
+                    if (witnessAiSequence.hasPackage(MWMechanics::AiPackageTypeId::Follow)
+                        && playerFollowers.find(ptr) != playerFollowers.end())
+                        mechanics.witnessStateFlags |= MechanicsWitnessPlayerFollower;
+
+                    if (witnessAiSequence.isInCombat())
+                    {
+                        MWWorld::Ptr combatTarget;
+                        if (!witnessAiSequence.getCombatTarget(combatTarget) || combatTarget.isEmpty())
+                            mechanics.witnessStateFlags &= ~MechanicsWitnessRelationshipKnown;
+                        else if (combatTarget == playerPtr)
+                        {
+                            mechanics.witnessStateFlags |= MechanicsWitnessHasCombatTarget;
+                            mechanics.combatTargetKind = MechanicsSubjectKind::Player;
+                            mechanics.combatTargetPlayerGuid
+                                = mwmp::Main::get().getPlayerSync().localPlayer().guid;
+                        }
+                        else if (const std::optional<std::uint32_t> playerGuid
+                            = networkPlayerGuid(combatTarget))
+                        {
+                            mechanics.witnessStateFlags |= MechanicsWitnessHasCombatTarget;
+                            mechanics.combatTargetKind = MechanicsSubjectKind::Player;
+                            mechanics.combatTargetPlayerGuid = *playerGuid;
+                        }
+                        else
+                        {
+                            const ActorInstanceId targetActorNetId
+                                = actorNetIdForPtr(cellIdForPtr(combatTarget), combatTarget);
+                            if (!isValidActorInstanceId(targetActorNetId))
+                                mechanics.witnessStateFlags &= ~MechanicsWitnessRelationshipKnown;
+                            else
+                            {
+                                mechanics.witnessStateFlags |= MechanicsWitnessHasCombatTarget;
+                                mechanics.combatTargetKind = combatTarget.getClass().isNpc()
+                                    ? MechanicsSubjectKind::Npc : MechanicsSubjectKind::Creature;
+                                mechanics.combatTargetActorInstanceId = targetActorNetId;
+                            }
+                        }
+                    }
+                }
                 if (validateMechanicsSnapshot(mechanics))
                     mechanicsBatch.snapshots.push_back(std::move(mechanics));
                 else

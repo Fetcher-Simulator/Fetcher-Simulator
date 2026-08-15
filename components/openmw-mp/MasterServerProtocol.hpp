@@ -19,8 +19,10 @@ namespace mwmp
     // Version 8 adds bootstrap-only trusted static Clothing record overrides.
     // Protocol 9 adds an atomic mechanics-grade observation snapshot. Protocol
     // 8 peers cannot safely reconstruct this state from the independent
-    // position, stats, effects, and presentation lanes.
-    inline constexpr int MultiplayerProtocolVersion = 9;
+    // position, stats, effects, and presentation lanes. Protocol 10 extends
+    // that same actor-authority snapshot with effective Alarm, recursive
+    // player-follower membership, and canonical combat-target identity.
+    inline constexpr int MultiplayerProtocolVersion = 10;
     inline constexpr std::string_view MultiplayerBuildVersion = "0.1.0";
     inline constexpr std::string_view DefaultMasterServerUrl = "https://master.fetchers.org";
 

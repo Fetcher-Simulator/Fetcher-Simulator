@@ -18,6 +18,7 @@ namespace mwmp
     {
         Unavailable = 0,
         StaticContentBase,
+        ValidatedActorAuthorityDelegated,
     };
 
     enum class CrimeRelationshipProvenance : std::uint8_t
@@ -32,6 +33,7 @@ namespace mwmp
     struct LiveCrimeWitnessActor
     {
         ObservationActorIdentity identity;
+        std::string refId;
         std::string cellId;
         std::uint32_t migrationGeneration = 0;
         std::uint32_t authorityGeneration = 0;
@@ -84,9 +86,17 @@ namespace mwmp
     struct CrimeWitnessBuildDecision
     {
         ObservationActorIdentity identity;
+        std::string refId;
+        std::string cellId;
         CrimeWitnessBuildReason reason = CrimeWitnessBuildReason::CanonicalKindRejected;
+        std::optional<std::int32_t> alarm;
         CrimeAlarmProvenance alarmProvenance = CrimeAlarmProvenance::Unavailable;
+        CrimeWitnessRelationship relationship = CrimeWitnessRelationship::Unknown;
         CrimeRelationshipProvenance relationshipProvenance = CrimeRelationshipProvenance::Unavailable;
+        std::uint32_t migrationGeneration = 0;
+        std::uint32_t authorityGeneration = 0;
+        std::optional<std::uint64_t> snapshotAgeMs;
+        std::optional<float> distance;
     };
 
     struct CrimeWitnessBuildResult

@@ -259,6 +259,65 @@ TEST(CrimeWitnessBuilder, RelationshipProvenanceFailsClosed)
     EXPECT_EQ(decisionFor(result, unknown).reason, CrimeWitnessBuildReason::RelationshipUnknown);
 }
 
+TEST(CrimeWitnessBuilder, ValidatedAtomicWitnessStateOverridesStaticFallback)
+{
+    MechanicsSnapshotRegistry registry;
+    Source source;
+    const auto safe = npc(1);
+    const auto follower = npc(2);
+    const auto combat = npc(3);
+    const auto victim = npc(4);
+    source.cells["Balmora"] = {
+        actor(safe, "Balmora"), actor(follower, "Balmora"), actor(combat, "Balmora"), actor(victim, "Balmora")
+    };
+    for (LiveCrimeWitnessActor& candidate : source.cells["Balmora"])
+    {
+        candidate.alarm = 5;
+        candidate.relationship = CrimeWitnessRelationship::Unknown;
+        candidate.relationshipProvenance = CrimeRelationshipProvenance::Unavailable;
+    }
+
+    auto safeSnapshot = snapshot(safe, "Balmora", 0.f, 10.f);
+    safeSnapshot.witnessStateFlags = MechanicsWitnessRelationshipKnown
+        | MechanicsWitnessEffectiveAlarmKnown;
+    safeSnapshot.effectiveAlarm = 100;
+    accept(registry, safeSnapshot);
+
+    auto followerSnapshot = snapshot(follower, "Balmora", 0.f, 10.f);
+    followerSnapshot.witnessStateFlags = MechanicsWitnessRelationshipKnown
+        | MechanicsWitnessPlayerFollower | MechanicsWitnessEffectiveAlarmKnown;
+    followerSnapshot.effectiveAlarm = 100;
+    accept(registry, followerSnapshot);
+
+    auto combatSnapshot = snapshot(combat, "Balmora", 0.f, 10.f);
+    combatSnapshot.witnessStateFlags = MechanicsWitnessRelationshipKnown
+        | MechanicsWitnessHasCombatTarget | MechanicsWitnessEffectiveAlarmKnown;
+    combatSnapshot.effectiveAlarm = 100;
+    combatSnapshot.combatTargetKind = MechanicsSubjectKind::Npc;
+    combatSnapshot.combatTargetActorInstanceId = victim.actorInstanceId;
+    accept(registry, combatSnapshot);
+
+    auto victimSnapshot = snapshot(victim, "Balmora", 0.f, 10.f);
+    victimSnapshot.witnessStateFlags = MechanicsWitnessRelationshipKnown
+        | MechanicsWitnessEffectiveAlarmKnown;
+    victimSnapshot.effectiveAlarm = 50;
+    accept(registry, victimSnapshot);
+
+    CrimeWitnessBuildRequest request = interiorRequest();
+    request.victim = victim;
+    const auto result = CrimeWitnessBuilder(registry).build(request, source);
+
+    ASSERT_EQ(result.witnesses.size(), 2u);
+    EXPECT_EQ(result.witnesses[0].actor.identity, safe);
+    EXPECT_EQ(result.witnesses[0].alarm, 100);
+    EXPECT_EQ(decisionFor(result, safe).alarmProvenance,
+        CrimeAlarmProvenance::ValidatedActorAuthorityDelegated);
+    EXPECT_EQ(decisionFor(result, safe).relationshipProvenance,
+        CrimeRelationshipProvenance::ValidatedActorAuthorityDelegated);
+    EXPECT_EQ(decisionFor(result, follower).reason, CrimeWitnessBuildReason::PlayerFollower);
+    EXPECT_EQ(decisionFor(result, combat).reason, CrimeWitnessBuildReason::InCombatWithVictim);
+}
+
 TEST(CrimeWitnessBuilder, AlarmRequiresExplicitValidProvenance)
 {
     MechanicsSnapshotRegistry registry;

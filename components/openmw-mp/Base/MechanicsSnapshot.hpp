@@ -13,7 +13,7 @@
 
 namespace mwmp
 {
-    inline constexpr std::uint16_t MechanicsSnapshotWireVersion = 1;
+    inline constexpr std::uint16_t MechanicsSnapshotWireVersion = 2;
     inline constexpr std::size_t MaximumMechanicsSnapshotsPerPacket = 128;
     inline constexpr std::size_t MaximumMechanicsCellIdSize = 255;
     inline constexpr float MaximumMechanicsPositionMagnitude = 100000000.f;
@@ -35,6 +35,14 @@ namespace mwmp
         MechanicsOnGround = 1u << 4,
     };
 
+    enum MechanicsWitnessStateFlags : std::uint8_t
+    {
+        MechanicsWitnessRelationshipKnown = 1u << 0,
+        MechanicsWitnessPlayerFollower = 1u << 1,
+        MechanicsWitnessHasCombatTarget = 1u << 2,
+        MechanicsWitnessEffectiveAlarmKnown = 1u << 3,
+    };
+
     struct MechanicsSnapshot
     {
         MechanicsSubjectKind kind = MechanicsSubjectKind::Player;
@@ -51,6 +59,11 @@ namespace mwmp
         float chameleon = 0.f;
         float invisibility = 0.f;
         float blind = 0.f;
+        std::uint8_t witnessStateFlags = 0;
+        std::int32_t effectiveAlarm = 0;
+        MechanicsSubjectKind combatTargetKind = MechanicsSubjectKind::Player;
+        std::uint32_t combatTargetPlayerGuid = 0;
+        ActorInstanceId combatTargetActorInstanceId = 0;
         std::uint32_t migrationGeneration = 0;
         std::uint32_t authorityGeneration = 0;
         std::uint32_t snapshotSequence = 0;
@@ -67,7 +80,11 @@ namespace mwmp
                 && fatigueCurrent == other.fatigueCurrent
                 && fatigueMaximumModified == other.fatigueMaximumModified
                 && chameleon == other.chameleon && invisibility == other.invisibility
-                && blind == other.blind && migrationGeneration == other.migrationGeneration
+                && blind == other.blind && witnessStateFlags == other.witnessStateFlags
+                && effectiveAlarm == other.effectiveAlarm && combatTargetKind == other.combatTargetKind
+                && combatTargetPlayerGuid == other.combatTargetPlayerGuid
+                && combatTargetActorInstanceId == other.combatTargetActorInstanceId
+                && migrationGeneration == other.migrationGeneration
                 && authorityGeneration == other.authorityGeneration
                 && snapshotSequence == other.snapshotSequence;
         }
@@ -118,17 +135,52 @@ namespace mwmp
     {
         constexpr std::uint8_t KnownStateFlags = MechanicsEnabled | MechanicsAlive
             | MechanicsConscious | MechanicsSneaking | MechanicsOnGround;
+        constexpr std::uint8_t KnownWitnessStateFlags = MechanicsWitnessRelationshipKnown
+            | MechanicsWitnessPlayerFollower | MechanicsWitnessHasCombatTarget
+            | MechanicsWitnessEffectiveAlarmKnown;
         if (!isKnownMechanicsSubjectKind(snapshot.kind) || !isCanonicalMechanicsCellId(snapshot.cellId)
             || snapshot.migrationGeneration == 0 || snapshot.authorityGeneration == 0
-            || snapshot.snapshotSequence == 0 || (snapshot.stateFlags & ~KnownStateFlags) != 0)
+            || snapshot.snapshotSequence == 0 || (snapshot.stateFlags & ~KnownStateFlags) != 0
+            || (snapshot.witnessStateFlags & ~KnownWitnessStateFlags) != 0)
             return false;
 
         if (snapshot.kind == MechanicsSubjectKind::Player)
         {
-            if (snapshot.playerGuid == 0 || snapshot.actorInstanceId != 0)
+            if (snapshot.playerGuid == 0 || snapshot.actorInstanceId != 0
+                || snapshot.witnessStateFlags != 0 || snapshot.effectiveAlarm != 0
+                || snapshot.combatTargetPlayerGuid != 0 || snapshot.combatTargetActorInstanceId != 0)
                 return false;
         }
         else if (snapshot.playerGuid != 0 || !isValidActorInstanceId(snapshot.actorInstanceId))
+            return false;
+
+        const bool relationshipKnown
+            = (snapshot.witnessStateFlags & MechanicsWitnessRelationshipKnown) != 0;
+        const bool playerFollower
+            = (snapshot.witnessStateFlags & MechanicsWitnessPlayerFollower) != 0;
+        const bool hasCombatTarget
+            = (snapshot.witnessStateFlags & MechanicsWitnessHasCombatTarget) != 0;
+        const bool effectiveAlarmKnown
+            = (snapshot.witnessStateFlags & MechanicsWitnessEffectiveAlarmKnown) != 0;
+        if ((!relationshipKnown && (playerFollower || hasCombatTarget))
+            || (!effectiveAlarmKnown && snapshot.effectiveAlarm != 0)
+            || (effectiveAlarmKnown && (snapshot.effectiveAlarm < 0 || snapshot.effectiveAlarm > 100)))
+            return false;
+
+        if (hasCombatTarget)
+        {
+            if (!isKnownMechanicsSubjectKind(snapshot.combatTargetKind))
+                return false;
+            if (snapshot.combatTargetKind == MechanicsSubjectKind::Player)
+            {
+                if (snapshot.combatTargetPlayerGuid == 0 || snapshot.combatTargetActorInstanceId != 0)
+                    return false;
+            }
+            else if (snapshot.combatTargetPlayerGuid != 0
+                || !isValidActorInstanceId(snapshot.combatTargetActorInstanceId))
+                return false;
+        }
+        else if (snapshot.combatTargetPlayerGuid != 0 || snapshot.combatTargetActorInstanceId != 0)
             return false;
 
         for (float axis : snapshot.position.pos)

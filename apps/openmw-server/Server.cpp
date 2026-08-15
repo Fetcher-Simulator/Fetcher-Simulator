@@ -2632,6 +2632,7 @@ CrimeWitnessBuildResult MPServer::buildLiveCrimeWitnesses(const CrimeWitnessBuil
 
             LiveCrimeWitnessActor actor;
             actor.identity.actorInstanceId = record.actorNetId;
+            actor.refId = record.actor.refId;
             actor.cellId = cellId;
             actor.migrationGeneration = record.migrationGeneration;
             actor.authorityGeneration = isActorAuthorityLeaseValid(record, cellId, nowMs)
@@ -2876,6 +2877,150 @@ bool MPServer::handleObservationDiagnosticCommand(ConnectedClient& requester, st
     {
         sendServerMessage(requester.guid, "Observation results truncated: "
             + std::to_string(diagnostics.size()) + " eligible candidates, first 8 shown.");
+    }
+    return true;
+}
+
+bool MPServer::handleCrimeWitnessDiagnosticCommand(ConnectedClient& requester, std::string_view message)
+{
+    if (message != "/crimewitness" && !message.starts_with("/crimewitness "))
+        return false;
+    if (!mObservationDiagnosticsEnabled)
+    {
+        sendServerMessage(requester.guid, "Crime witness diagnostics are disabled on this server.");
+        return true;
+    }
+
+    std::istringstream input{ std::string(message) };
+    std::string command;
+    std::string victimText;
+    input >> command >> victimText;
+    std::optional<ObservationActorIdentity> victim;
+    if (!victimText.empty())
+    {
+        ActorInstanceId actorNetId = 0;
+        const auto [end, error]
+            = std::from_chars(victimText.data(), victimText.data() + victimText.size(), actorNetId);
+        if (error != std::errc() || end != victimText.data() + victimText.size()
+            || !isValidActorInstanceId(actorNetId))
+        {
+            sendServerMessage(requester.guid, "Usage: /crimewitness [victimActorNetId]");
+            return true;
+        }
+        victim = ObservationActorIdentity{ ObservationActorKind::Npc, 0, actorNetId };
+    }
+
+    constexpr std::uint64_t MaximumSnapshotAgeMs = 1000;
+    const std::uint64_t nowMs = currentServerTimeMs();
+    const AcceptedMechanicsSnapshot* offender = mMechanicsSnapshots.findFresh(
+        { MechanicsSubjectKind::Player, requester.guid, 0 }, nowMs, MaximumSnapshotAgeMs);
+    if (!offender || offender->snapshot.cellId != makeCellKey(requester.player.cell)
+        || offender->snapshot.migrationGeneration != 1
+        || offender->snapshot.authorityGeneration != requester.guid)
+    {
+        sendServerMessage(requester.guid, "Crime witness: requester mechanics snapshot is unavailable or stale.");
+        return true;
+    }
+
+    CrimeWitnessBuildRequest request;
+    request.eventCell = requester.player.cell;
+    request.offender = makeLiveObservationSnapshot(*offender, playerBootWeight(requester));
+    request.victim = victim;
+    request.alarmRadius = mObservationAlarmRadius;
+    request.observedAtMs = nowMs;
+    request.maximumSnapshotAgeMs = MaximumSnapshotAgeMs;
+    const CrimeWitnessBuildResult result = buildLiveCrimeWitnesses(request);
+
+    auto kindName = [](ObservationActorKind kind) {
+        switch (kind)
+        {
+            case ObservationActorKind::Player: return "player";
+            case ObservationActorKind::Npc: return "npc";
+            case ObservationActorKind::Creature: return "creature";
+        }
+        return "unknown";
+    };
+    auto alarmName = [](CrimeAlarmProvenance provenance) {
+        switch (provenance)
+        {
+            case CrimeAlarmProvenance::Unavailable: return "unavailable";
+            case CrimeAlarmProvenance::StaticContentBase: return "static-base";
+            case CrimeAlarmProvenance::ValidatedActorAuthorityDelegated: return "actor-delegated-effective";
+        }
+        return "unknown";
+    };
+    auto relationshipName = [](CrimeWitnessRelationship relationship) {
+        switch (relationship)
+        {
+            case CrimeWitnessRelationship::Eligible: return "safe";
+            case CrimeWitnessRelationship::InCombatWithVictim: return "combat-victim";
+            case CrimeWitnessRelationship::PlayerFollower: return "player-follower";
+            case CrimeWitnessRelationship::Unknown: return "unknown";
+        }
+        return "unknown";
+    };
+    auto relationshipSourceName = [](CrimeRelationshipProvenance provenance) {
+        switch (provenance)
+        {
+            case CrimeRelationshipProvenance::Unavailable: return "unavailable";
+            case CrimeRelationshipProvenance::ServerAuthoritative: return "server";
+            case CrimeRelationshipProvenance::ValidatedActorAuthorityDelegated: return "actor-delegated";
+        }
+        return "unknown";
+    };
+    auto reasonName = [](CrimeWitnessBuildReason reason) {
+        switch (reason)
+        {
+            case CrimeWitnessBuildReason::Included: return "eligible";
+            case CrimeWitnessBuildReason::DuplicateIdentity: return "duplicate";
+            case CrimeWitnessBuildReason::CanonicalKindRejected: return "kind-rejected";
+            case CrimeWitnessBuildReason::OutsideAlarmRadius: return "outside-radius";
+            case CrimeWitnessBuildReason::MechanicsSnapshotMissing: return "snapshot-missing";
+            case CrimeWitnessBuildReason::MechanicsSnapshotStale: return "snapshot-stale";
+            case CrimeWitnessBuildReason::WrongCell: return "wrong-cell";
+            case CrimeWitnessBuildReason::WrongMigrationGeneration: return "wrong-migration";
+            case CrimeWitnessBuildReason::WrongAuthorityGeneration: return "wrong-authority";
+            case CrimeWitnessBuildReason::ActorIneligible: return "actor-ineligible";
+            case CrimeWitnessBuildReason::AlarmUnavailable: return "alarm-unavailable";
+            case CrimeWitnessBuildReason::AlarmInvalid: return "alarm-invalid";
+            case CrimeWitnessBuildReason::InCombatWithVictim: return "combat-victim";
+            case CrimeWitnessBuildReason::PlayerFollower: return "player-follower";
+            case CrimeWitnessBuildReason::RelationshipUnknown: return "relationship-unknown";
+        }
+        return "unknown";
+    };
+
+    if (result.decisions.empty())
+    {
+        sendServerMessage(requester.guid, "Crime witness: no canonical actor candidates in radius cells.");
+        return true;
+    }
+
+    constexpr std::size_t MaximumChatResults = 8;
+    for (std::size_t index = 0; index < std::min(result.decisions.size(), MaximumChatResults); ++index)
+    {
+        const CrimeWitnessBuildDecision& decision = result.decisions[index];
+        std::ostringstream text;
+        text << "CrimeWitness actor=" << decision.identity.actorInstanceId
+             << " ref=" << decision.refId
+             << " kind=" << kindName(decision.identity.kind)
+             << " cell=" << decision.cellId
+             << " distance=" << (decision.distance ? std::to_string(static_cast<int>(*decision.distance)) : "n/a")
+             << " migration=" << decision.migrationGeneration
+             << " authority=" << decision.authorityGeneration
+             << " ageMs=" << (decision.snapshotAgeMs ? std::to_string(*decision.snapshotAgeMs) : "n/a")
+             << " alarm=" << (decision.alarm ? std::to_string(*decision.alarm) : "n/a")
+             << " alarmSource=" << alarmName(decision.alarmProvenance)
+             << " relationship=" << relationshipName(decision.relationship)
+             << " relationshipSource=" << relationshipSourceName(decision.relationshipProvenance)
+             << " result=" << reasonName(decision.reason);
+        sendServerMessage(requester.guid, text.str());
+        Log(Debug::Info) << "[CrimeWitnessDiagnostic] " << text.str();
+    }
+    if (result.decisions.size() > MaximumChatResults)
+    {
+        sendServerMessage(requester.guid, "Crime witness results truncated: "
+            + std::to_string(result.decisions.size()) + " candidates, first 8 shown.");
     }
     return true;
 }
@@ -9389,7 +9534,7 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
             it->second.actorAuthorityLeaseUntilMs = previousRecord->actorAuthorityLeaseUntilMs;
         }
         // Generation zero means the server has not established a canonical actor
-        // lifetime yet. Protocol-9 mechanics snapshots require a non-zero
+        // lifetime yet. Protocol-10 mechanics snapshots require a non-zero
         // migration generation even for an ordinary placed actor that has never
         // crossed a cell boundary, so seed the initial lifetime at generation 1.
         if (it->second.migrationGeneration == 0)
@@ -12869,7 +13014,8 @@ void MPServer::handleChatMessage(ConnectedClient& c, const uint8_t* data, size_t
     // c.player.name for subsequent operations.
     c.player.name = c.name;
 
-    if (handleObservationDiagnosticCommand(c, pkt.message))
+    if (handleObservationDiagnosticCommand(c, pkt.message)
+        || handleCrimeWitnessDiagnosticCommand(c, pkt.message))
         return;
 
     Log(Debug::Info) << "[Server] Chat [" << c.name << "] "
