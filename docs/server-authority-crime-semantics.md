@@ -3,10 +3,10 @@
 ## Status and boundary
 
 Phase 4B.1 provides a server-only, independently testable semantic crime engine.
-It accepts an already-authenticated gameplay cause and evaluates Theft,
-Pickpocket, Trespass, Assault, and Murder. It does not yet connect native,
-MWScript, or OpenMW Lua producers to that engine and adds no packet or protocol
-change.
+Phase 4B.2 adds a production live-witness source, but intentionally does not
+connect a native crime producer because the current pickup path fails the
+authoritative-cause gate described below. MWScript and OpenMW Lua producers also
+remain disconnected. There is no packet or protocol change.
 
 The authoritative pipeline is:
 
@@ -36,8 +36,8 @@ the account, character, and player GUID. Evaluation rejects an offender identity
 that does not match that context.
 
 Neither `CrimeIntent` nor any wire format contains client-authored `crimeSeen`,
-`reported`, or witness lists. Later producers must build witness candidates from
-the server actor/player registries.
+`reported`, or witness lists. Later producers obtain witness candidates through
+`CrimeWitnessBuilder`, not a client-authored list.
 
 The result retains separate facts for every witness and for the aggregate event:
 
@@ -58,12 +58,64 @@ advances `currentCrimeId` even when nobody reaches Alarm 100 and bounty remains
 unchanged. An unseen accepted cause is durably journaled without changing the
 crime-state revision.
 
-## Witness eligibility and observation
+## Live witness construction
+
+`MPServer::buildLiveCrimeWitnesses` materializes a narrow live world view from
+`mWorld.actorCells`. `CrimeWitnessBuilder` then resolves mechanics through
+`MechanicsSnapshotRegistry` and produces the existing
+`CrimeWitnessCandidate` DTO consumed by `CrimeSemanticService`.
+
+The candidate-cell set reuses `collisionCellsForPlayer`, which is also the
+Phase 4A collision-interest geometry. Interiors inspect only the event cell.
+Exteriors always inspect the canonical event cell and add a neighboring cell
+only when the alarm-radius circle intersects that cell's bounds. The server does
+not scan the global actor registry. Candidate cells and actors are sorted and a
+canonical `ObservationActorIdentity` is emitted at most once. A canonical victim
+is resolved through the actor identity/location indices and can be included
+outside the ordinary radius.
+
+Every included actor must have a fresh accepted mechanics snapshot with the
+same canonical kind, actor instance ID, cell, migration generation, and current
+cell-or-lease authority generation. Missing, stale, wrong-cell, or
+generation-mismatched state is rejected. Enabled, alive, conscious, position,
+facing, Sneak/Agility/Luck/fatigue, and relevant effects come from that accepted
+snapshot and retain `ActorAuthorityDelegated` provenance.
 
 Only canonical `ObservationActorKind::Npc` identities can be vanilla crime
 witnesses. A remote human player remains kind `Player` even if a client runtime
 represents that human through an NPC-shaped proxy, and is therefore excluded.
 Creatures are also excluded, matching native `canReportCrime` behavior.
+
+### Alarm provenance
+
+The server content store supplies `ESM::NPC::mAiData.mAlarm`, classified as
+`CrimeAlarmProvenance::StaticContentBase`. Values outside the ESM Alarm range
+0 through 100 are rejected. Missing or unavailable provenance cannot become a
+reporter.
+
+This is explicitly the static content base, not a claim about the NPC's current
+effective live Alarm. Native `SetAlarm` can modify runtime AI settings, and the
+current actor/mechanics snapshots do not carry a validated effective Alarm
+value. A later effective-AI-state authority layer may supersede the base value;
+it must preserve explicit provenance and freshness.
+
+### Relationship provenance
+
+The actor registry contains delegated ActorAI packages, but it does not yet
+record an independently fresh, generation-bound assertion suitable for proving
+crime follower/combat relationships. The production adapter therefore sets
+`CrimeRelationshipProvenance::Unavailable` and `Unknown`; the builder fails
+closed. It does not infer a safe relationship merely because the latest package
+is not `Follow` or `Combat`, and it does not accept a new client boolean.
+
+The typed builder can consume `ServerAuthoritative` or
+`ValidatedActorAuthorityDelegated` relationship classifications once such a
+source exists. Known followers and actors in combat with the victim are always
+excluded. Consequently the Phase 4B.2 production adapter is ready to construct
+and diagnose canonical live candidates, but it cannot yet produce an eligible
+reporter from current relationship state.
+
+## Witness eligibility and observation
 
 Candidates must be enabled, alive, conscious, within alarm radius (unless they
 are the victim), and have a known safe relationship classification. Known player
@@ -85,6 +137,46 @@ the accepted awareness calculation/cache. The special cases remain explicit:
 
 Assault derives victim awareness in the semantic core, matching native
 `commitCrime`.
+
+## Native placed-item Theft authority audit
+
+The current native `ActionTake` order is local `itemTaken`, local inventory
+insertion, `WorldObjectSync::onLocalObjectTaken`, and local world deletion.
+`onLocalObjectTaken` returns immediately when `getMpNumForObject` is zero.
+Ordinary content-placed world objects do not have a server multiplayer number,
+so their successful pickup emits no mandatory object-take event at all.
+
+For a multiplayer-placed object, deletion emits `PacketObjectDelete` only when
+the object has a nonzero multiplayer number. `MPServer::handleObjectDelete` can
+then resolve and remove an entry from `mWorld.placedObjects` and retain its
+`mpNum`, `refId`, count, position, and cell for inventory identity transfer.
+That record does not contain ESM ownership, faction ownership, or a canonical
+content refnum. The handler checks that the placed object exists but does not
+currently validate activation distance before removal.
+
+The later `PlayerInventory` Set snapshot is revision checked and validates
+generated record references and instance identities, but it does not prove that
+an added item came from the deleted world object. A modified client can omit the
+object deletion and still propose the inventory addition. It can also take an
+ordinary content-placed object without any object event because that object has
+no multiplayer number. Therefore no current server event is both unavoidable
+and sufficient to establish placed-world-item Theft, and no native Theft
+producer is connected in Phase 4B.2.
+
+The audited native value rule remains local-only today: `itemTaken` uses the
+requested count directly for gold, otherwise `count * item value`; after a crime
+is seen, `reportCrime` computes `max(1, int(value * fCrimeStealing))`. A future
+producer must derive the item, count, ownership/faction, and value from the same
+server-accepted transfer rather than trusting those conclusions from the
+client.
+
+Before authoritative Theft can be wired, the mandatory pickup operation needs
+a canonical server-known identity for ordinary and multiplayer-placed objects,
+validated object existence/cell/position/ownership/value/count, authenticated
+sender and fresh player cell/position, interaction-range validation, and an
+atomic or idempotently linked world-removal/inventory-add acceptance. The crime
+event ID must be derived from that accepted operation. Adding an optional
+`CrimeIntent` packet would not satisfy this boundary.
 
 ## Persistence and idempotency
 
@@ -110,9 +202,12 @@ cause result and resulting gameplay state are durable.
 The following remain explicit later Phase 4B work:
 
 - native/MWScript/OpenMW Lua crime producer wiring;
+- authoritative placed-world-item transfer acceptance required by Theft;
+- fresh generation-bound follower/combat relationship state;
+- effective live Alarm authority for runtime-modified NPC AI settings;
 - authoritative pickpocket detection and container transfer authority;
 - connecting authoritative combat/damage events to Assault and Murder causes;
-- live witness candidate construction and relationship derivation;
+- relationship derivation beyond the fail-closed live witness adapter;
 - dialogue complaints, disposition, Fight changes, faction expulsion, pursuit,
   and other actor reactions;
 - player-versus-player witnessing;
