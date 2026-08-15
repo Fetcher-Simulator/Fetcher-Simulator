@@ -253,6 +253,8 @@ namespace mwmp
         DuplicateRequestConflict,
         ObjectAlreadyTaken,
         StaleInventoryRevision,
+        StaleCrimeRevision,
+        CrimeDuplicateConflict,
     };
 
     struct WorldItemTakeCommit
@@ -266,6 +268,7 @@ namespace mwmp
         std::uint64_t expectedInventoryRevision = 0;
         std::uint64_t resultingInventoryRevision = 0;
         std::vector<Item> inventory;
+        std::optional<CrimeMutationCommit> crimeMutation;
     };
 
     struct WorldItemTakeCommitResult
@@ -281,6 +284,8 @@ namespace mwmp
         DuplicateRequestConflict,
         StaleInventoryRevision,
         StaleSource,
+        StaleCrimeRevision,
+        CrimeDuplicateConflict,
     };
 
     struct InventoryTakeCommit
@@ -295,6 +300,7 @@ namespace mwmp
         std::vector<Item> inventory;
         std::optional<ContainerRecord> expectedSource;
         std::optional<ContainerRecord> resultingSource;
+        std::optional<CrimeMutationCommit> crimeMutation;
     };
 
     struct InventoryTakeCommitResult
@@ -339,6 +345,8 @@ namespace mwmp
         IdenticalReplay,
         ConflictingReplay,
         UnknownEvent,
+        StaleCrimeRevision,
+        CrimeDuplicateConflict,
     };
 
     struct WerewolfStateTransition
@@ -648,11 +656,14 @@ namespace mwmp
         std::optional<CombatEventRecord> loadCombatEvent(std::uint64_t eventId);
         CombatEventCommitStatus acceptCombatEvent(std::uint64_t eventId,
             std::uint32_t resultSequence, std::uint8_t resultFlags, float appliedDamage,
-            bool qualifyingCrime);
+            bool qualifyingCrime, const std::vector<CrimeMutationCommit>& crimeMutations = {},
+            bool assaultReported = false);
         void markCombatAssaultReported(std::uint64_t eventId, bool reported);
         bool hasReportedCriminalAssault(std::int64_t characterId,
             std::uint64_t victimActorInstanceId, std::uint32_t migrationGeneration);
-        WerewolfStateTransition updateWerewolfState(std::int64_t characterId, bool isWerewolf);
+        WerewolfStateTransition loadWerewolfState(std::int64_t characterId);
+        WerewolfStateTransition updateWerewolfState(std::int64_t characterId, bool isWerewolf,
+            const std::optional<CrimeMutationCommit>& crimeMutation = std::nullopt);
         uint64_t loadInventoryRevision(int64_t characterId);
 
         /// Load dynamic-record catalog metadata for both persistent and session-only ids.
@@ -740,6 +751,8 @@ namespace mwmp
         void removeKeypair(std::string_view publicKey);
 
     private:
+        CrimeCommitResult commitPlayerCrimeMutationInTransaction(const CrimeMutationCommit& commit);
+
         /// Rewrites the character statistics tables (dynamic stats, attributes,
         /// skills, level) without beginning or committing a transaction.
         /// Callers own the surrounding transaction.

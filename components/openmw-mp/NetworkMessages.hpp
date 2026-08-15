@@ -159,6 +159,7 @@ namespace mwmp
         ServerLuaPackageBootstrapComplete = 154, // Explicit end of required package transfer
         InventoryTakeRequest = 155, // Typed authoritative container/corpse/pickpocket take
         InventoryTakeResult = 156, // Durable terminal inventory-take result
+        CrimeInteractionRequest = 157, // Typed server-resolved unlock/trespass cause
 
         // --- Lua bridge (7C+) ---
         // IDs 150-199 reserved; exact assignments TBD in Phase 7C/7D.

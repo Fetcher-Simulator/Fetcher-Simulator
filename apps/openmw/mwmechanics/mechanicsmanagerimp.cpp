@@ -945,6 +945,17 @@ namespace MWMechanics
         if (isAllowedToUse(ptr, bed, victim))
             return false;
 
+#ifdef BUILD_MULTIPLAYER
+        if (mwmp::Main::isInitialised())
+        {
+            // Rest UI continuation is synchronous upstream, while an authoritative
+            // witnessed result is asynchronous. Fail closed until that separate
+            // activation/result transaction can safely resume the UI.
+            MWBase::Environment::get().getWindowManager()->messageBox("#{sNotifyMessage64}");
+            return true;
+        }
+#endif
+
         if (commitCrime(ptr, victim, OT_SleepingInOwnedBed, bed.getCellRef().getFaction()))
         {
             MWBase::Environment::get().getWindowManager()->messageBox("#{sNotifyMessage64}");
@@ -956,6 +967,14 @@ namespace MWMechanics
 
     void MechanicsManager::unlockAttempted(const MWWorld::Ptr& ptr, const MWWorld::Ptr& item)
     {
+#ifdef BUILD_MULTIPLAYER
+        if (mwmp::Main::isInitialised())
+        {
+            mwmp::Main::get().requestCrimeInteraction(
+                mwmp::CrimeInteractionKind::UnlockAttempt, item);
+            return;
+        }
+#endif
         MWWorld::Ptr victim;
         if (isOwned(ptr, item, victim))
         {
@@ -1141,6 +1160,15 @@ namespace MWMechanics
         const ESM::RefId& factionId, int arg, bool victimAware)
     {
         // NOTE: victim may be empty
+
+#ifdef BUILD_MULTIPLAYER
+        // Connected multiplayer crime state is server-owned. All supported native
+        // producers enter through typed authoritative transactions before reaching
+        // this compatibility function. Any missed caller must fail closed rather
+        // than recreating a client-authoritative bounty path.
+        if (mwmp::Main::isInitialised())
+            return false;
+#endif
 
         // Only player can commit crime
         if (player != getPlayer())

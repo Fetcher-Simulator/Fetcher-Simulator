@@ -52,6 +52,25 @@ namespace
         commit.inventory.push_back(item);
         return commit;
     }
+
+    mwmp::CrimeMutationCommit makeCrimeCommit(std::int64_t account, std::int64_t character,
+        std::string requestId = "world-take-crime")
+    {
+        mwmp::CrimeMutationCommit crime;
+        crime.service = "crime-event";
+        crime.accountId = account;
+        crime.characterId = character;
+        crime.requestId = std::move(requestId);
+        crime.requestHash = mwmp::crypto::sha256hex(crime.requestId);
+        crime.resultPayload = "terminal-world-crime-result";
+        crime.source = "world-item-take-test";
+        crime.expectedRevision = 0;
+        crime.resultingState.bounty = 10;
+        crime.resultingState.currentCrimeId = 0;
+        crime.resultingState.paidCrimeId = -1;
+        crime.resultingState.revision = 1;
+        return crime;
+    }
 }
 
 TEST(WorldItemTakePersistence, CommitsTombstoneInventoryAndReplayAtomically)
@@ -92,4 +111,43 @@ TEST(WorldItemTakePersistence, CommitsTombstoneInventoryAndReplayAtomically)
     ASSERT_EQ(reopened.loadCharacterInventory(character).size(), 1u);
     ASSERT_EQ(reopened.loadTakenWorldItemReferences().size(), 1u);
     EXPECT_EQ(reopened.loadTakenWorldItemReferences().front(), original.object);
+}
+
+TEST(WorldItemTakePersistence, CrimeResultCommitsAtomicallyWithTombstoneAndInventory)
+{
+    TemporaryDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+    const std::int64_t account = database.createAccount("world-crime-account");
+    const std::int64_t character = database.createCharacter(account, "World Crime Tester").characterId;
+    auto commit = makeCommit(database, account, character);
+    commit.crimeMutation = makeCrimeCommit(account, character);
+
+    EXPECT_EQ(database.commitWorldItemTake(commit).status, mwmp::WorldItemTakeCommitStatus::Committed);
+    const mwmp::PlayerCrimeState state = database.loadPlayerCrimeState(character);
+    EXPECT_EQ(state.bounty, 10);
+    EXPECT_EQ(state.currentCrimeId, 0);
+    EXPECT_EQ(state.revision, 1u);
+    EXPECT_TRUE(database.loadSemanticRequest(
+        "crime-event", account, character, commit.crimeMutation->requestId).has_value());
+    EXPECT_EQ(database.loadTakenWorldItemReferences().size(), 1u);
+    EXPECT_EQ(database.loadInventoryRevision(character), 1u);
+}
+
+TEST(WorldItemTakePersistence, CrimeFailureRollsBackTombstoneInventoryAndSemanticJournal)
+{
+    TemporaryDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+    const std::int64_t account = database.createAccount("world-rollback-account");
+    const std::int64_t character = database.createCharacter(account, "World Rollback Tester").characterId;
+    auto commit = makeCommit(database, account, character);
+    commit.crimeMutation = makeCrimeCommit(account, character, "world-crime-failure");
+    commit.crimeMutation->failurePoint = mwmp::CrimeCommitFailurePoint::AfterStateWrite;
+
+    EXPECT_THROW(database.commitWorldItemTake(commit), std::runtime_error);
+    EXPECT_TRUE(database.loadTakenWorldItemReferences().empty());
+    EXPECT_TRUE(database.loadCharacterInventory(character).empty());
+    EXPECT_EQ(database.loadInventoryRevision(character), 0u);
+    EXPECT_FALSE(database.loadSemanticRequest(
+        "crime-event", account, character, commit.crimeMutation->requestId).has_value());
+    EXPECT_EQ(database.loadPlayerCrimeState(character), mwmp::PlayerCrimeState{});
 }

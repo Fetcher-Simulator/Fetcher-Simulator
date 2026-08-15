@@ -358,6 +358,7 @@ private:
     void handleObjectPlace      (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size);
+    void handleCrimeInteractionRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleObjectDelete     (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleObjectMove       (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleContainer        (ConnectedClient& c, const uint8_t* data, size_t size);
@@ -368,7 +369,7 @@ private:
     void handleActorPositionV2  (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleMechanicsSnapshot(ConnectedClient& c, const uint8_t* data, size_t size);
     void processWerewolfExposure(
-        ConnectedClient& c, const AcceptedMechanicsSnapshot& offender, std::uint64_t transition,
+        ConnectedClient& c, const AcceptedMechanicsSnapshot& offender, bool isWerewolf,
         std::uint64_t observedAtMs);
     void handleActorPresentationV2(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorIdentityAck (ConnectedClient& c, const uint8_t* data, size_t size);

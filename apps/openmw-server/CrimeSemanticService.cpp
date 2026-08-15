@@ -538,7 +538,8 @@ namespace mwmp
             return outcome;
         }
 
-        outcome.result.state = mDatabase.loadPlayerCrimeState(context.characterId);
+        outcome.result.state = context.deferCommit && context.startingState
+            ? *context.startingState : mDatabase.loadPlayerCrimeState(context.characterId);
         auto reject = [&](CrimeSemanticError error) {
             outcome.result.accepted = false;
             outcome.result.error = error;
@@ -666,7 +667,8 @@ namespace mwmp
 
         for (int attempt = 0; attempt < 3; ++attempt)
         {
-            const PlayerCrimeState current = mDatabase.loadPlayerCrimeState(context.characterId);
+            const PlayerCrimeState current = context.deferCommit && context.startingState
+                ? *context.startingState : mDatabase.loadPlayerCrimeState(context.characterId);
             if ((outcome.result.currentCrimeIdAdvanced
                     && current.currentCrimeId == std::numeric_limits<std::int32_t>::max())
                 || outcome.result.bountyDelta > std::numeric_limits<std::int32_t>::max() - current.bounty
@@ -685,6 +687,23 @@ namespace mwmp
             if (outcome.result.currentCrimeIdAdvanced || outcome.result.bountyDelta != 0)
                 ++next.revision;
             outcome.result.state = next;
+
+            if (context.deferCommit)
+            {
+                CrimeMutationCommit deferred;
+                deferred.service = std::string(SemanticService);
+                deferred.accountId = context.accountId;
+                deferred.characterId = context.characterId;
+                deferred.requestId = intent.eventId;
+                deferred.requestHash = requestHash;
+                deferred.resultPayload = encodeResult(outcome.result);
+                deferred.source = intent.source;
+                deferred.expectedRevision = current.revision;
+                deferred.resultingState = next;
+                deferred.failurePoint = context.failurePoint;
+                outcome.pendingCommit = std::move(deferred);
+                return outcome;
+            }
 
             CrimeService::AuthoritativeTransition transition;
             transition.requestId = intent.eventId;
