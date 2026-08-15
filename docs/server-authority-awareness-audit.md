@@ -5,9 +5,10 @@ Status: Phase 4A complete; Phase 4A.4 rendered single-client and authority/non-a
 
 Sections 1-7 audit the Phase 4A.2 source at
 `1a8b706d55782d3a169923514434661e775f99a0`. Section 8 records the subsequent
-Phase 4A.4 implementation, including protocol 9. The work remains intentionally
-limited to perception infrastructure: it does not design or implement
-`CrimeIntent`, arrest, or broad native crime networking.
+Phase 4A.4 implementation, including protocol 9. The perception infrastructure
+remains independent of crime policy. Phase 4B.1 now consumes it through the
+server-only semantic core documented in `server-authority-crime-semantics.md`;
+arrest and broad native crime producer networking remain out of scope.
 
 ## Decision
 
@@ -569,8 +570,10 @@ height pending content-derived actor collision bounds.
    bootstrap.
 5. **Registry integration**: canonical kind resolution, candidate lookup, dynamic
    record compatibility, and live ObservationService queries.
-6. **Crime semantics later**: `CrimeIntent`, witnessed result, reporting/reaction,
-   and durable `CrimeService` transition. Preserve victim and murder special cases.
+6. **Crime semantics (Phase 4B.1 complete)**: typed `CrimeIntent`, witnessed
+   result, reporting, and durable `CrimeService` transition preserve victim and
+   murder special cases. Producer wiring and actor reaction systems remain later
+   work.
 
 ## 9. Required tests
 
