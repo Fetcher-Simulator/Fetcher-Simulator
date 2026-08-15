@@ -9291,6 +9291,12 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
             it->second.actorAuthorityTargetGuid = previousRecord->actorAuthorityTargetGuid;
             it->second.actorAuthorityLeaseUntilMs = previousRecord->actorAuthorityLeaseUntilMs;
         }
+        // Generation zero means the server has not established a canonical actor
+        // lifetime yet. Protocol-9 mechanics snapshots require a non-zero
+        // migration generation even for an ordinary placed actor that has never
+        // crossed a cell boundary, so seed the initial lifetime at generation 1.
+        if (it->second.migrationGeneration == 0)
+            it->second.migrationGeneration = 1;
         // ActorList is a state refresh, not a migration transaction. Preserve the
         // server-owned migration timeline instead of allowing aggregate record
         // reconstruction to reset it to zero or accept a client-claimed value.

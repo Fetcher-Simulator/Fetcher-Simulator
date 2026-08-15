@@ -6025,6 +6025,10 @@ namespace mwmp
         outgoing.cellId = cell.outboundCellId;
         outgoing.isAuthority = true;
         outgoing.authorityGuid = mwmp::Main::get().getPlayerSync().localPlayer().guid;
+        // Preserve the server-issued cell authority generation while constructing
+        // the authority snapshot. Replacing cell.latest with an outgoing list that
+        // leaves this at zero makes protocol-9 mechanics snapshots invalid.
+        outgoing.authorityGeneration = cell.latest.authorityGeneration;
         cell.mechanicsSnapshotTimer += std::max(0.f, dt);
         const bool mechanicsSnapshotDue = cell.mechanicsSnapshotTimer >= 0.25f;
         MechanicsSnapshotBatch mechanicsBatch;
