@@ -123,6 +123,7 @@
 #include <components/openmw-mp/Packets/Actor/PacketActorPresentationV2.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorStatsDynamic.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCombatRequest.hpp>
+#include <components/openmw-mp/Packets/Actor/PacketActorCombatResult.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketCorpseDispose.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketMechanicsSnapshot.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketWorldTime.hpp>
@@ -4840,6 +4841,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::ActorStatsDynamic: handleActorStatsDynamic(client, data, size); break;
         case PacketType::ActorAI:          handleActorAI(client, data, size);            break;
         case PacketType::ActorCombatRequest: handleActorCombatRequest(client, data, size); break;
+        case PacketType::ActorCombatResult: handleActorCombatResult(client, data, size); break;
         case PacketType::CorpseDispose:     handleCorpseDispose(client, data, size);     break;
         default:
             Log(Debug::Verbose) << "[Server] Unhandled packet type " << hdr.type;
@@ -11349,6 +11351,7 @@ void MPServer::handleActorDeath(ConnectedClient& c, const uint8_t* data, size_t 
         stored->actor.position = actor.position;
         stored->actor.velocity = Velocity {};
         stored->actor.deathEventId = actor.deathEventId;
+        stored->actor.deathCauseCombatEventId = actor.deathCauseCombatEventId;
         stored->actor.deathState = actor.deathState;
         stored->actor.isDead = actor.isDead;
         stored->actor.isInstantDeath = actor.isInstantDeath;
@@ -11357,6 +11360,105 @@ void MPServer::handleActorDeath(ConnectedClient& c, const uint8_t* data, size_t 
         stored->lastSnapshotTime = incoming.serverTimestamp;
         if (actor.deathEventId != 0)
             stored->lastDeathEventId = actor.deathEventId;
+
+        if (actor.isDead && !wasDead && actor.deathCauseCombatEventId != 0
+            && mPlayerDb && mObservationService && mContentRegistry)
+        {
+            const std::optional<CombatEventRecord> cause
+                = mPlayerDb->loadCombatEvent(actor.deathCauseCombatEventId);
+            const bool attributable = cause && cause->accepted
+                && (cause->resultFlags & CombatResultApplied) != 0
+                && cause->victimActorInstanceId == stored->actorNetId
+                && cause->migrationGeneration == stored->migrationGeneration
+                && cause->victimRefId == stored->actor.refId
+                && (cause->qualifyingCrime || mPlayerDb->hasReportedCriminalAssault(
+                    cause->characterId, stored->actorNetId, stored->migrationGeneration));
+            if (attributable)
+            {
+                ConnectedClient* offenderClient = nullptr;
+                for (auto& [connection, candidate] : mClients)
+                {
+                    if (candidate.guid == cause->attackerGuid
+                        && candidate.dbAccountId == cause->accountId
+                        && candidate.dbCharacterId == cause->characterId)
+                    {
+                        offenderClient = &candidate;
+                        break;
+                    }
+                }
+                constexpr std::uint64_t MaximumSnapshotAgeMs = 1000;
+                const std::uint64_t deathAtMs = currentServerTimeMs();
+                const AcceptedMechanicsSnapshot* offender = offenderClient
+                    ? mMechanicsSnapshots.findFresh(
+                        { MechanicsSubjectKind::Player, offenderClient->guid, 0 },
+                        deathAtMs, MaximumSnapshotAgeMs)
+                    : nullptr;
+                if (offenderClient && offender && offender->snapshot.cellId == incoming.cellId)
+                {
+                    ObservationActorIdentity victimIdentity;
+                    victimIdentity.kind = ObservationActorKind::Npc;
+                    victimIdentity.actorInstanceId = stored->actorNetId;
+                    CrimeWitnessBuildRequest witnessRequest;
+                    witnessRequest.eventCell = offenderClient->player.cell;
+                    witnessRequest.offender
+                        = makeLiveObservationSnapshot(*offender, playerBootWeight(*offenderClient));
+                    witnessRequest.victim = victimIdentity;
+                    witnessRequest.alarmRadius = mObservationAlarmRadius;
+                    witnessRequest.observedAtMs = deathAtMs;
+                    witnessRequest.maximumSnapshotAgeMs = MaximumSnapshotAgeMs;
+                    CrimeWitnessBuildResult witnesses = buildLiveCrimeWitnesses(witnessRequest);
+
+                    CrimeIntent intent;
+                    intent.eventId = "combat:" + std::to_string(cause->eventId) + ":murder";
+                    intent.source = "validated_combat_death";
+                    intent.type = CrimeType::Murder;
+                    intent.cellId = incoming.cellId;
+                    intent.offender = witnessRequest.offender;
+                    intent.victim = victimIdentity;
+                    intent.observedAtMs = deathAtMs;
+                    intent.maximumSnapshotAgeMs = MaximumSnapshotAgeMs;
+                    for (const std::string& cellId : witnesses.candidateCellIds)
+                    {
+                        const std::uint64_t generation
+                            = mCollisionWorld ? mCollisionWorld->cellGeneration(cellId) : 0;
+                        if (generation != 0)
+                            intent.collisionGenerations.push_back({ cellId, generation });
+                    }
+                    const auto gmstInt = [&](std::string_view id) {
+                        return mContentRegistry->store().get<ESM::GameSetting>()
+                            .find(id)->mValue.getInteger();
+                    };
+                    CrimePolicy policy;
+                    policy.alarmRadius = mObservationAlarmRadius;
+                    policy.theftBountyMultiplier = mContentRegistry->store().get<ESM::GameSetting>()
+                        .find("fCrimeStealing")->mValue.getFloat();
+                    policy.pickpocketBounty = gmstInt("iCrimePickPocket");
+                    policy.trespassBounty = gmstInt("iCrimeTresspass");
+                    policy.assaultBounty = gmstInt("iCrimeAttack");
+                    policy.murderBounty = gmstInt("iCrimeKilling");
+                    CrimeService crime(*mPlayerDb);
+                    CrimeSemanticService semantics(*mPlayerDb, crime, *mObservationService, policy);
+                    CrimeSemanticService::Context context {
+                        cause->accountId, cause->characterId, cause->attackerGuid };
+                    const CrimeSemanticService::Outcome outcome
+                        = semantics.evaluate(intent, std::move(witnesses.witnesses), context);
+                    offenderClient->player.crimeState
+                        = mPlayerDb->loadPlayerCrimeState(offenderClient->dbCharacterId);
+                    offenderClient->player.bounty = offenderClient->player.crimeState.bounty;
+                    sendAuthoritativeCrimeState(*offenderClient);
+                    Log(Debug::Info) << "[CrimeCauseAccepted] type=Murder eventId=" << intent.eventId
+                                     << " offenderGuid=" << cause->attackerGuid
+                                     << " victim=" << stored->actorNetId
+                                     << " crimeSeen=" << outcome.result.crimeSeen;
+                }
+            }
+            else
+            {
+                Log(Debug::Warning) << "[ActorDeath] rejected combat attribution deathEventId="
+                                    << actor.deathEventId << " cause=" << actor.deathCauseCombatEventId
+                                    << " victim=" << stored->actorNetId;
+            }
+        }
         rememberActorLocation(stored->actor, incoming.cellId);
         persistSpawnedActorIfNeeded(*stored);
         upsertSpawnedActorDynamicRecordLinkIfNeeded(stored->actor);
@@ -11668,46 +11770,246 @@ void MPServer::handleActorCombatRequest(ConnectedClient& c, const uint8_t* data,
         return;
     }
 
-    // Route each hit to the authority for that specific actor.  A target-player
-    // lease deliberately moves simulation away from the cell authority; sending
-    // damage back to the cell authority makes two clients mutate the same NPC.
-    for (const BaseActor& actor : incoming.actors)
+    // Player->NPC combat is a server-issued single-victim transaction. The
+    // proposal is not a crime result: only the independently entitled actor
+    // authority can later confirm that it applied this exact pending event.
+    if (incoming.actors.size() != 1 || !mPlayerDb || c.dbAccountId <= 0 || c.dbCharacterId <= 0)
+        return;
+    BaseActor& actor = incoming.actors.front();
+    const auto recordIt = cellIt->second.actors.find(makeActorKey(actor));
+    if (recordIt == cellIt->second.actors.end())
+        return;
+    ActorRegistryRecord& record = recordIt->second;
+    const ActorInstanceId actorNetId = ensureActorNetId(record, incoming.cellId);
+    std::uint32_t actorAuthorityGuid = cellAuthorityGuid;
+    std::uint32_t authorityGeneration = cellIt->second.authorityGeneration;
+    if (isActorAuthorityLeaseValid(record, incoming.cellId))
     {
-        uint32_t actorAuthorityGuid = cellAuthorityGuid;
-        const auto recordIt = cellIt->second.actors.find(makeActorKey(actor));
-        if (recordIt != cellIt->second.actors.end()
-            && isActorAuthorityLeaseValid(recordIt->second, incoming.cellId))
-        {
-            actorAuthorityGuid = recordIt->second.actorAuthorityGuid;
-        }
+        actorAuthorityGuid = record.actorAuthorityGuid;
+        authorityGeneration = record.actorAuthorityGeneration;
+    }
+    if (actorAuthorityGuid == 0 || actorAuthorityGuid == c.guid)
+    {
+        Log(Debug::Warning) << "[CombatProposal] rejected authority-conflict attacker=" << c.guid
+                            << " victim=" << actorNetId << " authority=" << actorAuthorityGuid;
+        return;
+    }
+    if (!std::isfinite(actor.attack.damage) || actor.attack.damage <= 0.f
+        || actor.attack.damage > MaximumMechanicsValueMagnitude || actor.attack.targetKind != Attack::TargetActor)
+        return;
 
-        // The sender already applies hits locally when it owns the victim.  Old
-        // clients may still emit this redundant request; never bounce it through
-        // another simulator.
-        if (actorAuthorityGuid == 0 || actorAuthorityGuid == c.guid)
+    constexpr std::uint64_t MaximumSnapshotAgeMs = 1000;
+    const std::uint64_t nowMs = currentServerTimeMs();
+    const AcceptedMechanicsSnapshot* playerMechanics = mMechanicsSnapshots.findFresh(
+        { MechanicsSubjectKind::Player, c.guid, 0 }, nowMs, MaximumSnapshotAgeMs);
+    if (!playerMechanics || playerMechanics->snapshot.cellId != incoming.cellId)
+        return;
+    const float dx = playerMechanics->snapshot.position.pos[0] - record.actor.position.pos[0];
+    const float dy = playerMechanics->snapshot.position.pos[1] - record.actor.position.pos[1];
+    const float dz = playerMechanics->snapshot.position.pos[2] - record.actor.position.pos[2];
+    const float rangeSquared = dx * dx + dy * dy + dz * dz;
+    constexpr float MaximumCombatProposalRange = 1024.f;
+    if (!std::isfinite(rangeSquared)
+        || rangeSquared > MaximumCombatProposalRange * MaximumCombatProposalRange)
+        return;
+
+    CombatEventRecord event;
+    event.accountId = c.dbAccountId;
+    event.characterId = c.dbCharacterId;
+    event.attackerGuid = c.guid;
+    event.victimActorInstanceId = actorNetId;
+    event.victimRefId = record.actor.refId;
+    event.cellId = incoming.cellId;
+    event.migrationGeneration = record.migrationGeneration;
+    event.authorityGeneration = authorityGeneration;
+    event.actorAuthorityGuid = actorAuthorityGuid;
+    event.proposedDamage = actor.attack.damage;
+    event.proposedHealthDamage = actor.attack.healthDamage;
+    event.proposalHash = crypto::sha256hex(std::string(
+        reinterpret_cast<const char*>(data), reinterpret_cast<const char*>(data) + size));
+    event.createdAtMs = nowMs;
+    try
+    {
+        incoming.combatEventId = mPlayerDb->createCombatEvent(event);
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[CombatProposal] persistence failure: " << e.what();
+        return;
+    }
+    incoming.combatVictimActorInstanceId = actorNetId;
+    incoming.combatVictimMigrationGeneration = record.migrationGeneration;
+    incoming.combatVictimAuthorityGeneration = authorityGeneration;
+
+    PacketActorCombatRequest routedPacket;
+    routedPacket.setActorList(&incoming);
+    for (auto& [conn, client] : mClients)
+    {
+        if (client.guid != actorAuthorityGuid)
             continue;
+        sendTo(conn, routedPacket.encode(), true);
+        Log(Debug::Info) << "[CombatProposal] eventId=" << incoming.combatEventId
+                         << " attacker=" << c.guid << " victim=" << actorNetId
+                         << " authority=" << actorAuthorityGuid
+                         << " migration=" << record.migrationGeneration
+                         << " authorityGeneration=" << authorityGeneration;
+        break;
+    }
+}
 
-        ActorList routed = incoming;
-        routed.actors.clear();
-        routed.actors.push_back(actor);
-        PacketActorCombatRequest routedPacket;
-        routedPacket.setActorList(&routed);
-        for (auto& [conn, client] : mClients)
+// ---------------------------------------------------------------------------
+void MPServer::handleActorCombatResult(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    if (!mPlayerDb || !mContentRegistry || !mObservationService)
+        return;
+    ActorList result;
+    PacketActorCombatResult packet;
+    packet.setActorList(&result);
+    if (!packet.decode(data, size) || result.actors.size() != 1)
+        return;
+
+    const std::optional<CombatEventRecord> event = mPlayerDb->loadCombatEvent(result.combatEventId);
+    if (!event)
+    {
+        Log(Debug::Warning) << "[CombatResult] rejected unknown eventId=" << result.combatEventId;
+        return;
+    }
+    const BaseActor& victim = result.actors.front();
+    const std::uint64_t nowMs = currentServerTimeMs();
+    if (event->attackerGuid == c.guid || event->actorAuthorityGuid != c.guid
+        || event->victimActorInstanceId != result.combatVictimActorInstanceId
+        || event->cellId != result.cellId || event->migrationGeneration != result.combatVictimMigrationGeneration
+        || event->authorityGeneration != result.combatVictimAuthorityGeneration
+        || event->victimRefId != victim.refId)
+    {
+        Log(Debug::Warning) << "[CombatResult] rejected binding mismatch eventId=" << result.combatEventId
+                            << " sender=" << c.guid;
+        return;
+    }
+    const bool applied = (result.combatResultFlags & CombatResultApplied) != 0;
+    if (applied && result.combatAppliedDamage != event->proposedDamage)
+        return;
+    if (!applied && result.combatAppliedDamage != 0.f)
+        return;
+    if (event->accepted)
+    {
+        const CombatEventCommitStatus replay = mPlayerDb->acceptCombatEvent(result.combatEventId,
+            result.combatResultSequence, result.combatResultFlags, result.combatAppliedDamage,
+            event->qualifyingCrime);
+        if (replay == CombatEventCommitStatus::ConflictingReplay)
+            Log(Debug::Warning) << "[CombatResult] rejected conflicting replay eventId="
+                                << result.combatEventId;
+        return;
+    }
+    if (nowMs < event->createdAtMs || nowMs - event->createdAtMs > MaximumCombatProposalAgeMs)
+        return;
+    const auto keyIt = mWorld.actorKeysByNetId.find(event->victimActorInstanceId);
+    const auto locationIt = keyIt == mWorld.actorKeysByNetId.end()
+        ? mWorld.actorLocations.end() : mWorld.actorLocations.find(keyIt->second);
+    if (locationIt == mWorld.actorLocations.end() || locationIt->second != event->cellId)
+        return;
+    auto cellIt = mWorld.actorCells.find(locationIt->second);
+    if (cellIt == mWorld.actorCells.end())
+        return;
+    auto actorIt = cellIt->second.actors.find(keyIt->second);
+    if (actorIt == cellIt->second.actors.end())
+        return;
+    ActorRegistryRecord& actorRecord = actorIt->second;
+    const bool leased = isActorAuthorityLeaseValid(actorRecord, event->cellId, nowMs);
+    const std::uint32_t currentAuthority = leased ? actorRecord.actorAuthorityGuid : cellIt->second.authorityGuid;
+    const std::uint32_t currentGeneration
+        = leased ? actorRecord.actorAuthorityGeneration : cellIt->second.authorityGeneration;
+    if (currentAuthority != c.guid || currentGeneration != event->authorityGeneration
+        || actorRecord.migrationGeneration != event->migrationGeneration
+        || !isAllowedActorSender(c, actorRecord, event->cellId))
+        return;
+
+    std::uint32_t& lastSequence = mCombatResultSequencesByAuthority[c.guid];
+    if (lastSequence != 0 && result.combatResultSequence <= lastSequence)
+        return;
+    lastSequence = result.combatResultSequence;
+    const bool victimIsNpc = mContentRegistry->store().get<ESM::NPC>().search(
+        ESM::RefId::stringRefId(actorRecord.actor.refId)) != nullptr;
+    const bool qualifyingCrime = victimIsNpc && isQualifyingCriminalAttack(result.combatResultFlags);
+    const CombatEventCommitStatus committed = mPlayerDb->acceptCombatEvent(result.combatEventId,
+        result.combatResultSequence, result.combatResultFlags, result.combatAppliedDamage, qualifyingCrime);
+    if (committed == CombatEventCommitStatus::UnknownEvent
+        || committed == CombatEventCommitStatus::ConflictingReplay)
+        return;
+    if (committed == CombatEventCommitStatus::IdenticalReplay || !qualifyingCrime)
+        return;
+
+    ConnectedClient* attacker = nullptr;
+    for (auto& [connection, candidate] : mClients)
+    {
+        if (candidate.guid == event->attackerGuid && candidate.dbAccountId == event->accountId
+            && candidate.dbCharacterId == event->characterId)
         {
-            if (client.guid == actorAuthorityGuid)
-            {
-                sendTo(conn, routedPacket.encode(), true);
-                Log(Debug::Verbose) << "[Server] Routed ActorCombatRequest"
-                                    << " sender=" << c.guid
-                                    << " victim=" << actor.refId
-                                    << " refNum=" << actor.refNum
-                                    << " mpNum=" << actor.mpNum
-                                    << " owner=" << actorAuthorityGuid
-                                    << " cell=" << incoming.cellId;
-                break;
-            }
+            attacker = &candidate;
+            break;
         }
     }
+    if (!attacker)
+        return;
+    constexpr std::uint64_t MaximumSnapshotAgeMs = 1000;
+    const AcceptedMechanicsSnapshot* offender = mMechanicsSnapshots.findFresh(
+        { MechanicsSubjectKind::Player, attacker->guid, 0 }, nowMs, MaximumSnapshotAgeMs);
+    if (!offender || offender->snapshot.cellId != event->cellId)
+        return;
+
+    ObservationActorIdentity victimIdentity;
+    victimIdentity.kind = ObservationActorKind::Npc;
+    victimIdentity.actorInstanceId = event->victimActorInstanceId;
+    CrimeWitnessBuildRequest witnessRequest;
+    witnessRequest.eventCell = attacker->player.cell;
+    witnessRequest.offender = makeLiveObservationSnapshot(*offender, playerBootWeight(*attacker));
+    witnessRequest.victim = victimIdentity;
+    witnessRequest.alarmRadius = mObservationAlarmRadius;
+    witnessRequest.observedAtMs = nowMs;
+    witnessRequest.maximumSnapshotAgeMs = MaximumSnapshotAgeMs;
+    CrimeWitnessBuildResult witnesses = buildLiveCrimeWitnesses(witnessRequest);
+
+    CrimeIntent intent;
+    intent.eventId = "combat:" + std::to_string(event->eventId) + ":assault";
+    intent.source = "validated_combat_result";
+    intent.type = CrimeType::Assault;
+    intent.cellId = event->cellId;
+    intent.offender = witnessRequest.offender;
+    intent.victim = victimIdentity;
+    intent.victimAware = true;
+    intent.observedAtMs = nowMs;
+    intent.maximumSnapshotAgeMs = MaximumSnapshotAgeMs;
+    for (const std::string& cellId : witnesses.candidateCellIds)
+    {
+        const std::uint64_t generation = mCollisionWorld ? mCollisionWorld->cellGeneration(cellId) : 0;
+        if (generation != 0)
+            intent.collisionGenerations.push_back({ cellId, generation });
+    }
+    const auto gmstInt = [&](std::string_view id) {
+        return mContentRegistry->store().get<ESM::GameSetting>().find(id)->mValue.getInteger();
+    };
+    CrimePolicy policy;
+    policy.alarmRadius = mObservationAlarmRadius;
+    policy.theftBountyMultiplier = mContentRegistry->store().get<ESM::GameSetting>()
+        .find("fCrimeStealing")->mValue.getFloat();
+    policy.pickpocketBounty = gmstInt("iCrimePickPocket");
+    policy.trespassBounty = gmstInt("iCrimeTresspass");
+    policy.assaultBounty = gmstInt("iCrimeAttack");
+    policy.murderBounty = gmstInt("iCrimeKilling");
+    CrimeService crime(*mPlayerDb);
+    CrimeSemanticService semantics(*mPlayerDb, crime, *mObservationService, policy);
+    CrimeSemanticService::Context context { event->accountId, event->characterId, event->attackerGuid };
+    const CrimeSemanticService::Outcome outcome
+        = semantics.evaluate(intent, std::move(witnesses.witnesses), context);
+    mPlayerDb->markCombatAssaultReported(event->eventId, outcome.result.reportingStageRun);
+    attacker->player.crimeState = mPlayerDb->loadPlayerCrimeState(attacker->dbCharacterId);
+    attacker->player.bounty = attacker->player.crimeState.bounty;
+    sendAuthoritativeCrimeState(*attacker);
+    Log(Debug::Info) << "[CombatResultAccepted] eventId=" << event->eventId
+                     << " attacker=" << event->attackerGuid
+                     << " victim=" << event->victimActorInstanceId
+                     << " authority=" << c.guid
+                     << " assaultReported=" << outcome.result.reportingStageRun;
 }
 
 // ---------------------------------------------------------------------------

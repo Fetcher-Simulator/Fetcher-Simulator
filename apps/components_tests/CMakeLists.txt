@@ -116,6 +116,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         openmw-mp/masterserverprotocol.cpp
         openmw-mp/mechanicssnapshot.cpp
         openmw-mp/worlditemtake.cpp
+        openmw-mp/combatevent.cpp
         openmw-mp/doorstate.cpp
         openmw-mp/runtimecontentbootstrap.cpp
         openmw-mp/serverluapackage.cpp

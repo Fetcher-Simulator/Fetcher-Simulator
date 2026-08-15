@@ -418,7 +418,7 @@ CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
     ON character_lua_storage(storage_namespace, storage_key);
 )SQL";
 
-    static const char* kWorldItemTakeSchema = R"SQL(
+static const char* kWorldItemTakeSchema = R"SQL(
 CREATE TABLE IF NOT EXISTS world_taken_references (
     object_kind INTEGER NOT NULL, cell_id TEXT NOT NULL, ref_id TEXT NOT NULL,
     ref_index INTEGER NOT NULL DEFAULT 0, ref_content_file INTEGER NOT NULL DEFAULT -1,
@@ -439,6 +439,33 @@ CREATE TABLE IF NOT EXISTS world_item_take_requests (
     created_at INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(account_id, character_id, request_id)
 );
+)SQL";
+
+    static const char* kCombatEventSchema = R"SQL(
+CREATE TABLE IF NOT EXISTS combat_events (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    attacker_guid INTEGER NOT NULL,
+    victim_actor_id INTEGER NOT NULL,
+    victim_ref_id TEXT NOT NULL,
+    cell_id TEXT NOT NULL,
+    migration_generation INTEGER NOT NULL,
+    authority_generation INTEGER NOT NULL,
+    actor_authority_guid INTEGER NOT NULL,
+    proposed_damage REAL NOT NULL,
+    proposed_health_damage INTEGER NOT NULL,
+    proposal_hash TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    status INTEGER NOT NULL DEFAULT 0,
+    result_sequence INTEGER NOT NULL DEFAULT 0,
+    result_flags INTEGER NOT NULL DEFAULT 0,
+    applied_damage REAL NOT NULL DEFAULT 0,
+    qualifying_crime INTEGER NOT NULL DEFAULT 0,
+    assault_reported INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_combat_events_victim
+    ON combat_events(character_id, victim_actor_id, migration_generation, status);
 )SQL";
 
     // Migration: add chargen columns to databases created before they existed.
@@ -835,6 +862,7 @@ CREATE TABLE IF NOT EXISTS world_item_take_requests (
 
         exec(kSchema);
         exec(kWorldItemTakeSchema);
+        exec(kCombatEventSchema);
 
         // Run migrations — ALTER TABLE errors on "duplicate column name" for columns
         // that already exist; we ignore those errors so this is idempotent.
@@ -1527,6 +1555,149 @@ CREATE TABLE IF NOT EXISTS world_item_take_requests (
         }
         sqlite3_finalize(statement);
         return result;
+    }
+
+    std::uint64_t PlayerDatabase::createCombatEvent(const CombatEventRecord& event)
+    {
+        if (event.accountId <= 0 || event.characterId <= 0 || event.attackerGuid == 0
+            || event.victimActorInstanceId == 0 || event.victimRefId.empty()
+            || event.cellId.empty() || event.migrationGeneration == 0 || event.authorityGeneration == 0
+            || event.actorAuthorityGuid == 0 || !std::isfinite(event.proposedDamage)
+            || event.proposedDamage <= 0.f || event.proposalHash.size() != 64 || event.createdAtMs == 0)
+            throw std::invalid_argument("invalid combat event proposal");
+
+        sqlite3_stmt* statement = prepare(
+            "INSERT INTO combat_events(account_id, character_id, attacker_guid, victim_actor_id, victim_ref_id,"
+            " cell_id, migration_generation, authority_generation, actor_authority_guid, proposed_damage,"
+            " proposed_health_damage, proposal_hash, created_at_ms)"
+            " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)");
+        sqlite3_bind_int64(statement, 1, event.accountId);
+        sqlite3_bind_int64(statement, 2, event.characterId);
+        sqlite3_bind_int64(statement, 3, event.attackerGuid);
+        sqlite3_bind_int64(statement, 4, static_cast<sqlite3_int64>(event.victimActorInstanceId));
+        sqlite3_bind_text(statement, 5, event.victimRefId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 6, event.cellId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(statement, 7, event.migrationGeneration);
+        sqlite3_bind_int64(statement, 8, event.authorityGeneration);
+        sqlite3_bind_int64(statement, 9, event.actorAuthorityGuid);
+        sqlite3_bind_double(statement, 10, event.proposedDamage);
+        sqlite3_bind_int(statement, 11, event.proposedHealthDamage ? 1 : 0);
+        sqlite3_bind_text(statement, 12, event.proposalHash.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(statement, 13, static_cast<sqlite3_int64>(event.createdAtMs));
+        checkSqlite(sqlite3_step(statement), mDb, "createCombatEvent");
+        sqlite3_finalize(statement);
+        return static_cast<std::uint64_t>(sqlite3_last_insert_rowid(mDb));
+    }
+
+    std::optional<CombatEventRecord> PlayerDatabase::loadCombatEvent(std::uint64_t eventId)
+    {
+        sqlite3_stmt* statement = prepare(
+            "SELECT account_id, character_id, attacker_guid, victim_actor_id, victim_ref_id, cell_id,"
+            " migration_generation, authority_generation, actor_authority_guid, proposed_damage,"
+            " proposed_health_damage, proposal_hash, created_at_ms, status, result_sequence, result_flags,"
+            " applied_damage, qualifying_crime, assault_reported FROM combat_events WHERE event_id=?1");
+        sqlite3_bind_int64(statement, 1, static_cast<sqlite3_int64>(eventId));
+        if (sqlite3_step(statement) != SQLITE_ROW)
+        {
+            sqlite3_finalize(statement);
+            return std::nullopt;
+        }
+        auto text = [&](int column) {
+            const char* value = reinterpret_cast<const char*>(sqlite3_column_text(statement, column));
+            return std::string(value ? value : "");
+        };
+        CombatEventRecord event;
+        event.eventId = eventId;
+        event.accountId = sqlite3_column_int64(statement, 0);
+        event.characterId = sqlite3_column_int64(statement, 1);
+        event.attackerGuid = static_cast<std::uint32_t>(sqlite3_column_int64(statement, 2));
+        event.victimActorInstanceId = static_cast<std::uint64_t>(sqlite3_column_int64(statement, 3));
+        event.victimRefId = text(4);
+        event.cellId = text(5);
+        event.migrationGeneration = static_cast<std::uint32_t>(sqlite3_column_int64(statement, 6));
+        event.authorityGeneration = static_cast<std::uint32_t>(sqlite3_column_int64(statement, 7));
+        event.actorAuthorityGuid = static_cast<std::uint32_t>(sqlite3_column_int64(statement, 8));
+        event.proposedDamage = static_cast<float>(sqlite3_column_double(statement, 9));
+        event.proposedHealthDamage = sqlite3_column_int(statement, 10) != 0;
+        event.proposalHash = text(11);
+        event.createdAtMs = static_cast<std::uint64_t>(sqlite3_column_int64(statement, 12));
+        event.accepted = sqlite3_column_int(statement, 13) == 1;
+        event.resultSequence = static_cast<std::uint32_t>(sqlite3_column_int64(statement, 14));
+        event.resultFlags = static_cast<std::uint8_t>(sqlite3_column_int(statement, 15));
+        event.appliedDamage = static_cast<float>(sqlite3_column_double(statement, 16));
+        event.qualifyingCrime = sqlite3_column_int(statement, 17) != 0;
+        event.assaultReported = sqlite3_column_int(statement, 18) != 0;
+        sqlite3_finalize(statement);
+        return event;
+    }
+
+    CombatEventCommitStatus PlayerDatabase::acceptCombatEvent(std::uint64_t eventId,
+        std::uint32_t resultSequence, std::uint8_t resultFlags, float appliedDamage,
+        bool qualifyingCrime)
+    {
+        exec("BEGIN IMMEDIATE");
+        try
+        {
+            const std::optional<CombatEventRecord> current = loadCombatEvent(eventId);
+            if (!current)
+            {
+                exec("COMMIT");
+                return CombatEventCommitStatus::UnknownEvent;
+            }
+            if (current->accepted)
+            {
+                const bool identical = current->resultSequence == resultSequence
+                    && current->resultFlags == resultFlags && current->appliedDamage == appliedDamage
+                    && current->qualifyingCrime == qualifyingCrime;
+                exec("COMMIT");
+                return identical ? CombatEventCommitStatus::IdenticalReplay
+                                 : CombatEventCommitStatus::ConflictingReplay;
+            }
+
+            sqlite3_stmt* statement = prepare(
+                "UPDATE combat_events SET status=1, result_sequence=?1, result_flags=?2, applied_damage=?3,"
+                " qualifying_crime=?4 WHERE event_id=?5 AND status=0");
+            sqlite3_bind_int64(statement, 1, resultSequence);
+            sqlite3_bind_int(statement, 2, resultFlags);
+            sqlite3_bind_double(statement, 3, appliedDamage);
+            sqlite3_bind_int(statement, 4, qualifyingCrime ? 1 : 0);
+            sqlite3_bind_int64(statement, 5, static_cast<sqlite3_int64>(eventId));
+            checkSqlite(sqlite3_step(statement), mDb, "acceptCombatEvent");
+            const bool updated = sqlite3_changes(mDb) == 1;
+            sqlite3_finalize(statement);
+            exec("COMMIT");
+            return updated ? CombatEventCommitStatus::Committed
+                           : CombatEventCommitStatus::ConflictingReplay;
+        }
+        catch (...)
+        {
+            try { exec("ROLLBACK"); } catch (...) {}
+            throw;
+        }
+    }
+
+    void PlayerDatabase::markCombatAssaultReported(std::uint64_t eventId, bool reported)
+    {
+        sqlite3_stmt* statement = prepare(
+            "UPDATE combat_events SET assault_reported=?1 WHERE event_id=?2 AND status=1");
+        sqlite3_bind_int(statement, 1, reported ? 1 : 0);
+        sqlite3_bind_int64(statement, 2, static_cast<sqlite3_int64>(eventId));
+        checkSqlite(sqlite3_step(statement), mDb, "markCombatAssaultReported");
+        sqlite3_finalize(statement);
+    }
+
+    bool PlayerDatabase::hasReportedCriminalAssault(std::int64_t characterId,
+        std::uint64_t victimActorInstanceId, std::uint32_t migrationGeneration)
+    {
+        sqlite3_stmt* statement = prepare(
+            "SELECT 1 FROM combat_events WHERE character_id=?1 AND victim_actor_id=?2"
+            " AND migration_generation=?3 AND status=1 AND qualifying_crime=1 AND assault_reported=1 LIMIT 1");
+        sqlite3_bind_int64(statement, 1, characterId);
+        sqlite3_bind_int64(statement, 2, static_cast<sqlite3_int64>(victimActorInstanceId));
+        sqlite3_bind_int64(statement, 3, migrationGeneration);
+        const bool found = sqlite3_step(statement) == SQLITE_ROW;
+        sqlite3_finalize(statement);
+        return found;
     }
 
     std::vector<EquipmentItem> PlayerDatabase::loadCharacterEquipment(int64_t characterId)

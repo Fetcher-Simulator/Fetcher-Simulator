@@ -374,6 +374,7 @@ private:
     void handleActorStatsDynamic(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorAI          (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorCombatRequest(ConnectedClient& c, const uint8_t* data, size_t size);
+    void handleActorCombatResult(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleCorpseDispose(ConnectedClient& c, const uint8_t* data, size_t size);
 
 
@@ -641,6 +642,7 @@ private:
     std::string mAdminHttpHost = "127.0.0.1";
     std::unique_ptr<AdminHttpServer> mAdminHttpServer;
     MechanicsSnapshotRegistry mMechanicsSnapshots;
+    std::unordered_map<std::uint32_t, std::uint32_t> mCombatResultSequencesByAuthority;
 
     // ── World state ───────────────────────────────────────────────────────
     // Server is the authoritative clock. Day/month/year are tracked so new

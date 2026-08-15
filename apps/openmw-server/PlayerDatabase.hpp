@@ -273,6 +273,38 @@ namespace mwmp
         WorldItemTakeResult result;
     };
 
+    struct CombatEventRecord
+    {
+        std::uint64_t eventId = 0;
+        std::int64_t accountId = 0;
+        std::int64_t characterId = 0;
+        std::uint32_t attackerGuid = 0;
+        std::uint64_t victimActorInstanceId = 0;
+        std::string victimRefId;
+        std::string cellId;
+        std::uint32_t migrationGeneration = 0;
+        std::uint32_t authorityGeneration = 0;
+        std::uint32_t actorAuthorityGuid = 0;
+        float proposedDamage = 0.f;
+        bool proposedHealthDamage = false;
+        std::string proposalHash;
+        std::uint64_t createdAtMs = 0;
+        bool accepted = false;
+        std::uint32_t resultSequence = 0;
+        std::uint8_t resultFlags = 0;
+        float appliedDamage = 0.f;
+        bool qualifyingCrime = false;
+        bool assaultReported = false;
+    };
+
+    enum class CombatEventCommitStatus
+    {
+        Committed,
+        IdenticalReplay,
+        ConflictingReplay,
+        UnknownEvent,
+    };
+
     struct DatabaseTableInfo
     {
         std::string name;
@@ -562,6 +594,17 @@ namespace mwmp
         DynamicRecordCommitStatus commitDynamicRecordRequest(const DynamicRecordCommit& commit);
         WorldItemTakeCommitResult commitWorldItemTake(const WorldItemTakeCommit& commit);
         std::vector<PlacedObjectIdentity> loadTakenWorldItemReferences();
+
+        /// Allocate a durable server-issued combat event identifier and store
+        /// its immutable authenticated proposal binding.
+        std::uint64_t createCombatEvent(const CombatEventRecord& event);
+        std::optional<CombatEventRecord> loadCombatEvent(std::uint64_t eventId);
+        CombatEventCommitStatus acceptCombatEvent(std::uint64_t eventId,
+            std::uint32_t resultSequence, std::uint8_t resultFlags, float appliedDamage,
+            bool qualifyingCrime);
+        void markCombatAssaultReported(std::uint64_t eventId, bool reported);
+        bool hasReportedCriminalAssault(std::int64_t characterId,
+            std::uint64_t victimActorInstanceId, std::uint32_t migrationGeneration);
         uint64_t loadInventoryRevision(int64_t characterId);
 
         /// Load dynamic-record catalog metadata for both persistent and session-only ids.

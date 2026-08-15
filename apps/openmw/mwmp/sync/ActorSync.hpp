@@ -360,6 +360,8 @@ namespace mwmp
         std::unordered_map<ActorInstanceId, uint32_t>       mActorAuthorityGenerations;
         std::unordered_map<ActorInstanceId, uint32_t>       mMechanicsSnapshotSequences;
         std::unordered_map<ActorInstanceId, uint32_t>       mNextSpeechEventIds;
+        std::unordered_map<ActorInstanceId, std::uint64_t>  mLastAppliedCombatEventIds;
+        std::uint32_t mNextCombatResultSequence = 1;
         uint32_t mNextSpeechSequence = 1;
         std::unordered_set<ActorInstanceId> mPendingPresentationSampleRequests;
         std::unordered_map<std::string, std::unordered_set<ActorInstanceId>> mCellActorIds;
