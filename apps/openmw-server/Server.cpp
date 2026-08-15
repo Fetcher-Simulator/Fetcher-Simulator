@@ -3784,7 +3784,89 @@ void MPServer::handleMechanicsSnapshot(ConnectedClient& c, const uint8_t* data, 
                                 << " sequence=" << snapshot.snapshotSequence
                                 << " error=" << static_cast<unsigned>(error);
         }
+        else if (snapshot.kind == MechanicsSubjectKind::Player && mPlayerDb)
+        {
+            try
+            {
+                const bool isWerewolf = (snapshot.stateFlags & MechanicsWerewolf) != 0;
+                const WerewolfStateTransition transition
+                    = mPlayerDb->updateWerewolfState(c.dbCharacterId, isWerewolf);
+                c.player.isWerewolf = isWerewolf;
+                if (transition.transformed)
+                {
+                    const AcceptedMechanicsSnapshot* accepted = mMechanicsSnapshots.find(
+                        { MechanicsSubjectKind::Player, c.guid, 0 });
+                    if (accepted)
+                        processWerewolfExposure(c, *accepted, transition.transition, receivedAtMs);
+                }
+            }
+            catch (const std::exception& e)
+            {
+                Log(Debug::Error) << "[WerewolfExposure] state persistence failed player=" << c.name
+                                  << " error=" << e.what();
+            }
+        }
     }
+}
+
+void MPServer::processWerewolfExposure(ConnectedClient& c, const AcceptedMechanicsSnapshot& offender,
+    std::uint64_t transition, std::uint64_t observedAtMs)
+{
+    if (!mPlayerDb || !mContentRegistry || !mObservationService || transition == 0)
+        return;
+
+    constexpr std::uint64_t MaximumSnapshotAgeMs = 1000;
+    CrimeWitnessBuildRequest request;
+    request.eventCell = c.player.cell;
+    request.offender = makeLiveObservationSnapshot(offender, playerBootWeight(c));
+    request.alarmRadius = mObservationAlarmRadius;
+    request.observedAtMs = observedAtMs;
+    request.maximumSnapshotAgeMs = MaximumSnapshotAgeMs;
+    CrimeWitnessBuildResult witnesses = buildLiveCrimeWitnesses(request);
+
+    CrimeIntent intent;
+    intent.eventId = "werewolf:" + std::to_string(c.dbCharacterId) + ':' + std::to_string(transition);
+    intent.source = "validated_werewolf_transformation";
+    intent.type = CrimeType::WerewolfExposure;
+    intent.cellId = offender.snapshot.cellId;
+    intent.offender = request.offender;
+    intent.observedAtMs = observedAtMs;
+    intent.maximumSnapshotAgeMs = MaximumSnapshotAgeMs;
+    for (const std::string& cellId : witnesses.candidateCellIds)
+    {
+        const std::uint64_t generation = mCollisionWorld ? mCollisionWorld->cellGeneration(cellId) : 0;
+        if (generation != 0)
+            intent.collisionGenerations.push_back({ cellId, generation });
+    }
+
+    const auto gmstInt = [&](std::string_view id) {
+        return mContentRegistry->store().get<ESM::GameSetting>().find(id)->mValue.getInteger();
+    };
+    CrimePolicy policy;
+    policy.alarmRadius = mObservationAlarmRadius;
+    policy.theftBountyMultiplier = mContentRegistry->store().get<ESM::GameSetting>()
+        .find("fCrimeStealing")->mValue.getFloat();
+    policy.pickpocketBounty = gmstInt("iCrimePickPocket");
+    policy.trespassBounty = gmstInt("iCrimeTresspass");
+    policy.assaultBounty = gmstInt("iCrimeAttack");
+    policy.murderBounty = gmstInt("iCrimeKilling");
+    policy.werewolfBounty = gmstInt("iWereWolfBounty");
+
+    CrimeService crime(*mPlayerDb);
+    CrimeSemanticService semantics(*mPlayerDb, crime, *mObservationService, policy);
+    const CrimeSemanticService::Context context { c.dbAccountId, c.dbCharacterId, c.guid };
+    const CrimeSemanticService::Outcome outcome
+        = semantics.evaluate(intent, std::move(witnesses.witnesses), context);
+    c.player.crimeState = mPlayerDb->loadPlayerCrimeState(c.dbCharacterId);
+    c.player.bounty = c.player.crimeState.bounty;
+    sendAuthoritativeCrimeState(c);
+    syncLuaPlayerSnapshot();
+    Log(outcome.result.accepted ? Debug::Info : Debug::Warning)
+        << "[WerewolfExposure] eventId=" << intent.eventId
+        << " player=" << c.name << " seen=" << outcome.result.crimeSeen
+        << " reported=" << outcome.result.bountyApplied
+        << " bountyDelta=" << outcome.result.bountyDelta
+        << " replayed=" << outcome.replayed;
 }
 
 void MPServer::updateActorAuthorityLeaseFromAi(const std::string& cellId,

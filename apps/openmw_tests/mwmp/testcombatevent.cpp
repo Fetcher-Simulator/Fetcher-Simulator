@@ -77,3 +77,36 @@ TEST(CombatEventPersistence, AcceptedAttributionIsIdempotentAndRestartDurable)
     EXPECT_TRUE(restored->assaultReported);
     EXPECT_TRUE(reopened.hasReportedCriminalAssault(character, victim, 3));
 }
+
+TEST(WerewolfStatePersistence, TransformationEdgesAreRestartDurableAndIdempotent)
+{
+    TemporaryDatabase temporary;
+    std::int64_t character = 0;
+    {
+        mwmp::PlayerDatabase database(temporary.path.string());
+        const std::int64_t account = database.createAccount("werewolf-account");
+        character = database.createCharacter(account, "Werewolf Tester").characterId;
+
+        const auto normal = database.updateWerewolfState(character, false);
+        EXPECT_FALSE(normal.changed);
+        EXPECT_EQ(normal.transition, 0u);
+
+        const auto transformed = database.updateWerewolfState(character, true);
+        EXPECT_TRUE(transformed.changed);
+        EXPECT_TRUE(transformed.transformed);
+        EXPECT_EQ(transformed.transition, 1u);
+
+        const auto duplicate = database.updateWerewolfState(character, true);
+        EXPECT_FALSE(duplicate.changed);
+        EXPECT_EQ(duplicate.transition, 1u);
+    }
+
+    mwmp::PlayerDatabase reopened(temporary.path.string());
+    const auto duplicateAfterRestart = reopened.updateWerewolfState(character, true);
+    EXPECT_FALSE(duplicateAfterRestart.changed);
+    EXPECT_EQ(duplicateAfterRestart.transition, 1u);
+    const auto reverted = reopened.updateWerewolfState(character, false);
+    EXPECT_TRUE(reverted.changed);
+    EXPECT_FALSE(reverted.transformed);
+    EXPECT_EQ(reverted.transition, 2u);
+}

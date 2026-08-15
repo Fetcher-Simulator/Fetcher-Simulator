@@ -13,7 +13,7 @@
 
 namespace mwmp
 {
-    inline constexpr std::uint16_t MechanicsSnapshotWireVersion = 2;
+    inline constexpr std::uint16_t MechanicsSnapshotWireVersion = 3;
     inline constexpr std::size_t MaximumMechanicsSnapshotsPerPacket = 128;
     inline constexpr std::size_t MaximumMechanicsCellIdSize = 255;
     inline constexpr float MaximumMechanicsPositionMagnitude = 100000000.f;
@@ -33,6 +33,7 @@ namespace mwmp
         MechanicsConscious = 1u << 2,
         MechanicsSneaking = 1u << 3,
         MechanicsOnGround = 1u << 4,
+        MechanicsWerewolf = 1u << 5,
     };
 
     enum MechanicsWitnessStateFlags : std::uint8_t
@@ -134,7 +135,7 @@ namespace mwmp
     inline bool validateMechanicsSnapshot(const MechanicsSnapshot& snapshot)
     {
         constexpr std::uint8_t KnownStateFlags = MechanicsEnabled | MechanicsAlive
-            | MechanicsConscious | MechanicsSneaking | MechanicsOnGround;
+            | MechanicsConscious | MechanicsSneaking | MechanicsOnGround | MechanicsWerewolf;
         constexpr std::uint8_t KnownWitnessStateFlags = MechanicsWitnessRelationshipKnown
             | MechanicsWitnessPlayerFollower | MechanicsWitnessHasCombatTarget
             | MechanicsWitnessEffectiveAlarmKnown;

@@ -19,7 +19,7 @@ namespace
         snapshot.position.pos[2] = 128.f;
         snapshot.position.rot[2] = 1.5f;
         snapshot.stateFlags = mwmp::MechanicsEnabled | mwmp::MechanicsAlive
-            | mwmp::MechanicsConscious | mwmp::MechanicsOnGround;
+            | mwmp::MechanicsConscious | mwmp::MechanicsOnGround | mwmp::MechanicsWerewolf;
         snapshot.sneakSkill = 31.f;
         snapshot.agility = 52.f;
         snapshot.luck = 44.f;

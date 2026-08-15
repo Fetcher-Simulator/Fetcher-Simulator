@@ -366,6 +366,9 @@ private:
     void handleActorPosition    (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorPositionV2  (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleMechanicsSnapshot(ConnectedClient& c, const uint8_t* data, size_t size);
+    void processWerewolfExposure(
+        ConnectedClient& c, const AcceptedMechanicsSnapshot& offender, std::uint64_t transition,
+        std::uint64_t observedAtMs);
     void handleActorPresentationV2(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorIdentityAck (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorAnimFlags   (ConnectedClient& c, const uint8_t* data, size_t size);
