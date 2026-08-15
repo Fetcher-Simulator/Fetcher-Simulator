@@ -229,6 +229,7 @@ namespace mwmp
         GuardArrestMode mGuardArrestMode = GuardArrestMode::Combat;
         std::deque<CrimeMutationRequest> mPendingCrimeMutations;
         std::string mCrimeMutationInFlight;
+        std::string mCrimeMutationRequestPrefix;
         std::uint64_t mNextCrimeMutationRequest = 1;
 
         // Chargen restore data (returning players)

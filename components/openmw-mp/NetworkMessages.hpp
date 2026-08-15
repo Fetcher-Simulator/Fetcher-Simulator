@@ -157,6 +157,8 @@ namespace mwmp
         ServerLuaPackageManifest = 152, // Server-selected immutable OpenMW Lua package set
         ServerLuaPackageChunk = 153, // Bounded source chunk for a staged package generation
         ServerLuaPackageBootstrapComplete = 154, // Explicit end of required package transfer
+        InventoryTakeRequest = 155, // Typed authoritative container/corpse/pickpocket take
+        InventoryTakeResult = 156, // Durable terminal inventory-take result
 
         // --- Lua bridge (7C+) ---
         // IDs 150-199 reserved; exact assignments TBD in Phase 7C/7D.

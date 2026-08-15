@@ -1072,6 +1072,16 @@ namespace mwmp
             { ActorKeyKind::VanillaRefNum, ptr.getCellRef().getRefNum().mIndex });
     }
 
+    std::uint32_t ActorSync::actorMigrationGenerationForPtr(
+        const std::string& cellId, const MWWorld::Ptr& ptr) const
+    {
+        const ActorInstanceId actorNetId = actorNetIdForPtr(cellId, ptr);
+        const auto it = mActorsByNetId.find(actorNetId);
+        if (it != mActorsByNetId.end())
+            return it->second.state.migrationGeneration;
+        return 0;
+    }
+
     void ActorSync::rememberActorNetId(ActorInstanceId actorNetId, const BaseActor& actor)
     {
         if (actorNetId == 0)

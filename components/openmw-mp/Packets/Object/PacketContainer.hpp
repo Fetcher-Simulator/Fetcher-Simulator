@@ -1,6 +1,9 @@
 #ifndef OPENMW_MP_PACKETCONTAINER_HPP
 #define OPENMW_MP_PACKETCONTAINER_HPP
 
+#include <algorithm>
+#include <stdexcept>
+
 #include <components/openmw-mp/Packets/BasePacket.hpp>
 #include <components/openmw-mp/Base/BaseObject.hpp>
 
@@ -67,6 +70,15 @@ namespace mwmp
             container.items.resize(count);
             for (auto& item : container.items)
                 unpackItem(rs, item);
+            const auto action = static_cast<ContainerAction>(mAction);
+            if (container.cellId.empty() || container.refId.empty()
+                || (action != ContainerAction::Set && action != ContainerAction::Add
+                    && action != ContainerAction::Remove && action != ContainerAction::BootstrapRequest)
+                || std::any_of(container.items.begin(), container.items.end(), [](const ContainerItem& item) {
+                    return item.refId.empty() || item.count <= 0;
+                })
+                || !rs.eof() || mHeader.payloadSize + PacketHeader::WIRE_SIZE != rs.pos())
+                throw std::runtime_error("PacketContainer: invalid payload");
         }
 
     public:

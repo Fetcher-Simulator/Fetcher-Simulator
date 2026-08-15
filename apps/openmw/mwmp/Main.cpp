@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <random>
 
 #include <stdexcept>
 #include <string_view>
@@ -48,6 +49,7 @@
 #include <components/openmw-mp/Packets/Object/PacketObjectMove.hpp>
 #include <components/openmw-mp/Packets/Object/PacketContainer.hpp>
 #include <components/openmw-mp/Packets/Object/PacketWorldItemTake.hpp>
+#include <components/openmw-mp/Packets/Object/PacketInventoryTake.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAnimFlags.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAnimPlay.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAttack.hpp>
@@ -174,8 +176,8 @@ bool Main::requestCrimeMutation(CrimeMutationKind kind, std::int64_t value, std:
         return false;
 
     CrimeMutationRequest request;
-    request.requestId = "client-crime-" + std::to_string(mPlayerSync->localPlayer().guid)
-        + '-' + std::to_string(mNextCrimeMutationRequest++);
+    request.requestId = mCrimeMutationRequestPrefix + '-'
+        + std::to_string(mNextCrimeMutationRequest++);
     request.kind = kind;
     request.value = value;
     request.source = std::move(source);
@@ -318,6 +320,12 @@ void Main::destroy()
 // ---------------------------------------------------------------------------
 Main::Main()
 {
+    std::random_device random;
+    const auto timestamp = std::chrono::system_clock::now().time_since_epoch().count();
+    std::ostringstream crimePrefix;
+    crimePrefix << "client-crime-" << timestamp << '-' << random() << random();
+    mCrimeMutationRequestPrefix = crimePrefix.str();
+
     mClient        = std::make_unique<NetworkClient>();
     mProtocol      = std::make_unique<Protocol>();
     mPlayerSync    = std::make_unique<PlayerSync>(*mClient, *mProtocol);
@@ -611,6 +619,7 @@ void Main::onConnected()
     mCrimeMutationInFlight.clear();
     mWorldStateSync->resetSessionState();
     mObjectSync->resetSessionState();
+    mWorldObjectSync->resetSessionState();
     mPlayerSync->resetCrimeStateSync();
     mPlayerSync->resetFactionStateSync();
     mPlayerSync->resetTopicStateSync();
@@ -753,6 +762,8 @@ void Main::onDisconnected()
         mWorldStateSync->resetSessionState();
     if (mObjectSync)
         mObjectSync->resetSessionState();
+    if (mWorldObjectSync)
+        mWorldObjectSync->resetSessionState();
     // Spellbook sync state is per-session: the authoritative revision token,
     // baseline and in-flight gate must not leak into the next connection.
     if (mPlayerSync)
@@ -1841,6 +1852,18 @@ void Main::registerProtocolHandlers()
             if (!packet.decode(data, size))
                 return;
             mWorldObjectSync->onServerWorldItemTakeResult(packet.result);
+        });
+
+    proto.registerHandler(PacketType::InventoryTakeResult,
+        [this](const uint8_t* data, size_t size)
+        {
+            PacketInventoryTakeResult packet;
+            if (!packet.decode(data, size))
+            {
+                disconnect("Malformed authoritative inventory take result");
+                return;
+            }
+            mWorldObjectSync->onServerInventoryTakeResult(packet.result);
         });
 
     proto.registerHandler(PacketType::ObjectMove,

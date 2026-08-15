@@ -351,6 +351,14 @@ namespace MWGui
 
         MWWorld::Ptr target = mItemSources[0].first;
 
+        if (mwmp::Main::isInitialised() && mSyncInfo.enabled && mSyncInfo.mpNum == 0)
+        {
+            const mwmp::InventoryTakeKind kind = target.getClass().isActor()
+                ? mwmp::InventoryTakeKind::Corpse : mwmp::InventoryTakeKind::Container;
+            mwmp::Main::get().getWorldObjectSync().requestInventoryTake(target, item, count, kind);
+            return false;
+        }
+
         // Looting a dead corpse is considered OK
         if (target.getClass().isActor() && target.getClass().getCreatureStats(target).isDead())
             return true;

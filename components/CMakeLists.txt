@@ -532,7 +532,7 @@ add_component_dir(testing
 
 if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
     add_component_dir (openmw-mp
-        MasterServerProtocol ContentManifest ServerLuaPackage ServerLuaPackageTransfer PlayerCrimeState PlayerTopicState PlayerFactionState WorldItemTake
+        MasterServerProtocol ContentManifest ServerLuaPackage ServerLuaPackageTransfer PlayerCrimeState PlayerTopicState PlayerFactionState WorldItemTake InventoryTake
     )
     add_component_dir (openmw-mp/Base
         BaseStructs BasePlayer BaseActor

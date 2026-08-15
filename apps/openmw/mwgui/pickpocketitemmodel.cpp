@@ -7,6 +7,9 @@
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/pickpocket.hpp"
 
+#include "../mwmp/Main.hpp"
+#include "../mwmp/sync/WorldObjectSync.hpp"
+
 #include "../mwworld/class.hpp"
 
 #include "../mwbase/environment.hpp"
@@ -90,6 +93,12 @@ namespace MWGui
             || mPickpocketDetected)
             return;
 
+        if (mwmp::Main::isInitialised())
+        {
+            mwmp::Main::get().getWorldObjectSync().requestPickpocketFinish(mActor);
+            return;
+        }
+
         MWWorld::Ptr player = MWMechanics::getPlayer();
         MWMechanics::Pickpocket pickpocket(player, mActor);
         if (pickpocket.finish())
@@ -105,6 +114,13 @@ namespace MWGui
     {
         if (mActor.getClass().getCreatureStats(mActor).getKnockedDown())
             return mSourceModel->onTakeItem(item, count);
+
+        if (mwmp::Main::isInitialised())
+        {
+            mwmp::Main::get().getWorldObjectSync().requestInventoryTake(
+                mActor, item, count, mwmp::InventoryTakeKind::Pickpocket);
+            return false;
+        }
 
         bool success = stealItem(item, count);
         if (success)

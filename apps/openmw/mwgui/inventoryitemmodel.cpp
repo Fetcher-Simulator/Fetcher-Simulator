@@ -222,6 +222,16 @@ namespace MWGui
 
     bool InventoryItemModel::onTakeItem(const MWWorld::Ptr& item, int count)
     {
+        if (mwmp::Main::isInitialised() && mActor.getClass().isActor()
+            && mActor != MWMechanics::getPlayer()
+            && (!mActor.getClass().getCreatureStats(mActor).isDead() || mSyncInfo.mpNum == 0))
+        {
+            const mwmp::InventoryTakeKind kind = mActor.getClass().getCreatureStats(mActor).isDead()
+                ? mwmp::InventoryTakeKind::Corpse : mwmp::InventoryTakeKind::ActorInventory;
+            mwmp::Main::get().getWorldObjectSync().requestInventoryTake(mActor, item, count, kind);
+            return false;
+        }
+
         // Looting a dead corpse is considered OK
         if (mActor.getClass().isActor() && mActor.getClass().getCreatureStats(mActor).isDead())
             return true;
