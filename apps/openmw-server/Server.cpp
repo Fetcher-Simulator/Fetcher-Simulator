@@ -2564,6 +2564,103 @@ float MPServer::playerBootWeight(const ConnectedClient& player) const
     return 0.f;
 }
 
+CrimeWitnessBuildResult MPServer::buildLiveCrimeWitnesses(const CrimeWitnessBuildRequest& request)
+{
+    struct MaterializedSource final : LiveCrimeWitnessSource
+    {
+        std::vector<LiveCrimeWitnessActor> actorsInCell(std::string_view cellId) const override
+        {
+            const auto found = cells.find(std::string(cellId));
+            return found == cells.end() ? std::vector<LiveCrimeWitnessActor>() : found->second;
+        }
+
+        std::optional<LiveCrimeWitnessActor> findActor(
+            const ObservationActorIdentity& identity) const override
+        {
+            for (const auto& [cellId, actors] : cells)
+            {
+                (void)cellId;
+                const auto found = std::find_if(actors.begin(), actors.end(), [&](const auto& actor) {
+                    return actor.identity == identity;
+                });
+                if (found != actors.end())
+                    return *found;
+            }
+            return std::nullopt;
+        }
+
+        std::unordered_map<std::string, std::vector<LiveCrimeWitnessActor>> cells;
+    } source;
+
+    if (!mContentRegistry)
+        return {};
+
+    Position eventPosition;
+    eventPosition.pos[0] = request.offender.position.x;
+    eventPosition.pos[1] = request.offender.position.y;
+    eventPosition.pos[2] = request.offender.position.z;
+    std::vector<std::string> cells
+        = collisionCellsForPlayer(request.eventCell, eventPosition, request.alarmRadius);
+
+    if (request.victim && request.victim->kind == ObservationActorKind::Npc)
+    {
+        const auto keyIt = mWorld.actorKeysByNetId.find(request.victim->actorInstanceId);
+        if (keyIt != mWorld.actorKeysByNetId.end())
+        {
+            const auto locationIt = mWorld.actorLocations.find(keyIt->second);
+            if (locationIt != mWorld.actorLocations.end())
+                cells.push_back(locationIt->second);
+        }
+    }
+    std::sort(cells.begin(), cells.end());
+    cells.erase(std::unique(cells.begin(), cells.end()), cells.end());
+
+    const std::uint64_t nowMs = request.observedAtMs;
+    for (const std::string& cellId : cells)
+    {
+        const auto cellIt = mWorld.actorCells.find(cellId);
+        if (cellIt == mWorld.actorCells.end())
+            continue;
+
+        std::vector<LiveCrimeWitnessActor>& destination = source.cells[cellId];
+        destination.reserve(cellIt->second.actors.size());
+        for (const auto& [actorKey, record] : cellIt->second.actors)
+        {
+            (void)actorKey;
+            if (!isValidActorInstanceId(record.actorNetId))
+                continue;
+
+            LiveCrimeWitnessActor actor;
+            actor.identity.actorInstanceId = record.actorNetId;
+            actor.cellId = cellId;
+            actor.migrationGeneration = record.migrationGeneration;
+            actor.authorityGeneration = isActorAuthorityLeaseValid(record, cellId, nowMs)
+                ? record.actorAuthorityGeneration : cellIt->second.authorityGeneration;
+
+            const ESM::RefId refId = ESM::RefId::stringRefId(record.actor.refId);
+            if (const ESM::NPC* npc = mContentRegistry->store().get<ESM::NPC>().search(refId))
+            {
+                actor.identity.kind = ObservationActorKind::Npc;
+                actor.alarm = static_cast<std::int32_t>(npc->mAiData.mAlarm);
+                actor.alarmProvenance = CrimeAlarmProvenance::StaticContentBase;
+            }
+            else if (mContentRegistry->store().get<ESM::Creature>().search(refId))
+                actor.identity.kind = ObservationActorKind::Creature;
+            else
+                continue;
+
+            // ActorAI is delegated simulation state and does not yet carry a
+            // freshness/generation assertion for crime relationships. Until
+            // that provenance exists, follower/combat eligibility fails closed.
+            actor.relationship = CrimeWitnessRelationship::Unknown;
+            actor.relationshipProvenance = CrimeRelationshipProvenance::Unavailable;
+            destination.push_back(std::move(actor));
+        }
+    }
+
+    return CrimeWitnessBuilder(mMechanicsSnapshots).build(request, source);
+}
+
 std::vector<MPServer::LiveObservationDiagnostic> MPServer::observeNpcCandidates(
     std::uint32_t targetPlayerGuid, std::optional<ActorInstanceId> observerFilter, std::string_view eventId)
 {
