@@ -30,6 +30,8 @@ namespace mwmp
         std::string refId;
         int         count  = 0;
         int         charge = -1;       // -1 = not a weapon/armor
+
+        bool operator==(const ContainerItem&) const = default;
     };
 
     // -----------------------------------------------------------------------
@@ -54,6 +56,7 @@ namespace mwmp
         Set    = 0,  // Replace entire contents
         Add    = 1,  // Add items to contents
         Remove = 2,  // Remove items from contents
+        BootstrapRequest = 3, // Server asks current source authority for a full Set
     };
 
 } // namespace mwmp

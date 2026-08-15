@@ -352,6 +352,7 @@ private:
     void handleLuaEvent         (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleObjectPlace      (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size);
+    void handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleObjectDelete     (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleObjectMove       (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleContainer        (ConnectedClient& c, const uint8_t* data, size_t size);

@@ -76,6 +76,7 @@ namespace mwmp
             const MWWorld::Ptr& npcAttacker);
         void notifyNpcCast(const MWWorld::Ptr& npc, const std::string& spellId, const std::string& castAnim, const MWWorld::Ptr& target, bool release);
         ActorInstanceId actorNetIdForPtr(const std::string& cellId, const MWWorld::Ptr& ptr) const;
+        std::uint32_t actorMigrationGenerationForPtr(const std::string& cellId, const MWWorld::Ptr& ptr) const;
 
     private:
         struct BufferedSnapshot

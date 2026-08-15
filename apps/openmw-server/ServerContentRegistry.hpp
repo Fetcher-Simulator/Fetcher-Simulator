@@ -68,6 +68,16 @@ namespace mwmp
             bool enabled = false;
         };
 
+        struct ContainerReference
+        {
+            Position position;
+            std::string ownerId;
+            std::string factionId;
+            std::int32_t factionRank = -1;
+            bool ownershipGlobalAllowsUse = false;
+            bool enabled = false;
+        };
+
         explicit ServerContentRegistry(Config config);
         ~ServerContentRegistry();
 
@@ -90,6 +100,8 @@ namespace mwmp
         bool validateScriptSource(std::string_view id, std::string_view source) const;
         std::optional<PlacedItemReference> findPlacedItemReference(
             const PlacedObjectIdentity& identity) const;
+        std::optional<ContainerReference> findContainerReference(
+            std::string_view cellId, std::string_view refId, std::uint32_t refIndex) const;
         void installRuntimeDefinition(
             std::string_view id, const records::DynamicRecordDefinition& definition);
 

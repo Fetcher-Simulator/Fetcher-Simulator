@@ -10,6 +10,7 @@
 #include <components/openmw-mp/Base/BaseObject.hpp>
 #include <components/openmw-mp/Base/BaseStructs.hpp>
 #include <components/openmw-mp/WorldItemTake.hpp>
+#include <components/openmw-mp/InventoryTake.hpp>
 #include "../../mwworld/ptr.hpp"
 
 namespace mwmp
@@ -32,6 +33,7 @@ namespace mwmp
     {
     public:
         explicit WorldObjectSync(NetworkClient& client);
+        void resetSessionState();
 
         // --- called from Main.cpp frame loop ---
         void update(float dt);
@@ -80,6 +82,9 @@ namespace mwmp
                                      const std::string& refId, uint32_t refNum, uint32_t mpNum,
                                      ContainerAction action,
                                      const std::vector<ContainerItem>& items);
+        bool requestInventoryTake(const MWWorld::Ptr& source, const MWWorld::Ptr& item,
+            int count, InventoryTakeKind kind);
+        bool requestPickpocketFinish(const MWWorld::Ptr& source);
 
         // --- inbound: packets from server ---
         void onServerObjectPlace (uint32_t mpNum, const std::string& refId,
@@ -88,6 +93,7 @@ namespace mwmp
 
         void onServerObjectDelete(const PlacedObjectIdentity& identity);
         void onServerWorldItemTakeResult(const WorldItemTakeResult& result);
+        void onServerInventoryTakeResult(const InventoryTakeResult& result);
 
         void onServerObjectMove  (uint32_t mpNum, const std::string& cellId,
                                   const Position& pos);
@@ -107,6 +113,7 @@ namespace mwmp
         bool tryDeleteObject(const PlacedObjectIdentity& identity);
         bool tryMoveObject  (uint32_t mpNum, const Position& pos);
         bool tryApplyContainer(const ContainerRecord& record, ContainerAction action);
+        void sendInventoryTakeRequest(const InventoryTakeRequest& request);
         void registerObject(uint32_t mpNum, const MWWorld::Ptr& ptr);
         void unregisterObject(uint32_t mpNum);
 
@@ -129,10 +136,13 @@ namespace mwmp
         std::vector<PendingDelete>    mPendingDelete;
         std::vector<PendingMove>      mPendingMove;
         std::vector<PendingContainer> mPendingContainer;
+        std::vector<InventoryTakeRequest> mPendingInventoryTakes;
         bool mSuppressLocalDelete = false;
         std::unordered_set<uint32_t> mPendingTakenMpNums;
         std::unordered_set<ESM::RefNum> mLocalPlayerInventoryDetached;
+        std::string mTakeRequestPrefix;
         std::uint64_t mNextTakeRequestId = 1;
+        std::uint64_t mNextInventoryTakeRequestId = 1;
 
         static constexpr float RETRY_RATE = 0.25f;
     };

@@ -441,6 +441,32 @@ CREATE TABLE IF NOT EXISTS world_item_take_requests (
 );
 )SQL";
 
+static const char* kInventoryTakeSchema = R"SQL(
+CREATE TABLE IF NOT EXISTS inventory_take_requests (
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    request_id TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    take_kind INTEGER NOT NULL,
+    cell_id TEXT NOT NULL,
+    source_ref_id TEXT NOT NULL,
+    source_ref_num INTEGER NOT NULL,
+    source_mp_num INTEGER NOT NULL,
+    source_actor_id INTEGER NOT NULL,
+    source_migration_generation INTEGER NOT NULL,
+    item_ref_id TEXT NOT NULL,
+    item_charge INTEGER NOT NULL,
+    item_count INTEGER NOT NULL,
+    inventory_revision INTEGER NOT NULL,
+    detected INTEGER NOT NULL,
+    detection_roll INTEGER NOT NULL,
+    theft INTEGER NOT NULL,
+    crime_value INTEGER NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(account_id, character_id, request_id)
+);
+)SQL";
+
     static const char* kCombatEventSchema = R"SQL(
 CREATE TABLE IF NOT EXISTS combat_events (
     event_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -871,6 +897,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
 
         exec(kSchema);
         exec(kWorldItemTakeSchema);
+        exec(kInventoryTakeSchema);
         exec(kCombatEventSchema);
         exec(kWerewolfStateSchema);
 
@@ -1533,6 +1560,293 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
 
             exec("COMMIT");
             return { WorldItemTakeCommitStatus::Committed, commit.result };
+        }
+        catch (...)
+        {
+            try { exec("ROLLBACK"); } catch (...) {}
+            throw;
+        }
+    }
+
+    std::optional<StoredInventoryTake> PlayerDatabase::loadInventoryTake(
+        std::int64_t accountId, std::int64_t characterId, std::string_view requestId)
+    {
+        sqlite3_stmt* statement = prepare(
+            "SELECT request_hash, take_kind, cell_id, source_ref_id, source_ref_num, source_mp_num,"
+            " source_actor_id, source_migration_generation, item_ref_id, item_charge, item_count,"
+            " inventory_revision, detected, detection_roll, theft, crime_value"
+            " FROM inventory_take_requests WHERE account_id=?1 AND character_id=?2 AND request_id=?3");
+        sqlite3_bind_int64(statement, 1, accountId);
+        sqlite3_bind_int64(statement, 2, characterId);
+        sqlite3_bind_text(statement, 3, requestId.data(), static_cast<int>(requestId.size()), SQLITE_TRANSIENT);
+        if (sqlite3_step(statement) != SQLITE_ROW)
+        {
+            sqlite3_finalize(statement);
+            return std::nullopt;
+        }
+        auto textColumn = [](sqlite3_stmt* row, int column) {
+            const char* value = reinterpret_cast<const char*>(sqlite3_column_text(row, column));
+            return std::string(value ? value : "");
+        };
+        StoredInventoryTake stored;
+        stored.requestHash = textColumn(statement, 0);
+        InventoryTakeResult& result = stored.result;
+        result.requestId = std::string(requestId);
+        result.accepted = true;
+        result.replayed = true;
+        result.kind = static_cast<InventoryTakeKind>(sqlite3_column_int(statement, 1));
+        result.source.cellId = textColumn(statement, 2);
+        result.source.refId = textColumn(statement, 3);
+        result.source.refNum = static_cast<std::uint32_t>(sqlite3_column_int64(statement, 4));
+        result.source.mpNum = static_cast<std::uint32_t>(sqlite3_column_int64(statement, 5));
+        result.source.actorInstanceId = static_cast<std::uint64_t>(sqlite3_column_int64(statement, 6));
+        result.source.migrationGeneration = static_cast<std::uint32_t>(sqlite3_column_int64(statement, 7));
+        result.itemRefId = textColumn(statement, 8);
+        result.itemCharge = sqlite3_column_int(statement, 9);
+        result.itemCount = sqlite3_column_int(statement, 10);
+        result.inventoryRevision = static_cast<std::uint64_t>(sqlite3_column_int64(statement, 11));
+        result.detected = sqlite3_column_int(statement, 12) != 0;
+        result.detectionRoll = sqlite3_column_int(statement, 13);
+        result.theft = sqlite3_column_int(statement, 14) != 0;
+        result.crimeValue = sqlite3_column_int64(statement, 15);
+        sqlite3_finalize(statement);
+        return stored;
+    }
+
+    InventoryTakeCommitResult PlayerDatabase::commitInventoryTake(const InventoryTakeCommit& commit)
+    {
+        auto textColumn = [](sqlite3_stmt* statement, int column) {
+            const char* value = reinterpret_cast<const char*>(sqlite3_column_text(statement, column));
+            return std::string(value ? value : "");
+        };
+        auto storedResult = [&](sqlite3_stmt* statement) {
+            InventoryTakeResult result;
+            result.requestId = commit.requestId;
+            result.accepted = true;
+            result.kind = static_cast<InventoryTakeKind>(sqlite3_column_int(statement, 1));
+            result.source.cellId = textColumn(statement, 2);
+            result.source.refId = textColumn(statement, 3);
+            result.source.refNum = static_cast<std::uint32_t>(sqlite3_column_int64(statement, 4));
+            result.source.mpNum = static_cast<std::uint32_t>(sqlite3_column_int64(statement, 5));
+            result.source.actorInstanceId = static_cast<std::uint64_t>(sqlite3_column_int64(statement, 6));
+            result.source.migrationGeneration = static_cast<std::uint32_t>(sqlite3_column_int64(statement, 7));
+            result.itemRefId = textColumn(statement, 8);
+            result.itemCharge = sqlite3_column_int(statement, 9);
+            result.itemCount = sqlite3_column_int(statement, 10);
+            result.inventoryRevision = static_cast<std::uint64_t>(sqlite3_column_int64(statement, 11));
+            result.detected = sqlite3_column_int(statement, 12) != 0;
+            result.detectionRoll = sqlite3_column_int(statement, 13);
+            result.theft = sqlite3_column_int(statement, 14) != 0;
+            result.crimeValue = sqlite3_column_int64(statement, 15);
+            return result;
+        };
+
+        exec("BEGIN IMMEDIATE");
+        try
+        {
+            sqlite3_stmt* existing = prepare(
+                "SELECT request_hash, take_kind, cell_id, source_ref_id, source_ref_num, source_mp_num,"
+                " source_actor_id, source_migration_generation, item_ref_id, item_charge, item_count,"
+                " inventory_revision, detected, detection_roll, theft, crime_value"
+                " FROM inventory_take_requests WHERE account_id=?1 AND character_id=?2 AND request_id=?3");
+            sqlite3_bind_int64(existing, 1, commit.accountId);
+            sqlite3_bind_int64(existing, 2, commit.characterId);
+            sqlite3_bind_text(existing, 3, commit.requestId.c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(existing) == SQLITE_ROW)
+            {
+                const std::string storedHash = textColumn(existing, 0);
+                InventoryTakeCommitResult duplicate;
+                duplicate.status = storedHash == commit.requestHash
+                    ? InventoryTakeCommitStatus::DuplicateRequest
+                    : InventoryTakeCommitStatus::DuplicateRequestConflict;
+                duplicate.result = storedResult(existing);
+                duplicate.result.replayed = duplicate.status == InventoryTakeCommitStatus::DuplicateRequest;
+                sqlite3_finalize(existing);
+                exec("COMMIT");
+                return duplicate;
+            }
+            sqlite3_finalize(existing);
+
+            sqlite3_stmt* revision = prepare(
+                "SELECT inventory_revision FROM characters WHERE id=?1 AND account_id=?2");
+            sqlite3_bind_int64(revision, 1, commit.characterId);
+            sqlite3_bind_int64(revision, 2, commit.accountId);
+            const bool revisionMatches = sqlite3_step(revision) == SQLITE_ROW
+                && static_cast<std::uint64_t>(sqlite3_column_int64(revision, 0))
+                    == commit.expectedInventoryRevision;
+            sqlite3_finalize(revision);
+            if (!revisionMatches)
+            {
+                exec("COMMIT");
+                return { InventoryTakeCommitStatus::StaleInventoryRevision, {} };
+            }
+
+            if (commit.expectedSource)
+            {
+                const ContainerRecord& expected = *commit.expectedSource;
+                sqlite3_stmt* items = prepare(
+                    "SELECT item_ref_id, item_count, charge FROM world_container_items"
+                    " WHERE cell_id=?1 AND ref_id=?2 AND ref_num=?3 ORDER BY item_index");
+                sqlite3_bind_text(items, 1, expected.cellId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(items, 2, expected.refId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int64(items, 3, expected.refNum);
+                std::vector<ContainerItem> stored;
+                while (sqlite3_step(items) == SQLITE_ROW)
+                    stored.push_back({ textColumn(items, 0), sqlite3_column_int(items, 1), sqlite3_column_int(items, 2) });
+                sqlite3_finalize(items);
+                if (stored != expected.items)
+                {
+                    exec("COMMIT");
+                    return { InventoryTakeCommitStatus::StaleSource, {} };
+                }
+            }
+
+            if (commit.resultingSource)
+            {
+                const ContainerRecord& source = *commit.resultingSource;
+                sqlite3_stmt* parent = prepare(
+                    "INSERT INTO world_containers(cell_id, ref_id, ref_num, mp_num, has_authority)"
+                    " VALUES(?1, ?2, ?3, ?4, 1) ON CONFLICT(cell_id, ref_id, ref_num) DO UPDATE SET"
+                    " mp_num=excluded.mp_num, has_authority=1");
+                sqlite3_bind_text(parent, 1, source.cellId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(parent, 2, source.refId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int64(parent, 3, source.refNum);
+                sqlite3_bind_int64(parent, 4, source.mpNum);
+                checkSqlite(sqlite3_step(parent), mDb, "commitInventoryTake(sourceParent)");
+                sqlite3_finalize(parent);
+
+                sqlite3_stmt* clear = prepare(
+                    "DELETE FROM world_container_items WHERE cell_id=?1 AND ref_id=?2 AND ref_num=?3");
+                sqlite3_bind_text(clear, 1, source.cellId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(clear, 2, source.refId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int64(clear, 3, source.refNum);
+                checkSqlite(sqlite3_step(clear), mDb, "commitInventoryTake(clearSource)");
+                sqlite3_finalize(clear);
+                sqlite3_stmt* insert = prepare(
+                    "INSERT INTO world_container_items(cell_id, ref_id, ref_num, item_index, item_ref_id,"
+                    " item_count, charge) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)");
+                for (std::size_t index = 0; index < source.items.size(); ++index)
+                {
+                    const ContainerItem& item = source.items[index];
+                    sqlite3_bind_text(insert, 1, source.cellId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(insert, 2, source.refId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int64(insert, 3, source.refNum);
+                    sqlite3_bind_int(insert, 4, static_cast<int>(index));
+                    sqlite3_bind_text(insert, 5, item.refId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int(insert, 6, item.count);
+                    sqlite3_bind_int(insert, 7, item.charge);
+                    checkSqlite(sqlite3_step(insert), mDb, "commitInventoryTake(insertSource)");
+                    sqlite3_reset(insert);
+                    sqlite3_clear_bindings(insert);
+                }
+                sqlite3_finalize(insert);
+
+                const std::string ownerC = std::to_string(source.refNum);
+                sqlite3_stmt* clearLinks = prepare(
+                    "DELETE FROM world_dynamic_record_links"
+                    " WHERE link_kind=?1 AND owner_a=?2 AND owner_b=?3 AND owner_c=?4");
+                clearDynamicRecordLinksForOwner(
+                    mDb, clearLinks, "container_parent", source.cellId, source.refId, ownerC);
+                clearDynamicRecordLinksForOwner(
+                    mDb, clearLinks, "container_item", source.cellId, source.refId, ownerC);
+                sqlite3_finalize(clearLinks);
+                sqlite3_stmt* insertLink = prepare(
+                    "INSERT OR REPLACE INTO world_dynamic_record_links(record_id, link_kind, owner_a, owner_b,"
+                    " owner_c, owner_index) VALUES(?1, ?2, ?3, ?4, ?5, ?6)");
+                insertDynamicRecordLink(mDb, insertLink, source.refId, "container_parent",
+                    source.cellId, source.refId, ownerC, 0);
+                for (std::size_t index = 0; index < source.items.size(); ++index)
+                    insertDynamicRecordLink(mDb, insertLink, source.items[index].refId, "container_item",
+                        source.cellId, source.refId, ownerC, static_cast<std::int64_t>(index));
+                sqlite3_finalize(insertLink);
+            }
+
+            if (commit.resultingInventoryRevision != commit.expectedInventoryRevision)
+            {
+                sqlite3_stmt* clear = prepare("DELETE FROM character_inventory WHERE character_id=?1");
+                sqlite3_bind_int64(clear, 1, commit.characterId);
+                checkSqlite(sqlite3_step(clear), mDb, "commitInventoryTake(clearInventory)");
+                sqlite3_finalize(clear);
+                sqlite3_stmt* insert = prepare(
+                    "INSERT INTO character_inventory(character_id, item_index, ref_id, item_count, charge,"
+                    " enchantment_charge, soul, instance_id) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)");
+                for (std::size_t index = 0; index < commit.inventory.size(); ++index)
+                {
+                    const Item& item = commit.inventory[index];
+                    sqlite3_bind_int64(insert, 1, commit.characterId);
+                    sqlite3_bind_int(insert, 2, static_cast<int>(index));
+                    sqlite3_bind_text(insert, 3, item.refId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int(insert, 4, item.count);
+                    sqlite3_bind_int(insert, 5, item.charge);
+                    sqlite3_bind_double(insert, 6, item.enchantmentCharge);
+                    sqlite3_bind_text(insert, 7, item.soul.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int64(insert, 8, item.instanceId);
+                    checkSqlite(sqlite3_step(insert), mDb, "commitInventoryTake(insertInventory)");
+                    sqlite3_reset(insert);
+                    sqlite3_clear_bindings(insert);
+                }
+                sqlite3_finalize(insert);
+                const std::string characterKey = std::to_string(commit.characterId);
+                sqlite3_stmt* clearLinks = prepare(
+                    "DELETE FROM world_dynamic_record_links"
+                    " WHERE link_kind=?1 AND owner_a=?2 AND owner_b=?3 AND owner_c=?4");
+                clearDynamicRecordLinksForOwner(mDb, clearLinks, "inventory_item", characterKey, "", "");
+                sqlite3_finalize(clearLinks);
+                sqlite3_stmt* insertLink = prepare(
+                    "INSERT OR REPLACE INTO world_dynamic_record_links(record_id, link_kind, owner_a, owner_b,"
+                    " owner_c, owner_index) VALUES(?1, ?2, ?3, ?4, ?5, ?6)");
+                for (std::size_t index = 0; index < commit.inventory.size(); ++index)
+                {
+                    const Item& item = commit.inventory[index];
+                    insertDynamicRecordLink(mDb, insertLink, item.refId, "inventory_item", characterKey, "", "",
+                        item.instanceId != 0 ? item.instanceId : static_cast<std::int64_t>(index));
+                }
+                sqlite3_finalize(insertLink);
+                sqlite3_stmt* update = prepare(
+                    "UPDATE characters SET inventory_saved=1, inventory_revision=?1, last_seen=?2"
+                    " WHERE id=?3 AND account_id=?4 AND inventory_revision=?5");
+                sqlite3_bind_int64(update, 1, static_cast<sqlite3_int64>(commit.resultingInventoryRevision));
+                sqlite3_bind_int64(update, 2, static_cast<sqlite3_int64>(std::time(nullptr)));
+                sqlite3_bind_int64(update, 3, commit.characterId);
+                sqlite3_bind_int64(update, 4, commit.accountId);
+                sqlite3_bind_int64(update, 5, static_cast<sqlite3_int64>(commit.expectedInventoryRevision));
+                checkSqlite(sqlite3_step(update), mDb, "commitInventoryTake(updateRevision)");
+                if (sqlite3_changes(mDb) != 1)
+                    throw std::runtime_error("inventory revision changed during inventory take");
+                sqlite3_finalize(update);
+            }
+
+            const InventorySourceIdentity& source = commit.result.source;
+            sqlite3_stmt* request = prepare(
+                "INSERT INTO inventory_take_requests(account_id, character_id, request_id, request_hash, take_kind,"
+                " cell_id, source_ref_id, source_ref_num, source_mp_num, source_actor_id,"
+                " source_migration_generation, item_ref_id, item_charge, item_count, inventory_revision,"
+                " detected, detection_roll, theft, crime_value, created_at)"
+                " VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)");
+            sqlite3_bind_int64(request, 1, commit.accountId);
+            sqlite3_bind_int64(request, 2, commit.characterId);
+            sqlite3_bind_text(request, 3, commit.requestId.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(request, 4, commit.requestHash.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(request, 5, static_cast<int>(commit.result.kind));
+            sqlite3_bind_text(request, 6, source.cellId.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(request, 7, source.refId.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(request, 8, source.refNum);
+            sqlite3_bind_int64(request, 9, source.mpNum);
+            sqlite3_bind_int64(request, 10, static_cast<sqlite3_int64>(source.actorInstanceId));
+            sqlite3_bind_int64(request, 11, source.migrationGeneration);
+            sqlite3_bind_text(request, 12, commit.result.itemRefId.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(request, 13, commit.result.itemCharge);
+            sqlite3_bind_int(request, 14, commit.result.itemCount);
+            sqlite3_bind_int64(request, 15, static_cast<sqlite3_int64>(commit.result.inventoryRevision));
+            sqlite3_bind_int(request, 16, commit.result.detected ? 1 : 0);
+            sqlite3_bind_int(request, 17, commit.result.detectionRoll);
+            sqlite3_bind_int(request, 18, commit.result.theft ? 1 : 0);
+            sqlite3_bind_int64(request, 19, commit.result.crimeValue);
+            sqlite3_bind_int64(request, 20, static_cast<sqlite3_int64>(std::time(nullptr)));
+            checkSqlite(sqlite3_step(request), mDb, "commitInventoryTake(insertRequest)");
+            sqlite3_finalize(request);
+            exec("COMMIT");
+            return { InventoryTakeCommitStatus::Committed, commit.result };
         }
         catch (...)
         {

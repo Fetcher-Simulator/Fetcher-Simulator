@@ -486,6 +486,64 @@ mwmp::ServerContentRegistry::findPlacedItemReference(const PlacedObjectIdentity&
     return result;
 }
 
+std::optional<mwmp::ServerContentRegistry::ContainerReference>
+mwmp::ServerContentRegistry::findContainerReference(
+    std::string_view cellId, std::string_view refId, std::uint32_t refIndex) const
+{
+    if (cellId.empty() || refId.empty() || refIndex == 0)
+        return std::nullopt;
+
+    MWWorld::CellStore* cell = nullptr;
+    const std::string cellName(cellId);
+    if (cellId.starts_with("EXT:"))
+    {
+        int x = 0;
+        int y = 0;
+        if (std::sscanf(cellName.c_str(), "EXT:%d,%d", &x, &y) != 2)
+            return std::nullopt;
+        cell = &mRuntime->world->getWorldModel().getExterior(
+            ESM::ExteriorCellLocation(x, y, ESM::Cell::sDefaultWorldspaceId));
+    }
+    else
+        cell = &mRuntime->world->getWorldModel().getInterior(cellName);
+
+    cell->load();
+    std::optional<ContainerReference> result;
+    bool ambiguous = false;
+    cell->forEachConst([&](const MWWorld::ConstPtr& ptr) {
+        if (ptr.getType() != ESM::Container::sRecordId
+            || ptr.getCellRef().getRefNum().mIndex != refIndex
+            || ptr.getCellRef().getRefId().serializeText() != refId)
+            return true;
+        if (result)
+        {
+            ambiguous = true;
+            return false;
+        }
+        ContainerReference reference;
+        reference.ownerId = ptr.getCellRef().getOwner().serializeText();
+        reference.factionId = ptr.getCellRef().getFaction().serializeText();
+        reference.factionRank = ptr.getCellRef().getFactionRank();
+        reference.enabled = ptr.getRefData().isEnabled();
+        const ESM::Position& position = ptr.getRefData().getPosition();
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            reference.position.pos[axis] = position.pos[axis];
+            reference.position.rot[axis] = position.rot[axis];
+        }
+        const std::string& globalName = ptr.getCellRef().getGlobalVariable();
+        if (!globalName.empty())
+        {
+            const ESM::Global* global
+                = store().get<ESM::Global>().search(ESM::RefId::stringRefId(globalName));
+            reference.ownershipGlobalAllowsUse = global && global->mValue.getInteger() != 0;
+        }
+        result = std::move(reference);
+        return true;
+    });
+    return ambiguous ? std::nullopt : result;
+}
+
 void mwmp::ServerContentRegistry::installRuntimeDefinition(
     std::string_view id, const records::DynamicRecordDefinition& definition)
 {

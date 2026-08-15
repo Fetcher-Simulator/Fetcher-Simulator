@@ -16,6 +16,11 @@
 #include "class.hpp"
 #include "containerstore.hpp"
 
+#ifdef BUILD_MULTIPLAYER
+#include "../mwmp/Main.hpp"
+#include "../mwmp/sync/WorldObjectSync.hpp"
+#endif
+
 namespace MWWorld
 {
     ActionHarvest::ActionHarvest(const MWWorld::Ptr& container)
@@ -32,6 +37,22 @@ namespace MWWorld
         MWWorld::Ptr target = getTarget();
         MWWorld::ContainerStore& store = target.getClass().getContainerStore(target);
         store.resolve();
+
+#ifdef BUILD_MULTIPLAYER
+        if (mwmp::Main::isConnected()
+            && actor == MWBase::Environment::get().getWorld()->getPlayerPtr())
+        {
+            for (MWWorld::ContainerStoreIterator it = store.begin(); it != store.end(); ++it)
+            {
+                if (!it->getClass().showsInInventory(*it))
+                    continue;
+                mwmp::Main::get().getWorldObjectSync().requestInventoryTake(
+                    target, *it, it->getCellRef().getCount(), mwmp::InventoryTakeKind::Container);
+            }
+            return;
+        }
+#endif
+
         MWWorld::ContainerStore& actorStore = actor.getClass().getContainerStore(actor);
         std::map<std::string, int> takenMap;
         for (MWWorld::ContainerStoreIterator it = store.begin(); it != store.end(); ++it)

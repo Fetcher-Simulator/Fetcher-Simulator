@@ -1,10 +1,13 @@
 ﻿#include "WorldObjectSync.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cctype>
 #include <cmath>
 #include <exception>
 #include <optional>
+#include <random>
+#include <sstream>
 #include <cstdio>
 #include <string_view>
 
@@ -17,10 +20,13 @@
 #include <components/openmw-mp/Packets/Object/PacketObjectMove.hpp>
 #include <components/openmw-mp/Packets/Object/PacketContainer.hpp>
 #include <components/openmw-mp/Packets/Object/PacketWorldItemTake.hpp>
+#include <components/openmw-mp/Packets/Object/PacketInventoryTake.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketCorpseDispose.hpp>
 
 #include "../../mwbase/environment.hpp"
 #include "../../mwbase/world.hpp"
+#include "../../mwbase/windowmanager.hpp"
+#include "../../mwgui/mode.hpp"
 #include "../../mwworld/class.hpp"
 #include "../../mwworld/ptr.hpp"
 #include "../../mwworld/manualref.hpp"
@@ -42,8 +48,28 @@
 namespace mwmp
 {
 
+void WorldObjectSync::resetSessionState()
+{
+    mPendingInventoryTakes.clear();
+}
+
 namespace
 {
+    std::string makeCellId(const MWWorld::Ptr& ptr)
+    {
+        const MWWorld::CellStore* store = ptr.getCell();
+        if (!store || !store->getCell())
+            return {};
+        const MWWorld::Cell* cell = store->getCell();
+        if (cell->isExterior())
+        {
+            char buffer[32];
+            std::snprintf(buffer, sizeof(buffer), "EXT:%d,%d", cell->getGridX(), cell->getGridY());
+            return buffer;
+        }
+        return std::string(cell->getNameId());
+    }
+
     bool isContainerTarget(const MWWorld::Ptr& ptr)
     {
         return !ptr.isEmpty()
@@ -217,6 +243,11 @@ namespace
 WorldObjectSync::WorldObjectSync(NetworkClient& client)
     : mClient(client)
 {
+    std::random_device random;
+    const auto timestamp = std::chrono::system_clock::now().time_since_epoch().count();
+    std::ostringstream prefix;
+    prefix << "client-take-" << timestamp << '-' << random() << random();
+    mTakeRequestPrefix = prefix.str();
 }
 
 // ---------------------------------------------------------------------------
@@ -312,8 +343,7 @@ void WorldObjectSync::requestLocalObjectTake(const MWWorld::Ptr& worldObject)
         return;
 
     WorldItemTakeRequest request;
-    request.requestId = "take-" + std::to_string(Main::get().getPlayerSync().localPlayer().guid)
-        + "-" + std::to_string(mNextTakeRequestId++);
+    request.requestId = mTakeRequestPrefix + "-world-" + std::to_string(mNextTakeRequestId++);
     request.object.cellId = cellIdForPtr(worldObject);
     request.object.refId = worldObject.getCellRef().getRefId().serializeText();
     request.requestedCount = worldObject.getCellRef().getCount();
@@ -628,6 +658,77 @@ void WorldObjectSync::onServerObjectDelete(const PlacedObjectIdentity& identity)
     }
 }
 
+bool WorldObjectSync::requestInventoryTake(const MWWorld::Ptr& source, const MWWorld::Ptr& item,
+    int count, InventoryTakeKind kind)
+{
+    if (!Main::isInitialised() || source.isEmpty() || item.isEmpty() || count <= 0)
+        return false;
+
+    InventoryTakeRequest request;
+    request.requestId = mTakeRequestPrefix + "-inventory-"
+        + std::to_string(mNextInventoryTakeRequestId++);
+    request.kind = kind;
+    request.source.cellId = makeCellId(source);
+    request.source.refId = source.getCellRef().getRefId().serializeText();
+    request.source.refNum = source.getCellRef().getRefNum().mIndex;
+    request.source.mpNum = getMpNumForObject(source);
+    if (source.getClass().isActor())
+    {
+        ActorSync& actorSync = Main::get().getActorSync();
+        request.source.actorInstanceId = actorSync.actorNetIdForPtr(request.source.cellId, source);
+        request.source.migrationGeneration
+            = actorSync.actorMigrationGenerationForPtr(request.source.cellId, source);
+        request.source.mpNum = actorSync.getActorMpNum(source);
+        request.source.refNum = request.source.mpNum == 0
+            ? actorSync.getActorCanonicalRefNum(source) : 0;
+    }
+    request.itemRefId = item.getCellRef().getRefId().serializeText();
+    request.itemCharge = static_cast<std::int32_t>(item.getCellRef().getCharge());
+    request.requestedCount = count;
+    request.expectedInventoryRevision = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
+    if (validateInventoryTakeRequest(request) != InventoryTakeError::None)
+    {
+        Log(Debug::Warning) << "[MP] Cannot build canonical inventory take request source="
+                            << request.source.refId << " item=" << request.itemRefId;
+        return false;
+    }
+
+    mPendingInventoryTakes.push_back(request);
+    sendInventoryTakeRequest(request);
+    return true;
+}
+
+bool WorldObjectSync::requestPickpocketFinish(const MWWorld::Ptr& source)
+{
+    if (!Main::isInitialised() || source.isEmpty() || !source.getClass().isActor())
+        return false;
+    InventoryTakeRequest request;
+    request.requestId = mTakeRequestPrefix + "-inventory-"
+        + std::to_string(mNextInventoryTakeRequestId++);
+    request.kind = InventoryTakeKind::PickpocketFinish;
+    request.source.cellId = makeCellId(source);
+    request.source.refId = source.getCellRef().getRefId().serializeText();
+    ActorSync& actorSync = Main::get().getActorSync();
+    request.source.actorInstanceId = actorSync.actorNetIdForPtr(request.source.cellId, source);
+    request.source.migrationGeneration
+        = actorSync.actorMigrationGenerationForPtr(request.source.cellId, source);
+    request.source.mpNum = actorSync.getActorMpNum(source);
+    request.source.refNum = request.source.mpNum == 0 ? actorSync.getActorCanonicalRefNum(source) : 0;
+    request.expectedInventoryRevision = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
+    if (validateInventoryTakeRequest(request) != InventoryTakeError::None)
+        return false;
+    mPendingInventoryTakes.push_back(request);
+    sendInventoryTakeRequest(request);
+    return true;
+}
+
+void WorldObjectSync::sendInventoryTakeRequest(const InventoryTakeRequest& request)
+{
+    PacketInventoryTakeRequest packet;
+    packet.request = request;
+    mClient.sendReliable(packet.encode());
+}
+
 void WorldObjectSync::onServerWorldItemTakeResult(const WorldItemTakeResult& result)
 {
     Log(result.accepted ? Debug::Info : Debug::Warning)
@@ -641,6 +742,39 @@ void WorldObjectSync::onServerWorldItemTakeResult(const WorldItemTakeResult& res
         << " inventoryRevision=" << result.inventoryRevision;
 }
 
+void WorldObjectSync::onServerInventoryTakeResult(const InventoryTakeResult& result)
+{
+    Log(result.accepted ? Debug::Info : Debug::Warning)
+        << "[MP] Authoritative inventory take result request=" << result.requestId
+        << " accepted=" << result.accepted << " replayed=" << result.replayed
+        << " error=" << getInventoryTakeErrorCode(result.error)
+        << " kind=" << static_cast<unsigned>(result.kind)
+        << " item=" << result.itemRefId << " count=" << result.itemCount
+        << " detected=" << result.detected << " roll=" << result.detectionRoll
+        << " theft=" << result.theft << " revision=" << result.inventoryRevision;
+    if (result.error != InventoryTakeError::SourceUnavailable
+        && result.error != InventoryTakeError::StaleInventoryRevision)
+    {
+        std::erase_if(mPendingInventoryTakes,
+            [&](const InventoryTakeRequest& request) { return request.requestId == result.requestId; });
+    }
+    else if (result.error == InventoryTakeError::StaleInventoryRevision)
+    {
+        const auto pending = std::find_if(mPendingInventoryTakes.begin(), mPendingInventoryTakes.end(),
+            [&](const InventoryTakeRequest& request) { return request.requestId == result.requestId; });
+        if (pending != mPendingInventoryTakes.end())
+        {
+            pending->expectedInventoryRevision = result.inventoryRevision;
+            sendInventoryTakeRequest(*pending);
+        }
+    }
+    if ((result.kind == InventoryTakeKind::Pickpocket
+            || result.kind == InventoryTakeKind::PickpocketFinish) && result.detected)
+    {
+        MWBase::Environment::get().getWindowManager()->removeGuiMode(MWGui::GM_Container);
+    }
+}
+
 // ---------------------------------------------------------------------------
 void WorldObjectSync::onServerObjectMove(uint32_t mpNum, const std::string& /*cellId*/,
                                           const Position& pos)
@@ -652,10 +786,34 @@ void WorldObjectSync::onServerObjectMove(uint32_t mpNum, const std::string& /*ce
 // ---------------------------------------------------------------------------
 void WorldObjectSync::onServerContainer(const ContainerRecord& record, ContainerAction action)
 {
+    if (action == ContainerAction::BootstrapRequest)
+    {
+        onLocalContainerOpened(record.cellId, record.refId, record.refNum, record.mpNum);
+        return;
+    }
     if (!tryApplyContainer(record, action))
     {
         Log(Debug::Verbose) << "[MP] WorldObjectSync: queuing Container refId=" << record.refId;
         mPendingContainer.push_back({record, action, 0.f});
+    }
+    if (action == ContainerAction::Set)
+    {
+        for (InventoryTakeRequest& request : mPendingInventoryTakes)
+        {
+            const bool sameStatic = request.source.actorInstanceId == 0
+                && request.source.cellId == record.cellId && request.source.refId == record.refId
+                && request.source.refNum == record.refNum && request.source.mpNum == record.mpNum;
+            const bool sameActor = request.source.actorInstanceId != 0
+                && request.source.cellId == record.cellId && request.source.refId == record.refId
+                && (request.source.mpNum == 0 || request.source.mpNum == record.mpNum)
+                && (request.source.refNum == 0 || request.source.refNum == record.refNum);
+            if (sameStatic || sameActor)
+            {
+                request.expectedInventoryRevision
+                    = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
+                sendInventoryTakeRequest(request);
+            }
+        }
     }
 }
 

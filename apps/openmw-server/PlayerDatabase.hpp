@@ -36,6 +36,7 @@
 #include <components/openmw-mp/PlayerFactionState.hpp>
 #include <components/openmw-mp/PlayerTopicState.hpp>
 #include <components/openmw-mp/WorldItemTake.hpp>
+#include <components/openmw-mp/InventoryTake.hpp>
 
 #include "PlayerMark.hpp"
 
@@ -271,6 +272,41 @@ namespace mwmp
     {
         WorldItemTakeCommitStatus status = WorldItemTakeCommitStatus::Committed;
         WorldItemTakeResult result;
+    };
+
+    enum class InventoryTakeCommitStatus
+    {
+        Committed,
+        DuplicateRequest,
+        DuplicateRequestConflict,
+        StaleInventoryRevision,
+        StaleSource,
+    };
+
+    struct InventoryTakeCommit
+    {
+        std::int64_t accountId = 0;
+        std::int64_t characterId = 0;
+        std::string requestId;
+        std::string requestHash;
+        InventoryTakeResult result;
+        std::uint64_t expectedInventoryRevision = 0;
+        std::uint64_t resultingInventoryRevision = 0;
+        std::vector<Item> inventory;
+        std::optional<ContainerRecord> expectedSource;
+        std::optional<ContainerRecord> resultingSource;
+    };
+
+    struct InventoryTakeCommitResult
+    {
+        InventoryTakeCommitStatus status = InventoryTakeCommitStatus::Committed;
+        InventoryTakeResult result;
+    };
+
+    struct StoredInventoryTake
+    {
+        std::string requestHash;
+        InventoryTakeResult result;
     };
 
     struct CombatEventRecord
@@ -601,6 +637,9 @@ namespace mwmp
         /// bundle, dependencies, and (when supplied) the resulting inventory.
         DynamicRecordCommitStatus commitDynamicRecordRequest(const DynamicRecordCommit& commit);
         WorldItemTakeCommitResult commitWorldItemTake(const WorldItemTakeCommit& commit);
+        InventoryTakeCommitResult commitInventoryTake(const InventoryTakeCommit& commit);
+        std::optional<StoredInventoryTake> loadInventoryTake(
+            std::int64_t accountId, std::int64_t characterId, std::string_view requestId);
         std::vector<PlacedObjectIdentity> loadTakenWorldItemReferences();
 
         /// Allocate a durable server-issued combat event identifier and store
