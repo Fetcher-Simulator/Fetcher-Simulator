@@ -25,6 +25,7 @@
 #include <components/openmw-mp/Packets/Actor/PacketActorPositionV2.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorPresentationV2.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCombatRequest.hpp>
+#include <components/openmw-mp/Packets/Actor/PacketActorCombatResult.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCellChange.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorDeath.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorIdentity.hpp>
@@ -46,6 +47,7 @@
 #include "../../mwmechanics/aiwander.hpp"
 #include "../../mwmechanics/character.hpp"
 #include "../../mwmechanics/creaturestats.hpp"
+#include "../../mwmechanics/combat.hpp"
 #include "../../mwmechanics/movement.hpp"
 #include "../../mwmechanics/npcstats.hpp"
 #include "../../mwrender/animation.hpp"
@@ -982,6 +984,8 @@ namespace mwmp
         mActorAuthorityGuids.clear();
         mActorAuthorityGenerations.clear();
         mMechanicsSnapshotSequences.clear();
+        mLastAppliedCombatEventIds.clear();
+        mNextCombatResultSequence = 1;
         mNextSpeechEventIds.clear();
         mNextSpeechSequence = 1;
         mMpNumsByLocalActor.clear();
@@ -4304,6 +4308,33 @@ namespace mwmp
                 continue;
             }
 
+            if (list.combatEventId == 0 || list.combatVictimActorInstanceId != victimActorNetId
+                || list.combatVictimMigrationGeneration == 0
+                || list.combatVictimAuthorityGeneration == 0)
+            {
+                Log(Debug::Warning) << "[MP] ActorSync: CombatRequest missing server transaction binding"
+                                    << " victim=" << actorState.refId
+                                    << " actorNetId=" << victimActorNetId;
+                continue;
+            }
+
+            std::uint8_t resultFlags = 0;
+            const MWMechanics::AiSequence& preHitAi = victimStats.getAiSequence();
+            if (MWMechanics::isAggressive(victim, attacker))
+                resultFlags |= CombatVictimWasAggressive;
+            if (preHitAi.isEngagedWithActor())
+                resultFlags |= CombatVictimWasEngaged;
+            if (preHitAi.isInPursuit())
+                resultFlags |= CombatVictimWasPursuing;
+            if (victim.getClass().isNpc())
+            {
+                const MWMechanics::NpcStats& npcStats = victim.getClass().getNpcStats(victim);
+                if (npcStats.isWerewolf())
+                    resultFlags |= CombatVictimWasWerewolf;
+            }
+            if (victimStats.getMagicEffects().getOrDefault(ESM::MagicEffect::Vampirism).getMagnitude() > 0.f)
+                resultFlags |= CombatVictimWasVampire;
+
             const MWMechanics::DamageSourceType sourceType
                 = (actorState.attack.type == 2 || actorState.attack.type == 3)
                 ? MWMechanics::DamageSourceType::Ranged
@@ -4385,12 +4416,39 @@ namespace mwmp
                     true,
                     sourceType);
 
+                resultFlags |= CombatResultApplied;
+                if (victimStats.isDead() || victimStats.getHealth().getCurrent() <= 0.f)
+                    resultFlags |= CombatVictimDied;
+                if ((resultFlags & CombatVictimDied) != 0)
+                    mLastAppliedCombatEventIds[victimActorNetId] = list.combatEventId;
+                else
+                    mLastAppliedCombatEventIds.erase(victimActorNetId);
+
                 Log(Debug::Info) << "[MP] ActorSync: CombatRequest applied damage=" << actorState.attack.damage
                                  << " stat=" << (healthDamage ? "health" : "fatigue")
                                  << " to " << actorState.refId
                                  << " sourceType=" << static_cast<int>(sourceType)
                                  << " distance=" << (attackerDistanceSq >= 0.f ? std::sqrt(attackerDistanceSq) : -1.f);
             }
+
+
+            ActorList combatResult;
+            combatResult.cellId = list.cellId;
+            combatResult.authorityGuid = localGuid;
+            combatResult.combatEventId = list.combatEventId;
+            combatResult.combatVictimActorInstanceId = victimActorNetId;
+            combatResult.combatVictimMigrationGeneration = list.combatVictimMigrationGeneration;
+            combatResult.combatVictimAuthorityGeneration = list.combatVictimAuthorityGeneration;
+            combatResult.combatResultSequence = mNextCombatResultSequence++;
+            if (combatResult.combatResultSequence == 0)
+                combatResult.combatResultSequence = mNextCombatResultSequence++;
+            combatResult.combatResultFlags = resultFlags;
+            combatResult.combatAppliedDamage
+                = (resultFlags & CombatResultApplied) != 0 ? actorState.attack.damage : 0.f;
+            combatResult.actors.push_back(actorState);
+            PacketActorCombatResult resultPacket;
+            resultPacket.setActorList(&combatResult);
+            mClient.sendReliable(resultPacket.encode());
         }
     }
 
@@ -7467,6 +7525,9 @@ namespace mwmp
                                          << " anim='" << deathGroup << "'";
                         BaseActor deathActor = actor;
                         deathActor.deathEventId = deathEventId;
+                        if (const auto cause = mLastAppliedCombatEventIds.find(actorNetIdForActorState(actor));
+                            cause != mLastAppliedCombatEventIds.end())
+                            deathActor.deathCauseCombatEventId = cause->second;
                         deathActor.deathAnimGroup = deathGroup;
                         deathUpdate.actors.push_back(std::move(deathActor));
                     }

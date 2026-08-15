@@ -153,6 +153,7 @@ namespace mwmp
         RuntimeContentBootstrapComplete = 146, // Ordered RecordDynamic bootstrap completion marker
         WorldItemTakeRequest = 147, // Typed client request for authoritative placed-world pickup
         WorldItemTakeResult = 148, // Terminal authoritative pickup result
+        ActorCombatResult = 149, // Current actor authority -> server: bound delegated hit result
         ServerLuaPackageManifest = 152, // Server-selected immutable OpenMW Lua package set
         ServerLuaPackageChunk = 153, // Bounded source chunk for a staged package generation
         ServerLuaPackageBootstrapComplete = 154, // Explicit end of required package transfer

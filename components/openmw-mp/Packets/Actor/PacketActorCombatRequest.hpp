@@ -21,6 +21,10 @@ namespace mwmp
         {
             packBatchHeader(ws);
             ws.write(mActorList->victimPlayerGuid);
+            ws.write(mActorList->combatEventId);
+            ws.write(mActorList->combatVictimActorInstanceId);
+            ws.write(mActorList->combatVictimMigrationGeneration);
+            ws.write(mActorList->combatVictimAuthorityGeneration);
             const auto count = static_cast<uint16_t>(mActorList->actors.size());
             ws.write(count);
             for (const auto& actor : mActorList->actors)
@@ -38,6 +42,10 @@ namespace mwmp
         {
             unpackBatchHeader(rs);
             rs.read(mActorList->victimPlayerGuid);
+            rs.read(mActorList->combatEventId);
+            rs.read(mActorList->combatVictimActorInstanceId);
+            rs.read(mActorList->combatVictimMigrationGeneration);
+            rs.read(mActorList->combatVictimAuthorityGeneration);
             uint16_t count = 0;
             rs.read(count);
             mActorList->actors.resize(count);

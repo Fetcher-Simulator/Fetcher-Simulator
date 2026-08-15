@@ -39,6 +39,9 @@ namespace mwmp
         CastSpell    cast;
         uint8_t      deathState = 0;
         uint32_t     deathEventId = 0;
+        // Stable server-issued combat event that causally produced this death.
+        // Zero means that no validated multiplayer combat cause is available.
+        uint64_t     deathCauseCombatEventId = 0;
         bool         isDead = false;
         bool         isInstantDeath = false;
         std::string  deathAnimGroup;         // e.g. "death1"/"death2"/"death_knock_down" synced from authority
@@ -75,6 +78,16 @@ namespace mwmp
         bool                isAuthority = false;  // true = sender is authority for this cell
         uint32_t            authorityGuid = 0;
         uint32_t            victimPlayerGuid = 0;   // non-zero = this request targets a player (NPC->player damage)
+        // Protocol-10 combat transaction metadata. Attackers send eventId=0;
+        // the server allocates and binds the remaining fields before routing
+        // the proposal to the current victim authority.
+        uint64_t            combatEventId = 0;
+        uint64_t            combatVictimActorInstanceId = 0;
+        uint32_t            combatVictimMigrationGeneration = 0;
+        uint32_t            combatVictimAuthorityGeneration = 0;
+        uint32_t            combatResultSequence = 0;
+        uint8_t             combatResultFlags = 0;
+        float               combatAppliedDamage = 0.f;
         uint32_t            authorityGeneration = 0;
         uint32_t            snapshotSequence = 0;
         uint64_t            serverTimestamp = 0;

@@ -174,8 +174,9 @@ namespace mwmp
             && ((header.type >= static_cast<uint16_t>(PacketType::ActorList)
                     && header.type <= static_cast<uint16_t>(PacketType::ActorAttackV2))
                 || packetType == PacketType::MechanicsSnapshot);
+        const bool combatResultPacket = hasHeader && packetType == PacketType::ActorCombatResult;
 
-        if (!actorPacket)
+        if (!actorPacket && !combatResultPacket)
         {
             return mInterface->SendMessageToConnection(
                 mConnection, data.data(), static_cast<uint32_t>(data.size()), flags, nullptr);
@@ -197,6 +198,7 @@ namespace mwmp
             || type == PacketType::ActorDeath
             || type == PacketType::ActorSpeech
             || type == PacketType::ActorCombatRequest
+            || type == PacketType::ActorCombatResult
             || type == PacketType::ActorPositionV2
             || type == PacketType::ActorPresentationV2
             || type == PacketType::ActorAttackV2

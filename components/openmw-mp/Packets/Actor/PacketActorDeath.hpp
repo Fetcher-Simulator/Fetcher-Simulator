@@ -24,6 +24,7 @@ namespace mwmp
                 packActorIdentity(ws, actor);
                 packPosition(ws, actor.position);
                 ws.write(actor.deathEventId);
+                ws.write(actor.deathCauseCombatEventId);
                 ws.write(actor.deathState);
                 ws.write(actor.isDead);
                 ws.write(actor.isInstantDeath);
@@ -43,6 +44,7 @@ namespace mwmp
                 unpackActorIdentity(rs, actor);
                 unpackPosition(rs, actor.position);
                 rs.read(actor.deathEventId);
+                rs.read(actor.deathCauseCombatEventId);
                 rs.read(actor.deathState);
                 rs.read(actor.isDead);
                 rs.read(actor.isInstantDeath);
