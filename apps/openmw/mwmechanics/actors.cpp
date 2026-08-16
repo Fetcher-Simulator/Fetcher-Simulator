@@ -841,6 +841,16 @@ namespace MWMechanics
     void Actors::adjustMagicEffects(const MWWorld::Ptr& creature, float duration) const
     {
         CreatureStats& creatureStats = creature.getClass().getCreatureStats(creature);
+#ifdef BUILD_MULTIPLAYER
+        // Remote player NPCs are presentation-only copies. Their owner is the only
+        // client allowed to advance gameplay magic effects or derive health/death
+        // from them. Cast/projectile replication supplies presentation separately.
+        if (creature != getPlayer()
+            && creatureStats.getMovementFlag(CreatureStats::Flag_NetworkPlayerNpc))
+        {
+            return;
+        }
+#endif
         const bool wasDead = creatureStats.isDead();
 
         creatureStats.getActiveSpells().update(creature, duration);

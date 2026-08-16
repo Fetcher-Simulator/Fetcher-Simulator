@@ -124,7 +124,7 @@ namespace mwmp
         void sendCast();
         void sendDynamicStats();
         void sendBaseInfo();
-        void sendDeath();
+        bool sendDeath();
         void sendResurrect();
         void sendMechanicsSnapshot(const MWWorld::Ptr& player, bool reliable);
         void respawnLocally(const MWWorld::Ptr& player);
@@ -277,6 +277,7 @@ namespace mwmp
         bool mAwaitingRangedRelease = false;
         bool mLastCastingOrSpell = false;
         bool mLastWasDead = false;
+        bool mDeathPacketSent = false;
         bool mRespawnPending = false;
         float mRespawnTimer = 0.f;
         static constexpr float RESPAWN_DELAY = 5.f;

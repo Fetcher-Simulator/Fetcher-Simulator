@@ -60,6 +60,7 @@ namespace mwmp
         void onActorStatsDynamic(const ActorList& list);
         void onActorAI(const ActorList& list);
         void onActorCombatRequest(const ActorList& list);
+        void onActorCombatResult(const ActorList& list);
         void onActorCellChange(const ActorList& list);
 
         bool hasAuthority(const std::string& cellId) const;
@@ -157,6 +158,11 @@ namespace mwmp
             // animation rather than immediately when the cast packet arrives.
             float pendingBoltTimer = -1.f;
             std::string pendingBoltSpellId;
+            // Presentation-only lifetimes for looping magic VFX replayed on a
+            // non-authority actor. Gameplay ActiveSpells stay authority-owned,
+            // so remote clients must remove their visual loop when the source
+            // effect's advertised duration expires.
+            std::unordered_map<std::string, float> presentationEffectTimers;
             // Last animation group we told the animation system to play on this NPC.
             // Used to detect changes so we only call play()/disable() when the group
             // actually transitions, instead of hammering the animation system every frame.
@@ -362,6 +368,12 @@ namespace mwmp
         std::unordered_map<ActorInstanceId, uint32_t>       mMechanicsSnapshotSequences;
         std::unordered_map<ActorInstanceId, uint32_t>       mNextSpeechEventIds;
         std::unordered_map<ActorInstanceId, std::uint64_t>  mLastAppliedCombatEventIds;
+        // Canonical live->dead ordering barrier. A runtime-local flag is not
+        // sufficient because the same actor can temporarily have both a primary
+        // runtime and a cell-shadow runtime during reconciliation/handoffs.
+        // While present here, no copy of the actor may enter bootstrap-corpse
+        // presentation; only the reliable ActorDeath event may consume the edge.
+        std::unordered_set<ActorInstanceId> mPendingRealtimeDeathActorNetIds;
         std::uint32_t mNextCombatResultSequence = 1;
         uint32_t mNextSpeechSequence = 1;
         std::unordered_set<ActorInstanceId> mPendingPresentationSampleRequests;

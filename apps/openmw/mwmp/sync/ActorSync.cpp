@@ -985,6 +985,7 @@ namespace mwmp
         mActorAuthorityGenerations.clear();
         mMechanicsSnapshotSequences.clear();
         mLastAppliedCombatEventIds.clear();
+        mPendingRealtimeDeathActorNetIds.clear();
         mNextCombatResultSequence = 1;
         mNextSpeechEventIds.clear();
         mNextSpeechSequence = 1;
@@ -1513,8 +1514,11 @@ namespace mwmp
         std::size_t bootstrappedAfterWorldUpdate = 0;
         auto applyPendingCorpse = [&](const std::string& cellId, ActorRuntime& actor)
         {
+            const bool canonicalRealtimeDeathPending = actor.actorNetId != 0
+                && mPendingRealtimeDeathActorNetIds.find(actor.actorNetId) != mPendingRealtimeDeathActorNetIds.end();
             if (!actor.state.isDead || actor.deathFromRealtimePacket
-                || actor.pendingRealtimeDeathReplay || !actor.hasAuthoritativeTransform)
+                || actor.pendingRealtimeDeathReplay || canonicalRealtimeDeathPending
+                || !actor.hasAuthoritativeTransform)
                 return;
 
             bool appliedToBinding = false;
@@ -3588,6 +3592,11 @@ namespace mwmp
                 || std::abs(runtime.state.animFlags.animSide) > 0.1f;
             const bool hadLiveObservation = runtime.observedLiveSinceBinding
                 || (!runtime.state.refId.empty() && !runtime.state.isDead && !runtime.deathAlreadyApplied);
+            const ActorInstanceId presentationActorNetId = snapshot.actorNetId != 0
+                ? snapshot.actorNetId : runtime.actorNetId;
+            const bool canonicalRealtimeDeathPending = presentationActorNetId != 0
+                && mPendingRealtimeDeathActorNetIds.find(presentationActorNetId)
+                    != mPendingRealtimeDeathActorNetIds.end();
 
             // Reliable presentation carries event-like state. Continuous
             // locomotion belongs to ActorPositionV2 so it stays aligned with the
@@ -3596,6 +3605,8 @@ namespace mwmp
             {
                 const bool newlyPending = !runtime.pendingRealtimeDeathReplay;
                 runtime.pendingRealtimeDeathReplay = true;
+                if (snapshot.actorNetId != 0)
+                    mPendingRealtimeDeathActorNetIds.insert(snapshot.actorNetId);
                 if (newlyPending)
                 {
                     Log(Debug::Info) << "[MP] ActorSync: waiting for death animation after presentation dead"
@@ -3605,15 +3616,21 @@ namespace mwmp
                                      << " mpNum=" << runtime.state.mpNum;
                 }
             }
-            else if (!snapshotIsDead)
+            else if (!snapshotIsDead && !canonicalRealtimeDeathPending)
             {
                 runtime.observedLiveSinceBinding = true;
                 runtime.pendingRealtimeDeathReplay = false;
             }
+            else if (!snapshotIsDead && canonicalRealtimeDeathPending)
+            {
+                Log(Debug::Verbose) << "[MP] ActorSync: ignored live presentation during pending realtime death"
+                                    << " actorNetId=" << presentationActorNetId
+                                    << " refId=" << runtime.state.refId;
+            }
             runtime.state.isAttackingOrCasting = snapshot.isAttackingOrCasting;
             runtime.state.hasWeaponDrawn = snapshot.hasWeaponDrawn;
             runtime.state.hasSpellReadied = snapshot.hasSpellReadied;
-            runtime.state.isDead = snapshotIsDead;
+            runtime.state.isDead = snapshotIsDead || canonicalRealtimeDeathPending;
             runtime.state.position.isTeleporting = (snapshot.presentationFlags & ActorPresentationTeleporting) != 0;
 
             static constexpr uint32_t kReliablePresentationMovementFlags =
@@ -3993,7 +4010,11 @@ namespace mwmp
                 && actorState.isDead
                 && !runtime.deathAlreadyApplied
                 && !actorState.isInstantDeath;
-            const bool pendingRealtimeDeathReplay = runtime.pendingRealtimeDeathReplay
+            const ActorInstanceId actorNetId = runtime.actorNetId != 0
+                ? runtime.actorNetId : actorNetIdForActorState(actorState);
+            const bool canonicalRealtimeDeathPending = actorNetId != 0
+                && mPendingRealtimeDeathActorNetIds.find(actorNetId) != mPendingRealtimeDeathActorNetIds.end();
+            const bool pendingRealtimeDeathReplay = (runtime.pendingRealtimeDeathReplay || canonicalRealtimeDeathPending)
                 && actorState.isDead
                 && !actorState.isInstantDeath;
             const float previousHealth = runtime.state.dynamicStats.health.current;
@@ -4026,6 +4047,8 @@ namespace mwmp
             {
                 runtime.pendingRealtimeDeathReplay = false;
                 runtime.observedLiveSinceBinding = false;
+                if (actorNetId != 0)
+                    mPendingRealtimeDeathActorNetIds.erase(actorNetId);
             }
             if (actorState.deathEventId != 0)
                 runtime.lastReceivedDeathEventId = actorState.deathEventId;
@@ -4077,8 +4100,23 @@ namespace mwmp
         for (const auto& actorState : list.actors)
         {
             auto& runtime = runtimeForPacketActor(list.cellId, cell, actorState);
+            const ActorInstanceId actorNetId = runtime.actorNetId != 0
+                ? runtime.actorNetId : actorNetIdForActorState(actorState);
+            const bool canonicalRealtimeDeathPending = actorNetId != 0
+                && mPendingRealtimeDeathActorNetIds.find(actorNetId)
+                    != mPendingRealtimeDeathActorNetIds.end();
             const bool hadLiveObservation = runtime.observedLiveSinceBinding
                 || (!runtime.state.refId.empty() && !runtime.state.isDead && !runtime.deathAlreadyApplied);
+            if (canonicalRealtimeDeathPending && !actorState.isDead)
+            {
+                Log(Debug::Verbose) << "[MP] ActorSync: ignored live StatsDynamic during pending realtime death"
+                                    << " refId=" << actorState.refId
+                                    << " mpNum=" << actorState.mpNum
+                                    << " actorNetId=" << actorNetId
+                                    << " hp=" << actorState.dynamicStats.health.current
+                                    << " seq=" << list.snapshotSequence;
+                continue;
+            }
             if ((runtime.state.isDead || runtime.deathAlreadyApplied) && !actorState.isDead)
             {
                 Log(Debug::Verbose) << "[MP] ActorSync: ignored live StatsDynamic for dead actor "
@@ -4096,13 +4134,15 @@ namespace mwmp
             {
                 const bool newlyPending = !runtime.pendingRealtimeDeathReplay;
                 runtime.pendingRealtimeDeathReplay = true;
+                if (actorNetId != 0)
+                    mPendingRealtimeDeathActorNetIds.insert(actorNetId);
                 if (newlyPending)
                 {
                     Log(Debug::Info) << "[MP] ActorSync: waiting for death animation after stats dead"
                                      << " refId=" << runtime.state.refId
                                      << " refNum=" << runtime.state.refNum
                                      << " mpNum=" << runtime.state.mpNum
-                                     << " actorNetId=" << runtime.actorNetId;
+                                     << " actorNetId=" << actorNetId;
                 }
             }
             else if (!actorState.isDead)
@@ -4462,6 +4502,66 @@ namespace mwmp
         }
     }
 
+    void ActorSync::onActorCombatResult(const ActorList& list)
+    {
+        if (list.actors.size() != 1 || list.combatEventId == 0
+            || list.combatVictimActorInstanceId == 0
+            || (list.combatResultFlags & CombatResultApplied) == 0)
+        {
+            return;
+        }
+
+        const BaseActor& victimState = list.actors.front();
+        const ActorInstanceId packetActorNetId = actorNetIdForActorState(victimState);
+        if (packetActorNetId != 0 && packetActorNetId != list.combatVictimActorInstanceId)
+        {
+            Log(Debug::Warning) << "[MP] ActorSync: rejected CombatResult presentation identity mismatch"
+                                << " eventId=" << list.combatEventId
+                                << " packetActorNetId=" << packetActorNetId
+                                << " victimActorNetId=" << list.combatVictimActorInstanceId;
+            return;
+        }
+
+        MWWorld::Ptr victim;
+        if (const auto runtimeIt = mActorsByNetId.find(list.combatVictimActorInstanceId);
+            runtimeIt != mActorsByNetId.end())
+        {
+            victim = runtimeIt->second.boundActor;
+        }
+
+        if (victim.isEmpty())
+        {
+            const ActorInstanceKey key = unpackActorInstanceId(list.combatVictimActorInstanceId);
+            if (key.kind == ActorKeyKind::VanillaRefNum)
+                victim = getActorByCanonicalRefNum(key.id);
+            else if (key.kind == ActorKeyKind::SpawnedMpNum)
+                victim = getActorByMpNum(key.id);
+        }
+
+        if (victim.isEmpty())
+        {
+            Log(Debug::Verbose) << "[MP] ActorSync: skipped CombatResult presentation without bound victim"
+                                << " eventId=" << list.combatEventId
+                                << " actorNetId=" << list.combatVictimActorInstanceId;
+            return;
+        }
+
+        const Attack& attack = victimState.attack;
+        const osg::Vec3f hitPos(attack.hitPos[0], attack.hitPos[1], attack.hitPos[2]);
+        if (attack.hit && attack.healthDamage && attack.type != 1)
+            spawnReplicatedPlayerBloodEffect(victim, hitPos);
+
+        Log(Debug::Info) << "[MP] ActorSync: accepted combat presentation"
+                         << " eventId=" << list.combatEventId
+                         << " victim=" << victimState.refId
+                         << " actorNetId=" << list.combatVictimActorInstanceId
+                         << " hit=" << attack.hit
+                         << " healthDamage=" << attack.healthDamage
+                         << " type=" << attack.type
+                         << " hitPos=(" << attack.hitPos[0] << ","
+                         << attack.hitPos[1] << "," << attack.hitPos[2] << ")";
+    }
+
     bool ActorSync::hasAuthority(const std::string& cellId) const
     {
         auto it = mAuthority.find(cellId);
@@ -4746,7 +4846,10 @@ namespace mwmp
             ? (std::string("EXT:") + std::to_string(cell->getGridX()) + "," + std::to_string(cell->getGridY()))
             : std::string(cell->getNameId());
 
-        if (!hasAuthority(cellId))
+        // A target-player authority lease can move a single NPC's simulation to a
+        // client that does not own the whole cell. Cast events are actor-authored,
+        // so authorize against the canonical actor lease rather than cell authority.
+        if (!hasAuthorityForObject(npc))
             return;
 
         ActorList castList;
@@ -4862,8 +4965,14 @@ namespace mwmp
             actor.hasStationaryHoldPosition = false;
         if (!state.isDead)
         {
-            actor.observedLiveSinceBinding = true;
-            actor.pendingRealtimeDeathReplay = false;
+            const bool canonicalRealtimeDeathPending = actor.actorNetId != 0
+                && mPendingRealtimeDeathActorNetIds.find(actor.actorNetId)
+                    != mPendingRealtimeDeathActorNetIds.end();
+            if (!canonicalRealtimeDeathPending)
+            {
+                actor.observedLiveSinceBinding = true;
+                actor.pendingRealtimeDeathReplay = false;
+            }
         }
         if (snapshot.serverTimestamp != 0
             && (wasEmpty || !actor.hasInterpolationRenderTimestamp))
@@ -5829,8 +5938,10 @@ namespace mwmp
 
     void ActorSync::applyBootstrapDeathState(ActorRuntime& actor)
     {
+        const bool canonicalRealtimeDeathPending = actor.actorNetId != 0
+            && mPendingRealtimeDeathActorNetIds.find(actor.actorNetId) != mPendingRealtimeDeathActorNetIds.end();
         if (!actor.state.isDead || actor.deathFromRealtimePacket || actor.pendingRealtimeDeathReplay
-            || actor.boundActor.isEmpty()
+            || canonicalRealtimeDeathPending || actor.boundActor.isEmpty()
             || !actor.boundActor.getClass().isActor())
             return;
 
@@ -7595,12 +7706,23 @@ namespace mwmp
             }
 
             // --- Cast start edge detection ---
-            // Use boundActor directly instead of a fresh world lookup.
-            // getPtr(refId,false) silently fails for interior cells and multi-
-            // instance NPCs; boundActor is always the correctly-resolved ptr.
-            if (prevIt != cell.actors.end() && !prevIt->second.boundActor.isEmpty())
+            // Mechanics runs after the multiplayer update and writes mp_cast_pending
+            // to the actual authoritative actor Ptr. In v2 that Ptr is normally owned
+            // by the canonical primary runtime, while cell.actors may only contain a
+            // shadow without a binding. Poll the primary binding first so the start
+            // edge survives that runtime split and is sent on the following MP tick.
+            MWWorld::Ptr castSource;
+            if (ActorRuntime* primary = findPrimaryActorRuntime(actor);
+                primary != nullptr && !primary->boundActor.isEmpty())
             {
-                if (auto* baseNode = prevIt->second.boundActor.getRefData().getBaseNode())
+                castSource = primary->boundActor;
+            }
+            else if (prevIt != cell.actors.end() && !prevIt->second.boundActor.isEmpty())
+                castSource = prevIt->second.boundActor;
+
+            if (!castSource.isEmpty())
+            {
+                if (auto* baseNode = castSource.getRefData().getBaseNode())
                 {
                     bool castPending = false;
                     if (baseNode->getUserValue("mp_cast_pending", castPending) && castPending)
@@ -9436,9 +9558,11 @@ namespace mwmp
             if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
                 baseNode->setUserValue("mp_death_anim_group", actor.appliedDeathAnimGroup);
         }
+        const bool canonicalRealtimeDeathPending = actor.actorNetId != 0
+            && mPendingRealtimeDeathActorNetIds.find(actor.actorNetId) != mPendingRealtimeDeathActorNetIds.end();
         const bool waitingForRealtimeDeathPacket = actor.state.isDead
             && !stats.isDead()
-            && actor.pendingRealtimeDeathReplay
+            && (actor.pendingRealtimeDeathReplay || canonicalRealtimeDeathPending)
             && actor.state.deathAnimGroup.empty();
 
         // When the actor is transitioning to dead and this is NOT a realtime
@@ -9788,6 +9912,26 @@ namespace mwmp
             }
         }
 
+        if (!actor.presentationEffectTimers.empty())
+        {
+            const float effectFrameDuration = MWBase::Environment::get().getFrameDuration();
+            for (auto it = actor.presentationEffectTimers.begin(); it != actor.presentationEffectTimers.end();)
+            {
+                it->second -= effectFrameDuration;
+                if (it->second > 0.f)
+                {
+                    ++it;
+                    continue;
+                }
+
+                if (MWRender::Animation* animation = world->getAnimation(actor.boundActor))
+                    animation->removeEffect(it->first);
+                Log(Debug::Info) << "[MP] ActorSync: expired presentation VFX actor=" << actor.state.refId
+                                 << " effect=" << it->first;
+                it = actor.presentationEffectTimers.erase(it);
+            }
+        }
+
         if (actor.pendingBoltTimer >= 0.f)
         {
             actor.pendingBoltTimer -= MWBase::Environment::get().getFrameDuration();
@@ -9984,6 +10128,16 @@ namespace mwmp
                             Log(Debug::Info) << "[MP] ActorSync: play self VFX actor=" << actor.state.refId
                                              << " spell='" << cs.spellId << "' effect=" << me->mId.getRefIdString();
                             MWMechanics::playEffects(actor.boundActor, *me);
+                            if ((me->mData.mFlags & ESM::MagicEffect::ContinuousVfx) != 0
+                                && effectInfo.mData.mDuration > 0)
+                            {
+                                const std::string effectId = me->mId.getRefIdString();
+                                float& remaining = actor.presentationEffectTimers[effectId];
+                                remaining = std::max(remaining, static_cast<float>(effectInfo.mData.mDuration));
+                                Log(Debug::Info) << "[MP] ActorSync: scheduled presentation VFX expiry actor="
+                                                 << actor.state.refId << " effect=" << effectId
+                                                 << " duration=" << remaining;
+                            }
                         }
                     }
                 }

@@ -6,7 +6,7 @@
 
 namespace mwmp
 {
-    inline constexpr std::uint16_t CombatEventWireVersion = 1;
+    inline constexpr std::uint16_t CombatEventWireVersion = 2;
     inline constexpr std::uint64_t MaximumCombatProposalAgeMs = 5000;
 
     enum CombatResultFlag : std::uint8_t

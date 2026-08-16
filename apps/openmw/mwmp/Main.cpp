@@ -71,6 +71,7 @@
 #include <components/openmw-mp/Packets/Actor/PacketActorCast.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCellChange.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCombatRequest.hpp>
+#include <components/openmw-mp/Packets/Actor/PacketActorCombatResult.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorDeath.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorEquipment.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorIdentity.hpp>
@@ -2261,6 +2262,16 @@ void Main::registerProtocolHandlers()
             pkt.setActorList(&tmp);
             if (!pkt.decode(data, size)) return;
             mActorSync->onActorCombatRequest(tmp);
+        });
+
+    proto.registerHandler(PacketType::ActorCombatResult,
+        [this](const uint8_t* data, size_t size)
+        {
+            ActorList tmp;
+            PacketActorCombatResult pkt;
+            pkt.setActorList(&tmp);
+            if (!pkt.decode(data, size)) return;
+            mActorSync->onActorCombatResult(tmp);
         });
 
     proto.registerHandler(PacketType::PacketLuaEvent,

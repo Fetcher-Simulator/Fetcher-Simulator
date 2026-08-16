@@ -31,7 +31,15 @@ namespace mwmp
             stream.write(mActorList->combatAppliedDamage);
             stream.write(static_cast<std::uint16_t>(mActorList->actors.size()));
             for (const BaseActor& actor : mActorList->actors)
+            {
                 packActorIdentity(stream, actor);
+                // Protocol 11 / combat wire v2: preserve the original proposal's
+                // presentation geometry in the validated result. The server
+                // overwrites this from its pending proposal journal before
+                // rebroadcasting, so observers never trust authority-supplied
+                // cosmetic hit metadata.
+                packAttack(stream, actor.attack);
+            }
         }
 
         void unpack(ReadStream& stream) override
@@ -54,6 +62,7 @@ namespace mwmp
                 throw std::runtime_error("PacketActorCombatResult: expected one victim");
             mActorList->actors.resize(count);
             unpackActorIdentity(stream, mActorList->actors.front());
+            unpackAttack(stream, mActorList->actors.front().attack);
             if (!validateCombatResultFields(mActorList->combatEventId,
                     mActorList->combatVictimActorInstanceId,
                     mActorList->combatVictimMigrationGeneration,
