@@ -144,11 +144,16 @@ namespace MWMechanics
     {
         bool targetIsDeadActor = false;
         const bool targetIsActor = !target.isEmpty() && target.getClass().isActor();
+        bool targetIsNetworkPlayerProxy = false;
         if (targetIsActor)
         {
             const auto& stats = target.getClass().getCreatureStats(target);
             if (stats.isDead() && stats.isDeathAnimationFinished())
                 targetIsDeadActor = true;
+#ifdef BUILD_MULTIPLAYER
+            targetIsNetworkPlayerProxy = target != getPlayer()
+                && stats.getMovementFlag(CreatureStats::Flag_NetworkPlayerNpc);
+#endif
         }
 
         // If none of the effects need to apply, we can early-out
@@ -177,7 +182,7 @@ namespace MWMechanics
             targetSpells = &target.getClass().getCreatureStats(target).getActiveSpells();
 
         // Re-casting a bound equipment effect has no effect if the spell is still active
-        if (!containsRecastable && targetSpells && targetSpells->isSpellActive(mId))
+        if (!targetIsNetworkPlayerProxy && !containsRecastable && targetSpells && targetSpells->isSpellActive(mId))
         {
             if (castByPlayer)
                 MWBase::Environment::get().getWindowManager()->messageBox("#{sMagicCannotRecast}");
@@ -198,6 +203,18 @@ namespace MWMechanics
             if (magicEffect->mData.mFlags & ESM::MagicEffect::CasterLinked
                 && (mCaster.isEmpty() || !mCaster.getClass().isActor()))
                 continue;
+
+#ifdef BUILD_MULTIPLAYER
+            // A remote player NPC is only a presentation proxy. The target player's
+            // own client receives the replicated cast and owns all gameplay mutation
+            // of that player's magic effects, dynamic stats, and death state. Keep the
+            // local impact feedback, but never add an ActiveSpell to the proxy.
+            if (targetIsNetworkPlayerProxy)
+            {
+                playEffects(target, *magicEffect);
+                continue;
+            }
+#endif
 
             ActiveSpells::ActiveEffect effect;
             effect.mEffectId = enam.mData.mEffectID;

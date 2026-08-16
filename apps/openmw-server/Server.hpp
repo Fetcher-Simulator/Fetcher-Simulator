@@ -665,6 +665,15 @@ private:
     std::unique_ptr<AdminHttpServer> mAdminHttpServer;
     MechanicsSnapshotRegistry mMechanicsSnapshots;
     std::unordered_map<std::uint32_t, std::uint32_t> mCombatResultSequencesByAuthority;
+    struct PendingCombatPresentation
+    {
+        Attack attack;
+        std::uint64_t createdAtMs = 0;
+    };
+    // Ephemeral proposal-side presentation metadata. Gameplay/crime durability
+    // remains in combat_events; these fields only survive long enough to replay
+    // a server-accepted hit to observers with the attacker's original geometry.
+    std::unordered_map<std::uint64_t, PendingCombatPresentation> mPendingCombatPresentations;
 
     // ── World state ───────────────────────────────────────────────────────
     // Server is the authoritative clock. Day/month/year are tracked so new

@@ -12449,6 +12449,14 @@ void MPServer::handleActorCombatRequest(ConnectedClient& c, const uint8_t* data,
 
     constexpr std::uint64_t MaximumSnapshotAgeMs = 1000;
     const std::uint64_t nowMs = currentServerTimeMs();
+    for (auto it = mPendingCombatPresentations.begin(); it != mPendingCombatPresentations.end();)
+    {
+        if (nowMs >= it->second.createdAtMs
+            && nowMs - it->second.createdAtMs > MaximumCombatProposalAgeMs * 2)
+            it = mPendingCombatPresentations.erase(it);
+        else
+            ++it;
+    }
     const AcceptedMechanicsSnapshot* playerMechanics = mMechanicsSnapshots.findFresh(
         { MechanicsSubjectKind::Player, c.guid, 0 }, nowMs, MaximumSnapshotAgeMs);
     if (!playerMechanics || playerMechanics->snapshot.cellId != incoming.cellId)
@@ -12480,6 +12488,7 @@ void MPServer::handleActorCombatRequest(ConnectedClient& c, const uint8_t* data,
     try
     {
         incoming.combatEventId = mPlayerDb->createCombatEvent(event);
+        mPendingCombatPresentations[incoming.combatEventId] = { actor.attack, nowMs };
     }
     catch (const std::exception& e)
     {
@@ -12551,7 +12560,10 @@ void MPServer::handleActorCombatResult(ConnectedClient& c, const uint8_t* data, 
         return;
     }
     if (nowMs < event->createdAtMs || nowMs - event->createdAtMs > MaximumCombatProposalAgeMs)
+    {
+        mPendingCombatPresentations.erase(result.combatEventId);
         return;
+    }
 
     const auto keyIt = mWorld.actorKeysByNetId.find(event->victimActorInstanceId);
     const auto locationIt = keyIt == mWorld.actorKeysByNetId.end()
@@ -12736,6 +12748,34 @@ void MPServer::handleActorCombatResult(ConnectedClient& c, const uint8_t* data, 
         attacker->player.crimeState = mPlayerDb->loadPlayerCrimeState(attacker->dbCharacterId);
         attacker->player.bounty = attacker->player.crimeState.bounty;
         sendAuthoritativeCrimeState(*attacker);
+    }
+
+    if (const auto presentationIt = mPendingCombatPresentations.find(result.combatEventId);
+        presentationIt != mPendingCombatPresentations.end())
+    {
+        result.isAuthority = true;
+        result.actors.front().attack = presentationIt->second.attack;
+        PacketActorCombatResult presentationPacket;
+        presentationPacket.setActorList(&result);
+        const std::vector<std::uint8_t> encodedPresentation = presentationPacket.encode();
+        std::size_t presentationRecipients = 0;
+        for (auto& [conn, client] : mClients)
+        {
+            // The attacking client already rendered its own local hit. Everyone
+            // else, including the independently authoritative victim client,
+            // receives the server-accepted presentation exactly once.
+            if (client.guid == event->attackerGuid || !clientHasActorCellLoaded(client, event->cellId))
+                continue;
+            sendTo(conn, encodedPresentation, true);
+            ++presentationRecipients;
+        }
+        Log(Debug::Info) << "[CombatPresentation] eventId=" << event->eventId
+                         << " victim=" << event->victimActorInstanceId
+                         << " recipients=" << presentationRecipients
+                         << " hitPos=(" << result.actors.front().attack.hitPos[0] << ","
+                         << result.actors.front().attack.hitPos[1] << ","
+                         << result.actors.front().attack.hitPos[2] << ")";
+        mPendingCombatPresentations.erase(presentationIt);
     }
 
     Log(Debug::Info) << "[CombatResultAccepted] eventId=" << event->eventId

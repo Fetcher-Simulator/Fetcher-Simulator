@@ -22,7 +22,10 @@ namespace mwmp
     // position, stats, effects, and presentation lanes. Protocol 10 extends
     // that same actor-authority snapshot with effective Alarm, recursive
     // player-follower membership, and canonical combat-target identity.
-    inline constexpr int MultiplayerProtocolVersion = 10;
+    // Protocol 11 carries the original validated combat proposal's hit geometry
+    // back in ActorCombatResult so blood/impact presentation can follow the
+    // server-accepted canonical victim instead of a coarse refId/mpNum guess.
+    inline constexpr int MultiplayerProtocolVersion = 11;
     inline constexpr std::string_view MultiplayerBuildVersion = "0.1.0";
     inline constexpr std::string_view DefaultMasterServerUrl = "https://master.fetchers.org";
 

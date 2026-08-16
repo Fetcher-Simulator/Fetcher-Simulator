@@ -725,8 +725,22 @@ namespace MWWorld
             const ESM::EffectList* effects = resolveMagicBoltEffects(esmStore, magicBoltState.mSpellId);
             const MWWorld::Ptr localPlayer = MWBase::Environment::get().getWorld()->getPlayerPtr();
             const bool applyToLocalPlayer = magicBoltState.mVisualOnly && !target.isEmpty() && target == localPlayer;
-            const bool suppressProxyGameplay = !magicBoltState.mVisualOnly && caster == MWMechanics::getPlayer()
+            // Remote-player proxies are presentation-only copies. Gameplay from a real
+            // local bolt must never mutate their health/magic state, regardless of
+            // whether the caster is the local player or an authority-owned NPC. The
+            // target player's client receives the replicated visual-only bolt and is
+            // the only client allowed to apply the spell to the real player actor.
+            const bool suppressProxyGameplay = !magicBoltState.mVisualOnly
                 && !target.isEmpty() && isRemotePlayerProxy(target);
+
+            Log(Debug::Info) << "[MP] MagicBolt impact spell=" << magicBoltState.mSpellId.serializeText()
+                             << " visualOnly=" << magicBoltState.mVisualOnly
+                             << " targetEmpty=" << target.isEmpty()
+                             << " target=" << (target.isEmpty() ? std::string("<world>")
+                                 : target.getCellRef().getRefId().serializeText())
+                             << " applyToLocalPlayer=" << applyToLocalPlayer
+                             << " suppressProxyGameplay=" << suppressProxyGameplay
+                             << " effects=" << (effects ? effects->mList.size() : 0);
 
             if ((!magicBoltState.mVisualOnly || applyToLocalPlayer) && !suppressProxyGameplay)
             {
@@ -758,7 +772,29 @@ namespace MWWorld
                             continue;
                         const ESM::MagicEffect* me = effectStore.search(effectInfo.mData.mEffectID);
                         if (me)
+                        {
                             MWMechanics::playEffects(target, *me);
+#ifdef BUILD_MULTIPLAYER
+                            if (isRemotePlayerProxy(target)
+                                && (me->mData.mFlags & ESM::MagicEffect::ContinuousVfx) != 0
+                                && effectInfo.mData.mDuration > 0)
+                            {
+                                if (auto* baseNode = target.getRefData().getBaseNode())
+                                {
+                                    const std::string key = "mp_presentation_vfx_remaining_"
+                                        + me->mId.getRefIdString();
+                                    float remaining = 0.f;
+                                    baseNode->getUserValue(key, remaining);
+                                    remaining = std::max(remaining, static_cast<float>(effectInfo.mData.mDuration));
+                                    baseNode->setUserValue(key, remaining);
+                                    Log(Debug::Info) << "[MP] MagicBolt scheduled proxy VFX expiry"
+                                                     << " target=" << target.getCellRef().getRefId().serializeText()
+                                                     << " effect=" << me->mId.getRefIdString()
+                                                     << " duration=" << remaining;
+                                }
+                            }
+#endif
+                        }
                     }
                 }
             }

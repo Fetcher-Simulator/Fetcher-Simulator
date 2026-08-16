@@ -26,6 +26,12 @@ namespace
         victim.refNum = 42;
         victim.cellId = list.cellId;
         victim.attack.targetKind = mwmp::Attack::TargetActor;
+        victim.attack.hit = true;
+        victim.attack.healthDamage = true;
+        victim.attack.type = 0;
+        victim.attack.hitPos[0] = 10.f;
+        victim.attack.hitPos[1] = 20.f;
+        victim.attack.hitPos[2] = 30.f;
         victim.attack.damage = 12.f;
         list.actors.push_back(victim);
         return list;
@@ -83,6 +89,13 @@ TEST(CombatEventProtocol, ProposalAndDelegatedResultRoundTrip)
     EXPECT_EQ(decodedResult.combatResultSequence, result.combatResultSequence);
     EXPECT_EQ(decodedResult.combatResultFlags, result.combatResultFlags);
     EXPECT_EQ(decodedResult.combatAppliedDamage, result.combatAppliedDamage);
+    ASSERT_EQ(decodedResult.actors.size(), 1u);
+    EXPECT_TRUE(decodedResult.actors.front().attack.hit);
+    EXPECT_TRUE(decodedResult.actors.front().attack.healthDamage);
+    EXPECT_EQ(decodedResult.actors.front().attack.type, 0);
+    EXPECT_FLOAT_EQ(decodedResult.actors.front().attack.hitPos[0], 10.f);
+    EXPECT_FLOAT_EQ(decodedResult.actors.front().attack.hitPos[1], 20.f);
+    EXPECT_FLOAT_EQ(decodedResult.actors.front().attack.hitPos[2], 30.f);
 
     auto trailing = resultBytes;
     trailing.push_back(0);

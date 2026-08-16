@@ -3645,22 +3645,51 @@ namespace MWMechanics
         // Keeping track of when to stop a continuous VFX seems to be very difficult to do inside the spells code,
         // as it's extremely spread out (ActiveSpells, Spells, InventoryStore effects, etc...) so we do it here.
 
-        // Stop any effects that are no longer active
+        // Stop any effects that are no longer active.
         std::vector<std::string_view> effects = mAnimation->getLoopingEffects();
+        const bool isNetworkPlayerPuppet = mPtr != getPlayer()
+            && mPtr.getClass().getCreatureStats(mPtr).getMovementFlag(CreatureStats::Flag_NetworkPlayerNpc);
 
         for (std::string_view effectStr : effects)
         {
             auto effectId = ESM::RefId::deserializeText(effectStr);
+            const bool knownMagicEffect
+                = MWBase::Environment::get().getESMStore()->get<ESM::MagicEffect>().search(effectId) != nullptr;
+            const bool inactive = mPtr.getClass().getCreatureStats(mPtr).isDeathAnimationFinished()
+                || mPtr.getClass()
+                        .getCreatureStats(mPtr)
+                        .getMagicEffects()
+                        .getOrDefault(MWMechanics::EffectKey(effectId))
+                        .getMagnitude()
+                    <= 0;
+            if (!knownMagicEffect || !inactive)
+                continue;
 
-            if (MWBase::Environment::get().getESMStore()->get<ESM::MagicEffect>().search(effectId)
-                && (mPtr.getClass().getCreatureStats(mPtr).isDeathAnimationFinished()
-                    || mPtr.getClass()
-                            .getCreatureStats(mPtr)
-                            .getMagicEffects()
-                            .getOrDefault(MWMechanics::EffectKey(effectId))
-                            .getMagnitude()
-                        <= 0))
-                mAnimation->removeEffect(effectStr);
+#ifdef BUILD_MULTIPLAYER
+            // Remote player ghosts deliberately do not own ActiveSpells or
+            // MagicEffects gameplay. A replicated target-range continuous VFX
+            // therefore carries its own presentation-only countdown on the base
+            // node. Preserve the loop while that countdown is live, then let the
+            // normal animation cleanup remove it. This never mutates health or
+            // authoritative magic state.
+            if (isNetworkPlayerPuppet)
+            {
+                if (auto* bn = mPtr.getRefData().getBaseNode())
+                {
+                    const std::string key = "mp_presentation_vfx_remaining_" + effectId.getRefIdString();
+                    float remaining = 0.f;
+                    if (bn->getUserValue(key, remaining) && remaining > 0.f)
+                    {
+                        remaining = std::max(0.f,
+                            remaining - MWBase::Environment::get().getFrameDuration());
+                        bn->setUserValue(key, remaining);
+                        if (remaining > 0.f)
+                            continue;
+                    }
+                }
+            }
+#endif
+            mAnimation->removeEffect(effectStr);
         }
     }
 

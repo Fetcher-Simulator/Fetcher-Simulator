@@ -1169,16 +1169,28 @@ void PlayerSync::update(float dt)
 
     // --- dynamic stats ---
     const auto& cstats = player.getClass().getCreatureStats(player);
-    if (cstats.isDead() && !mLastWasDead)
+    if (cstats.isDead())
     {
-        sendDeath();
-        mRespawnPending = true;
-        mRespawnTimer = RESPAWN_DELAY;
+        // The multiplayer update runs before the mechanics update. On the first
+        // dead frame, CharacterController::playRandomDeath() has not necessarily
+        // chosen and published mp_death_anim_group yet. Wait until that exact
+        // local presentation choice exists so every observer receives the same
+        // death animation the owner is actually playing.
+        if (!mDeathPacketSent && sendDeath())
+        {
+            mDeathPacketSent = true;
+            mRespawnPending = true;
+            mRespawnTimer = RESPAWN_DELAY;
+        }
     }
-    else if (!cstats.isDead() && mLastWasDead)
+    else
     {
-        mRespawnPending = false;
-        mRespawnTimer = 0.f;
+        mDeathPacketSent = false;
+        if (mLastWasDead)
+        {
+            mRespawnPending = false;
+            mRespawnTimer = 0.f;
+        }
     }
 
     if (cstats.isDead() && mRespawnPending)
@@ -2371,9 +2383,8 @@ void PlayerSync::notifyLocalCastRelease(
     sendCastPacket(spellId, castAnimation, true, target);
 }
 
-void PlayerSync::sendDeath()
+bool PlayerSync::sendDeath()
 {
-    mLocal.isDead = true;
     uint32_t killerGuid = 0;
     std::string killerRefId;
     if (mRecentPlayerAttackerTimer > 0.f)
@@ -2419,13 +2430,21 @@ void PlayerSync::sendDeath()
         }
     }
 
+    if (mLocal.deathAnimationGroup.empty())
+        return false;
+
+    mLocal.isDead = true;
     PacketPlayerDeath pkt;
     pkt.setPlayer(&mLocal);
     pkt.killerGuid = killerGuid;
     pkt.killerRefId = killerRefId;
+    Log(Debug::Info) << "[MP] PlayerSync: death send anim='" << mLocal.deathAnimationGroup
+                     << "' killerGuid=" << killerGuid
+                     << " killerRefId='" << killerRefId << "'";
     mClient.sendReliable(pkt.encode(mSeqCounter++));
     mRecentPlayerAttackerGuid = 0;
     mRecentPlayerAttackerTimer = 0.f;
+    return true;
 }
 
 void PlayerSync::applyServerDeath(const BasePlayer& state)
@@ -2433,6 +2452,7 @@ void PlayerSync::applyServerDeath(const BasePlayer& state)
     mLocal.isDead = true;
     mLocal.deathAnimationGroup = state.deathAnimationGroup;
     mLastWasDead = true;
+    mDeathPacketSent = true;
     mRespawnPending = true;
     mRespawnTimer = RESPAWN_DELAY;
 
@@ -2990,7 +3010,10 @@ void PlayerSync::sendResurrect()
                 mLocal.position.rot[i] = position.rot[i];
             }
             if (auto* bn = player.getRefData().getBaseNode())
+            {
+                bn->setUserValue("mp_death_anim_group", std::string());
                 bn->setUserValue("mp_anim_play_pending", false);
+            }
         }
     }
     PacketPlayerResurrect pkt;
@@ -3017,6 +3040,13 @@ void PlayerSync::respawnLocally(const MWWorld::Ptr& player)
         mechanics->setWerewolf(player, false);
 
     mechanics->resurrect(player);
+    if (auto* bn = player.getRefData().getBaseNode())
+    {
+        bn->setUserValue("mp_death_anim_group", std::string());
+        bn->setUserValue("mp_anim_play_pending", false);
+    }
+    mLocal.deathAnimationGroup.clear();
+    mDeathPacketSent = false;
 
     if (MWBase::StateManager* stateManager = env.getStateManager();
         stateManager && stateManager->getState() == MWBase::StateManager::State_Ended)
