@@ -795,6 +795,12 @@ void MWWorld::ContainerStore::clear()
     mModified = true;
 }
 
+void MWWorld::ContainerStore::clearResolved()
+{
+    clear();
+    mResolved = true;
+}
+
 void MWWorld::ContainerStore::flagAsModified()
 {
     mWeightUpToDate = false;

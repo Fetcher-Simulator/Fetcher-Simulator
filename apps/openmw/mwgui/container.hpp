@@ -31,6 +31,12 @@ namespace MWGui
 
         void onClose() override;
 
+        // Multiplayer pickpocket sessions must be finalized at the actual GUI-mode
+        // removal boundary rather than relying on the visibility callback. This
+        // keeps console/main-menu hiding harmless while guaranteeing Close/Escape
+        // perform the native finish detection exactly once.
+        void finalizePickpocketSession();
+
         void clear() override { resetReference(); }
 
         void onFrame(float dt) override;
@@ -62,6 +68,8 @@ namespace MWGui
         int mSelectedItem;
         bool mUpdateNextFrame;
         bool mTreatNextOpenAsLoot;
+        bool mPickpocketFinishSent = false;
+        bool mPickpocketDetected = false;
         MyGUI::Button* mDisposeCorpseButton;
         MyGUI::Button* mTakeButton;
         MyGUI::Button* mCloseButton;

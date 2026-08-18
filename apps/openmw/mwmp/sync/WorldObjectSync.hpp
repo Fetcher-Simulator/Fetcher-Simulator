@@ -2,6 +2,7 @@
 #define OPENMW_MWMP_SYNC_WORLDOBJECTSYNC_HPP
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -70,6 +71,7 @@ namespace mwmp
         // so they are not echoed back as disposal requests.
         void setSuppressLocalDelete(bool suppress) { mSuppressLocalDelete = suppress; }
         bool isSuppressLocalDelete() const { return mSuppressLocalDelete; }
+        bool isSuppressingPickpocketFinish() const { return mSuppressPickpocketFinish; }
 
         // Called when the local player opens a container.
         // Sends action=Set with its current contents so the server can take authority.
@@ -82,8 +84,10 @@ namespace mwmp
                                      const std::string& refId, uint32_t refNum, uint32_t mpNum,
                                      ContainerAction action,
                                      const std::vector<ContainerItem>& items);
+        using InventoryTakeCallback = std::function<void(const InventoryTakeResult&)>;
         bool requestInventoryTake(const MWWorld::Ptr& source, const MWWorld::Ptr& item,
-            int count, InventoryTakeKind kind);
+            int count, InventoryTakeKind kind, InventoryTakeCallback callback = {});
+        bool requestHarvest(const MWWorld::Ptr& source);
         bool requestPickpocketFinish(const MWWorld::Ptr& source);
 
         // --- inbound: packets from server ---
@@ -113,6 +117,8 @@ namespace mwmp
         bool tryDeleteObject(const PlacedObjectIdentity& identity);
         bool tryMoveObject  (uint32_t mpNum, const Position& pos);
         bool tryApplyContainer(const ContainerRecord& record, ContainerAction action);
+        MWWorld::Ptr findContainerTarget(const ContainerRecord& record) const;
+        void processPendingHarvest(const ContainerRecord& record);
         void sendInventoryTakeRequest(const InventoryTakeRequest& request);
         void registerObject(uint32_t mpNum, const MWWorld::Ptr& ptr);
         void unregisterObject(uint32_t mpNum);
@@ -130,14 +136,24 @@ namespace mwmp
         struct PendingDelete { PlacedObjectIdentity identity; float timer; };
         struct PendingMove   { uint32_t mpNum; Position pos; float timer; };
         struct PendingContainer { ContainerRecord record; ContainerAction action; float timer; };
+        struct PendingHarvest { ContainerRecord source; };
 
         std::vector<PendingPlace>     mPendingPlace;
         std::vector<PendingLocalPlace> mPendingLocalPlace;
         std::vector<PendingDelete>    mPendingDelete;
         std::vector<PendingMove>      mPendingMove;
         std::vector<PendingContainer> mPendingContainer;
+        std::vector<PendingHarvest> mPendingHarvests;
         std::vector<InventoryTakeRequest> mPendingInventoryTakes;
+        // Retain the exact UI-bound source Ptr while an authoritative take is unresolved.
+        // Actor canonical identity can outlive or differ from scene/runtime discovery,
+        // especially for reconciled/migrated NPCs, but bootstrap must mutate the object
+        // the open container/pickpocket UI actually references.
+        std::unordered_map<std::string, MWWorld::Ptr> mInventoryTakeSources;
+        std::unordered_set<std::string> mInventoryTakesAwaitingSource;
+        std::unordered_map<std::string, InventoryTakeCallback> mInventoryTakeCallbacks;
         bool mSuppressLocalDelete = false;
+        bool mSuppressPickpocketFinish = false;
         std::unordered_set<uint32_t> mPendingTakenMpNums;
         std::unordered_set<ESM::RefNum> mLocalPlayerInventoryDetached;
         std::string mTakeRequestPrefix;

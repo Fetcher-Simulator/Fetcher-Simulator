@@ -429,6 +429,10 @@ namespace MWWorld
         virtual void clear();
         ///< Empty container.
 
+        void clearResolved();
+        ///< Empty the container and establish that its contents are already concrete/resolved.
+        /// Used when loading externally authoritative inventory state that must not resolve leveled lists locally.
+
         float getWeight() const;
         ///< Return total weight of the items contained in *this.
 

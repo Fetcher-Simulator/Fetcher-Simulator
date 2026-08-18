@@ -1511,6 +1511,8 @@ namespace MWGui
         if (!mGuiModes.empty())
         {
             const GuiMode mode = mGuiModes.back();
+            if (mode == GM_Container && mContainerWindow)
+                mContainerWindow->finalizePickpocketSession();
             if (forceExit)
             {
                 GuiModeState& state = mGuiModeStates[mode];
@@ -1559,6 +1561,9 @@ namespace MWGui
             popGuiMode();
             return;
         }
+
+        if (mode == GM_Container && mContainerWindow)
+            mContainerWindow->finalizePickpocketSession();
 
         std::vector<GuiMode>::iterator it = mGuiModes.begin();
         while (it != mGuiModes.end())

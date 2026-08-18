@@ -2,6 +2,7 @@
 
 #include <components/esm3/loadskil.hpp>
 #include <components/misc/rng.hpp>
+#include <components/debug/debuglog.hpp>
 
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/creaturestats.hpp"
@@ -37,7 +38,11 @@ namespace MWGui
             for (size_t i = 0; i < mSourceModel->getItemCount(); ++i)
             {
                 if (Misc::Rng::roll0to99(prng) > chance)
-                    mHiddenItems.push_back(mSourceModel->getItem(static_cast<ModelIndex>(i)));
+                {
+                    const ItemStack hidden = mSourceModel->getItem(static_cast<ModelIndex>(i));
+                    mHiddenItems.emplace_back(hidden.mBase.getCellRef().getRefId().serializeText(),
+                        static_cast<int>(hidden.mBase.getCellRef().getCharge()));
+                }
             }
         }
     }
@@ -73,7 +78,10 @@ namespace MWGui
             if (item.mFlags & ItemStack::Flag_Bound)
                 continue;
 
-            if (std::find(mHiddenItems.begin(), mHiddenItems.end(), item) == mHiddenItems.end()
+            const HiddenItemIdentity identity {
+                item.mBase.getCellRef().getRefId().serializeText(),
+                static_cast<int>(item.mBase.getCellRef().getCharge()) };
+            if (std::find(mHiddenItems.begin(), mHiddenItems.end(), identity) == mHiddenItems.end()
                 && item.mType != ItemStack::Type_Equipped)
                 mItems.push_back(item);
         }
@@ -87,17 +95,18 @@ namespace MWGui
 
     void PickpocketItemModel::onClose()
     {
+        // Connected multiplayer finalizes pickpocket sessions from the actual
+        // GM_Container removal boundary in WindowManager. The visibility callback
+        // is not guaranteed for every user-facing close path and can also run for
+        // temporary hiding, so it must not own the authoritative finish request.
+        if (mwmp::Main::isInitialised())
+            return;
+
         // Make sure we were actually closed, rather than just temporarily hidden (e.g. console or main menu opened)
         if (MWBase::Environment::get().getWindowManager()->containsMode(GM_Container)
             // If it was already detected while taking an item, no need to check now
             || mPickpocketDetected)
             return;
-
-        if (mwmp::Main::isInitialised())
-        {
-            mwmp::Main::get().getWorldObjectSync().requestPickpocketFinish(mActor);
-            return;
-        }
 
         MWWorld::Ptr player = MWMechanics::getPlayer();
         MWMechanics::Pickpocket pickpocket(player, mActor);

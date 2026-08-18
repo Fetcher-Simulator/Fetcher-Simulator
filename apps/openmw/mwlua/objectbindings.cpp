@@ -23,7 +23,10 @@
 #include "../mwmechanics/creaturestats.hpp"
 
 #include "../mwbase/environment.hpp"
+#include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
+
+#include "../mwgui/mode.hpp"
 
 #ifdef BUILD_MULTIPLAYER
 #include "../mwmp/Main.hpp"
@@ -661,6 +664,18 @@ namespace MWLua
                     }
 
 #ifdef BUILD_MULTIPLAYER
+                    if (mwmp::Main::isConnected() && !sourceOwner.isEmpty()
+                        && destPtr == MWBase::Environment::get().getWorld()->getPlayerPtr()
+                        && (sourceOwner.getType() == ESM::REC_CONT || sourceOwner.getClass().isActor())
+                        && !MWBase::Environment::get().getWindowManager()->containsMode(MWGui::GM_Barter))
+                    {
+                        Log(Debug::Warning) << "[MP] Rejected Lua object.moveInto container-to-player mutation source="
+                                            << sourceOwner.toString() << " item=" << ptr.toString()
+                                            << "; use openmw.mp.inventoryTake.request";
+                        mwmp::Main::get().getWorldObjectSync().forgetLocalPlayerInventoryDetached(ptr);
+                        return;
+                    }
+
                     bool sourceWasKnownWorldObject = false;
                     if (mwmp::Main::isConnected())
                     {

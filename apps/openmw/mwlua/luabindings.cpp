@@ -45,6 +45,7 @@ namespace MWLua
             { "openmw.vfs", initVFSPackage(context) },
 #ifdef BUILD_MULTIPLAYER
             { "mp", mwmp::initClientMpPackage(context) },
+            { "openmw.mp", mwmp::initClientMpPackage(context) },
 #endif
         };
     }
