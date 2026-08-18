@@ -1,14 +1,13 @@
 # Client-side OpenMW Lua in Multiplayer
 
-**Status updated:** July 24, 2026
+**Status updated:** August 18, 2026
 
 This document summarizes the current state of Fetcher's work to make ordinary client-side OpenMW Lua mods behave sensibly in multiplayer without requiring each mod to be rewritten or each server owner to maintain a separate custom server script.
 
 This README is intended to stand on its own for players, mod authors, and server operators. It describes the implemented compatibility features, current limitations, authority model, testing targets, and remaining work.
 
 For the dedicated server Lua API and tutorials, see [Dedicated Server Lua Scripting](README.md).
-For server-distributed, session-owned OpenMW Lua gameplay code, see
-[Server-supplied OpenMW Lua packages](../../../docs/server-lua-packages.md).
+Server-distributed, session-owned OpenMW Lua packages are part of the implemented compatibility stack described below; working architecture notes are maintained outside the source tree.
 
 ## The goal
 
