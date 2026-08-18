@@ -14,6 +14,7 @@ namespace
     constexpr std::string_view IntentMagic = "OMCI";
     constexpr std::string_view ResultMagic = "OMCS";
     constexpr std::string_view SemanticService = "crime-event";
+    constexpr float CanonicalHumanoidObservationHeight = 128.f;
 
     bool validType(mwmp::CrimeType type);
 
@@ -634,6 +635,13 @@ namespace mwmp
                     query.path = ObservationPath::VictimAware;
                 else if (intent.type == CrimeType::Murder && !witness.victim)
                     query.path = ObservationPath::MurderHearing;
+
+                if (query.path == ObservationPath::LineOfSightAwareness)
+                {
+                    query.observer.position.z += CanonicalHumanoidObservationHeight;
+                    query.target.position.z += CanonicalHumanoidObservationHeight;
+                }
+
                 witness.observation = mObservationService.observe(query);
                 witness.perceived = witness.observation->observable;
             }

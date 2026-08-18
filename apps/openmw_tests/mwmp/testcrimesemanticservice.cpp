@@ -29,15 +29,19 @@ namespace
 
     struct FakeCollision final : ObservationCollisionBackend
     {
-        CollisionObservation lineOfSight(
-            const std::vector<std::string>&, const ObservationVector&, const ObservationVector&) const override
+        CollisionObservation lineOfSight(const std::vector<std::string>&, const ObservationVector& from,
+            const ObservationVector& to) const override
         {
             ++calls;
+            lastFrom = from;
+            lastTo = to;
             return { true, clear, { { "Balmora", 7 } } };
         }
 
         bool clear = true;
         mutable int calls = 0;
+        mutable ObservationVector lastFrom;
+        mutable ObservationVector lastTo;
     };
 
     struct Rolls final : AwarenessRollSource
@@ -155,6 +159,25 @@ namespace
         CrimeSemanticService semantic;
         CrimeSemanticService::Context context;
     };
+}
+
+TEST(CrimeSemanticService, UsesCanonicalHumanoidHeightForLineOfSight)
+{
+    Fixture fixture;
+    CrimeIntent request = intent("height-adjusted-crime", CrimeType::Theft);
+    request.offender.position = { 1.f, 2.f, 10.f };
+    const CrimeWitnessCandidate candidate = witness(npc(1), 100, { 4.f, 5.f, 20.f });
+
+    const auto outcome = fixture.semantic.evaluate(request, { candidate }, fixture.context);
+
+    ASSERT_TRUE(outcome.result.accepted);
+    ASSERT_EQ(fixture.collision.calls, 1);
+    EXPECT_FLOAT_EQ(fixture.collision.lastFrom.x, 1.f);
+    EXPECT_FLOAT_EQ(fixture.collision.lastFrom.y, 2.f);
+    EXPECT_FLOAT_EQ(fixture.collision.lastFrom.z, 138.f);
+    EXPECT_FLOAT_EQ(fixture.collision.lastTo.x, 4.f);
+    EXPECT_FLOAT_EQ(fixture.collision.lastTo.y, 5.f);
+    EXPECT_FLOAT_EQ(fixture.collision.lastTo.z, 148.f);
 }
 
 TEST(CrimeSemanticService, PerceivedLowAlarmRunsReportingAndAdvancesCrimeIdWithoutBounty)

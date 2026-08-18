@@ -77,7 +77,18 @@ namespace mwmp
         std::optional<DoorReference> findDoor(
             std::string_view cellId, std::string_view refId, std::uint32_t refNum) const;
 
+        struct RaycastDiagnostic
+        {
+            bool hit = false;
+            float fraction = 1.f;
+            osg::Vec3f hitPoint;
+            std::string refId;
+            std::uint32_t refNum = 0;
+            bool heightfield = false;
+        };
+
         bool hasLineOfSight(const osg::Vec3f& from, const osg::Vec3f& to) const;
+        RaycastDiagnostic diagnoseLineOfSight(const osg::Vec3f& from, const osg::Vec3f& to) const;
         CollisionObservation lineOfSight(const std::vector<std::string>& cellIds, const ObservationVector& from,
             const ObservationVector& to) const override;
 
