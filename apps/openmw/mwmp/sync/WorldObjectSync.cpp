@@ -1146,18 +1146,6 @@ bool WorldObjectSync::tryDeleteObject(const PlacedObjectIdentity& identity)
             return true;
     }
 
-    if (!object.isEmpty())
-    {
-        Position lastKnownPosition;
-        const ESM::Position& esmPosition = object.getRefData().getPosition();
-        for (int index = 0; index < 3; ++index)
-        {
-            lastKnownPosition.pos[index] = esmPosition.pos[index];
-            lastKnownPosition.rot[index] = esmPosition.rot[index];
-        }
-        if (identity.mpNum != 0)
-            mLastKnownObjectPositions[identity.mpNum] = lastKnownPosition;
-    }
     if (identity.mpNum != 0)
         unregisterObject(identity.mpNum);
 
