@@ -37,6 +37,12 @@
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
 
+#ifdef BUILD_MULTIPLAYER
+#include "../mwgui/mode.hpp"
+#include "../mwmp/Main.hpp"
+#include "../mwmp/sync/PlayerSync.hpp"
+#endif
+
 #include "../mwworld/class.hpp"
 #include "../mwworld/containerstore.hpp"
 #include "../mwworld/esmstore.hpp"
@@ -54,6 +60,36 @@
 
 namespace MWDialogue
 {
+#ifdef BUILD_MULTIPLAYER
+    namespace
+    {
+        std::optional<mwmp::GuardArrestAction> guardArrestActionFromResultScript(std::string_view script)
+        {
+            std::string lowered(script);
+            for (char& c : lowered)
+            {
+                if (c >= 'A' && c <= 'Z')
+                    c = static_cast<char>(c - 'A' + 'a');
+            }
+
+            // Recognize semantic arrest outcomes from the result script rather
+            // than English response text or numeric Choice ids. This keeps the
+            // handoff compatible with localized dialogue while preventing the
+            // local RemoveItem/SetPCCrimeLevel/GotoJail/StartCombat sequence
+            // from racing the authoritative multiplayer transaction.
+            if (lowered.find("payfine") != std::string::npos
+                && lowered.find("removeitem") != std::string::npos
+                && lowered.find("gold_001") != std::string::npos)
+                return mwmp::GuardArrestAction::PayFine;
+            if (lowered.find("gotojail") != std::string::npos)
+                return mwmp::GuardArrestAction::Surrender;
+            if (lowered.find("startcombat") != std::string::npos
+                && lowered.find("player") != std::string::npos)
+                return mwmp::GuardArrestAction::Resist;
+            return std::nullopt;
+        }
+    }
+#endif
     DialogueManager::DialogueManager(
         const Compiler::Extensions& extensions, Translation::Storage& translationDataStorage)
         : mTranslationDataStorage(translationDataStorage)
@@ -504,7 +540,52 @@ namespace MWDialogue
                             MWBase::Environment::get().getJournal()->addTopic(mLastTopic, info->mId, mActor);
                     }
 
+#ifdef BUILD_MULTIPLAYER
+                    bool handledGuardArrest = false;
+                    if (mwmp::Main::isInitialised())
+                    {
+                        const MWWorld::Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
+                        mwmp::Main& multiplayer = mwmp::Main::get();
+                        const int localBounty = !player.isEmpty() && player.getClass().isNpc()
+                            ? player.getClass().getNpcStats(player).getBounty() : 0;
+                        const int authoritativeBounty = multiplayer.getPlayerSync().hasAuthoritativeCrimeState()
+                            ? multiplayer.getPlayerSync().localPlayer().crimeState.bounty : localBounty;
+                        const bool guardActor = !mActor.isEmpty() && mActor.getClass().isNpc()
+                            && mActor.getClass().isClass(mActor, "Guard");
+                        const auto arrestAction = guardArrestActionFromResultScript(info->mResultScript);
+
+                        if (arrestAction && authoritativeBounty > 0 && guardActor)
+                        {
+                            multiplayer.beginGuardArrestDialogue(mActor);
+                            const bool contextReady = multiplayer.hasGuardArrestDialogueContext();
+                            const bool requestSent = contextReady && multiplayer.requestGuardArrest(*arrestAction);
+                            multiplayer.endGuardArrestDialogue();
+                            handledGuardArrest = true;
+
+                            Log(requestSent ? Debug::Info : Debug::Warning)
+                                << "[MP] Guard arrest dialogue outcome intercepted"
+                                << " info=" << info->mId
+                                << " action=" << static_cast<unsigned>(*arrestAction)
+                                << " contextReady=" << contextReady
+                                << " requestSent=" << requestSent;
+
+                            // Never fall back to the local arrest script after
+                            // recognizing an authoritative guard outcome. A
+                            // failed request must not remove gold, erase bounty,
+                            // teleport to jail, or start client-local combat.
+                            if (!requestSent)
+                            {
+                                goodbyeSelected();
+                                if (MWBase::Environment::get().getWindowManager()->containsMode(MWGui::GM_Dialogue))
+                                    MWBase::Environment::get().getWindowManager()->removeGuiMode(MWGui::GM_Dialogue);
+                            }
+                        }
+                    }
+                    if (!handledGuardArrest)
+                        executeScript(info->mResultScript, mActor);
+#else
                     executeScript(info->mResultScript, mActor);
+#endif
                 }
                 else
                 {

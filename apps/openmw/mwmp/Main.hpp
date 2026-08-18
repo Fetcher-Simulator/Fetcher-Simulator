@@ -8,10 +8,12 @@
 #include <osg/Vec3f>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 #include <components/openmw-mp/RuntimeContentBootstrapGate.hpp>
 #include <components/openmw-mp/PlayerCrimeState.hpp>
 #include <components/openmw-mp/CrimeInteraction.hpp>
+#include <components/openmw-mp/GuardArrest.hpp>
 #include <components/openmw-mp/SemanticService.hpp>
 #include <components/openmw-mp/ServerLuaPackageTransfer.hpp>
 #include <components/openmw-mp/Packets/System/PacketGameSettings.hpp>
@@ -133,6 +135,12 @@ namespace mwmp
             bool healthDamage, bool isDead, int attackType);
         bool requestCrimeMutation(CrimeMutationKind kind, std::int64_t value, std::string source);
         bool requestCrimeInteraction(CrimeInteractionKind kind, const MWWorld::Ptr& target);
+        void beginGuardArrestDialogue(const MWWorld::Ptr& guard);
+        void endGuardArrestDialogue();
+        bool hasGuardArrestDialogueContext() const { return mGuardArrestDialogue.active; }
+        bool requestGuardArrest(GuardArrestAction action);
+        bool reportGuardArrestReach(const MWWorld::Ptr& guard, std::uint32_t offenderGuid);
+        void receiveGuardArrestPrompt(const GuardArrestReach& prompt);
 
         // Restored chargen data — populated from PacketCharacterData after character selection
         const std::string& getRestoredRace()      const { return mRestoredRace; }
@@ -169,6 +177,7 @@ namespace mwmp
         void pollChargenAppearance(float dt);
         void sendNextCrimeMutation();
         void finishCrimeMutation(std::string_view requestId, bool accepted, CrimeError error);
+        void finishGuardArrest(const GuardArrestResult& result);
 
         static Main* sInstance;
 
@@ -232,6 +241,15 @@ namespace mwmp
         std::string mCrimeMutationInFlight;
         std::string mCrimeMutationRequestPrefix;
         std::uint64_t mNextCrimeMutationRequest = 1;
+        struct GuardArrestDialogueContext
+        {
+            bool active = false;
+            std::string cellId;
+            ActorInstanceId actorNetId = 0;
+            std::uint32_t migrationGeneration = 0;
+        };
+        GuardArrestDialogueContext mGuardArrestDialogue;
+        std::unordered_map<std::string, GuardArrestAction> mPendingGuardArrestRequests;
 
         // Chargen restore data (returning players)
         std::string mRestoredRace;

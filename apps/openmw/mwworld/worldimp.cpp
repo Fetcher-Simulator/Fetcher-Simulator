@@ -3606,7 +3606,19 @@ namespace MWWorld
     {
         MWWorld::Ptr player = getPlayerPtr();
         int bounty = player.getClass().getNpcStats(player).getBounty();
-        int playerGold = player.getClass().getContainerStore(player).count(ContainerStore::sGoldId);
+        std::int64_t playerGold
+            = player.getClass().getContainerStore(player).count(ContainerStore::sGoldId);
+
+#ifdef BUILD_MULTIPLAYER
+        if (mwmp::Main::isInitialised())
+        {
+            mwmp::PlayerSync& playerSync = mwmp::Main::get().getPlayerSync();
+            if (playerSync.hasAuthoritativeCrimeState())
+                bounty = playerSync.localPlayer().crimeState.bounty;
+            if (const auto authoritativeGold = playerSync.authoritativeInventoryCount("gold_001"))
+                playerGold = *authoritativeGold;
+        }
+#endif
 
         static float fCrimeGoldDiscountMult
             = mStore.get<ESM::GameSetting>().find("fCrimeGoldDiscountMult")->mValue.getFloat();
@@ -3697,6 +3709,25 @@ namespace MWWorld
 
             MWBase::Environment::get().getWindowManager()->goToJail(mDaysInPrison);
         }
+    }
+
+    void World::goToJailAuthoritative(int days)
+    {
+        if (days <= 0)
+            return;
+
+        const MWWorld::Ptr player = getPlayerPtr();
+        if (player.isEmpty())
+            return;
+
+        mGoToJail = false;
+        mPlayerInJail = true;
+        mDaysInPrison = days;
+        if (MWBase::Environment::get().getMechanicsManager()->isAttackPreparing(player))
+            player.getClass().getCreatureStats(player).setAttackingOrSpell(false);
+        mPlayer->setDrawState(MWMechanics::DrawState::Nothing);
+        MWBase::Environment::get().getWindowManager()->removeGuiMode(MWGui::GM_Dialogue);
+        MWBase::Environment::get().getWindowManager()->goToJail(mDaysInPrison);
     }
 
     bool World::isPlayerInJail() const

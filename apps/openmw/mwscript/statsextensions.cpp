@@ -477,6 +477,11 @@ namespace MWScript
 #ifdef BUILD_MULTIPLAYER
                 if (mwmp::Main::isInitialised())
                 {
+                    if (bounty == 0 && mwmp::Main::get().hasGuardArrestDialogueContext())
+                    {
+                        Log(Debug::Info) << "[MP] Deferred SetPCCrimeLevel 0 to authoritative guard arrest transaction";
+                        return;
+                    }
                     mwmp::Main::get().requestCrimeMutation(mwmp::CrimeMutationKind::SetBounty,
                         std::max(0, bounty), "mwscript:setpccrimelevel");
                     return;

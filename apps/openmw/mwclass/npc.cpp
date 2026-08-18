@@ -32,6 +32,7 @@
 
 #ifdef BUILD_MULTIPLAYER
 #include "../mwmp/Main.hpp"
+#include "../mwmp/sync/ActorSync.hpp"
 #include "../mwmp/sync/PlayerSync.hpp"
 #endif
 
@@ -1001,9 +1002,19 @@ namespace MWClass
         }
 
         const MWMechanics::CreatureStats& stats = getCreatureStats(ptr);
+#ifdef BUILD_MULTIPLAYER
+        const bool remotePlayerProxy = stats.getMovementFlag(MWMechanics::CreatureStats::Flag_NetworkPlayerNpc);
+#endif
         const MWMechanics::AiSequence& aiSequence = stats.getAiSequence();
         const bool isPursuing = aiSequence.isInPursuit() && actor == MWMechanics::getPlayer();
-        const bool inCombatWithActor = aiSequence.isInCombat(actor) || isPursuing;
+#ifdef BUILD_MULTIPLAYER
+        const bool authoritativeCrimeCombat = actor == MWMechanics::getPlayer()
+            && mwmp::Main::isInitialised()
+            && mwmp::Main::get().getActorSync().isAuthoritativeCrimeCombatWithLocalPlayer(ptr);
+#else
+        const bool authoritativeCrimeCombat = false;
+#endif
+        const bool inCombatWithActor = aiSequence.isInCombat(actor) || isPursuing || authoritativeCrimeCombat;
 
         if (stats.isDead())
         {
@@ -1020,11 +1031,23 @@ namespace MWClass
             const bool allowStealingFromKO
                 = Settings::game().mAlwaysAllowStealingFromKnockedOutActors || !inCombatWithActor;
             if (stats.getKnockedDown() && allowStealingFromKO)
+            {
+#ifdef BUILD_MULTIPLAYER
+                if (remotePlayerProxy)
+                    return std::make_unique<MWWorld::FailedAction>();
+#endif
                 return std::make_unique<MWWorld::ActionOpen>(ptr);
+            }
 
             const bool allowStealingWhileSneaking = !inCombatWithActor;
             if (MWBase::Environment::get().getMechanicsManager()->isSneaking(actor) && allowStealingWhileSneaking)
+            {
+#ifdef BUILD_MULTIPLAYER
+                if (remotePlayerProxy)
+                    return std::make_unique<MWWorld::FailedAction>();
+#endif
                 return std::make_unique<MWWorld::ActionOpen>(ptr);
+            }
 
             const bool allowTalking = !inCombatWithActor && !getNpcStats(ptr).isWerewolf();
             if (allowTalking)

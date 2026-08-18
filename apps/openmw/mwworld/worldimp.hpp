@@ -609,6 +609,7 @@ namespace MWWorld
         void confiscateStolenItems(const MWWorld::Ptr& ptr) override;
 
         void goToJail() override;
+        void goToJailAuthoritative(int days) override;
 
         /// Spawn a random creature from a levelled list next to the player
         void spawnRandomCreature(const ESM::RefId& creatureList) override;

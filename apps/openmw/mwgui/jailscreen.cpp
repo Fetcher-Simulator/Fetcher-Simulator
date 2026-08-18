@@ -82,8 +82,15 @@ namespace MWGui
 
         MWWorld::Ptr player = MWMechanics::getPlayer();
 
+#ifdef BUILD_MULTIPLAYER
+        // A single player's sentence must not advance shared world time or rest
+        // every actor in the locally loaded cells. Apply the restorative part
+        // only to the jailed player; authoritative world time remains server-owned.
+        MWBase::Environment::get().getMechanicsManager()->restoreDynamicStats(player, mDays * 24, true);
+#else
         MWBase::Environment::get().getMechanicsManager()->rest(mDays * 24, true);
         MWBase::Environment::get().getWorld()->advanceTime(mDays * 24);
+#endif
 
         // We should not worsen corprus when in prison
         player.getClass().getCreatureStats(player).getActiveSpells().skipWorsenings(mDays * 24);

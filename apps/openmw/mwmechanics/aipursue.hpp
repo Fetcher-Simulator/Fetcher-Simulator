@@ -21,8 +21,11 @@ namespace MWMechanics
     {
     public:
         /// Constructor
-        /** \param actor Actor to pursue **/
-        AiPursue(const MWWorld::Ptr& actor);
+        /** \param actor Actor to pursue
+            \param serverAuthorizedCrimePursuit The multiplayer server already validated a reportable crime for this
+            pursuit, so a delegated actor-authority client must not cancel it based on its non-authoritative remote
+            player bounty mirror. **/
+        AiPursue(const MWWorld::Ptr& actor, bool serverAuthorizedCrimePursuit = false);
 
         AiPursue(const ESM::AiSequence::AiPursue* pursue);
 
@@ -40,6 +43,9 @@ namespace MWMechanics
         }
 
         void writeState(ESM::AiSequence::AiSequence& sequence) const override;
+
+    private:
+        bool mServerAuthorizedCrimePursuit = false;
     };
 }
 #endif

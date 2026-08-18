@@ -51,6 +51,7 @@
 #include <components/openmw-mp/Packets/Object/PacketWorldItemTake.hpp>
 #include <components/openmw-mp/Packets/Object/PacketInventoryTake.hpp>
 #include <components/openmw-mp/Packets/Object/PacketCrimeInteraction.hpp>
+#include <components/openmw-mp/Packets/Player/PacketGuardArrest.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAnimFlags.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAnimPlay.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAttack.hpp>
@@ -95,6 +96,7 @@
 
 #include <components/openmw-mp/Packets/Player/PacketPlayerCharGen.hpp>
 #include "../mwbase/environment.hpp"
+#include "../mwbase/dialoguemanager.hpp"
 #include "../mwbase/luamanager.hpp"
 #include "../mwbase/scriptmanager.hpp"
 #include "../mwbase/statemanager.hpp"
@@ -219,6 +221,170 @@ bool Main::requestCrimeInteraction(CrimeInteractionKind kind, const MWWorld::Ptr
     return true;
 }
 
+void Main::beginGuardArrestDialogue(const MWWorld::Ptr& guard)
+{
+    mGuardArrestDialogue = {};
+    if (!mWorldReady || !mActorSync || guard.isEmpty() || !guard.isInCell()
+        || !guard.getClass().isNpc() || !guard.getClass().isClass(guard, "Guard")
+        || guard.getCell() == nullptr || guard.getCell()->getCell() == nullptr)
+        return;
+
+    const MWWorld::Cell* cell = guard.getCell()->getCell();
+    const std::string cellId = cell->isExterior()
+        ? "EXT:" + std::to_string(cell->getGridX()) + ',' + std::to_string(cell->getGridY())
+        : std::string(cell->getNameId());
+    const ActorInstanceId actorNetId = mActorSync->actorNetIdForPtr(cellId, guard);
+    const std::uint32_t migrationGeneration = mActorSync->actorMigrationGenerationForPtr(cellId, guard);
+    if (!isValidActorInstanceId(actorNetId) || migrationGeneration == 0)
+    {
+        Log(Debug::Warning) << "[MP] Guard arrest dialogue missing canonical actor identity"
+                            << " cell=" << cellId
+                            << " actorNetId=" << actorNetId
+                            << " migrationGeneration=" << migrationGeneration
+                            << " guard=" << guard.toString();
+        return;
+    }
+
+    mGuardArrestDialogue.active = true;
+    mGuardArrestDialogue.cellId = cellId;
+    mGuardArrestDialogue.actorNetId = actorNetId;
+    mGuardArrestDialogue.migrationGeneration = migrationGeneration;
+}
+
+void Main::endGuardArrestDialogue()
+{
+    mGuardArrestDialogue = {};
+}
+
+bool Main::requestGuardArrest(GuardArrestAction action)
+{
+    if (!mGuardArrestDialogue.active || !mWorldReady || !mClient || !mPlayerSync)
+    {
+        Log(Debug::Warning) << "[MP] Guard arrest request unavailable"
+                            << " active=" << mGuardArrestDialogue.active
+                            << " worldReady=" << mWorldReady
+                            << " client=" << static_cast<bool>(mClient)
+                            << " playerSync=" << static_cast<bool>(mPlayerSync);
+        return false;
+    }
+
+    GuardArrestRequest request;
+    request.requestId = mCrimeMutationRequestPrefix + "-guard-arrest-"
+        + std::to_string(mNextCrimeMutationRequest++);
+    request.action = action;
+    request.cellId = mGuardArrestDialogue.cellId;
+    request.actorNetId = mGuardArrestDialogue.actorNetId;
+    request.migrationGeneration = mGuardArrestDialogue.migrationGeneration;
+    request.expectedCrimeRevision = mPlayerSync->localPlayer().crimeState.revision;
+    request.expectedInventoryRevision = mPlayerSync->localPlayer().inventoryChanges.revision;
+    if (!validateGuardArrestRequest(request))
+    {
+        Log(Debug::Warning) << "[MP] Guard arrest request failed local validation"
+                            << " request=" << request.requestId
+                            << " action=" << static_cast<unsigned>(request.action)
+                            << " cell=" << request.cellId
+                            << " actorNetId=" << request.actorNetId
+                            << " migrationGeneration=" << request.migrationGeneration
+                            << " crimeRevision=" << request.expectedCrimeRevision
+                            << " inventoryRevision=" << request.expectedInventoryRevision;
+        return false;
+    }
+
+    PacketGuardArrest packet;
+    packet.mode = PacketGuardArrest::Mode::Request;
+    packet.request = request;
+    mPendingGuardArrestRequests.emplace(request.requestId, action);
+    mClient->sendReliable(packet.encode());
+    Log(Debug::Info) << "[MP] Guard arrest request=" << request.requestId
+                     << " action=" << static_cast<unsigned>(action)
+                     << " actorNetId=" << request.actorNetId
+                     << " cell=" << request.cellId;
+    return true;
+}
+
+bool Main::reportGuardArrestReach(const MWWorld::Ptr& guard, std::uint32_t offenderGuid)
+{
+    if (!mWorldReady || !mClient || !mActorSync || !mPlayerSync || guard.isEmpty()
+        || !guard.isInCell() || guard.getCell() == nullptr || guard.getCell()->getCell() == nullptr
+        || offenderGuid == 0 || offenderGuid == mPlayerSync->localPlayer().guid)
+        return false;
+
+    const MWWorld::Cell* cell = guard.getCell()->getCell();
+    GuardArrestReach reach;
+    reach.cellId = cell->isExterior()
+        ? "EXT:" + std::to_string(cell->getGridX()) + ',' + std::to_string(cell->getGridY())
+        : std::string(cell->getNameId());
+    reach.actorNetId = mActorSync->actorNetIdForPtr(reach.cellId, guard);
+    reach.migrationGeneration = mActorSync->actorMigrationGenerationForPtr(reach.cellId, guard);
+    reach.offenderGuid = offenderGuid;
+    if (!validateGuardArrestReach(reach))
+        return false;
+
+    PacketGuardArrest packet;
+    packet.mode = PacketGuardArrest::Mode::Reach;
+    packet.reach = reach;
+    mClient->sendReliable(packet.encode());
+    Log(Debug::Info) << "[MP] Guard arrest reach reported"
+                     << " actorNetId=" << reach.actorNetId
+                     << " offenderGuid=" << reach.offenderGuid
+                     << " cell=" << reach.cellId;
+    return true;
+}
+
+void Main::receiveGuardArrestPrompt(const GuardArrestReach& prompt)
+{
+    if (!mWorldReady || !mActorSync || !mPlayerSync || !validateGuardArrestReach(prompt))
+        return;
+    if (prompt.offenderGuid != mPlayerSync->localPlayer().guid)
+    {
+        disconnect("Guard arrest prompt offender identity mismatch");
+        return;
+    }
+    if (!mPlayerSync->hasAuthoritativeCrimeState() || mPlayerSync->localPlayer().crimeState.bounty <= 0)
+    {
+        Log(Debug::Warning) << "[MP] Ignoring stale guard arrest prompt with no authoritative bounty"
+                            << " actorNetId=" << prompt.actorNetId;
+        return;
+    }
+
+    MWWorld::Ptr guard = mActorSync->getActorByNetId(prompt.actorNetId);
+    if (guard.isEmpty() || !guard.isInCell() || guard.getCell() == nullptr || guard.getCell()->getCell() == nullptr
+        || !guard.getClass().isNpc() || !guard.getClass().isClass(guard, "Guard"))
+    {
+        Log(Debug::Warning) << "[MP] Guard arrest prompt guard unavailable"
+                            << " actorNetId=" << prompt.actorNetId
+                            << " cell=" << prompt.cellId;
+        return;
+    }
+
+    const MWWorld::Cell* cell = guard.getCell()->getCell();
+    const std::string cellId = cell->isExterior()
+        ? "EXT:" + std::to_string(cell->getGridX()) + ',' + std::to_string(cell->getGridY())
+        : std::string(cell->getNameId());
+    if (cellId != prompt.cellId
+        || mActorSync->actorMigrationGenerationForPtr(cellId, guard) != prompt.migrationGeneration)
+    {
+        Log(Debug::Warning) << "[MP] Guard arrest prompt canonical guard mismatch"
+                            << " actorNetId=" << prompt.actorNetId
+                            << " cell=" << prompt.cellId;
+        return;
+    }
+
+    MWBase::WindowManager* windowManager = MWBase::Environment::get().getWindowManager();
+    if (windowManager->containsMode(MWGui::GM_Dialogue))
+    {
+        Log(Debug::Warning) << "[MP] Guard arrest prompt deferred by existing dialogue"
+                            << " actorNetId=" << prompt.actorNetId;
+        return;
+    }
+
+    windowManager->pushGuiMode(MWGui::GM_Dialogue, guard);
+    Log(Debug::Info) << "[MP] Applied server-routed guard arrest prompt"
+                     << " actorNetId=" << prompt.actorNetId
+                     << " offenderGuid=" << prompt.offenderGuid
+                     << " cell=" << prompt.cellId;
+}
+
 void Main::sendNextCrimeMutation()
 {
     if (!mCrimeMutationInFlight.empty() || mPendingCrimeMutations.empty() || !mPlayerSync)
@@ -251,6 +417,61 @@ void Main::finishCrimeMutation(std::string_view requestId, bool accepted, CrimeE
     mPendingCrimeMutations.pop_front();
     mCrimeMutationInFlight.clear();
     sendNextCrimeMutation();
+}
+
+void Main::finishGuardArrest(const GuardArrestResult& result)
+{
+    const auto pending = mPendingGuardArrestRequests.find(result.requestId);
+    if (pending == mPendingGuardArrestRequests.end())
+    {
+        Log(Debug::Warning) << "[MP] Ignoring unmatched guard arrest result request=" << result.requestId;
+        return;
+    }
+    if (pending->second != result.action)
+    {
+        mPendingGuardArrestRequests.erase(pending);
+        disconnect("Guard arrest result action mismatch");
+        return;
+    }
+    mPendingGuardArrestRequests.erase(pending);
+
+    const RevisionDecision decision = mPlayerSync->receiveAuthoritativeCrimeState(result.crimeState);
+    if (decision == RevisionDecision::Conflict)
+    {
+        disconnect("Conflicting authoritative guard arrest crime state");
+        return;
+    }
+
+    Log(result.accepted ? Debug::Info : Debug::Warning)
+        << "[MP] Guard arrest result request=" << result.requestId
+        << " action=" << static_cast<unsigned>(result.action)
+        << " accepted=" << result.accepted
+        << " error=" << getGuardArrestErrorCode(result.error)
+        << " bounty=" << result.crimeState.bounty
+        << " goldPaid=" << result.goldPaid
+        << " sentenceDays=" << result.sentenceDays;
+
+    const MWBase::Environment& environment = MWBase::Environment::get();
+    if (environment.getStateManager()->getState() != MWBase::StateManager::State_Running)
+        return;
+
+    if (!result.accepted)
+    {
+        environment.getDialogueManager()->goodbyeSelected();
+        if (environment.getWindowManager()->containsMode(MWGui::GM_Dialogue))
+            environment.getWindowManager()->removeGuiMode(MWGui::GM_Dialogue);
+        return;
+    }
+
+    if (result.action == GuardArrestAction::Surrender)
+    {
+        environment.getWorld()->goToJailAuthoritative(static_cast<int>(result.sentenceDays));
+        return;
+    }
+
+    environment.getDialogueManager()->goodbyeSelected();
+    if (environment.getWindowManager()->containsMode(MWGui::GM_Dialogue))
+        environment.getWindowManager()->removeGuiMode(MWGui::GM_Dialogue);
 }
 
 bool Main::isInitialised()
@@ -629,9 +850,12 @@ void Main::onConnected()
     mServerLuaPackagesStaged = false;
     mPendingCrimeMutations.clear();
     mCrimeMutationInFlight.clear();
+    mPendingGuardArrestRequests.clear();
+    mGuardArrestDialogue = {};
     mWorldStateSync->resetSessionState();
     mObjectSync->resetSessionState();
     mWorldObjectSync->resetSessionState();
+    mPlayerSync->resetInventoryAuthorityState();
     mPlayerSync->resetCrimeStateSync();
     mPlayerSync->resetFactionStateSync();
     mPlayerSync->resetTopicStateSync();
@@ -753,6 +977,8 @@ void Main::onDisconnected()
     mServerLuaPackagesStaged = false;
     mPendingCrimeMutations.clear();
     mCrimeMutationInFlight.clear();
+    mPendingGuardArrestRequests.clear();
+    mGuardArrestDialogue = {};
     mServerLuaCleanupPending = true;
     mHasSavedSpellbook  = false;
     mCharacterId        = 0;
@@ -840,6 +1066,7 @@ void Main::sendCharacterSelect(const std::string& charName, bool isNew)
     mRuntimeContentBootstrapGate.reset();
     mAuthoritativeStateBootstrapGate.reset();
     mWorldStateSync->beginRuntimeContentBootstrap();
+    mPlayerSync->resetInventoryAuthorityState();
     mPlayerSync->resetCrimeStateSync();
     mPlayerSync->resetFactionStateSync();
     mPlayerSync->resetTopicStateSync();
@@ -1749,6 +1976,28 @@ void Main::registerProtocolHandlers()
             }
             finishCrimeMutation(packet.resultRequestId, packet.accepted, packet.error);
             tryFinalizePendingCharacterData();
+        });
+
+    proto.registerHandler(PacketType::GuardArrest,
+        [this](const uint8_t* data, size_t size)
+        {
+            PacketGuardArrest packet;
+            if (!packet.decode(data, size))
+            {
+                disconnect("Malformed authoritative guard arrest packet");
+                return;
+            }
+            if (packet.mode == PacketGuardArrest::Mode::Result)
+            {
+                finishGuardArrest(packet.result);
+                return;
+            }
+            if (packet.mode == PacketGuardArrest::Mode::Prompt)
+            {
+                receiveGuardArrestPrompt(packet.reach);
+                return;
+            }
+            disconnect("Unexpected authoritative guard arrest packet mode");
         });
 
     proto.registerHandler(PacketType::PlayerTopic,

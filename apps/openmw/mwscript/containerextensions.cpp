@@ -1,5 +1,6 @@
 #include "containerextensions.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 
 #include <MyGUI_LanguageManager.h>
@@ -21,6 +22,10 @@
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
 
+#ifdef BUILD_MULTIPLAYER
+#include "../mwmp/Main.hpp"
+#endif
+
 #include "../mwworld/action.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/containerstore.hpp"
@@ -29,6 +34,7 @@
 #include "../mwworld/manualref.hpp"
 
 #include "../mwmechanics/actorutil.hpp"
+#include "../mwmechanics/npcstats.hpp"
 #include "../mwmechanics/levelledlist.hpp"
 
 #include "interpretercontext.hpp"
@@ -238,6 +244,24 @@ namespace MWScript
 
                 if (item == "gold_005" || item == "gold_010" || item == "gold_025" || item == "gold_100")
                     item = MWWorld::ContainerStore::sGoldId;
+
+#ifdef BUILD_MULTIPLAYER
+                if (mwmp::Main::isInitialised() && mwmp::Main::get().hasGuardArrestDialogueContext()
+                    && ptr == MWMechanics::getPlayer() && item == MWWorld::ContainerStore::sGoldId)
+                {
+                    const int bounty = ptr.getClass().getNpcStats(ptr).getBounty();
+                    const float turnInMultiplier = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>()
+                        .find("fCrimeGoldTurnInMult")->mValue.getFloat();
+                    const int turnIn = bounty > 0
+                        ? std::max(1, static_cast<int>(bounty * turnInMultiplier)) : 0;
+                    if (count == bounty || count == turnIn)
+                    {
+                        Log(Debug::Info) << "[MP] Deferred guard arrest gold removal to authoritative transaction"
+                                         << " count=" << count;
+                        return;
+                    }
+                }
+#endif
 
                 // Explicit calls to non-unique actors affect the base record
                 if (!R::implicit && ptr.getClass().isActor()
