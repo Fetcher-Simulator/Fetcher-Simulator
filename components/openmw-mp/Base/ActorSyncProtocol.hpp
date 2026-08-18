@@ -15,7 +15,10 @@ namespace mwmp
     // Still named v2 in code because this is the active ActorSync v2 lane, but
     // the wire number is bumped for the deterministic ActorInstanceId key break.
     // Bumped for migrationGeneration + removalReason additions (2026-07).
-    static constexpr uint32_t ActorSyncProtocolVersionV2 = 8;
+    // Version 12 adds authoritative crime-reaction and guard-arrest semantics,
+    // including routed arrest prompts, durable combat enforcement, and observer-side
+    // hostility needed to prevent resisted guards from reopening arrest dialogue.
+    static constexpr uint32_t ActorSyncProtocolVersionV2 = 12;
 
     using ActorInstanceId = uint64_t;
 

@@ -118,6 +118,8 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         openmw-mp/worlditemtake.cpp
         openmw-mp/inventorytake.cpp
         openmw-mp/crimeinteraction.cpp
+        openmw-mp/crimereaction.cpp
+        openmw-mp/guardarrest.cpp
         openmw-mp/combatevent.cpp
         openmw-mp/doorstate.cpp
         openmw-mp/runtimecontentbootstrap.cpp
