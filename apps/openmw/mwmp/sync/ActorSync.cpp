@@ -34,6 +34,7 @@
 #include <components/sceneutil/positionattitudetransform.hpp>
 #include <components/vfs/pathutil.hpp>
 
+#include "../../mwbase/dialoguemanager.hpp"
 #include "../../mwbase/environment.hpp"
 #include "../../mwbase/luamanager.hpp"
 #include "../../mwbase/mechanicsmanager.hpp"
@@ -44,6 +45,7 @@
 #include "../../mwmechanics/aipackage.hpp"
 #include "../../mwmechanics/aisetting.hpp"
 #include "../../mwmechanics/aicombat.hpp"
+#include "../../mwmechanics/aipursue.hpp"
 #include "../../mwmechanics/aiwander.hpp"
 #include "../../mwmechanics/character.hpp"
 #include "../../mwmechanics/creaturestats.hpp"
@@ -347,8 +349,19 @@ namespace
                 }
             }
 
-            if (combatTarget.isEmpty() && combatWorld)
+            // Legacy combat snapshots without an explicit target can still fall back
+            // to the local player. Once a targetId is present, however, failing to
+            // resolve it must never retarget the actor to whichever player happens
+            // to become the new authority client.
+            if (combatTarget.isEmpty() && combatWorld && targetId.empty())
                 combatTarget = combatWorld->getPlayerPtr();
+            else if (combatTarget.isEmpty() && !targetId.empty())
+            {
+                Log(Debug::Warning) << "[MP] ActorSync: deferred authority combat restore; explicit target unavailable"
+                                    << " cell=" << cellId
+                                    << " refId=" << actor.refId
+                                    << " actorTarget=" << targetId;
+            }
 
             if (!combatTarget.isEmpty())
             {
@@ -985,6 +998,10 @@ namespace mwmp
         mActorAuthorityGenerations.clear();
         mMechanicsSnapshotSequences.clear();
         mLastAppliedCombatEventIds.clear();
+        mAppliedCrimeReactionKeys.clear();
+        mAppliedCrimeReactionOrder.clear();
+        mAuthoritativeCrimeCombatByActorNetId.clear();
+        mPendingCrimeReactions.clear();
         mPendingRealtimeDeathActorNetIds.clear();
         mNextCombatResultSequence = 1;
         mNextSpeechEventIds.clear();
@@ -1069,6 +1086,28 @@ namespace mwmp
                 return actorNetId;
         }
 
+        // Non-authority clients can legitimately retain an actor only as a
+        // cell-owned shadow. ActorList still carries the server's canonical
+        // actor identity there, so prefer it over reconstructing a vanilla key
+        // from the local Ptr. This is especially important for interaction
+        // requests that need the same actorNetId the server registry uses.
+        if (const auto cellIt = mCells.find(cellId); cellIt != mCells.end())
+        {
+            for (const auto& [actorKey, runtime] : cellIt->second.actors)
+            {
+                (void)actorKey;
+                if (!runtime.boundActor.isEmpty()
+                    && (runtime.boundActor == ptr || sameLocalActorObject(runtime.boundActor, ptr))
+                    && isValidActorInstanceId(runtime.actorNetId))
+                    return runtime.actorNetId;
+
+                if (runtime.state.refId == ptr.getCellRef().getRefId().serializeText()
+                    && runtime.state.refNum == ptr.getCellRef().getRefNum().mIndex
+                    && isValidActorInstanceId(runtime.actorNetId))
+                    return runtime.actorNetId;
+            }
+        }
+
         return packActorInstanceKey(
             { ActorKeyKind::VanillaRefNum, ptr.getCellRef().getRefNum().mIndex });
     }
@@ -1079,7 +1118,36 @@ namespace mwmp
         const ActorInstanceId actorNetId = actorNetIdForPtr(cellId, ptr);
         const auto it = mActorsByNetId.find(actorNetId);
         if (it != mActorsByNetId.end())
-            return it->second.state.migrationGeneration;
+        {
+            if (it->second.migrationGeneration != 0)
+                return it->second.migrationGeneration;
+            if (it->second.state.migrationGeneration != 0)
+                return it->second.state.migrationGeneration;
+        }
+
+        // A non-authority observer can have the actor only in the cell-owned
+        // shadow runtime. ActorList carries migrationGeneration in BaseActor,
+        // so use that canonical server state instead of treating the actor as
+        // generation zero and rejecting interaction requests.
+        if (const auto cellIt = mCells.find(cellId); cellIt != mCells.end())
+        {
+            for (const auto& [actorKey, runtime] : cellIt->second.actors)
+            {
+                (void)actorKey;
+                const bool sameIdentity = runtime.actorNetId == actorNetId
+                    || (!runtime.boundActor.isEmpty()
+                        && (runtime.boundActor == ptr || sameLocalActorObject(runtime.boundActor, ptr)))
+                    || (runtime.state.refId == ptr.getCellRef().getRefId().serializeText()
+                        && runtime.state.refNum == ptr.getCellRef().getRefNum().mIndex);
+                if (!sameIdentity)
+                    continue;
+                if (runtime.migrationGeneration != 0)
+                    return runtime.migrationGeneration;
+                if (runtime.state.migrationGeneration != 0)
+                    return runtime.state.migrationGeneration;
+            }
+        }
+
         return 0;
     }
 
@@ -1290,6 +1358,70 @@ namespace mwmp
         ++mUpdateSerial;
         updateLocalCellBootstrapState();
         sendPendingActorSpeechEvents();
+
+        if (!mPendingCrimeReactions.empty())
+        {
+            MWBase::World* world = MWBase::Environment::get().getWorld();
+            const std::uint32_t localGuid = mwmp::Main::get().getPlayerSync().localPlayer().guid;
+            std::deque<CrimeReactionDirective> readyCrimeReactions;
+            const float safeDt = std::max(0.f, dt);
+
+            for (auto it = mPendingCrimeReactions.begin(); it != mPendingCrimeReactions.end();)
+            {
+                it->remainingTime -= safeDt;
+                it->retryTimer = std::max(0.f, it->retryTimer - safeDt);
+                if (it->remainingTime <= 0.f)
+                {
+                    Log(Debug::Warning) << "[MP] ActorSync: expired deferred CrimeReaction"
+                                        << " event=" << it->directive.eventId
+                                        << " cell=" << it->directive.cellId
+                                        << " offenderGuid=" << it->directive.offenderGuid;
+                    it = mPendingCrimeReactions.erase(it);
+                    continue;
+                }
+                if (!world || it->retryTimer > 0.f)
+                {
+                    ++it;
+                    continue;
+                }
+                it->retryTimer = 0.05f;
+
+                MWWorld::Ptr offender;
+                if (it->directive.offenderGuid == localGuid)
+                    offender = world->getPlayerPtr();
+                else if (auto* remotePlayer
+                    = mwmp::Main::get().getPlayerList().getPlayer(it->directive.offenderGuid))
+                    offender = remotePlayer->getNpcPtr();
+
+                bool pursuitRequiresSameCell = false;
+                for (const CrimeActorReaction& reaction : it->directive.actors)
+                {
+                    if ((reaction.flags & CrimeReactionPursueOffender) != 0)
+                    {
+                        pursuitRequiresSameCell = true;
+                        break;
+                    }
+                }
+                if (offender.isEmpty()
+                    || (pursuitRequiresSameCell && cellIdForPtr(offender) != it->directive.cellId))
+                {
+                    ++it;
+                    continue;
+                }
+
+                readyCrimeReactions.push_back(it->directive);
+                it = mPendingCrimeReactions.erase(it);
+            }
+
+            for (const CrimeReactionDirective& directive : readyCrimeReactions)
+            {
+                Log(Debug::Info) << "[MP] ActorSync: retrying deferred CrimeReaction"
+                                 << " event=" << directive.eventId
+                                 << " cell=" << directive.cellId
+                                 << " offenderGuid=" << directive.offenderGuid;
+                onCrimeReaction(directive);
+            }
+        }
 
         std::size_t bootstrapDeathReveals = 0;
         auto finishBootstrapDeathReveal = [&](ActorRuntime& actor)
@@ -4174,6 +4306,276 @@ namespace mwmp
         }
     }
 
+    void ActorSync::onCrimeReaction(const CrimeReactionDirective& directive)
+    {
+        if (!validateCrimeReactionDirective(directive))
+        {
+            Log(Debug::Warning) << "[MP] ActorSync: rejected invalid CrimeReaction directive";
+            return;
+        }
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (!world)
+            return;
+
+        const std::uint32_t localGuid = mwmp::Main::get().getPlayerSync().localPlayer().guid;
+        MWWorld::Ptr offender;
+        if (directive.offenderGuid == localGuid)
+            offender = world->getPlayerPtr();
+        else if (auto* remotePlayer = mwmp::Main::get().getPlayerList().getPlayer(directive.offenderGuid))
+            offender = remotePlayer->getNpcPtr();
+
+        bool requiresOffender = false;
+        bool offenderRequiresSameCell = false;
+        for (const CrimeActorReaction& reaction : directive.actors)
+        {
+            if ((reaction.flags & (CrimeReactionPursueOffender | CrimeReactionClearPursuit
+                    | CrimeReactionStartCombat)) != 0)
+                requiresOffender = true;
+            if ((reaction.flags & (CrimeReactionPursueOffender | CrimeReactionStartCombat)) != 0)
+                offenderRequiresSameCell = true;
+        }
+        const bool offenderReady = !requiresOffender || (!offender.isEmpty()
+            && (!offenderRequiresSameCell || cellIdForPtr(offender) == directive.cellId));
+        if (!offenderReady)
+        {
+            const auto pending = std::find_if(mPendingCrimeReactions.begin(), mPendingCrimeReactions.end(),
+                [&](const PendingCrimeReaction& entry) {
+                    return entry.directive.eventId == directive.eventId
+                        && entry.directive.cellId == directive.cellId;
+                });
+            if (pending == mPendingCrimeReactions.end())
+            {
+                constexpr std::size_t MaximumPendingCrimeReactions = 32;
+                if (mPendingCrimeReactions.size() >= MaximumPendingCrimeReactions)
+                    mPendingCrimeReactions.pop_front();
+                mPendingCrimeReactions.push_back({ directive, 0.05f, 2.f });
+            }
+
+            Log(Debug::Warning) << "[MP] ActorSync: deferred CrimeReaction until offender is ready"
+                                << " event=" << directive.eventId
+                                << " cell=" << directive.cellId
+                                << " offenderGuid=" << directive.offenderGuid
+                                << " offenderPresent=" << !offender.isEmpty()
+                                << " offenderCell=" << (offender.isEmpty() ? std::string() : cellIdForPtr(offender));
+            return;
+        }
+
+        constexpr std::size_t MaximumAppliedCrimeReactionKeys = 512;
+        for (const CrimeActorReaction& reaction : directive.actors)
+        {
+            auto runtimeIt = mActorsByNetId.find(reaction.actorNetId);
+            ActorRuntime* runtime = runtimeIt != mActorsByNetId.end() ? &runtimeIt->second : nullptr;
+            if (runtime && (runtime->state.cellId != directive.cellId
+                    || runtime->migrationGeneration != reaction.migrationGeneration))
+            {
+                Log(Debug::Warning) << "[MP] ActorSync: ignored stale CrimeReaction actor binding"
+                                    << " event=" << directive.eventId
+                                    << " actorNetId=" << reaction.actorNetId
+                                    << " packetCell=" << directive.cellId
+                                    << " runtimeCell=" << runtime->state.cellId
+                                    << " packetMigration=" << reaction.migrationGeneration
+                                    << " runtimeMigration=" << runtime->migrationGeneration;
+                continue;
+            }
+
+            // Every observer needs to know when a server-authored guard has entered
+            // terminal Combat with the local player, even though only the delegated
+            // actor authority executes the actual AI package. Npc::activate() uses
+            // this marker to prevent reopening arrest dialogue against a guard that
+            // has already been resisted.
+            if (directive.offenderGuid == localGuid)
+            {
+                if ((reaction.flags & CrimeReactionStartCombat) != 0)
+                {
+                    const PlayerCrimeState& crimeState = mwmp::Main::get().getPlayerSync().localPlayer().crimeState;
+                    mAuthoritativeCrimeCombatByActorNetId[reaction.actorNetId] = crimeState.currentCrimeId;
+                    Log(Debug::Info) << "[MP] ActorSync: tracked authoritative local guard combat"
+                                     << " actorNetId=" << reaction.actorNetId
+                                     << " crimeId=" << crimeState.currentCrimeId
+                                     << " event=" << directive.eventId;
+                }
+                else if ((reaction.flags & CrimeReactionClearPursuit) != 0
+                    && !directive.eventId.starts_with("crime-pursuit-suspend:"))
+                {
+                    mAuthoritativeCrimeCombatByActorNetId.erase(reaction.actorNetId);
+                }
+            }
+
+            // Crime reactions are server-authored but actor simulation remains
+            // delegated. Only the current actor authority executes semantic
+            // dialogue/AI; the existing ActorSpeech and ActorAI channels then
+            // replicate the resulting presentation/state to observers.
+            if (!hasAuthorityForActor(reaction.actorNetId, directive.cellId))
+                continue;
+
+            const std::string reactionKey
+                = directive.eventId + ':' + std::to_string(reaction.actorNetId);
+            if (mAppliedCrimeReactionKeys.contains(reactionKey))
+                continue;
+
+            MWWorld::Ptr actor;
+            const ActorInstanceKey actorKey = unpackActorInstanceId(reaction.actorNetId);
+
+            // A locally authoritative vanilla actor is the real active-cell Ptr,
+            // not necessarily a remote ActorRuntime binding. Resolve that concrete
+            // world object first so server-authored crime reactions operate on the
+            // same NPC instance that local AI and dialogue own.
+            if (actorKey.kind == ActorKeyKind::VanillaRefNum)
+            {
+                auto& scene = static_cast<MWWorld::World*>(world)->getWorldScene();
+                for (MWWorld::CellStore* store : scene.getActiveCells())
+                {
+                    store->forEach([&](MWWorld::Ptr ptr) -> bool {
+                        if (!ptr.getClass().isNpc()
+                            || cellIdForPtr(ptr) != directive.cellId
+                            || ptr.getCellRef().getRefNum().mIndex != actorKey.id)
+                            return true;
+                        if (runtime && !runtime->state.refId.empty()
+                            && ptr.getCellRef().getRefId().serializeText() != runtime->state.refId)
+                            return true;
+                        actor = ptr;
+                        return false;
+                    });
+                    if (!actor.isEmpty())
+                        break;
+                }
+            }
+            else if (actorKey.kind == ActorKeyKind::SpawnedMpNum)
+                actor = getActorByMpNum(actorKey.id);
+
+            if (actor.isEmpty() && runtime)
+                actor = runtime->boundActor;
+
+            const std::string actorRefId = !actor.isEmpty()
+                ? actor.getCellRef().getRefId().serializeText()
+                : (runtime ? runtime->state.refId : std::string());
+            if (actor.isEmpty() || !actor.getClass().isNpc()
+                || actor.getClass().getCreatureStats(actor).isDead())
+            {
+                Log(Debug::Warning) << "[MP] ActorSync: authoritative CrimeReaction actor unavailable"
+                                    << " event=" << directive.eventId
+                                    << " actorNetId=" << reaction.actorNetId
+                                    << " refId=" << actorRefId
+                                    << " actorKeyKind=" << static_cast<unsigned>(actorKey.kind)
+                                    << " actorKeyId=" << actorKey.id
+                                    << " runtimePresent=" << (runtime != nullptr);
+                continue;
+            }
+
+            bool applied = false;
+            if (reaction.dialogue != CrimeReactionDialogue::None)
+            {
+                const char* topic = reaction.dialogue == CrimeReactionDialogue::Thief
+                    ? "thief" : "intruder";
+                MWBase::Environment::get().getDialogueManager()->say(
+                    actor, ESM::RefId::stringRefId(topic));
+                applied = true;
+                Log(Debug::Info) << "[MP] ActorSync: applied authoritative crime dialogue"
+                                 << " event=" << directive.eventId
+                                 << " actorNetId=" << reaction.actorNetId
+                                 << " refId=" << actorRefId
+                                 << " topic=" << topic;
+            }
+
+            MWMechanics::NpcStats& npcStats = actor.getClass().getNpcStats(actor);
+            if ((reaction.flags & CrimeReactionSetAlarmed) != 0)
+            {
+                npcStats.setAlarmed(true);
+                applied = true;
+            }
+
+            if ((reaction.flags & CrimeReactionClearPursuit) != 0)
+            {
+                if (offender.isEmpty())
+                {
+                    Log(Debug::Warning) << "[MP] ActorSync: CrimeReaction clear target unavailable"
+                                        << " event=" << directive.eventId
+                                        << " actorNetId=" << reaction.actorNetId
+                                        << " offenderGuid=" << directive.offenderGuid;
+                }
+                else
+                {
+                    MWMechanics::AiSequence& ai = npcStats.getAiSequence();
+                    if (ai.isInPursuit() && !ai.isEmpty() && ai.getActivePackage().getTarget() == offender)
+                        ai.stopPursuit();
+                    if (ai.isInCombat(offender))
+                        ai.stopCombat({ offender });
+                    npcStats.setAlarmed(false);
+                    applied = true;
+                    Log(Debug::Info) << "[MP] ActorSync: cleared authoritative crime pursuit"
+                                     << " event=" << directive.eventId
+                                     << " actorNetId=" << reaction.actorNetId
+                                     << " refId=" << actorRefId
+                                     << " offenderGuid=" << directive.offenderGuid
+                                     << " inPursuit=" << ai.isInPursuit()
+                                     << " inCombat=" << ai.isInCombat(offender);
+                }
+            }
+            else if ((reaction.flags & CrimeReactionStartCombat) != 0)
+            {
+                if (offender.isEmpty())
+                {
+                    Log(Debug::Warning) << "[MP] ActorSync: CrimeReaction combat target unavailable"
+                                        << " event=" << directive.eventId
+                                        << " actorNetId=" << reaction.actorNetId
+                                        << " offenderGuid=" << directive.offenderGuid;
+                }
+                else
+                {
+                    MWMechanics::AiSequence& ai = npcStats.getAiSequence();
+                    if (ai.isInPursuit() && !ai.isEmpty() && ai.getActivePackage().getTarget() == offender)
+                        ai.stopPursuit();
+                    if (!ai.isInCombat(offender))
+                        MWBase::Environment::get().getMechanicsManager()->startCombat(actor, offender, nullptr);
+                    applied = true;
+                    Log(Debug::Info) << "[MP] ActorSync: applied authoritative guard combat"
+                                     << " event=" << directive.eventId
+                                     << " actorNetId=" << reaction.actorNetId
+                                     << " refId=" << actorRefId
+                                     << " offenderGuid=" << directive.offenderGuid
+                                     << " inPursuit=" << ai.isInPursuit()
+                                     << " inCombat=" << ai.isInCombat(offender);
+                }
+            }
+            else if ((reaction.flags & CrimeReactionPursueOffender) != 0)
+            {
+                if (offender.isEmpty())
+                {
+                    Log(Debug::Warning) << "[MP] ActorSync: CrimeReaction offender unavailable"
+                                        << " event=" << directive.eventId
+                                        << " actorNetId=" << reaction.actorNetId
+                                        << " offenderGuid=" << directive.offenderGuid;
+                }
+                else
+                {
+                    MWMechanics::AiSequence& ai = npcStats.getAiSequence();
+                    if (!ai.isInPursuit() && !ai.isInCombat(offender))
+                        ai.stack(MWMechanics::AiPursue(offender, true), actor);
+                    applied = true;
+                    Log(Debug::Info) << "[MP] ActorSync: applied authoritative guard pursuit"
+                                     << " event=" << directive.eventId
+                                     << " actorNetId=" << reaction.actorNetId
+                                     << " refId=" << actorRefId
+                                     << " offenderGuid=" << directive.offenderGuid
+                                     << " inPursuit=" << ai.isInPursuit()
+                                     << " inCombat=" << ai.isInCombat(offender);
+                }
+            }
+
+            if (!applied)
+                continue;
+
+            mAppliedCrimeReactionKeys.insert(reactionKey);
+            mAppliedCrimeReactionOrder.push_back(reactionKey);
+            while (mAppliedCrimeReactionOrder.size() > MaximumAppliedCrimeReactionKeys)
+            {
+                mAppliedCrimeReactionKeys.erase(mAppliedCrimeReactionOrder.front());
+                mAppliedCrimeReactionOrder.pop_front();
+            }
+        }
+    }
+
     void ActorSync::onActorCombatRequest(const ActorList& list)
     {
         auto& cell = mCells[list.cellId];
@@ -4611,6 +5013,20 @@ namespace mwmp
         return boundCellId;
     }
 
+    bool ActorSync::isAuthoritativeCrimeCombatWithLocalPlayer(const MWWorld::Ptr& ptr) const
+    {
+        if (ptr.isEmpty() || !ptr.getClass().isActor())
+            return false;
+
+        const ActorInstanceId actorNetId = actorNetIdForPtr(cellIdForPtr(ptr), ptr);
+        const auto combatIt = mAuthoritativeCrimeCombatByActorNetId.find(actorNetId);
+        if (combatIt == mAuthoritativeCrimeCombatByActorNetId.end())
+            return false;
+
+        const PlayerCrimeState& crimeState = mwmp::Main::get().getPlayerSync().localPlayer().crimeState;
+        return crimeState.bounty > 0 && combatIt->second > crimeState.paidCrimeId;
+    }
+
     uint32_t ActorSync::getActorMpNum(const MWWorld::Ptr& ptr) const
     {
         if (ptr.isEmpty() || !ptr.getClass().isActor())
@@ -4639,8 +5055,62 @@ namespace mwmp
 
         const ActorInstanceId actorNetId
             = packActorInstanceKey({ ActorKeyKind::VanillaRefNum, refNum });
+
+        // Reconciled leveled-list children keep the placed spawner's canonical
+        // vanilla refNum even though their concrete local Ptr has a dynamic
+        // refNum. Resolve that binding before attempting direct runtime lookup.
+        const auto reconciledIt = mReconciledVanillaActorsByNetId.find(actorNetId);
+        if (reconciledIt != mReconciledVanillaActorsByNetId.end()
+            && !reconciledIt->second.isEmpty())
+            return reconciledIt->second;
+
         const auto runtimeIt = mActorsByNetId.find(actorNetId);
-        return runtimeIt != mActorsByNetId.end() ? runtimeIt->second.boundActor : MWWorld::Ptr();
+        if (runtimeIt != mActorsByNetId.end() && !runtimeIt->second.boundActor.isEmpty())
+            return runtimeIt->second.boundActor;
+
+        // During authority handoff an actor can legitimately exist only in a
+        // cell-owned shadow runtime. Keep canonical interaction lookups usable
+        // in the same way actorNetIdForPtr() and actorMigrationGenerationForPtr()
+        // already do for the reverse mapping.
+        for (const auto& [cellId, cell] : mCells)
+        {
+            (void)cellId;
+            for (const auto& [actorKey, runtime] : cell.actors)
+            {
+                (void)actorKey;
+                if (runtime.actorNetId == actorNetId && !runtime.boundActor.isEmpty())
+                    return runtime.boundActor;
+            }
+        }
+
+        return MWWorld::Ptr();
+    }
+
+    MWWorld::Ptr ActorSync::getActorByNetId(ActorInstanceId actorNetId) const
+    {
+        if (!isValidActorInstanceId(actorNetId))
+            return MWWorld::Ptr();
+
+        if (const auto reconciledIt = mReconciledVanillaActorsByNetId.find(actorNetId);
+            reconciledIt != mReconciledVanillaActorsByNetId.end() && !reconciledIt->second.isEmpty())
+            return reconciledIt->second;
+
+        if (const auto runtimeIt = mActorsByNetId.find(actorNetId);
+            runtimeIt != mActorsByNetId.end() && !runtimeIt->second.boundActor.isEmpty())
+            return runtimeIt->second.boundActor;
+
+        for (const auto& [cellId, cell] : mCells)
+        {
+            (void)cellId;
+            for (const auto& [actorKey, runtime] : cell.actors)
+            {
+                (void)actorKey;
+                if (runtime.actorNetId == actorNetId && !runtime.boundActor.isEmpty())
+                    return runtime.boundActor;
+            }
+        }
+
+        return MWWorld::Ptr();
     }
 
     MWWorld::Ptr ActorSync::getActorByMpNum(uint32_t mpNum) const

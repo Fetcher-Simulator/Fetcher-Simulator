@@ -68,6 +68,7 @@
 #include <components/openmw-mp/Packets/Actor/PacketActorAttack.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAttackV2.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorSpeech.hpp>
+#include <components/openmw-mp/Packets/Actor/PacketCrimeReaction.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAuthority.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCast.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCellChange.hpp>
@@ -2232,6 +2233,14 @@ void Main::registerProtocolHandlers()
             pkt.setSpeechList(&tmp);
             if (!pkt.decode(data, size)) return;
             mActorSync->onActorSpeech(tmp);
+        });
+
+    proto.registerHandler(PacketType::CrimeReaction,
+        [this](const uint8_t* data, size_t size)
+        {
+            PacketCrimeReaction pkt;
+            if (!pkt.decode(data, size)) return;
+            mActorSync->onCrimeReaction(pkt.directive);
         });
 
     proto.registerHandler(PacketType::ActorCast,
