@@ -9,9 +9,14 @@
 #include <random>
 #include <sstream>
 #include <cstdio>
+#include <map>
+#include <memory>
 #include <string_view>
 
+#include <MyGUI_LanguageManager.h>
+
 #include <components/debug/debuglog.hpp>
+#include <components/misc/strings/format.hpp>
 #include <components/esm/refid.hpp>
 #include <components/esm3/loadcont.hpp>
 #include <components/esm/position.hpp>
@@ -37,6 +42,7 @@
 #include "../../mwworld/inventorystore.hpp"
 #include "../../mwworld/containerstore.hpp"
 #include "../../mwmechanics/creaturestats.hpp"
+#include "../../mwrender/animation.hpp"
 #include "../../mwrender/npcanimation.hpp"
 
 #include "../network/Client.hpp"
@@ -50,7 +56,12 @@ namespace mwmp
 
 void WorldObjectSync::resetSessionState()
 {
+    mPendingHarvests.clear();
     mPendingInventoryTakes.clear();
+    mInventoryTakeSources.clear();
+    mInventoryTakesAwaitingSource.clear();
+    mInventoryTakeCallbacks.clear();
+    mSuppressPickpocketFinish = false;
 }
 
 namespace
@@ -74,6 +85,13 @@ namespace
     {
         return !ptr.isEmpty()
             && (ptr.getType() == ESM::Container::sRecordId || ptr.getClass().isActor());
+    }
+
+    bool isRemotePlayerInventorySource(const MWWorld::Ptr& ptr)
+    {
+        return !ptr.isEmpty() && ptr.getClass().isActor()
+            && ptr.getClass().getCreatureStats(ptr).getMovementFlag(
+                MWMechanics::CreatureStats::Flag_NetworkPlayerNpc);
     }
 
     bool samePosition(const Position& left, const Position& right)
@@ -238,6 +256,117 @@ namespace
 
         return true;
     }
+
+    bool reconcileContainerStoreInPlace(MWWorld::ContainerStore& store,
+        const std::vector<ContainerItem>& expected, const MWWorld::ESMStore& esmStore)
+    {
+        struct DesiredItem
+        {
+            std::string refId;
+            int charge = -1;
+            int remaining = 0;
+        };
+
+        using Identity = std::pair<std::string, int>;
+        std::map<Identity, DesiredItem> desired;
+        for (const ContainerItem& item : expected)
+        {
+            if (item.refId.empty() || item.count <= 0)
+                continue;
+            const Identity identity { lowerAscii(item.refId), item.charge };
+            auto& entry = desired[identity];
+            if (entry.refId.empty())
+            {
+                entry.refId = item.refId;
+                entry.charge = item.charge;
+            }
+            entry.remaining += item.count;
+        }
+
+        std::vector<MWWorld::Ptr> currentStacks;
+        for (auto it = store.begin(); it != store.end(); ++it)
+            currentStacks.push_back(*it);
+
+        for (const MWWorld::Ptr& ptr : currentStacks)
+        {
+            if (ptr.isEmpty())
+                continue;
+            const int currentCount = ptr.getCellRef().getCount();
+            if (currentCount <= 0)
+                continue;
+
+            const Identity identity { lowerAscii(ptr.getCellRef().getRefId().toString()),
+                static_cast<int>(ptr.getCellRef().getCharge()) };
+            auto desiredIt = desired.find(identity);
+            const int keep = desiredIt == desired.end()
+                ? 0 : std::min(currentCount, desiredIt->second.remaining);
+            if (desiredIt != desired.end())
+                desiredIt->second.remaining -= keep;
+
+            const int removeCount = currentCount - keep;
+            if (removeCount > 0)
+                store.remove(ptr, removeCount, false, false);
+        }
+
+        for (auto& [identity, item] : desired)
+        {
+            (void)identity;
+            if (item.remaining <= 0)
+                continue;
+
+            MWWorld::ManualRef ref(esmStore, ESM::RefId::stringRefId(item.refId), item.remaining);
+            MWWorld::Ptr ptr = ref.getPtr();
+            if (ptr.isEmpty())
+                return false;
+            ptr.getCellRef().setCharge(item.charge);
+            store.add(ptr, item.remaining, false, false);
+        }
+
+        return containerStoreMatchesRecord(store, expected);
+    }
+
+    struct HarvestFeedback
+    {
+        std::size_t remaining = 0;
+        std::map<std::string, int> taken;
+    };
+
+    void showHarvestFeedback(const std::map<std::string, int>& taken)
+    {
+        if (taken.empty())
+            return;
+
+        std::ostringstream stream;
+        int lineCount = 0;
+        constexpr int maxLines = 10;
+        for (const auto& [itemName, itemCount] : taken)
+        {
+            ++lineCount;
+            if (lineCount == maxLines)
+                stream << "\n...";
+            else if (lineCount > maxLines)
+                break;
+
+            std::string message;
+            if (itemCount == 1)
+            {
+                message = MyGUI::LanguageManager::getInstance().replaceTags("\n#{sNotifyMessage60}");
+                message = Misc::StringUtils::format(message, itemName);
+            }
+            else
+            {
+                message = MyGUI::LanguageManager::getInstance().replaceTags("\n#{sNotifyMessage61}");
+                message = Misc::StringUtils::format(message, itemCount, itemName);
+            }
+            stream << message;
+        }
+
+        std::string tooltip = stream.str();
+        if (!tooltip.empty() && tooltip.front() == '\n')
+            tooltip.erase(0, 1);
+        if (!tooltip.empty())
+            MWBase::Environment::get().getWindowManager()->messageBox(tooltip);
+    }
 }
 
 WorldObjectSync::WorldObjectSync(NetworkClient& client)
@@ -295,7 +424,10 @@ void WorldObjectSync::update(float dt)
                 p.timer += dt;
                 if (p.timer < RETRY_RATE) return false;
                 p.timer = 0.f;
-                return tryApplyContainer(p.record, p.action);
+                const bool applied = tryApplyContainer(p.record, p.action);
+                if (applied && p.action == ContainerAction::Set)
+                    processPendingHarvest(p.record);
+                return applied;
             }),
         mPendingContainer.end());
 }
@@ -523,66 +655,34 @@ void WorldObjectSync::onLocalContainerOpened(const std::string& cellId,
     pkt.container.mpNum  = mpNum;
     pkt.mAction = static_cast<uint8_t>(ContainerAction::Set);
 
-    MWWorld::Ptr target;
-
-    if (mpNum != 0)
-    {
-        target = getObjectByMpNum(mpNum);
-        if (!isContainerTarget(target))
-            target = MWWorld::Ptr();
-        if (target.isEmpty() && Main::isInitialised())
-            target = Main::get().getActorSync().getActorByMpNum(mpNum);
-    }
-
-    if (target.isEmpty() && refNum != 0 && Main::isInitialised())
-        target = Main::get().getActorSync().getActorByCanonicalRefNum(refNum);
+    MWWorld::Ptr target = findContainerTarget(pkt.container);
 
     if (target.isEmpty())
     {
-        // Walk active cells to find the container or actor corpse and snapshot its inventory.
-        auto& scene = static_cast<MWWorld::World*>(world)->getWorldScene();
-        for (MWWorld::CellStore* store : scene.getActiveCells())
-        {
-            store->forEach([&](MWWorld::Ptr ptr) -> bool
-            {
-                if (ptr.getType() != ESM::Container::sRecordId && !ptr.getClass().isActor())
-                    return true;
-                if (ptr.getCellRef().getRefId().toString() != refId)
-                    return true;
-                if (refNum != 0 && ptr.getCellRef().getRefNum().mIndex != refNum)
-                    return true;
-
-                target = ptr;
-                return false;
-            });
-
-            if (!target.isEmpty())
-                break;
-        }
+        Log(Debug::Warning) << "[MP] WorldObjectSync: cannot answer container bootstrap; target not found refId="
+                            << refId << " refNum=" << refNum << " mpNum=" << mpNum << " cell=" << cellId;
+        return;
+    }
+    if (!isContainerTarget(target))
+    {
+        Log(Debug::Warning) << "[MP] WorldObjectSync: ignoring invalid local container snapshot target refId="
+                            << refId << " mpNum=" << mpNum << " refNum=" << refNum << " cell=" << cellId;
+        return;
     }
 
-    if (!target.isEmpty())
+    auto& cstore = target.getClass().getContainerStore(target);
+    // Authority bootstrap must snapshot concrete container contents. Organic/leveled
+    // containers may still be unresolved here; iterating an unresolved store can
+    // serialize an empty Set and incorrectly make the server authoritative for an
+    // empty container before the activating client can request the harvest.
+    cstore.resolve();
+    for (auto it = cstore.begin(); it != cstore.end(); ++it)
     {
-        if (!isContainerTarget(target))
-        {
-            Log(Debug::Warning) << "[MP] WorldObjectSync: ignoring invalid local container snapshot target refId="
-                                << refId
-                                << " mpNum=" << mpNum
-                                << " refNum=" << refNum
-                                << " cell=" << cellId;
-        }
-        else
-        {
-        auto& cstore = target.getClass().getContainerStore(target);
-        for (auto it = cstore.begin(); it != cstore.end(); ++it)
-        {
-            ContainerItem ci;
-            ci.refId  = it->getCellRef().getRefId().toString();
-            ci.count  = it->getCellRef().getCount();
-            ci.charge = static_cast<int>(it->getCellRef().getCharge());
-            appendOrMerge(pkt.container.items, ci);
-        }
-        }
+        ContainerItem ci;
+        ci.refId = it->getCellRef().getRefId().toString();
+        ci.count = it->getCellRef().getCount();
+        ci.charge = static_cast<int>(it->getCellRef().getCharge());
+        appendOrMerge(pkt.container.items, ci);
     }
 
     mClient.sendReliable(pkt.encode());
@@ -659,10 +759,15 @@ void WorldObjectSync::onServerObjectDelete(const PlacedObjectIdentity& identity)
 }
 
 bool WorldObjectSync::requestInventoryTake(const MWWorld::Ptr& source, const MWWorld::Ptr& item,
-    int count, InventoryTakeKind kind)
+    int count, InventoryTakeKind kind, InventoryTakeCallback callback)
 {
     if (!Main::isInitialised() || source.isEmpty() || item.isEmpty() || count <= 0)
         return false;
+    if (isRemotePlayerInventorySource(source))
+    {
+        Log(Debug::Warning) << "[MP] Inventory take rejected: remote player inventories are not stealable";
+        return false;
+    }
 
     InventoryTakeRequest request;
     request.requestId = mTakeRequestPrefix + "-inventory-"
@@ -693,15 +798,57 @@ bool WorldObjectSync::requestInventoryTake(const MWWorld::Ptr& source, const MWW
         return false;
     }
 
+    if (callback)
+        mInventoryTakeCallbacks.emplace(request.requestId, std::move(callback));
+    mInventoryTakeSources[request.requestId] = source;
     mPendingInventoryTakes.push_back(request);
     sendInventoryTakeRequest(request);
+    return true;
+}
+
+bool WorldObjectSync::requestHarvest(const MWWorld::Ptr& source)
+{
+    if (!Main::isInitialised() || source.isEmpty() || source.getType() != ESM::Container::sRecordId)
+        return false;
+
+    ContainerRecord record;
+    record.cellId = makeCellId(source);
+    record.refId = source.getCellRef().getRefId().serializeText();
+    record.refNum = source.getCellRef().getRefNum().mIndex;
+    record.mpNum = getMpNumForObject(source);
+    if (record.cellId.empty() || record.refId.empty())
+        return false;
+
+    const auto sameSource = [&](const PendingHarvest& pending) {
+        return pending.source.cellId == record.cellId && pending.source.refId == record.refId
+            && pending.source.refNum == record.refNum && pending.source.mpNum == record.mpNum;
+    };
+    if (std::find_if(mPendingHarvests.begin(), mPendingHarvests.end(), sameSource) == mPendingHarvests.end())
+        mPendingHarvests.push_back({ record });
+
+    PacketContainer packet;
+    packet.container = record;
+    packet.mAction = static_cast<std::uint8_t>(ContainerAction::BootstrapRequest);
+    mClient.sendReliable(packet.encode());
+    Log(Debug::Info) << "[MP] WorldObjectSync: requested authoritative harvest bootstrap refId=" << record.refId
+                     << " refNum=" << record.refNum << " mpNum=" << record.mpNum;
     return true;
 }
 
 bool WorldObjectSync::requestPickpocketFinish(const MWWorld::Ptr& source)
 {
     if (!Main::isInitialised() || source.isEmpty() || !source.getClass().isActor())
+    {
+        Log(Debug::Warning) << "[MP] PickpocketFinish build rejected before identity sourceEmpty="
+                            << source.isEmpty()
+                            << " initialized=" << Main::isInitialised();
         return false;
+    }
+    if (isRemotePlayerInventorySource(source))
+    {
+        Log(Debug::Warning) << "[MP] PickpocketFinish rejected: remote player inventories are not stealable";
+        return false;
+    }
     InventoryTakeRequest request;
     request.requestId = mTakeRequestPrefix + "-inventory-"
         + std::to_string(mNextInventoryTakeRequestId++);
@@ -715,8 +862,20 @@ bool WorldObjectSync::requestPickpocketFinish(const MWWorld::Ptr& source)
     request.source.mpNum = actorSync.getActorMpNum(source);
     request.source.refNum = request.source.mpNum == 0 ? actorSync.getActorCanonicalRefNum(source) : 0;
     request.expectedInventoryRevision = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
-    if (validateInventoryTakeRequest(request) != InventoryTakeError::None)
+    const InventoryTakeError validation = validateInventoryTakeRequest(request);
+    Log(validation == InventoryTakeError::None ? Debug::Info : Debug::Warning)
+        << "[MP] PickpocketFinish build request=" << request.requestId
+        << " source=" << request.source.refId
+        << " cell=" << request.source.cellId
+        << " actorInstanceId=" << request.source.actorInstanceId
+        << " migration=" << request.source.migrationGeneration
+        << " refNum=" << request.source.refNum
+        << " mpNum=" << request.source.mpNum
+        << " inventoryRevision=" << request.expectedInventoryRevision
+        << " validation=" << getInventoryTakeErrorCode(validation);
+    if (validation != InventoryTakeError::None)
         return false;
+    mInventoryTakeSources[request.requestId] = source;
     mPendingInventoryTakes.push_back(request);
     sendInventoryTakeRequest(request);
     return true;
@@ -752,11 +911,18 @@ void WorldObjectSync::onServerInventoryTakeResult(const InventoryTakeResult& res
         << " item=" << result.itemRefId << " count=" << result.itemCount
         << " detected=" << result.detected << " roll=" << result.detectionRoll
         << " theft=" << result.theft << " revision=" << result.inventoryRevision;
-    if (result.error != InventoryTakeError::SourceUnavailable
-        && result.error != InventoryTakeError::StaleInventoryRevision)
+
+    const bool terminal = result.error != InventoryTakeError::SourceUnavailable
+        && result.error != InventoryTakeError::StaleInventoryRevision;
+    if (result.error == InventoryTakeError::SourceUnavailable)
+        mInventoryTakesAwaitingSource.insert(result.requestId);
+    else
+        mInventoryTakesAwaitingSource.erase(result.requestId);
+    if (terminal)
     {
         std::erase_if(mPendingInventoryTakes,
             [&](const InventoryTakeRequest& request) { return request.requestId == result.requestId; });
+        mInventoryTakeSources.erase(result.requestId);
     }
     else if (result.error == InventoryTakeError::StaleInventoryRevision)
     {
@@ -771,7 +937,28 @@ void WorldObjectSync::onServerInventoryTakeResult(const InventoryTakeResult& res
     if ((result.kind == InventoryTakeKind::Pickpocket
             || result.kind == InventoryTakeKind::PickpocketFinish) && result.detected)
     {
+        mSuppressPickpocketFinish = true;
         MWBase::Environment::get().getWindowManager()->removeGuiMode(MWGui::GM_Container);
+        mSuppressPickpocketFinish = false;
+    }
+
+    if (terminal)
+    {
+        const auto callback = mInventoryTakeCallbacks.find(result.requestId);
+        if (callback != mInventoryTakeCallbacks.end())
+        {
+            InventoryTakeCallback fn = std::move(callback->second);
+            mInventoryTakeCallbacks.erase(callback);
+            try
+            {
+                fn(result);
+            }
+            catch (const std::exception& e)
+            {
+                Log(Debug::Error) << "[MP] Inventory take callback failed request=" << result.requestId
+                                  << " error=" << e.what();
+            }
+        }
     }
 }
 
@@ -791,7 +978,8 @@ void WorldObjectSync::onServerContainer(const ContainerRecord& record, Container
         onLocalContainerOpened(record.cellId, record.refId, record.refNum, record.mpNum);
         return;
     }
-    if (!tryApplyContainer(record, action))
+    const bool applied = tryApplyContainer(record, action);
+    if (!applied)
     {
         Log(Debug::Verbose) << "[MP] WorldObjectSync: queuing Container refId=" << record.refId;
         mPendingContainer.push_back({record, action, 0.f});
@@ -807,13 +995,16 @@ void WorldObjectSync::onServerContainer(const ContainerRecord& record, Container
                 && request.source.cellId == record.cellId && request.source.refId == record.refId
                 && (request.source.mpNum == 0 || request.source.mpNum == record.mpNum)
                 && (request.source.refNum == 0 || request.source.refNum == record.refNum);
-            if (sameStatic || sameActor)
+            if ((sameStatic || sameActor)
+                && mInventoryTakesAwaitingSource.erase(request.requestId) != 0)
             {
                 request.expectedInventoryRevision
                     = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
                 sendInventoryTakeRequest(request);
             }
         }
+        if (applied)
+            processPendingHarvest(record);
     }
 }
 
@@ -1024,13 +1215,43 @@ bool WorldObjectSync::tryMoveObject(uint32_t mpNum, const Position& pos)
 }
 
 // ---------------------------------------------------------------------------
-bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, ContainerAction action)
+MWWorld::Ptr WorldObjectSync::findContainerTarget(const ContainerRecord& record) const
 {
     MWBase::World* world = MWBase::Environment::get().getWorld();
-    if (!world) return false;
+    if (!world)
+        return {};
+
+    // An unresolved authoritative take already owns the exact source Ptr that the
+    // local UI/Lua object used to build its canonical request. Prefer that binding
+    // over rediscovering the actor through CellStore/ActorSync: migrated or
+    // reconciled actors can remain valid UI objects without being reverse-bound in
+    // either registry at the instant the server requests a bootstrap snapshot.
+    for (const InventoryTakeRequest& request : mPendingInventoryTakes)
+    {
+        if (request.source.cellId != record.cellId || request.source.refId != record.refId
+            || request.source.refNum != record.refNum || request.source.mpNum != record.mpNum)
+            continue;
+
+        const auto sourceIt = mInventoryTakeSources.find(request.requestId);
+        if (sourceIt == mInventoryTakeSources.end())
+            continue;
+
+        const MWWorld::Ptr& source = sourceIt->second;
+        if (source.isEmpty() || source.getCell() == nullptr || !isContainerTarget(source)
+            || makeCellId(source) != record.cellId
+            || source.getCellRef().getRefId().serializeText() != record.refId)
+            continue;
+
+        Log(Debug::Verbose) << "[MP] WorldObjectSync: resolved container from pending inventory take"
+                            << " request=" << request.requestId
+                            << " refId=" << record.refId
+                            << " refNum=" << record.refNum
+                            << " mpNum=" << record.mpNum
+                            << " cell=" << record.cellId;
+        return source;
+    }
 
     MWWorld::Ptr target;
-
     if (record.mpNum != 0)
     {
         target = getObjectByMpNum(record.mpNum);
@@ -1038,34 +1259,108 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
             target = MWWorld::Ptr();
         if (target.isEmpty() && Main::isInitialised())
             target = Main::get().getActorSync().getActorByMpNum(record.mpNum);
+        return target;
     }
 
-    if (target.isEmpty() && record.refNum != 0 && Main::isInitialised())
-        target = Main::get().getActorSync().getActorByCanonicalRefNum(record.refNum);
-
-    if (target.isEmpty())
+    // Vanilla placed containers/NPCs must resolve to the active-cell Ptr first.
+    // UI models are bound to that concrete world object. ActorSync may maintain a
+    // separate bound runtime Ptr for the same canonical refNum during handoff or
+    // reconciliation, and mutating that copy would leave an open container UI stale.
+    auto& scene = static_cast<MWWorld::World*>(world)->getWorldScene();
+    for (MWWorld::CellStore* store : scene.getActiveCells())
     {
-        auto& scene = static_cast<MWWorld::World*>(world)->getWorldScene();
-        for (MWWorld::CellStore* store : scene.getActiveCells())
-        {
-            store->forEach([&](MWWorld::Ptr ptr) -> bool
+        store->forEach([&](MWWorld::Ptr ptr) -> bool {
+            if (ptr.getType() != ESM::Container::sRecordId && !ptr.getClass().isActor())
+                return true;
+            if (ptr.getCellRef().getRefId().toString() != record.refId)
+                return true;
+            if (record.refNum != 0)
             {
-                if (ptr.getType() != ESM::Container::sRecordId && !ptr.getClass().isActor())
+                uint32_t candidateRefNum = ptr.getCellRef().getRefNum().mIndex;
+                if (ptr.getClass().isActor() && Main::isInitialised())
+                {
+                    const uint32_t canonicalRefNum
+                        = Main::get().getActorSync().getActorCanonicalRefNum(ptr);
+                    if (canonicalRefNum != 0)
+                        candidateRefNum = canonicalRefNum;
+                }
+                if (candidateRefNum != record.refNum)
                     return true;
-                if (ptr.getCellRef().getRefId().toString() != record.refId)
-                    return true;
-                if (record.refNum != 0 && ptr.getCellRef().getRefNum().mIndex != record.refNum)
-                    return true;
-
-                target = ptr;
-                return false;
-            });
-
-            if (!target.isEmpty())
-                break;
-        }
+            }
+            target = ptr;
+            return false;
+        });
+        if (!target.isEmpty())
+            return target;
     }
 
+    if (record.refNum != 0 && Main::isInitialised())
+        target = Main::get().getActorSync().getActorByCanonicalRefNum(record.refNum);
+    return target;
+}
+
+void WorldObjectSync::processPendingHarvest(const ContainerRecord& record)
+{
+    auto pending = std::find_if(mPendingHarvests.begin(), mPendingHarvests.end(), [&](const PendingHarvest& value) {
+        return value.source.cellId == record.cellId && value.source.refId == record.refId
+            && value.source.refNum == record.refNum && value.source.mpNum == record.mpNum;
+    });
+    if (pending == mPendingHarvests.end())
+        return;
+
+    MWWorld::Ptr target = findContainerTarget(record);
+    if (target.isEmpty() || target.getType() != ESM::Container::sRecordId)
+        return;
+
+    struct HarvestCandidate
+    {
+        MWWorld::Ptr item;
+        int count = 0;
+        std::string name;
+    };
+
+    auto& store = target.getClass().getContainerStore(target);
+    std::vector<HarvestCandidate> candidates;
+    for (auto it = store.begin(); it != store.end(); ++it)
+    {
+        if (!it->getClass().showsInInventory(*it) || it->getCellRef().getCount() <= 0)
+            continue;
+        candidates.push_back({ *it, it->getCellRef().getCount(), std::string(it->getClass().getName(*it)) });
+    }
+
+    auto feedback = std::make_shared<HarvestFeedback>();
+    feedback->remaining = candidates.size();
+    std::size_t queued = 0;
+    for (const HarvestCandidate& candidate : candidates)
+    {
+        const bool requested = requestInventoryTake(target, candidate.item, candidate.count,
+            InventoryTakeKind::Container,
+            [feedback, itemName = candidate.name](const InventoryTakeResult& result) {
+                if (result.accepted && result.itemCount > 0)
+                    feedback->taken[itemName] += result.itemCount;
+                if (feedback->remaining > 0)
+                    --feedback->remaining;
+                if (feedback->remaining == 0)
+                    showHarvestFeedback(feedback->taken);
+            });
+        if (requested)
+            ++queued;
+        else if (feedback->remaining > 0)
+            --feedback->remaining;
+    }
+
+    Log(Debug::Info) << "[MP] WorldObjectSync: authoritative harvest snapshot refId=" << record.refId
+                     << " items=" << record.items.size() << " requests=" << queued;
+    mPendingHarvests.erase(pending);
+}
+
+// ---------------------------------------------------------------------------
+bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, ContainerAction action)
+{
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    if (!world) return false;
+
+    MWWorld::Ptr target = findContainerTarget(record);
     if (target.isEmpty())
         return false;
 
@@ -1092,23 +1387,44 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
     }
 
     bool preservedSetHandles = false;
+    bool reconciledSetHandles = false;
     if (action == ContainerAction::Set)
     {
         preservedSetHandles = containerStoreMatchesRecord(cstore, record.items);
         if (!preservedSetHandles)
         {
-            if (record.items.empty())
-                clearDeadActorEquipmentVisuals(*world, target);
-            cstore.clear();
-            for (const auto& ci : record.items)
+            // Reconcile authoritative Set snapshots in place first. An open
+            // pickpocket/container UI holds Ptrs into this store, so clearing and
+            // rebuilding the whole store invalidates every unaffected stack even
+            // when the server changed only one count. Preserve those handles and
+            // fall back to a full rebuild only if the coarse authoritative record
+            // cannot be reproduced safely in place.
+            reconciledSetHandles = reconcileContainerStoreInPlace(cstore, record.items, esmStore);
+            if (!reconciledSetHandles)
             {
-                MWWorld::ManualRef ref(esmStore, ESM::RefId::stringRefId(ci.refId), ci.count);
-                if (!ref.getPtr().isEmpty())
-                    cstore.add(ref.getPtr(), ci.count);
+                if (record.items.empty())
+                    clearDeadActorEquipmentVisuals(*world, target);
+                cstore.clearResolved();
+                for (const auto& ci : record.items)
+                {
+                    MWWorld::ManualRef ref(esmStore, ESM::RefId::stringRefId(ci.refId), ci.count);
+                    if (!ref.getPtr().isEmpty())
+                    {
+                        MWWorld::Ptr ptr = ref.getPtr();
+                        ptr.getCellRef().setCharge(ci.charge);
+                        cstore.add(ptr, ci.count, true, false);
+                    }
+                }
             }
         }
         if (record.items.empty())
             clearDeadActorEquipmentVisuals(*world, target);
+
+        if (target.getType() == ESM::Container::sRecordId && !cstore.hasVisibleItems())
+        {
+            if (MWRender::Animation* animation = world->getAnimation(target))
+                animation->harvest(target);
+        }
     }
     else if (action == ContainerAction::Add)
     {
@@ -1131,7 +1447,8 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
                      << static_cast<int>(action)
                      << " refId=" << record.refId
                      << " mpNum=" << record.mpNum
-                     << " preservedSetHandles=" << preservedSetHandles;
+                     << " preservedSetHandles=" << preservedSetHandles
+                     << " reconciledSetHandles=" << reconciledSetHandles;
     return true;
 }
 

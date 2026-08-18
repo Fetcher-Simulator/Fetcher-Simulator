@@ -36,22 +36,21 @@ namespace MWWorld
 
         MWWorld::Ptr target = getTarget();
         MWWorld::ContainerStore& store = target.getClass().getContainerStore(target);
-        store.resolve();
 
 #ifdef BUILD_MULTIPLAYER
         if (mwmp::Main::isConnected()
             && actor == MWBase::Environment::get().getWorld()->getPlayerPtr())
         {
-            for (MWWorld::ContainerStoreIterator it = store.begin(); it != store.end(); ++it)
-            {
-                if (!it->getClass().showsInInventory(*it))
-                    continue;
-                mwmp::Main::get().getWorldObjectSync().requestInventoryTake(
-                    target, *it, it->getCellRef().getCount(), mwmp::InventoryTakeKind::Container);
-            }
+            // Harvestable containers may contain leveled items whose resolution seed is
+            // local-client PRNG state. Never derive authoritative harvest contents here.
+            // Bootstrap the source from the cell authority first; WorldObjectSync will
+            // issue typed item takes only after the canonical Container(Set) is applied.
+            mwmp::Main::get().getWorldObjectSync().requestHarvest(target);
             return;
         }
 #endif
+
+        store.resolve();
 
         MWWorld::ContainerStore& actorStore = actor.getClass().getContainerStore(actor);
         std::map<std::string, int> takenMap;

@@ -5,6 +5,7 @@
 #include <MyGUI_Button.h>
 #include <MyGUI_InputManager.h>
 
+#include <components/debug/debuglog.hpp>
 #include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
@@ -184,6 +185,8 @@ namespace MWGui
         bool lootAnyway = mTreatNextOpenAsLoot;
         mTreatNextOpenAsLoot = false;
         mPtr = container;
+        mPickpocketFinishSent = false;
+        mPickpocketDetected = false;
 
         bool loot = mPtr.getClass().isActor() && mPtr.getClass().getCreatureStats(mPtr).isDead();
 
@@ -240,6 +243,25 @@ namespace MWGui
     void ContainerWindow::onOpen()
     {
         mItemTransfer->addTarget(*mItemView);
+    }
+
+    void ContainerWindow::finalizePickpocketSession()
+    {
+        if (!mwmp::Main::isInitialised() || mPickpocketFinishSent || mPickpocketDetected
+            || mPtr.isEmpty() || dynamic_cast<PickpocketItemModel*>(mModel) == nullptr)
+            return;
+        if (mwmp::Main::get().getWorldObjectSync().isSuppressingPickpocketFinish())
+        {
+            mPickpocketDetected = true;
+            return;
+        }
+
+        mPickpocketFinishSent
+            = mwmp::Main::get().getWorldObjectSync().requestPickpocketFinish(mPtr);
+        Log(mPickpocketFinishSent ? Debug::Info : Debug::Warning)
+            << "[MP] ContainerWindow: pickpocket session finish request"
+            << " actor=" << mPtr.getCellRef().getRefId().serializeText()
+            << " sent=" << mPickpocketFinishSent;
     }
 
     void ContainerWindow::onClose()

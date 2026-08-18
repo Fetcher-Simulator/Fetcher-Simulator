@@ -3,6 +3,8 @@
 
 #include <cstdint>
 #include <deque>
+#include <optional>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -92,6 +94,8 @@ namespace mwmp
 
         // Accessors used by Networking dispatcher
         BasePlayer& localPlayer() { return mLocal; }
+        std::optional<std::int64_t> authoritativeInventoryCount(std::string_view refId) const;
+        void resetInventoryAuthorityState();
 
         // Drop all per-session spellbook sync state (revision token, baseline,
         // in-flight gate). Called on disconnect so no state leaks into the next
@@ -320,6 +324,7 @@ namespace mwmp
 
         bool mPendingEquipmentRestore = false;
         bool mPendingInventoryRestore = false;
+        bool mHasAuthoritativeInventory = false;
         std::array<EquipmentItem, BasePlayer::NUM_EQUIPMENT_SLOTS> mAuthoritativeEquipment{};
         BasePlayer::InventoryChanges mAuthoritativeInventory;
         std::deque<BasePlayer::JournalChanges> mPendingJournalChanges;

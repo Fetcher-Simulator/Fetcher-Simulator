@@ -1,6 +1,8 @@
 #ifndef MWGUI_PICKPOCKET_ITEM_MODEL_H
 #define MWGUI_PICKPOCKET_ITEM_MODEL_H
 
+#include <utility>
+
 #include "itemmodel.hpp"
 
 namespace MWGui
@@ -27,7 +29,8 @@ namespace MWGui
         bool stealItem(const MWWorld::Ptr& item, int count);
 
     private:
-        std::vector<ItemStack> mHiddenItems;
+        using HiddenItemIdentity = std::pair<std::string, int>;
+        std::vector<HiddenItemIdentity> mHiddenItems;
         std::vector<ItemStack> mItems;
     };
 

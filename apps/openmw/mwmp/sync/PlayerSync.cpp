@@ -812,6 +812,28 @@ void PlayerSync::queueAuthoritativeEquipment(const BasePlayer& authoritative)
     applyPendingAuthoritativeState(player);
 }
 
+std::optional<std::int64_t> PlayerSync::authoritativeInventoryCount(std::string_view refId) const
+{
+    if (!mHasAuthoritativeInventory)
+        return std::nullopt;
+
+    std::int64_t count = 0;
+    for (const Item& item : mAuthoritativeInventory.items)
+    {
+        if (item.refId == refId && item.count > 0)
+            count += item.count;
+    }
+    return count;
+}
+
+void PlayerSync::resetInventoryAuthorityState()
+{
+    mInventoryRevisionGate.reset();
+    mPendingInventoryRestore = false;
+    mHasAuthoritativeInventory = false;
+    mAuthoritativeInventory = {};
+}
+
 void PlayerSync::queueAuthoritativeInventory(const BasePlayer& authoritative)
 {
     const uint64_t previousRevision = mLocal.inventoryChanges.revision;
@@ -825,6 +847,7 @@ void PlayerSync::queueAuthoritativeInventory(const BasePlayer& authoritative)
 
     mAuthoritativeInventory = authoritative.inventoryChanges;
     mAuthoritativeInventory.action = BasePlayer::InventoryChanges::Action::Set;
+    mHasAuthoritativeInventory = true;
 
     // The server replies to every accepted optimistic inventory mutation so the
     // client can advance its revision token. Most replies are pure ACKs: the
