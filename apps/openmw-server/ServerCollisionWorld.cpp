@@ -591,8 +591,16 @@ std::optional<mwmp::ServerCollisionWorld::DoorReference> mwmp::ServerCollisionWo
 
 bool mwmp::ServerCollisionWorld::hasLineOfSight(const osg::Vec3f& from, const osg::Vec3f& to) const
 {
+    return !diagnoseLineOfSight(from, to).hit;
+}
+
+mwmp::ServerCollisionWorld::RaycastDiagnostic mwmp::ServerCollisionWorld::diagnoseLineOfSight(
+    const osg::Vec3f& from, const osg::Vec3f& to) const
+{
+    RaycastDiagnostic result;
     if (from == to)
-        return true;
+        return result;
+
     const btVector3 bulletFrom = Misc::Convert::toBullet(from);
     const btVector3 bulletTo = Misc::Convert::toBullet(to);
     btCollisionWorld::ClosestRayResultCallback callback(bulletFrom, bulletTo);
@@ -600,7 +608,35 @@ bool mwmp::ServerCollisionWorld::hasLineOfSight(const osg::Vec3f& from, const os
     callback.m_collisionFilterMask = MWPhysics::CollisionType_World
         | MWPhysics::CollisionType_HeightMap | MWPhysics::CollisionType_Door;
     mCollisionWorld->rayTest(bulletFrom, bulletTo, callback);
-    return !callback.hasHit();
+    if (!callback.hasHit())
+        return result;
+
+    result.hit = true;
+    result.fraction = callback.m_closestHitFraction;
+    result.hitPoint = from + (to - from) * result.fraction;
+
+    for (const auto& [cellId, state] : mCells)
+    {
+        static_cast<void>(cellId);
+        for (const std::unique_ptr<CollisionEntry>& entry : state->objects)
+        {
+            if (entry->object.get() == callback.m_collisionObject)
+            {
+                result.refId = entry->refId.serializeText();
+                result.refNum = entry->refNum;
+                return result;
+            }
+        }
+        for (const std::unique_ptr<HeightfieldEntry>& entry : state->heightfields)
+        {
+            if (entry->object.get() == callback.m_collisionObject)
+            {
+                result.heightfield = true;
+                return result;
+            }
+        }
+    }
+    return result;
 }
 
 mwmp::CollisionObservation mwmp::ServerCollisionWorld::lineOfSight(
