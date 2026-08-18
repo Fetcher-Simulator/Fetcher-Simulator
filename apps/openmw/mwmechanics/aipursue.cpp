@@ -1,6 +1,7 @@
 #include "aipursue.hpp"
 
 #include <components/esm3/aisequence.hpp>
+#include <components/sceneutil/positionattitudetransform.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
@@ -21,7 +22,8 @@
 namespace MWMechanics
 {
 
-    AiPursue::AiPursue(const MWWorld::Ptr& actor)
+    AiPursue::AiPursue(const MWWorld::Ptr& actor, bool serverAuthorizedCrimePursuit)
+        : mServerAuthorizedCrimePursuit(serverAuthorizedCrimePursuit)
     {
         mTargetActor = actor.getCellRef().getRefNum();
     }
@@ -51,7 +53,7 @@ namespace MWMechanics
         if (target.getClass().getCreatureStats(target).isDead())
             return true;
 
-        if (target.getClass().getNpcStats(target).getBounty() <= 0)
+        if (!mServerAuthorizedCrimePursuit && target.getClass().getNpcStats(target).getBounty() <= 0)
             return true;
 
         actor.getClass().getCreatureStats(actor).setDrawState(DrawState::Nothing);
@@ -76,11 +78,31 @@ namespace MWMechanics
             // Multiplayer does not pause the simulation while dialogue is
             // open. Servers can therefore replace the modal arrest choice
             // with an immediate resist-arrest outcome.
-            if (mwmp::Main::isInitialised()
-                && mwmp::Main::get().getGuardArrestMode() == mwmp::GuardArrestMode::Combat)
+            if (mwmp::Main::isInitialised())
             {
-                MWBase::Environment::get().getMechanicsManager()->startCombat(actor, target, nullptr);
-                return true;
+                mwmp::Main& multiplayer = mwmp::Main::get();
+                if (multiplayer.getGuardArrestMode() == mwmp::GuardArrestMode::Combat)
+                {
+                    MWBase::Environment::get().getMechanicsManager()->startCombat(actor, target, nullptr);
+                    return true;
+                }
+
+                if (mServerAuthorizedCrimePursuit && target != MWMechanics::getPlayer())
+                {
+                    int offenderGuid = 0;
+                    if (auto* baseNode = target.getRefData().getBaseNode())
+                        baseNode->getUserValue("mp_player_guid", offenderGuid);
+                    if (offenderGuid > 0)
+                    {
+                        // The actor-authority client owns the guard simulation,
+                        // not the pursued remote player's UI. Route the arrest
+                        // prompt through the server instead of opening dialogue
+                        // on whichever client happens to own this guard.
+                        if (multiplayer.reportGuardArrestReach(actor, static_cast<std::uint32_t>(offenderGuid)))
+                            return true;
+                        return false;
+                    }
+                }
             }
 #endif
 

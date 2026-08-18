@@ -1396,7 +1396,11 @@ namespace MWScript
             {
 #ifdef BUILD_MULTIPLAYER
                 if (mwmp::Main::isInitialised())
+                {
+                    if (mwmp::Main::get().hasGuardArrestDialogueContext())
+                        mwmp::Main::get().requestGuardArrest(mwmp::GuardArrestAction::Surrender);
                     return;
+                }
 #endif
                 MWBase::World* world = MWBase::Environment::get().getWorld();
                 world->goToJail();
@@ -1410,7 +1414,11 @@ namespace MWScript
             {
 #ifdef BUILD_MULTIPLAYER
                 if (mwmp::Main::isInitialised())
+                {
+                    if (mwmp::Main::get().hasGuardArrestDialogueContext())
+                        mwmp::Main::get().requestGuardArrest(mwmp::GuardArrestAction::PayFine);
                     return;
+                }
 #endif
                 MWWorld::Ptr player = MWMechanics::getPlayer();
                 player.getClass().getNpcStats(player).setBounty(0);

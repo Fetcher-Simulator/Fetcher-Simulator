@@ -28,6 +28,10 @@
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/world.hpp"
 
+#ifdef BUILD_MULTIPLAYER
+#include "../mwmp/Main.hpp"
+#endif
+
 #include "interpretercontext.hpp"
 #include "ref.hpp"
 
@@ -506,6 +510,14 @@ namespace MWScript
                 runtime.pop();
 
                 MWWorld::Ptr target = MWBase::Environment::get().getWorld()->searchPtr(targetID, true, false);
+#ifdef BUILD_MULTIPLAYER
+                if (mwmp::Main::isInitialised() && mwmp::Main::get().hasGuardArrestDialogueContext()
+                    && !target.isEmpty() && target == MWBase::Environment::get().getWorld()->getPlayerPtr())
+                {
+                    mwmp::Main::get().requestGuardArrest(mwmp::GuardArrestAction::Resist);
+                    return;
+                }
+#endif
                 if (!target.isEmpty() && !target.getBase()->isDeleted()
                     && !target.getClass().getCreatureStats(target).isDead())
                     MWBase::Environment::get().getMechanicsManager()->startCombat(actor, target, nullptr);

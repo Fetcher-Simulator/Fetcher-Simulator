@@ -549,6 +549,7 @@ namespace MWBase
         virtual void confiscateStolenItems(const MWWorld::Ptr& ptr) = 0;
 
         virtual void goToJail() = 0;
+        virtual void goToJailAuthoritative(int days) = 0;
 
         /// Spawn a random creature from a levelled list next to the player
         virtual void spawnRandomCreature(const ESM::RefId& creatureList) = 0;

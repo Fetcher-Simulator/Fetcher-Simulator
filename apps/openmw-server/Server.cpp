@@ -5633,6 +5633,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::WorldItemTakeRequest: handleWorldItemTakeRequest(client, data, size); break;
         case PacketType::InventoryTakeRequest: handleInventoryTakeRequest(client, data, size); break;
         case PacketType::CrimeInteractionRequest: handleCrimeInteractionRequest(client, data, size); break;
+        case PacketType::GuardArrest:     handleGuardArrest(client, data, size);       break;
         case PacketType::ObjectDelete:     handleObjectDelete(client, data, size);       break;
         case PacketType::ObjectMove:       handleObjectMove(client, data, size);         break;
         case PacketType::Container:        handleContainer(client, data, size);          break;
@@ -14732,11 +14733,517 @@ void MPServer::handleCrimeInteractionRequest(ConnectedClient& c, const uint8_t* 
     c.player.crimeState = mPlayerDb->loadPlayerCrimeState(c.dbCharacterId);
     c.player.bounty = c.player.crimeState.bounty;
     sendAuthoritativeCrimeState(c);
+    if (!outcome.replayed)
+        dispatchCrimeReactions(c, outcome.result);
     syncLuaPlayerSnapshot();
     Log(outcome.result.accepted ? Debug::Info : Debug::Warning)
         << "[CrimeInteraction] eventId=" << intent.eventId << " player=" << c.name
         << " target=" << request.refId << " seen=" << outcome.result.crimeSeen
         << " bountyDelta=" << outcome.result.bountyDelta << " replayed=" << outcome.replayed;
+}
+
+// ---------------------------------------------------------------------------
+void MPServer::handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    PacketGuardArrest packet;
+    if (!packet.decode(data, size))
+        return;
+
+    if (packet.mode == PacketGuardArrest::Mode::Reach)
+    {
+        const GuardArrestReach& reach = packet.reach;
+        if (!mGuardArrestDialogueEnabled || !mPlayerDb || !mContentRegistry || !c.charSelectComplete)
+            return;
+
+        ConnectedClient* offender = findClientByGuid(reach.offenderGuid);
+        if (!offender || !offender->charSelectComplete || offender->dbCharacterId <= 0
+            || offender->player.isDead || makeCellKey(offender->player.cell) != reach.cellId
+            || offender->player.crimeState.bounty <= 0)
+            return;
+
+        const auto keyIt = mWorld.actorKeysByNetId.find(reach.actorNetId);
+        if (keyIt == mWorld.actorKeysByNetId.end())
+            return;
+        const auto locationIt = mWorld.actorLocations.find(keyIt->second);
+        if (locationIt == mWorld.actorLocations.end() || locationIt->second != reach.cellId)
+            return;
+        auto cellIt = mWorld.actorCells.find(reach.cellId);
+        if (cellIt == mWorld.actorCells.end())
+            return;
+        auto actorIt = cellIt->second.actors.find(keyIt->second);
+        if (actorIt == cellIt->second.actors.end())
+            return;
+
+        ActorRegistryRecord& guardRecord = actorIt->second;
+        if (guardRecord.actorNetId != reach.actorNetId
+            || guardRecord.migrationGeneration != reach.migrationGeneration
+            || guardRecord.actor.isDead || !isAllowedActorSender(c, guardRecord, reach.cellId))
+            return;
+
+        const ESM::NPC* guardNpc = mContentRegistry->store().get<ESM::NPC>().search(
+            ESM::RefId::stringRefId(guardRecord.actor.refId));
+        if (!guardNpc || guardNpc->mClass != "guard")
+            return;
+
+        if (guardRecord.crimePursuitCharacterId != offender->dbCharacterId
+            || guardRecord.crimePursuitLastGuid != offender->guid
+            || guardRecord.crimeEnforcementState != CrimeEnforcementState::Arrest)
+            return;
+
+        // Only one arrest offer may be active for an offender in a cell, and
+        // an already-hostile guard suppresses fresh arrest offers there.
+        for (const auto& [otherActorKey, otherRecord] : cellIt->second.actors)
+        {
+            (void)otherActorKey;
+            if (otherRecord.crimePursuitCharacterId != offender->dbCharacterId
+                || otherRecord.actor.isDead || otherRecord.migrationGeneration == 0)
+                continue;
+            if (otherRecord.crimeEnforcementState == CrimeEnforcementState::ArrestPending
+                || otherRecord.crimeEnforcementState == CrimeEnforcementState::Combat)
+                return;
+        }
+
+        constexpr std::uint64_t MaximumSnapshotAgeMs = 1000;
+        const std::uint64_t nowMs = currentServerTimeMs();
+        const AcceptedMechanicsSnapshot* offenderSnapshot = mMechanicsSnapshots.findFresh(
+            { MechanicsSubjectKind::Player, offender->guid, 0 }, nowMs, MaximumSnapshotAgeMs);
+        const AcceptedMechanicsSnapshot* guardSnapshot = mMechanicsSnapshots.findFresh(
+            { MechanicsSubjectKind::Npc, 0, reach.actorNetId }, nowMs, MaximumSnapshotAgeMs);
+        if (!offenderSnapshot || !guardSnapshot
+            || offenderSnapshot->snapshot.cellId != reach.cellId
+            || guardSnapshot->snapshot.cellId != reach.cellId
+            || offenderSnapshot->snapshot.migrationGeneration != 1
+            || offenderSnapshot->snapshot.authorityGeneration != offender->guid
+            || guardSnapshot->snapshot.migrationGeneration != reach.migrationGeneration)
+            return;
+
+        const float dx = offenderSnapshot->snapshot.position.pos[0] - guardSnapshot->snapshot.position.pos[0];
+        const float dy = offenderSnapshot->snapshot.position.pos[1] - guardSnapshot->snapshot.position.pos[1];
+        const float dz = offenderSnapshot->snapshot.position.pos[2] - guardSnapshot->snapshot.position.pos[2];
+        const float distanceSquared = dx * dx + dy * dy + dz * dz;
+        if (!std::isfinite(distanceSquared)
+            || distanceSquared > mDoorInteractionRadius * mDoorInteractionRadius)
+            return;
+
+        guardRecord.crimeEnforcementState = CrimeEnforcementState::ArrestPending;
+        guardRecord.crimePursuitReassertArmed = false;
+        guardRecord.lastSnapshotTime = nowMs;
+        markLuaActorDirty(guardRecord, reach.cellId);
+
+        PacketGuardArrest prompt;
+        prompt.mode = PacketGuardArrest::Mode::Prompt;
+        prompt.reach = reach;
+        sendTo(offender->conn, prompt.encode());
+        Log(Debug::Info) << "[GuardArrest] routed prompt"
+                         << " authority=" << c.name
+                         << " offender=" << offender->name
+                         << " offenderGuid=" << offender->guid
+                         << " actorNetId=" << reach.actorNetId
+                         << " cell=" << reach.cellId;
+        return;
+    }
+
+    if (packet.mode != PacketGuardArrest::Mode::Request)
+        return;
+
+    const GuardArrestRequest& request = packet.request;
+    GuardArrestResult result;
+    result.requestId = request.requestId;
+    result.action = request.action;
+
+    auto refreshClientState = [&] {
+        if (mPlayerDb && c.dbCharacterId > 0)
+        {
+            c.player.crimeState = mPlayerDb->loadPlayerCrimeState(c.dbCharacterId);
+            c.player.bounty = c.player.crimeState.bounty;
+            c.inventoryRevision = mPlayerDb->loadInventoryRevision(c.dbCharacterId);
+            c.player.inventoryChanges.revision = c.inventoryRevision;
+        }
+    };
+    auto refreshResultState = [&] {
+        refreshClientState();
+        result.crimeState = c.player.crimeState;
+        result.inventoryRevision = c.inventoryRevision;
+    };
+    auto sendResult = [&] {
+        PacketGuardArrest response;
+        response.mode = PacketGuardArrest::Mode::Result;
+        response.result = result;
+        sendTo(c.conn, response.encode());
+    };
+    auto reject = [&](GuardArrestError error, bool restoreInventory = false) {
+        refreshResultState();
+        result.accepted = false;
+        result.error = error;
+        result.goldPaid = 0;
+        result.sentenceDays = 0;
+        if (restoreInventory && mPlayerDb && c.dbCharacterId > 0)
+        {
+            c.player.inventoryChanges.action = BasePlayer::InventoryChanges::Action::Set;
+            c.player.inventoryChanges.items = mPlayerDb->loadCharacterInventory(c.dbCharacterId);
+            sendAuthoritativeInventory(c);
+        }
+        sendResult();
+    };
+
+    if (!mPlayerDb || !mContentRegistry || !c.charSelectComplete
+        || c.dbAccountId <= 0 || c.dbCharacterId <= 0)
+    {
+        reject(GuardArrestError::Unauthorized);
+        return;
+    }
+
+    const std::string requestHash = crypto::sha256hex(canonicalGuardArrestRequest(request));
+    if (const auto existing
+        = mPlayerDb->loadSemanticRequest("guard-arrest", c.dbAccountId, c.dbCharacterId, request.requestId))
+    {
+        if (existing->requestHash != requestHash)
+        {
+            reject(GuardArrestError::DuplicateConflict, request.action == GuardArrestAction::PayFine);
+            return;
+        }
+        try
+        {
+            result = decodeGuardArrestResult(existing->resultPayload);
+            refreshClientState();
+            if (request.action == GuardArrestAction::PayFine)
+            {
+                c.player.inventoryChanges.action = BasePlayer::InventoryChanges::Action::Set;
+                c.player.inventoryChanges.items = mPlayerDb->loadCharacterInventory(c.dbCharacterId);
+                sendAuthoritativeInventory(c);
+            }
+            sendAuthoritativeCrimeState(c);
+            sendResult();
+            Log(Debug::Info) << "[GuardArrest] replay request=" << request.requestId
+                             << " player=" << c.name
+                             << " action=" << static_cast<unsigned>(request.action);
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Error) << "[GuardArrest] corrupt stored result request=" << request.requestId
+                              << " player=" << c.name << " error=" << e.what();
+            reject(GuardArrestError::PersistenceFailure, request.action == GuardArrestAction::PayFine);
+        }
+        return;
+    }
+
+    const std::string canonicalPlayerCell = makeCellKey(c.player.cell);
+    if (request.cellId != canonicalPlayerCell)
+    {
+        reject(GuardArrestError::WrongCell, request.action == GuardArrestAction::PayFine);
+        return;
+    }
+    if (c.player.isDead)
+    {
+        reject(GuardArrestError::PlayerDead, request.action == GuardArrestAction::PayFine);
+        return;
+    }
+
+    refreshClientState();
+    if (request.expectedCrimeRevision != c.player.crimeState.revision)
+    {
+        reject(GuardArrestError::StaleCrimeRevision, request.action == GuardArrestAction::PayFine);
+        return;
+    }
+    if (c.player.crimeState.bounty <= 0)
+    {
+        reject(GuardArrestError::NoBounty, request.action == GuardArrestAction::PayFine);
+        return;
+    }
+    if (request.action == GuardArrestAction::PayFine
+        && request.expectedInventoryRevision != c.inventoryRevision)
+    {
+        reject(GuardArrestError::StaleInventoryRevision, true);
+        return;
+    }
+
+    const auto keyIt = mWorld.actorKeysByNetId.find(request.actorNetId);
+    if (keyIt == mWorld.actorKeysByNetId.end())
+    {
+        reject(GuardArrestError::UnknownGuard, request.action == GuardArrestAction::PayFine);
+        return;
+    }
+    const auto locationIt = mWorld.actorLocations.find(keyIt->second);
+    if (locationIt == mWorld.actorLocations.end() || locationIt->second != request.cellId)
+    {
+        reject(GuardArrestError::WrongCell, request.action == GuardArrestAction::PayFine);
+        return;
+    }
+    auto cellIt = mWorld.actorCells.find(request.cellId);
+    if (cellIt == mWorld.actorCells.end())
+    {
+        reject(GuardArrestError::UnknownGuard, request.action == GuardArrestAction::PayFine);
+        return;
+    }
+    auto actorIt = cellIt->second.actors.find(keyIt->second);
+    if (actorIt == cellIt->second.actors.end())
+    {
+        reject(GuardArrestError::UnknownGuard, request.action == GuardArrestAction::PayFine);
+        return;
+    }
+    ActorRegistryRecord& guardRecord = actorIt->second;
+    if (guardRecord.actorNetId != request.actorNetId
+        || guardRecord.migrationGeneration != request.migrationGeneration
+        || guardRecord.actor.isDead)
+    {
+        reject(GuardArrestError::InvalidGuard, request.action == GuardArrestAction::PayFine);
+        return;
+    }
+
+    const ESM::NPC* guardNpc = mContentRegistry->store().get<ESM::NPC>().search(
+        ESM::RefId::stringRefId(guardRecord.actor.refId));
+    if (!guardNpc || guardNpc->mClass != "guard")
+    {
+        reject(GuardArrestError::InvalidGuard, request.action == GuardArrestAction::PayFine);
+        return;
+    }
+    if ((guardRecord.crimePursuitCharacterId > 0
+            && guardRecord.crimePursuitCharacterId != c.dbCharacterId)
+        || (guardRecord.crimePursuitCharacterId == c.dbCharacterId
+            && guardRecord.crimeEnforcementState == CrimeEnforcementState::Combat))
+    {
+        reject(GuardArrestError::InvalidGuard, request.action == GuardArrestAction::PayFine);
+        return;
+    }
+
+    constexpr std::uint64_t MaximumSnapshotAgeMs = 1000;
+    const std::uint64_t nowMs = currentServerTimeMs();
+    const AcceptedMechanicsSnapshot* playerSnapshot = mMechanicsSnapshots.findFresh(
+        { MechanicsSubjectKind::Player, c.guid, 0 }, nowMs, MaximumSnapshotAgeMs);
+    const AcceptedMechanicsSnapshot* guardSnapshot = mMechanicsSnapshots.findFresh(
+        { MechanicsSubjectKind::Npc, 0, request.actorNetId }, nowMs, MaximumSnapshotAgeMs);
+    if (!playerSnapshot || !guardSnapshot
+        || playerSnapshot->snapshot.cellId != request.cellId
+        || guardSnapshot->snapshot.cellId != request.cellId
+        || playerSnapshot->snapshot.migrationGeneration != 1
+        || playerSnapshot->snapshot.authorityGeneration != c.guid
+        || guardSnapshot->snapshot.migrationGeneration != request.migrationGeneration)
+    {
+        reject(GuardArrestError::SnapshotUnavailable, request.action == GuardArrestAction::PayFine);
+        return;
+    }
+
+    const float dx = playerSnapshot->snapshot.position.pos[0] - guardSnapshot->snapshot.position.pos[0];
+    const float dy = playerSnapshot->snapshot.position.pos[1] - guardSnapshot->snapshot.position.pos[1];
+    const float dz = playerSnapshot->snapshot.position.pos[2] - guardSnapshot->snapshot.position.pos[2];
+    const float distanceSquared = dx * dx + dy * dy + dz * dz;
+    if (!std::isfinite(distanceSquared)
+        || distanceSquared > mDoorInteractionRadius * mDoorInteractionRadius)
+    {
+        reject(GuardArrestError::OutOfRange, request.action == GuardArrestAction::PayFine);
+        return;
+    }
+
+    const PlayerCrimeState previousCrime = c.player.crimeState;
+    PlayerCrimeState nextCrime = previousCrime;
+    std::vector<Item> nextInventory = c.player.inventoryChanges.items;
+    std::int64_t goldPaid = 0;
+    std::uint32_t sentenceDays = 0;
+    std::uint64_t resultingInventoryRevision = c.inventoryRevision;
+
+    if (request.action == GuardArrestAction::PayFine)
+    {
+        const std::string offenderTarget = "mp_remote_" + std::to_string(c.guid);
+        const bool activeArrest = guardRecord.crimePursuitCharacterId == c.dbCharacterId
+            || ((guardRecord.actor.ai.type == BaseActor::AIAction::Type::Pursue
+                    || guardRecord.actor.ai.type == BaseActor::AIAction::Type::Combat)
+                && guardRecord.actor.ai.targetId == offenderTarget);
+
+        goldPaid = previousCrime.bounty;
+        if (!activeArrest)
+        {
+            const float multiplier = mContentRegistry->store().get<ESM::GameSetting>()
+                .find("fCrimeGoldTurnInMult")->mValue.getFloat();
+            goldPaid = std::max<std::int64_t>(1,
+                static_cast<std::int64_t>(static_cast<float>(previousCrime.bounty) * multiplier));
+        }
+
+        std::int64_t availableGold = 0;
+        for (const Item& item : nextInventory)
+        {
+            if (lowerAscii(item.refId) == "gold_001" && item.count > 0)
+                availableGold += item.count;
+        }
+        if (availableGold < goldPaid)
+        {
+            reject(GuardArrestError::InsufficientGold, true);
+            return;
+        }
+
+        std::int64_t remaining = goldPaid;
+        for (auto it = nextInventory.begin(); it != nextInventory.end() && remaining > 0;)
+        {
+            if (lowerAscii(it->refId) != "gold_001" || it->count <= 0)
+            {
+                ++it;
+                continue;
+            }
+            const int removed = static_cast<int>(std::min<std::int64_t>(remaining, it->count));
+            it->count -= removed;
+            remaining -= removed;
+            if (it->count <= 0)
+                it = nextInventory.erase(it);
+            else
+                ++it;
+        }
+        resultingInventoryRevision = c.inventoryRevision + 1;
+    }
+    else if (request.action == GuardArrestAction::Surrender)
+    {
+        const int daysMod = std::max(1, mContentRegistry->store().get<ESM::GameSetting>()
+            .find("iDaysinPrisonMod")->mValue.getInteger());
+        sentenceDays = static_cast<std::uint32_t>(std::max(1, previousCrime.bounty / daysMod));
+    }
+
+    if (request.action != GuardArrestAction::Resist)
+    {
+        if (previousCrime.revision >= MaximumPersistedRevision)
+        {
+            reject(GuardArrestError::PersistenceFailure, request.action == GuardArrestAction::PayFine);
+            return;
+        }
+        nextCrime.bounty = 0;
+        nextCrime.paidCrimeId = nextCrime.currentCrimeId;
+        ++nextCrime.revision;
+    }
+
+    result.accepted = true;
+    result.error = GuardArrestError::None;
+    result.crimeState = nextCrime;
+    result.inventoryRevision = resultingInventoryRevision;
+    result.goldPaid = goldPaid;
+    result.sentenceDays = sentenceDays;
+
+    CrimeMutationCommit crimeCommit;
+    crimeCommit.service = "guard-arrest";
+    crimeCommit.accountId = c.dbAccountId;
+    crimeCommit.characterId = c.dbCharacterId;
+    crimeCommit.requestId = request.requestId;
+    crimeCommit.requestHash = requestHash;
+    crimeCommit.resultPayload = encodeGuardArrestResult(result);
+    crimeCommit.source = request.action == GuardArrestAction::PayFine ? "guard_arrest_pay"
+        : request.action == GuardArrestAction::Surrender ? "guard_arrest_surrender"
+                                                         : "guard_arrest_resist";
+    crimeCommit.expectedRevision = previousCrime.revision;
+    crimeCommit.resultingState = nextCrime;
+
+    GuardArrestCommit commit;
+    commit.crimeMutation = std::move(crimeCommit);
+    commit.inventoryChanged = request.action == GuardArrestAction::PayFine;
+    commit.expectedInventoryRevision = c.inventoryRevision;
+    commit.resultingInventoryRevision = resultingInventoryRevision;
+    commit.inventory = nextInventory;
+
+    GuardArrestCommitResult committed;
+    try
+    {
+        committed = mPlayerDb->commitGuardArrest(commit);
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[GuardArrest] persistence failure request=" << request.requestId
+                          << " player=" << c.name << " error=" << e.what();
+        reject(GuardArrestError::PersistenceFailure, request.action == GuardArrestAction::PayFine);
+        return;
+    }
+
+    if (committed.status == GuardArrestCommitStatus::DuplicateRequest)
+    {
+        try
+        {
+            result = decodeGuardArrestResult(committed.storedResultPayload);
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Error) << "[GuardArrest] corrupt duplicate result request=" << request.requestId
+                              << " player=" << c.name << " error=" << e.what();
+            reject(GuardArrestError::PersistenceFailure, request.action == GuardArrestAction::PayFine);
+            return;
+        }
+    }
+    else if (committed.status == GuardArrestCommitStatus::DuplicateRequestConflict)
+    {
+        reject(GuardArrestError::DuplicateConflict, request.action == GuardArrestAction::PayFine);
+        return;
+    }
+    else if (committed.status == GuardArrestCommitStatus::StaleCrimeRevision)
+    {
+        reject(GuardArrestError::StaleCrimeRevision, request.action == GuardArrestAction::PayFine);
+        return;
+    }
+    else if (committed.status == GuardArrestCommitStatus::StaleInventoryRevision)
+    {
+        reject(GuardArrestError::StaleInventoryRevision, true);
+        return;
+    }
+
+    c.player.crimeState = mPlayerDb->loadPlayerCrimeState(c.dbCharacterId);
+    c.player.bounty = c.player.crimeState.bounty;
+    if (request.action == GuardArrestAction::PayFine)
+    {
+        c.inventoryRevision = mPlayerDb->loadInventoryRevision(c.dbCharacterId);
+        c.player.inventoryChanges.action = BasePlayer::InventoryChanges::Action::Set;
+        c.player.inventoryChanges.revision = c.inventoryRevision;
+        c.player.inventoryChanges.items = mPlayerDb->loadCharacterInventory(c.dbCharacterId);
+        c.acceptedPlayerInventoryThisSession = true;
+        c.restoredInventorySnapshot = c.player.inventoryChanges.items;
+        c.hasRestoredInventorySnapshot = true;
+        c.playerInventoryRestoreGuardUntilMs = 0;
+        sendAuthoritativeInventory(c);
+    }
+
+    sendAuthoritativeCrimeState(c);
+    syncLuaPlayerSnapshot();
+
+    if (request.action == GuardArrestAction::Resist)
+    {
+        guardRecord.crimePursuitCharacterId = c.dbCharacterId;
+        guardRecord.crimePursuitLastGuid = c.guid;
+        guardRecord.crimeEnforcementState = CrimeEnforcementState::Combat;
+        guardRecord.crimePursuitReassertArmed = false;
+        guardRecord.crimePursuitLastReassertMs = nowMs;
+        guardRecord.actor.ai.type = BaseActor::AIAction::Type::Combat;
+        guardRecord.actor.ai.targetId = std::string("mp_remote_") + std::to_string(c.guid);
+        guardRecord.actor.ai.targetMpNum = 0;
+        guardRecord.actor.ai.duration = 0.f;
+        guardRecord.actor.ai.reset = false;
+        guardRecord.lastSnapshotTime = nowMs;
+
+        CrimeReactionDirective directive;
+        directive.eventId = "guard-arrest-resist:" + std::to_string(c.dbCharacterId)
+            + ':' + std::to_string(nowMs);
+        directive.cellId = request.cellId;
+        directive.offenderGuid = c.guid;
+        directive.actors.push_back({ guardRecord.actorNetId, guardRecord.migrationGeneration,
+            CrimeReactionDialogue::None,
+            static_cast<std::uint8_t>(CrimeReactionSetAlarmed | CrimeReactionStartCombat) });
+        if (validateCrimeReactionDirective(directive))
+        {
+            PacketCrimeReaction reactionPacket;
+            reactionPacket.directive = directive;
+            broadcastActorToCell(request.cellId, reactionPacket.encode());
+            Log(Debug::Info) << "[CrimeReaction] dispatched resist combat"
+                             << " event=" << directive.eventId
+                             << " cell=" << request.cellId
+                             << " actorNetId=" << guardRecord.actorNetId
+                             << " offenderGuid=" << c.guid;
+        }
+        else
+        {
+            Log(Debug::Error) << "[CrimeReaction] refusing invalid resist-combat directive"
+                              << " request=" << request.requestId
+                              << " actorNetId=" << guardRecord.actorNetId;
+        }
+    }
+
+    sendResult();
+    Log(Debug::Info) << "[GuardArrest] accepted request=" << request.requestId
+                     << " player=" << c.name
+                     << " action=" << static_cast<unsigned>(request.action)
+                     << " bountyBefore=" << previousCrime.bounty
+                     << " bountyAfter=" << c.player.crimeState.bounty
+                     << " goldPaid=" << result.goldPaid
+                     << " sentenceDays=" << result.sentenceDays;
 }
 
 // ---------------------------------------------------------------------------
