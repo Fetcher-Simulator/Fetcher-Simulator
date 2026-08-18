@@ -1885,6 +1885,117 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
         }
     }
 
+    GuardArrestCommitResult PlayerDatabase::commitGuardArrest(const GuardArrestCommit& commit)
+    {
+        if (commit.crimeMutation.service != "guard-arrest"
+            || (commit.inventoryChanged
+                && commit.resultingInventoryRevision != commit.expectedInventoryRevision + 1)
+            || (!commit.inventoryChanged
+                && commit.resultingInventoryRevision != commit.expectedInventoryRevision))
+            throw std::invalid_argument("[PlayerDB] invalid guard arrest commit");
+
+        exec("BEGIN IMMEDIATE");
+        try
+        {
+            const CrimeCommitResult crime = commitPlayerCrimeMutationInTransaction(commit.crimeMutation);
+            if (crime.status == CrimeCommitStatus::DuplicateRequest)
+            {
+                exec("COMMIT");
+                return { GuardArrestCommitStatus::DuplicateRequest, crime.storedResultPayload };
+            }
+            if (crime.status == CrimeCommitStatus::DuplicateRequestConflict)
+            {
+                exec("COMMIT");
+                return { GuardArrestCommitStatus::DuplicateRequestConflict, {} };
+            }
+            if (crime.status == CrimeCommitStatus::StaleRevision)
+            {
+                exec("COMMIT");
+                return { GuardArrestCommitStatus::StaleCrimeRevision, {} };
+            }
+
+            if (commit.inventoryChanged)
+            {
+                sqlite3_stmt* revision = prepare(
+                    "SELECT inventory_revision FROM characters WHERE id=?1 AND account_id=?2");
+                sqlite3_bind_int64(revision, 1, commit.crimeMutation.characterId);
+                sqlite3_bind_int64(revision, 2, commit.crimeMutation.accountId);
+                const bool revisionMatches = sqlite3_step(revision) == SQLITE_ROW
+                    && static_cast<std::uint64_t>(sqlite3_column_int64(revision, 0))
+                        == commit.expectedInventoryRevision;
+                sqlite3_finalize(revision);
+                if (!revisionMatches)
+                {
+                    exec("ROLLBACK");
+                    return { GuardArrestCommitStatus::StaleInventoryRevision, {} };
+                }
+
+                sqlite3_stmt* clear = prepare("DELETE FROM character_inventory WHERE character_id=?1");
+                sqlite3_bind_int64(clear, 1, commit.crimeMutation.characterId);
+                checkSqlite(sqlite3_step(clear), mDb, "commitGuardArrest(clearInventory)");
+                sqlite3_finalize(clear);
+
+                sqlite3_stmt* insert = prepare(
+                    "INSERT INTO character_inventory(character_id, item_index, ref_id, item_count, charge,"
+                    " enchantment_charge, soul, instance_id) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)");
+                for (std::size_t index = 0; index < commit.inventory.size(); ++index)
+                {
+                    const Item& item = commit.inventory[index];
+                    sqlite3_bind_int64(insert, 1, commit.crimeMutation.characterId);
+                    sqlite3_bind_int(insert, 2, static_cast<int>(index));
+                    sqlite3_bind_text(insert, 3, item.refId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int(insert, 4, item.count);
+                    sqlite3_bind_int(insert, 5, item.charge);
+                    sqlite3_bind_double(insert, 6, item.enchantmentCharge);
+                    sqlite3_bind_text(insert, 7, item.soul.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int64(insert, 8, item.instanceId);
+                    checkSqlite(sqlite3_step(insert), mDb, "commitGuardArrest(insertInventory)");
+                    sqlite3_reset(insert);
+                    sqlite3_clear_bindings(insert);
+                }
+                sqlite3_finalize(insert);
+
+                const std::string characterKey = std::to_string(commit.crimeMutation.characterId);
+                sqlite3_stmt* clearLinks = prepare(
+                    "DELETE FROM world_dynamic_record_links"
+                    " WHERE link_kind=?1 AND owner_a=?2 AND owner_b=?3 AND owner_c=?4");
+                clearDynamicRecordLinksForOwner(mDb, clearLinks, "inventory_item", characterKey, "", "");
+                sqlite3_finalize(clearLinks);
+                sqlite3_stmt* insertLink = prepare(
+                    "INSERT OR REPLACE INTO world_dynamic_record_links(record_id, link_kind, owner_a, owner_b,"
+                    " owner_c, owner_index) VALUES(?1, ?2, ?3, ?4, ?5, ?6)");
+                for (std::size_t index = 0; index < commit.inventory.size(); ++index)
+                {
+                    const Item& item = commit.inventory[index];
+                    insertDynamicRecordLink(mDb, insertLink, item.refId, "inventory_item", characterKey, "", "",
+                        item.instanceId != 0 ? item.instanceId : static_cast<std::int64_t>(index));
+                }
+                sqlite3_finalize(insertLink);
+
+                sqlite3_stmt* update = prepare(
+                    "UPDATE characters SET inventory_saved=1, inventory_revision=?1, last_seen=?2"
+                    " WHERE id=?3 AND account_id=?4 AND inventory_revision=?5");
+                sqlite3_bind_int64(update, 1, static_cast<sqlite3_int64>(commit.resultingInventoryRevision));
+                sqlite3_bind_int64(update, 2, static_cast<sqlite3_int64>(std::time(nullptr)));
+                sqlite3_bind_int64(update, 3, commit.crimeMutation.characterId);
+                sqlite3_bind_int64(update, 4, commit.crimeMutation.accountId);
+                sqlite3_bind_int64(update, 5, static_cast<sqlite3_int64>(commit.expectedInventoryRevision));
+                checkSqlite(sqlite3_step(update), mDb, "commitGuardArrest(updateInventoryRevision)");
+                if (sqlite3_changes(mDb) != 1)
+                    throw std::runtime_error("inventory revision changed during guard arrest");
+                sqlite3_finalize(update);
+            }
+
+            exec("COMMIT");
+            return { GuardArrestCommitStatus::Committed, {} };
+        }
+        catch (...)
+        {
+            try { exec("ROLLBACK"); } catch (...) {}
+            throw;
+        }
+    }
+
     std::vector<PlacedObjectIdentity> PlayerDatabase::loadTakenWorldItemReferences()
     {
         sqlite3_stmt* statement = prepare(

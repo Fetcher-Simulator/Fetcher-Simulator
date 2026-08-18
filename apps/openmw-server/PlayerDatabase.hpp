@@ -309,6 +309,30 @@ namespace mwmp
         InventoryTakeResult result;
     };
 
+    enum class GuardArrestCommitStatus
+    {
+        Committed,
+        DuplicateRequest,
+        DuplicateRequestConflict,
+        StaleCrimeRevision,
+        StaleInventoryRevision,
+    };
+
+    struct GuardArrestCommit
+    {
+        CrimeMutationCommit crimeMutation;
+        bool inventoryChanged = false;
+        std::uint64_t expectedInventoryRevision = 0;
+        std::uint64_t resultingInventoryRevision = 0;
+        std::vector<Item> inventory;
+    };
+
+    struct GuardArrestCommitResult
+    {
+        GuardArrestCommitStatus status = GuardArrestCommitStatus::Committed;
+        std::string storedResultPayload;
+    };
+
     struct StoredInventoryTake
     {
         std::string requestHash;
@@ -646,6 +670,7 @@ namespace mwmp
         DynamicRecordCommitStatus commitDynamicRecordRequest(const DynamicRecordCommit& commit);
         WorldItemTakeCommitResult commitWorldItemTake(const WorldItemTakeCommit& commit);
         InventoryTakeCommitResult commitInventoryTake(const InventoryTakeCommit& commit);
+        GuardArrestCommitResult commitGuardArrest(const GuardArrestCommit& commit);
         std::optional<StoredInventoryTake> loadInventoryTake(
             std::int64_t accountId, std::int64_t characterId, std::string_view requestId);
         std::vector<PlacedObjectIdentity> loadTakenWorldItemReferences();
