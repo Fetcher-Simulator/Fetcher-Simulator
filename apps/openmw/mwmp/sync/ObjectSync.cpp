@@ -90,7 +90,9 @@ void ObjectSync::flushOutgoingDoorStates()
 // ---------------------------------------------------------------------------
 bool ObjectSync::tryApplyDoorState(const std::string& refId,
                                    uint32_t           refNum,
-                                   bool               isOpen)
+                                   bool               isOpen,
+                                   bool               isLocked,
+                                   int                lockLevel)
 {
     MWBase::World* world = MWBase::Environment::get().getWorld();
     if (!world) return false;
@@ -111,6 +113,13 @@ bool ObjectSync::tryApplyDoorState(const std::string& refId,
                 const_cast<MWWorld::LiveCellRefBase*>(
                     static_cast<const MWWorld::LiveCellRefBase*>(&liveRef)),
                 store);
+
+            // Door bootstrap is one authoritative state revision. Apply the
+            // lock fields even when the visual open/closed state already matches;
+            // otherwise local save/base-cell state can survive a reconnect and
+            // produce impossible combinations such as an open-but-locked door.
+            doorPtr.getCellRef().setLockLevel(lockLevel);
+            doorPtr.getCellRef().setLocked(isLocked);
 
             const MWWorld::DoorState currentState = doorPtr.getClass().getDoorState(doorPtr);
             const float currentRotation = doorPtr.getRefData().getPosition().rot[2];
@@ -149,15 +158,18 @@ void ObjectSync::onServerDoorState(const std::string& cellId,
                                    const std::string& refId,
                                    uint32_t           refNum,
                                    bool               isOpen,
+                                   bool               isLocked,
+                                   int                lockLevel,
                                    std::uint64_t       revision)
 {
     mDoorRevisions[doorIdentityKey(cellId, refId, refNum)] = revision;
-    if (!tryApplyDoorState(refId, refNum, isOpen))
+    if (!tryApplyDoorState(refId, refNum, isOpen, isLocked, lockLevel))
     {
         // Cell not loaded yet (e.g. catch-up packet arrived during loading).
-        // Queue for retry in update().
+        // Queue the entire authoritative revision for retry; visual and lock
+        // state must never be split across different local baselines.
         Log(Debug::Verbose) << "[MP] ObjectSync: queuing door state for retry: " << refId;
-        mPendingDoors.push_back({ cellId, refId, refNum, isOpen, 0.f });
+        mPendingDoors.push_back({ cellId, refId, refNum, isOpen, isLocked, lockLevel, 0.f });
     }
 }
 
@@ -175,16 +187,16 @@ void ObjectSync::update(float dt)
 
     if (mPendingDoors.empty()) return;
 
-    static constexpr float RETRY_RATE = 0.2f; // retry every 200ms
+    static constexpr float RetryRate = 0.2f; // retry every 200ms
 
     mPendingDoors.erase(
         std::remove_if(mPendingDoors.begin(), mPendingDoors.end(),
             [&](PendingDoor& pd) -> bool
             {
                 pd.retryTimer += dt;
-                if (pd.retryTimer < RETRY_RATE) return false;
+                if (pd.retryTimer < RetryRate) return false;
                 pd.retryTimer = 0.f;
-                if (tryApplyDoorState(pd.refId, pd.refNum, pd.isOpen))
+                if (tryApplyDoorState(pd.refId, pd.refNum, pd.isOpen, pd.isLocked, pd.lockLevel))
                     return true; // applied — remove from pending
                 return false;   // still not found — keep retrying
             }),

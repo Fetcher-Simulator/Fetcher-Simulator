@@ -25,7 +25,8 @@ namespace mwmp
         // Called by the protocol handler when the server broadcasts a door state.
         // Attempts to apply immediately; queues for retry if cells aren't loaded yet.
         void onServerDoorState(const std::string& cellId, const std::string& refId,
-                               uint32_t refNum, bool isOpen, std::uint64_t revision);
+                               uint32_t refNum, bool isOpen, bool isLocked, int lockLevel,
+                               std::uint64_t revision);
 
         void resetSessionState();
 
@@ -41,7 +42,8 @@ namespace mwmp
 
         // Try to find and activate a door across all active cells.
         // Returns true if the door was found and activated.
-        bool tryApplyDoorState(const std::string& refId, uint32_t refNum, bool isOpen);
+        bool tryApplyDoorState(
+            const std::string& refId, uint32_t refNum, bool isOpen, bool isLocked, int lockLevel);
         void flushOutgoingDoorStates();
 
         NetworkClient& mClient;
@@ -54,6 +56,8 @@ namespace mwmp
             std::string refId;
             uint32_t    refNum;
             bool        isOpen;
+            bool        isLocked;
+            int         lockLevel;
             float       retryTimer = 0.f;
         };
         std::vector<PendingDoor> mPendingDoors;
