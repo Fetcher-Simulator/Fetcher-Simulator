@@ -8,6 +8,7 @@
 #include <functional>
 #include <filesystem>
 #include <map>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -45,6 +46,7 @@ namespace mwmp
 {
 
 class ServerCollisionWorld;
+struct CrimeSemanticResult;
 
 // ---------------------------------------------------------------------------
 // ConnectedClient — server-side representation of one connected player.
@@ -134,6 +136,7 @@ struct ConnectedClient
 
     std::unordered_set<std::string> loadedActorCells; ///< empty falls back to player.cell
     uint32_t loadedActorCellsSequence = 0;
+    std::string crimePursuitReissueHandledCell;
     uint32_t actorSyncProtocolVersion = ActorSyncProtocolVersionV1;
     std::unordered_set<ActorInstanceId> actorV2IdentitySent;
     std::unordered_set<ActorInstanceId> actorV2IdentityAcked;
@@ -354,6 +357,7 @@ private:
     void handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleCrimeInteractionRequest(ConnectedClient& c, const uint8_t* data, size_t size);
+    void handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleObjectDelete     (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleObjectMove       (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleContainer        (ConnectedClient& c, const uint8_t* data, size_t size);
@@ -415,6 +419,13 @@ private:
         std::string observerCellId;
         std::uint32_t targetPlayerGuid = 0;
         float distance = 0.f;
+        ObservationVector observerPosition;
+        ObservationVector targetPosition;
+        ObservationVector rayHitPoint;
+        std::string blockerRefId;
+        std::uint32_t blockerRefNum = 0;
+        float rayHitFraction = 1.f;
+        bool blockerHeightfield = false;
         std::uint64_t observerSnapshotAgeMs = 0;
         std::uint64_t targetSnapshotAgeMs = 0;
         ObservationResult result;
@@ -422,6 +433,12 @@ private:
     std::vector<LiveObservationDiagnostic> observeNpcCandidates(
         std::uint32_t targetPlayerGuid, std::optional<ActorInstanceId> observerFilter, std::string_view eventId);
     CrimeWitnessBuildResult buildLiveCrimeWitnesses(const CrimeWitnessBuildRequest& request);
+    void dispatchCrimeReactions(ConnectedClient& offender, const CrimeSemanticResult& result);
+    void dispatchOutstandingCrimePursuitsForCell(
+        const std::string& cellId, std::int64_t onlyCharacterId = 0);
+    void suspendOutstandingCrimePursuitsForCharacterInCell(
+        ConnectedClient& offender, const std::string& cellId);
+    void clearOutstandingCrimePursuitsForCharacter(ConnectedClient& offender);
     bool handleObservationDiagnosticCommand(ConnectedClient& requester, std::string_view message);
     bool handleCrimeWitnessDiagnosticCommand(ConnectedClient& requester, std::string_view message);
     float playerBootWeight(const ConnectedClient& player) const;
@@ -490,7 +507,8 @@ private:
     void scheduleGeneratedDynamicRecordGc(
         std::string_view reason, std::chrono::milliseconds delay = std::chrono::milliseconds(250));
     void flushScheduledGeneratedDynamicRecordGc();
-    void refreshActorAuthorityForCell(const std::string& cellId, uint32_t preferredGuid = 0);
+    bool refreshActorAuthorityForCell(
+        const std::string& cellId, uint32_t preferredGuid = 0, bool reissueOutstandingPursuits = true);
     void sendActorAuthorityToClient(HSteamNetConnection conn, const std::string& cellId);
     void sendActorStateToClient(HSteamNetConnection conn, const std::string& cellId);
     void sendActorStateToInterestedClients(const std::string& cellId);
@@ -519,6 +537,14 @@ private:
     bool clientHasActorCellLoaded(const ConnectedClient& client, const std::string& cellId) const;
     std::unordered_set<std::string> actorInterestCellsForClient(const ConnectedClient& client) const;
 
+    enum class CrimeEnforcementState : std::uint8_t
+    {
+        None = 0,
+        Arrest,
+        ArrestPending,
+        Combat,
+    };
+
     struct ActorRegistryRecord
     {
         BaseActor actor;
@@ -545,6 +571,14 @@ private:
         std::string actorAuthorityReason;
         uint32_t actorAuthorityTargetGuid = 0;
         uint64_t actorAuthorityLeaseUntilMs = 0;
+        // Server-owned durable-in-session crime enforcement identity. Network GUIDs
+        // are intentionally not stored here because an offender can relog and receive
+        // a new GUID while retaining the same authoritative character crime state.
+        std::int64_t crimePursuitCharacterId = 0;
+        uint32_t crimePursuitLastGuid = 0;
+        CrimeEnforcementState crimeEnforcementState = CrimeEnforcementState::None;
+        bool crimePursuitReassertArmed = false;
+        uint64_t crimePursuitLastReassertMs = 0;
     };
 
     struct CellActorState
@@ -648,6 +682,8 @@ private:
     int mAdminHttpTimeoutMs = 250;
     std::string mAdminHttpHost = "127.0.0.1";
     std::unique_ptr<AdminHttpServer> mAdminHttpServer;
+    std::mutex mPendingAdminDiagnosticMutex;
+    std::vector<std::pair<std::uint32_t, std::string>> mPendingAdminDiagnosticCommands;
     MechanicsSnapshotRegistry mMechanicsSnapshots;
     std::unordered_map<std::uint32_t, std::uint32_t> mCombatResultSequencesByAuthority;
     struct PendingCombatPresentation

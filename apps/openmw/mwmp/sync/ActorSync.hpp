@@ -12,6 +12,7 @@
 #include <components/esm3/aisequence.hpp>
 #include <components/openmw-mp/Base/ActorSyncProtocol.hpp>
 #include <components/openmw-mp/Base/BaseActor.hpp>
+#include <components/openmw-mp/CrimeReaction.hpp>
 
 #include "../../mwworld/ptr.hpp"
 
@@ -59,6 +60,7 @@ namespace mwmp
         void onActorEquipment(const ActorList& list);
         void onActorStatsDynamic(const ActorList& list);
         void onActorAI(const ActorList& list);
+        void onCrimeReaction(const CrimeReactionDirective& directive);
         void onActorCombatRequest(const ActorList& list);
         void onActorCombatResult(const ActorList& list);
         void onActorCellChange(const ActorList& list);
@@ -70,7 +72,9 @@ namespace mwmp
         uint32_t getActorMpNum(const MWWorld::Ptr& ptr) const;
         uint32_t getActorCanonicalRefNum(const MWWorld::Ptr& ptr) const;
         MWWorld::Ptr getActorByCanonicalRefNum(uint32_t refNum) const;
+        MWWorld::Ptr getActorByNetId(ActorInstanceId actorNetId) const;
         MWWorld::Ptr getActorByMpNum(uint32_t mpNum) const;
+        bool isAuthoritativeCrimeCombatWithLocalPlayer(const MWWorld::Ptr& ptr) const;
         void sendCombatRequest(const MWWorld::Ptr& victim, float damage, bool healthDamage, bool knocked,
             const osg::Vec3f& hitPos, int attackType, float attackStrength);
         void sendNpcPlayerDamage(uint32_t victimGuid, float damage, bool healthDamage, bool isDead, int attackType,
@@ -368,6 +372,20 @@ namespace mwmp
         std::unordered_map<ActorInstanceId, uint32_t>       mMechanicsSnapshotSequences;
         std::unordered_map<ActorInstanceId, uint32_t>       mNextSpeechEventIds;
         std::unordered_map<ActorInstanceId, std::uint64_t>  mLastAppliedCombatEventIds;
+        std::unordered_set<std::string> mAppliedCrimeReactionKeys;
+        std::deque<std::string> mAppliedCrimeReactionOrder;
+        // Server-authored guard Combat relationships observed by this client for
+        // the local offender. The stored crime id makes old hostility inert once
+        // that crime cycle is paid/served, even if the guard was in another cell
+        // when the authoritative clear was broadcast.
+        std::unordered_map<ActorInstanceId, std::uint64_t> mAuthoritativeCrimeCombatByActorNetId;
+        struct PendingCrimeReaction
+        {
+            CrimeReactionDirective directive;
+            float retryTimer = 0.f;
+            float remainingTime = 2.f;
+        };
+        std::deque<PendingCrimeReaction> mPendingCrimeReactions;
         // Canonical live->dead ordering barrier. A runtime-local flag is not
         // sufficient because the same actor can temporarily have both a primary
         // runtime and a cell-shadow runtime during reconciliation/handoffs.

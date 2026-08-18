@@ -57,6 +57,7 @@
 #include <components/openmw-mp/Packets/System/PacketServerLuaPackage.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerBaseInfo.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerBounty.hpp>
+#include <components/openmw-mp/Packets/Player/PacketGuardArrest.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerFaction.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerTopic.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerCharGen.hpp>
@@ -113,6 +114,7 @@
 #include <components/openmw-mp/Packets/Actor/PacketActorAttack.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAttackV2.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorSpeech.hpp>
+#include <components/openmw-mp/Packets/Actor/PacketCrimeReaction.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAuthority.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCast.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCellChange.hpp>
@@ -2018,6 +2020,23 @@ void MPServer::run()
 
         mInterface->RunCallbacks();
         processIncomingMessages();
+        {
+            std::vector<std::pair<std::uint32_t, std::string>> pendingDiagnostics;
+            {
+                std::lock_guard lock(mPendingAdminDiagnosticMutex);
+                pendingDiagnostics.swap(mPendingAdminDiagnosticCommands);
+            }
+            for (const auto& [guid, message] : pendingDiagnostics)
+            {
+                if (ConnectedClient* client = findClientByGuid(guid))
+                {
+                    if (!handleObservationDiagnosticCommand(*client, message))
+                        handleCrimeWitnessDiagnosticCommand(*client, message);
+                }
+                else
+                    Log(Debug::Warning) << "[Server] Dropped queued admin diagnostic for missing guid=" << guid;
+            }
+        }
         tick(dt);
         mLua.drainOutbound();
         flushLuaActorChanges();
@@ -2465,6 +2484,444 @@ CrimeWitnessBuildResult MPServer::buildLiveCrimeWitnesses(const CrimeWitnessBuil
     return CrimeWitnessBuilder(mMechanicsSnapshots).build(request, source);
 }
 
+void MPServer::dispatchCrimeReactions(ConnectedClient& offender, const CrimeSemanticResult& result)
+{
+    if (!result.accepted || result.eventId.empty() || result.type == CrimeType::WerewolfExposure)
+        return;
+
+    std::unordered_map<std::string, CrimeReactionDirective> directives;
+    const std::uint64_t nowMs = currentServerTimeMs();
+
+    for (const CrimeWitnessResult& witness : result.witnesses)
+    {
+        if (!witness.identity.isValid() || witness.identity.kind != ObservationActorKind::Npc)
+            continue;
+
+        const auto keyIt = mWorld.actorKeysByNetId.find(witness.identity.actorInstanceId);
+        if (keyIt == mWorld.actorKeysByNetId.end())
+            continue;
+        const auto locationIt = mWorld.actorLocations.find(keyIt->second);
+        if (locationIt == mWorld.actorLocations.end())
+            continue;
+        auto cellIt = mWorld.actorCells.find(locationIt->second);
+        if (cellIt == mWorld.actorCells.end())
+            continue;
+        auto actorIt = cellIt->second.actors.find(keyIt->second);
+        if (actorIt == cellIt->second.actors.end())
+            continue;
+
+        ActorRegistryRecord& record = actorIt->second;
+        if (record.actor.isDead || record.migrationGeneration == 0)
+            continue;
+
+        const ESM::NPC* npc = mContentRegistry->store().get<ESM::NPC>().search(
+            ESM::RefId::stringRefId(record.actor.refId));
+        if (!npc)
+            continue;
+
+        CrimeActorReaction reaction;
+        reaction.actorNetId = record.actorNetId;
+        reaction.migrationGeneration = record.migrationGeneration;
+
+        // Native commitCrime makes every witness that actually perceived Theft
+        // or Pickpocket complain, even if its Alarm is too low to report it.
+        if ((result.type == CrimeType::Theft || result.type == CrimeType::Pickpocket)
+            && witness.perceived)
+            reaction.dialogue = CrimeReactionDialogue::Thief;
+        // Native reportCrime emits "intruder" from Alarm-100 witnesses after a
+        // reported Trespass. CrimeSemanticService::reported already represents
+        // that exact post-perception reporting stage.
+        else if (result.type == CrimeType::Trespass && witness.reported)
+            reaction.dialogue = CrimeReactionDialogue::Intruder;
+
+        const bool guard = npc->mClass == "guard";
+        if (guard && witness.reported)
+        {
+            const bool continuingEnforcement = record.crimePursuitCharacterId == offender.dbCharacterId
+                && record.crimeEnforcementState != CrimeEnforcementState::None;
+            if (!continuingEnforcement)
+                record.crimeEnforcementState = CrimeEnforcementState::Arrest;
+
+            record.crimePursuitCharacterId = offender.dbCharacterId;
+            record.crimePursuitLastGuid = offender.guid;
+            record.crimePursuitReassertArmed = false;
+            record.crimePursuitLastReassertMs = nowMs;
+
+            if (record.crimeEnforcementState == CrimeEnforcementState::Combat)
+            {
+                reaction.flags = static_cast<std::uint8_t>(
+                    CrimeReactionSetAlarmed | CrimeReactionStartCombat);
+                record.actor.ai.type = BaseActor::AIAction::Type::Combat;
+            }
+            else if (record.crimeEnforcementState == CrimeEnforcementState::Arrest)
+            {
+                reaction.flags = static_cast<std::uint8_t>(
+                    CrimeReactionSetAlarmed | CrimeReactionPursueOffender);
+                record.actor.ai.type = BaseActor::AIAction::Type::Pursue;
+            }
+            else
+                reaction.flags = CrimeReactionSetAlarmed;
+
+            if (record.crimeEnforcementState != CrimeEnforcementState::ArrestPending)
+            {
+                record.actor.ai.targetId = std::string("mp_remote_") + std::to_string(offender.guid);
+                record.actor.ai.targetMpNum = 0;
+                record.actor.ai.duration = 0.f;
+                record.actor.ai.reset = false;
+                record.lastSnapshotTime = nowMs;
+                markLuaActorDirty(record, locationIt->second);
+            }
+        }
+
+        if (reaction.dialogue == CrimeReactionDialogue::None && reaction.flags == 0)
+            continue;
+
+        CrimeReactionDirective& directive = directives[locationIt->second];
+        directive.eventId = result.eventId;
+        directive.cellId = locationIt->second;
+        directive.offenderGuid = offender.guid;
+        directive.actors.push_back(reaction);
+    }
+
+    for (auto& [cellId, directive] : directives)
+    {
+        if (!validateCrimeReactionDirective(directive))
+        {
+            Log(Debug::Error) << "[CrimeReaction] refusing invalid server-authored directive"
+                              << " event=" << result.eventId
+                              << " cell=" << cellId
+                              << " actors=" << directive.actors.size();
+            continue;
+        }
+
+        PacketCrimeReaction packet;
+        packet.directive = directive;
+        broadcastActorToCell(cellId, packet.encode());
+
+        std::size_t dialogueCount = 0;
+        std::size_t pursueCount = 0;
+        for (const CrimeActorReaction& reaction : directive.actors)
+        {
+            dialogueCount += reaction.dialogue != CrimeReactionDialogue::None ? 1 : 0;
+            pursueCount += (reaction.flags & CrimeReactionPursueOffender) != 0 ? 1 : 0;
+        }
+        Log(Debug::Info) << "[CrimeReaction] dispatched"
+                         << " event=" << result.eventId
+                         << " type=" << static_cast<unsigned>(result.type)
+                         << " cell=" << cellId
+                         << " actors=" << directive.actors.size()
+                         << " dialogue=" << dialogueCount
+                         << " pursue=" << pursueCount
+                         << " offenderGuid=" << offender.guid;
+    }
+}
+
+
+void MPServer::dispatchOutstandingCrimePursuitsForCell(
+    const std::string& cellId, std::int64_t onlyCharacterId)
+{
+    auto cellIt = mWorld.actorCells.find(cellId);
+    if (cellIt == mWorld.actorCells.end() || cellIt->second.authorityGuid == 0)
+        return;
+
+    auto findOffender = [&](std::int64_t characterId) -> ConnectedClient* {
+        if (characterId <= 0)
+            return nullptr;
+        for (auto& [connection, client] : mClients)
+        {
+            (void)connection;
+            if (client.charSelectComplete && client.dbCharacterId == characterId)
+                return &client;
+        }
+        return nullptr;
+    };
+
+    // A guard whose arrest was already resisted dominates enforcement in that
+    // cell. Do not simultaneously rebuild other guards as fresh arrest offers
+    // while one guard is already in the durable hostile/combat state.
+    std::unordered_set<std::int64_t> hostileCharacters;
+    for (const auto& [actorKey, record] : cellIt->second.actors)
+    {
+        (void)actorKey;
+        if (record.crimePursuitCharacterId > 0 && !record.actor.isDead
+            && record.migrationGeneration != 0
+            && record.crimeEnforcementState == CrimeEnforcementState::Combat)
+            hostileCharacters.insert(record.crimePursuitCharacterId);
+    }
+
+    const std::uint64_t nowMs = currentServerTimeMs();
+    std::unordered_map<std::int64_t, CrimeReactionDirective> directives;
+
+    for (auto& [actorKey, record] : cellIt->second.actors)
+    {
+        (void)actorKey;
+        if (record.crimePursuitCharacterId <= 0
+            || (onlyCharacterId > 0 && record.crimePursuitCharacterId != onlyCharacterId)
+            || record.actor.isDead || record.migrationGeneration == 0)
+            continue;
+
+        if (record.crimeEnforcementState == CrimeEnforcementState::None)
+            record.crimeEnforcementState = CrimeEnforcementState::Arrest;
+        if (record.crimeEnforcementState == CrimeEnforcementState::ArrestPending)
+            continue;
+        if (record.crimeEnforcementState == CrimeEnforcementState::Arrest
+            && hostileCharacters.contains(record.crimePursuitCharacterId))
+            continue;
+
+        ConnectedClient* offender = findOffender(record.crimePursuitCharacterId);
+        if (!offender || offender->player.isDead || offender->player.crimeState.bounty <= 0
+            || makeCellKey(offender->player.cell) != cellId)
+            continue;
+
+        ensureActorNetId(record, cellId);
+        if (record.actorNetId == 0)
+            continue;
+
+        const std::string targetId = std::string("mp_remote_") + std::to_string(offender->guid);
+        std::uint8_t flags = CrimeReactionSetAlarmed;
+        if (record.crimeEnforcementState == CrimeEnforcementState::Combat)
+        {
+            record.actor.ai.type = BaseActor::AIAction::Type::Combat;
+            flags = static_cast<std::uint8_t>(flags | CrimeReactionStartCombat);
+        }
+        else
+        {
+            record.actor.ai.type = BaseActor::AIAction::Type::Pursue;
+            flags = static_cast<std::uint8_t>(flags | CrimeReactionPursueOffender);
+        }
+        record.actor.ai.targetId = targetId;
+        record.actor.ai.targetMpNum = 0;
+        record.actor.ai.duration = 0.f;
+        record.actor.ai.reset = false;
+        record.crimePursuitLastGuid = offender->guid;
+        record.crimePursuitReassertArmed = false;
+        record.crimePursuitLastReassertMs = nowMs;
+        record.lastSnapshotTime = nowMs;
+        markLuaActorDirty(record, cellId);
+
+        CrimeReactionDirective& directive = directives[record.crimePursuitCharacterId];
+        if (directive.eventId.empty())
+        {
+            const char* eventPrefix = record.crimeEnforcementState == CrimeEnforcementState::Combat
+                ? "crime-combat:" : "crime-pursuit:";
+            directive.eventId = std::string(eventPrefix) + std::to_string(record.crimePursuitCharacterId)
+                + ':' + std::to_string(nowMs);
+            directive.cellId = cellId;
+            directive.offenderGuid = offender->guid;
+        }
+        directive.actors.push_back({ record.actorNetId, record.migrationGeneration,
+            CrimeReactionDialogue::None, flags });
+    }
+
+    for (auto& [characterId, directive] : directives)
+    {
+        (void)characterId;
+        if (!validateCrimeReactionDirective(directive))
+        {
+            Log(Debug::Error) << "[CrimeReaction] refusing invalid outstanding enforcement directive"
+                              << " event=" << directive.eventId
+                              << " cell=" << cellId
+                              << " actors=" << directive.actors.size();
+            continue;
+        }
+
+        PacketCrimeReaction packet;
+        packet.directive = directive;
+        broadcastActorToCell(cellId, packet.encode());
+
+        std::size_t pursueCount = 0;
+        std::size_t combatCount = 0;
+        for (const CrimeActorReaction& reaction : directive.actors)
+        {
+            pursueCount += (reaction.flags & CrimeReactionPursueOffender) != 0 ? 1 : 0;
+            combatCount += (reaction.flags & CrimeReactionStartCombat) != 0 ? 1 : 0;
+        }
+        if (combatCount != 0 && pursueCount == 0)
+        {
+            Log(Debug::Info) << "[CrimeReaction] reissued outstanding guard combat"
+                             << " event=" << directive.eventId
+                             << " cell=" << cellId
+                             << " actors=" << directive.actors.size()
+                             << " offenderGuid=" << directive.offenderGuid;
+        }
+        else
+        {
+            Log(Debug::Info) << "[CrimeReaction] reissued outstanding guard pursuit"
+                             << " event=" << directive.eventId
+                             << " cell=" << cellId
+                             << " actors=" << directive.actors.size()
+                             << " offenderGuid=" << directive.offenderGuid;
+        }
+    }
+}
+
+void MPServer::suspendOutstandingCrimePursuitsForCharacterInCell(
+    ConnectedClient& offender, const std::string& cellId)
+{
+    if (offender.dbCharacterId <= 0 || cellId.empty())
+        return;
+
+    auto cellIt = mWorld.actorCells.find(cellId);
+    if (cellIt == mWorld.actorCells.end())
+        return;
+
+    const std::uint64_t nowMs = currentServerTimeMs();
+    CrimeReactionDirective directive;
+
+    for (auto& [actorKey, record] : cellIt->second.actors)
+    {
+        (void)actorKey;
+        if (record.crimePursuitCharacterId != offender.dbCharacterId)
+            continue;
+
+        if (record.crimeEnforcementState == CrimeEnforcementState::ArrestPending)
+        {
+            record.crimeEnforcementState = CrimeEnforcementState::Combat;
+            Log(Debug::Info) << "[GuardArrest] pending arrest escalated to combat on cell exit"
+                             << " player=" << offender.name
+                             << " actorNetId=" << record.actorNetId
+                             << " cell=" << cellId;
+        }
+        record.crimePursuitReassertArmed = false;
+
+        const uint32_t targetGuid = record.crimePursuitLastGuid != 0
+            ? record.crimePursuitLastGuid : offender.guid;
+        const std::string targetId = targetGuid != 0
+            ? std::string("mp_remote_") + std::to_string(targetGuid) : std::string();
+        if (!targetId.empty() && record.actor.ai.targetId == targetId
+            && (record.actor.ai.type == BaseActor::AIAction::Type::Pursue
+                || record.actor.ai.type == BaseActor::AIAction::Type::Combat))
+        {
+            record.actor.ai.type = BaseActor::AIAction::Type::None;
+            record.actor.ai.targetId.clear();
+            record.actor.ai.targetMpNum = 0;
+            record.actor.ai.duration = 0.f;
+            record.actor.ai.reset = false;
+            record.lastSnapshotTime = nowMs;
+            markLuaActorDirty(record, cellId);
+        }
+
+        if (cellIt->second.authorityGuid == 0 || record.actor.isDead || record.migrationGeneration == 0)
+            continue;
+
+        ensureActorNetId(record, cellId);
+        if (record.actorNetId == 0)
+            continue;
+
+        if (directive.eventId.empty())
+        {
+            directive.eventId = "crime-pursuit-suspend:" + std::to_string(offender.dbCharacterId)
+                + ':' + std::to_string(nowMs);
+            directive.cellId = cellId;
+            directive.offenderGuid = offender.guid;
+        }
+        directive.actors.push_back({ record.actorNetId, record.migrationGeneration,
+            CrimeReactionDialogue::None, CrimeReactionClearPursuit });
+    }
+
+    if (directive.actors.empty())
+        return;
+    if (!validateCrimeReactionDirective(directive))
+    {
+        Log(Debug::Error) << "[CrimeReaction] refusing invalid suspended-pursuit directive"
+                          << " event=" << directive.eventId
+                          << " cell=" << cellId
+                          << " actors=" << directive.actors.size();
+        return;
+    }
+
+    PacketCrimeReaction packet;
+    packet.directive = directive;
+    broadcastActorToCell(cellId, packet.encode());
+    Log(Debug::Info) << "[CrimeReaction] suspended live guard pursuit"
+                     << " event=" << directive.eventId
+                     << " cell=" << cellId
+                     << " actors=" << directive.actors.size()
+                     << " offenderGuid=" << offender.guid
+                     << " durableCharacterId=" << offender.dbCharacterId;
+}
+
+void MPServer::clearOutstandingCrimePursuitsForCharacter(ConnectedClient& offender)
+{
+    if (offender.dbCharacterId <= 0)
+        return;
+
+    const std::uint64_t nowMs = currentServerTimeMs();
+    std::unordered_map<std::string, CrimeReactionDirective> directives;
+
+    for (auto& [cellId, cellState] : mWorld.actorCells)
+    {
+        for (auto& [actorKey, record] : cellState.actors)
+        {
+            (void)actorKey;
+            if (record.crimePursuitCharacterId != offender.dbCharacterId)
+                continue;
+
+            const uint32_t lastGuid = record.crimePursuitLastGuid;
+            record.crimePursuitCharacterId = 0;
+            record.crimePursuitLastGuid = 0;
+            record.crimeEnforcementState = CrimeEnforcementState::None;
+            record.crimePursuitReassertArmed = false;
+            record.crimePursuitLastReassertMs = 0;
+
+            const std::string lastTargetId = lastGuid != 0
+                ? std::string("mp_remote_") + std::to_string(lastGuid) : std::string();
+            if (!lastTargetId.empty() && record.actor.ai.targetId == lastTargetId
+                && (record.actor.ai.type == BaseActor::AIAction::Type::Pursue
+                    || record.actor.ai.type == BaseActor::AIAction::Type::Combat))
+            {
+                record.actor.ai.type = BaseActor::AIAction::Type::None;
+                record.actor.ai.targetId.clear();
+                record.actor.ai.targetMpNum = 0;
+                record.actor.ai.duration = 0.f;
+                record.actor.ai.reset = false;
+                record.lastSnapshotTime = nowMs;
+                markLuaActorDirty(record, cellId);
+            }
+
+            if (cellState.authorityGuid == 0 || record.actor.isDead || record.migrationGeneration == 0
+                || makeCellKey(offender.player.cell) != cellId)
+                continue;
+
+            ensureActorNetId(record, cellId);
+            if (record.actorNetId == 0)
+                continue;
+
+            CrimeReactionDirective& directive = directives[cellId];
+            if (directive.eventId.empty())
+            {
+                directive.eventId = "crime-pursuit-clear:" + std::to_string(offender.dbCharacterId)
+                    + ':' + std::to_string(nowMs);
+                directive.cellId = cellId;
+                directive.offenderGuid = offender.guid;
+            }
+            directive.actors.push_back({ record.actorNetId, record.migrationGeneration,
+                CrimeReactionDialogue::None, CrimeReactionClearPursuit });
+        }
+    }
+
+    for (auto& [cellId, directive] : directives)
+    {
+        if (!validateCrimeReactionDirective(directive))
+        {
+            Log(Debug::Error) << "[CrimeReaction] refusing invalid clear-pursuit directive"
+                              << " event=" << directive.eventId
+                              << " cell=" << cellId
+                              << " actors=" << directive.actors.size();
+            continue;
+        }
+
+        PacketCrimeReaction packet;
+        packet.directive = directive;
+        broadcastActorToCell(cellId, packet.encode());
+        Log(Debug::Info) << "[CrimeReaction] cleared outstanding guard pursuit"
+                         << " event=" << directive.eventId
+                         << " cell=" << cellId
+                         << " actors=" << directive.actors.size()
+                         << " offenderGuid=" << offender.guid;
+    }
+}
+
 std::vector<MPServer::LiveObservationDiagnostic> MPServer::observeNpcCandidates(
     std::uint32_t targetPlayerGuid, std::optional<ActorInstanceId> observerFilter, std::string_view eventId)
 {
@@ -2565,9 +3022,22 @@ std::vector<MPServer::LiveObservationDiagnostic> MPServer::observeNpcCandidates(
             diagnostic.observerCellId = cellId;
             diagnostic.targetPlayerGuid = targetPlayerGuid;
             diagnostic.distance = std::sqrt(distanceSquared);
+            diagnostic.observerPosition = query.observer.position;
+            diagnostic.targetPosition = query.target.position;
             diagnostic.observerSnapshotAgeMs = nowMs - observerAccepted->receivedAtMs;
             diagnostic.targetSnapshotAgeMs = nowMs - targetAccepted->receivedAtMs;
             diagnostic.result = mObservationService->observe(query);
+            if (diagnostic.result.reason == ObservationReason::BlockedLineOfSight && mCollisionWorld)
+            {
+                const ServerCollisionWorld::RaycastDiagnostic ray = mCollisionWorld->diagnoseLineOfSight(
+                    { query.target.position.x, query.target.position.y, query.target.position.z },
+                    { query.observer.position.x, query.observer.position.y, query.observer.position.z });
+                diagnostic.rayHitFraction = ray.fraction;
+                diagnostic.rayHitPoint = { ray.hitPoint.x(), ray.hitPoint.y(), ray.hitPoint.z() };
+                diagnostic.blockerRefId = ray.refId;
+                diagnostic.blockerRefNum = ray.refNum;
+                diagnostic.blockerHeightfield = ray.heightfield;
+            }
             diagnostics.push_back(std::move(diagnostic));
         }
     }
@@ -2672,7 +3142,27 @@ bool MPServer::handleObservationDiagnosticCommand(ConnectedClient& requester, st
              << " awareness=" << optionalBool(result.awareness)
              << " observable=" << result.observable
              << " reason=" << reasonName(result.reason)
-             << " provenance=" << authorityName(result.authority);
+             << " provenance=" << authorityName(result.authority)
+             << " observerPos=" << static_cast<int>(diagnostic.observerPosition.x) << ','
+             << static_cast<int>(diagnostic.observerPosition.y) << ','
+             << static_cast<int>(diagnostic.observerPosition.z)
+             << " targetPos=" << static_cast<int>(diagnostic.targetPosition.x) << ','
+             << static_cast<int>(diagnostic.targetPosition.y) << ','
+             << static_cast<int>(diagnostic.targetPosition.z);
+        if (result.reason == ObservationReason::BlockedLineOfSight)
+        {
+            text << " hit=" << static_cast<int>(diagnostic.rayHitPoint.x) << ','
+                 << static_cast<int>(diagnostic.rayHitPoint.y) << ','
+                 << static_cast<int>(diagnostic.rayHitPoint.z)
+                 << " fraction=" << diagnostic.rayHitFraction
+                 << " blocker=";
+            if (diagnostic.blockerHeightfield)
+                text << "heightfield";
+            else if (!diagnostic.blockerRefId.empty())
+                text << diagnostic.blockerRefId << '#' << diagnostic.blockerRefNum;
+            else
+                text << "unknown";
+        }
         sendServerMessage(requester.guid, text.str());
         Log(Debug::Info) << "[ObservationDiagnostic] " << text.str();
     }
@@ -2936,10 +3426,11 @@ void MPServer::onClientDisconnected(HSteamNetConnection conn, const std::string&
 }
 
 // ---------------------------------------------------------------------------
-void MPServer::refreshActorAuthorityForCell(const std::string& cellId, uint32_t preferredGuid)
+bool MPServer::refreshActorAuthorityForCell(
+    const std::string& cellId, uint32_t preferredGuid, bool reissueOutstandingPursuits)
 {
     if (cellId.empty())
-        return;
+        return false;
 
     auto& cellState = mWorld.actorCells[cellId];
     uint32_t newAuthorityGuid = 0;
@@ -3074,7 +3565,8 @@ void MPServer::refreshActorAuthorityForCell(const std::string& cellId, uint32_t 
         }
     }
 
-    if (cellState.authorityGuid != newAuthorityGuid)
+    const bool authorityChanged = cellState.authorityGuid != newAuthorityGuid;
+    if (authorityChanged)
     {
         cellState.authorityGuid = newAuthorityGuid;
         ++cellState.authorityGeneration;
@@ -3124,6 +3616,9 @@ void MPServer::refreshActorAuthorityForCell(const std::string& cellId, uint32_t 
     }
 
     sendActorStateToInterestedClients(cellId);
+    if (authorityChanged && newAuthorityGuid != 0 && reissueOutstandingPursuits)
+        dispatchOutstandingCrimePursuitsForCell(cellId);
+    return authorityChanged;
 }
 
 // ---------------------------------------------------------------------------
@@ -3686,10 +4181,12 @@ void MPServer::updateActorAuthorityLeaseFromAi(const std::string& cellId,
         return;
 
     uint32_t targetGuid = 0;
+    // Target-player leases are appropriate for cooperative locality (followers/escorts),
+    // but not for hostile AI. Leasing a Combat/Pursue actor to the player it is
+    // fighting makes the attacker authoritative over its own victim and destroys
+    // the independent validation boundary required by authoritative combat results.
     const bool playerTargeted = actor.ai.type == BaseActor::AIAction::Type::Follow
-        || actor.ai.type == BaseActor::AIAction::Type::Escort
-        || actor.ai.type == BaseActor::AIAction::Type::Combat
-        || actor.ai.type == BaseActor::AIAction::Type::Pursue;
+        || actor.ai.type == BaseActor::AIAction::Type::Escort;
     constexpr std::string_view remotePlayerPrefix = "mp_remote_";
     if (playerTargeted && actor.ai.targetId.starts_with(remotePlayerPrefix))
     {
@@ -6976,13 +7473,30 @@ void MPServer::handlePlayerCellChange(ConnectedClient& c, const uint8_t* data, s
     if (!oldCell.empty() && oldCell != newCell)
         refreshActorAuthorityForCell(oldCell);
     if (!newCell.empty())
-        refreshActorAuthorityForCell(newCell, c.guid);
+        refreshActorAuthorityForCell(newCell, c.guid, false);
+
+    // A guard's durable enforcement identity survives the offender leaving the
+    // cell, but the live Pursue/Combat package must not cross hard world-space
+    // transitions. Ordinary adjacent exterior crossings are continuous: both
+    // cells remain active and native AiPursue can keep following the target
+    // across the grid boundary without an artificial clear/reissue cycle.
+    if (!oldCell.empty() && oldCell != newCell && !continuousExteriorCrossing)
+        suspendOutstandingCrimePursuitsForCharacterInCell(c, oldCell);
 
     broadcastToAll(std::vector<uint8_t>(data, data + size), c.conn);
     {
         PacketPlayerPosition positionPacket;
         positionPacket.setPlayer(&c.player);
         broadcastToAll(positionPacket.encode(cellChangeSequence), c.conn);
+    }
+
+    // The offender's persistent character identity survives cell exits and relogs.
+    // Re-issue any guard enforcement only after peers have received the cell/position
+    // change, so an actor-authority client can resolve the correct remote player Ptr.
+    if (!newCell.empty())
+    {
+        dispatchOutstandingCrimePursuitsForCell(newCell, c.dbCharacterId);
+        c.crimePursuitReissueHandledCell = newCell;
     }
 
     const std::string cellKey = makeCellKey(c.player.cell);
@@ -7079,9 +7593,14 @@ void MPServer::handlePlayerLoadedCells(ConnectedClient& c, const uint8_t* data, 
     c.loadedActorCells = std::move(normalizedCells);
     c.loadedActorCellsSequence = pkt.sequence;
 
+    const bool currentCellReissueAlreadyHandled = c.crimePursuitReissueHandledCell == currentCell;
+    bool currentCellAuthorityChanged = false;
     for (const std::string& cellId : addedCells)
     {
-        refreshActorAuthorityForCell(cellId, c.guid);
+        const bool suppressPursuitReissue = cellId == currentCell && currentCellReissueAlreadyHandled;
+        const bool authorityChanged = refreshActorAuthorityForCell(cellId, c.guid, !suppressPursuitReissue);
+        if (cellId == currentCell)
+            currentCellAuthorityChanged = authorityChanged;
         // Loaded-cell actor interest is handled by the authority refresh above.
         // Re-sending the full actor baseline here duplicates every adjacent-cell
         // actor snapshot and can stall the client's network frame during startup.
@@ -7091,6 +7610,12 @@ void MPServer::handlePlayerLoadedCells(ConnectedClient& c, const uint8_t* data, 
     }
     for (const std::string& cellId : removedCells)
         refreshActorAuthorityForCell(cellId);
+
+    const bool currentCellAdded
+        = std::find(addedCells.begin(), addedCells.end(), currentCell) != addedCells.end();
+    if (currentCellAdded && !currentCellAuthorityChanged && !currentCellReissueAlreadyHandled)
+        dispatchOutstandingCrimePursuitsForCell(currentCell, c.dbCharacterId);
+    c.crimePursuitReissueHandledCell.clear();
 
     Log(Debug::Verbose) << "[Server] PlayerLoadedCells from " << c.name
                         << " active=" << currentCell
@@ -8827,6 +9352,12 @@ void MPServer::handlePlayerDeath(ConnectedClient& c, const uint8_t* data, size_t
     c.playerDeathRestoreGuardUntilMs = 0;
     c.player.isDead = true;
     c.player.deathAnimationGroup = incoming.deathAnimationGroup;
+    // Death ends the current live guard-enforcement encounter without paying
+    // or otherwise mutating the offender's authoritative crime state. This
+    // clears the durable-in-session pursuit identity so respawn does not
+    // resurrect combat solely because the player still has an unpaid bounty.
+    clearOutstandingCrimePursuitsForCharacter(c);
+
     broadcastToAll(std::vector<uint8_t>(data, data + size), c.conn);
 
     Log(Debug::Info) << "[Server] Relayed PlayerDeath for " << c.name
@@ -9173,6 +9704,11 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
             it->second.actorAuthorityReason = previousRecord->actorAuthorityReason;
             it->second.actorAuthorityTargetGuid = previousRecord->actorAuthorityTargetGuid;
             it->second.actorAuthorityLeaseUntilMs = previousRecord->actorAuthorityLeaseUntilMs;
+            it->second.crimePursuitCharacterId = previousRecord->crimePursuitCharacterId;
+            it->second.crimePursuitLastGuid = previousRecord->crimePursuitLastGuid;
+            it->second.crimeEnforcementState = previousRecord->crimeEnforcementState;
+            it->second.crimePursuitReassertArmed = previousRecord->crimePursuitReassertArmed;
+            it->second.crimePursuitLastReassertMs = previousRecord->crimePursuitLastReassertMs;
         }
         // Generation zero means the server has not established a canonical actor
         // lifetime yet. Protocol-10 mechanics snapshots require a non-zero
@@ -9342,6 +9878,34 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
     {
         Log(Debug::Verbose) << "[Server] handleActorList retained dead vanilla actor(s)"
                             << " count=" << retainedDeadVanillaActors
+                            << " cell=" << incoming.cellId;
+    }
+
+    std::size_t retainedCrimePursuitVanillaActors = 0;
+    for (const ActorRegistryRecord& previousRecord : previousCellRecords)
+    {
+        if (previousRecord.actor.mpNum != 0 || previousRecord.actor.isDead
+            || previousRecord.crimePursuitCharacterId <= 0)
+            continue;
+
+        const std::string actorKey = makeActorKey(previousRecord.actor);
+        if (cellState.actors.find(actorKey) != cellState.actors.end())
+            continue;
+        if (cellContainsActorNetId(actorInstanceIdFromActor(previousRecord.actor)))
+            continue;
+
+        const auto locationIt = mWorld.actorLocations.find(actorKey);
+        if (locationIt != mWorld.actorLocations.end() && locationIt->second != incoming.cellId)
+            continue;
+
+        cellState.actors[actorKey] = previousRecord;
+        rememberActorLocation(previousRecord.actor, incoming.cellId);
+        ++retainedCrimePursuitVanillaActors;
+    }
+    if (retainedCrimePursuitVanillaActors != 0)
+    {
+        Log(Debug::Verbose) << "[Server] handleActorList retained omitted crime-pursuit vanilla actor(s)"
+                            << " count=" << retainedCrimePursuitVanillaActors
                             << " cell=" << incoming.cellId;
     }
 
@@ -11764,6 +12328,7 @@ void MPServer::handleActorAI(ConnectedClient& c, const uint8_t* data, size_t siz
     ActorList filtered = incoming;
     filtered.actors.clear();
     filtered.actors.reserve(incoming.actors.size());
+    std::unordered_set<std::int64_t> crimePursuitReissues;
 
     for (auto& actor : incoming.actors)
     {
@@ -11779,6 +12344,38 @@ void MPServer::handleActorAI(ConnectedClient& c, const uint8_t* data, size_t siz
         stored->actor.refNum = actor.refNum;
         stored->actor.mpNum = actor.mpNum;
         stored->actor.cellId = incoming.cellId;
+
+        if (stored->crimePursuitCharacterId > 0)
+        {
+            constexpr std::uint64_t CrimePursuitReassertCooldownMs = 2000;
+            const std::string expectedTargetId = stored->crimePursuitLastGuid != 0
+                ? std::string("mp_remote_") + std::to_string(stored->crimePursuitLastGuid) : std::string();
+            const bool incomingCombatForOffender = actor.ai.type == BaseActor::AIAction::Type::Combat
+                && !expectedTargetId.empty() && actor.ai.targetId == expectedTargetId;
+            const bool incomingTerminalNeutral = actor.ai.type != BaseActor::AIAction::Type::Pursue
+                && actor.ai.type != BaseActor::AIAction::Type::Combat
+                && actor.ai.type != BaseActor::AIAction::Type::Travel;
+
+            if (incomingCombatForOffender)
+                stored->crimePursuitReassertArmed = true;
+            else if (incomingTerminalNeutral && stored->crimePursuitReassertArmed)
+            {
+                stored->crimePursuitReassertArmed = false;
+                const bool cooldownElapsed = incoming.serverTimestamp >= stored->crimePursuitLastReassertMs
+                    && incoming.serverTimestamp - stored->crimePursuitLastReassertMs >= CrimePursuitReassertCooldownMs;
+                if (cooldownElapsed)
+                {
+                    crimePursuitReissues.insert(stored->crimePursuitCharacterId);
+                    Log(Debug::Info) << "[CrimeReaction] guard abandoned confirmed combat; scheduling pursuit reissue"
+                                     << " cell=" << incoming.cellId
+                                     << " actorNetId=" << stored->actorNetId
+                                     << " refId=" << stored->actor.refId
+                                     << " incomingType=" << static_cast<unsigned>(actor.ai.type)
+                                     << " offenderCharacterId=" << stored->crimePursuitCharacterId;
+                }
+            }
+        }
+
         stored->actor.ai = actor.ai;
         stored->lastSnapshotTime = incoming.serverTimestamp;
 
@@ -11795,6 +12392,9 @@ void MPServer::handleActorAI(ConnectedClient& c, const uint8_t* data, size_t siz
     PacketActorAI out;
     out.setActorList(&filtered);
     broadcastActorToCell(filtered.cellId, out.encode(), c.conn);
+
+    for (const std::int64_t characterId : crimePursuitReissues)
+        dispatchOutstandingCrimePursuitsForCell(filtered.cellId, characterId);
 }
 
 // ---------------------------------------------------------------------------
@@ -12197,6 +12797,10 @@ void MPServer::handleActorCombatResult(ConnectedClient& c, const uint8_t* data, 
         attacker->player.crimeState = mPlayerDb->loadPlayerCrimeState(attacker->dbCharacterId);
         attacker->player.bounty = attacker->player.crimeState.bounty;
         sendAuthoritativeCrimeState(*attacker);
+        if (assaultOutcome)
+            dispatchCrimeReactions(*attacker, assaultOutcome->result);
+        if (murderOutcome)
+            dispatchCrimeReactions(*attacker, murderOutcome->result);
     }
 
     if (const auto presentationIt = mPendingCombatPresentations.find(result.combatEventId);
@@ -12870,6 +13474,8 @@ void MPServer::handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* dat
         c.player.crimeState = mPlayerDb->loadPlayerCrimeState(c.dbCharacterId);
         c.player.bounty = c.player.crimeState.bounty;
         sendAuthoritativeCrimeState(c);
+        if (!result.replayed)
+            dispatchCrimeReactions(c, preparedCrime->result);
         Log(preparedCrime->result.accepted ? Debug::Info : Debug::Warning)
             << "[CrimeSemanticResult] type=Theft eventId=" << crimeEventId
             << " crimeSeen=" << preparedCrime->result.crimeSeen
@@ -12922,6 +13528,14 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
         || c.dbAccountId <= 0 || c.dbCharacterId <= 0)
     {
         reject(validation != InventoryTakeError::None ? validation : InventoryTakeError::PersistenceFailure);
+        return;
+    }
+    if (request.source.refId.starts_with("mp_remote_"))
+    {
+        Log(Debug::Warning) << "[InventoryTake] rejected remote-player inventory source request="
+                            << request.requestId << " player=" << c.name
+                            << " source=" << request.source.refId;
+        reject(InventoryTakeError::InvalidRequest);
         return;
     }
     const std::string requestHash = crypto::sha256hex(canonicalInventoryTakeRequest(request));
@@ -13078,21 +13692,24 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
         return;
     }
 
-    const float dx = acceptedPlayer->snapshot.position.pos[0] - sourcePosition.pos[0];
-    const float dy = acceptedPlayer->snapshot.position.pos[1] - sourcePosition.pos[1];
-    const float dz = acceptedPlayer->snapshot.position.pos[2] - sourcePosition.pos[2];
-    const float distanceSquared = dx * dx + dy * dy + dz * dz;
-    if (!std::isfinite(distanceSquared)
-        || distanceSquared > mDoorInteractionRadius * mDoorInteractionRadius)
+    const bool finish = request.kind == InventoryTakeKind::PickpocketFinish;
+    if (!finish)
     {
-        reject(InventoryTakeError::OutOfRange);
-        return;
+        const float dx = acceptedPlayer->snapshot.position.pos[0] - sourcePosition.pos[0];
+        const float dy = acceptedPlayer->snapshot.position.pos[1] - sourcePosition.pos[1];
+        const float dz = acceptedPlayer->snapshot.position.pos[2] - sourcePosition.pos[2];
+        const float distanceSquared = dx * dx + dy * dy + dz * dz;
+        if (!std::isfinite(distanceSquared)
+            || distanceSquared > mDoorInteractionRadius * mDoorInteractionRadius)
+        {
+            reject(InventoryTakeError::OutOfRange);
+            return;
+        }
     }
 
     ContainerRecord expectedSource = sourceIt->second;
     normalizeContainerItems(expectedSource.items);
     ContainerRecord resultingSource = expectedSource;
-    const bool finish = request.kind == InventoryTakeKind::PickpocketFinish;
     auto sourceItem = finish ? resultingSource.items.end()
         : std::find_if(resultingSource.items.begin(), resultingSource.items.end(),
             [&](const ContainerItem& item) {
@@ -13101,6 +13718,21 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
             });
     if (!finish && sourceItem == resultingSource.items.end())
     {
+        std::ostringstream available;
+        bool first = true;
+        for (const ContainerItem& item : resultingSource.items)
+        {
+            if (!first)
+                available << ',';
+            first = false;
+            available << item.refId << "[count=" << item.count << ",charge=" << item.charge << ']';
+        }
+        Log(Debug::Warning) << "[InventoryTake] item unavailable request=" << request.requestId
+                            << " source=" << request.source.refId
+                            << " requested=" << request.itemRefId
+                            << " count=" << request.requestedCount
+                            << " charge=" << request.itemCharge
+                            << " available=" << available.str();
         reject(InventoryTakeError::ItemUnavailable);
         return;
     }
@@ -13235,14 +13867,24 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
         if (sourceItem->count == 0)
             resultingSource.items.erase(sourceItem);
         normalizeContainerItems(resultingSource.items);
-        const auto instance = reserveWorldMpNum();
-        if (!instance)
+        auto destinationStack = std::find_if(inventory.begin(), inventory.end(),
+            [&](const Item& item) { return sameItemIdentity(item, added); });
+        if (destinationStack != inventory.end())
         {
-            reject(InventoryTakeError::PersistenceFailure);
-            return;
+            destinationStack->count += added.count;
+            added.instanceId = destinationStack->instanceId;
         }
-        added.instanceId = *instance;
-        inventory.push_back(added);
+        else
+        {
+            const auto instance = reserveWorldMpNum();
+            if (!instance)
+            {
+                reject(InventoryTakeError::PersistenceFailure);
+                return;
+            }
+            added.instanceId = *instance;
+            inventory.push_back(added);
+        }
         resultingRevision = request.expectedInventoryRevision + 1;
     }
 
@@ -13398,6 +14040,8 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
         c.player.crimeState = mPlayerDb->loadPlayerCrimeState(c.dbCharacterId);
         c.player.bounty = c.player.crimeState.bounty;
         sendAuthoritativeCrimeState(c);
+        if (!result.replayed)
+            dispatchCrimeReactions(c, preparedCrime->result);
         Log(preparedCrime->result.accepted ? Debug::Info : Debug::Warning)
             << "[CrimeSemanticResult] type=" << (pickpocket ? "Pickpocket" : "Theft")
             << " eventId=inventory-take:" << c.dbAccountId << ':' << c.dbCharacterId << ':' << request.requestId
@@ -13753,7 +14397,8 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
     const auto action = static_cast<ContainerAction>(pkt.mAction);
     if (action != ContainerAction::Set
         && action != ContainerAction::Add
-        && action != ContainerAction::Remove)
+        && action != ContainerAction::Remove
+        && action != ContainerAction::BootstrapRequest)
         return;
 
     if (pkt.container.cellId.empty() || pkt.container.refId.empty())
@@ -13770,6 +14415,64 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
 
     bool senderAuthoritative = false;
     auto actorCellIt = mWorld.actorCells.find(pkt.container.cellId);
+
+    if (action == ContainerAction::BootstrapRequest)
+    {
+        const std::string key = makeContainerKey(
+            pkt.container.cellId, pkt.container.refId, pkt.container.refNum, pkt.container.mpNum);
+        const auto currentIt = mWorld.containers.find(key);
+        if (currentIt != mWorld.containers.end() && currentIt->second.hasAuthority)
+        {
+            PacketContainer current;
+            current.container = currentIt->second;
+            current.mAction = static_cast<std::uint8_t>(ContainerAction::Set);
+            sendTo(c.conn, current.encode());
+            Log(Debug::Info) << "[Server] Container bootstrap satisfied from authoritative state requester=" << c.name
+                             << " refId=" << pkt.container.refId << " refNum=" << pkt.container.refNum
+                             << " mpNum=" << pkt.container.mpNum;
+            return;
+        }
+
+        if (actorCellIt == mWorld.actorCells.end() || actorCellIt->second.authorityGuid == 0)
+        {
+            Log(Debug::Warning) << "[Server] Container bootstrap unavailable requester=" << c.name
+                                << " refId=" << pkt.container.refId << " refNum=" << pkt.container.refNum
+                                << " because no cell authority is available";
+            return;
+        }
+
+        ConnectedClient* authority = nullptr;
+        for (auto& [conn, candidate] : mClients)
+        {
+            (void)conn;
+            if (candidate.guid == actorCellIt->second.authorityGuid && candidate.handshakeComplete)
+            {
+                authority = &candidate;
+                break;
+            }
+        }
+        if (!authority)
+        {
+            Log(Debug::Warning) << "[Server] Container bootstrap unavailable requester=" << c.name
+                                << " refId=" << pkt.container.refId << " authorityGuid="
+                                << actorCellIt->second.authorityGuid << " is not connected";
+            return;
+        }
+
+        PacketContainer bootstrap;
+        bootstrap.container.cellId = pkt.container.cellId;
+        bootstrap.container.refId = pkt.container.refId;
+        bootstrap.container.refNum = pkt.container.refNum;
+        bootstrap.container.mpNum = pkt.container.mpNum;
+        bootstrap.mAction = static_cast<std::uint8_t>(ContainerAction::BootstrapRequest);
+        sendTo(authority->conn, bootstrap.encode());
+        Log(Debug::Info) << "[Server] Container bootstrap relayed requester=" << c.name
+                         << " authorityGuid=" << actorCellIt->second.authorityGuid
+                         << " refId=" << pkt.container.refId << " refNum=" << pkt.container.refNum
+                         << " mpNum=" << pkt.container.mpNum;
+        return;
+    }
+
     ActorRegistryRecord* sourceActor = nullptr;
     if (actorCellIt != mWorld.actorCells.end())
     {
@@ -15394,6 +16097,8 @@ void MPServer::sendAuthoritativeCrimeState(
     packet.error = error;
     packet.setPlayer(&c.player);
     sendTo(c.conn, packet.encode());
+    if (c.player.crimeState.bounty <= 0)
+        clearOutstandingCrimePursuitsForCharacter(c);
 }
 
 void MPServer::sendAuthoritativeTopicState(ConnectedClient& c)
@@ -15800,6 +16505,18 @@ AdminHttpServer::Response MPServer::handleAdminHttpRequest(
         {
             response.status = 400;
             response.body = makeJsonErrorBody("invalid_guid");
+            return response;
+        }
+
+        if (action == "chat_command"
+            && (messageIt->second == "/observe" || messageIt->second.starts_with("/observe ")
+                || messageIt->second == "/crimewitness" || messageIt->second.starts_with("/crimewitness ")))
+        {
+            {
+                std::lock_guard lock(mPendingAdminDiagnosticMutex);
+                mPendingAdminDiagnosticCommands.emplace_back(guid, messageIt->second);
+            }
+            response.body = "{\"ok\":true,\"status\":\"queued\"}";
             return response;
         }
 
