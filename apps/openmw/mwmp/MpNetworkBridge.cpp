@@ -372,6 +372,45 @@ namespace mwmp
             });
         mp["inventoryTake"] = LuaUtil::makeReadOnly(inventoryTakeApi);
 
+        sol::table inventoryPutApi(lua, sol::create);
+        inventoryPutApi.set_function("isAvailable", [] { return Main::isInitialised() && Main::isConnected(); });
+        inventoryPutApi.set_function("request",
+            [lua](const MWLua::GObject& destination, const MWLua::GObject& item, int count,
+                sol::main_protected_function callback) {
+                if (!Main::isInitialised() || !Main::isConnected())
+                    throw std::runtime_error("mp.inventoryPut.request requires an active multiplayer connection");
+                const MWWorld::Ptr destinationPtr = destination.ptrOrEmpty();
+                const MWWorld::Ptr itemPtr = item.ptrOrEmpty();
+                if (destinationPtr.isEmpty() || itemPtr.isEmpty() || count <= 0)
+                    throw std::runtime_error(
+                        "mp.inventoryPut.request requires a valid destination, item, and positive count");
+                const bool queued = Main::get().getWorldObjectSync().requestInventoryPut(
+                    destinationPtr, itemPtr, count,
+                    [lua, callback = std::move(callback)](const InventoryPutResult& result) mutable {
+                        sol::table value(lua, sol::create);
+                        value["requestId"] = result.requestId;
+                        value["accepted"] = result.accepted;
+                        value["replayed"] = result.replayed;
+                        value["error"] = std::string(getInventoryPutErrorCode(result.error));
+                        value["itemRefId"] = result.itemRefId;
+                        value["itemInstanceId"] = result.itemInstanceId;
+                        value["itemCount"] = result.itemCount;
+                        value["inventoryRevision"] = result.inventoryRevision;
+                        LuaUtil::call(callback, value);
+                    });
+                if (!queued)
+                    throw std::runtime_error("mp.inventoryPut.request could not build a canonical request");
+            });
+        mp["inventoryPut"] = LuaUtil::makeReadOnly(inventoryPutApi);
+
+        sol::table containerUpdatesApi(lua, sol::create);
+        containerUpdatesApi.set_function("revision", [](const MWLua::GObject& object) -> std::uint64_t {
+            if (!Main::isInitialised() || !Main::isConnected())
+                return 0;
+            return Main::get().getWorldObjectSync().getContainerRevision(object.ptrOrEmpty());
+        });
+        mp["containerUpdates"] = LuaUtil::makeReadOnly(containerUpdatesApi);
+
         mp.set_function("hasActorAuthority", [](const std::string& cellId) -> bool {
             return Main::isInitialised() && Main::isConnected()
                 && Main::get().getActorSync().hasAuthority(cellId);

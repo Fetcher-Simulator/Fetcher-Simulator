@@ -12,6 +12,7 @@
 #include <components/openmw-mp/Base/BaseStructs.hpp>
 #include <components/openmw-mp/WorldItemTake.hpp>
 #include <components/openmw-mp/InventoryTake.hpp>
+#include <components/openmw-mp/InventoryPut.hpp>
 #include "../../mwworld/ptr.hpp"
 
 namespace mwmp
@@ -75,6 +76,7 @@ namespace mwmp
 
         // Called when the local player opens a container.
         // Sends action=Set with its current contents so the server can take authority.
+        void onLocalContainerOpened(const MWWorld::Ptr& container);
         void onLocalContainerOpened(const std::string& cellId,
                                     const std::string& refId, uint32_t refNum,
                                     uint32_t mpNum);
@@ -87,6 +89,9 @@ namespace mwmp
         using InventoryTakeCallback = std::function<void(const InventoryTakeResult&)>;
         bool requestInventoryTake(const MWWorld::Ptr& source, const MWWorld::Ptr& item,
             int count, InventoryTakeKind kind, InventoryTakeCallback callback = {});
+        using InventoryPutCallback = std::function<void(const InventoryPutResult&)>;
+        bool requestInventoryPut(const MWWorld::Ptr& destination, const MWWorld::Ptr& item,
+            int count, InventoryPutCallback callback = {});
         bool requestHarvest(const MWWorld::Ptr& source);
         bool requestPickpocketFinish(const MWWorld::Ptr& source);
 
@@ -98,6 +103,7 @@ namespace mwmp
         void onServerObjectDelete(const PlacedObjectIdentity& identity);
         void onServerWorldItemTakeResult(const WorldItemTakeResult& result);
         void onServerInventoryTakeResult(const InventoryTakeResult& result);
+        void onServerInventoryPutResult(const InventoryPutResult& result);
 
         void onServerObjectMove  (uint32_t mpNum, const std::string& cellId,
                                   const Position& pos);
@@ -108,6 +114,7 @@ namespace mwmp
         // --- lookup ---
         MWWorld::Ptr getObjectByMpNum(uint32_t mpNum) const;
         uint32_t getMpNumForObject(const MWWorld::Ptr& ptr) const;
+        std::uint64_t getContainerRevision(const MWWorld::Ptr& ptr) const;
 
     private:
         // ---- world helpers ----
@@ -117,9 +124,11 @@ namespace mwmp
         bool tryDeleteObject(const PlacedObjectIdentity& identity);
         bool tryMoveObject  (uint32_t mpNum, const Position& pos);
         bool tryApplyContainer(const ContainerRecord& record, ContainerAction action);
+        void sendLocalContainerSnapshot(const ContainerRecord& record, const MWWorld::Ptr& target);
         MWWorld::Ptr findContainerTarget(const ContainerRecord& record) const;
         void processPendingHarvest(const ContainerRecord& record);
         void sendInventoryTakeRequest(const InventoryTakeRequest& request);
+        void sendInventoryPutRequest(const InventoryPutRequest& request);
         void registerObject(uint32_t mpNum, const MWWorld::Ptr& ptr);
         void unregisterObject(uint32_t mpNum);
 
@@ -152,6 +161,16 @@ namespace mwmp
         std::unordered_map<std::string, MWWorld::Ptr> mInventoryTakeSources;
         std::unordered_set<std::string> mInventoryTakesAwaitingSource;
         std::unordered_map<std::string, InventoryTakeCallback> mInventoryTakeCallbacks;
+        std::vector<InventoryPutRequest> mPendingInventoryPuts;
+        std::unordered_map<std::string, MWWorld::Ptr> mInventoryPutDestinations;
+        std::unordered_set<std::string> mInventoryPutsAwaitingDestination;
+        std::unordered_map<std::string, InventoryPutCallback> mInventoryPutCallbacks;
+        // Preserve the concrete Ptr used by an open container UI. Static world
+        // reference discovery can lag activation, but authoritative replay must
+        // reconcile the same store that the UI is currently displaying.
+        std::unordered_map<std::string, MWWorld::Ptr> mOpenContainerTargets;
+        std::unordered_map<std::string, std::uint64_t> mContainerRevisions;
+        std::uint64_t mNextContainerRevision = 1;
         bool mSuppressLocalDelete = false;
         bool mSuppressPickpocketFinish = false;
         std::unordered_set<uint32_t> mPendingTakenMpNums;
@@ -159,6 +178,7 @@ namespace mwmp
         std::string mTakeRequestPrefix;
         std::uint64_t mNextTakeRequestId = 1;
         std::uint64_t mNextInventoryTakeRequestId = 1;
+        std::uint64_t mNextInventoryPutRequestId = 1;
 
         static constexpr float RETRY_RATE = 0.25f;
     };

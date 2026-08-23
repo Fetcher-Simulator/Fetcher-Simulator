@@ -5,6 +5,7 @@
 
 #include <apps/openmw-server/PlayerDatabase.hpp>
 #include <components/openmw-mp/Sha256.hpp>
+#include <components/openmw-mp/InventoryPut.hpp>
 
 namespace
 {
@@ -193,4 +194,79 @@ TEST(InventoryTakePersistence, DetectedPickpocketPersistsRollWithoutMovingItems)
     const auto replay = database.commitInventoryTake(commit);
     EXPECT_EQ(replay.result.detectionRoll, 97);
     EXPECT_TRUE(replay.result.detected);
+}
+
+TEST(InventoryPutPersistence, PlayerAndContainerCommitAtomicallyAndReplayAcrossRestart)
+{
+    TemporaryDatabase temporary;
+    std::int64_t account = 0;
+    std::int64_t character = 0;
+    mwmp::InventoryTakeCommit putCommit;
+    {
+        mwmp::PlayerDatabase database(temporary.path.string());
+        account = database.createAccount("inventory-put-account");
+        character = database.createCharacter(account, "Inventory Put Tester").characterId;
+
+        mwmp::Item initial;
+        initial.instanceId = 450;
+        initial.refId = "iron_cuirass";
+        initial.count = 2;
+        initial.charge = 300;
+        database.saveCharacterInventory(character, { initial }, false, 0);
+
+        mwmp::ContainerRecord destination;
+        destination.cellId = "Balmora";
+        destination.refId = "crate_01";
+        destination.refNum = 42;
+        destination.hasAuthority = true;
+        destination.items = { { "iron dagger", 1, 100 } };
+        database.upsertContainerRecord(destination);
+
+        mwmp::InventoryPutRequest request;
+        request.requestId = "inventory-put-atomic-1";
+        request.destination.cellId = destination.cellId;
+        request.destination.refId = destination.refId;
+        request.destination.refNum = destination.refNum;
+        request.itemRefId = initial.refId;
+        request.itemInstanceId = initial.instanceId;
+        request.itemCharge = initial.charge;
+        request.requestedCount = 1;
+        request.expectedInventoryRevision = 0;
+
+        putCommit.accountId = account;
+        putCommit.characterId = character;
+        putCommit.requestId = request.requestId;
+        putCommit.requestHash = mwmp::crypto::sha256hex(mwmp::canonicalInventoryPutRequest(request));
+        putCommit.expectedInventoryRevision = 0;
+        putCommit.resultingInventoryRevision = 1;
+        initial.count = 1;
+        putCommit.inventory = { initial };
+        putCommit.expectedSource = destination;
+        putCommit.resultingSource = destination;
+        putCommit.resultingSource->items.push_back({ request.itemRefId, 1, request.itemCharge });
+        putCommit.result.requestId = request.requestId;
+        putCommit.result.accepted = true;
+        putCommit.result.kind = mwmp::InventoryTakeKind::Container;
+        putCommit.result.source = request.destination;
+        putCommit.result.itemRefId = request.itemRefId;
+        putCommit.result.itemCharge = request.itemCharge;
+        putCommit.result.itemCount = 1;
+        putCommit.result.inventoryRevision = 1;
+
+        EXPECT_EQ(database.commitInventoryTake(putCommit).status,
+            mwmp::InventoryTakeCommitStatus::Committed);
+        ASSERT_EQ(database.loadCharacterInventory(character).size(), 1u);
+        EXPECT_EQ(database.loadCharacterInventory(character).front().count, 1);
+        ASSERT_EQ(database.loadContainerRecords().size(), 1u);
+        EXPECT_EQ(database.loadContainerRecords().front().items, putCommit.resultingSource->items);
+        EXPECT_EQ(database.commitInventoryTake(putCommit).status,
+            mwmp::InventoryTakeCommitStatus::DuplicateRequest);
+    }
+
+    mwmp::PlayerDatabase reopened(temporary.path.string());
+    EXPECT_EQ(reopened.loadInventoryRevision(character), 1u);
+    ASSERT_EQ(reopened.loadCharacterInventory(character).size(), 1u);
+    EXPECT_EQ(reopened.loadCharacterInventory(character).front().count, 1);
+    ASSERT_TRUE(reopened.loadInventoryTake(account, character, putCommit.requestId));
+    EXPECT_EQ(reopened.loadContainerRecords().front().items, putCommit.resultingSource->items);
 }
