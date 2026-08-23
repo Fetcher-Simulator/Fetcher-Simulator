@@ -162,6 +162,8 @@ namespace mwmp
         CrimeInteractionRequest = 157, // Typed server-resolved unlock/trespass cause
         CrimeReaction = 158, // Server-authored immediate witness dialogue/guard pursuit directive
         GuardArrest = 159, // Typed server-authoritative guard arrest choice/result
+        InventoryPutRequest = 160, // Atomic player-inventory to persistent-container transfer
+        InventoryPutResult = 161, // Durable terminal inventory-put result
 
         // --- Lua bridge (7C+) ---
         // IDs 150-199 reserved; exact assignments TBD in Phase 7C/7D.

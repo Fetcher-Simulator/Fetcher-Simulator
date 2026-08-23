@@ -361,6 +361,7 @@ private:
     void handleObjectPlace      (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size);
+    void handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleCrimeInteractionRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleObjectDelete     (ConnectedClient& c, const uint8_t* data, size_t size);

@@ -664,6 +664,17 @@ namespace MWLua
                     }
 
 #ifdef BUILD_MULTIPLAYER
+                    if (mwmp::Main::isConnected() && isLocalPlayerInventoryOwner(sourceOwner)
+                        && destPtr.getType() == ESM::REC_CONT
+                        && !MWBase::Environment::get().getWindowManager()->containsMode(MWGui::GM_Barter))
+                    {
+                        Log(Debug::Warning) << "[MP] Rejected Lua object.moveInto player-to-container mutation destination="
+                                            << destPtr.toString() << " item=" << ptr.toString()
+                                            << "; use openmw.mp.inventoryPut.request";
+                        mwmp::Main::get().getWorldObjectSync().forgetLocalPlayerInventoryDetached(ptr);
+                        return;
+                    }
+
                     if (mwmp::Main::isConnected() && !sourceOwner.isEmpty()
                         && destPtr == MWBase::Environment::get().getWorld()->getPlayerPtr()
                         && (sourceOwner.getType() == ESM::REC_CONT || sourceOwner.getClass().isActor())

@@ -292,7 +292,7 @@ namespace mwmp::serverlua
             add(errors, "invalid_package_version", "packageVersion", "Package version must be non-zero");
         if (package.requiredOpenMWLuaApi != supportedOpenMWLuaApi)
             add(errors, "unsupported_openmw_lua_api", "requiredOpenMWLuaApi", "Required OpenMW Lua API is unsupported");
-        if (package.requiredMultiplayerLuaApi != supportedMultiplayerLuaApi)
+        if (package.requiredMultiplayerLuaApi > supportedMultiplayerLuaApi)
             add(errors, "unsupported_multiplayer_lua_api", "requiredMultiplayerLuaApi",
                 "Required multiplayer Lua API is unsupported");
         if (package.dependencies.size() > MaxDependenciesPerPackage)

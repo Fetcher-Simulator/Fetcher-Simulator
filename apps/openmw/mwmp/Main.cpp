@@ -50,6 +50,7 @@
 #include <components/openmw-mp/Packets/Object/PacketContainer.hpp>
 #include <components/openmw-mp/Packets/Object/PacketWorldItemTake.hpp>
 #include <components/openmw-mp/Packets/Object/PacketInventoryTake.hpp>
+#include <components/openmw-mp/Packets/Object/PacketInventoryPut.hpp>
 #include <components/openmw-mp/Packets/Object/PacketCrimeInteraction.hpp>
 #include <components/openmw-mp/Packets/Player/PacketGuardArrest.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerAnimFlags.hpp>
@@ -2145,6 +2146,18 @@ void Main::registerProtocolHandlers()
                 return;
             }
             mWorldObjectSync->onServerInventoryTakeResult(packet.result);
+        });
+
+    proto.registerHandler(PacketType::InventoryPutResult,
+        [this](const uint8_t* data, size_t size)
+        {
+            PacketInventoryPutResult packet;
+            if (!packet.decode(data, size))
+            {
+                disconnect("Malformed authoritative inventory put result");
+                return;
+            }
+            mWorldObjectSync->onServerInventoryPutResult(packet.result);
         });
 
     proto.registerHandler(PacketType::ObjectMove,

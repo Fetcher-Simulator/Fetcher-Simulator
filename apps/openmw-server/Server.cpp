@@ -87,6 +87,7 @@
 #include <components/openmw-mp/Packets/Object/PacketContainer.hpp>
 #include <components/openmw-mp/Packets/Object/PacketWorldItemTake.hpp>
 #include <components/openmw-mp/Packets/Object/PacketInventoryTake.hpp>
+#include <components/openmw-mp/Packets/Object/PacketInventoryPut.hpp>
 #include <components/openmw-mp/Packets/Object/PacketCrimeInteraction.hpp>
 #include <components/openmw-mp/Packets/Object/PacketDoorState.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketRecordDynamic.hpp>
@@ -5632,6 +5633,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::ObjectPlace:      handleObjectPlace(client, data, size);        break;
         case PacketType::WorldItemTakeRequest: handleWorldItemTakeRequest(client, data, size); break;
         case PacketType::InventoryTakeRequest: handleInventoryTakeRequest(client, data, size); break;
+        case PacketType::InventoryPutRequest: handleInventoryPutRequest(client, data, size); break;
         case PacketType::CrimeInteractionRequest: handleCrimeInteractionRequest(client, data, size); break;
         case PacketType::GuardArrest:     handleGuardArrest(client, data, size);       break;
         case PacketType::ObjectDelete:     handleObjectDelete(client, data, size);       break;
@@ -14578,8 +14580,14 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
             c.restoredInventorySnapshot = c.player.inventoryChanges.items;
             c.hasRestoredInventorySnapshot = true;
             PacketContainer sourcePacket;
-            sourcePacket.container = sourceIt->second;
-            sourcePacket.mAction = static_cast<std::uint8_t>(ContainerAction::Set);
+            sourcePacket.container.cellId = sourceIt->second.cellId;
+            sourcePacket.container.refId = sourceIt->second.refId;
+            sourcePacket.container.refNum = sourceIt->second.refNum;
+            sourcePacket.container.mpNum = sourceIt->second.mpNum;
+            sourcePacket.container.hasAuthority = true;
+            sourcePacket.container.items.push_back(
+                { result.itemRefId, result.itemCount, result.itemCharge });
+            sourcePacket.mAction = static_cast<std::uint8_t>(ContainerAction::Remove);
             broadcastToCell(canonicalPlayerCell, sourcePacket.encode());
             scheduleGeneratedDynamicRecordGc("inventory_take");
         }
@@ -14613,6 +14621,271 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
                      << " count=" << result.itemCount << " detected=" << result.detected
                      << " roll=" << result.detectionRoll << " theft=" << result.theft
                      << " replayed=" << result.replayed;
+    sendResult();
+}
+
+// ---------------------------------------------------------------------------
+void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    PacketInventoryPutRequest packet;
+    if (!packet.decode(data, size))
+        return;
+
+    const InventoryPutRequest& request = packet.request;
+    InventoryPutResult result;
+    result.requestId = request.requestId;
+    result.destination = request.destination;
+    result.itemRefId = request.itemRefId;
+    result.itemInstanceId = request.itemInstanceId;
+    result.itemCharge = request.itemCharge;
+    auto sendResult = [&] {
+        PacketInventoryPutResult response;
+        response.result = result;
+        sendTo(c.conn, response.encode());
+    };
+    auto reject = [&](InventoryPutError error) {
+        result.accepted = false;
+        result.error = error;
+        result.inventoryRevision = c.inventoryRevision;
+        sendResult();
+    };
+
+    const InventoryPutError validation = validateInventoryPutRequest(request);
+    if (validation != InventoryPutError::None || !mPlayerDb || !mContentRegistry
+        || c.dbAccountId <= 0 || c.dbCharacterId <= 0)
+    {
+        reject(validation != InventoryPutError::None ? validation : InventoryPutError::PersistenceFailure);
+        return;
+    }
+
+    const std::string requestHash = crypto::sha256hex(canonicalInventoryPutRequest(request));
+    if (const auto stored = mPlayerDb->loadInventoryTake(
+            c.dbAccountId, c.dbCharacterId, request.requestId))
+    {
+        if (stored->requestHash != requestHash)
+        {
+            reject(InventoryPutError::DuplicateConflict);
+            return;
+        }
+        result.accepted = true;
+        result.replayed = true;
+        result.error = InventoryPutError::None;
+        result.destination = stored->result.source;
+        result.itemRefId = stored->result.itemRefId;
+        result.itemCharge = stored->result.itemCharge;
+        result.itemCount = stored->result.itemCount;
+        result.inventoryRevision = stored->result.inventoryRevision;
+        const std::string destinationKey = makeContainerKey(result.destination.cellId,
+            result.destination.refId, result.destination.refNum, result.destination.mpNum);
+        const auto destinationIt = mWorld.containers.find(destinationKey);
+        if (destinationIt != mWorld.containers.end() && destinationIt->second.hasAuthority)
+        {
+            PacketContainer correction;
+            correction.container = destinationIt->second;
+            correction.mAction = static_cast<std::uint8_t>(ContainerAction::Set);
+            sendTo(c.conn, correction.encode());
+        }
+        sendAuthoritativeInventory(c);
+        sendResult();
+        return;
+    }
+
+    const std::string canonicalPlayerCell = makeCellKey(c.player.cell);
+    if (request.destination.cellId != canonicalPlayerCell)
+    {
+        reject(InventoryPutError::WrongCell);
+        return;
+    }
+    constexpr std::uint64_t MaximumSnapshotAgeMs = 1000;
+    const std::uint64_t nowMs = currentServerTimeMs();
+    const AcceptedMechanicsSnapshot* acceptedPlayer = mMechanicsSnapshots.findFresh(
+        { MechanicsSubjectKind::Player, c.guid, 0 }, nowMs, MaximumSnapshotAgeMs);
+    if (!acceptedPlayer || acceptedPlayer->snapshot.cellId != canonicalPlayerCell
+        || acceptedPlayer->snapshot.migrationGeneration != 1
+        || acceptedPlayer->snapshot.authorityGeneration != c.guid)
+    {
+        reject(InventoryPutError::PlayerSnapshotUnavailable);
+        return;
+    }
+    if (request.expectedInventoryRevision != c.inventoryRevision)
+    {
+        sendAuthoritativeInventory(c);
+        reject(InventoryPutError::StaleInventoryRevision);
+        return;
+    }
+
+    if (request.destination.mpNum != 0)
+    {
+        // Dynamic container persistence is not lifetime-unique in the legacy
+        // container schema. Keep the semantic operation fail-closed.
+        reject(InventoryPutError::StaleDestination);
+        return;
+    }
+    const auto destinationReference = mContentRegistry->findContainerReference(
+        request.destination.cellId, request.destination.refId, request.destination.refNum);
+    if (!destinationReference || !destinationReference->enabled)
+    {
+        reject(InventoryPutError::StaleDestination);
+        return;
+    }
+
+    const std::string destinationKey = makeContainerKey(request.destination.cellId,
+        request.destination.refId, request.destination.refNum, request.destination.mpNum);
+    auto destinationIt = mWorld.containers.find(destinationKey);
+    if (destinationIt == mWorld.containers.end() || !destinationIt->second.hasAuthority)
+    {
+        const auto cellIt = mWorld.actorCells.find(canonicalPlayerCell);
+        const std::uint32_t bootstrapAuthority
+            = cellIt == mWorld.actorCells.end() ? 0 : cellIt->second.authorityGuid;
+        if (bootstrapAuthority != 0)
+        {
+            const auto authority = std::find_if(mClients.begin(), mClients.end(),
+                [&](const auto& entry) { return entry.second.guid == bootstrapAuthority; });
+            if (authority != mClients.end())
+            {
+                PacketContainer bootstrap;
+                bootstrap.container.cellId = request.destination.cellId;
+                bootstrap.container.refId = request.destination.refId;
+                bootstrap.container.refNum = request.destination.refNum;
+                bootstrap.container.mpNum = request.destination.mpNum;
+                bootstrap.mAction = static_cast<std::uint8_t>(ContainerAction::BootstrapRequest);
+                sendTo(authority->second.conn, bootstrap.encode());
+            }
+        }
+        reject(InventoryPutError::DestinationUnavailable);
+        return;
+    }
+
+    const float dx = acceptedPlayer->snapshot.position.pos[0] - destinationReference->position.pos[0];
+    const float dy = acceptedPlayer->snapshot.position.pos[1] - destinationReference->position.pos[1];
+    const float dz = acceptedPlayer->snapshot.position.pos[2] - destinationReference->position.pos[2];
+    const float distanceSquared = dx * dx + dy * dy + dz * dz;
+    if (!std::isfinite(distanceSquared)
+        || distanceSquared > mDoorInteractionRadius * mDoorInteractionRadius)
+    {
+        reject(InventoryPutError::OutOfRange);
+        return;
+    }
+
+    std::vector<Item> inventory = c.player.inventoryChanges.items;
+    auto sourceItem = std::find_if(inventory.begin(), inventory.end(), [&](const Item& item) {
+        return item.instanceId == request.itemInstanceId
+            && lowerAscii(item.refId) == lowerAscii(request.itemRefId)
+            && item.charge == request.itemCharge && item.count >= request.requestedCount;
+    });
+    if (sourceItem == inventory.end() || !isAuthoritativeRecordReference(sourceItem->refId))
+    {
+        reject(InventoryPutError::ItemUnavailable);
+        return;
+    }
+
+    ContainerRecord expectedDestination = destinationIt->second;
+    normalizeContainerItems(expectedDestination.items);
+    ContainerRecord resultingDestination = expectedDestination;
+    appendOrMergeContainerItem(resultingDestination.items,
+        { sourceItem->refId, request.requestedCount, sourceItem->charge });
+    normalizeContainerItems(resultingDestination.items);
+
+    sourceItem->count -= request.requestedCount;
+    if (sourceItem->count == 0)
+        inventory.erase(sourceItem);
+    const std::uint64_t resultingRevision = request.expectedInventoryRevision + 1;
+
+    result.accepted = true;
+    result.error = InventoryPutError::None;
+    result.itemCount = request.requestedCount;
+    result.inventoryRevision = resultingRevision;
+
+    // InventoryTakeCommit is direction-neutral at the storage layer: it
+    // compare-and-swaps one persistent container plus one character inventory
+    // and journals a canonical request in the same SQLite transaction. Reuse
+    // that proven primitive while keeping a distinct InventoryPut wire/API.
+    InventoryTakeCommit commit;
+    commit.accountId = c.dbAccountId;
+    commit.characterId = c.dbCharacterId;
+    commit.requestId = request.requestId;
+    commit.requestHash = requestHash;
+    commit.result.requestId = request.requestId;
+    commit.result.accepted = true;
+    commit.result.kind = InventoryTakeKind::Container;
+    commit.result.source = request.destination;
+    commit.result.itemRefId = request.itemRefId;
+    commit.result.itemCharge = request.itemCharge;
+    commit.result.itemCount = request.requestedCount;
+    commit.result.inventoryRevision = resultingRevision;
+    commit.expectedInventoryRevision = request.expectedInventoryRevision;
+    commit.resultingInventoryRevision = resultingRevision;
+    commit.inventory = inventory;
+    commit.expectedSource = expectedDestination;
+    commit.resultingSource = resultingDestination;
+
+    InventoryTakeCommitResult committed;
+    try
+    {
+        committed = mPlayerDb->commitInventoryTake(commit);
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[InventoryPut] persistence failure request=" << request.requestId
+                          << " player=" << c.name << " error=" << e.what();
+        reject(InventoryPutError::PersistenceFailure);
+        return;
+    }
+    if (committed.status == InventoryTakeCommitStatus::DuplicateRequestConflict)
+    {
+        reject(InventoryPutError::DuplicateConflict);
+        return;
+    }
+    if (committed.status == InventoryTakeCommitStatus::StaleInventoryRevision)
+    {
+        sendAuthoritativeInventory(c);
+        reject(InventoryPutError::StaleInventoryRevision);
+        return;
+    }
+    if (committed.status == InventoryTakeCommitStatus::StaleSource)
+    {
+        reject(InventoryPutError::StaleDestination);
+        return;
+    }
+    if (committed.status != InventoryTakeCommitStatus::Committed
+        && committed.status != InventoryTakeCommitStatus::DuplicateRequest)
+    {
+        reject(InventoryPutError::PersistenceFailure);
+        return;
+    }
+
+    result.replayed = committed.status == InventoryTakeCommitStatus::DuplicateRequest;
+    result.itemCount = committed.result.itemCount;
+    result.inventoryRevision = committed.result.inventoryRevision;
+    if (!result.replayed)
+    {
+        destinationIt->second = resultingDestination;
+        c.player.inventoryChanges.action = BasePlayer::InventoryChanges::Action::Set;
+        c.player.inventoryChanges.items = std::move(inventory);
+        c.inventoryRevision = resultingRevision;
+        c.player.inventoryChanges.revision = resultingRevision;
+        c.restoredInventorySnapshot = c.player.inventoryChanges.items;
+        c.hasRestoredInventorySnapshot = true;
+
+        PacketContainer destinationDelta;
+        destinationDelta.container.cellId = resultingDestination.cellId;
+        destinationDelta.container.refId = resultingDestination.refId;
+        destinationDelta.container.refNum = resultingDestination.refNum;
+        destinationDelta.container.mpNum = resultingDestination.mpNum;
+        destinationDelta.container.hasAuthority = true;
+        destinationDelta.container.items.push_back(
+            { request.itemRefId, request.requestedCount, request.itemCharge });
+        destinationDelta.mAction = static_cast<std::uint8_t>(ContainerAction::Add);
+        broadcastToCell(canonicalPlayerCell, destinationDelta.encode());
+        scheduleGeneratedDynamicRecordGc("inventory_put");
+        syncLuaPlayerSnapshot();
+    }
+    sendAuthoritativeInventory(c);
+
+    Log(Debug::Info) << "[InventoryPut] accepted request=" << request.requestId
+                     << " destination=" << request.destination.refId
+                     << " item=" << request.itemRefId << " instanceId=" << request.itemInstanceId
+                     << " count=" << result.itemCount << " replayed=" << result.replayed;
     sendResult();
 }
 

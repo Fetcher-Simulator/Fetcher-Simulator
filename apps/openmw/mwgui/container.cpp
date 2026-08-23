@@ -213,11 +213,7 @@ namespace MWGui
         }
 
         if (shouldSyncOpen)
-            mwmp::Main::get().getWorldObjectSync().onLocalContainerOpened(
-                makeCellId(container),
-                container.getCellRef().getRefId().serializeText(),
-                container.getCellRef().getRefNum().mIndex,
-                mwmp::Main::get().getWorldObjectSync().getMpNumForObject(container));
+            mwmp::Main::get().getWorldObjectSync().onLocalContainerOpened(container);
 
         mDisposeCorpseButton->setVisible(loot);
         mModel = model.get();
