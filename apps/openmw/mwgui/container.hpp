@@ -7,6 +7,8 @@
 
 #include <components/misc/notnullptr.hpp>
 
+#include <cstdint>
+
 namespace MyGUI
 {
     class Gui;
@@ -70,6 +72,8 @@ namespace MWGui
         bool mTreatNextOpenAsLoot;
         bool mPickpocketFinishSent = false;
         bool mPickpocketDetected = false;
+        bool mAuthoritativeTransferPending = false;
+        std::uint64_t mAuthoritativeTransferSerial = 0;
         MyGUI::Button* mDisposeCorpseButton;
         MyGUI::Button* mTakeButton;
         MyGUI::Button* mCloseButton;
@@ -79,6 +83,8 @@ namespace MWGui
         void dragItem(MyGUI::Widget* sender, std::size_t count);
         void transferItem(MyGUI::Widget* sender, std::size_t count);
         void dropItem();
+        void requestAuthoritativeTake(const ItemStack& item, std::size_t count, bool startDrag);
+        void requestAuthoritativePut(const ItemStack& item, std::size_t count);
         void onCloseButtonClicked(MyGUI::Widget* sender);
         void onTakeAllButtonClicked(MyGUI::Widget* sender);
         void onDisposeCorpseButtonClicked(MyGUI::Widget* sender);

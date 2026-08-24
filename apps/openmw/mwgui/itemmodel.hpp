@@ -103,6 +103,7 @@ namespace MWGui
 
         /// @note Takes ownership of the passed pointer.
         void setSourceModel(std::unique_ptr<ItemModel> sourceModel);
+        ItemModel* getSourceModel() const { return mSourceModel.get(); }
 
         ModelIndex mapToSource(ModelIndex index);
         ModelIndex mapFromSource(ModelIndex index);
