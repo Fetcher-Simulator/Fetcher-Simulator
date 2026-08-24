@@ -1,6 +1,8 @@
 #include "container.hpp"
 
+#include <algorithm>
 #include <cstdio>
+#include <unordered_map>
 
 #include <MyGUI_Button.h>
 #include <MyGUI_InputManager.h>
@@ -57,6 +59,47 @@ namespace MWGui
             }
 
             return std::string(cell->getNameId());
+        }
+
+        using InventoryStackCounts = std::unordered_map<ESM::RefNum, std::size_t>;
+
+        InventoryStackCounts snapshotPlayerStacks(ItemModel& model, const std::string& refId, int charge)
+        {
+            InventoryStackCounts counts;
+            model.update();
+            for (std::size_t i = 0; i < model.getItemCount(); ++i)
+            {
+                const ItemStack stack = model.getItem(static_cast<ItemModel::ModelIndex>(i));
+                if (stack.mBase.getCellRef().getRefId().serializeText() == refId
+                    && static_cast<int>(stack.mBase.getCellRef().getCharge()) == charge)
+                    counts[stack.mBase.getCellRef().getRefNum()] = stack.mCount;
+            }
+            return counts;
+        }
+
+        ItemModel::ModelIndex findReceivedPlayerStack(ItemModel& model, const std::string& refId, int charge,
+            const InventoryStackCounts& before, std::size_t& receivedCount)
+        {
+            ItemModel::ModelIndex bestIndex = -1;
+            receivedCount = 0;
+            model.update();
+            for (std::size_t i = 0; i < model.getItemCount(); ++i)
+            {
+                const ItemStack stack = model.getItem(static_cast<ItemModel::ModelIndex>(i));
+                if (stack.mBase.getCellRef().getRefId().serializeText() != refId
+                    || static_cast<int>(stack.mBase.getCellRef().getCharge()) != charge)
+                    continue;
+
+                const auto previous = before.find(stack.mBase.getCellRef().getRefNum());
+                const std::size_t previousCount = previous == before.end() ? 0 : previous->second;
+                const std::size_t increase = stack.mCount > previousCount ? stack.mCount - previousCount : 0;
+                if (increase > receivedCount)
+                {
+                    bestIndex = static_cast<ItemModel::ModelIndex>(i);
+                    receivedCount = increase;
+                }
+            }
+            return bestIndex;
         }
     }
 
@@ -142,6 +185,13 @@ namespace MWGui
 
         const ItemStack item = mModel->getItem(mSelectedItem);
 
+        if (auto* containerModel = dynamic_cast<ContainerItemModel*>(mModel);
+            containerModel && containerModel->usesAuthoritativeInventoryTransfer())
+        {
+            requestAuthoritativeTake(item, count, true);
+            return;
+        }
+
         if (!mModel->onTakeItem(item.mBase, static_cast<int>(count)))
             return;
 
@@ -155,6 +205,13 @@ namespace MWGui
 
         const ItemStack item = mModel->getItem(mSelectedItem);
 
+        if (auto* containerModel = dynamic_cast<ContainerItemModel*>(mModel);
+            containerModel && containerModel->usesAuthoritativeInventoryTransfer())
+        {
+            requestAuthoritativeTake(item, count, false);
+            return;
+        }
+
         if (!mModel->onTakeItem(item.mBase, static_cast<int>(count)))
             return;
 
@@ -166,10 +223,133 @@ namespace MWGui
         if (mModel == nullptr)
             return;
 
-        bool success = mModel->onDropItem(mDragAndDrop->mItem.mBase, static_cast<int>(mDragAndDrop->mDraggedCount));
+        const ItemStack item = mDragAndDrop->mItem;
+        const std::size_t count = mDragAndDrop->mDraggedCount;
+        bool success = mModel->onDropItem(item.mBase, static_cast<int>(count));
 
-        if (success)
-            mDragAndDrop->drop(mModel, mItemView);
+        if (!success)
+            return;
+
+        if (auto* containerModel = dynamic_cast<ContainerItemModel*>(mModel);
+            containerModel && containerModel->usesAuthoritativeInventoryTransfer())
+        {
+            requestAuthoritativePut(item, count);
+            return;
+        }
+
+        mDragAndDrop->drop(mModel, mItemView);
+    }
+
+    void ContainerWindow::requestAuthoritativeTake(const ItemStack& item, std::size_t count, bool startDrag)
+    {
+        if (mAuthoritativeTransferPending || count == 0 || mPtr.isEmpty())
+            return;
+
+        InventoryWindow* inventoryWindow = MWBase::Environment::get().getWindowManager()->getInventoryWindow();
+        ItemModel* playerModel = inventoryWindow->getModel();
+        const std::string itemRefId = item.mBase.getCellRef().getRefId().serializeText();
+        const int itemCharge = static_cast<int>(item.mBase.getCellRef().getCharge());
+        const ESM::RefId sound = startDrag ? item.mBase.getClass().getUpSoundId(item.mBase)
+                                           : item.mBase.getClass().getDownSoundId(item.mBase);
+        const InventoryStackCounts before = snapshotPlayerStacks(*playerModel, itemRefId, itemCharge);
+        const std::uint64_t serial = ++mAuthoritativeTransferSerial;
+        mAuthoritativeTransferPending = true;
+
+        const bool queued = mwmp::Main::get().getWorldObjectSync().requestInventoryTake(mPtr, item.mBase,
+            static_cast<int>(count), mwmp::InventoryTakeKind::Container,
+            [this, before, itemRefId, itemCharge, sound, serial, startDrag](const mwmp::InventoryTakeResult& result) {
+                InventoryWindow* inventoryWindow = MWBase::Environment::get().getWindowManager()->getInventoryWindow();
+                ItemModel* playerModel = inventoryWindow->getModel();
+                playerModel->update();
+                inventoryWindow->updateItemView();
+
+                if (serial != mAuthoritativeTransferSerial)
+                    return;
+                mAuthoritativeTransferPending = false;
+
+                if (!result.accepted)
+                {
+                    Log(Debug::Warning) << "[MP] ContainerWindow: authoritative take rejected item=" << itemRefId
+                                        << " error=" << mwmp::getInventoryTakeErrorCode(result.error);
+                    return;
+                }
+
+                if (!startDrag)
+                {
+                    MWBase::Environment::get().getWindowManager()->playSound(sound);
+                    if (mItemView)
+                        mItemView->update();
+                    return;
+                }
+
+                std::size_t receivedCount = 0;
+                const ItemModel::ModelIndex receivedIndex
+                    = findReceivedPlayerStack(*playerModel, itemRefId, itemCharge, before, receivedCount);
+                const std::size_t dragCount
+                    = std::min<std::size_t>(receivedCount, static_cast<std::size_t>(result.itemCount));
+                if (receivedIndex < 0 || dragCount == 0 || mModel == nullptr || mDragAndDrop->mIsOnDragAndDrop)
+                {
+                    MWBase::Environment::get().getWindowManager()->playSound(sound);
+                    Log(Debug::Warning) << "[MP] ContainerWindow: authoritative take "
+                                           "accepted without native cursor"
+                                        << " item=" << itemRefId << " received=" << receivedCount;
+                    return;
+                }
+
+                mDragAndDrop->startDrag(receivedIndex, inventoryWindow->getSortFilterModel(), playerModel,
+                    inventoryWindow->getItemView(), dragCount);
+                if (mItemView)
+                    mItemView->update();
+            });
+
+        if (!queued)
+        {
+            mAuthoritativeTransferPending = false;
+            Log(Debug::Warning) << "[MP] ContainerWindow: could not queue authoritative take item=" << itemRefId;
+        }
+    }
+
+    void ContainerWindow::requestAuthoritativePut(const ItemStack& item, std::size_t count)
+    {
+        if (mAuthoritativeTransferPending || count == 0 || mPtr.isEmpty())
+            return;
+
+        const std::string itemRefId = item.mBase.getCellRef().getRefId().serializeText();
+        const ESM::RefId sound = item.mBase.getClass().getDownSoundId(item.mBase);
+        const std::uint64_t serial = ++mAuthoritativeTransferSerial;
+        mAuthoritativeTransferPending = true;
+
+        const bool queued = mwmp::Main::get().getWorldObjectSync().requestInventoryPut(mPtr, item.mBase,
+            static_cast<int>(count), [this, itemRefId, sound, serial](const mwmp::InventoryPutResult& result) {
+                InventoryWindow* inventoryWindow = MWBase::Environment::get().getWindowManager()->getInventoryWindow();
+                inventoryWindow->getModel()->update();
+                inventoryWindow->updateItemView();
+
+                if (serial != mAuthoritativeTransferSerial)
+                    return;
+                mAuthoritativeTransferPending = false;
+
+                if (!result.accepted)
+                {
+                    Log(Debug::Warning) << "[MP] ContainerWindow: authoritative put rejected item=" << itemRefId
+                                        << " error=" << mwmp::getInventoryPutErrorCode(result.error);
+                    return;
+                }
+
+                MWBase::Environment::get().getWindowManager()->playSound(sound);
+                if (mDragAndDrop->mIsOnDragAndDrop)
+                    mDragAndDrop->finish();
+                if (mModel)
+                    mModel->update();
+                if (mItemView)
+                    mItemView->update();
+            });
+
+        if (!queued)
+        {
+            mAuthoritativeTransferPending = false;
+            Log(Debug::Warning) << "[MP] ContainerWindow: could not queue authoritative put item=" << itemRefId;
+        }
     }
 
     void ContainerWindow::onBackgroundSelected()
@@ -230,6 +410,8 @@ namespace MWGui
 
     void ContainerWindow::resetReference()
     {
+        ++mAuthoritativeTransferSerial;
+        mAuthoritativeTransferPending = false;
         ReferenceInterface::resetReference();
         mItemView->setModel(nullptr);
         mModel = nullptr;

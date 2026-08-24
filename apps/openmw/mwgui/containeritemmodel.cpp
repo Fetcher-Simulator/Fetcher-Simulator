@@ -369,6 +369,16 @@ namespace MWGui
         return true;
     }
 
+    bool ContainerItemModel::usesAuthoritativeInventoryTransfer() const
+    {
+        return mwmp::Main::isInitialised() && mSyncInfo.enabled && mSyncInfo.mpNum == 0;
+    }
+
+    MWWorld::Ptr ContainerItemModel::getPrimaryItemSource() const
+    {
+        return mItemSources.empty() ? MWWorld::Ptr{} : mItemSources[0].first;
+    }
+
     bool ContainerItemModel::usesContainer(const MWWorld::Ptr& container)
     {
         for (const auto& source : mItemSources)

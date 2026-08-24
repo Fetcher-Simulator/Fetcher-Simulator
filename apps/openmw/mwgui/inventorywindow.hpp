@@ -58,6 +58,7 @@ namespace MWGui
         SortFilterItemModel* getSortFilterModel();
         TradeItemModel* getTradeModel();
         ItemModel* getModel();
+        ItemView* getItemView() { return mItemView; }
 
         void updateItemView();
 

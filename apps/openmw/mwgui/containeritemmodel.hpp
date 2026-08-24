@@ -30,6 +30,8 @@ namespace MWGui
 
         bool onDropItem(const MWWorld::Ptr& item, int count) override;
         bool onTakeItem(const MWWorld::Ptr& item, int count) override;
+        bool usesAuthoritativeInventoryTransfer() const;
+        MWWorld::Ptr getPrimaryItemSource() const;
 
         ItemStack getItem(ModelIndex index) override;
         ModelIndex getIndex(const ItemStack& item) override;

@@ -1,6 +1,7 @@
 #ifndef OPENMW_APPS_OPENMW_MWGUI_ITEMTRANSFER_H
 #define OPENMW_APPS_OPENMW_MWGUI_ITEMTRANSFER_H
 
+#include "containeritemmodel.hpp"
 #include "inventorywindow.hpp"
 #include "itemmodel.hpp"
 #include "itemview.hpp"
@@ -8,10 +9,14 @@
 #include "worlditemmodel.hpp"
 
 #include <apps/openmw/mwbase/windowmanager.hpp>
+#include <apps/openmw/mwmp/Main.hpp>
+#include <apps/openmw/mwmp/sync/WorldObjectSync.hpp>
 #include <apps/openmw/mwworld/class.hpp>
 
+#include <components/debug/debuglog.hpp>
 #include <components/misc/notnullptr.hpp>
 
+#include <string>
 #include <unordered_set>
 
 namespace MWGui
@@ -58,6 +63,46 @@ namespace MWGui
             if (!targetModel->onDropItem(item.mBase, static_cast<int>(count)))
                 return;
 
+            ItemModel* semanticTargetModel = targetModel;
+            while (auto* proxy = dynamic_cast<ProxyItemModel*>(semanticTargetModel))
+                semanticTargetModel = proxy->getSourceModel();
+
+            if (auto* containerModel = dynamic_cast<ContainerItemModel*>(semanticTargetModel);
+                containerModel && containerModel->usesAuthoritativeInventoryTransfer())
+            {
+                if (mAuthoritativeTransferPending)
+                    return;
+
+                const MWWorld::Ptr destination = containerModel->getPrimaryItemSource();
+                const std::string itemRefId = item.mBase.getCellRef().getRefId().serializeText();
+                const ESM::RefId sound = item.mBase.getClass().getDownSoundId(item.mBase);
+                mAuthoritativeTransferPending = true;
+                const bool queued = mwmp::Main::get().getWorldObjectSync().requestInventoryPut(destination,
+                    item.mBase, static_cast<int>(count),
+                    [this, itemRefId, sound](const mwmp::InventoryPutResult& result)
+                    {
+                        mAuthoritativeTransferPending = false;
+                        mWindowManager->getInventoryWindow()->getModel()->update();
+                        mWindowManager->getInventoryWindow()->updateItemView();
+
+                        if (!result.accepted)
+                        {
+                            Log(Debug::Warning) << "[MP] ItemTransfer: authoritative put rejected item="
+                                                << itemRefId << " error="
+                                                << mwmp::getInventoryPutErrorCode(result.error);
+                            return;
+                        }
+
+                        mWindowManager->playSound(sound);
+                    });
+                if (!queued)
+                {
+                    mAuthoritativeTransferPending = false;
+                    Log(Debug::Warning) << "[MP] ItemTransfer: could not queue authoritative put item=" << itemRefId;
+                }
+                return;
+            }
+
             sourceView.getModel()->moveItem(item, count, targetModel);
 
             if (targetView != nullptr)
@@ -72,6 +117,7 @@ namespace MWGui
     private:
         Misc::NotNullPtr<WindowManager> mWindowManager;
         std::unordered_set<ItemView*> mTargets;
+        bool mAuthoritativeTransferPending = false;
     };
 }
 
