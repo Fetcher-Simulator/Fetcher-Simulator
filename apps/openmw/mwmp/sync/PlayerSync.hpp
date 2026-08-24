@@ -205,12 +205,6 @@ namespace mwmp
         float mPositionTimer    = 0.f;
         float mStatsTimer       = 0.f;
         float mMechanicsSnapshotTimer = 0.f;
-        float mPositionDiagTimer = 0.f;
-        float mPositionDiagFrameDtMax = 0.f;
-        std::size_t mPositionDiagFrames = 0;
-        std::size_t mPositionDiagSendOpportunities = 0;
-        std::size_t mPositionDiagUnchanged = 0;
-        std::size_t mPositionDiagSends = 0;
 
         //60 Hz breaks footstep cadence...need to test with Lerping
         //static constexpr float POSITION_RATE = 0.166f; // 60 Hz

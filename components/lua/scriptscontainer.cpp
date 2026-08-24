@@ -429,7 +429,8 @@ namespace LuaUtil
             return;
         }
 
-        Log log(Debug::Info);
+        // Script handlers run on the frame thread and logging is synchronous.
+        Log log(Debug::Verbose);
         log << "[Perf] Lua handler spike"
             << " container=" << mNamePrefix
             << " script=" << scriptPath(scriptId)

@@ -672,7 +672,9 @@ void Main::frame(float dt)
         frameFinished - frameStarted).count();
     if (totalMs >= 16.0)
     {
-        Log(totalMs >= 50.0 ? Debug::Warning : Debug::Info)
+        // The logger writes synchronously; keep frame timing diagnostics out of
+        // normal production logs so reporting a hitch cannot extend the hitch.
+        Log(Debug::Verbose)
             << "[MPDIAG] Multiplayer frame phases"
             << " totalMs=" << totalMs
             << " clientUpdateMs=" << std::chrono::duration<double, std::milli>(

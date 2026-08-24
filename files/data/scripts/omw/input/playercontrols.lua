@@ -82,7 +82,6 @@ local function isJournalAllowed()
 end
 
 local movementControlsOverridden = false
-local nextVehicleInputDiagnostic = 0
 
 local autoMove = false
 local attemptToJump = false
@@ -142,35 +141,6 @@ end
 
 local function movementAllowed()
     return controlsAllowed() and not movementControlsOverridden
-end
-
-local function movementBlockReason()
-    if core.isWorldPaused() then return 'world-paused' end
-    if not Player.getControlSwitch(self, Player.CONTROL_SWITCH.Controls) then return 'controls-switch' end
-    if I.UI.getMode() then return 'ui-mode' end
-    if not debug.isGodMode() then
-        local paralysis = Actor.activeEffects(self):getEffect(core.magic.EFFECT_TYPE.Paralyze)
-        if paralysis.magnitude > 0 then return 'paralyzed' end
-    end
-    if movementControlsOverridden then return 'script-override' end
-    return 'none'
-end
-
-local function logVehicleInputDiagnostic()
-    local now = core.getRealTime()
-    if now < nextVehicleInputDiagnostic then return end
-    nextVehicleInputDiagnostic = now + 1
-
-    local forward = input.getRangeActionValue('MoveForward')
-    local backward = input.getRangeActionValue('MoveBackward')
-    local left = input.getRangeActionValue('MoveLeft')
-    local right = input.getRangeActionValue('MoveRight')
-    print(string.format(
-        '[VehicleInput] inVehicle=%s allowed=%s block=%s raw=(%.3f,%.3f,%.3f,%.3f) actor=(%.3f,%.3f) vehicle=(%.3f,%.3f,%.3f,%.3f)',
-        tostring(Player.isInVehicle(self)), tostring(movementAllowed()), movementBlockReason(),
-        forward, backward, left, right, self.controls.movement, self.controls.sideMovement,
-        self.controls.vehicleThrottle, self.controls.vehicleBrake, self.controls.vehicleSteering,
-        self.controls.vehicleHandbrake))
 end
 
 input.registerTriggerHandler('Jump', async:callback(function()
@@ -293,7 +263,6 @@ local function onFrame(_)
     if combatAllowed() then
         processAttacking()
     end
-    logVehicleInputDiagnostic()
     attemptToJump = false
 end
 
