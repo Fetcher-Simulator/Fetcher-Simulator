@@ -1,4 +1,5 @@
 #include "Server.hpp"
+#include "ActorRegistryInvariant.hpp"
 #include "AlchemyService.hpp"
 #include "CrimeService.hpp"
 #include "CrimeSemanticService.hpp"
@@ -4030,19 +4031,22 @@ void MPServer::broadcastActorIdentityRemovalForCell(
 
     for (const ActorRegistryRecord& record : records)
     {
-        const ActorInstanceId actorNetId = record.actorNetId != 0
-            ? record.actorNetId : actorInstanceIdFromActor(record.actor);
+        ActorRegistryRecord canonicalRecord = record;
+        const ActorInstanceId actorNetId = canonicalRecord.actorNetId != 0
+            ? canonicalRecord.actorNetId : actorInstanceIdFromActor(canonicalRecord.actor);
         if (actorNetId == 0)
             continue;
+        ensureCanonicalActorMigrationGeneration(
+            canonicalRecord.migrationGeneration, canonicalRecord.actor);
 
         ActorIdentityRecord identity;
         identity.actorNetId = actorNetId;
-        identity.persistent = record.persistent;
-        identity.serverSpawned = record.actor.mpNum != 0;
+        identity.persistent = canonicalRecord.persistent;
+        identity.serverSpawned = canonicalRecord.actor.mpNum != 0;
         identity.removed = true;
         identity.removalReason = removalReason;
-        identity.migrationGeneration = record.migrationGeneration;
-        identity.actor = record.actor;
+        identity.migrationGeneration = canonicalRecord.migrationGeneration;
+        identity.actor = canonicalRecord.actor;
         identity.actor.cellId = cellId;
         identityList.actors.push_back(std::move(identity));
     }
@@ -4693,6 +4697,7 @@ void MPServer::rememberDeadVanillaActor(const ActorRegistryRecord& record)
 
     ActorRegistryRecord remembered = record;
     remembered.actor.cellId = record.actor.cellId;
+    ensureActorNetId(remembered, remembered.actor.cellId);
     const std::string actorKey = makeActorKey(remembered.actor);
     const ActorInstanceId actorNetId = actorInstanceIdFromActor(remembered.actor);
     bool changed = false;
@@ -5028,6 +5033,8 @@ ActorInstanceId MPServer::ensureActorNetId(ActorRegistryRecord& record, const st
     const ActorInstanceId expectedActorNetId = actorInstanceIdFromActor(record.actor);
     if (expectedActorNetId == 0)
         return 0;
+
+    ensureCanonicalActorMigrationGeneration(record.migrationGeneration, record.actor);
 
     if (record.actorNetId != 0 && record.actorNetId != expectedActorNetId)
     {
@@ -5879,8 +5886,10 @@ void MPServer::loadPersistentWorldState()
         maxMpNum = std::max<uint64_t>(maxMpNum, actor.mpNum);
         auto& cellState = mWorld.actorCells[actor.cellId];
         // serverSpawnTime = 0: loaded actors are "old"; no spawn-grace needed.
-        cellState.actors[makeActorKey(actor)] = { actor, currentServerTimeMs(), /*serverSpawnTime=*/0, /*persistent=*/true };
-        rememberActorLocation(actor, actor.cellId);
+        ActorRegistryRecord& registryRecord = cellState.actors[makeActorKey(actor)]
+            = { actor, currentServerTimeMs(), /*serverSpawnTime=*/0, /*persistent=*/true };
+        ensureActorNetId(registryRecord, actor.cellId);
+        rememberActorLocation(registryRecord.actor, actor.cellId);
         ++spawnedActorCount;
 
         for (const std::string_view recordType : { std::string_view("npc"), std::string_view("creature") })
@@ -5931,6 +5940,7 @@ void MPServer::loadPersistentWorldState()
             actor.dynamicStats.health.current = 0.f;
 
         ActorRegistryRecord record { actor, currentServerTimeMs(), /*serverSpawnTime=*/0, /*persistent=*/false };
+        ensureActorNetId(record, actor.cellId);
         const std::string actorKey = makeActorKey(actor);
         auto& cellState = mWorld.actorCells[actor.cellId];
         cellState.actors[actorKey] = record;
@@ -10264,16 +10274,9 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
             it->second.crimePursuitReassertArmed = previousRecord->crimePursuitReassertArmed;
             it->second.crimePursuitLastReassertMs = previousRecord->crimePursuitLastReassertMs;
         }
-        // Generation zero means the server has not established a canonical actor
-        // lifetime yet. Protocol-10 mechanics snapshots require a non-zero
-        // migration generation even for an ordinary placed actor that has never
-        // crossed a cell boundary, so seed the initial lifetime at generation 1.
-        if (it->second.migrationGeneration == 0)
-            it->second.migrationGeneration = 1;
-        // ActorList is a state refresh, not a migration transaction. Preserve the
-        // server-owned migration timeline instead of allowing aggregate record
-        // reconstruction to reset it to zero or accept a client-claimed value.
-        it->second.actor.migrationGeneration = it->second.migrationGeneration;
+        // ActorList is a state refresh, not a migration transaction. The
+        // server-owned migration timeline was copied above and is canonicalized
+        // together with the actor identity at this boundary.
         ensureActorNetId(it->second, incoming.cellId);
         // Preserve the original serverSpawnTime so the grace-period logic
         // remains accurate even after later client updates.
@@ -10512,8 +10515,11 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
             scheduleGeneratedDynamicRecordGc("actor_list_unlink");
     }
 
-    for (const auto& [actorKey, record] : cellState.actors)
+    for (auto& [actorKey, record] : cellState.actors)
+    {
+        ensureActorNetId(record, incoming.cellId);
         markLuaActorDirty(record, incoming.cellId);
+    }
 
     for (const ActorRegistryRecord& previousRecord : previousCellRecords)
     {
@@ -12371,14 +12377,17 @@ void MPServer::handleActorCellChange(ConnectedClient& c, const uint8_t* data, si
     auto sendTargetedIdentityIfNeeded = [&](HSteamNetConnection conn, ConnectedClient& client,
         const ActorRegistryRecord& storedRecord)
     {
-        const ActorInstanceId actorNetId = storedRecord.actorNetId;
+        ActorRegistryRecord canonicalRecord = storedRecord;
+        ensureCanonicalActorMigrationGeneration(
+            canonicalRecord.migrationGeneration, canonicalRecord.actor);
+        const ActorInstanceId actorNetId = canonicalRecord.actorNetId;
         if (actorNetId == 0)
             return;
         if (client.actorV2IdentitySent.count(actorNetId) != 0
             || client.actorV2IdentityAcked.count(actorNetId) != 0)
             return;
 
-        const std::string& actorCellId = storedRecord.actor.cellId;
+        const std::string& actorCellId = canonicalRecord.actor.cellId;
         auto destCellIt = mWorld.actorCells.find(actorCellId);
 
         ActorIdentityList identityList;
@@ -12395,10 +12404,10 @@ void MPServer::handleActorCellChange(ConnectedClient& c, const uint8_t* data, si
 
         ActorIdentityRecord identity;
         identity.actorNetId = actorNetId;
-        identity.persistent = storedRecord.persistent;
-        identity.serverSpawned = storedRecord.actor.mpNum != 0;
-        identity.migrationGeneration = storedRecord.migrationGeneration;
-        identity.actor = storedRecord.actor;
+        identity.persistent = canonicalRecord.persistent;
+        identity.serverSpawned = canonicalRecord.actor.mpNum != 0;
+        identity.migrationGeneration = canonicalRecord.migrationGeneration;
+        identity.actor = canonicalRecord.actor;
         identityList.actors.push_back(std::move(identity));
 
         PacketActorIdentity identityPkt;

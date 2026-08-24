@@ -6708,6 +6708,17 @@ namespace mwmp
         cell.mechanicsSnapshotTimer += std::max(0.f, dt);
         const bool mechanicsSnapshotDue = cell.mechanicsSnapshotTimer >= 0.25f;
         MechanicsSnapshotBatch mechanicsBatch;
+        struct InvalidMechanicsSnapshotBatchDiagnostic
+        {
+            std::size_t count = 0;
+            std::size_t migrationGenerationZero = 0;
+            std::size_t authorityGenerationZero = 0;
+            std::size_t invalidCell = 0;
+            std::size_t otherValidationFailure = 0;
+            ActorInstanceId firstActorNetId = 0;
+            std::uint32_t firstMigrationGeneration = 0;
+            std::uint32_t firstAuthorityGeneration = 0;
+        } invalidMechanicsSnapshots;
         struct DuplicateServerSpawnedActor
         {
             MWWorld::Ptr ptr;
@@ -7379,11 +7390,31 @@ namespace mwmp
                     mechanicsBatch.snapshots.push_back(std::move(mechanics));
                 else
                 {
-                    Log(Debug::Warning) << "[MP] ActorSync: suppressed invalid mechanics snapshot"
-                                        << " actorNetId=" << outgoingActorNetId
-                                        << " cell=" << cell.outboundCellId
-                                        << " migrationGeneration=" << actor.migrationGeneration
-                                        << " authorityGeneration=" << authorityGeneration;
+                    if (invalidMechanicsSnapshots.count++ == 0)
+                    {
+                        invalidMechanicsSnapshots.firstActorNetId = outgoingActorNetId;
+                        invalidMechanicsSnapshots.firstMigrationGeneration = mechanics.migrationGeneration;
+                        invalidMechanicsSnapshots.firstAuthorityGeneration = mechanics.authorityGeneration;
+                    }
+
+                    bool classified = false;
+                    if (mechanics.migrationGeneration == 0)
+                    {
+                        ++invalidMechanicsSnapshots.migrationGenerationZero;
+                        classified = true;
+                    }
+                    if (mechanics.authorityGeneration == 0)
+                    {
+                        ++invalidMechanicsSnapshots.authorityGenerationZero;
+                        classified = true;
+                    }
+                    if (!isCanonicalMechanicsCellId(mechanics.cellId))
+                    {
+                        ++invalidMechanicsSnapshots.invalidCell;
+                        classified = true;
+                    }
+                    if (!classified)
+                        ++invalidMechanicsSnapshots.otherValidationFailure;
                 }
             }
 
@@ -7625,6 +7656,25 @@ namespace mwmp
                              << " mpNum=" << duplicate.mpNum;
             forgetServerSpawnedActorPtrMappings(duplicate.ptr, duplicate.mpNum);
             world->deleteObject(duplicate.ptr);
+        }
+
+        if (invalidMechanicsSnapshots.count != 0)
+        {
+            Log(Debug::Warning) << "[MP] ActorSync: suppressed invalid mechanics snapshots"
+                                << " cell=" << cell.outboundCellId
+                                << " count=" << invalidMechanicsSnapshots.count
+                                << " migrationGenerationZero="
+                                << invalidMechanicsSnapshots.migrationGenerationZero
+                                << " authorityGenerationZero="
+                                << invalidMechanicsSnapshots.authorityGenerationZero
+                                << " invalidCell=" << invalidMechanicsSnapshots.invalidCell
+                                << " otherValidationFailure="
+                                << invalidMechanicsSnapshots.otherValidationFailure
+                                << " firstActorNetId=" << invalidMechanicsSnapshots.firstActorNetId
+                                << " firstMigrationGeneration="
+                                << invalidMechanicsSnapshots.firstMigrationGeneration
+                                << " firstAuthorityGeneration="
+                                << invalidMechanicsSnapshots.firstAuthorityGeneration;
         }
 
         if (mechanicsSnapshotDue)

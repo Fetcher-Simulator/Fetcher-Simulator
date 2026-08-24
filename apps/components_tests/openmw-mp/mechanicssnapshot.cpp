@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <apps/openmw-server/ActorRegistryInvariant.hpp>
 #include <components/openmw-mp/Base/MechanicsSnapshot.hpp>
 #include <components/openmw-mp/MasterServerProtocol.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketMechanicsSnapshot.hpp>
@@ -140,6 +141,46 @@ TEST(MechanicsSnapshotProtocol, RejectsIdentityGenerationSequenceAndCellErrors)
     snapshot = makeNpcSnapshot();
     snapshot.combatTargetPlayerGuid = 0;
     EXPECT_FALSE(mwmp::validateMechanicsSnapshot(snapshot));
+}
+
+TEST(MechanicsSnapshotProtocol, CanonicalActorGenerationSeedsZeroAndPreservesExistingLifetime)
+{
+    mwmp::BaseActor actor;
+    std::uint32_t registryGeneration = 0;
+    actor.migrationGeneration = 99;
+
+    mwmp::ensureCanonicalActorMigrationGeneration(registryGeneration, actor);
+    EXPECT_EQ(registryGeneration, 1u);
+    EXPECT_EQ(actor.migrationGeneration, 1u);
+
+    registryGeneration = 7;
+    actor.migrationGeneration = 0;
+    mwmp::ensureCanonicalActorMigrationGeneration(registryGeneration, actor);
+    EXPECT_EQ(registryGeneration, 7u);
+    EXPECT_EQ(actor.migrationGeneration, 7u);
+}
+
+TEST(MechanicsSnapshotProtocol, RepairedActorIdentityProducesValidMechanicsGeneration)
+{
+    mwmp::BaseActor actor;
+    actor.refId = "test_persisted_actor";
+    actor.mpNum = 5257;
+    actor.cellId = "T_Test_TR";
+    std::uint32_t registryGeneration = 0;
+    mwmp::ensureCanonicalActorMigrationGeneration(registryGeneration, actor);
+
+    mwmp::ActorIdentityRecord identity;
+    identity.actorNetId = mwmp::actorInstanceIdFromActor(actor);
+    identity.serverSpawned = true;
+    identity.persistent = true;
+    identity.migrationGeneration = registryGeneration;
+    identity.actor = actor;
+
+    auto snapshot = makeNpcSnapshot();
+    snapshot.actorInstanceId = identity.actorNetId;
+    snapshot.cellId = identity.actor.cellId;
+    snapshot.migrationGeneration = identity.migrationGeneration;
+    EXPECT_TRUE(mwmp::validateMechanicsSnapshot(snapshot));
 }
 
 TEST(MechanicsSnapshotProtocol, RejectsNonFiniteAndAbsurdNumericValues)
