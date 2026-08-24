@@ -230,7 +230,7 @@ namespace MWLua
             if (!shouldLogLuaPerf(timer, end, totalMs, lastLogTick, suppressed))
                 return;
 
-            Log(Debug::Info) << "[Perf] Lua update spike"
+            Log(Debug::Verbose) << "[Perf] Lua update spike"
                              << " totalMs=" << totalMs
                              << " activeLocalScripts=" << activeLocalScripts
                              << " queuedAutoScripts=" << queuedAutoScripts
@@ -268,7 +268,7 @@ namespace MWLua
             if (!shouldLogLuaPerf(timer, end, totalMs, lastLogTick, suppressed))
                 return;
 
-            Log(Debug::Info) << "[Perf] Lua sync spike"
+            Log(Debug::Verbose) << "[Perf] Lua sync spike"
                              << " totalMs=" << totalMs
                              << " menuInputEvents=" << menuInputEvents
                              << " playerInputEvents=" << playerInputEvents

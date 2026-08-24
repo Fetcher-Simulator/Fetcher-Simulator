@@ -1094,9 +1094,6 @@ void PlayerSync::update(float dt)
 
     const float safeDt = std::max(0.f, dt);
     mInventoryChargeSyncTimer = std::min(1.f, mInventoryChargeSyncTimer + safeDt);
-    mPositionDiagTimer += safeDt;
-    mPositionDiagFrameDtMax = std::max(mPositionDiagFrameDtMax, safeDt);
-    ++mPositionDiagFrames;
 
     // --- position / rotation / velocity ---
     const auto& refData  = player.getRefData();
@@ -1209,26 +1206,6 @@ void PlayerSync::update(float dt)
     }
 
     tickPosition(dt);
-    if (mPositionDiagTimer >= 1.f)
-    {
-        const float planarSpeed = std::sqrt(mLocal.velocity.linear[0] * mLocal.velocity.linear[0]
-            + mLocal.velocity.linear[1] * mLocal.velocity.linear[1]);
-        Log(Debug::Info) << "[MPDIAG] PlayerPosition sender"
-                         << " frameHz=" << (mPositionDiagFrames / mPositionDiagTimer)
-                         << " sendHz=" << (mPositionDiagSends / mPositionDiagTimer)
-                         << " opportunities=" << mPositionDiagSendOpportunities
-                         << " unchanged=" << mPositionDiagUnchanged
-                          << " frameDtMaxMs=" << (mPositionDiagFrameDtMax * 1000.f)
-                          << " timerRemainderMs=" << (mPositionTimer * 1000.f)
-                          << " planarSpeed=" << planarSpeed
-                          << " yaw=" << mLocal.position.rot[2];
-        mPositionDiagTimer = std::fmod(mPositionDiagTimer, 1.f);
-        mPositionDiagFrameDtMax = 0.f;
-        mPositionDiagFrames = 0;
-        mPositionDiagSendOpportunities = 0;
-        mPositionDiagUnchanged = 0;
-        mPositionDiagSends = 0;
-    }
     tickDynamicStats(dt);
     tickJournal();
     tickFactions();
@@ -1303,13 +1280,9 @@ void PlayerSync::tickPosition(float dt)
     // Retain the fractional remainder. Resetting to zero quantises a nominal
     // 30 Hz sender to the render cadence (for example, 20 Hz at 50 FPS).
     mPositionTimer = std::fmod(mPositionTimer, POSITION_RATE);
-    ++mPositionDiagSendOpportunities;
 
     if (!positionChanged())
-    {
-        ++mPositionDiagUnchanged;
         return;
-    }
 
     // Velocity-Stop edge: if velocity just dropped to zero, send reliably to
     // ensure the "Stop" signal reaches the receiver immediately.
@@ -1513,7 +1486,6 @@ void PlayerSync::sendPosition(bool reliable)
         mClient.sendReliable(pkt.encode(mSeqCounter++));
     else
         mClient.sendUnreliable(pkt.encode(mSeqCounter++));
-    ++mPositionDiagSends;
 
     // Reset teleport flag after encoding so it doesn't persist to the next tick.
     mLocal.position.isTeleporting = false;

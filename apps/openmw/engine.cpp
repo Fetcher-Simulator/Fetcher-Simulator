@@ -222,7 +222,9 @@ namespace
             return;
         }
 
-        Log(Debug::Info) << "[Perf] Client frame hitch"
+        // The logger writes synchronously on this thread. These diagnostics are
+        // intentionally verbose so reporting a hitch does not amplify it.
+        Log(Debug::Verbose) << "[Perf] Client frame hitch"
                          << " frame=" << frameNumber
                          << " totalMs=" << totalMs
                          << " frametimeMs=" << (frametime * 1000.0f)
