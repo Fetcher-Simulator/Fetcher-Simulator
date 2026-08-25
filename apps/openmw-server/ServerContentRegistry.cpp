@@ -559,57 +559,57 @@ std::optional<mwmp::ContainerRecord> mwmp::ServerContentRegistry::resolveJailEvi
         auto closestExterior = [&](float worldX, float worldY) -> MWWorld::Ptr {
             const ESM::ExteriorCellLocation origin
                 = ESM::positionToExteriorCellLocation(worldX, worldY);
-            std::vector<MWWorld::Ptr> markers;
-            model.getExteriorPtrs(prisonMarkerId, markers);
-            struct Candidate
+            const MWWorld::Store<ESM::Cell>& cells = store().get<ESM::Cell>();
+
+            int maximumRadius = 0;
+            for (auto it = cells.extBegin(); it != cells.extEnd(); ++it)
             {
-                MWWorld::Ptr marker;
-                int column = 0;
-                int row = 0;
+                maximumRadius = std::max(maximumRadius,
+                    std::max(std::abs(it->getGridX() - origin.mX), std::abs(it->getGridY() - origin.mY)));
+            }
+
+            auto markerAt = [&](int x, int y) -> MWWorld::Ptr {
+                if (!cells.search(x, y))
+                    return {};
+                MWWorld::CellStore& cell = model.getExterior(
+                    ESM::ExteriorCellLocation(x, y, ESM::Cell::sDefaultWorldspaceId));
+                return cell.search(prisonMarkerId);
             };
-            std::vector<Candidate> candidates;
-            int minimumGridSize = std::numeric_limits<int>::max();
-            for (const MWWorld::Ptr& marker : markers)
+
+            // Preserve vanilla's tie-breaking order without materializing every exterior
+            // cell in the world model: SW -> SE -> NE -> NW -> SW on each nearest ring.
+            if (MWWorld::Ptr local = markerAt(origin.mX, origin.mY); !local.isEmpty())
+                return local;
+
+            for (int radius = 1; radius <= maximumRadius; ++radius)
             {
-                const osg::Vec3f pos = marker.getRefData().getPosition().asVec3();
-                const ESM::ExteriorCellLocation cell
-                    = ESM::positionToExteriorCellLocation(pos.x(), pos.y());
-                const int deltaX = cell.mX - origin.mX;
-                const int deltaY = cell.mY - origin.mY;
-                const int gridSize = std::max(std::abs(deltaX), std::abs(deltaY)) * 2;
-                if (gridSize == 0)
-                    return marker;
-                if (gridSize <= minimumGridSize)
+                const int west = origin.mX - radius;
+                const int east = origin.mX + radius;
+                const int south = origin.mY - radius;
+                const int north = origin.mY + radius;
+
+                for (int x = west; x <= east; ++x)
                 {
-                    if (gridSize < minimumGridSize)
-                    {
-                        candidates.clear();
-                        minimumGridSize = gridSize;
-                    }
-                    candidates.push_back(
-                        { marker, gridSize / 2 + deltaX, gridSize / 2 + deltaY });
+                    if (MWWorld::Ptr marker = markerAt(x, south); !marker.isEmpty())
+                        return marker;
+                }
+                for (int y = south + 1; y <= north; ++y)
+                {
+                    if (MWWorld::Ptr marker = markerAt(east, y); !marker.isEmpty())
+                        return marker;
+                }
+                for (int x = east - 1; x >= west; --x)
+                {
+                    if (MWWorld::Ptr marker = markerAt(x, north); !marker.isEmpty())
+                        return marker;
+                }
+                for (int y = north - 1; y > south; --y)
+                {
+                    if (MWWorld::Ptr marker = markerAt(west, y); !marker.isEmpty())
+                        return marker;
                 }
             }
-            MWWorld::Ptr closest;
-            int earliestDistance = std::numeric_limits<int>::max();
-            for (const Candidate& candidate : candidates)
-            {
-                int distance = 0;
-                if (candidate.row == 0)
-                    distance = candidate.column;
-                else if (candidate.column == minimumGridSize)
-                    distance = minimumGridSize + candidate.row;
-                else if (candidate.row == minimumGridSize)
-                    distance = minimumGridSize * 3 - candidate.column;
-                else
-                    distance = minimumGridSize * 4 - candidate.row;
-                if (distance < earliestDistance)
-                {
-                    closest = candidate.marker;
-                    earliestDistance = distance;
-                }
-            }
-            return closest;
+            return {};
         };
 
         MWWorld::Ptr marker;
