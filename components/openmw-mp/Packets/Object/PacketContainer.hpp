@@ -36,6 +36,9 @@ namespace mwmp
             ws.writeString(item.refId);
             ws.write(item.count);
             ws.write(item.charge);
+            ws.write(item.instanceId);
+            ws.write(item.enchantmentCharge);
+            ws.writeString(item.soul);
         }
 
         void unpackItem(ReadStream& rs, ContainerItem& item)
@@ -43,6 +46,9 @@ namespace mwmp
             item.refId = rs.readString();
             rs.read(item.count);
             rs.read(item.charge);
+            rs.read(item.instanceId);
+            rs.read(item.enchantmentCharge);
+            item.soul = rs.readString();
         }
 
         void pack(WriteStream& ws) override

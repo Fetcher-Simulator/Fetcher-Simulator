@@ -43,6 +43,8 @@ namespace mwmp
             packInventorySource(stream, request.source);
             stream.writeString(request.itemRefId);
             stream.write(request.itemCharge);
+            stream.write(request.itemEnchantmentCharge);
+            stream.writeString(request.itemSoul);
             stream.write(request.requestedCount);
             stream.write(request.expectedInventoryRevision);
         }
@@ -56,6 +58,8 @@ namespace mwmp
             unpackInventorySource(stream, request.source);
             request.itemRefId = stream.readString();
             stream.read(request.itemCharge);
+            stream.read(request.itemEnchantmentCharge);
+            request.itemSoul = stream.readString();
             stream.read(request.requestedCount);
             stream.read(request.expectedInventoryRevision);
             if (validateInventoryTakeRequest(request) != InventoryTakeError::None || !stream.eof()

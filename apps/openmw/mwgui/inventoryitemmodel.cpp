@@ -1,6 +1,7 @@
 #include "inventoryitemmodel.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <sstream>
 
@@ -44,7 +45,9 @@ namespace
         auto it = std::find_if(items.begin(), items.end(),
             [&](const mwmp::ContainerItem& current)
             {
-                return current.refId == item.refId && current.charge == item.charge;
+                return current.refId == item.refId && current.charge == item.charge
+                    && std::abs(current.enchantmentCharge - item.enchantmentCharge) < 0.001f
+                    && current.soul == item.soul;
             });
 
         if (it == items.end())
@@ -256,6 +259,8 @@ namespace MWGui
         delta.refId = item.getCellRef().getRefId().serializeText();
         delta.count = count;
         delta.charge = static_cast<int>(item.getCellRef().getCharge());
+        delta.enchantmentCharge = item.getCellRef().getEnchantmentCharge();
+        delta.soul = item.getCellRef().getSoul().serializeText();
 
         if (mBatchAction.has_value())
         {

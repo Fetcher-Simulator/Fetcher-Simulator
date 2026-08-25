@@ -37,6 +37,7 @@
 #include <components/openmw-mp/PlayerTopicState.hpp>
 #include <components/openmw-mp/WorldItemTake.hpp>
 #include <components/openmw-mp/InventoryTake.hpp>
+#include <components/openmw-mp/StolenItems.hpp>
 
 #include "PlayerMark.hpp"
 
@@ -269,6 +270,7 @@ namespace mwmp
         std::uint64_t resultingInventoryRevision = 0;
         std::vector<Item> inventory;
         std::optional<CrimeMutationCommit> crimeMutation;
+        std::vector<StolenItemMutation> stolenItemMutations;
     };
 
     struct WorldItemTakeCommitResult
@@ -301,6 +303,7 @@ namespace mwmp
         std::optional<ContainerRecord> expectedSource;
         std::optional<ContainerRecord> resultingSource;
         std::optional<CrimeMutationCommit> crimeMutation;
+        std::vector<StolenItemMutation> stolenItemMutations;
     };
 
     struct InventoryTakeCommitResult
@@ -316,6 +319,14 @@ namespace mwmp
         DuplicateRequestConflict,
         StaleCrimeRevision,
         StaleInventoryRevision,
+        StaleEvidence,
+    };
+
+    enum class GuardArrestCommitFailurePoint
+    {
+        None,
+        AfterInventoryWrite,
+        AfterEvidenceWrite,
     };
 
     struct GuardArrestCommit
@@ -325,6 +336,14 @@ namespace mwmp
         std::uint64_t expectedInventoryRevision = 0;
         std::uint64_t resultingInventoryRevision = 0;
         std::vector<Item> inventory;
+        std::vector<EquipmentItem> equipment;
+        bool equipmentChanged = false;
+        bool evidenceChanged = false;
+        bool evidenceWasPersisted = false;
+        ContainerRecord expectedEvidence;
+        ContainerRecord resultingEvidence;
+        std::vector<StolenItemMutation> stolenItemMutations;
+        GuardArrestCommitFailurePoint failurePoint = GuardArrestCommitFailurePoint::None;
     };
 
     struct GuardArrestCommitResult
@@ -496,6 +515,9 @@ namespace mwmp
 
         /// Load the last persisted inventory snapshot for a character.
         std::vector<Item> loadCharacterInventory(int64_t characterId);
+
+        /// Load the vanilla-compatible aggregate stolen-item provenance ledger.
+        std::vector<StolenItemRecord> loadCharacterStolenItems(int64_t characterId);
 
         /// Replace the persisted inventory snapshot for a character.
         void saveCharacterInventory(int64_t characterId, const std::vector<Item>& items, bool touchLastSeen = true,
@@ -777,6 +799,8 @@ namespace mwmp
 
     private:
         CrimeCommitResult commitPlayerCrimeMutationInTransaction(const CrimeMutationCommit& commit);
+        void applyStolenItemMutationsInTransaction(
+            int64_t characterId, const std::vector<StolenItemMutation>& mutations);
 
         /// Rewrites the character statistics tables (dynamic stats, attributes,
         /// skills, level) without beginning or committing a transaction.

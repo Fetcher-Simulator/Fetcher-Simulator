@@ -10,7 +10,7 @@
 
 namespace mwmp
 {
-    inline constexpr std::uint16_t InventoryTakeProtocolVersion = 1;
+    inline constexpr std::uint16_t InventoryTakeProtocolVersion = 2;
     inline constexpr std::size_t MaximumInventoryTakeStringLength = 255;
     inline constexpr std::size_t MaximumInventoryTakeRequestIdLength = 128;
     inline constexpr std::int32_t MaximumInventoryTakeCount = 1000000;
@@ -61,6 +61,8 @@ namespace mwmp
         InventorySourceIdentity source;
         std::string itemRefId;
         std::int32_t itemCharge = -1;
+        float itemEnchantmentCharge = -1.f;
+        std::string itemSoul;
         std::int32_t requestedCount = 0;
         std::uint64_t expectedInventoryRevision = 0;
 

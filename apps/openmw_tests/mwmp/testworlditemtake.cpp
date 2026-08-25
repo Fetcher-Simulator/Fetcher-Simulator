@@ -50,6 +50,7 @@ namespace
         item.refId = commit.object.refId;
         item.count = 1;
         commit.inventory.push_back(item);
+        commit.stolenItemMutations.push_back({ item.refId, "dagger_owner", false, 1 });
         return commit;
     }
 
@@ -89,6 +90,7 @@ TEST(WorldItemTakePersistence, CommitsTombstoneInventoryAndReplayAtomically)
         EXPECT_EQ(database.loadInventoryRevision(character), 1u);
         ASSERT_EQ(database.loadCharacterInventory(character).size(), 1u);
         ASSERT_EQ(database.loadTakenWorldItemReferences().size(), 1u);
+        ASSERT_EQ(database.loadCharacterStolenItems(character).size(), 1u);
 
         const auto replay = database.commitWorldItemTake(original);
         EXPECT_EQ(replay.status, mwmp::WorldItemTakeCommitStatus::DuplicateRequest);
@@ -110,6 +112,8 @@ TEST(WorldItemTakePersistence, CommitsTombstoneInventoryAndReplayAtomically)
     EXPECT_EQ(reopened.loadInventoryRevision(character), 1u);
     ASSERT_EQ(reopened.loadCharacterInventory(character).size(), 1u);
     ASSERT_EQ(reopened.loadTakenWorldItemReferences().size(), 1u);
+    ASSERT_EQ(reopened.loadCharacterStolenItems(character).size(), 1u);
+    EXPECT_EQ(reopened.loadCharacterStolenItems(character)[0].ownerId, "dagger_owner");
     EXPECT_EQ(reopened.loadTakenWorldItemReferences().front(), original.object);
 }
 
@@ -131,6 +135,7 @@ TEST(WorldItemTakePersistence, CrimeResultCommitsAtomicallyWithTombstoneAndInven
         "crime-event", account, character, commit.crimeMutation->requestId).has_value());
     EXPECT_EQ(database.loadTakenWorldItemReferences().size(), 1u);
     EXPECT_EQ(database.loadInventoryRevision(character), 1u);
+    ASSERT_EQ(database.loadCharacterStolenItems(character).size(), 1u);
 }
 
 TEST(WorldItemTakePersistence, CrimeFailureRollsBackTombstoneInventoryAndSemanticJournal)
@@ -147,6 +152,7 @@ TEST(WorldItemTakePersistence, CrimeFailureRollsBackTombstoneInventoryAndSemanti
     EXPECT_TRUE(database.loadTakenWorldItemReferences().empty());
     EXPECT_TRUE(database.loadCharacterInventory(character).empty());
     EXPECT_EQ(database.loadInventoryRevision(character), 0u);
+    EXPECT_TRUE(database.loadCharacterStolenItems(character).empty());
     EXPECT_FALSE(database.loadSemanticRequest(
         "crime-event", account, character, commit.crimeMutation->requestId).has_value());
     EXPECT_EQ(database.loadPlayerCrimeState(character), mwmp::PlayerCrimeState{});

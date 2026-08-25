@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <components/openmw-mp/Base/BaseStructs.hpp>
+#include <components/openmw-mp/Base/BaseObject.hpp>
 #include <components/openmw-mp/WorldItemTake.hpp>
 
 namespace MWWorld
@@ -118,6 +119,11 @@ namespace mwmp
         std::optional<CrimeInteractionReference> findCrimeInteractionReference(
             std::string_view cellId, std::string_view refId, std::uint32_t refIndex,
             std::int32_t refContentFile) const;
+        /// Resolve the vanilla closest prison marker and its unique stolen-goods
+        /// chest entirely from server content. Missing or ambiguous evidence
+        /// destinations fail closed.
+        std::optional<ContainerRecord> resolveJailEvidenceContainer(
+            const CellId& playerCell, const Position& playerPosition) const;
         void installRuntimeDefinition(
             std::string_view id, const records::DynamicRecordDefinition& definition);
 

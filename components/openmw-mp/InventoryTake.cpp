@@ -67,9 +67,13 @@ mwmp::InventoryTakeError mwmp::validateInventoryTakeRequest(const InventoryTakeR
             return InventoryTakeError::InvalidRequest;
     }
     const bool finish = request.kind == InventoryTakeKind::PickpocketFinish;
-    if (finish && (!request.itemRefId.empty() || request.requestedCount != 0))
+    if (finish && (!request.itemRefId.empty() || request.itemCharge != -1
+            || request.itemEnchantmentCharge != -1.f || !request.itemSoul.empty()
+            || request.requestedCount != 0))
         return InventoryTakeError::InvalidRequest;
     if (!finish && (!validString(request.itemRefId, MaximumInventoryTakeStringLength)
+            || !validString(request.itemSoul, MaximumInventoryTakeStringLength, true)
+            || !std::isfinite(request.itemEnchantmentCharge)
             || request.requestedCount <= 0 || request.requestedCount > MaximumInventoryTakeCount))
         return InventoryTakeError::InvalidCount;
     return InventoryTakeError::None;
@@ -90,6 +94,8 @@ std::string mwmp::canonicalInventoryTakeRequest(const InventoryTakeRequest& requ
     appendU32(bytes, request.source.migrationGeneration);
     appendString(bytes, request.itemRefId);
     appendU32(bytes, std::bit_cast<std::uint32_t>(request.itemCharge));
+    appendU32(bytes, std::bit_cast<std::uint32_t>(request.itemEnchantmentCharge));
+    appendString(bytes, request.itemSoul);
     appendU32(bytes, std::bit_cast<std::uint32_t>(request.requestedCount));
     appendU64(bytes, request.expectedInventoryRevision);
     return bytes;

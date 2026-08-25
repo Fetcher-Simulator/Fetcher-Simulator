@@ -30,7 +30,7 @@ namespace
     bool validError(mwmp::GuardArrestError error)
     {
         return static_cast<std::uint16_t>(error)
-            <= static_cast<std::uint16_t>(mwmp::GuardArrestError::PersistenceFailure);
+            <= static_cast<std::uint16_t>(mwmp::GuardArrestError::StaleEvidence);
     }
 
     class Writer
@@ -265,6 +265,8 @@ std::string_view mwmp::getGuardArrestErrorCode(GuardArrestError error)
         case GuardArrestError::StaleInventoryRevision: return "guard_arrest_stale_inventory_revision";
         case GuardArrestError::DuplicateConflict: return "guard_arrest_duplicate_conflict";
         case GuardArrestError::PersistenceFailure: return "guard_arrest_persistence_failure";
+        case GuardArrestError::EvidenceUnavailable: return "guard_arrest_evidence_unavailable";
+        case GuardArrestError::StaleEvidence: return "guard_arrest_stale_evidence";
     }
     return "guard_arrest_unknown_error";
 }

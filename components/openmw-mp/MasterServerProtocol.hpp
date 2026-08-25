@@ -25,7 +25,7 @@ namespace mwmp
     // Protocol 11 carries the original validated combat proposal's hit geometry
     // back in ActorCombatResult so blood/impact presentation can follow the
     // server-accepted canonical victim instead of a coarse refId/mpNum guess.
-    inline constexpr int MultiplayerProtocolVersion = 12;
+    inline constexpr int MultiplayerProtocolVersion = 13;
     inline constexpr std::string_view MultiplayerBuildVersion = "0.1.0";
     inline constexpr std::string_view DefaultMasterServerUrl = "https://master.fetchers.org";
 

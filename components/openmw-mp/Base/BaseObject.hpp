@@ -30,6 +30,9 @@ namespace mwmp
         std::string refId;
         int         count  = 0;
         int         charge = -1;       // -1 = not a weapon/armor
+        uint32_t    instanceId = 0;    // stable when supplied by server authority
+        float       enchantmentCharge = -1.f;
+        std::string soul;
 
         bool operator==(const ContainerItem&) const = default;
     };
