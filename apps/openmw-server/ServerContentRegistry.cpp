@@ -6,6 +6,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <limits>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -66,6 +67,7 @@
 #include <apps/openmw/mwworld/esmstore.hpp>
 #include <apps/openmw/mwworld/cellstore.hpp>
 #include <apps/openmw/mwworld/class.hpp>
+#include <apps/openmw/mwworld/containerstore.hpp>
 #include <apps/openmw/mwworld/worldimp.hpp>
 
 namespace bpo = boost::program_options;
@@ -544,6 +546,166 @@ mwmp::ServerContentRegistry::findContainerReference(
         return true;
     });
     return ambiguous ? std::nullopt : result;
+}
+
+std::optional<mwmp::ContainerRecord> mwmp::ServerContentRegistry::resolveJailEvidenceContainer(
+    const CellId& playerCell, const Position& playerPosition) const
+{
+    try
+    {
+        MWWorld::WorldModel& model = mRuntime->world->getWorldModel();
+        const ESM::RefId prisonMarkerId = ESM::RefId::stringRefId("prisonmarker");
+
+        auto closestExterior = [&](float worldX, float worldY) -> MWWorld::Ptr {
+            const ESM::ExteriorCellLocation origin
+                = ESM::positionToExteriorCellLocation(worldX, worldY);
+            std::vector<MWWorld::Ptr> markers;
+            model.getExteriorPtrs(prisonMarkerId, markers);
+            struct Candidate
+            {
+                MWWorld::Ptr marker;
+                int column = 0;
+                int row = 0;
+            };
+            std::vector<Candidate> candidates;
+            int minimumGridSize = std::numeric_limits<int>::max();
+            for (const MWWorld::Ptr& marker : markers)
+            {
+                const osg::Vec3f pos = marker.getRefData().getPosition().asVec3();
+                const ESM::ExteriorCellLocation cell
+                    = ESM::positionToExteriorCellLocation(pos.x(), pos.y());
+                const int deltaX = cell.mX - origin.mX;
+                const int deltaY = cell.mY - origin.mY;
+                const int gridSize = std::max(std::abs(deltaX), std::abs(deltaY)) * 2;
+                if (gridSize == 0)
+                    return marker;
+                if (gridSize <= minimumGridSize)
+                {
+                    if (gridSize < minimumGridSize)
+                    {
+                        candidates.clear();
+                        minimumGridSize = gridSize;
+                    }
+                    candidates.push_back(
+                        { marker, gridSize / 2 + deltaX, gridSize / 2 + deltaY });
+                }
+            }
+            MWWorld::Ptr closest;
+            int earliestDistance = std::numeric_limits<int>::max();
+            for (const Candidate& candidate : candidates)
+            {
+                int distance = 0;
+                if (candidate.row == 0)
+                    distance = candidate.column;
+                else if (candidate.column == minimumGridSize)
+                    distance = minimumGridSize + candidate.row;
+                else if (candidate.row == minimumGridSize)
+                    distance = minimumGridSize * 3 - candidate.column;
+                else
+                    distance = minimumGridSize * 4 - candidate.row;
+                if (distance < earliestDistance)
+                {
+                    closest = candidate.marker;
+                    earliestDistance = distance;
+                }
+            }
+            return closest;
+        };
+
+        MWWorld::Ptr marker;
+        if (playerCell.isExterior)
+            marker = closestExterior(playerPosition.pos[0], playerPosition.pos[1]);
+        else
+        {
+            std::set<ESM::RefId> checked;
+            std::set<ESM::RefId> current;
+            std::set<ESM::RefId> next;
+            MWWorld::CellStore& startingCell = model.getInterior(playerCell.cellName);
+            next.insert(startingCell.getCell()->getId());
+            while (!next.empty() && marker.isEmpty())
+            {
+                current.clear();
+                std::swap(current, next);
+                for (const ESM::RefId& cellId : current)
+                {
+                    MWWorld::CellStore& cell = model.getCell(cellId);
+                    checked.insert(cellId);
+                    marker = cell.search(prisonMarkerId);
+                    if (!marker.isEmpty())
+                        break;
+                    for (const MWWorld::LiveCellRef<ESM::Door>& door : cell.getReadOnlyDoors().mList)
+                    {
+                        if (!door.mRef.getTeleport())
+                            continue;
+                        if (door.mRef.getDestCell().is<ESM::ESM3ExteriorCellRefId>())
+                        {
+                            const osg::Vec3f destination = door.mRef.getDoorDest().asVec3();
+                            marker = closestExterior(destination.x(), destination.y());
+                            if (marker.isEmpty())
+                                return std::nullopt;
+                            break;
+                        }
+                        const ESM::RefId& destination = door.mRef.getDestCell();
+                        if (!checked.contains(destination) && !current.contains(destination))
+                            next.insert(destination);
+                    }
+                    if (!marker.isEmpty())
+                        break;
+                }
+            }
+        }
+
+        if (marker.isEmpty())
+            return std::nullopt;
+        const ESM::RefId prisonId = marker.getCellRef().getDestCell();
+        if (prisonId.empty() || prisonId.is<ESM::ESM3ExteriorCellRefId>())
+            return std::nullopt;
+
+        MWWorld::CellStore& prison = model.getCell(prisonId);
+        prison.load();
+        MWWorld::Ptr chest;
+        bool ambiguous = false;
+        prison.forEach([&](const MWWorld::Ptr& ptr) {
+            if (ptr.getType() != ESM::Container::sRecordId
+                || ptr.getCellRef().getRefId() != ESM::RefId::stringRefId("stolen_goods"))
+                return true;
+            if (!chest.isEmpty())
+            {
+                ambiguous = true;
+                return false;
+            }
+            chest = ptr;
+            return true;
+        });
+        if (chest.isEmpty() || ambiguous)
+            return std::nullopt;
+
+        ContainerRecord result;
+        result.cellId = prisonId.serializeText();
+        result.refId = chest.getCellRef().getRefId().serializeText();
+        result.refNum = chest.getCellRef().getRefNum().mIndex;
+        result.mpNum = 0;
+        result.hasAuthority = true;
+        MWWorld::ContainerStore& contents = chest.getClass().getContainerStore(chest);
+        contents.resolve();
+        for (auto it = contents.begin(); it != contents.end(); ++it)
+        {
+            ContainerItem item;
+            item.refId = it->getCellRef().getRefId().serializeText();
+            item.count = it->getCellRef().getCount();
+            item.charge = static_cast<int>(it->getCellRef().getCharge());
+            item.enchantmentCharge = it->getCellRef().getEnchantmentCharge();
+            item.soul = it->getCellRef().getSoul().serializeText();
+            if (!item.refId.empty() && item.count > 0)
+                result.items.push_back(std::move(item));
+        }
+        return result;
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Warning) << "[ContentRegistry] Jail evidence resolution failed: " << e.what();
+        return std::nullopt;
+    }
 }
 
 std::optional<mwmp::ServerContentRegistry::CrimeInteractionReference>

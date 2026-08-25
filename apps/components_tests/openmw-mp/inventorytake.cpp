@@ -19,6 +19,8 @@ namespace
         value.source.migrationGeneration = 3;
         value.itemRefId = "gold_001";
         value.itemCharge = -1;
+        value.itemEnchantmentCharge = 42.5f;
+        value.itemSoul = "golden saint";
         value.requestedCount = 10;
         value.expectedInventoryRevision = 9;
         return value;
@@ -111,11 +113,14 @@ TEST(InventoryTakeProtocol, ContainerBootstrapIsStrictAndCanonical)
     outgoing.container.cellId = "Balmora";
     outgoing.container.refId = "crate_01";
     outgoing.container.refNum = 42;
+    outgoing.container.items.push_back(
+        { "daedric dagger", 1, 314, 123456, 87.25f, "golden saint" });
     outgoing.mAction = static_cast<std::uint8_t>(mwmp::ContainerAction::BootstrapRequest);
     const auto encoded = outgoing.encode();
     mwmp::PacketContainer incoming;
     ASSERT_TRUE(incoming.decode(encoded));
     EXPECT_EQ(incoming.container.cellId, outgoing.container.cellId);
+    EXPECT_EQ(incoming.container.items, outgoing.container.items);
     EXPECT_EQ(incoming.mAction, outgoing.mAction);
 
     auto trailing = encoded;

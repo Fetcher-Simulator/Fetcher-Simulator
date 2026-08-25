@@ -49,6 +49,8 @@ namespace mwmp
         int         charge    = -1;    // -1 = not applicable
         float       enchantmentCharge = -1.f;
         std::string soul;              // soul gem content
+
+        bool operator==(const Item&) const = default;
     };
 
     // -----------------------------------------------------------------------
@@ -58,6 +60,8 @@ namespace mwmp
     {
         int  slot  = -1;
         Item item;
+
+        bool operator==(const EquipmentItem&) const = default;
     };
 
     // -----------------------------------------------------------------------

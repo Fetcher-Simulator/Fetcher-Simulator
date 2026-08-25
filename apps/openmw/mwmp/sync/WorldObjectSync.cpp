@@ -12,6 +12,7 @@
 #include <map>
 #include <memory>
 #include <string_view>
+#include <tuple>
 
 #include <MyGUI_LanguageManager.h>
 
@@ -194,7 +195,9 @@ namespace
         auto it = std::find_if(items.begin(), items.end(),
             [&](const ContainerItem& current)
             {
-                return current.refId == item.refId && current.charge == item.charge;
+                return current.refId == item.refId && current.charge == item.charge
+                    && std::abs(current.enchantmentCharge - item.enchantmentCharge) < 0.001f
+                    && current.soul == item.soul;
             });
 
         if (it == items.end())
@@ -220,7 +223,9 @@ namespace
         auto it = std::find_if(items.begin(), items.end(),
             [&](const ContainerItem& current)
             {
-                return current.refId == item.refId && current.charge == item.charge;
+                return current.refId == item.refId && current.charge == item.charge
+                    && std::abs(current.enchantmentCharge - item.enchantmentCharge) < 0.001f
+                    && current.soul == item.soul;
             });
 
         if (it == items.end())
@@ -241,6 +246,8 @@ namespace
             item.refId = it->getCellRef().getRefId().toString();
             item.count = it->getCellRef().getCount();
             item.charge = static_cast<int>(it->getCellRef().getCharge());
+            item.enchantmentCharge = it->getCellRef().getEnchantmentCharge();
+            item.soul = it->getCellRef().getSoul().serializeText();
             appendOrMergeComparable(currentItems, std::move(item));
         }
 
@@ -251,7 +258,8 @@ namespace
         {
             if (left.refId != right.refId)
                 return left.refId < right.refId;
-            return left.charge < right.charge;
+            return std::tie(left.charge, left.enchantmentCharge, left.soul)
+                < std::tie(right.charge, right.enchantmentCharge, right.soul);
         };
         std::sort(currentItems.begin(), currentItems.end(), less);
         std::sort(expectedItems.begin(), expectedItems.end(), less);
@@ -263,6 +271,8 @@ namespace
         {
             if (currentItems[i].refId != expectedItems[i].refId
                 || currentItems[i].charge != expectedItems[i].charge
+                || std::abs(currentItems[i].enchantmentCharge - expectedItems[i].enchantmentCharge) >= 0.001f
+                || currentItems[i].soul != expectedItems[i].soul
                 || currentItems[i].count != expectedItems[i].count)
             {
                 return false;
@@ -279,21 +289,26 @@ namespace
         {
             std::string refId;
             int charge = -1;
+            float enchantmentCharge = -1.f;
+            std::string soul;
             int remaining = 0;
         };
 
-        using Identity = std::pair<std::string, int>;
+        using Identity = std::tuple<std::string, int, float, std::string>;
         std::map<Identity, DesiredItem> desired;
         for (const ContainerItem& item : expected)
         {
             if (item.refId.empty() || item.count <= 0)
                 continue;
-            const Identity identity { lowerAscii(item.refId), item.charge };
+            const Identity identity { lowerAscii(item.refId), item.charge,
+                item.enchantmentCharge, item.soul };
             auto& entry = desired[identity];
             if (entry.refId.empty())
             {
                 entry.refId = item.refId;
                 entry.charge = item.charge;
+                entry.enchantmentCharge = item.enchantmentCharge;
+                entry.soul = item.soul;
             }
             entry.remaining += item.count;
         }
@@ -311,7 +326,8 @@ namespace
                 continue;
 
             const Identity identity { lowerAscii(ptr.getCellRef().getRefId().toString()),
-                static_cast<int>(ptr.getCellRef().getCharge()) };
+                static_cast<int>(ptr.getCellRef().getCharge()),
+                ptr.getCellRef().getEnchantmentCharge(), ptr.getCellRef().getSoul().serializeText() };
             auto desiredIt = desired.find(identity);
             const int keep = desiredIt == desired.end()
                 ? 0 : std::min(currentCount, desiredIt->second.remaining);
@@ -334,6 +350,8 @@ namespace
             if (ptr.isEmpty())
                 return false;
             ptr.getCellRef().setCharge(item.charge);
+            ptr.getCellRef().setEnchantmentCharge(item.enchantmentCharge);
+            ptr.getCellRef().setSoul(item.soul.empty() ? ESM::RefId() : ESM::RefId::deserializeText(item.soul));
             store.add(ptr, item.remaining, false, false);
         }
 
@@ -727,6 +745,8 @@ void WorldObjectSync::sendLocalContainerSnapshot(const ContainerRecord& record, 
         ci.refId = it->getCellRef().getRefId().toString();
         ci.count = it->getCellRef().getCount();
         ci.charge = static_cast<int>(it->getCellRef().getCharge());
+        ci.enchantmentCharge = it->getCellRef().getEnchantmentCharge();
+        ci.soul = it->getCellRef().getSoul().serializeText();
         appendOrMerge(pkt.container.items, ci);
     }
 
@@ -834,6 +854,8 @@ bool WorldObjectSync::requestInventoryTake(const MWWorld::Ptr& source, const MWW
     }
     request.itemRefId = item.getCellRef().getRefId().serializeText();
     request.itemCharge = static_cast<std::int32_t>(item.getCellRef().getCharge());
+    request.itemEnchantmentCharge = item.getCellRef().getEnchantmentCharge();
+    request.itemSoul = item.getCellRef().getSoul().serializeText();
     request.requestedCount = count;
     request.expectedInventoryRevision = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
     if (validateInventoryTakeRequest(request) != InventoryTakeError::None)
@@ -1609,6 +1631,9 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
                     {
                         MWWorld::Ptr ptr = ref.getPtr();
                         ptr.getCellRef().setCharge(ci.charge);
+                        ptr.getCellRef().setEnchantmentCharge(ci.enchantmentCharge);
+                        ptr.getCellRef().setSoul(ci.soul.empty() ? ESM::RefId()
+                            : ESM::RefId::deserializeText(ci.soul));
                         cstore.add(ptr, ci.count, true, false);
                     }
                 }
@@ -1632,6 +1657,9 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
             {
                 MWWorld::Ptr ptr = ref.getPtr();
                 ptr.getCellRef().setCharge(ci.charge);
+                ptr.getCellRef().setEnchantmentCharge(ci.enchantmentCharge);
+                ptr.getCellRef().setSoul(ci.soul.empty() ? ESM::RefId()
+                    : ESM::RefId::deserializeText(ci.soul));
                 cstore.add(ptr, ci.count);
             }
         }
@@ -1645,7 +1673,9 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
             for (auto it = cstore.begin(); it != cstore.end(); ++it)
             {
                 if (lowerAscii(it->getCellRef().getRefId().serializeText()) == lowerAscii(ci.refId)
-                    && static_cast<int>(it->getCellRef().getCharge()) == ci.charge)
+                    && static_cast<int>(it->getCellRef().getCharge()) == ci.charge
+                    && std::abs(it->getCellRef().getEnchantmentCharge() - ci.enchantmentCharge) < 0.001f
+                    && it->getCellRef().getSoul().serializeText() == ci.soul)
                     matches.push_back(*it);
             }
             for (const MWWorld::Ptr& match : matches)

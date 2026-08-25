@@ -11,7 +11,7 @@
 
 namespace mwmp
 {
-    inline constexpr std::uint16_t GuardArrestProtocolVersion = 2;
+    inline constexpr std::uint16_t GuardArrestProtocolVersion = 3;
     inline constexpr std::size_t MaximumGuardArrestRequestIdLength = 128;
     inline constexpr std::size_t MaximumGuardArrestCellIdLength = 255;
 
@@ -39,6 +39,8 @@ namespace mwmp
         StaleInventoryRevision,
         DuplicateConflict,
         PersistenceFailure,
+        EvidenceUnavailable,
+        StaleEvidence,
     };
 
     struct GuardArrestRequest

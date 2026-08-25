@@ -4,6 +4,7 @@
 #include "CrimeService.hpp"
 #include "CrimeSemanticService.hpp"
 #include "FactionService.hpp"
+#include "JailSentenceService.hpp"
 #include "DynamicRecordService.hpp"
 #include "EnchantingService.hpp"
 #include "DoorStateAuthority.hpp"
@@ -712,8 +713,12 @@ namespace
         auto it = std::find_if(items.begin(), items.end(),
             [&](const mwmp::ContainerItem& current)
             {
+                if (current.instanceId != 0 || item.instanceId != 0)
+                    return current.instanceId != 0 && current.instanceId == item.instanceId;
                 return lowerAscii(current.refId) == lowerAscii(item.refId)
-                    && current.charge == item.charge;
+                    && current.charge == item.charge
+                    && std::abs(current.enchantmentCharge - item.enchantmentCharge) < 0.001f
+                    && current.soul == item.soul;
             });
 
         if (it == items.end())
@@ -945,8 +950,12 @@ namespace
         auto it = std::find_if(items.begin(), items.end(),
             [&](const mwmp::ContainerItem& current)
             {
+                if (current.instanceId != 0 || item.instanceId != 0)
+                    return current.instanceId != 0 && current.instanceId == item.instanceId;
                 return lowerAscii(current.refId) == lowerAscii(item.refId)
-                    && current.charge == item.charge;
+                    && current.charge == item.charge
+                    && std::abs(current.enchantmentCharge - item.enchantmentCharge) < 0.001f
+                    && current.soul == item.soul;
             });
 
         if (action == mwmp::ContainerAction::Add)
@@ -13945,6 +13954,15 @@ void MPServer::handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* dat
     commit.expectedInventoryRevision = request.expectedInventoryRevision;
     commit.resultingInventoryRevision = result.inventoryRevision;
     commit.inventory = inventory;
+    if (result.theft && !item.gold)
+    {
+        if (!item.ownerId.empty())
+            commit.stolenItemMutations.push_back(
+                { added.refId, item.ownerId, false, added.count });
+        else if (!item.factionId.empty())
+            commit.stolenItemMutations.push_back(
+                { added.refId, item.factionId, true, added.count });
+    }
 
     if (preparedCrime && preparedCrime->pendingCommit)
         commit.crimeMutation = *preparedCrime->pendingCommit;
@@ -14277,7 +14295,9 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
         : std::find_if(resultingSource.items.begin(), resultingSource.items.end(),
             [&](const ContainerItem& item) {
                 return lowerAscii(item.refId) == lowerAscii(request.itemRefId)
-                    && item.charge == request.itemCharge && item.count >= request.requestedCount;
+                    && item.charge == request.itemCharge
+                    && std::abs(item.enchantmentCharge - request.itemEnchantmentCharge) < 0.001f
+                    && item.soul == request.itemSoul && item.count >= request.requestedCount;
             });
     if (!finish && sourceItem == resultingSource.items.end())
     {
@@ -14300,6 +14320,13 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
         return;
     }
 
+    ContainerItem removedSourceItem;
+    if (!finish)
+    {
+        removedSourceItem = *sourceItem;
+        removedSourceItem.count = request.requestedCount;
+    }
+
     int itemValue = 0;
     bool gold = false;
     Item added;
@@ -14316,9 +14343,9 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
             gold = ptr.getClass().isGold(ptr);
             added.refId = request.itemRefId;
             added.count = gold ? request.requestedCount * itemValue : request.requestedCount;
-            added.charge = request.itemCharge;
-            added.enchantmentCharge = ptr.getCellRef().getEnchantmentCharge();
-            added.soul = ptr.getCellRef().getSoul().serializeText();
+            added.charge = sourceItem->charge;
+            added.enchantmentCharge = sourceItem->enchantmentCharge;
+            added.soul = sourceItem->soul;
         }
         catch (const std::exception&)
         {
@@ -14531,6 +14558,19 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
     if (!detected && !finish)
         commit.resultingSource = resultingSource;
 
+    if (!detected && !finish && !gold && (pickpocket || theft))
+    {
+        if (actorSource)
+            commit.stolenItemMutations.push_back(
+                { added.refId, actorRecord->actor.refId, false, request.requestedCount });
+        else if (!ownerId.empty())
+            commit.stolenItemMutations.push_back(
+                { added.refId, ownerId, false, request.requestedCount });
+        else if (!factionId.empty())
+            commit.stolenItemMutations.push_back(
+                { added.refId, factionId, true, request.requestedCount });
+    }
+
     if (preparedCrime && preparedCrime->pendingCommit)
         commit.crimeMutation = *preparedCrime->pendingCommit;
 
@@ -14594,8 +14634,7 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
             sourcePacket.container.refNum = sourceIt->second.refNum;
             sourcePacket.container.mpNum = sourceIt->second.mpNum;
             sourcePacket.container.hasAuthority = true;
-            sourcePacket.container.items.push_back(
-                { result.itemRefId, result.itemCount, result.itemCharge });
+            sourcePacket.container.items.push_back(removedSourceItem);
             sourcePacket.mAction = static_cast<std::uint8_t>(ContainerAction::Remove);
             broadcastToCell(canonicalPlayerCell, sourcePacket.encode());
             scheduleGeneratedDynamicRecordGc("inventory_take");
@@ -14791,8 +14830,25 @@ void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data
     ContainerRecord expectedDestination = destinationIt->second;
     normalizeContainerItems(expectedDestination.items);
     ContainerRecord resultingDestination = expectedDestination;
-    appendOrMergeContainerItem(resultingDestination.items,
-        { sourceItem->refId, request.requestedCount, sourceItem->charge });
+    ContainerItem destinationItem;
+    destinationItem.refId = sourceItem->refId;
+    destinationItem.count = request.requestedCount;
+    destinationItem.charge = sourceItem->charge;
+    destinationItem.enchantmentCharge = sourceItem->enchantmentCharge;
+    destinationItem.soul = sourceItem->soul;
+    if (request.requestedCount == sourceItem->count)
+        destinationItem.instanceId = sourceItem->instanceId;
+    else
+    {
+        const auto instance = reserveWorldMpNum();
+        if (!instance)
+        {
+            reject(InventoryPutError::PersistenceFailure);
+            return;
+        }
+        destinationItem.instanceId = *instance;
+    }
+    appendOrMergeContainerItem(resultingDestination.items, destinationItem);
     normalizeContainerItems(resultingDestination.items);
 
     sourceItem->count -= request.requestedCount;
@@ -14882,8 +14938,7 @@ void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data
         destinationDelta.container.refNum = resultingDestination.refNum;
         destinationDelta.container.mpNum = resultingDestination.mpNum;
         destinationDelta.container.hasAuthority = true;
-        destinationDelta.container.items.push_back(
-            { request.itemRefId, request.requestedCount, request.itemCharge });
+        destinationDelta.container.items.push_back(destinationItem);
         destinationDelta.mAction = static_cast<std::uint8_t>(ContainerAction::Add);
         broadcastToCell(canonicalPlayerCell, destinationDelta.encode());
         scheduleGeneratedDynamicRecordGc("inventory_put");
@@ -15129,6 +15184,7 @@ void MPServer::handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t
         return;
 
     const GuardArrestRequest& request = packet.request;
+    const bool confiscatesStolenItems = request.action != GuardArrestAction::Resist;
     GuardArrestResult result;
     result.requestId = request.requestId;
     result.action = request.action;
@@ -15181,18 +15237,26 @@ void MPServer::handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t
     {
         if (existing->requestHash != requestHash)
         {
-            reject(GuardArrestError::DuplicateConflict, request.action == GuardArrestAction::PayFine);
+            reject(GuardArrestError::DuplicateConflict, confiscatesStolenItems);
             return;
         }
         try
         {
             result = decodeGuardArrestResult(existing->resultPayload);
             refreshClientState();
-            if (request.action == GuardArrestAction::PayFine)
+            if (confiscatesStolenItems)
             {
                 c.player.inventoryChanges.action = BasePlayer::InventoryChanges::Action::Set;
                 c.player.inventoryChanges.items = mPlayerDb->loadCharacterInventory(c.dbCharacterId);
                 sendAuthoritativeInventory(c);
+                for (int slot = 0; slot < BasePlayer::NUM_EQUIPMENT_SLOTS; ++slot)
+                    c.player.equipment[slot] = { slot, {} };
+                for (const EquipmentItem& entry : mPlayerDb->loadCharacterEquipment(c.dbCharacterId))
+                {
+                    if (entry.slot >= 0 && entry.slot < BasePlayer::NUM_EQUIPMENT_SLOTS)
+                        c.player.equipment[entry.slot] = entry;
+                }
+                sendAuthoritativeEquipment(c, true, true);
             }
             sendAuthoritativeCrimeState(c);
             sendResult();
@@ -15204,7 +15268,7 @@ void MPServer::handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t
         {
             Log(Debug::Error) << "[GuardArrest] corrupt stored result request=" << request.requestId
                               << " player=" << c.name << " error=" << e.what();
-            reject(GuardArrestError::PersistenceFailure, request.action == GuardArrestAction::PayFine);
+            reject(GuardArrestError::PersistenceFailure, confiscatesStolenItems);
         }
         return;
     }
@@ -15232,7 +15296,7 @@ void MPServer::handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t
         reject(GuardArrestError::NoBounty, request.action == GuardArrestAction::PayFine);
         return;
     }
-    if (request.action == GuardArrestAction::PayFine
+    if (confiscatesStolenItems
         && request.expectedInventoryRevision != c.inventoryRevision)
     {
         reject(GuardArrestError::StaleInventoryRevision, true);
@@ -15315,6 +15379,29 @@ void MPServer::handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t
         reject(GuardArrestError::OutOfRange, request.action == GuardArrestAction::PayFine);
         return;
     }
+    ContainerRecord expectedEvidence;
+    bool evidenceWasPersisted = false;
+    if (confiscatesStolenItems)
+    {
+        const auto contentEvidence = mContentRegistry->resolveJailEvidenceContainer(
+            c.player.cell, playerSnapshot->snapshot.position);
+        if (!contentEvidence)
+        {
+            Log(Debug::Warning) << "[GuardArrest] no unambiguous server evidence destination request="
+                                << request.requestId << " player=" << c.name;
+            reject(GuardArrestError::EvidenceUnavailable, true);
+            return;
+        }
+        expectedEvidence = *contentEvidence;
+        const std::string evidenceKey = makeContainerKey(expectedEvidence.cellId,
+            expectedEvidence.refId, expectedEvidence.refNum, expectedEvidence.mpNum);
+        const auto persistedEvidence = mWorld.containers.find(evidenceKey);
+        if (persistedEvidence != mWorld.containers.end() && persistedEvidence->second.hasAuthority)
+        {
+            expectedEvidence = persistedEvidence->second;
+            evidenceWasPersisted = true;
+        }
+    }
 
     const PlayerCrimeState previousCrime = c.player.crimeState;
     PlayerCrimeState nextCrime = previousCrime;
@@ -15322,6 +15409,7 @@ void MPServer::handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t
     std::int64_t goldPaid = 0;
     std::uint32_t sentenceDays = 0;
     std::uint64_t resultingInventoryRevision = c.inventoryRevision;
+    std::optional<JailSentencePlan> jailPlan;
 
     if (request.action == GuardArrestAction::PayFine)
     {
@@ -15377,6 +15465,33 @@ void MPServer::handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t
         sentenceDays = static_cast<std::uint32_t>(std::max(1, previousCrime.bounty / daysMod));
     }
 
+    if (confiscatesStolenItems)
+    {
+        std::vector<EquipmentItem> equipment;
+        for (const EquipmentItem& entry : c.player.equipment)
+        {
+            if (!entry.item.refId.empty() && entry.item.count > 0)
+                equipment.push_back(entry);
+        }
+        jailPlan = JailSentenceService::planConfiscation(nextInventory, equipment,
+            mPlayerDb->loadCharacterStolenItems(c.dbCharacterId), expectedEvidence, [&]() {
+                return reserveWorldMpNum().value_or(0);
+            });
+        if (jailPlan->error != JailSentencePlanError::None)
+        {
+            Log(Debug::Error) << "[GuardArrest] confiscation planning failed request="
+                              << request.requestId << " player=" << c.name
+                              << " error=" << static_cast<unsigned>(jailPlan->error);
+            reject(jailPlan->error == JailSentencePlanError::EvidenceUnavailable
+                    ? GuardArrestError::EvidenceUnavailable : GuardArrestError::PersistenceFailure,
+                true);
+            return;
+        }
+        nextInventory = jailPlan->inventory;
+        if (request.action == GuardArrestAction::Surrender && jailPlan->inventoryChanged())
+            resultingInventoryRevision = c.inventoryRevision + 1;
+    }
+
     if (request.action != GuardArrestAction::Resist)
     {
         if (previousCrime.revision >= MaximumPersistedRevision)
@@ -15411,10 +15526,21 @@ void MPServer::handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t
 
     GuardArrestCommit commit;
     commit.crimeMutation = std::move(crimeCommit);
-    commit.inventoryChanged = request.action == GuardArrestAction::PayFine;
+    commit.inventoryChanged = request.action == GuardArrestAction::PayFine
+        || (jailPlan && jailPlan->inventoryChanged());
     commit.expectedInventoryRevision = c.inventoryRevision;
     commit.resultingInventoryRevision = resultingInventoryRevision;
     commit.inventory = nextInventory;
+    if (jailPlan)
+    {
+        commit.equipment = jailPlan->equipment;
+        commit.equipmentChanged = jailPlan->equipmentChanged;
+        commit.evidenceChanged = jailPlan->inventoryChanged();
+        commit.evidenceWasPersisted = evidenceWasPersisted;
+        commit.expectedEvidence = expectedEvidence;
+        commit.resultingEvidence = jailPlan->evidence;
+        commit.stolenItemMutations = jailPlan->stolenItemMutations;
+    }
 
     GuardArrestCommitResult committed;
     try
@@ -15425,7 +15551,7 @@ void MPServer::handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t
     {
         Log(Debug::Error) << "[GuardArrest] persistence failure request=" << request.requestId
                           << " player=" << c.name << " error=" << e.what();
-        reject(GuardArrestError::PersistenceFailure, request.action == GuardArrestAction::PayFine);
+        reject(GuardArrestError::PersistenceFailure, confiscatesStolenItems);
         return;
     }
 
@@ -15439,18 +15565,18 @@ void MPServer::handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t
         {
             Log(Debug::Error) << "[GuardArrest] corrupt duplicate result request=" << request.requestId
                               << " player=" << c.name << " error=" << e.what();
-            reject(GuardArrestError::PersistenceFailure, request.action == GuardArrestAction::PayFine);
+            reject(GuardArrestError::PersistenceFailure, confiscatesStolenItems);
             return;
         }
     }
     else if (committed.status == GuardArrestCommitStatus::DuplicateRequestConflict)
     {
-        reject(GuardArrestError::DuplicateConflict, request.action == GuardArrestAction::PayFine);
+        reject(GuardArrestError::DuplicateConflict, confiscatesStolenItems);
         return;
     }
     else if (committed.status == GuardArrestCommitStatus::StaleCrimeRevision)
     {
-        reject(GuardArrestError::StaleCrimeRevision, request.action == GuardArrestAction::PayFine);
+        reject(GuardArrestError::StaleCrimeRevision, confiscatesStolenItems);
         return;
     }
     else if (committed.status == GuardArrestCommitStatus::StaleInventoryRevision)
@@ -15458,10 +15584,15 @@ void MPServer::handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t
         reject(GuardArrestError::StaleInventoryRevision, true);
         return;
     }
+    else if (committed.status == GuardArrestCommitStatus::StaleEvidence)
+    {
+        reject(GuardArrestError::StaleEvidence, true);
+        return;
+    }
 
     c.player.crimeState = mPlayerDb->loadPlayerCrimeState(c.dbCharacterId);
     c.player.bounty = c.player.crimeState.bounty;
-    if (request.action == GuardArrestAction::PayFine)
+    if (confiscatesStolenItems)
     {
         c.inventoryRevision = mPlayerDb->loadInventoryRevision(c.dbCharacterId);
         c.player.inventoryChanges.action = BasePlayer::InventoryChanges::Action::Set;
@@ -15472,6 +15603,26 @@ void MPServer::handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t
         c.hasRestoredInventorySnapshot = true;
         c.playerInventoryRestoreGuardUntilMs = 0;
         sendAuthoritativeInventory(c);
+
+        for (int slot = 0; slot < BasePlayer::NUM_EQUIPMENT_SLOTS; ++slot)
+            c.player.equipment[slot] = { slot, {} };
+        for (const EquipmentItem& entry : mPlayerDb->loadCharacterEquipment(c.dbCharacterId))
+        {
+            if (entry.slot >= 0 && entry.slot < BasePlayer::NUM_EQUIPMENT_SLOTS)
+                c.player.equipment[entry.slot] = entry;
+        }
+        sendAuthoritativeEquipment(c, true, true);
+    }
+
+    if (committed.status == GuardArrestCommitStatus::Committed && commit.evidenceChanged)
+    {
+        const ContainerRecord& evidence = commit.resultingEvidence;
+        mWorld.containers[makeContainerKey(
+            evidence.cellId, evidence.refId, evidence.refNum, evidence.mpNum)] = evidence;
+        PacketContainer evidencePacket;
+        evidencePacket.container = evidence;
+        evidencePacket.mAction = static_cast<std::uint8_t>(ContainerAction::Set);
+        broadcastToCell(evidence.cellId, evidencePacket.encode());
     }
 
     sendAuthoritativeCrimeState(c);

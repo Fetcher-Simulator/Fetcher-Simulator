@@ -247,6 +247,8 @@ namespace MWLua
             changedItem.refId = item.getCellRef().getRefId().serializeText();
             changedItem.count = count;
             changedItem.charge = static_cast<int>(item.getCellRef().getCharge());
+            changedItem.enchantmentCharge = item.getCellRef().getEnchantmentCharge();
+            changedItem.soul = item.getCellRef().getSoul().serializeText();
             if (changedItem.refId.empty())
                 return;
 

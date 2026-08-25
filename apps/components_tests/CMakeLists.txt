@@ -135,6 +135,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         ../openmw-server/PlayerDatabase.cpp
         ../openmw-server/DynamicRecordService.cpp
         ../openmw-server/CrimeService.cpp
+        ../openmw-server/JailSentenceService.cpp
         ../openmw-server/FactionService.cpp
         ../openmw-server/ServerLuaPackageRegistry.cpp
     )
