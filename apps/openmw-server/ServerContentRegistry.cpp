@@ -59,6 +59,7 @@
 #include <components/vfs/registerarchives.hpp>
 
 #include <apps/openmw/mwbase/environment.hpp>
+#include <apps/openmw/mwclass/classes.hpp>
 #include <apps/openmw/mwlua/luamanagerimp.hpp>
 #include <apps/openmw/mwmp/records/ResolvedContentFingerprint.hpp>
 #include <apps/openmw/mwscript/compilercontext.hpp>
@@ -235,6 +236,7 @@ mwmp::ServerContentRegistry::loadRuntime(const Config& config)
     const ParsedConfig parsed = parseOpenmwConfig(config);
     Fallback::Map::init(parsed.fallback);
     initializeHeadlessSettings(config.resources);
+    MWClass::registerClasses();
     auto runtime = std::make_unique<Runtime>();
     runtime->environment = std::make_unique<MWBase::Environment>();
     runtime->encoder = std::make_unique<ToUTF8::Utf8Encoder>(ToUTF8::calculateEncoding(config.encoding));
@@ -248,6 +250,7 @@ mwmp::ServerContentRegistry::loadRuntime(const Config& config)
     runtime->environment->setResourceSystem(*runtime->resources);
     runtime->world = std::make_unique<MWWorld::World>(runtime->resources.get(), 0, "", std::filesystem::path{});
     runtime->environment->setWorld(*runtime->world);
+    runtime->environment->setWorldModel(runtime->world->getWorldModel());
     runtime->environment->setESMStore(runtime->world->getStore());
     runtime->lua = std::make_unique<MWLua::LuaManager>(
         runtime->vfs.get(), config.resources / "lua_libs", true);
