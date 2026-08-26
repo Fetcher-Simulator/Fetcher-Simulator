@@ -2286,6 +2286,15 @@ namespace mwmp
                 completeFreshCellBootstrap(runtime, "ActorIdentity", list.serverTimestamp);
                 ++baselineApplied;
             }
+
+            // Identity promotion can move an authority-side vanilla actor out of
+            // the cell shadow before that shadow ever acquired a concrete Ptr.
+            // Bind the canonical runtime immediately while the target cell is
+            // active. Late interaction paths (notably corpse inventory bootstrap)
+            // must be able to resolve actorNetId/refNum back to the live object.
+            if (actorState.mpNum == 0 && runtime.boundActor.isEmpty())
+                resolveActorBinding(actorState.cellId, runtime, true);
+
             rememberServerSpawnedActorTimestamp(actorState.mpNum, list.serverTimestamp);
             if (runtime.state.isDead)
             {

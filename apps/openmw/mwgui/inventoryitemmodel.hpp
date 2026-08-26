@@ -22,6 +22,7 @@ namespace MWGui
         size_t getItemCount() override;
 
         bool onTakeItem(const MWWorld::Ptr& item, int count) override;
+        bool usesAuthoritativeInventoryTransfer() const;
 
         /// Move items from this model to \a otherModel.
         MWWorld::Ptr moveItem(

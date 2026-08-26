@@ -5739,7 +5739,7 @@ void MPServer::loadPersistentWorldState()
                                 << record.mpNum
                                 << " refId=" << record.refId
                                 << " cell=" << record.cellId;
-            mPlayerDb->deleteContainerRecord(record.cellId, record.refId, record.refNum);
+            mPlayerDb->deleteContainerRecord(record.cellId, record.refId, record.refNum, record.mpNum);
             continue;
         }
 
@@ -6365,7 +6365,7 @@ MPServer::DynamicReferenceCleanupStats MPServer::cleanupDynamicReferences(
         {
             ++stats.containers;
             if (mPlayerDb)
-                mPlayerDb->deleteContainerRecord(record.cellId, record.refId, record.refNum);
+                mPlayerDb->deleteContainerRecord(record.cellId, record.refId, record.refNum, record.mpNum);
             it = mWorld.containers.erase(it);
             continue;
         }
@@ -13463,7 +13463,7 @@ bool MPServer::disposeCorpseAuthoritative(
     const std::string containerKey = makeContainerKey(canonicalCellId, actor.refId, actor.refNum, actor.mpNum);
     mWorld.containers.erase(containerKey);
     if (mPlayerDb)
-        mPlayerDb->deleteContainerRecord(canonicalCellId, actor.refId, actor.refNum);
+        mPlayerDb->deleteContainerRecord(canonicalCellId, actor.refId, actor.refNum, actor.mpNum);
 
     markLuaActorRemoved(actor.mpNum);
 
@@ -14197,9 +14197,9 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
             reject(InventoryTakeError::StaleSource);
             return;
         }
-        // The legacy container persistence key cannot distinguish multiple spawned
-        // actors with the same base record. Fail closed until its schema is replaced.
-        if (actorRecord->actor.mpNum != 0 || actorRecord->actor.refNum == 0)
+        // Vanilla actors require a placed refNum; server-spawned actors are lifetime-unique
+        // by mpNum and are persisted under that identity.
+        if (actorRecord->actor.mpNum == 0 && actorRecord->actor.refNum == 0)
         {
             reject(InventoryTakeError::StaleSource);
             return;
@@ -15738,8 +15738,8 @@ void MPServer::handleObjectDelete(ConnectedClient& c, const uint8_t* data, size_
         if (containerIt != mWorld.containers.end())
         {
             if (mPlayerDb)
-                mPlayerDb->deleteContainerRecord(
-                    containerIt->second.cellId, containerIt->second.refId, containerIt->second.refNum);
+                mPlayerDb->deleteContainerRecord(containerIt->second.cellId, containerIt->second.refId,
+                    containerIt->second.refNum, containerIt->second.mpNum);
             mWorld.containers.erase(containerIt);
         }
 
@@ -16606,7 +16606,7 @@ bool MPServer::spawnActor(
         }
 
         if (mPlayerDb)
-            mPlayerDb->deleteContainerRecord(record.cellId, record.refId, record.refNum);
+            mPlayerDb->deleteContainerRecord(record.cellId, record.refId, record.refNum, record.mpNum);
         it = mWorld.containers.erase(it);
         ++staleContainerCount;
     }
@@ -16764,7 +16764,7 @@ bool MPServer::removeActor(uint32_t mpNum, const std::string& cellId)
         if (record.mpNum == mpNum)
         {
             if (mPlayerDb)
-                mPlayerDb->deleteContainerRecord(record.cellId, record.refId, record.refNum);
+                mPlayerDb->deleteContainerRecord(record.cellId, record.refId, record.refNum, record.mpNum);
             it = mWorld.containers.erase(it);
         }
         else

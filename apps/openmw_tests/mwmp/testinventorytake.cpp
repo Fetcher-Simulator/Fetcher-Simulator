@@ -1,11 +1,13 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 
 #include <apps/openmw-server/PlayerDatabase.hpp>
 #include <components/openmw-mp/Sha256.hpp>
 #include <components/openmw-mp/InventoryPut.hpp>
+#include <sqlite3.h>
 
 namespace
 {
@@ -80,6 +82,155 @@ namespace
         crime.resultingState.revision = 1;
         return crime;
     }
+}
+
+TEST(InventoryTakePersistence, ContainerIdentityMigrationPreservesLegacyRowsAndSeparatesSpawnedInstances)
+{
+    TemporaryDatabase temporary;
+    sqlite3* raw = nullptr;
+    ASSERT_EQ(sqlite3_open(temporary.path.string().c_str(), &raw), SQLITE_OK);
+    const char* legacySchema = R"SQL(
+CREATE TABLE world_containers (
+    cell_id TEXT NOT NULL,
+    ref_id TEXT NOT NULL,
+    ref_num INTEGER NOT NULL DEFAULT 0,
+    mp_num INTEGER NOT NULL DEFAULT 0,
+    has_authority INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(cell_id, ref_id, ref_num)
+);
+CREATE TABLE world_container_items (
+    cell_id TEXT NOT NULL,
+    ref_id TEXT NOT NULL,
+    ref_num INTEGER NOT NULL DEFAULT 0,
+    item_index INTEGER NOT NULL,
+    item_ref_id TEXT NOT NULL,
+    item_count INTEGER NOT NULL DEFAULT 0,
+    charge INTEGER NOT NULL DEFAULT -1,
+    PRIMARY KEY(cell_id, ref_id, ref_num, item_index),
+    FOREIGN KEY(cell_id, ref_id, ref_num)
+        REFERENCES world_containers(cell_id, ref_id, ref_num) ON DELETE CASCADE
+);
+INSERT INTO world_containers(cell_id, ref_id, ref_num, mp_num, has_authority)
+    VALUES('Balmora', 'crate_01', 42, 0, 1);
+INSERT INTO world_container_items(cell_id, ref_id, ref_num, item_index, item_ref_id, item_count, charge)
+    VALUES('Balmora', 'crate_01', 42, 0, 'gold_001', 7, -1);
+)SQL";
+    char* error = nullptr;
+    ASSERT_EQ(sqlite3_exec(raw, legacySchema, nullptr, nullptr, &error), SQLITE_OK)
+        << (error ? error : "unknown sqlite error");
+    if (error)
+        sqlite3_free(error);
+    ASSERT_EQ(sqlite3_close(raw), SQLITE_OK);
+
+    {
+        mwmp::PlayerDatabase database(temporary.path.string());
+        const auto migrated = database.loadContainerRecords();
+        ASSERT_EQ(migrated.size(), 1u);
+        EXPECT_EQ(migrated.front().cellId, "Balmora");
+        EXPECT_EQ(migrated.front().refId, "crate_01");
+        EXPECT_EQ(migrated.front().refNum, 42u);
+        EXPECT_EQ(migrated.front().mpNum, 0u);
+        ASSERT_EQ(migrated.front().items.size(), 1u);
+        EXPECT_EQ(migrated.front().items.front().refId, "gold_001");
+        EXPECT_EQ(migrated.front().items.front().count, 7);
+
+        mwmp::ContainerRecord first;
+        first.cellId = "Balmora";
+        first.refId = "r_bc_dyn_bard_fargoth";
+        first.refNum = 0;
+        first.mpNum = 1001;
+        first.hasAuthority = true;
+        first.items = { { "r_bc_fiddle", 1, -1 } };
+        database.upsertContainerRecord(first);
+
+        mwmp::ContainerRecord second = first;
+        second.mpNum = 1002;
+        second.items = { { "r_bc_ocarina", 1, -1 } };
+        database.upsertContainerRecord(second);
+
+        const auto records = database.loadContainerRecords();
+        ASSERT_EQ(records.size(), 3u);
+        const auto firstIt = std::find_if(records.begin(), records.end(),
+            [](const mwmp::ContainerRecord& record) { return record.mpNum == 1001; });
+        const auto secondIt = std::find_if(records.begin(), records.end(),
+            [](const mwmp::ContainerRecord& record) { return record.mpNum == 1002; });
+        ASSERT_NE(firstIt, records.end());
+        ASSERT_NE(secondIt, records.end());
+        ASSERT_EQ(firstIt->items.size(), 1u);
+        ASSERT_EQ(secondIt->items.size(), 1u);
+        EXPECT_EQ(firstIt->items.front().refId, "r_bc_fiddle");
+        EXPECT_EQ(secondIt->items.front().refId, "r_bc_ocarina");
+    }
+
+    mwmp::PlayerDatabase reopened(temporary.path.string());
+    const auto records = reopened.loadContainerRecords();
+    EXPECT_EQ(std::count_if(records.begin(), records.end(),
+                  [](const mwmp::ContainerRecord& record) { return record.mpNum != 0; }),
+        2);
+}
+
+TEST(InventoryTakePersistence, SpawnedCorpseTakeDoesNotMutateSiblingInstance)
+{
+    TemporaryDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+    const std::int64_t account = database.createAccount("spawned-corpse-account");
+    const std::int64_t character = database.createCharacter(account, "Spawned Corpse Tester").characterId;
+
+    mwmp::ContainerRecord first;
+    first.cellId = "Balmora";
+    first.refId = "r_bc_dyn_bard_fargoth";
+    first.refNum = 0;
+    first.mpNum = 2001;
+    first.hasAuthority = true;
+    first.items = { { "gold_001", 10, -1 } };
+    database.upsertContainerRecord(first);
+
+    mwmp::ContainerRecord second = first;
+    second.mpNum = 2002;
+    second.items.front().count = 20;
+    database.upsertContainerRecord(second);
+
+    mwmp::InventoryTakeCommit commit;
+    commit.accountId = account;
+    commit.characterId = character;
+    commit.requestId = "spawned-corpse-take-1";
+    commit.requestHash = mwmp::crypto::sha256hex(commit.requestId);
+    commit.expectedInventoryRevision = 0;
+    commit.resultingInventoryRevision = 1;
+    commit.expectedSource = first;
+    commit.resultingSource = first;
+    commit.resultingSource->items.front().count = 5;
+    commit.result.requestId = commit.requestId;
+    commit.result.accepted = true;
+    commit.result.kind = mwmp::InventoryTakeKind::Corpse;
+    commit.result.source.cellId = first.cellId;
+    commit.result.source.refId = first.refId;
+    commit.result.source.refNum = first.refNum;
+    commit.result.source.mpNum = first.mpNum;
+    commit.result.source.actorInstanceId = (1ull << 32) | first.mpNum;
+    commit.result.source.migrationGeneration = 1;
+    commit.result.itemRefId = "gold_001";
+    commit.result.itemCharge = -1;
+    commit.result.itemCount = 5;
+    commit.result.inventoryRevision = 1;
+    mwmp::Item received;
+    received.instanceId = 1901;
+    received.refId = "gold_001";
+    received.count = 5;
+    commit.inventory = { received };
+
+    ASSERT_EQ(database.commitInventoryTake(commit).status, mwmp::InventoryTakeCommitStatus::Committed);
+    const auto records = database.loadContainerRecords();
+    const auto firstIt = std::find_if(records.begin(), records.end(),
+        [](const mwmp::ContainerRecord& record) { return record.mpNum == 2001; });
+    const auto secondIt = std::find_if(records.begin(), records.end(),
+        [](const mwmp::ContainerRecord& record) { return record.mpNum == 2002; });
+    ASSERT_NE(firstIt, records.end());
+    ASSERT_NE(secondIt, records.end());
+    ASSERT_EQ(firstIt->items.size(), 1u);
+    ASSERT_EQ(secondIt->items.size(), 1u);
+    EXPECT_EQ(firstIt->items.front().count, 5);
+    EXPECT_EQ(secondIt->items.front().count, 20);
 }
 
 TEST(InventoryTakePersistence, SourceDestinationAndReplayAreAtomicAcrossRestart)

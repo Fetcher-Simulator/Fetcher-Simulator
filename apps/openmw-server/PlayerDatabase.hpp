@@ -612,7 +612,8 @@ namespace mwmp
         void upsertContainerRecord(const ContainerRecord& record);
 
         /// Delete one server-authoritative container inventory and its items.
-        void deleteContainerRecord(std::string_view cellId, std::string_view refId, uint32_t refNum);
+        void deleteContainerRecord(
+            std::string_view cellId, std::string_view refId, uint32_t refNum, uint32_t mpNum = 0);
 
         /// Delete all server-authoritative container inventories in a cell.
         std::size_t deleteContainerRecordsForCell(std::string_view cellId);

@@ -226,8 +226,7 @@ namespace MWGui
     bool InventoryItemModel::onTakeItem(const MWWorld::Ptr& item, int count)
     {
         if (mwmp::Main::isInitialised() && mActor.getClass().isActor()
-            && mActor != MWMechanics::getPlayer()
-            && (!mActor.getClass().getCreatureStats(mActor).isDead() || mSyncInfo.mpNum == 0))
+            && mActor != MWMechanics::getPlayer())
         {
             const mwmp::InventoryTakeKind kind = mActor.getClass().getCreatureStats(mActor).isDead()
                 ? mwmp::InventoryTakeKind::Corpse : mwmp::InventoryTakeKind::ActorInventory;
@@ -243,6 +242,16 @@ namespace MWGui
         MWBase::Environment::get().getMechanicsManager()->itemTaken(player, item, mActor, count);
 
         return true;
+    }
+
+    bool InventoryItemModel::usesAuthoritativeInventoryTransfer() const
+    {
+        return mwmp::Main::isInitialised()
+            && !mActor.isEmpty()
+            && mActor != MWMechanics::getPlayer()
+            && mActor.getClass().isActor()
+            && mActor.getClass().getCreatureStats(mActor).isDead()
+            && mSyncInfo.enabled;
     }
 
     bool InventoryItemModel::usesContainer(const MWWorld::Ptr& container)
