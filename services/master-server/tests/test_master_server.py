@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import ipaddress
+import json
+import logging
+import time
 from dataclasses import replace
 
 import pytest
@@ -242,6 +245,69 @@ def test_health_prunes_expired_servers(api):
         "status": "ok",
         "active_servers": 0,
     }
+
+
+def test_tls_diagnostic_is_validated_and_logged_without_user_content(api, caplog):
+    client, _ = api
+    body = {
+        "schema_version": 1,
+        "request_id": "00112233445566778899aabbccddeeff",
+        "build_commit": "f6d6e096aa",
+        "master_host": "master.fetchers.org",
+        "resolved_addresses": "163.192.106.225",
+        "error": "SSLServerVerification",
+        "ssl_error": 1,
+        "ssl_backend_error": "20",
+        "client_time_unix": int(time.time()) - 30,
+        "elapsed_ms": 321,
+    }
+    with caplog.at_level(logging.WARNING, logger="openmw_master.tls_diagnostics"):
+        response = client.post(
+            "/v1/client-diagnostics/tls",
+            json=body,
+            headers={"User-Agent": "Fetcher-Simulator/f6d6e096aa", "X-Request-ID": "nginx-id"},
+        )
+
+    assert response.status_code == 202
+    event = json.loads(caplog.records[-1].message)
+    assert event["event"] == "client_tls_diagnostic"
+    assert event["source_ip"] == "198.51.100.10"
+    assert event["request_id"] == body["request_id"]
+    assert event["ssl_backend_error"] == "20"
+    assert event["resolved_addresses"] == "163.192.106.225"
+    assert 25 <= event["clock_delta_seconds"] <= 35
+    assert "body" not in event
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"request_id": "not-hex"},
+        {"build_commit": "not a commit"},
+        {"master_host": "https://master.fetchers.org/path?secret=1"},
+        {"resolved_addresses": "163.192.106.225; rm -rf /"},
+        {"error": "MadeUpTlsError"},
+        {"ssl_backend_error": "-1"},
+        {"elapsed_ms": 60001},
+        {"unexpected": "content"},
+    ],
+)
+def test_tls_diagnostic_rejects_unbounded_or_unexpected_metadata(api, overrides):
+    client, _ = api
+    body = {
+        "schema_version": 1,
+        "request_id": "00112233445566778899aabbccddeeff",
+        "build_commit": "f6d6e096aa",
+        "master_host": "master.fetchers.org",
+        "resolved_addresses": "163.192.106.225",
+        "error": "SSLConnection",
+        "ssl_error": 0,
+        "ssl_backend_error": "0",
+        "client_time_unix": 1787716800,
+        "elapsed_ms": 250,
+    }
+    body.update(overrides)
+    assert client.post("/v1/client-diagnostics/tls", json=body).status_code == 422
 
 
 def test_unknown_and_malformed_tokens(api):
