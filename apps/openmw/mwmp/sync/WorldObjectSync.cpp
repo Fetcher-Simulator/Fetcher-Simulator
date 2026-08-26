@@ -681,8 +681,17 @@ void WorldObjectSync::onLocalContainerOpened(const MWWorld::Ptr& container)
     ContainerRecord record;
     record.cellId = makeCellId(container);
     record.refId = container.getCellRef().getRefId().serializeText();
-    record.refNum = container.getCellRef().getRefNum().mIndex;
-    record.mpNum = getMpNumForObject(container);
+    if (container.getClass().isActor() && Main::isInitialised())
+    {
+        const ActorSync& actorSync = Main::get().getActorSync();
+        record.mpNum = actorSync.getActorMpNum(container);
+        record.refNum = record.mpNum == 0 ? actorSync.getActorCanonicalRefNum(container) : 0;
+    }
+    else
+    {
+        record.refNum = container.getCellRef().getRefNum().mIndex;
+        record.mpNum = getMpNumForObject(container);
+    }
     mOpenContainerTargets[makeContainerRevisionKey(
         record.cellId, record.refId, record.refNum, record.mpNum)] = container;
     sendLocalContainerSnapshot(record, container);

@@ -185,8 +185,7 @@ namespace MWGui
 
         const ItemStack item = mModel->getItem(mSelectedItem);
 
-        if (auto* containerModel = dynamic_cast<ContainerItemModel*>(mModel);
-            containerModel && containerModel->usesAuthoritativeInventoryTransfer())
+        if (usesAuthoritativeInventoryTransfer())
         {
             requestAuthoritativeTake(item, count, true);
             return;
@@ -205,8 +204,7 @@ namespace MWGui
 
         const ItemStack item = mModel->getItem(mSelectedItem);
 
-        if (auto* containerModel = dynamic_cast<ContainerItemModel*>(mModel);
-            containerModel && containerModel->usesAuthoritativeInventoryTransfer())
+        if (usesAuthoritativeInventoryTransfer())
         {
             requestAuthoritativeTake(item, count, false);
             return;
@@ -240,6 +238,20 @@ namespace MWGui
         mDragAndDrop->drop(mModel, mItemView);
     }
 
+    bool ContainerWindow::usesAuthoritativeInventoryTransfer() const
+    {
+        if (!mwmp::Main::isInitialised() || mModel == nullptr || mPtr.isEmpty())
+            return false;
+
+        if (const auto* containerModel = dynamic_cast<const ContainerItemModel*>(mModel))
+            return containerModel->usesAuthoritativeInventoryTransfer();
+
+        if (const auto* inventoryModel = dynamic_cast<const InventoryItemModel*>(mModel))
+            return inventoryModel->usesAuthoritativeInventoryTransfer();
+
+        return false;
+    }
+
     void ContainerWindow::requestAuthoritativeTake(const ItemStack& item, std::size_t count, bool startDrag)
     {
         if (mAuthoritativeTransferPending || count == 0 || mPtr.isEmpty())
@@ -255,8 +267,11 @@ namespace MWGui
         const std::uint64_t serial = ++mAuthoritativeTransferSerial;
         mAuthoritativeTransferPending = true;
 
+        const mwmp::InventoryTakeKind kind = mPtr.getClass().isActor()
+                && mPtr.getClass().getCreatureStats(mPtr).isDead()
+            ? mwmp::InventoryTakeKind::Corpse : mwmp::InventoryTakeKind::Container;
         const bool queued = mwmp::Main::get().getWorldObjectSync().requestInventoryTake(mPtr, item.mBase,
-            static_cast<int>(count), mwmp::InventoryTakeKind::Container,
+            static_cast<int>(count), kind,
             [this, before, itemRefId, itemCharge, sound, serial, startDrag](const mwmp::InventoryTakeResult& result) {
                 InventoryWindow* inventoryWindow = MWBase::Environment::get().getWindowManager()->getInventoryWindow();
                 ItemModel* playerModel = inventoryWindow->getModel();
@@ -269,16 +284,30 @@ namespace MWGui
 
                 if (!result.accepted)
                 {
+                    const bool takeAll = mAuthoritativeTakeAllPending;
+                    mAuthoritativeTakeAllPending = false;
+                    mDisposeAfterAuthoritativeTakeAll = false;
                     Log(Debug::Warning) << "[MP] ContainerWindow: authoritative take rejected item=" << itemRefId
-                                        << " error=" << mwmp::getInventoryTakeErrorCode(result.error);
+                                        << " error=" << mwmp::getInventoryTakeErrorCode(result.error)
+                                        << " takeAll=" << takeAll;
+                    return;
+                }
+
+                if (mModel)
+                    mModel->update();
+                if (mItemView)
+                    mItemView->update();
+
+                if (mAuthoritativeTakeAllPending)
+                {
+                    MWBase::Environment::get().getWindowManager()->playSound(sound);
+                    continueAuthoritativeTakeAll();
                     return;
                 }
 
                 if (!startDrag)
                 {
                     MWBase::Environment::get().getWindowManager()->playSound(sound);
-                    if (mItemView)
-                        mItemView->update();
                     return;
                 }
 
@@ -305,8 +334,67 @@ namespace MWGui
         if (!queued)
         {
             mAuthoritativeTransferPending = false;
+            mAuthoritativeTakeAllPending = false;
+            mDisposeAfterAuthoritativeTakeAll = false;
             Log(Debug::Warning) << "[MP] ContainerWindow: could not queue authoritative take item=" << itemRefId;
         }
+    }
+
+    void ContainerWindow::requestAuthoritativeTakeAll(bool disposeAfter)
+    {
+        if (mAuthoritativeTransferPending || mAuthoritativeTakeAllPending || mModel == nullptr || mPtr.isEmpty())
+            return;
+
+        // Preserve vanilla corpse presentation while the server moves each stack
+        // atomically. Unequip once before the first authoritative removal so
+        // InventoryStore bookkeeping cannot re-equip items between acknowledgements.
+        if (mPtr.getClass().hasInventoryStore(mPtr))
+        {
+            MWWorld::InventoryStore& invStore = mPtr.getClass().getInventoryStore(mPtr);
+            mModel->update();
+            for (std::size_t i = 0; i < mModel->getItemCount(); ++i)
+            {
+                const ItemStack item = mModel->getItem(static_cast<ItemModel::ModelIndex>(i));
+                if (invStore.isEquipped(item.mBase))
+                    invStore.unequipItem(item.mBase);
+            }
+        }
+
+        mAuthoritativeTakeAllPending = true;
+        mDisposeAfterAuthoritativeTakeAll = disposeAfter;
+        continueAuthoritativeTakeAll();
+    }
+
+    void ContainerWindow::continueAuthoritativeTakeAll()
+    {
+        if (!mAuthoritativeTakeAllPending || mAuthoritativeTransferPending)
+            return;
+        if (mModel == nullptr || mPtr.isEmpty())
+        {
+            mAuthoritativeTakeAllPending = false;
+            mDisposeAfterAuthoritativeTakeAll = false;
+            return;
+        }
+
+        mModel->update();
+        if (mItemView)
+            mItemView->update();
+
+        if (mModel->getItemCount() != 0)
+        {
+            const ItemStack item = mModel->getItem(0);
+            requestAuthoritativeTake(item, item.mCount, false);
+            return;
+        }
+
+        const bool disposeAfter = mDisposeAfterAuthoritativeTakeAll;
+        const MWWorld::Ptr ptr = mPtr;
+        mAuthoritativeTakeAllPending = false;
+        mDisposeAfterAuthoritativeTakeAll = false;
+        if (disposeAfter)
+            disposeCorpseNow(ptr);
+        else
+            MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_Container);
     }
 
     void ContainerWindow::requestAuthoritativePut(const ItemStack& item, std::size_t count)
@@ -412,6 +500,8 @@ namespace MWGui
     {
         ++mAuthoritativeTransferSerial;
         mAuthoritativeTransferPending = false;
+        mAuthoritativeTakeAllPending = false;
+        mDisposeAfterAuthoritativeTakeAll = false;
         ReferenceInterface::resetReference();
         mItemView->setModel(nullptr);
         mModel = nullptr;
@@ -477,6 +567,12 @@ namespace MWGui
         assert(mModel);
         mModel->update();
 
+        if (usesAuthoritativeInventoryTransfer())
+        {
+            requestAuthoritativeTakeAll(false);
+            return;
+        }
+
         // unequip all items to avoid unequipping/reequipping
         if (mPtr.getClass().hasInventoryStore(mPtr))
         {
@@ -524,67 +620,80 @@ namespace MWGui
         MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_Container);
     }
 
-    void ContainerWindow::onDisposeCorpseButtonClicked(MyGUI::Widget* /*sender*/)
+    void ContainerWindow::disposeCorpseNow(const MWWorld::Ptr& ptr)
     {
-        if (mDragAndDrop == nullptr || !mDragAndDrop->mIsOnDragAndDrop)
+        if (ptr.isEmpty())
+            return;
+
+        if (ptr.getClass().isPersistent(ptr))
+            MWBase::Environment::get().getWindowManager()->messageBox("#{sDisposeCorpseFail}");
+        else
         {
-            MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mCloseButton);
+            MWMechanics::CreatureStats& creatureStats = ptr.getClass().getCreatureStats(ptr);
 
-            // Copy mPtr because onTakeAllButtonClicked closes the window which resets the reference
-            MWWorld::Ptr ptr = mPtr;
-            onTakeAllButtonClicked(mTakeButton);
-
-            if (ptr.getClass().isPersistent(ptr))
-                MWBase::Environment::get().getWindowManager()->messageBox("#{sDisposeCorpseFail}");
-            else
+            // If we dispose corpse before end of death animation, we should update death counter counter manually.
+            // Also we should run actor's script - it may react on actor's death.
+            if (creatureStats.isDead() && !creatureStats.isDeathAnimationFinished())
             {
-                MWMechanics::CreatureStats& creatureStats = ptr.getClass().getCreatureStats(ptr);
+                creatureStats.setDeathAnimationFinished(true);
+                MWBase::Environment::get().getMechanicsManager()->notifyDied(ptr);
 
-                // If we dispose corpse before end of death animation, we should update death counter counter manually.
-                // Also we should run actor's script - it may react on actor's death.
-                if (creatureStats.isDead() && !creatureStats.isDeathAnimationFinished())
+                const ESM::RefId& script = ptr.getClass().getScript(ptr);
+                if (!script.empty() && MWBase::Environment::get().getWorld()->getScriptsEnabled())
                 {
-                    creatureStats.setDeathAnimationFinished(true);
-                    MWBase::Environment::get().getMechanicsManager()->notifyDied(ptr);
+                    MWScript::InterpreterContext interpreterContext(&ptr.getRefData().getLocals(), ptr);
+                    MWBase::Environment::get().getScriptManager()->run(script, interpreterContext);
+                }
 
-                    const ESM::RefId& script = ptr.getClass().getScript(ptr);
-                    if (!script.empty() && MWBase::Environment::get().getWorld()->getScriptsEnabled())
+                // Clean up summoned creatures as well.
+                auto& creatureMap = creatureStats.getSummonedCreatureMap();
+                for (const auto& creature : creatureMap)
+                    MWBase::Environment::get().getMechanicsManager()->cleanupSummonedCreature(creature.second);
+                creatureMap.clear();
+
+                // Check if we are a summon and inform our master we've bit the dust.
+                for (const auto& package : creatureStats.getAiSequence())
+                {
+                    if (package->followTargetThroughDoors() && !package->getTarget().isEmpty())
                     {
-                        MWScript::InterpreterContext interpreterContext(&ptr.getRefData().getLocals(), ptr);
-                        MWBase::Environment::get().getScriptManager()->run(script, interpreterContext);
-                    }
-
-                    // Clean up summoned creatures as well
-                    auto& creatureMap = creatureStats.getSummonedCreatureMap();
-                    for (const auto& creature : creatureMap)
-                        MWBase::Environment::get().getMechanicsManager()->cleanupSummonedCreature(creature.second);
-                    creatureMap.clear();
-
-                    // Check if we are a summon and inform our master we've bit the dust
-                    for (const auto& package : creatureStats.getAiSequence())
-                    {
-                        if (package->followTargetThroughDoors() && !package->getTarget().isEmpty())
+                        const auto& summoner = package->getTarget();
+                        auto& summons = summoner.getClass().getCreatureStats(summoner).getSummonedCreatureMap();
+                        auto it = std::find_if(summons.begin(), summons.end(),
+                            [&](const auto& entry) { return entry.second == ptr.getCellRef().getRefNum(); });
+                        if (it != summons.end())
                         {
-                            const auto& summoner = package->getTarget();
-                            auto& summons = summoner.getClass().getCreatureStats(summoner).getSummonedCreatureMap();
-                            auto it = std::find_if(summons.begin(), summons.end(),
-                                [&](const auto& entry) { return entry.second == ptr.getCellRef().getRefNum(); });
-                            if (it != summons.end())
-                            {
-                                auto summon = *it;
-                                summons.erase(it);
-                                MWMechanics::purgeSummonEffect(summoner, summon);
-                                break;
-                            }
+                            auto summon = *it;
+                            summons.erase(it);
+                            MWMechanics::purgeSummonEffect(summoner, summon);
+                            break;
                         }
                     }
                 }
-
-                MWBase::Environment::get().getWorld()->deleteObject(ptr);
             }
 
-            mPtr = MWWorld::Ptr();
+            MWBase::Environment::get().getWorld()->deleteObject(ptr);
         }
+
+        mPtr = MWWorld::Ptr();
+        MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_Container);
+    }
+
+    void ContainerWindow::onDisposeCorpseButtonClicked(MyGUI::Widget* /*sender*/)
+    {
+        if (mDragAndDrop == nullptr || mDragAndDrop->mIsOnDragAndDrop)
+            return;
+
+        MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mCloseButton);
+        if (usesAuthoritativeInventoryTransfer())
+        {
+            requestAuthoritativeTakeAll(true);
+            return;
+        }
+
+        // Copy mPtr because the legacy Take All path closes the window and resets the reference.
+        const MWWorld::Ptr ptr = mPtr;
+        onTakeAllButtonClicked(mTakeButton);
+        disposeCorpseNow(ptr);
     }
 
     void ContainerWindow::onReferenceUnavailable()

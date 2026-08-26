@@ -73,6 +73,8 @@ namespace MWGui
         bool mPickpocketFinishSent = false;
         bool mPickpocketDetected = false;
         bool mAuthoritativeTransferPending = false;
+        bool mAuthoritativeTakeAllPending = false;
+        bool mDisposeAfterAuthoritativeTakeAll = false;
         std::uint64_t mAuthoritativeTransferSerial = 0;
         MyGUI::Button* mDisposeCorpseButton;
         MyGUI::Button* mTakeButton;
@@ -83,8 +85,12 @@ namespace MWGui
         void dragItem(MyGUI::Widget* sender, std::size_t count);
         void transferItem(MyGUI::Widget* sender, std::size_t count);
         void dropItem();
+        bool usesAuthoritativeInventoryTransfer() const;
         void requestAuthoritativeTake(const ItemStack& item, std::size_t count, bool startDrag);
+        void requestAuthoritativeTakeAll(bool disposeAfter);
+        void continueAuthoritativeTakeAll();
         void requestAuthoritativePut(const ItemStack& item, std::size_t count);
+        void disposeCorpseNow(const MWWorld::Ptr& ptr);
         void onCloseButtonClicked(MyGUI::Widget* sender);
         void onTakeAllButtonClicked(MyGUI::Widget* sender);
         void onDisposeCorpseButtonClicked(MyGUI::Widget* sender);
