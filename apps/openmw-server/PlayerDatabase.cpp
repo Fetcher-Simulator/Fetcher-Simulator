@@ -155,36 +155,6 @@ CREATE TABLE IF NOT EXISTS world_dead_vanilla_actors (
 CREATE INDEX IF NOT EXISTS idx_world_dead_vanilla_actors_cell
     ON world_dead_vanilla_actors(cell_id);
 
-CREATE TABLE IF NOT EXISTS world_containers (
-    cell_id        TEXT    NOT NULL,
-    ref_id         TEXT    NOT NULL,
-    ref_num        INTEGER NOT NULL DEFAULT 0,
-    mp_num         INTEGER NOT NULL DEFAULT 0,
-    has_authority  INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY(cell_id, ref_id, ref_num, mp_num)
-);
-
-CREATE TABLE IF NOT EXISTS world_container_items (
-    cell_id             TEXT    NOT NULL,
-    ref_id              TEXT    NOT NULL,
-    ref_num             INTEGER NOT NULL DEFAULT 0,
-    mp_num              INTEGER NOT NULL DEFAULT 0,
-    item_index          INTEGER NOT NULL,
-    item_ref_id         TEXT    NOT NULL,
-    item_count          INTEGER NOT NULL DEFAULT 0,
-    charge              INTEGER NOT NULL DEFAULT -1,
-    instance_id         INTEGER NOT NULL DEFAULT 0,
-    enchantment_charge  REAL    NOT NULL DEFAULT -1,
-    soul                TEXT    NOT NULL DEFAULT '',
-    PRIMARY KEY(cell_id, ref_id, ref_num, mp_num, item_index),
-    FOREIGN KEY(cell_id, ref_id, ref_num, mp_num)
-        REFERENCES world_containers(cell_id, ref_id, ref_num, mp_num)
-        ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_world_container_items_parent
-    ON world_container_items(cell_id, ref_id, ref_num);
-
 CREATE TABLE IF NOT EXISTS world_doors (
     cell_id      TEXT    NOT NULL,
     ref_id       TEXT    NOT NULL,
@@ -421,6 +391,38 @@ CREATE TABLE IF NOT EXISTS character_lua_storage (
 
 CREATE INDEX IF NOT EXISTS idx_character_lua_storage_namespace
     ON character_lua_storage(storage_namespace, storage_key);
+)SQL";
+
+static const char* kWorldContainerSchema = R"SQL(
+CREATE TABLE IF NOT EXISTS world_containers (
+    cell_id        TEXT    NOT NULL,
+    ref_id         TEXT    NOT NULL,
+    ref_num        INTEGER NOT NULL DEFAULT 0,
+    mp_num         INTEGER NOT NULL DEFAULT 0,
+    has_authority  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(cell_id, ref_id, ref_num, mp_num)
+);
+
+CREATE TABLE IF NOT EXISTS world_container_items (
+    cell_id             TEXT    NOT NULL,
+    ref_id              TEXT    NOT NULL,
+    ref_num             INTEGER NOT NULL DEFAULT 0,
+    mp_num              INTEGER NOT NULL DEFAULT 0,
+    item_index          INTEGER NOT NULL,
+    item_ref_id         TEXT    NOT NULL,
+    item_count          INTEGER NOT NULL DEFAULT 0,
+    charge              INTEGER NOT NULL DEFAULT -1,
+    instance_id         INTEGER NOT NULL DEFAULT 0,
+    enchantment_charge  REAL    NOT NULL DEFAULT -1,
+    soul                TEXT    NOT NULL DEFAULT '',
+    PRIMARY KEY(cell_id, ref_id, ref_num, mp_num, item_index),
+    FOREIGN KEY(cell_id, ref_id, ref_num, mp_num)
+        REFERENCES world_containers(cell_id, ref_id, ref_num, mp_num)
+        ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_world_container_items_parent
+    ON world_container_items(cell_id, ref_id, ref_num);
 )SQL";
 
 static const char* kWorldItemTakeSchema = R"SQL(
@@ -1060,6 +1062,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
         }
 
         exec(kSchema);
+        exec(kWorldContainerSchema);
         exec(kWorldItemTakeSchema);
         exec(kInventoryTakeSchema);
         exec(kCombatEventSchema);
