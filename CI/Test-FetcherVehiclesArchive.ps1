@@ -250,6 +250,19 @@ try {
     $refreshArchive = Join-Path $workRoot "fetcher-tester-tools-refresh.zip"
     Compress-Archive -Path (Join-Path $refreshStage "*") -DestinationPath $refreshArchive -CompressionLevel Optimal
 
+    # Normalize the expected first-run compatibility state before taking the
+    # managed-client inventory baseline. The portable archive intentionally
+    # ships pristine managed files, and the first updater invocation may apply
+    # bundled compatibility transforms (and update their inventory records).
+    # The refresh assertion below is specifically about tester-tools isolation.
+    & (Join-Path $extractRoot "Update-Fetcher-Simulator.ps1") `
+        -InstallRoot $extractRoot `
+        -SkipTesterToolsUpdate `
+        -SkipClientUpdate `
+        -SkipClientModBundle `
+        -SkipUmoMods `
+        -SkipModPatches | Out-Null
+
     $inventoryHashBefore = (Get-FileHash -LiteralPath (Join-Path $extractRoot "fetcher-client-files.json") -Algorithm SHA256).Hash
     & (Join-Path $extractRoot "Update-Fetcher-Simulator.ps1") `
         -InstallRoot $extractRoot `
