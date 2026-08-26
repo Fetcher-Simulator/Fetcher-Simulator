@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import ipaddress
-import json
-import logging
 import os
 import re
 import threading
@@ -12,7 +10,7 @@ import time
 import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from typing import Callable, Literal
+from typing import Callable
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -26,9 +24,6 @@ except ImportError:
 TOKEN_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
-DIAGNOSTIC_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
-BUILD_COMMIT_PATTERN = re.compile(r"^(?:[0-9a-f]{10,40}|unknown)$")
-TLS_DIAGNOSTIC_LOGGER = logging.getLogger("openmw_master.tls_diagnostics")
 
 
 def _env_int(name: str, default: int, minimum: int = 0) -> int:
@@ -153,45 +148,6 @@ class PublicServerEntry(StrictModel):
 class HealthResponse(StrictModel):
     status: str
     active_servers: int
-
-
-class TlsDiagnosticRequest(StrictModel):
-    schema_version: Literal[1]
-    request_id: str = Field(min_length=32, max_length=32)
-    build_commit: str = Field(min_length=7, max_length=40)
-    master_host: str = Field(min_length=1, max_length=253)
-    resolved_addresses: str = Field(default="", max_length=512, pattern=r"^[0-9A-Fa-f:.,]*$")
-    error: Literal[
-        "SSLConnection",
-        "SSLLoadingCerts",
-        "SSLServerVerification",
-        "SSLServerHostnameVerification",
-    ]
-    ssl_error: int = Field(ge=0, le=2**31 - 1)
-    ssl_backend_error: str = Field(pattern=r"^[0-9]{1,20}$")
-    client_time_unix: int = Field(ge=-2208988800, le=7258118400)
-    elapsed_ms: int = Field(ge=0, le=60000)
-
-    @field_validator("request_id")
-    @classmethod
-    def valid_request_id(cls, value: str) -> str:
-        if not DIAGNOSTIC_ID_PATTERN.fullmatch(value):
-            raise ValueError("request_id must be 32 lowercase hexadecimal characters")
-        return value
-
-    @field_validator("build_commit")
-    @classmethod
-    def valid_build_commit(cls, value: str) -> str:
-        if not BUILD_COMMIT_PATTERN.fullmatch(value):
-            raise ValueError("build_commit must be a lowercase Git commit or unknown")
-        return value
-
-    @field_validator("master_host")
-    @classmethod
-    def safe_master_host(cls, value: str) -> str:
-        if any(character in value for character in "/?#@\r\n\t"):
-            raise ValueError("master_host must contain only an authority")
-        return value
 
 
 @dataclass
@@ -466,34 +422,6 @@ def create_app(
     )
     def unregister(body: TokenRequest) -> OkResponse:
         registry.unregister(body.token)
-        return OkResponse()
-
-    @app.post(
-        "/v1/client-diagnostics/tls",
-        response_model=OkResponse,
-        status_code=status.HTTP_202_ACCEPTED,
-        name="report_client_tls_diagnostic_v1",
-    )
-    def report_client_tls_diagnostic(body: TlsDiagnosticRequest, request: Request) -> OkResponse:
-        received_at = int(time.time())
-        event = {
-            "event": "client_tls_diagnostic",
-            "source_ip": client_ip(request, settings),
-            "nginx_request_id": request.headers.get("X-Request-ID", "")[:64],
-            "user_agent": request.headers.get("User-Agent", "")[:128],
-            "request_id": body.request_id,
-            "build_commit": body.build_commit,
-            "master_host": body.master_host,
-            "resolved_addresses": body.resolved_addresses,
-            "error": body.error,
-            "ssl_error": body.ssl_error,
-            "ssl_backend_error": body.ssl_backend_error,
-            "client_time_unix": body.client_time_unix,
-            "server_time_unix": received_at,
-            "clock_delta_seconds": received_at - body.client_time_unix,
-            "elapsed_ms": body.elapsed_ms,
-        }
-        TLS_DIAGNOSTIC_LOGGER.warning(json.dumps(event, separators=(",", ":"), sort_keys=True))
         return OkResponse()
 
     @app.get("/health", response_model=HealthResponse)

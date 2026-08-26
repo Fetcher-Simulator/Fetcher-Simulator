@@ -27,7 +27,6 @@ python -m pytest
 - `POST /v1/servers/heartbeat`
 - `POST /v1/servers/unregister`
 - `GET /health`
-- `POST /v1/client-diagnostics/tls` (bounded automatic TLS-failure telemetry)
 
 Registration:
 
@@ -90,30 +89,6 @@ address in it is a controlled reverse proxy.
 
 The production URL is `https://master.fetchers.org`. TLS terminates at Nginx;
 the C++ clients validate its public certificate normally.
-
-Install `deploy/nginx-http-observability.conf` under `/etc/nginx/conf.d/`
-before enabling `deploy/nginx.conf` as the site configuration. The dedicated
-access log records request IDs, SNI, TLS protocol/cipher, timing, and the
-Fetcher client build. The info-level error log records handshakes that fail
-before an HTTP request exists. Neither log records request bodies or server
-registration tokens.
-
-If the official HTTPS server-list request fails, Fetcher clients make one short,
-rate-limited plaintext POST to the exact diagnostic endpoint. Diagnostics for
-custom master URLs stay in the local client log and are never transmitted.
-Plaintext is intentional because the report exists only when HTTPS cannot be established.
-The schema contains an opaque request ID, build commit, configured authority,
-bounded TLS error codes, client clock, and elapsed time; it contains no account,
-character, mod, hardware, path, or credential data. All other plaintext HTTP
-requests continue to redirect to HTTPS.
-
-Inspect recent reports and handshake failures with:
-
-```bash
-journalctl -u openmw-master-server --since "30 minutes ago" | grep client_tls_diagnostic
-sudo tail -n 200 /var/log/nginx/master.fetchers.org.error.log
-sudo tail -n 200 /var/log/nginx/master.fetchers.org.access.log
-```
 
 The Docker image and systemd unit both enforce one worker and disable Uvicorn's
 own proxy-header rewriting. `/health` is suitable for liveness checks and also

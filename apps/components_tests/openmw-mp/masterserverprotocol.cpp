@@ -115,35 +115,6 @@ TEST(MasterServerProtocol, ParsesOnlyBoundedUuidTokens)
     EXPECT_TRUE(mwmp::parseRegistrationToken(R"({"token":"secret"})").empty());
 }
 
-TEST(MasterServerProtocol, ExtractsOnlyMasterServerAuthority)
-{
-    EXPECT_EQ(mwmp::masterServerAuthority("https://master.fetchers.org/v1/servers"), "master.fetchers.org");
-    EXPECT_EQ(
-        mwmp::masterServerAuthority("https://user:secret@example.test:8443/path?token=hidden"), "example.test:8443");
-    EXPECT_TRUE(mwmp::masterServerAuthority("not-a-url").empty());
-}
-
-TEST(MasterServerProtocol, SerializesBoundedTlsDiagnosticMetadata)
-{
-    mwmp::TlsDiagnosticReport report;
-    report.requestId = "00112233445566778899aabbccddeeff";
-    report.buildCommit = "f6d6e096aa";
-    report.masterHost = "master.fetchers.org";
-    report.resolvedAddresses = "163.192.106.225";
-    report.error = "SSLServerVerification";
-    report.sslError = 1;
-    report.sslBackendError = 20;
-    report.clientTimeUnix = 1787716800;
-    report.elapsedMs = 321;
-
-    const std::string json = mwmp::serializeTlsDiagnosticReport(report);
-    EXPECT_NE(json.find(R"("schema_version":1)"), std::string::npos);
-    EXPECT_NE(json.find(R"("request_id":"00112233445566778899aabbccddeeff")"), std::string::npos);
-    EXPECT_NE(json.find(R"("ssl_backend_error":"20")"), std::string::npos);
-    EXPECT_NE(json.find(R"("resolved_addresses":"163.192.106.225")"), std::string::npos);
-    EXPECT_EQ(json.find("secret"), std::string::npos);
-}
-
 TEST(MasterServerProtocol, BoundsRetryBackoffAndHandlesUnknownTokens)
 {
     EXPECT_EQ(mwmp::registrationRetryBackoff(0), std::chrono::seconds(1));

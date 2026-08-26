@@ -50,19 +50,6 @@ namespace mwmp
         std::string error;
     };
 
-    struct TlsDiagnosticReport
-    {
-        std::string requestId;
-        std::string buildCommit;
-        std::string masterHost;
-        std::string resolvedAddresses;
-        std::string error;
-        int sslError = 0;
-        std::uint64_t sslBackendError = 0;
-        std::int64_t clientTimeUnix = 0;
-        std::uint64_t elapsedMs = 0;
-    };
-
     enum class ServerSortColumn
     {
         Name,
@@ -74,8 +61,6 @@ namespace mwmp
 
     ServerListParseResult parsePublicServerList(std::string_view json);
     std::string parseRegistrationToken(std::string_view json);
-    std::string masterServerAuthority(std::string_view url);
-    std::string serializeTlsDiagnosticReport(const TlsDiagnosticReport& report);
 
     bool isProtocolCompatible(const PublicServerEntry& entry);
     bool serverEntryLess(

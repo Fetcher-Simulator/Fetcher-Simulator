@@ -1,11 +1,8 @@
 #include "ServerBrowserDialog.hpp"
 
 #include <algorithm>
-#include <atomic>
 #include <chrono>
-#include <iomanip>
 #include <iterator>
-#include <sstream>
 #include <string_view>
 
 #include <MyGUI_InputManager.h>
@@ -13,7 +10,6 @@
 #include <components/debug/debuglog.hpp>
 #include <components/misc/strings/lower.hpp>
 #include <components/settings/values.hpp>
-#include <components/version/version.hpp>
 
 #include <httplib.h>
 
@@ -36,136 +32,6 @@ namespace mwmp
         bool isTimeoutError(httplib::Error error)
         {
             return error == httplib::Error::ConnectionTimeout || error == httplib::Error::Timeout;
-        }
-
-        std::string_view tlsErrorName(httplib::Error error)
-        {
-            switch (error)
-            {
-                case httplib::Error::SSLLoadingCerts:
-                    return "SSLLoadingCerts";
-                case httplib::Error::SSLServerVerification:
-                    return "SSLServerVerification";
-                case httplib::Error::SSLServerHostnameVerification:
-                    return "SSLServerHostnameVerification";
-                case httplib::Error::SSLConnection:
-                default:
-                    return "SSLConnection";
-            }
-        }
-
-        std::string makeDiagnosticId()
-        {
-            static std::atomic<std::uint64_t> sequence = 0;
-            const auto wallClock = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                std::chrono::system_clock::now().time_since_epoch())
-                    .count());
-            const auto monotonic
-                = static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
-            const std::uint64_t unique = monotonic ^ ++sequence;
-
-            std::ostringstream stream;
-            stream << std::hex << std::setfill('0') << std::setw(16) << wallClock << std::setw(16) << unique;
-            return stream.str();
-        }
-
-        std::string diagnosticUserAgent()
-        {
-            std::string commit(Version::getCommitHash());
-            if (commit.empty())
-                commit = "unknown";
-            return "Fetcher-Simulator/" + commit.substr(0, 10);
-        }
-
-        std::string resolveMasterAddresses(const std::string& masterUrl)
-        {
-            std::string host = masterServerAuthority(masterUrl);
-            if (host.empty())
-                return {};
-            if (host.front() == '[')
-            {
-                const std::size_t closingBracket = host.find(']');
-                if (closingBracket == std::string::npos)
-                    return {};
-                host = host.substr(1, closingBracket - 1);
-            }
-            else
-            {
-                const std::size_t colon = host.rfind(':');
-                if (colon != std::string::npos && host.find(':') == colon)
-                    host.resize(colon);
-            }
-
-            std::vector<std::string> addresses;
-            httplib::hosted_at(host, addresses);
-            std::sort(addresses.begin(), addresses.end());
-            addresses.erase(std::unique(addresses.begin(), addresses.end()), addresses.end());
-            if (addresses.size() > 8)
-                addresses.resize(8);
-
-            std::ostringstream joined;
-            for (std::size_t index = 0; index < addresses.size(); ++index)
-            {
-                if (index != 0)
-                    joined << ',';
-                joined << addresses[index];
-            }
-            return joined.str();
-        }
-
-        void reportTlsFailure(const std::string& masterUrl, const httplib::Result& response,
-            std::string resolvedAddresses, std::chrono::milliseconds elapsed)
-        {
-            TlsDiagnosticReport report;
-            report.requestId = makeDiagnosticId();
-            report.buildCommit = std::string(Version::getCommitHash());
-            if (report.buildCommit.empty())
-                report.buildCommit = "unknown";
-            report.masterHost = masterServerAuthority(masterUrl);
-            report.resolvedAddresses = std::move(resolvedAddresses);
-            report.error = tlsErrorName(response.error());
-            report.sslError = response.ssl_error();
-            report.sslBackendError = response.ssl_backend_error();
-            report.clientTimeUnix
-                = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
-                      .count();
-            report.elapsedMs = static_cast<std::uint64_t>(std::max<std::int64_t>(elapsed.count(), 0));
-
-            Log(Debug::Warning) << "[ServerBrowser] TLS diagnostic id=" << report.requestId
-                                << " host=" << report.masterHost << " error=" << report.error
-                                << " resolved_addresses=" << report.resolvedAddresses
-                                << " ssl_error=" << report.sslError << " backend_error=" << report.sslBackendError
-                                << " elapsed_ms=" << report.elapsedMs;
-
-            const std::string normalizedAuthority = Misc::StringUtils::lowerCase(report.masterHost);
-            if (normalizedAuthority != "master.fetchers.org" && normalizedAuthority != "master.fetchers.org:443")
-            {
-                Log(Debug::Info) << "[ServerBrowser] TLS diagnostic " << report.requestId
-                                 << " retained locally because the configured master is not the official service";
-                return;
-            }
-
-            try
-            {
-                httplib::Client diagnostics("http://master.fetchers.org");
-                diagnostics.set_connection_timeout(1);
-                diagnostics.set_read_timeout(1);
-                diagnostics.set_write_timeout(1);
-                diagnostics.set_default_headers({ { "User-Agent", diagnosticUserAgent() } });
-                const auto result = diagnostics.Post(
-                    "/v1/client-diagnostics/tls", serializeTlsDiagnosticReport(report), "application/json");
-                if (result)
-                    Log(Debug::Info) << "[ServerBrowser] TLS diagnostic " << report.requestId
-                                     << " report status=" << result->status;
-                else
-                    Log(Debug::Warning) << "[ServerBrowser] TLS diagnostic " << report.requestId
-                                        << " report failed: " << httplib::to_string(result.error());
-            }
-            catch (const std::exception& error)
-            {
-                Log(Debug::Warning) << "[ServerBrowser] TLS diagnostic " << report.requestId
-                                    << " report error: " << error.what();
-            }
         }
     }
 
@@ -324,31 +190,21 @@ namespace mwmp
 
         try
         {
-            const std::string resolvedAddresses = resolveMasterAddresses(masterUrl);
-            const auto requestStarted = std::chrono::steady_clock::now();
             httplib::Client client(masterUrl);
             client.set_connection_timeout(3);
             client.set_read_timeout(5);
             client.set_write_timeout(5);
             client.enable_server_certificate_verification(true);
-            client.set_default_headers({ { "User-Agent", diagnosticUserAgent() } });
             const auto response = client.Get("/v1/servers");
             if (!response)
             {
                 if (isTlsError(response.error()))
-                {
                     result.error = FetchError::Tls;
-                    reportTlsFailure(masterUrl, response, resolvedAddresses,
-                        std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::steady_clock::now() - requestStarted));
-                }
                 else if (isTimeoutError(response.error()))
                     result.error = FetchError::Timeout;
                 else
                     result.error = FetchError::Connection;
-                Log(Debug::Warning) << "[ServerBrowser] request failed: " << httplib::to_string(response.error())
-                                    << " ssl_error=" << response.ssl_error()
-                                    << " backend_error=" << response.ssl_backend_error();
+                Log(Debug::Warning) << "[ServerBrowser] request failed: " << httplib::to_string(response.error());
                 return result;
             }
             if (response->status != 200)

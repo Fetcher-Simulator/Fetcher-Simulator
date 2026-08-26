@@ -128,36 +128,6 @@ namespace mwmp
         return std::regex_match(token, tokenPattern) ? token : std::string();
     }
 
-    std::string masterServerAuthority(std::string_view url)
-    {
-        const std::size_t schemeEnd = url.find("://");
-        if (schemeEnd == std::string_view::npos)
-            return {};
-        const std::size_t authorityBegin = schemeEnd + 3;
-        const std::size_t authorityEnd = url.find_first_of("/?#", authorityBegin);
-        std::string_view authority = url.substr(authorityBegin, authorityEnd - authorityBegin);
-        const std::size_t userInfoEnd = authority.rfind('@');
-        if (userInfoEnd != std::string_view::npos)
-            authority.remove_prefix(userInfoEnd + 1);
-        return authority.size() <= 253 ? std::string(authority) : std::string();
-    }
-
-    std::string serializeTlsDiagnosticReport(const TlsDiagnosticReport& report)
-    {
-        picojson::object object;
-        object["schema_version"] = picojson::value(1.0);
-        object["request_id"] = picojson::value(report.requestId);
-        object["build_commit"] = picojson::value(report.buildCommit);
-        object["master_host"] = picojson::value(report.masterHost);
-        object["resolved_addresses"] = picojson::value(report.resolvedAddresses);
-        object["error"] = picojson::value(report.error);
-        object["ssl_error"] = picojson::value(static_cast<double>(report.sslError));
-        object["ssl_backend_error"] = picojson::value(std::to_string(report.sslBackendError));
-        object["client_time_unix"] = picojson::value(static_cast<double>(report.clientTimeUnix));
-        object["elapsed_ms"] = picojson::value(static_cast<double>(report.elapsedMs));
-        return picojson::value(std::move(object)).serialize();
-    }
-
     bool isProtocolCompatible(const PublicServerEntry& entry)
     {
         return entry.protocolVersion == MultiplayerProtocolVersion;
