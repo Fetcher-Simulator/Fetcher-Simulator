@@ -39,7 +39,7 @@ namespace
         const auto package = root / directory;
         writeFile(package / "main.lua", "return { engineHandlers = {} }");
         writeFile(package / "manifest.yaml",
-            "manifestVersion: 2\npackageId: " + std::string(id)
+            "manifestVersion: 3\npackageId: " + std::string(id)
                 + "\npackageVersion: 1\nrequiredOpenMWLuaApi: 139\nrequiredMultiplayerLuaApi: 1\n"
                   "dependencies: "
                 + std::string(dependencies)
@@ -76,7 +76,7 @@ TEST(ServerLuaPackageRegistry, FailsStartupForInvalidPackageConfiguration)
     TemporaryDirectory temp;
     writePackage(temp.path(), "bad", "fetcher.bad");
     writeFile(temp.path() / "bad" / "manifest.yaml",
-        "manifestVersion: 2\npackageId: fetcher.bad\npackageVersion: 1\nrequiredOpenMWLuaApi: 140\n"
+        "manifestVersion: 3\npackageId: fetcher.bad\npackageVersion: 1\nrequiredOpenMWLuaApi: 140\n"
         "requiredMultiplayerLuaApi: 1\ndependencies: []\nfiles: [main.lua]\n"
         "scripts:\n  - path: main.lua\n    flags: [global]\n");
     EXPECT_THROW(mwmp::ServerLuaPackageRegistry(temp.path(), 139), std::runtime_error);
@@ -87,7 +87,7 @@ TEST(ServerLuaPackageRegistry, RejectsNonCanonicalFilesystemPaths)
     TemporaryDirectory temp;
     writePackage(temp.path(), "bad", "fetcher.bad");
     writeFile(temp.path() / "bad" / "manifest.yaml",
-        "manifestVersion: 2\npackageId: fetcher.bad\npackageVersion: 1\nrequiredOpenMWLuaApi: 139\n"
+        "manifestVersion: 3\npackageId: fetcher.bad\npackageVersion: 1\nrequiredOpenMWLuaApi: 139\n"
         "requiredMultiplayerLuaApi: 1\ndependencies: []\nfiles: [MAIN.LUA]\n"
         "scripts:\n  - path: MAIN.LUA\n    flags: [global]\n");
     EXPECT_THROW(mwmp::ServerLuaPackageRegistry(temp.path(), 139), std::runtime_error);
@@ -99,10 +99,10 @@ TEST(ServerLuaPackageRegistry, LoadsOverrideOnlyPackageWithExplicitBasePolicy)
     const auto package = temp.path() / "compatibility";
     writeFile(package / "overrides" / "item.lua", "return { engineHandlers = {} }");
     writeFile(package / "manifest.yaml",
-        "manifestVersion: 2\npackageId: fetcher.compatibility\npackageVersion: 1\nrequiredOpenMWLuaApi: 139\n"
+        "manifestVersion: 3\npackageId: fetcher.compatibility\npackageVersion: 1\nrequiredOpenMWLuaApi: 139\n"
         "requiredMultiplayerLuaApi: 1\ndependencies: []\nfiles: [overrides/item.lua]\n"
         "overrides:\n  - target: scripts/inventoryextender/item.lua\n"
-        "    source: overrides/item.lua\n    basePolicy: any\n");
+        "    source: overrides/item.lua\n    basePolicy: any\n    targetPolicy: if-present\n");
 
     mwmp::ServerLuaPackageRegistry registry(temp.path(), 139);
     ASSERT_EQ(registry.packageSet().packages.size(), 1u);
@@ -110,4 +110,22 @@ TEST(ServerLuaPackageRegistry, LoadsOverrideOnlyPackageWithExplicitBasePolicy)
     EXPECT_TRUE(loaded.registrations.empty());
     ASSERT_EQ(loaded.overrides.size(), 1u);
     EXPECT_EQ(loaded.overrides[0].basePolicy, mwmp::serverlua::OverrideBasePolicy::Any);
+    EXPECT_EQ(loaded.overrides[0].targetPolicy, mwmp::serverlua::OverrideTargetPolicy::IfPresent);
+}
+
+TEST(ServerLuaPackageRegistry, OverrideTargetPolicyDefaultsToRequired)
+{
+    TemporaryDirectory temp;
+    const auto package = temp.path() / "compatibility";
+    writeFile(package / "overrides" / "item.lua", "return { engineHandlers = {} }");
+    writeFile(package / "manifest.yaml",
+        "manifestVersion: 3\npackageId: fetcher.compatibility\npackageVersion: 1\nrequiredOpenMWLuaApi: 139\n"
+        "requiredMultiplayerLuaApi: 1\ndependencies: []\nfiles: [overrides/item.lua]\n"
+        "overrides:\n  - target: scripts/inventoryextender/item.lua\n"
+        "    source: overrides/item.lua\n    basePolicy: any\n");
+
+    mwmp::ServerLuaPackageRegistry registry(temp.path(), 139);
+    ASSERT_EQ(registry.packageSet().packages[0].overrides.size(), 1u);
+    EXPECT_EQ(registry.packageSet().packages[0].overrides[0].targetPolicy,
+        mwmp::serverlua::OverrideTargetPolicy::Required);
 }

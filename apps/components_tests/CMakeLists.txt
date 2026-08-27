@@ -117,6 +117,8 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         openmw-mp/mechanicssnapshot.cpp
         openmw-mp/worlditemtake.cpp
         openmw-mp/inventorytake.cpp
+        openmw-mp/barter.cpp
+        openmw-mp/barterdatabase.cpp
         openmw-mp/inventoryput.cpp
         openmw-mp/crimeinteraction.cpp
         openmw-mp/crimereaction.cpp

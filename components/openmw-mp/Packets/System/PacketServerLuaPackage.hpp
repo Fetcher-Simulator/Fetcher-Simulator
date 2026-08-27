@@ -55,6 +55,7 @@ namespace mwmp
                     stream.writeString(override.target);
                     stream.writeString(override.source);
                     stream.write(static_cast<std::uint8_t>(override.basePolicy));
+                    stream.write(static_cast<std::uint8_t>(override.targetPolicy));
                     stream.write(static_cast<std::uint16_t>(override.acceptedBaseHashes.size()));
                     for (const std::string& hash : override.acceptedBaseHashes)
                         stream.writeString(hash);
@@ -125,6 +126,9 @@ namespace mwmp
                     std::uint8_t basePolicy = 0;
                     stream.read(basePolicy);
                     override.basePolicy = static_cast<serverlua::OverrideBasePolicy>(basePolicy);
+                    std::uint8_t targetPolicy = 0;
+                    stream.read(targetPolicy);
+                    override.targetPolicy = static_cast<serverlua::OverrideTargetPolicy>(targetPolicy);
                     std::uint16_t hashCount = 0;
                     stream.read(hashCount);
                     if (hashCount > serverlua::MaxAcceptedBaseHashesPerOverride)

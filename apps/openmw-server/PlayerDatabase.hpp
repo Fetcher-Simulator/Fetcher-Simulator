@@ -253,6 +253,7 @@ namespace mwmp
         DuplicateRequest,
         DuplicateRequestConflict,
         ObjectAlreadyTaken,
+        StaleSource,
         StaleInventoryRevision,
         StaleCrimeRevision,
         CrimeDuplicateConflict,
@@ -266,6 +267,7 @@ namespace mwmp
         std::string requestHash;
         PlacedObjectIdentity object;
         WorldItemTakeResult result;
+        std::int32_t expectedWorldCount = 0;
         std::uint64_t expectedInventoryRevision = 0;
         std::uint64_t resultingInventoryRevision = 0;
         std::vector<Item> inventory;
@@ -290,6 +292,29 @@ namespace mwmp
         CrimeDuplicateConflict,
     };
 
+    struct ContainerMutation
+    {
+        ContainerRecord expected;
+        ContainerRecord resulting;
+    };
+
+    struct WorldItemMutation
+    {
+        PlacedObjectIdentity object;
+        std::int32_t expectedWorldCount = 0;
+        std::int32_t resultingWorldCount = 0;
+    };
+
+    struct MerchantGoldMutation
+    {
+        ActorInstanceId actorInstanceId = 0;
+        std::string actorRefId;
+        std::int32_t expectedGold = 0;
+        std::int32_t resultingGold = 0;
+        double expectedRestockTime = 0.0;
+        double resultingRestockTime = 0.0;
+    };
+
     struct InventoryTakeCommit
     {
         std::int64_t accountId = 0;
@@ -302,6 +327,13 @@ namespace mwmp
         std::vector<Item> inventory;
         std::optional<ContainerRecord> expectedSource;
         std::optional<ContainerRecord> resultingSource;
+        // Additional container mutations committed under the same SQLite
+        // transaction. Barter uses this for multi-source buys and the live
+        // merchant inventory destination while legacy InventoryTake keeps the
+        // single-source fields above.
+        std::vector<ContainerMutation> containerMutations;
+        std::vector<WorldItemMutation> worldItemMutations;
+        std::optional<MerchantGoldMutation> merchantGoldMutation;
         std::optional<CrimeMutationCommit> crimeMutation;
         std::vector<StolenItemMutation> stolenItemMutations;
     };
@@ -696,7 +728,15 @@ namespace mwmp
         GuardArrestCommitResult commitGuardArrest(const GuardArrestCommit& commit);
         std::optional<StoredInventoryTake> loadInventoryTake(
             std::int64_t accountId, std::int64_t characterId, std::string_view requestId);
+        struct MerchantGoldState
+    {
+        std::int32_t gold = 0;
+        double lastRestockTime = 0.0;
+    };
+
+        std::optional<MerchantGoldState> loadMerchantGold(ActorInstanceId actorInstanceId);
         std::vector<PlacedObjectIdentity> loadTakenWorldItemReferences();
+        std::vector<WorldItemMutation> loadWorldItemCountOverrides();
 
         /// Allocate a durable server-issued combat event identifier and store
         /// its immutable authenticated proposal binding.

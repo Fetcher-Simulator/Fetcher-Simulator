@@ -4,6 +4,7 @@ local self = require('openmw.self')
 local types = require('openmw.types')
 local I = require('openmw.interfaces')
 local auxUi = require('openmw_aux.ui')
+local ambient = require('openmw.ambient')
 
 local helpers = require('scripts.InventoryExtender.util.helpers')
 local constants = require('scripts.InventoryExtender.util.constants')
@@ -266,6 +267,7 @@ local eventHandlers = {
         windowManager.ctx.dragAndDrop:setDraggingObject(obj, props.resetMode)
     end,
     IE_BarterFinalized = function(props)
+        ambient.playSound('item gold up')
         I.SkillProgression.skillUsed('mercantile', {
             skillGain = props.skillGain,
             useType = I.SkillProgression.SKILL_USE_TYPES.Mercantile_Success

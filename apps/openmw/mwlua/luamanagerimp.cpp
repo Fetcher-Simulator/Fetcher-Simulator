@@ -441,6 +441,13 @@ namespace MWLua
                             + baseValidation.baseHash
                             + " acceptedBaseHashes=" + accepted);
                     }
+                    if (baseValidation.skipped)
+                    {
+                        Log(Debug::Info) << "[ServerLuaPackages] Skipped optional compatibility override"
+                                         << " package=" << package.packageId
+                                         << " target=" << target.value();
+                        continue;
+                    }
 
                     const auto [it, inserted] = layer.mSources.emplace(target, source->source);
                     if (!inserted)

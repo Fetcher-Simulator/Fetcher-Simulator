@@ -845,6 +845,9 @@ local function finalizeBarter(props)
     end
 
     local function finishSuccess()
+        if props.dispositionDelta and types.NPC.objectIsInstance(props.merchant) then
+            types.NPC.modifyBaseDisposition(props.merchant, props.player, props.dispositionDelta)
+        end
         props.player:sendEvent('IE_BarterFinalized', {
             skillGain = props.skillGain,
         })
@@ -866,9 +869,10 @@ local function finalizeBarter(props)
     local hasSelling = next(selling) ~= nil
 
     -- Single-player and older/non-multiplayer runtimes retain InventoryExtender's
-    -- original transaction path. Multiplayer purchases use the server-authoritative
-    -- barter API below so a failed stock transfer can never be followed by payment.
-    if not hasBuying or not mp.barter or not mp.barter.isAvailable() then
+    -- original transaction path. Connected multiplayer sends the entire offer as
+    -- one authoritative transaction: all buys, all sells, restocking semantics,
+    -- player gold, merchant stock and the inventory revision commit together.
+    if not mp.barter or not mp.barter.isAvailable() or not mp.barter.transaction then
         transferItems(selling, props.merchant, false)
         transferItems(buying, props.player, true)
         local settled, reason = settleGold()
@@ -880,116 +884,87 @@ local function finalizeBarter(props)
         return
     end
 
-    -- Selling still uses InventoryExtender's actor transfer path. Do not combine
-    -- that legacy direction with authoritative purchases in one offer: if either
-    -- half failed there would be no atomic way to restore both sides. Players can
-    -- submit the sell and buy offers separately until merchant puts are authoritative.
-    if hasSelling then
-        failBarter('mixed_buy_sell_offer', false)
-        return
-    end
-    if (props.barterState.currentBalance or 0) > 0 then
-        failBarter('invalid_purchase_balance', false)
+    if not hasBuying and not hasSelling then
+        finishSuccess()
         return
     end
 
-    local operations = {}
-    local hasRestocking = false
-    local hasFiniteStock = false
+    local lines = {}
     local preflightError = nil
 
-    local function appendPurchase(item, count)
+    local function appendBuy(item, count)
         if not item or count <= 0 or preflightError then return end
         local source = item.parentContainer
-        if source and types.Item.isRestocking(item) then
-            hasRestocking = true
-            return
-        end
-        hasFiniteStock = true
         if not source then
-            preflightError = 'loose_world_merchant_stock'
+            table.insert(lines, {
+                kind = 4,
+                source = item,
+                item = item,
+                count = count,
+            })
             return
         end
-        local data = item.type.itemData(item)
-        table.insert(operations, {
+        table.insert(lines, {
+            kind = types.Item.isRestocking(item) and 2 or 1,
             source = source,
             item = item,
             count = count,
-            recordId = item.recordId,
-            condition = data.condition,
-            enchantmentCharge = data.enchantmentCharge,
-            soul = data.soul,
         })
     end
 
-    for _, entry in pairs(buying) do
-        local remainingCount = entry.count
-        if entry.stacks then
-            for _, stackItem in ipairs(entry.stacks) do
-                if remainingCount <= 0 then break end
-                local takeCount = math.min(stackItem.count, remainingCount)
-                appendPurchase(stackItem, takeCount)
-                remainingCount = remainingCount - takeCount
+    local function appendSell(item, count)
+        if not item or count <= 0 or preflightError then return end
+        table.insert(lines, {
+            kind = 3,
+            item = item,
+            count = count,
+        })
+    end
+
+    local function appendEntries(entries, append)
+        for _, entry in pairs(entries) do
+            local remainingCount = entry.count
+            if entry.stacks then
+                for _, stackItem in ipairs(entry.stacks) do
+                    if remainingCount <= 0 then break end
+                    local moveCount = math.min(stackItem.count, remainingCount)
+                    append(stackItem, moveCount)
+                    remainingCount = remainingCount - moveCount
+                end
+                if remainingCount > 0 and not preflightError then
+                    preflightError = 'stack_count_changed'
+                end
+            else
+                append(entry.item, entry.count)
             end
-        else
-            appendPurchase(entry.item, entry.count)
         end
     end
 
+    appendEntries(buying, appendBuy)
+    appendEntries(selling, appendSell)
     if preflightError then
         failBarter(preflightError, false)
         return
     end
 
-    local cost = math.max(0, -(props.barterState.currentBalance or 0))
-
-    -- Restocking merchant stacks are intentionally cloned by InventoryExtender.
-    -- Keep that established behavior, but don't mix cloned and finite authoritative
-    -- stock in one offer because only finite stock is settled atomically by the server.
-    if hasRestocking and hasFiniteStock then
-        failBarter('mixed_restock_and_finite_stock', false)
-        return
-    end
-    if hasRestocking then
-        transferItems(buying, props.player, true)
-        local settled, reason = settleGold()
-        if not settled then
-            failBarter(reason, false)
-            return
-        end
-        finishSuccess()
-        return
-    end
-
-    -- A finite-stock purchase is committed as one server transaction: vendor
-    -- stock removal, item grant, and player gold deduction share one inventory
-    -- revision and one SQLite commit. Multi-source offers need a batch protocol
-    -- to preserve that same all-or-nothing property, so fail closed for now.
-    if #operations ~= 1 then
-        failBarter('multi_finite_purchase_requires_atomic_batch', false)
-        return
-    end
-    if cost <= 0 then
-        failBarter('invalid_purchase_price', false)
-        return
-    end
-
-    local op = operations[1]
+    local balance = props.barterState.currentBalance or 0
+    local merchantGold = types.NPC.objectIsInstance(props.merchant)
+        and types.NPC.getBarterGold(props.merchant) or 0
     local queued, queueError = pcall(function()
-        mp.barter.purchase(props.merchant, op.source, op.item, op.count, cost, function(result)
+        mp.barter.transaction(props.merchant, lines, balance, merchantGold, function(result)
             if not result.accepted then
-                failBarter('purchase_' .. tostring(result.error), false)
+                failBarter('transaction_' .. tostring(result.error), false)
                 return
             end
             if types.NPC.objectIsInstance(props.merchant) then
-                types.NPC.setBarterGold(props.merchant, types.NPC.getBarterGold(props.merchant) + cost)
+                types.NPC.setBarterGold(props.merchant, result.merchantGold)
             end
             props.player:sendEvent('IE_Update')
             finishSuccess()
         end)
     end)
     if not queued then
-        failBarter('purchase_queue_failed:' .. tostring(queueError), false)
+        failBarter('transaction_queue_failed:' .. tostring(queueError), false)
     end
 end
 

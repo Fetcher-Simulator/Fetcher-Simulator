@@ -10,8 +10,8 @@
 
 namespace mwmp::serverlua
 {
-    inline constexpr std::uint16_t ServerLuaPackageManifestVersion = 2;
-    inline constexpr std::uint16_t MultiplayerLuaApiVersion = 3;
+    inline constexpr std::uint16_t ServerLuaPackageManifestVersion = 3;
+    inline constexpr std::uint16_t MultiplayerLuaApiVersion = 4;
 
     inline constexpr std::size_t MaxPackages = 64;
     inline constexpr std::size_t MaxFilesPerPackage = 256;
@@ -57,11 +57,18 @@ namespace mwmp::serverlua
         Any = 1,
     };
 
+    enum class OverrideTargetPolicy : std::uint8_t
+    {
+        Required = 0,
+        IfPresent = 1,
+    };
+
     struct CompatibilityOverride
     {
         std::string target;
         std::string source;
         OverrideBasePolicy basePolicy = OverrideBasePolicy::AcceptedHashes;
+        OverrideTargetPolicy targetPolicy = OverrideTargetPolicy::Required;
         std::vector<std::string> acceptedBaseHashes;
 
         bool operator==(const CompatibilityOverride&) const = default;
@@ -105,6 +112,7 @@ namespace mwmp::serverlua
     struct OverrideBaseValidation
     {
         std::string baseHash;
+        bool skipped = false;
         std::optional<ValidationError> error;
 
         explicit operator bool() const { return !error.has_value(); }
