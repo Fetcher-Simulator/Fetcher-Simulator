@@ -885,14 +885,18 @@ bool WorldObjectSync::requestInventoryTake(const MWWorld::Ptr& source, const MWW
 bool WorldObjectSync::requestInventoryPut(const MWWorld::Ptr& destination, const MWWorld::Ptr& item,
     int count, InventoryPutCallback callback)
 {
-    if (!Main::isInitialised() || destination.isEmpty() || item.isEmpty() || count <= 0
-        || destination.getType() != ESM::Container::sRecordId)
+    if (!Main::isInitialised() || destination.isEmpty() || item.isEmpty() || count <= 0)
+        return false;
+
+    const bool actorDestination = destination.getClass().isActor();
+    if (destination.getType() != ESM::Container::sRecordId
+        && (!actorDestination || !destination.getClass().getCreatureStats(destination).isDead()))
         return false;
 
     const MWWorld::Ptr sourceOwner
         = item.getContainerStore() ? item.getContainerStore()->getPtr() : MWWorld::Ptr{};
     const MWWorld::Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
-    if (sourceOwner.isEmpty() || sourceOwner != player)
+    if (sourceOwner.isEmpty() || sourceOwner != player || destination == player)
         return false;
 
     InventoryPutRequest request;
@@ -901,6 +905,17 @@ bool WorldObjectSync::requestInventoryPut(const MWWorld::Ptr& destination, const
     request.destination.refId = destination.getCellRef().getRefId().serializeText();
     request.destination.refNum = destination.getCellRef().getRefNum().mIndex;
     request.destination.mpNum = getMpNumForObject(destination);
+    if (actorDestination)
+    {
+        ActorSync& actorSync = Main::get().getActorSync();
+        request.destination.actorInstanceId
+            = actorSync.actorNetIdForPtr(request.destination.cellId, destination);
+        request.destination.migrationGeneration
+            = actorSync.actorMigrationGenerationForPtr(request.destination.cellId, destination);
+        request.destination.mpNum = actorSync.getActorMpNum(destination);
+        request.destination.refNum = request.destination.mpNum == 0
+            ? actorSync.getActorCanonicalRefNum(destination) : 0;
+    }
     request.itemRefId = item.getCellRef().getRefId().serializeText();
     request.itemInstanceId = inventoryInstanceId(item.getCellRef().getRefNum());
     request.itemCharge = static_cast<std::int32_t>(item.getCellRef().getCharge());

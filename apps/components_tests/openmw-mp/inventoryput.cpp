@@ -70,3 +70,33 @@ TEST(InventoryPutProtocol, RejectsMissingStableIdentityAndAmbiguousDestination)
     value.requestedCount = 0;
     EXPECT_EQ(mwmp::validateInventoryPutRequest(value), mwmp::InventoryPutError::InvalidCount);
 }
+
+TEST(InventoryPutProtocol, AcceptsCanonicalVanillaAndSpawnedActorDestinations)
+{
+    auto vanilla = request();
+    vanilla.destination.refId = "hlaalu guard_outside";
+    vanilla.destination.refNum = 428720;
+    vanilla.destination.actorInstanceId
+        = mwmp::packActorInstanceKey({ mwmp::ActorKeyKind::VanillaRefNum, vanilla.destination.refNum });
+    vanilla.destination.migrationGeneration = 3;
+    EXPECT_EQ(mwmp::validateInventoryPutRequest(vanilla), mwmp::InventoryPutError::None);
+
+    mwmp::PacketInventoryPutRequest vanillaPacket;
+    vanillaPacket.request = vanilla;
+    mwmp::PacketInventoryPutRequest vanillaDecoded;
+    ASSERT_TRUE(vanillaDecoded.decode(vanillaPacket.encode()));
+    EXPECT_EQ(vanillaDecoded.request, vanilla);
+
+    auto spawned = vanilla;
+    spawned.destination.refId = "r_bc_dyn_bard_fargoth";
+    spawned.destination.refNum = 0;
+    spawned.destination.mpNum = 5901;
+    spawned.destination.actorInstanceId
+        = mwmp::packActorInstanceKey({ mwmp::ActorKeyKind::SpawnedMpNum, spawned.destination.mpNum });
+    EXPECT_EQ(mwmp::validateInventoryPutRequest(spawned), mwmp::InventoryPutError::None);
+
+    auto mismatch = spawned;
+    mismatch.destination.actorInstanceId
+        = mwmp::packActorInstanceKey({ mwmp::ActorKeyKind::SpawnedMpNum, spawned.destination.mpNum + 1 });
+    EXPECT_EQ(mwmp::validateInventoryPutRequest(mismatch), mwmp::InventoryPutError::InvalidRequest);
+}

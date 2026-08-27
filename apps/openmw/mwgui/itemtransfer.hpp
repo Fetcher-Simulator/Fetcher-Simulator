@@ -2,6 +2,7 @@
 #define OPENMW_APPS_OPENMW_MWGUI_ITEMTRANSFER_H
 
 #include "containeritemmodel.hpp"
+#include "inventoryitemmodel.hpp"
 #include "inventorywindow.hpp"
 #include "itemmodel.hpp"
 #include "itemview.hpp"
@@ -67,17 +68,23 @@ namespace MWGui
             while (auto* proxy = dynamic_cast<ProxyItemModel*>(semanticTargetModel))
                 semanticTargetModel = proxy->getSourceModel();
 
+            MWWorld::Ptr authoritativeDestination;
             if (auto* containerModel = dynamic_cast<ContainerItemModel*>(semanticTargetModel);
                 containerModel && containerModel->usesAuthoritativeInventoryTransfer())
+                authoritativeDestination = containerModel->getPrimaryItemSource();
+            else if (auto* inventoryModel = dynamic_cast<InventoryItemModel*>(semanticTargetModel);
+                inventoryModel && inventoryModel->usesAuthoritativeInventoryTransfer())
+                authoritativeDestination = inventoryModel->getActor();
+
+            if (!authoritativeDestination.isEmpty())
             {
                 if (mAuthoritativeTransferPending)
                     return;
 
-                const MWWorld::Ptr destination = containerModel->getPrimaryItemSource();
                 const std::string itemRefId = item.mBase.getCellRef().getRefId().serializeText();
                 const ESM::RefId sound = item.mBase.getClass().getDownSoundId(item.mBase);
                 mAuthoritativeTransferPending = true;
-                const bool queued = mwmp::Main::get().getWorldObjectSync().requestInventoryPut(destination,
+                const bool queued = mwmp::Main::get().getWorldObjectSync().requestInventoryPut(authoritativeDestination,
                     item.mBase, static_cast<int>(count),
                     [this, itemRefId, sound](const mwmp::InventoryPutResult& result)
                     {

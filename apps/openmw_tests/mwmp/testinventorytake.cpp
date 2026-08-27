@@ -233,6 +233,93 @@ TEST(InventoryTakePersistence, SpawnedCorpseTakeDoesNotMutateSiblingInstance)
     EXPECT_EQ(secondIt->items.front().count, 20);
 }
 
+TEST(InventoryPutPersistence, SpawnedCorpsePutDoesNotMutateSiblingInstance)
+{
+    TemporaryDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+    const std::int64_t account = database.createAccount("spawned-corpse-put-account");
+    const std::int64_t character = database.createCharacter(account, "Spawned Corpse Put Tester").characterId;
+
+    mwmp::Item carried;
+    carried.instanceId = 2901;
+    carried.refId = "iron_cuirass";
+    carried.count = 1;
+    carried.charge = 300;
+    database.saveCharacterInventory(character, { carried }, false, 0);
+
+    mwmp::ContainerRecord first;
+    first.cellId = "Balmora";
+    first.refId = "r_bc_dyn_bard_fargoth";
+    first.refNum = 0;
+    first.mpNum = 3001;
+    first.hasAuthority = true;
+    first.items = { { "gold_001", 10, -1 } };
+    database.upsertContainerRecord(first);
+
+    mwmp::ContainerRecord second = first;
+    second.mpNum = 3002;
+    second.items.front().count = 20;
+    database.upsertContainerRecord(second);
+
+    mwmp::InventoryPutRequest request;
+    request.requestId = "spawned-corpse-put-1";
+    request.destination.cellId = first.cellId;
+    request.destination.refId = first.refId;
+    request.destination.mpNum = first.mpNum;
+    request.destination.actorInstanceId
+        = mwmp::packActorInstanceKey({ mwmp::ActorKeyKind::SpawnedMpNum, first.mpNum });
+    request.destination.migrationGeneration = 1;
+    request.itemRefId = carried.refId;
+    request.itemInstanceId = carried.instanceId;
+    request.itemCharge = carried.charge;
+    request.requestedCount = 1;
+    request.expectedInventoryRevision = 0;
+
+    mwmp::InventoryTakeCommit commit;
+    commit.accountId = account;
+    commit.characterId = character;
+    commit.requestId = request.requestId;
+    commit.requestHash = mwmp::crypto::sha256hex(mwmp::canonicalInventoryPutRequest(request));
+    commit.expectedInventoryRevision = 0;
+    commit.resultingInventoryRevision = 1;
+    commit.inventory = {};
+    commit.expectedSource = first;
+    commit.resultingSource = first;
+    mwmp::ContainerItem returned;
+    returned.refId = carried.refId;
+    returned.count = 1;
+    returned.charge = carried.charge;
+    returned.instanceId = carried.instanceId;
+    commit.resultingSource->items.push_back(returned);
+    commit.result.requestId = request.requestId;
+    commit.result.accepted = true;
+    commit.result.kind = mwmp::InventoryTakeKind::Corpse;
+    commit.result.source = request.destination;
+    commit.result.itemRefId = request.itemRefId;
+    commit.result.itemCharge = request.itemCharge;
+    commit.result.itemCount = request.requestedCount;
+    commit.result.inventoryRevision = 1;
+
+    ASSERT_EQ(database.commitInventoryTake(commit).status, mwmp::InventoryTakeCommitStatus::Committed);
+    EXPECT_TRUE(database.loadCharacterInventory(character).empty());
+
+    const auto records = database.loadContainerRecords();
+    const auto firstIt = std::find_if(records.begin(), records.end(),
+        [](const mwmp::ContainerRecord& record) { return record.mpNum == 3001; });
+    const auto secondIt = std::find_if(records.begin(), records.end(),
+        [](const mwmp::ContainerRecord& record) { return record.mpNum == 3002; });
+    ASSERT_NE(firstIt, records.end());
+    ASSERT_NE(secondIt, records.end());
+    ASSERT_EQ(firstIt->items.size(), 2u);
+    ASSERT_EQ(secondIt->items.size(), 1u);
+    EXPECT_NE(std::find_if(firstIt->items.begin(), firstIt->items.end(), [](const mwmp::ContainerItem& item) {
+                  return item.refId == "iron_cuirass" && item.count == 1 && item.instanceId == 2901;
+              }),
+        firstIt->items.end());
+    EXPECT_EQ(secondIt->items.front().refId, "gold_001");
+    EXPECT_EQ(secondIt->items.front().count, 20);
+}
+
 TEST(InventoryTakePersistence, SourceDestinationAndReplayAreAtomicAcrossRestart)
 {
     TemporaryDatabase temporary;

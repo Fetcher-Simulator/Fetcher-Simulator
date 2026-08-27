@@ -23,6 +23,7 @@ namespace MWGui
 
         bool onTakeItem(const MWWorld::Ptr& item, int count) override;
         bool usesAuthoritativeInventoryTransfer() const;
+        const MWWorld::Ptr& getActor() const { return mActor; }
 
         /// Move items from this model to \a otherModel.
         MWWorld::Ptr moveItem(

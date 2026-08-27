@@ -46,9 +46,18 @@ mwmp::InventoryPutError mwmp::validateInventoryPutRequest(const InventoryPutRequ
         return InventoryPutError::InvalidRequest;
     const bool hasRefNum = request.destination.refNum != 0;
     const bool hasMpNum = request.destination.mpNum != 0;
-    if (hasRefNum == hasMpNum || request.destination.actorInstanceId != 0
-        || request.destination.migrationGeneration != 0 || request.itemInstanceId == 0)
+    const bool actorDestination = request.destination.actorInstanceId != 0;
+    if (hasRefNum == hasMpNum || request.itemInstanceId == 0
+        || (actorDestination && request.destination.migrationGeneration == 0)
+        || (!actorDestination && request.destination.migrationGeneration != 0))
         return InventoryPutError::InvalidRequest;
+    if (actorDestination)
+    {
+        const ActorInstanceKey key = unpackActorInstanceId(request.destination.actorInstanceId);
+        if ((hasRefNum && (key.kind != ActorKeyKind::VanillaRefNum || key.id != request.destination.refNum))
+            || (hasMpNum && (key.kind != ActorKeyKind::SpawnedMpNum || key.id != request.destination.mpNum)))
+            return InventoryPutError::InvalidRequest;
+    }
     if (request.requestedCount <= 0 || request.requestedCount > MaximumInventoryPutCount)
         return InventoryPutError::InvalidCount;
     return InventoryPutError::None;

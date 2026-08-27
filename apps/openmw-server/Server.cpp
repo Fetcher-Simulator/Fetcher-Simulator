@@ -14762,29 +14762,74 @@ void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data
         return;
     }
 
-    if (request.destination.mpNum != 0)
+    const bool actorDestination = request.destination.actorInstanceId != 0;
+    Position destinationPosition;
+    std::uint32_t bootstrapAuthority = 0;
+    std::string destinationKey;
+    if (actorDestination)
     {
-        // Dynamic container persistence is not lifetime-unique in the legacy
-        // container schema. Keep the semantic operation fail-closed.
-        reject(InventoryPutError::StaleDestination);
-        return;
+        const auto keyIt = mWorld.actorKeysByNetId.find(request.destination.actorInstanceId);
+        const auto locationIt = keyIt == mWorld.actorKeysByNetId.end()
+            ? mWorld.actorLocations.end() : mWorld.actorLocations.find(keyIt->second);
+        auto cellIt = locationIt == mWorld.actorLocations.end()
+            ? mWorld.actorCells.end() : mWorld.actorCells.find(locationIt->second);
+        auto actorIt = cellIt == mWorld.actorCells.end() || keyIt == mWorld.actorKeysByNetId.end()
+            ? std::unordered_map<std::string, ActorRegistryRecord>::iterator{}
+            : cellIt->second.actors.find(keyIt->second);
+        if (cellIt == mWorld.actorCells.end() || keyIt == mWorld.actorKeysByNetId.end()
+            || actorIt == cellIt->second.actors.end())
+        {
+            reject(InventoryPutError::StaleDestination);
+            return;
+        }
+
+        ActorRegistryRecord& actorRecord = actorIt->second;
+        if (locationIt->second != canonicalPlayerCell
+            || actorRecord.actorNetId != request.destination.actorInstanceId
+            || actorRecord.migrationGeneration != request.destination.migrationGeneration
+            || actorRecord.actor.refId != request.destination.refId
+            || actorRecord.actor.refNum != request.destination.refNum
+            || actorRecord.actor.mpNum != request.destination.mpNum
+            || !actorRecord.actor.isDead
+            || (actorRecord.actor.mpNum == 0 && actorRecord.actor.refNum == 0))
+        {
+            reject(InventoryPutError::StaleDestination);
+            return;
+        }
+
+        destinationPosition = actorRecord.actor.position;
+        bootstrapAuthority = isActorAuthorityLeaseValid(actorRecord, canonicalPlayerCell, nowMs)
+            ? actorRecord.actorAuthorityGuid : cellIt->second.authorityGuid;
+        destinationKey = makeContainerKey(canonicalPlayerCell, actorRecord.actor.refId,
+            actorRecord.actor.refNum, actorRecord.actor.mpNum);
     }
-    const auto destinationReference = mContentRegistry->findContainerReference(
-        request.destination.cellId, request.destination.refId, request.destination.refNum);
-    if (!destinationReference || !destinationReference->enabled)
+    else
     {
-        reject(InventoryPutError::StaleDestination);
-        return;
+        if (request.destination.mpNum != 0)
+        {
+            // Dynamic non-actor containers are still on the legacy synchronization
+            // path. Spawned corpses are lifetime-unique by mpNum and are handled above.
+            reject(InventoryPutError::StaleDestination);
+            return;
+        }
+        const auto destinationReference = mContentRegistry->findContainerReference(
+            request.destination.cellId, request.destination.refId, request.destination.refNum);
+        if (!destinationReference || !destinationReference->enabled)
+        {
+            reject(InventoryPutError::StaleDestination);
+            return;
+        }
+
+        destinationPosition = destinationReference->position;
+        const auto cellIt = mWorld.actorCells.find(canonicalPlayerCell);
+        bootstrapAuthority = cellIt == mWorld.actorCells.end() ? 0 : cellIt->second.authorityGuid;
+        destinationKey = makeContainerKey(request.destination.cellId,
+            request.destination.refId, request.destination.refNum, request.destination.mpNum);
     }
 
-    const std::string destinationKey = makeContainerKey(request.destination.cellId,
-        request.destination.refId, request.destination.refNum, request.destination.mpNum);
     auto destinationIt = mWorld.containers.find(destinationKey);
     if (destinationIt == mWorld.containers.end() || !destinationIt->second.hasAuthority)
     {
-        const auto cellIt = mWorld.actorCells.find(canonicalPlayerCell);
-        const std::uint32_t bootstrapAuthority
-            = cellIt == mWorld.actorCells.end() ? 0 : cellIt->second.authorityGuid;
         if (bootstrapAuthority != 0)
         {
             const auto authority = std::find_if(mClients.begin(), mClients.end(),
@@ -14804,9 +14849,9 @@ void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data
         return;
     }
 
-    const float dx = acceptedPlayer->snapshot.position.pos[0] - destinationReference->position.pos[0];
-    const float dy = acceptedPlayer->snapshot.position.pos[1] - destinationReference->position.pos[1];
-    const float dz = acceptedPlayer->snapshot.position.pos[2] - destinationReference->position.pos[2];
+    const float dx = acceptedPlayer->snapshot.position.pos[0] - destinationPosition.pos[0];
+    const float dy = acceptedPlayer->snapshot.position.pos[1] - destinationPosition.pos[1];
+    const float dz = acceptedPlayer->snapshot.position.pos[2] - destinationPosition.pos[2];
     const float distanceSquared = dx * dx + dy * dy + dz * dz;
     if (!std::isfinite(distanceSquared)
         || distanceSquared > mDoorInteractionRadius * mDoorInteractionRadius)
@@ -14872,7 +14917,7 @@ void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data
     commit.requestHash = requestHash;
     commit.result.requestId = request.requestId;
     commit.result.accepted = true;
-    commit.result.kind = InventoryTakeKind::Container;
+    commit.result.kind = actorDestination ? InventoryTakeKind::Corpse : InventoryTakeKind::Container;
     commit.result.source = request.destination;
     commit.result.itemRefId = request.itemRefId;
     commit.result.itemCharge = request.itemCharge;
@@ -14948,6 +14993,9 @@ void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data
 
     Log(Debug::Info) << "[InventoryPut] accepted request=" << request.requestId
                      << " destination=" << request.destination.refId
+                     << " refNum=" << request.destination.refNum
+                     << " mpNum=" << request.destination.mpNum
+                     << " actorNetId=" << request.destination.actorInstanceId
                      << " item=" << request.itemRefId << " instanceId=" << request.itemInstanceId
                      << " count=" << result.itemCount << " replayed=" << result.replayed;
     sendResult();

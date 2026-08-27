@@ -229,8 +229,7 @@ namespace MWGui
         if (!success)
             return;
 
-        if (auto* containerModel = dynamic_cast<ContainerItemModel*>(mModel);
-            containerModel && containerModel->usesAuthoritativeInventoryTransfer())
+        if (usesAuthoritativeInventoryTransfer())
         {
             requestAuthoritativePut(item, count);
             return;
