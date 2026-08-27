@@ -41,11 +41,13 @@ namespace mwmp
             stream.writeString(request.requestId);
             stream.write(static_cast<std::uint8_t>(request.kind));
             packInventorySource(stream, request.source);
+            packInventorySource(stream, request.merchant);
             stream.writeString(request.itemRefId);
             stream.write(request.itemCharge);
             stream.write(request.itemEnchantmentCharge);
             stream.writeString(request.itemSoul);
             stream.write(request.requestedCount);
+            stream.write(request.barterPrice);
             stream.write(request.expectedInventoryRevision);
         }
         void unpack(ReadStream& stream) override
@@ -56,11 +58,13 @@ namespace mwmp
             stream.read(kind);
             request.kind = static_cast<InventoryTakeKind>(kind);
             unpackInventorySource(stream, request.source);
+            unpackInventorySource(stream, request.merchant);
             request.itemRefId = stream.readString();
             stream.read(request.itemCharge);
             stream.read(request.itemEnchantmentCharge);
             request.itemSoul = stream.readString();
             stream.read(request.requestedCount);
+            stream.read(request.barterPrice);
             stream.read(request.expectedInventoryRevision);
             if (validateInventoryTakeRequest(request) != InventoryTakeError::None || !stream.eof()
                 || mHeader.payloadSize + PacketHeader::WIRE_SIZE != stream.pos())

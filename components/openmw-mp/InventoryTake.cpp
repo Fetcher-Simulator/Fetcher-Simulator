@@ -49,23 +49,51 @@ mwmp::InventoryTakeError mwmp::validateInventoryTakeRequest(const InventoryTakeR
     if (request.kind != InventoryTakeKind::Container && request.kind != InventoryTakeKind::Corpse
         && request.kind != InventoryTakeKind::Pickpocket
         && request.kind != InventoryTakeKind::ActorInventory
-        && request.kind != InventoryTakeKind::PickpocketFinish)
+        && request.kind != InventoryTakeKind::PickpocketFinish
+        && request.kind != InventoryTakeKind::Barter)
         return InventoryTakeError::InvalidRequest;
-    const bool actorSource = request.kind != InventoryTakeKind::Container;
-    const bool hasRefNum = request.source.refNum != 0;
-    const bool hasMpNum = request.source.mpNum != 0;
-    if (actorSource != (request.source.actorInstanceId != 0)
-        || hasRefNum == hasMpNum
-        || (actorSource && request.source.migrationGeneration == 0)
-        || (!actorSource && request.source.migrationGeneration != 0))
+
+    const auto validIdentityShape = [](const InventorySourceIdentity& identity, bool actor) {
+        const bool hasRefNum = identity.refNum != 0;
+        const bool hasMpNum = identity.mpNum != 0;
+        if (hasRefNum == hasMpNum || actor != (identity.actorInstanceId != 0)
+            || (actor && identity.migrationGeneration == 0)
+            || (!actor && identity.migrationGeneration != 0))
+            return false;
+        if (!actor)
+            return true;
+        const ActorInstanceKey key = unpackActorInstanceId(identity.actorInstanceId);
+        return (hasRefNum && key.kind == ActorKeyKind::VanillaRefNum && key.id == identity.refNum)
+            || (hasMpNum && key.kind == ActorKeyKind::SpawnedMpNum && key.id == identity.mpNum);
+    };
+    const auto emptyIdentity = [](const InventorySourceIdentity& identity) {
+        return identity.cellId.empty() && identity.refId.empty() && identity.refNum == 0
+            && identity.mpNum == 0 && identity.actorInstanceId == 0
+            && identity.migrationGeneration == 0;
+    };
+
+    const bool sourceIsActor = request.source.actorInstanceId != 0;
+    const bool actorSourceRequired = request.kind == InventoryTakeKind::Corpse
+        || request.kind == InventoryTakeKind::Pickpocket
+        || request.kind == InventoryTakeKind::ActorInventory
+        || request.kind == InventoryTakeKind::PickpocketFinish;
+    if ((request.kind == InventoryTakeKind::Container && sourceIsActor)
+        || (actorSourceRequired && !sourceIsActor)
+        || !validIdentityShape(request.source, sourceIsActor))
         return InventoryTakeError::InvalidRequest;
-    if (actorSource)
+
+    if (request.kind == InventoryTakeKind::Barter)
     {
-        const ActorInstanceKey key = unpackActorInstanceId(request.source.actorInstanceId);
-        if ((hasRefNum && (key.kind != ActorKeyKind::VanillaRefNum || key.id != request.source.refNum))
-            || (hasMpNum && (key.kind != ActorKeyKind::SpawnedMpNum || key.id != request.source.mpNum)))
+        if (!validString(request.merchant.cellId, MaximumInventoryTakeStringLength)
+            || !validString(request.merchant.refId, MaximumInventoryTakeStringLength)
+            || !validIdentityShape(request.merchant, true))
             return InventoryTakeError::InvalidRequest;
+        if (request.barterPrice <= 0)
+            return InventoryTakeError::InvalidPrice;
     }
+    else if (!emptyIdentity(request.merchant) || request.barterPrice != 0)
+        return InventoryTakeError::InvalidRequest;
+
     const bool finish = request.kind == InventoryTakeKind::PickpocketFinish;
     if (finish && (!request.itemRefId.empty() || request.itemCharge != -1
             || request.itemEnchantmentCharge != -1.f || !request.itemSoul.empty()
@@ -92,11 +120,18 @@ std::string mwmp::canonicalInventoryTakeRequest(const InventoryTakeRequest& requ
     appendU32(bytes, request.source.mpNum);
     appendU64(bytes, request.source.actorInstanceId);
     appendU32(bytes, request.source.migrationGeneration);
+    appendString(bytes, request.merchant.cellId);
+    appendString(bytes, request.merchant.refId);
+    appendU32(bytes, request.merchant.refNum);
+    appendU32(bytes, request.merchant.mpNum);
+    appendU64(bytes, request.merchant.actorInstanceId);
+    appendU32(bytes, request.merchant.migrationGeneration);
     appendString(bytes, request.itemRefId);
     appendU32(bytes, std::bit_cast<std::uint32_t>(request.itemCharge));
     appendU32(bytes, std::bit_cast<std::uint32_t>(request.itemEnchantmentCharge));
     appendString(bytes, request.itemSoul);
     appendU32(bytes, std::bit_cast<std::uint32_t>(request.requestedCount));
+    appendU32(bytes, std::bit_cast<std::uint32_t>(request.barterPrice));
     appendU64(bytes, request.expectedInventoryRevision);
     return bytes;
 }
@@ -114,6 +149,8 @@ std::string_view mwmp::getInventoryTakeErrorCode(InventoryTakeError error)
         case InventoryTakeError::StaleSource: return "stale_source";
         case InventoryTakeError::ItemUnavailable: return "item_unavailable";
         case InventoryTakeError::InvalidCount: return "invalid_count";
+        case InventoryTakeError::InvalidPrice: return "invalid_price";
+        case InventoryTakeError::InsufficientGold: return "insufficient_gold";
         case InventoryTakeError::OutOfRange: return "out_of_range";
         case InventoryTakeError::StaleInventoryRevision: return "stale_inventory_revision";
         case InventoryTakeError::DuplicateConflict: return "duplicate_conflict";

@@ -27,7 +27,7 @@ fi
 # therefore aborts the deployment without changing the installed server binary.
 "$repo_root/scripts/update-master-protocol.sh" "$repo_root"
 
-mkdir -p "$dist_root/logs" "$dist_root/server-scripts"
+mkdir -p "$dist_root/logs" "$dist_root/server-scripts" "$dist_root/server-lua-packages"
 install -m 0755 "$built_binary" "$dist_root/openmw-server.next"
 mv -f "$dist_root/openmw-server.next" "$dist_root/openmw-server"
 
@@ -35,6 +35,14 @@ if [[ -d "$repo_root/build-linux/server-scripts" ]]; then
     cp -a "$repo_root/build-linux/server-scripts/." "$dist_root/server-scripts/"
 elif [[ -d /root/openmw-server-build/server-scripts ]]; then
     cp -a /root/openmw-server-build/server-scripts/. "$dist_root/server-scripts/"
+fi
+
+if [[ -d "$repo_root/build-linux/server-lua-packages" ]]; then
+    rm -rf "$dist_root/server-lua-packages"
+    cp -a "$repo_root/build-linux/server-lua-packages" "$dist_root/server-lua-packages"
+elif [[ -d /root/openmw-server-build/server-lua-packages ]]; then
+    rm -rf "$dist_root/server-lua-packages"
+    cp -a /root/openmw-server-build/server-lua-packages "$dist_root/server-lua-packages"
 fi
 
 # Keep the live bare-repository hook synchronized with the tracked dispatcher.

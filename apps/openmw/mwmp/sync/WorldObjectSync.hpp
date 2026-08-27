@@ -89,6 +89,8 @@ namespace mwmp
         using InventoryTakeCallback = std::function<void(const InventoryTakeResult&)>;
         bool requestInventoryTake(const MWWorld::Ptr& source, const MWWorld::Ptr& item,
             int count, InventoryTakeKind kind, InventoryTakeCallback callback = {});
+        bool requestBarterTake(const MWWorld::Ptr& merchant, const MWWorld::Ptr& source,
+            const MWWorld::Ptr& item, int count, int barterPrice, InventoryTakeCallback callback = {});
         using InventoryPutCallback = std::function<void(const InventoryPutResult&)>;
         bool requestInventoryPut(const MWWorld::Ptr& destination, const MWWorld::Ptr& item,
             int count, InventoryPutCallback callback = {});

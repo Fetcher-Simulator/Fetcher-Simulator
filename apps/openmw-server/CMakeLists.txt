@@ -189,6 +189,12 @@ target_compile_features(openmw-server PRIVATE cxx_std_20)
 
 install(TARGETS openmw-server RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
+set(OPENMW_SERVER_LUA_PACKAGES_SOURCE "${CMAKE_SOURCE_DIR}/files/server/server-lua-packages")
+if(EXISTS "${OPENMW_SERVER_LUA_PACKAGES_SOURCE}")
+    install(DIRECTORY "${OPENMW_SERVER_LUA_PACKAGES_SOURCE}/"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}/server-lua-packages")
+endif()
+
 if(DEFINED OPENMW_SERVER_INSTALL_SCRIPTS_DESTINATION)
     install(FILES ${OPENMW_SERVER_RELEASE_FILES}
         DESTINATION "${OPENMW_SERVER_INSTALL_SCRIPTS_DESTINATION}")
@@ -206,6 +212,11 @@ add_custom_command(TARGET openmw-server POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${OPENMW_SERVER_RELEASE_FILES}
         "$<TARGET_FILE_DIR:openmw-server>/server-scripts"
+    COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "$<TARGET_FILE_DIR:openmw-server>/server-lua-packages"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${OPENMW_SERVER_LUA_PACKAGES_SOURCE}"
+        "$<TARGET_FILE_DIR:openmw-server>/server-lua-packages"
     COMMAND ${CMAKE_COMMAND} -E make_directory
         "$<TARGET_FILE_DIR:openmw-server>/resources/lua_libs"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

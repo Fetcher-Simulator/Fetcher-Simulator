@@ -45,6 +45,63 @@ TEST(InventoryTakeProtocol, RequestRoundTripsCanonically)
     EXPECT_FALSE(incoming.decode(trailing));
 }
 
+TEST(InventoryTakeProtocol, BarterRequestCarriesStrictMerchantIdentity)
+{
+    mwmp::InventoryTakeRequest value;
+    value.requestId = "barter-take-1";
+    value.kind = mwmp::InventoryTakeKind::Barter;
+    value.source.cellId = "Taris, Lower City Black Market";
+    value.source.refId = "SW_TarisChestLCVend1";
+    value.source.refNum = 29598;
+    value.merchant.cellId = value.source.cellId;
+    value.merchant.refId = "sw_blackmarketmerchant";
+    value.merchant.refNum = 29597;
+    value.merchant.actorInstanceId
+        = mwmp::packActorInstanceKey({ mwmp::ActorKeyKind::VanillaRefNum, value.merchant.refNum });
+    value.merchant.migrationGeneration = 1;
+    value.itemRefId = "SW_BlasterRepeater";
+    value.itemCharge = -1;
+    value.itemEnchantmentCharge = -1.f;
+    value.requestedCount = 1;
+    value.barterPrice = 5625;
+    value.expectedInventoryRevision = 42;
+
+    ASSERT_EQ(mwmp::validateInventoryTakeRequest(value), mwmp::InventoryTakeError::None);
+
+    mwmp::PacketInventoryTakeRequest outgoing;
+    outgoing.request = value;
+    mwmp::PacketInventoryTakeRequest incoming;
+    ASSERT_TRUE(incoming.decode(outgoing.encode()));
+    EXPECT_EQ(incoming.request, value);
+
+    auto missingMerchant = value;
+    missingMerchant.merchant = {};
+    EXPECT_EQ(mwmp::validateInventoryTakeRequest(missingMerchant), mwmp::InventoryTakeError::InvalidRequest);
+
+    auto nonActorMerchant = value;
+    nonActorMerchant.merchant.actorInstanceId = 0;
+    nonActorMerchant.merchant.migrationGeneration = 0;
+    EXPECT_EQ(mwmp::validateInventoryTakeRequest(nonActorMerchant), mwmp::InventoryTakeError::InvalidRequest);
+
+    auto missingPrice = value;
+    missingPrice.barterPrice = 0;
+    EXPECT_EQ(mwmp::validateInventoryTakeRequest(missingPrice), mwmp::InventoryTakeError::InvalidPrice);
+
+    auto ordinaryTake = value;
+    ordinaryTake.kind = mwmp::InventoryTakeKind::Container;
+    EXPECT_EQ(mwmp::validateInventoryTakeRequest(ordinaryTake), mwmp::InventoryTakeError::InvalidRequest);
+
+    auto differentMerchant = value;
+    differentMerchant.merchant.refId = "other_merchant";
+    EXPECT_NE(mwmp::canonicalInventoryTakeRequest(differentMerchant),
+        mwmp::canonicalInventoryTakeRequest(value));
+
+    auto differentPrice = value;
+    differentPrice.barterPrice = value.barterPrice - 1;
+    EXPECT_NE(mwmp::canonicalInventoryTakeRequest(differentPrice),
+        mwmp::canonicalInventoryTakeRequest(value));
+}
+
 TEST(InventoryTakeProtocol, ResultRoundTripsDetectionAndCrimeMetadata)
 {
     mwmp::PacketInventoryTakeResult outgoing;

@@ -372,6 +372,39 @@ namespace mwmp
             });
         mp["inventoryTake"] = LuaUtil::makeReadOnly(inventoryTakeApi);
 
+        sol::table barterApi(lua, sol::create);
+        barterApi.set_function("isAvailable", [] { return Main::isInitialised() && Main::isConnected(); });
+        barterApi.set_function("purchase",
+            [lua](const MWLua::GObject& merchant, const MWLua::GObject& source,
+                const MWLua::GObject& item, int count, int barterPrice, sol::main_protected_function callback) {
+                if (!Main::isInitialised() || !Main::isConnected())
+                    throw std::runtime_error("mp.barter.purchase requires an active multiplayer connection");
+                const MWWorld::Ptr merchantPtr = merchant.ptrOrEmpty();
+                const MWWorld::Ptr sourcePtr = source.ptrOrEmpty();
+                const MWWorld::Ptr itemPtr = item.ptrOrEmpty();
+                if (merchantPtr.isEmpty() || sourcePtr.isEmpty() || itemPtr.isEmpty()
+                    || count <= 0 || barterPrice <= 0)
+                    throw std::runtime_error(
+                        "mp.barter.purchase requires a valid merchant, source, item, positive count, and price");
+
+                const bool queued = Main::get().getWorldObjectSync().requestBarterTake(
+                    merchantPtr, sourcePtr, itemPtr, count, barterPrice,
+                    [lua, callback = std::move(callback)](const InventoryTakeResult& result) mutable {
+                        sol::table value(lua, sol::create);
+                        value["requestId"] = result.requestId;
+                        value["accepted"] = result.accepted;
+                        value["replayed"] = result.replayed;
+                        value["error"] = std::string(getInventoryTakeErrorCode(result.error));
+                        value["itemRefId"] = result.itemRefId;
+                        value["itemCount"] = result.itemCount;
+                        value["inventoryRevision"] = result.inventoryRevision;
+                        LuaUtil::call(callback, value);
+                    });
+                if (!queued)
+                    throw std::runtime_error("mp.barter.purchase could not build a canonical request");
+            });
+        mp["barter"] = LuaUtil::makeReadOnly(barterApi);
+
         sol::table inventoryPutApi(lua, sol::create);
         inventoryPutApi.set_function("isAvailable", [] { return Main::isInitialised() && Main::isConnected(); });
         inventoryPutApi.set_function("request",

@@ -1,0 +1,33 @@
+manifestVersion: 2
+packageId: fetcher.inventoryextender-fix
+packageVersion: 7
+requiredOpenMWLuaApi: 139
+requiredMultiplayerLuaApi: 3
+dependencies: []
+files:
+  - overrides/api.lua
+  - overrides/item.lua
+  - overrides/inventory.lua
+  - overrides/categoryfilter.lua
+  - overrides/global.lua
+overrides:
+  - target: scripts/inventoryextender/api.lua
+    source: overrides/api.lua
+    acceptedBaseHashes:
+      - 48cd6de7baf5c9f60210c8e8787e0216961da28c19aae7d78ada00c17a2848c2
+  - target: scripts/inventoryextender/item.lua
+    source: overrides/item.lua
+    acceptedBaseHashes:
+      - e5007f2fc3db106b2fa9b329c0a00beb4107f8b0a00ca87cc88169f89a26d918
+  - target: scripts/inventoryextender/ui/windows/inventory.lua
+    source: overrides/inventory.lua
+    acceptedBaseHashes:
+      - eb25f84c3f927439ba70ab4484a3246de9df002468cf30eec2705d2f4d3a65c2
+  - target: scripts/inventoryextender/ui/templates/categoryfilter.lua
+    source: overrides/categoryfilter.lua
+    acceptedBaseHashes:
+      - 5ac6ca1e11cb9628bab8a065185fca83dcff229d829571da9ce6251e412ee014
+  - target: scripts/inventoryextender/global.lua
+    source: overrides/global.lua
+    acceptedBaseHashes:
+      - b9476ee5bcfd0308395f5be2ae7439d4a8204218623f3ab33aff62f8f7ac84cf
