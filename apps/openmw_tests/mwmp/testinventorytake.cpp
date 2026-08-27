@@ -364,6 +364,97 @@ TEST(InventoryTakePersistence, SourceDestinationAndReplayAreAtomicAcrossRestart)
     EXPECT_EQ(stored->result.inventoryRevision, 1u);
 }
 
+TEST(InventoryTakePersistence, BarterGoldAndVendorStockCommitAtomicallyAcrossRestart)
+{
+    TemporaryDatabase temporary;
+    std::int64_t account = 0;
+    std::int64_t character = 0;
+    mwmp::InventoryTakeCommit commit;
+    {
+        mwmp::PlayerDatabase database(temporary.path.string());
+        account = database.createAccount("barter-account");
+        character = database.createCharacter(account, "Barter Tester").characterId;
+
+        mwmp::Item startingGold;
+        startingGold.instanceId = 7001;
+        startingGold.refId = "gold_001";
+        startingGold.count = 10000;
+        database.saveCharacterInventory(character, { startingGold }, false, 0);
+
+        mwmp::ContainerRecord source;
+        source.cellId = "Taris, Lower City Black Market";
+        source.refId = "SW_TarisChestLCVend1";
+        source.refNum = 29598;
+        source.hasAuthority = true;
+        source.items = { { "SW_BlasterRepeater", 1, -1 } };
+        database.upsertContainerRecord(source);
+
+        commit.accountId = account;
+        commit.characterId = character;
+        commit.requestId = "barter-take-1";
+        commit.requestHash = mwmp::crypto::sha256hex("barter-take-1:5625");
+        commit.expectedInventoryRevision = 0;
+        commit.resultingInventoryRevision = 1;
+        commit.expectedSource = source;
+        commit.resultingSource = source;
+        commit.resultingSource->items.clear();
+        commit.result.requestId = commit.requestId;
+        commit.result.accepted = true;
+        commit.result.kind = mwmp::InventoryTakeKind::Barter;
+        commit.result.source.cellId = source.cellId;
+        commit.result.source.refId = source.refId;
+        commit.result.source.refNum = source.refNum;
+        commit.result.itemRefId = "SW_BlasterRepeater";
+        commit.result.itemCount = 1;
+        commit.result.inventoryRevision = 1;
+
+        mwmp::Item remainingGold = startingGold;
+        remainingGold.count = 4375;
+        mwmp::Item purchased;
+        purchased.instanceId = 7002;
+        purchased.refId = "SW_BlasterRepeater";
+        purchased.count = 1;
+        commit.inventory = { remainingGold, purchased };
+
+        const auto committed = database.commitInventoryTake(commit);
+        ASSERT_EQ(committed.status, mwmp::InventoryTakeCommitStatus::Committed);
+        EXPECT_EQ(database.loadInventoryRevision(character), 1u);
+        const auto inventory = database.loadCharacterInventory(character);
+        ASSERT_EQ(inventory.size(), 2u);
+        const auto gold = std::find_if(inventory.begin(), inventory.end(),
+            [](const mwmp::Item& item) { return item.refId == "gold_001"; });
+        ASSERT_NE(gold, inventory.end());
+        EXPECT_EQ(gold->count, 4375);
+        const auto blaster = std::find_if(inventory.begin(), inventory.end(),
+            [](const mwmp::Item& item) { return item.refId == "SW_BlasterRepeater"; });
+        ASSERT_NE(blaster, inventory.end());
+        EXPECT_EQ(blaster->count, 1);
+        const auto containers = database.loadContainerRecords();
+        ASSERT_EQ(containers.size(), 1u);
+        EXPECT_TRUE(containers.front().items.empty());
+
+        const auto replay = database.commitInventoryTake(commit);
+        EXPECT_EQ(replay.status, mwmp::InventoryTakeCommitStatus::DuplicateRequest);
+        EXPECT_TRUE(replay.result.replayed);
+        EXPECT_EQ(database.loadCharacterInventory(character), inventory);
+        EXPECT_TRUE(database.loadContainerRecords().front().items.empty());
+    }
+
+    mwmp::PlayerDatabase reopened(temporary.path.string());
+    EXPECT_EQ(reopened.loadInventoryRevision(character), 1u);
+    const auto inventory = reopened.loadCharacterInventory(character);
+    ASSERT_EQ(inventory.size(), 2u);
+    EXPECT_EQ(std::count_if(inventory.begin(), inventory.end(),
+                  [](const mwmp::Item& item) { return item.refId == "SW_BlasterRepeater" && item.count == 1; }),
+        1);
+    const auto gold = std::find_if(inventory.begin(), inventory.end(),
+        [](const mwmp::Item& item) { return item.refId == "gold_001"; });
+    ASSERT_NE(gold, inventory.end());
+    EXPECT_EQ(gold->count, 4375);
+    ASSERT_EQ(reopened.loadContainerRecords().size(), 1u);
+    EXPECT_TRUE(reopened.loadContainerRecords().front().items.empty());
+}
+
 TEST(InventoryTakePersistence, CrimeResultCommitsInSameTransactionAsTransfer)
 {
     TemporaryDatabase temporary;

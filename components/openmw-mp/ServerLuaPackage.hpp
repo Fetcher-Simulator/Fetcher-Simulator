@@ -11,7 +11,7 @@
 namespace mwmp::serverlua
 {
     inline constexpr std::uint16_t ServerLuaPackageManifestVersion = 2;
-    inline constexpr std::uint16_t MultiplayerLuaApiVersion = 2;
+    inline constexpr std::uint16_t MultiplayerLuaApiVersion = 3;
 
     inline constexpr std::size_t MaxPackages = 64;
     inline constexpr std::size_t MaxFilesPerPackage = 256;

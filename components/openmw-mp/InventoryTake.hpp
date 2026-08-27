@@ -10,7 +10,7 @@
 
 namespace mwmp
 {
-    inline constexpr std::uint16_t InventoryTakeProtocolVersion = 2;
+    inline constexpr std::uint16_t InventoryTakeProtocolVersion = 3;
     inline constexpr std::size_t MaximumInventoryTakeStringLength = 255;
     inline constexpr std::size_t MaximumInventoryTakeRequestIdLength = 128;
     inline constexpr std::int32_t MaximumInventoryTakeCount = 1000000;
@@ -22,6 +22,7 @@ namespace mwmp
         Pickpocket = 3,
         ActorInventory = 4,
         PickpocketFinish = 5,
+        Barter = 6,
     };
 
     struct InventorySourceIdentity
@@ -47,6 +48,8 @@ namespace mwmp
         StaleSource,
         ItemUnavailable,
         InvalidCount,
+        InvalidPrice,
+        InsufficientGold,
         OutOfRange,
         StaleInventoryRevision,
         DuplicateConflict,
@@ -59,11 +62,17 @@ namespace mwmp
         std::string requestId;
         InventoryTakeKind kind = InventoryTakeKind::Container;
         InventorySourceIdentity source;
+        // Populated only for Barter requests. The server validates that the
+        // source is the merchant itself or a container owned by this actor.
+        InventorySourceIdentity merchant;
         std::string itemRefId;
         std::int32_t itemCharge = -1;
         float itemEnchantmentCharge = -1.f;
         std::string itemSoul;
         std::int32_t requestedCount = 0;
+        // Barter only. The server removes this many gold_001 units in the
+        // same transaction as the stock transfer. Zero for every other kind.
+        std::int32_t barterPrice = 0;
         std::uint64_t expectedInventoryRevision = 0;
 
         bool operator==(const InventoryTakeRequest&) const = default;

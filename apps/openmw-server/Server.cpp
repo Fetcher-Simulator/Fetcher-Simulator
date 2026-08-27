@@ -14166,6 +14166,7 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
     std::string factionId;
     int factionRank = -1;
     bool ownershipGlobalAllowsUse = false;
+    int merchantServices = 0;
     std::uint32_t bootstrapAuthority = 0;
     if (actorSource)
     {
@@ -14212,7 +14213,7 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
     }
     else
     {
-        if (request.kind != InventoryTakeKind::Container)
+        if (request.kind != InventoryTakeKind::Container && request.kind != InventoryTakeKind::Barter)
         {
             reject(InventoryTakeError::InvalidRequest);
             return;
@@ -14251,6 +14252,92 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
             request.source.refNum, request.source.mpNum);
     }
 
+    Position interactionPosition = sourcePosition;
+    if (request.kind == InventoryTakeKind::Barter)
+    {
+        if (request.merchant.cellId != canonicalPlayerCell)
+        {
+            reject(InventoryTakeError::WrongCell);
+            return;
+        }
+
+        const auto merchantKeyIt = mWorld.actorKeysByNetId.find(request.merchant.actorInstanceId);
+        const auto merchantLocationIt = merchantKeyIt == mWorld.actorKeysByNetId.end()
+            ? mWorld.actorLocations.end() : mWorld.actorLocations.find(merchantKeyIt->second);
+        auto merchantCellIt = merchantLocationIt == mWorld.actorLocations.end()
+            ? mWorld.actorCells.end() : mWorld.actorCells.find(merchantLocationIt->second);
+        auto merchantIt = merchantCellIt == mWorld.actorCells.end() || merchantKeyIt == mWorld.actorKeysByNetId.end()
+            ? std::unordered_map<std::string, ActorRegistryRecord>::iterator{}
+            : merchantCellIt->second.actors.find(merchantKeyIt->second);
+        if (merchantCellIt == mWorld.actorCells.end() || merchantKeyIt == mWorld.actorKeysByNetId.end()
+            || merchantIt == merchantCellIt->second.actors.end())
+        {
+            reject(InventoryTakeError::StaleSource);
+            return;
+        }
+
+        const ActorRegistryRecord& merchantRecord = merchantIt->second;
+        if (merchantLocationIt->second != canonicalPlayerCell
+            || merchantRecord.actorNetId != request.merchant.actorInstanceId
+            || merchantRecord.migrationGeneration != request.merchant.migrationGeneration
+            || merchantRecord.actor.refId != request.merchant.refId
+            || merchantRecord.actor.refNum != request.merchant.refNum
+            || merchantRecord.actor.mpNum != request.merchant.mpNum
+            || merchantRecord.actor.isDead)
+        {
+            reject(InventoryTakeError::StaleSource);
+            return;
+        }
+        if (merchantRecord.actor.mpNum == 0 && merchantRecord.actor.refNum == 0)
+        {
+            reject(InventoryTakeError::StaleSource);
+            return;
+        }
+
+        ESM::RefId merchantContentId = ESM::RefId::deserializeText(merchantRecord.actor.refId);
+        if (merchantContentId.empty())
+            merchantContentId = ESM::RefId::stringRefId(merchantRecord.actor.refId);
+        const auto& contentStore = mContentRegistry->store();
+        const ESM::NPC* merchantNpc = contentStore.get<ESM::NPC>().search(merchantContentId);
+        const ESM::Creature* merchantCreature = merchantNpc == nullptr
+            ? contentStore.get<ESM::Creature>().search(merchantContentId) : nullptr;
+        if (merchantNpc != nullptr)
+        {
+            merchantServices = (merchantNpc->mFlags & ESM::NPC::Autocalc) && !merchantNpc->mClass.empty()
+                ? contentStore.get<ESM::Class>().search(merchantNpc->mClass) != nullptr
+                    ? contentStore.get<ESM::Class>().find(merchantNpc->mClass)->mData.mServices
+                    : 0
+                : merchantNpc->mAiData.mServices;
+        }
+        else if (merchantCreature != nullptr)
+            merchantServices = merchantCreature->mAiData.mServices;
+        if ((merchantServices & ESM::NPC::AllItems) == 0)
+        {
+            Log(Debug::Warning) << "[InventoryTake] rejected barter merchant without barter services request="
+                                << request.requestId << " merchant=" << merchantRecord.actor.refId;
+            reject(InventoryTakeError::StaleSource);
+            return;
+        }
+
+        if (actorSource)
+        {
+            if (request.source.actorInstanceId != request.merchant.actorInstanceId)
+            {
+                reject(InventoryTakeError::StaleSource);
+                return;
+            }
+        }
+        else if (ownerId.empty() || lowerAscii(ownerId) != lowerAscii(merchantRecord.actor.refId))
+        {
+            Log(Debug::Warning) << "[InventoryTake] rejected barter source ownership request="
+                                << request.requestId << " merchant=" << merchantRecord.actor.refId
+                                << " source=" << request.source.refId << " owner=" << ownerId;
+            reject(InventoryTakeError::StaleSource);
+            return;
+        }
+        interactionPosition = merchantRecord.actor.position;
+    }
+
     auto sourceIt = mWorld.containers.find(sourceKey);
     if (sourceIt == mWorld.containers.end() || !sourceIt->second.hasAuthority)
     {
@@ -14276,9 +14363,9 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
     const bool finish = request.kind == InventoryTakeKind::PickpocketFinish;
     if (!finish)
     {
-        const float dx = acceptedPlayer->snapshot.position.pos[0] - sourcePosition.pos[0];
-        const float dy = acceptedPlayer->snapshot.position.pos[1] - sourcePosition.pos[1];
-        const float dz = acceptedPlayer->snapshot.position.pos[2] - sourcePosition.pos[2];
+        const float dx = acceptedPlayer->snapshot.position.pos[0] - interactionPosition.pos[0];
+        const float dy = acceptedPlayer->snapshot.position.pos[1] - interactionPosition.pos[1];
+        const float dz = acceptedPlayer->snapshot.position.pos[2] - interactionPosition.pos[2];
         const float distanceSquared = dx * dx + dy * dy + dz * dz;
         if (!std::isfinite(distanceSquared)
             || distanceSquared > mDoorInteractionRadius * mDoorInteractionRadius)
@@ -14328,6 +14415,7 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
     }
 
     int itemValue = 0;
+    int minimumBarterPrice = 0;
     bool gold = false;
     Item added;
     if (!finish)
@@ -14338,9 +14426,39 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
             if (contentId.empty())
                 contentId = ESM::RefId::stringRefId(request.itemRefId);
             MWWorld::ManualRef contentRef(mContentRegistry->store(), contentId, request.requestedCount);
-            const MWWorld::Ptr ptr = contentRef.getPtr();
+            MWWorld::Ptr ptr = contentRef.getPtr();
             itemValue = ptr.getClass().getValue(ptr);
             gold = ptr.getClass().isGold(ptr);
+            if (request.kind == InventoryTakeKind::Barter)
+            {
+                if (gold || !ptr.getClass().canSell(ptr, merchantServices))
+                {
+                    Log(Debug::Warning) << "[InventoryTake] rejected barter item outside merchant services request="
+                                        << request.requestId << " merchant=" << request.merchant.refId
+                                        << " item=" << request.itemRefId << " services=" << merchantServices;
+                    reject(InventoryTakeError::ItemUnavailable);
+                    return;
+                }
+
+                float effectiveUnitValue = static_cast<float>(itemValue);
+                if (ptr.getClass().hasItemHealth(ptr))
+                {
+                    if (request.itemCharge >= 0)
+                        ptr.getCellRef().setCharge(request.itemCharge);
+                    effectiveUnitValue *= ptr.getClass().getItemNormalizedHealth(ptr);
+                }
+                const int effectiveValue = static_cast<int>(effectiveUnitValue * request.requestedCount);
+                minimumBarterPrice = static_cast<int>(std::max(1.f, 0.75f * effectiveValue));
+                if (request.barterPrice < minimumBarterPrice)
+                {
+                    Log(Debug::Warning) << "[InventoryTake] rejected barter price below native floor request="
+                                        << request.requestId << " merchant=" << request.merchant.refId
+                                        << " item=" << request.itemRefId << " price=" << request.barterPrice
+                                        << " minimum=" << minimumBarterPrice;
+                    reject(InventoryTakeError::InvalidPrice);
+                    return;
+                }
+            }
             added.refId = request.itemRefId;
             added.count = gold ? request.requestedCount * itemValue : request.requestedCount;
             added.charge = sourceItem->charge;
@@ -14355,7 +14473,8 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
     }
 
     const AcceptedMechanicsSnapshot* acceptedVictim = nullptr;
-    if (actorSource && request.kind != InventoryTakeKind::Corpse)
+    if (actorSource && request.kind != InventoryTakeKind::Corpse
+        && request.kind != InventoryTakeKind::Barter)
     {
         acceptedVictim = mMechanicsSnapshots.findFresh(
             { MechanicsSubjectKind::Npc, 0, request.source.actorInstanceId }, nowMs, MaximumSnapshotAgeMs);
@@ -14444,12 +14563,48 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
         actorAllowsUse = (flags & MechanicsWitnessPlayerFollower) != 0;
     }
     const bool theft = !pickpocket && request.kind != InventoryTakeKind::Corpse
+        && request.kind != InventoryTakeKind::Barter
         && ((actorSource && !actorAllowsUse)
             || (!actorSource && !ownershipGlobalAllowsUse && (!ownerAllowsUse || !factionAllowsUse)));
     const std::int64_t crimeValue = theft
         ? (gold ? added.count : static_cast<std::int64_t>(request.requestedCount) * itemValue) : 0;
 
     std::vector<Item> inventory = c.player.inventoryChanges.items;
+    if (request.kind == InventoryTakeKind::Barter)
+    {
+        std::int64_t availableGold = 0;
+        for (const Item& item : inventory)
+        {
+            if (lowerAscii(item.refId) == "gold_001" && item.count > 0)
+                availableGold += item.count;
+        }
+        if (availableGold < request.barterPrice)
+        {
+            Log(Debug::Warning) << "[InventoryTake] rejected barter for insufficient gold request="
+                                << request.requestId << " player=" << c.name
+                                << " price=" << request.barterPrice << " available=" << availableGold;
+            reject(InventoryTakeError::InsufficientGold);
+            return;
+        }
+
+        std::int64_t remainingGold = request.barterPrice;
+        for (auto it = inventory.begin(); it != inventory.end() && remainingGold > 0;)
+        {
+            if (lowerAscii(it->refId) != "gold_001" || it->count <= 0)
+            {
+                ++it;
+                continue;
+            }
+            const int removed = static_cast<int>(std::min<std::int64_t>(remainingGold, it->count));
+            it->count -= removed;
+            remainingGold -= removed;
+            if (it->count <= 0)
+                it = inventory.erase(it);
+            else
+                ++it;
+        }
+    }
+
     std::uint64_t resultingRevision = request.expectedInventoryRevision;
     if (!detected && !finish)
     {
@@ -14665,7 +14820,12 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
 
     Log(Debug::Info) << "[InventoryTake] accepted request=" << request.requestId
                      << " kind=" << static_cast<int>(request.kind)
-                     << " source=" << request.source.refId << " item=" << request.itemRefId
+                     << " source=" << request.source.refId
+                     << (request.kind == InventoryTakeKind::Barter ? " merchant=" : "")
+                     << (request.kind == InventoryTakeKind::Barter ? request.merchant.refId : "")
+                     << " item=" << request.itemRefId
+                     << (request.kind == InventoryTakeKind::Barter ? " price=" : "")
+                     << (request.kind == InventoryTakeKind::Barter ? std::to_string(request.barterPrice) : "")
                      << " count=" << result.itemCount << " detected=" << result.detected
                      << " roll=" << result.detectionRoll << " theft=" << result.theft
                      << " replayed=" << result.replayed;

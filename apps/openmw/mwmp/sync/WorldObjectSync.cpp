@@ -882,6 +882,72 @@ bool WorldObjectSync::requestInventoryTake(const MWWorld::Ptr& source, const MWW
     return true;
 }
 
+bool WorldObjectSync::requestBarterTake(const MWWorld::Ptr& merchant, const MWWorld::Ptr& source,
+    const MWWorld::Ptr& item, int count, int barterPrice, InventoryTakeCallback callback)
+{
+    if (!Main::isInitialised() || merchant.isEmpty() || source.isEmpty() || item.isEmpty() || count <= 0
+        || barterPrice <= 0 || !merchant.getClass().isActor() || isRemotePlayerInventorySource(source))
+        return false;
+
+    InventoryTakeRequest request;
+    request.requestId = mTakeRequestPrefix + "-barter-"
+        + std::to_string(mNextInventoryTakeRequestId++);
+    request.kind = InventoryTakeKind::Barter;
+    request.source.cellId = makeCellId(source);
+    request.source.refId = source.getCellRef().getRefId().serializeText();
+    request.source.refNum = source.getCellRef().getRefNum().mIndex;
+    request.source.mpNum = getMpNumForObject(source);
+
+    ActorSync& actorSync = Main::get().getActorSync();
+    if (source.getClass().isActor())
+    {
+        request.source.actorInstanceId = actorSync.actorNetIdForPtr(request.source.cellId, source);
+        request.source.migrationGeneration
+            = actorSync.actorMigrationGenerationForPtr(request.source.cellId, source);
+        request.source.mpNum = actorSync.getActorMpNum(source);
+        request.source.refNum = request.source.mpNum == 0
+            ? actorSync.getActorCanonicalRefNum(source) : 0;
+    }
+
+    request.merchant.cellId = makeCellId(merchant);
+    request.merchant.refId = merchant.getCellRef().getRefId().serializeText();
+    request.merchant.actorInstanceId = actorSync.actorNetIdForPtr(request.merchant.cellId, merchant);
+    request.merchant.migrationGeneration
+        = actorSync.actorMigrationGenerationForPtr(request.merchant.cellId, merchant);
+    request.merchant.mpNum = actorSync.getActorMpNum(merchant);
+    request.merchant.refNum = request.merchant.mpNum == 0
+        ? actorSync.getActorCanonicalRefNum(merchant) : 0;
+
+    request.itemRefId = item.getCellRef().getRefId().serializeText();
+    request.itemCharge = static_cast<std::int32_t>(item.getCellRef().getCharge());
+    request.itemEnchantmentCharge = item.getCellRef().getEnchantmentCharge();
+    request.itemSoul = item.getCellRef().getSoul().serializeText();
+    request.requestedCount = count;
+    request.barterPrice = barterPrice;
+    request.expectedInventoryRevision = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
+    if (validateInventoryTakeRequest(request) != InventoryTakeError::None)
+    {
+        Log(Debug::Warning) << "[MP] Cannot build canonical barter take request merchant="
+                            << request.merchant.refId << " source=" << request.source.refId
+                            << " item=" << request.itemRefId;
+        return false;
+    }
+
+    if (callback)
+        mInventoryTakeCallbacks.emplace(request.requestId, std::move(callback));
+    mInventoryTakeSources[request.requestId] = source;
+    mPendingInventoryTakes.push_back(request);
+
+    const bool sourceAuthority = source.getClass().isActor()
+        ? actorSync.hasAuthorityForObject(source)
+        : actorSync.hasAuthority(request.source.cellId);
+    if (sourceAuthority)
+        onLocalContainerOpened(source);
+
+    sendInventoryTakeRequest(request);
+    return true;
+}
+
 bool WorldObjectSync::requestInventoryPut(const MWWorld::Ptr& destination, const MWWorld::Ptr& item,
     int count, InventoryPutCallback callback)
 {
