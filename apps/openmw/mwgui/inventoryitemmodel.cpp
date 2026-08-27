@@ -250,8 +250,7 @@ namespace MWGui
             && !mActor.isEmpty()
             && mActor != MWMechanics::getPlayer()
             && mActor.getClass().isActor()
-            && mActor.getClass().getCreatureStats(mActor).isDead()
-            && mSyncInfo.enabled;
+            && mActor.getClass().getCreatureStats(mActor).isDead();
     }
 
     bool InventoryItemModel::usesContainer(const MWWorld::Ptr& container)

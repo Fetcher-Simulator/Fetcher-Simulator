@@ -20,6 +20,7 @@
 #include "../mwworld/inventorystore.hpp"
 
 #include "../mwmechanics/aipackage.hpp"
+#include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/summoning.hpp"
 #include "../mwmp/Main.hpp"
@@ -242,6 +243,15 @@ namespace MWGui
     {
         if (!mwmp::Main::isInitialised() || mModel == nullptr || mPtr.isEmpty())
             return false;
+
+        // A multiplayer corpse must never fall back to the legacy local-mutation
+        // Take All / Dispose path. InventoryItemModel::onTakeItem() already routes
+        // non-player actor transfers through InventoryTake, so allowing a corpse
+        // window to report non-authoritative here creates a mixed mode where the
+        // UI can delete the corpse while those server requests are still pending.
+        if (mPtr.getClass().isActor() && mPtr != MWMechanics::getPlayer()
+            && mPtr.getClass().getCreatureStats(mPtr).isDead())
+            return true;
 
         if (const auto* containerModel = dynamic_cast<const ContainerItemModel*>(mModel))
             return containerModel->usesAuthoritativeInventoryTransfer();
