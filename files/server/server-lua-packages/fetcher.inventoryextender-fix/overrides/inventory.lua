@@ -1436,12 +1436,6 @@ function Inventory:create(windowType, ctx)
                             return
                         end
 
-                        if mp.barter and mp.barter.isAvailable()
-                            and next(ctx.barterState.selling) and next(ctx.barterState.buying) then
-                            ui.showMessage('Multiplayer barter currently requires separate buy and sell offers.')
-                            return
-                        end
-
                         local playerGold = I.InventoryExtender.Actor().type.inventory(I.InventoryExtender.Actor()):countOf('gold_001')
                         if ctx.barterState.currentBalance < 0 and playerGold < math.abs(ctx.barterState.currentBalance) then
                             ui.showMessage(constants.Strings.BARTER_PC_TOO_POOR)
@@ -1472,13 +1466,16 @@ function Inventory:create(windowType, ctx)
                         end
 
                         local offerAccepted, skillGain = barterUtils.haggle(self.target, ctx.barterState.currentBalance, ctx.barterState.currentMerchantOffer)
+                        local dispositionDelta = nil
                         if types.NPC.objectIsInstance(self.target) then
-                            local dispositionDelta = offerAccepted and core.getGMST('iBarterSuccessDisposition') or core.getGMST('iBarterFailDisposition')
-                            core.sendGlobalEvent('IE_ModDisposition', {
-                                target = self.target,
-                                player = I.InventoryExtender.Actor(),
-                                amount = dispositionDelta,
-                            })
+                            dispositionDelta = offerAccepted and core.getGMST('iBarterSuccessDisposition') or core.getGMST('iBarterFailDisposition')
+                            if not offerAccepted then
+                                core.sendGlobalEvent('IE_ModDisposition', {
+                                    target = self.target,
+                                    player = I.InventoryExtender.Actor(),
+                                    amount = dispositionDelta,
+                                })
+                            end
                         end
 
                         if not offerAccepted then
@@ -1491,9 +1488,9 @@ function Inventory:create(windowType, ctx)
                             merchant = self.target,
                             barterState = ctx.barterState,
                             skillGain = skillGain,
+                            dispositionDelta = dispositionDelta,
                         })
 
-                        ambient.playSound('item gold up')
                         -- Multiplayer barter settles asynchronously in the server-supplied
                         -- compatibility layer. Success/failure feedback is sent only after
                         -- the authoritative transaction has completed.

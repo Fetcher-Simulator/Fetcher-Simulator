@@ -13,6 +13,7 @@
 #include <components/openmw-mp/WorldItemTake.hpp>
 #include <components/openmw-mp/InventoryTake.hpp>
 #include <components/openmw-mp/InventoryPut.hpp>
+#include <components/openmw-mp/Barter.hpp>
 #include "../../mwworld/ptr.hpp"
 
 namespace mwmp
@@ -91,6 +92,17 @@ namespace mwmp
             int count, InventoryTakeKind kind, InventoryTakeCallback callback = {});
         bool requestBarterTake(const MWWorld::Ptr& merchant, const MWWorld::Ptr& source,
             const MWWorld::Ptr& item, int count, int barterPrice, InventoryTakeCallback callback = {});
+        struct BarterLineInput
+        {
+            BarterLineKind kind = BarterLineKind::BuyFinite;
+            MWWorld::Ptr source;
+            MWWorld::Ptr item;
+            int count = 0;
+        };
+        using BarterCallback = std::function<void(const BarterResult&)>;
+        bool requestBarterTransaction(const MWWorld::Ptr& merchant,
+            const std::vector<BarterLineInput>& lines, int balance, int merchantGold,
+            BarterCallback callback = {});
         using InventoryPutCallback = std::function<void(const InventoryPutResult&)>;
         bool requestInventoryPut(const MWWorld::Ptr& destination, const MWWorld::Ptr& item,
             int count, InventoryPutCallback callback = {});
@@ -103,9 +115,11 @@ namespace mwmp
                                   const std::string& cellId);
 
         void onServerObjectDelete(const PlacedObjectIdentity& identity);
+        void onServerObjectCount(const PlacedObjectIdentity& identity, std::int32_t count);
         void onServerWorldItemTakeResult(const WorldItemTakeResult& result);
         void onServerInventoryTakeResult(const InventoryTakeResult& result);
         void onServerInventoryPutResult(const InventoryPutResult& result);
+        void onServerBarterResult(const BarterResult& result);
 
         void onServerObjectMove  (uint32_t mpNum, const std::string& cellId,
                                   const Position& pos);
@@ -125,6 +139,7 @@ namespace mwmp
                              int count, const Position& pos,
                              const std::string& cellId);
         bool tryDeleteObject(const PlacedObjectIdentity& identity);
+        bool tryApplyObjectCount(const PlacedObjectIdentity& identity, std::int32_t count);
         bool tryMoveObject  (uint32_t mpNum, const Position& pos);
         bool tryApplyContainer(const ContainerRecord& record, ContainerAction action);
         void sendLocalContainerSnapshot(const ContainerRecord& record, const MWWorld::Ptr& target);
@@ -132,6 +147,7 @@ namespace mwmp
         void processPendingHarvest(const ContainerRecord& record);
         void sendInventoryTakeRequest(const InventoryTakeRequest& request);
         void sendInventoryPutRequest(const InventoryPutRequest& request);
+        void sendBarterRequest(const BarterRequest& request);
         void registerObject(uint32_t mpNum, const MWWorld::Ptr& ptr);
         void unregisterObject(uint32_t mpNum);
 
@@ -150,6 +166,7 @@ namespace mwmp
                                Position pos; std::string cellId; float timer; };
         struct PendingLocalPlace { MWWorld::Ptr ptr; std::string refId; int count; Position pos; std::string cellId; };
         struct PendingDelete { PlacedObjectIdentity identity; float timer; };
+        struct PendingCount { PlacedObjectIdentity identity; std::int32_t count; float timer; };
         struct PendingMove   { uint32_t mpNum; Position pos; float timer; };
         struct PendingContainer { ContainerRecord record; ContainerAction action; float timer; };
         struct PendingHarvest { ContainerRecord source; };
@@ -157,6 +174,7 @@ namespace mwmp
         std::vector<PendingPlace>     mPendingPlace;
         std::vector<PendingLocalPlace> mPendingLocalPlace;
         std::vector<PendingDelete>    mPendingDelete;
+        std::vector<PendingCount>     mPendingCount;
         std::vector<PendingMove>      mPendingMove;
         std::vector<PendingContainer> mPendingContainer;
         std::vector<PendingHarvest> mPendingHarvests;
@@ -172,6 +190,21 @@ namespace mwmp
         std::unordered_map<std::string, MWWorld::Ptr> mInventoryPutDestinations;
         std::unordered_set<std::string> mInventoryPutsAwaitingDestination;
         std::unordered_map<std::string, InventoryPutCallback> mInventoryPutCallbacks;
+        std::vector<BarterRequest> mPendingBarters;
+        // Exact UI/runtime objects used to build each barter line. The key maps
+        // request id -> ordered buy sources; merchant is stored separately so a
+        // server bootstrap can always recover the same actor/container Ptr.
+        std::unordered_map<std::string, std::vector<MWWorld::Ptr>> mBarterSources;
+        std::unordered_map<std::string, MWWorld::Ptr> mBarterMerchants;
+        std::unordered_set<std::string> mBartersAwaitingSource;
+        std::unordered_map<std::string, std::vector<InventorySourceIdentity>> mBarterMissingSources;
+        std::unordered_map<std::string, BarterCallback> mBarterCallbacks;
+        struct BarterRetryState
+        {
+            bool sourceBootstrapRetried = false;
+            bool inventoryRevisionRetried = false;
+        };
+        std::unordered_map<std::string, BarterRetryState> mBarterRetryStates;
         // Preserve the concrete Ptr used by an open container UI. Static world
         // reference discovery can lag activation, but authoritative replay must
         // reconcile the same store that the UI is currently displaying.
@@ -186,6 +219,7 @@ namespace mwmp
         std::uint64_t mNextTakeRequestId = 1;
         std::uint64_t mNextInventoryTakeRequestId = 1;
         std::uint64_t mNextInventoryPutRequestId = 1;
+        std::uint64_t mNextBarterRequestId = 1;
 
         static constexpr float RETRY_RATE = 0.25f;
     };

@@ -28,6 +28,7 @@
 #include <components/openmw-mp/Packets/Object/PacketWorldItemTake.hpp>
 #include <components/openmw-mp/Packets/Object/PacketInventoryTake.hpp>
 #include <components/openmw-mp/Packets/Object/PacketInventoryPut.hpp>
+#include <components/openmw-mp/Packets/Object/PacketBarter.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketCorpseDispose.hpp>
 
 #include "../../mwbase/environment.hpp"
@@ -67,6 +68,13 @@ void WorldObjectSync::resetSessionState()
     mInventoryPutDestinations.clear();
     mInventoryPutsAwaitingDestination.clear();
     mInventoryPutCallbacks.clear();
+    mPendingBarters.clear();
+    mBarterSources.clear();
+    mBarterMerchants.clear();
+    mBartersAwaitingSource.clear();
+    mBarterMissingSources.clear();
+    mBarterCallbacks.clear();
+    mBarterRetryStates.clear();
     mOpenContainerTargets.clear();
     mContainerRevisions.clear();
     mNextContainerRevision = 1;
@@ -195,9 +203,11 @@ namespace
         auto it = std::find_if(items.begin(), items.end(),
             [&](const ContainerItem& current)
             {
+                if (current.instanceId != 0 || item.instanceId != 0)
+                    return current.instanceId != 0 && current.instanceId == item.instanceId;
                 return current.refId == item.refId && current.charge == item.charge
                     && std::abs(current.enchantmentCharge - item.enchantmentCharge) < 0.001f
-                    && current.soul == item.soul;
+                    && current.soul == item.soul && current.restocking == item.restocking;
             });
 
         if (it == items.end())
@@ -225,7 +235,7 @@ namespace
             {
                 return current.refId == item.refId && current.charge == item.charge
                     && std::abs(current.enchantmentCharge - item.enchantmentCharge) < 0.001f
-                    && current.soul == item.soul;
+                    && current.soul == item.soul && current.restocking == item.restocking;
             });
 
         if (it == items.end())
@@ -244,7 +254,9 @@ namespace
         {
             ContainerItem item;
             item.refId = it->getCellRef().getRefId().toString();
-            item.count = it->getCellRef().getCount();
+            const int rawCount = it->getCellRef().getCount();
+            item.count = std::abs(rawCount);
+            item.restocking = rawCount < 0;
             item.charge = static_cast<int>(it->getCellRef().getCharge());
             item.enchantmentCharge = it->getCellRef().getEnchantmentCharge();
             item.soul = it->getCellRef().getSoul().serializeText();
@@ -258,8 +270,8 @@ namespace
         {
             if (left.refId != right.refId)
                 return left.refId < right.refId;
-            return std::tie(left.charge, left.enchantmentCharge, left.soul)
-                < std::tie(right.charge, right.enchantmentCharge, right.soul);
+            return std::tie(left.charge, left.enchantmentCharge, left.soul, left.restocking)
+                < std::tie(right.charge, right.enchantmentCharge, right.soul, right.restocking);
         };
         std::sort(currentItems.begin(), currentItems.end(), less);
         std::sort(expectedItems.begin(), expectedItems.end(), less);
@@ -273,6 +285,7 @@ namespace
                 || currentItems[i].charge != expectedItems[i].charge
                 || std::abs(currentItems[i].enchantmentCharge - expectedItems[i].enchantmentCharge) >= 0.001f
                 || currentItems[i].soul != expectedItems[i].soul
+                || currentItems[i].restocking != expectedItems[i].restocking
                 || currentItems[i].count != expectedItems[i].count)
             {
                 return false;
@@ -291,17 +304,18 @@ namespace
             int charge = -1;
             float enchantmentCharge = -1.f;
             std::string soul;
+            bool restocking = false;
             int remaining = 0;
         };
 
-        using Identity = std::tuple<std::string, int, float, std::string>;
+        using Identity = std::tuple<std::string, int, float, std::string, bool>;
         std::map<Identity, DesiredItem> desired;
         for (const ContainerItem& item : expected)
         {
             if (item.refId.empty() || item.count <= 0)
                 continue;
             const Identity identity { lowerAscii(item.refId), item.charge,
-                item.enchantmentCharge, item.soul };
+                item.enchantmentCharge, item.soul, item.restocking };
             auto& entry = desired[identity];
             if (entry.refId.empty())
             {
@@ -309,6 +323,7 @@ namespace
                 entry.charge = item.charge;
                 entry.enchantmentCharge = item.enchantmentCharge;
                 entry.soul = item.soul;
+                entry.restocking = item.restocking;
             }
             entry.remaining += item.count;
         }
@@ -321,13 +336,15 @@ namespace
         {
             if (ptr.isEmpty())
                 continue;
-            const int currentCount = ptr.getCellRef().getCount();
-            if (currentCount <= 0)
+            const int rawCount = ptr.getCellRef().getCount();
+            if (rawCount == 0)
                 continue;
+            const int currentCount = std::abs(rawCount);
 
             const Identity identity { lowerAscii(ptr.getCellRef().getRefId().toString()),
                 static_cast<int>(ptr.getCellRef().getCharge()),
-                ptr.getCellRef().getEnchantmentCharge(), ptr.getCellRef().getSoul().serializeText() };
+                ptr.getCellRef().getEnchantmentCharge(), ptr.getCellRef().getSoul().serializeText(),
+                rawCount < 0 };
             auto desiredIt = desired.find(identity);
             const int keep = desiredIt == desired.end()
                 ? 0 : std::min(currentCount, desiredIt->second.remaining);
@@ -335,7 +352,7 @@ namespace
                 desiredIt->second.remaining -= keep;
 
             const int removeCount = currentCount - keep;
-            if (removeCount > 0)
+            if (removeCount > 0 && rawCount > 0)
                 store.remove(ptr, removeCount, false, false);
         }
 
@@ -345,14 +362,15 @@ namespace
             if (item.remaining <= 0)
                 continue;
 
-            MWWorld::ManualRef ref(esmStore, ESM::RefId::stringRefId(item.refId), item.remaining);
+            const int signedCount = item.restocking ? -item.remaining : item.remaining;
+            MWWorld::ManualRef ref(esmStore, ESM::RefId::stringRefId(item.refId), signedCount);
             MWWorld::Ptr ptr = ref.getPtr();
             if (ptr.isEmpty())
                 return false;
             ptr.getCellRef().setCharge(item.charge);
             ptr.getCellRef().setEnchantmentCharge(item.enchantmentCharge);
             ptr.getCellRef().setSoul(item.soul.empty() ? ESM::RefId() : ESM::RefId::deserializeText(item.soul));
-            store.add(ptr, item.remaining, false, false);
+            store.add(ptr, signedCount, false, false);
         }
 
         return containerStoreMatchesRecord(store, expected);
@@ -438,6 +456,17 @@ void WorldObjectSync::update(float dt)
                 return tryDeleteObject(p.identity);
             }),
         mPendingDelete.end());
+
+    // --- pending authoritative world-item counts ---
+    mPendingCount.erase(
+        std::remove_if(mPendingCount.begin(), mPendingCount.end(),
+            [&](PendingCount& p) -> bool {
+                p.timer += dt;
+                if (p.timer < RETRY_RATE) return false;
+                p.timer = 0.f;
+                return tryApplyObjectCount(p.identity, p.count);
+            }),
+        mPendingCount.end());
 
     // --- pending moves ---
     mPendingMove.erase(
@@ -752,8 +781,11 @@ void WorldObjectSync::sendLocalContainerSnapshot(const ContainerRecord& record, 
     {
         ContainerItem ci;
         ci.refId = it->getCellRef().getRefId().toString();
-        ci.count = it->getCellRef().getCount();
+        const int rawCount = it->getCellRef().getCount();
+        ci.count = std::abs(rawCount);
+        ci.restocking = rawCount < 0;
         ci.charge = static_cast<int>(it->getCellRef().getCharge());
+        ci.instanceId = inventoryInstanceId(it->getCellRef().getRefNum());
         ci.enchantmentCharge = it->getCellRef().getEnchantmentCharge();
         ci.soul = it->getCellRef().getSoul().serializeText();
         appendOrMerge(pkt.container.items, ci);
@@ -829,6 +861,21 @@ void WorldObjectSync::onServerObjectDelete(const PlacedObjectIdentity& identity)
         Log(Debug::Verbose) << "[MP] WorldObjectSync: queuing ObjectDelete mpNum=" << identity.mpNum
                             << " refId=" << identity.refId;
         mPendingDelete.push_back({identity, 0.f});
+    }
+}
+
+void WorldObjectSync::onServerObjectCount(const PlacedObjectIdentity& identity, std::int32_t count)
+{
+    if (count <= 0)
+    {
+        onServerObjectDelete(identity);
+        return;
+    }
+    if (!tryApplyObjectCount(identity, count))
+    {
+        Log(Debug::Verbose) << "[MP] WorldObjectSync: queuing ObjectCount"
+                            << " refId=" << identity.refId << " count=" << count;
+        mPendingCount.push_back({identity, count, 0.f});
     }
 }
 
@@ -945,6 +992,131 @@ bool WorldObjectSync::requestBarterTake(const MWWorld::Ptr& merchant, const MWWo
         onLocalContainerOpened(source);
 
     sendInventoryTakeRequest(request);
+    return true;
+}
+
+bool WorldObjectSync::requestBarterTransaction(const MWWorld::Ptr& merchant,
+    const std::vector<BarterLineInput>& lines, int balance, int merchantGold, BarterCallback callback)
+{
+    if (!Main::isInitialised() || merchant.isEmpty() || !merchant.getClass().isActor()
+        || lines.empty() || lines.size() > MaximumBarterLines || merchantGold < 0)
+        return false;
+
+    BarterRequest request;
+    request.requestId = mTakeRequestPrefix + "-bartertx-" + std::to_string(mNextBarterRequestId++);
+    request.balance = balance;
+    request.merchantGold = merchantGold;
+    request.expectedInventoryRevision = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
+
+    ActorSync& actorSync = Main::get().getActorSync();
+    request.merchant.cellId = makeCellId(merchant);
+    request.merchant.refId = merchant.getCellRef().getRefId().serializeText();
+    request.merchant.actorInstanceId = actorSync.actorNetIdForPtr(request.merchant.cellId, merchant);
+    request.merchant.migrationGeneration
+        = actorSync.actorMigrationGenerationForPtr(request.merchant.cellId, merchant);
+    request.merchant.mpNum = actorSync.getActorMpNum(merchant);
+    request.merchant.refNum = request.merchant.mpNum == 0
+        ? actorSync.getActorCanonicalRefNum(merchant) : 0;
+
+    std::vector<MWWorld::Ptr> sourcePtrs;
+    sourcePtrs.reserve(lines.size());
+    const MWWorld::Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
+    for (const BarterLineInput& input : lines)
+    {
+        if (input.item.isEmpty() || input.count <= 0)
+            return false;
+        BarterLine line;
+        line.kind = input.kind;
+        line.itemRefId = input.item.getCellRef().getRefId().serializeText();
+        line.itemInstanceId = inventoryInstanceId(input.item.getCellRef().getRefNum());
+        line.itemCharge = static_cast<std::int32_t>(input.item.getCellRef().getCharge());
+        line.itemEnchantmentCharge = input.item.getCellRef().getEnchantmentCharge();
+        line.itemSoul = input.item.getCellRef().getSoul().serializeText();
+        line.count = input.count;
+
+        if (input.kind == BarterLineKind::Sell)
+        {
+            const MWWorld::Ptr owner = input.item.getContainerStore()
+                ? input.item.getContainerStore()->getPtr() : MWWorld::Ptr{};
+            if (owner.isEmpty() || owner != player || line.itemInstanceId == 0)
+                return false;
+            sourcePtrs.emplace_back();
+        }
+        else if (input.kind == BarterLineKind::BuyWorldItem)
+        {
+            if (input.source.isEmpty() || input.source != input.item || !input.source.isInCell())
+                return false;
+            line.itemInstanceId = 0;
+            line.worldObject.cellId = makeCellId(input.source);
+            line.worldObject.refId = line.itemRefId;
+            const std::uint32_t mpNum = getMpNumForObject(input.source);
+            if (mpNum != 0)
+            {
+                line.worldObject.kind = PlacedObjectKind::ServerPlaced;
+                line.worldObject.mpNum = mpNum;
+            }
+            else
+            {
+                const ESM::RefNum refNum = input.source.getCellRef().getRefNum();
+                line.worldObject.kind = PlacedObjectKind::ContentReference;
+                line.worldObject.refIndex = refNum.mIndex;
+                line.worldObject.refContentFile = refNum.mContentFile;
+            }
+            sourcePtrs.push_back(input.source);
+        }
+        else
+        {
+            if (input.source.isEmpty() || isRemotePlayerInventorySource(input.source))
+                return false;
+            line.source.cellId = makeCellId(input.source);
+            line.source.refId = input.source.getCellRef().getRefId().serializeText();
+            line.source.refNum = input.source.getCellRef().getRefNum().mIndex;
+            line.source.mpNum = getMpNumForObject(input.source);
+            if (input.source.getClass().isActor())
+            {
+                line.source.actorInstanceId = actorSync.actorNetIdForPtr(line.source.cellId, input.source);
+                line.source.migrationGeneration
+                    = actorSync.actorMigrationGenerationForPtr(line.source.cellId, input.source);
+                line.source.mpNum = actorSync.getActorMpNum(input.source);
+                line.source.refNum = line.source.mpNum == 0
+                    ? actorSync.getActorCanonicalRefNum(input.source) : 0;
+            }
+            sourcePtrs.push_back(input.source);
+        }
+        request.lines.push_back(std::move(line));
+    }
+
+    if (validateBarterRequest(request) != BarterError::None)
+    {
+        Log(Debug::Warning) << "[MP] Cannot build canonical barter transaction merchant="
+                            << request.merchant.refId << " lines=" << request.lines.size();
+        return false;
+    }
+
+    if (callback)
+        mBarterCallbacks.emplace(request.requestId, std::move(callback));
+    mBarterSources.emplace(request.requestId, std::move(sourcePtrs));
+    mBarterMerchants.emplace(request.requestId, merchant);
+    mBarterRetryStates.emplace(request.requestId, BarterRetryState{});
+    mPendingBarters.push_back(request);
+
+    // Seed every source the client currently has authority for. This makes a
+    // multi-source offer converge without relying on reverse lookup races.
+    if (actorSync.hasAuthorityForObject(merchant))
+        onLocalContainerOpened(merchant);
+    for (std::size_t i = 0; i < lines.size(); ++i)
+    {
+        if (lines[i].kind == BarterLineKind::Sell || lines[i].kind == BarterLineKind::BuyWorldItem
+            || lines[i].source.isEmpty())
+            continue;
+        const bool sourceAuthority = lines[i].source.getClass().isActor()
+            ? actorSync.hasAuthorityForObject(lines[i].source)
+            : actorSync.hasAuthority(makeCellId(lines[i].source));
+        if (sourceAuthority)
+            onLocalContainerOpened(lines[i].source);
+    }
+
+    sendBarterRequest(request);
     return true;
 }
 
@@ -1092,6 +1264,13 @@ void WorldObjectSync::sendInventoryPutRequest(const InventoryPutRequest& request
     mClient.sendReliable(packet.encode());
 }
 
+void WorldObjectSync::sendBarterRequest(const BarterRequest& request)
+{
+    PacketBarterRequest packet;
+    packet.request = request;
+    mClient.sendReliable(packet.encode());
+}
+
 void WorldObjectSync::onServerWorldItemTakeResult(const WorldItemTakeResult& result)
 {
     Log(result.accepted ? Debug::Info : Debug::Warning)
@@ -1220,6 +1399,82 @@ void WorldObjectSync::onServerInventoryPutResult(const InventoryPutResult& resul
     }
 }
 
+void WorldObjectSync::onServerBarterResult(const BarterResult& result)
+{
+    Log(result.accepted ? Debug::Info : Debug::Warning)
+        << "[MP] Authoritative barter result request=" << result.requestId
+        << " accepted=" << result.accepted << " replayed=" << result.replayed
+        << " error=" << getBarterErrorCode(result.error)
+        << " balance=" << result.balance
+        << " buys=" << result.buyLines << " sells=" << result.sellLines
+        << " revision=" << result.inventoryRevision;
+
+    const auto pending = std::find_if(mPendingBarters.begin(), mPendingBarters.end(),
+        [&](const BarterRequest& request) { return request.requestId == result.requestId; });
+    if (pending == mPendingBarters.end())
+    {
+        Log(Debug::Warning) << "[MP] Ignoring barter result for unknown request=" << result.requestId;
+        return;
+    }
+
+    auto retryState = mBarterRetryStates.find(result.requestId);
+    const bool retrySource = result.error == BarterError::SourceUnavailable
+        && retryState != mBarterRetryStates.end() && !retryState->second.sourceBootstrapRetried;
+    const bool retryRevision = result.error == BarterError::StaleInventoryRevision
+        && retryState != mBarterRetryStates.end() && !retryState->second.inventoryRevisionRetried;
+    const bool terminal = result.accepted || (!retrySource && !retryRevision);
+    if (result.error == BarterError::SourceUnavailable)
+    {
+        if (retrySource)
+        {
+            retryState->second.sourceBootstrapRetried = true;
+            mBartersAwaitingSource.insert(result.requestId);
+            mBarterMissingSources[result.requestId] = result.missingSources;
+        }
+    }
+    else
+    {
+        mBartersAwaitingSource.erase(result.requestId);
+        mBarterMissingSources.erase(result.requestId);
+    }
+
+    if (terminal)
+    {
+        std::erase_if(mPendingBarters,
+            [&](const BarterRequest& request) { return request.requestId == result.requestId; });
+        mBarterSources.erase(result.requestId);
+        mBarterMerchants.erase(result.requestId);
+        mBartersAwaitingSource.erase(result.requestId);
+        mBarterMissingSources.erase(result.requestId);
+        mBarterRetryStates.erase(result.requestId);
+    }
+    else if (retryRevision)
+    {
+        retryState->second.inventoryRevisionRetried = true;
+        pending->expectedInventoryRevision = result.inventoryRevision;
+        sendBarterRequest(*pending);
+    }
+
+    if (terminal)
+    {
+        const auto callback = mBarterCallbacks.find(result.requestId);
+        if (callback != mBarterCallbacks.end())
+        {
+            BarterCallback fn = std::move(callback->second);
+            mBarterCallbacks.erase(callback);
+            try
+            {
+                fn(result);
+            }
+            catch (const std::exception& e)
+            {
+                Log(Debug::Error) << "[MP] Barter callback failed request=" << result.requestId
+                                  << " error=" << e.what();
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 void WorldObjectSync::onServerObjectMove(uint32_t mpNum, const std::string& /*cellId*/,
                                           const Position& pos)
@@ -1273,6 +1528,30 @@ void WorldObjectSync::onServerContainer(const ContainerRecord& record, Container
                 request.expectedInventoryRevision
                     = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
                 sendInventoryPutRequest(request);
+            }
+        }
+        for (BarterRequest& request : mPendingBarters)
+        {
+            if (mBartersAwaitingSource.find(request.requestId) == mBartersAwaitingSource.end())
+                continue;
+            const auto matches = [&](const InventorySourceIdentity& identity) {
+                if (identity.cellId != record.cellId || identity.refId != record.refId)
+                    return false;
+                if (identity.actorInstanceId != 0)
+                    return (identity.refNum == 0 || identity.refNum == record.refNum)
+                        && (identity.mpNum == 0 || identity.mpNum == record.mpNum);
+                return identity.refNum == record.refNum && identity.mpNum == record.mpNum;
+            };
+            auto missing = mBarterMissingSources.find(request.requestId);
+            if (missing == mBarterMissingSources.end())
+                continue;
+            std::erase_if(missing->second, matches);
+            if (missing->second.empty() && mBartersAwaitingSource.erase(request.requestId) != 0)
+            {
+                mBarterMissingSources.erase(missing);
+                request.expectedInventoryRevision
+                    = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
+                sendBarterRequest(request);
             }
         }
         if (applied)
@@ -1418,6 +1697,52 @@ bool WorldObjectSync::tryPlaceObject(uint32_t mpNum, const std::string& refId,
 }
 
 // ---------------------------------------------------------------------------
+bool WorldObjectSync::tryApplyObjectCount(const PlacedObjectIdentity& identity, std::int32_t count)
+{
+    if (count <= 0)
+        return false;
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    if (!world)
+        return false;
+
+    MWWorld::Ptr object;
+    if (identity.kind == PlacedObjectKind::ServerPlaced)
+    {
+        const auto it = mObjects.find(identity.mpNum);
+        if (it == mObjects.end())
+            return false;
+        object = it->second;
+    }
+    else
+    {
+        auto* worldImpl = static_cast<MWWorld::World*>(world);
+        MWWorld::CellStore* cell = findActiveCellById(*worldImpl, identity.cellId);
+        if (!cell)
+            return false;
+        const ESM::RefNum requested { identity.refIndex, identity.refContentFile };
+        cell->forEach([&](MWWorld::Ptr candidate) {
+            if (candidate.getCellRef().getRefNum() == requested
+                && candidate.getCellRef().getRefId().serializeText() == identity.refId)
+            {
+                object = candidate;
+                return false;
+            }
+            return true;
+        });
+        if (object.isEmpty())
+            return false;
+    }
+
+    object.getCellRef().setCount(count);
+    Log(Debug::Info) << "[MP] WorldObjectSync: applied authoritative object count"
+                     << " mpNum=" << identity.mpNum
+                     << " refId=" << identity.refId
+                     << " cell=" << identity.cellId
+                     << " count=" << count;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 bool WorldObjectSync::tryDeleteObject(const PlacedObjectIdentity& identity)
 {
     MWBase::World* world = MWBase::Environment::get().getWorld();
@@ -1547,6 +1872,38 @@ MWWorld::Ptr WorldObjectSync::findContainerTarget(const ContainerRecord& record)
             && makeCellId(destination) == record.cellId
             && destination.getCellRef().getRefId().serializeText() == record.refId)
             return destination;
+    }
+
+    for (const BarterRequest& request : mPendingBarters)
+    {
+        const auto merchantIt = mBarterMerchants.find(request.requestId);
+        if (merchantIt != mBarterMerchants.end()
+            && request.merchant.cellId == record.cellId && request.merchant.refId == record.refId
+            && (request.merchant.refNum == 0 || request.merchant.refNum == record.refNum)
+            && (request.merchant.mpNum == 0 || request.merchant.mpNum == record.mpNum))
+        {
+            const MWWorld::Ptr& merchant = merchantIt->second;
+            if (!merchant.isEmpty() && merchant.getCell() != nullptr && isContainerTarget(merchant))
+                return merchant;
+        }
+
+        const auto sourcesIt = mBarterSources.find(request.requestId);
+        if (sourcesIt == mBarterSources.end())
+            continue;
+        const auto& sources = sourcesIt->second;
+        for (std::size_t i = 0; i < request.lines.size() && i < sources.size(); ++i)
+        {
+            const BarterLine& line = request.lines[i];
+            if (line.kind == BarterLineKind::Sell || line.source.cellId != record.cellId
+                || line.source.refId != record.refId
+                || (line.source.refNum != 0 && line.source.refNum != record.refNum)
+                || (line.source.mpNum != 0 && line.source.mpNum != record.mpNum))
+                continue;
+            const MWWorld::Ptr& source = sources[i];
+            if (!source.isEmpty() && source.getCell() != nullptr && isContainerTarget(source)
+                && makeCellId(source) == record.cellId)
+                return source;
+        }
     }
 
     const auto openIt = mOpenContainerTargets.find(makeContainerRevisionKey(

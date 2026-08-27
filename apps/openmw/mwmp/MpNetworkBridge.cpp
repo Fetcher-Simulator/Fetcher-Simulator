@@ -403,6 +403,61 @@ namespace mwmp
                 if (!queued)
                     throw std::runtime_error("mp.barter.purchase could not build a canonical request");
             });
+        barterApi.set_function("transaction",
+            [lua](const MWLua::GObject& merchant, const sol::table& lines, int balance, int merchantGold,
+                sol::main_protected_function callback) {
+                if (!Main::isInitialised() || !Main::isConnected())
+                    throw std::runtime_error("mp.barter.transaction requires an active multiplayer connection");
+                const MWWorld::Ptr merchantPtr = merchant.ptrOrEmpty();
+                if (merchantPtr.isEmpty() || !merchantPtr.getClass().isActor())
+                    throw std::runtime_error("mp.barter.transaction requires a valid merchant actor");
+
+                std::vector<WorldObjectSync::BarterLineInput> inputs;
+                for (const auto& [key, value] : lines)
+                {
+                    (void)key;
+                    if (!value.is<sol::table>())
+                        throw std::runtime_error("mp.barter.transaction line must be a table");
+                    const sol::table line = value.as<sol::table>();
+                    const int kindValue = line.get_or("kind", 0);
+                    if (kindValue < static_cast<int>(BarterLineKind::BuyFinite)
+                        || kindValue > static_cast<int>(BarterLineKind::BuyWorldItem))
+                        throw std::runtime_error("mp.barter.transaction line has invalid kind");
+                    const sol::object itemValue = line["item"];
+                    if (!itemValue.is<MWLua::GObject>())
+                        throw std::runtime_error("mp.barter.transaction line requires an item object");
+                    WorldObjectSync::BarterLineInput input;
+                    input.kind = static_cast<BarterLineKind>(kindValue);
+                    input.item = itemValue.as<MWLua::GObject>().ptrOrEmpty();
+                    input.count = line.get_or("count", 0);
+                    if (input.kind != BarterLineKind::Sell)
+                    {
+                        const sol::object sourceValue = line["source"];
+                        if (!sourceValue.is<MWLua::GObject>())
+                            throw std::runtime_error("mp.barter.transaction buy line requires a source object");
+                        input.source = sourceValue.as<MWLua::GObject>().ptrOrEmpty();
+                    }
+                    inputs.push_back(std::move(input));
+                }
+
+                const bool queued = Main::get().getWorldObjectSync().requestBarterTransaction(
+                    merchantPtr, inputs, balance, merchantGold,
+                    [lua, callback = std::move(callback)](const BarterResult& result) mutable {
+                        sol::table value(lua, sol::create);
+                        value["requestId"] = result.requestId;
+                        value["accepted"] = result.accepted;
+                        value["replayed"] = result.replayed;
+                        value["error"] = std::string(getBarterErrorCode(result.error));
+                        value["inventoryRevision"] = result.inventoryRevision;
+                        value["balance"] = result.balance;
+                        value["merchantGold"] = result.merchantGold;
+                        value["buyLines"] = result.buyLines;
+                        value["sellLines"] = result.sellLines;
+                        LuaUtil::call(callback, value);
+                    });
+                if (!queued)
+                    throw std::runtime_error("mp.barter.transaction could not build a canonical request");
+            });
         mp["barter"] = LuaUtil::makeReadOnly(barterApi);
 
         sol::table inventoryPutApi(lua, sol::create);

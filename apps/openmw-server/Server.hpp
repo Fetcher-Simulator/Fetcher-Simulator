@@ -362,6 +362,7 @@ private:
     void handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data, size_t size);
+    void handleBarterRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleCrimeInteractionRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleObjectDelete     (ConnectedClient& c, const uint8_t* data, size_t size);
@@ -744,6 +745,7 @@ private:
         std::map<std::string, std::vector<mwmp::DoorEntry>> doorStates;
         std::map<std::string, std::vector<mwmp::PlacedObject>> placedObjects;
         std::map<std::string, std::vector<mwmp::PlacedObjectIdentity>> takenItemReferences;
+        std::unordered_map<std::string, mwmp::WorldItemMutation> worldItemCountOverrides;
         std::unordered_map<std::string, mwmp::ContainerRecord> containers;
         std::unordered_map<std::string, StoredDynamicRecord> dynamicRecords;
         std::unordered_map<std::string, CellActorState> actorCells;

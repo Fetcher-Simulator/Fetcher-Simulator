@@ -33,6 +33,10 @@ namespace mwmp
         uint32_t    instanceId = 0;    // stable when supplied by server authority
         float       enchantmentCharge = -1.f;
         std::string soul;
+        // Concrete resolved restocking stacks use a positive wire count while
+        // retaining their negative-count container semantics. This is a hint;
+        // authoritative services still prove the backing ESM template.
+        bool        restocking = false;
 
         bool operator==(const ContainerItem&) const = default;
     };

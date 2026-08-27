@@ -40,7 +40,7 @@ namespace
         std::string target = "scripts/inventoryextender/item.lua")
     {
         return { std::move(target), "main.lua", mwmp::serverlua::OverrideBasePolicy::AcceptedHashes,
-            { std::string(64, 'a') } };
+            mwmp::serverlua::OverrideTargetPolicy::Required, { std::string(64, 'a') } };
     }
 
     bool hasCode(const std::vector<mwmp::serverlua::ValidationError>& errors, std::string_view code)
@@ -90,6 +90,9 @@ TEST(ServerLuaPackage, CompatibilityOverrideMeaningIsCanonicalAndChangesIdentity
     EXPECT_NE(mwmp::serverlua::hashPackage(left), mwmp::serverlua::hashPackage(right));
     right = left;
     right.overrides[0].target = "scripts/inventoryextender/other.lua";
+    EXPECT_NE(mwmp::serverlua::hashPackage(left), mwmp::serverlua::hashPackage(right));
+    right = left;
+    right.overrides[0].targetPolicy = mwmp::serverlua::OverrideTargetPolicy::IfPresent;
     EXPECT_NE(mwmp::serverlua::hashPackage(left), mwmp::serverlua::hashPackage(right));
 }
 
@@ -152,6 +155,22 @@ TEST(ServerLuaPackage, ValidatesInstalledBaseBeforeOverrideActivation)
     ASSERT_FALSE(missing);
     EXPECT_EQ(missing.error->code, "override_target_missing");
 
+    override.targetPolicy = mwmp::serverlua::OverrideTargetPolicy::IfPresent;
+    const auto optionalMissing = mwmp::serverlua::validateOverrideBase(override, std::nullopt, false);
+    ASSERT_TRUE(optionalMissing);
+    EXPECT_TRUE(optionalMissing.skipped);
+
+    override.acceptedBaseHashes = { mwmp::crypto::sha256hex(baseSource) };
+    const auto optionalMatching = mwmp::serverlua::validateOverrideBase(override, baseSource, false);
+    ASSERT_TRUE(optionalMatching);
+    EXPECT_FALSE(optionalMatching.skipped);
+
+    override.acceptedBaseHashes = { std::string(64, 'b') };
+    const auto optionalMismatch = mwmp::serverlua::validateOverrideBase(override, baseSource, false);
+    ASSERT_FALSE(optionalMismatch);
+    EXPECT_EQ(optionalMismatch.error->code, "override_base_hash_mismatch");
+
+    override.targetPolicy = mwmp::serverlua::OverrideTargetPolicy::Required;
     const auto loaded = mwmp::serverlua::validateOverrideBase(override, baseSource, true);
     ASSERT_FALSE(loaded);
     EXPECT_EQ(loaded.error->code, "override_target_already_loaded");

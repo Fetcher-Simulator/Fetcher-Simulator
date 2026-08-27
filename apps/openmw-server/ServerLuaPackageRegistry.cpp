@@ -221,6 +221,20 @@ namespace mwmp
                 serverlua::CompatibilityOverride override;
                 override.target = requiredScalar<std::string>(entry, "target", manifest);
                 override.source = requiredScalar<std::string>(entry, "source", manifest);
+                const YAML::Node targetPolicy = entry["targetPolicy"];
+                if (targetPolicy)
+                {
+                    if (!targetPolicy.IsScalar())
+                        throw std::runtime_error(manifest.string() + ": targetPolicy must be a scalar");
+                    const std::string value = targetPolicy.as<std::string>();
+                    if (value == "required")
+                        override.targetPolicy = serverlua::OverrideTargetPolicy::Required;
+                    else if (value == "if-present")
+                        override.targetPolicy = serverlua::OverrideTargetPolicy::IfPresent;
+                    else
+                        throw std::runtime_error(manifest.string()
+                            + ": targetPolicy must be required or if-present");
+                }
                 if (override.target != serverlua::normalizeRelativePath(override.target)
                     || override.source != serverlua::normalizeRelativePath(override.source))
                 {

@@ -27,7 +27,9 @@ namespace mwmp
     // server-accepted canonical victim instead of a coarse refId/mpNum guess.
     // Protocol 14 adds a merchant identity to authoritative InventoryTake requests
     // so server-validated barter can distinguish purchases from ordinary looting.
-    inline constexpr int MultiplayerProtocolVersion = 14;
+    // Protocol 15 adds atomic multi-line barter transactions covering mixed buys,
+    // sells, finite stock and server-validated restocking stock in one commit.
+    inline constexpr int MultiplayerProtocolVersion = 15;
     inline constexpr std::string_view MultiplayerBuildVersion = "0.1.0";
     inline constexpr std::string_view DefaultMasterServerUrl = "https://master.fetchers.org";
 

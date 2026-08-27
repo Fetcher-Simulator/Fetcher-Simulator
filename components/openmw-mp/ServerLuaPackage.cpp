@@ -200,8 +200,10 @@ namespace mwmp::serverlua
         }
         std::sort(package.overrides.begin(), package.overrides.end(),
             [](const CompatibilityOverride& left, const CompatibilityOverride& right) {
-                return std::tie(left.target, left.source, left.basePolicy, left.acceptedBaseHashes)
-                    < std::tie(right.target, right.source, right.basePolicy, right.acceptedBaseHashes);
+                return std::tie(left.target, left.source, left.basePolicy, left.targetPolicy,
+                           left.acceptedBaseHashes)
+                    < std::tie(right.target, right.source, right.basePolicy, right.targetPolicy,
+                           right.acceptedBaseHashes);
             });
         package.packageHash = normalizePackageId(package.packageHash);
     }
@@ -238,6 +240,7 @@ namespace mwmp::serverlua
             appendString(canonical, override.target);
             appendString(canonical, override.source);
             canonical.push_back(static_cast<char>(override.basePolicy));
+            canonical.push_back(static_cast<char>(override.targetPolicy));
             appendU32(canonical, static_cast<std::uint32_t>(override.acceptedBaseHashes.size()));
             for (const std::string& hash : override.acceptedBaseHashes)
                 appendString(canonical, hash);
@@ -403,6 +406,10 @@ namespace mwmp::serverlua
             else if (override.basePolicy != OverrideBasePolicy::AcceptedHashes
                 && override.basePolicy != OverrideBasePolicy::Any)
                 add(errors, "invalid_base_policy", path + ".basePolicy", "Compatibility override base policy is invalid");
+            if (override.targetPolicy != OverrideTargetPolicy::Required
+                && override.targetPolicy != OverrideTargetPolicy::IfPresent)
+                add(errors, "invalid_override_target_policy", path + ".targetPolicy",
+                    "Compatibility override target policy is invalid");
         }
 
         if (!input.packageHash.empty())
@@ -508,6 +515,11 @@ namespace mwmp::serverlua
         OverrideBaseValidation result;
         if (!baseSource)
         {
+            if (override.targetPolicy == OverrideTargetPolicy::IfPresent)
+            {
+                result.skipped = true;
+                return result;
+            }
             result.error = ValidationError{ "override_target_missing", override.target,
                 "Compatibility override target is absent from the base VFS" };
             return result;

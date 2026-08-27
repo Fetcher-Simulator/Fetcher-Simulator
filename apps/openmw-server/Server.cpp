@@ -49,8 +49,10 @@
 #include <components/esm3/loadclot.hpp>
 #include <components/esm3/loadfact.hpp>
 #include <components/esm3/loadgmst.hpp>
+#include <components/esm3/loadlevlist.hpp>
 #include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadcrea.hpp>
+#include <components/esm3/loadcont.hpp>
 #include <components/misc/constants.hpp>
 #include <components/openmw-mp/MasterServerProtocol.hpp>
 #include <components/openmw-mp/Packets/BasePacket.hpp>
@@ -85,11 +87,13 @@
 #include <components/openmw-mp/Packets/Lua/PacketLuaStorage.hpp>
 #include <components/openmw-mp/Packets/Object/PacketObjectPlace.hpp>
 #include <components/openmw-mp/Packets/Object/PacketObjectDelete.hpp>
+#include <components/openmw-mp/Packets/Object/PacketObjectCount.hpp>
 #include <components/openmw-mp/Packets/Object/PacketObjectMove.hpp>
 #include <components/openmw-mp/Packets/Object/PacketContainer.hpp>
 #include <components/openmw-mp/Packets/Object/PacketWorldItemTake.hpp>
 #include <components/openmw-mp/Packets/Object/PacketInventoryTake.hpp>
 #include <components/openmw-mp/Packets/Object/PacketInventoryPut.hpp>
+#include <components/openmw-mp/Packets/Object/PacketBarter.hpp>
 #include <components/openmw-mp/Packets/Object/PacketCrimeInteraction.hpp>
 #include <components/openmw-mp/Packets/Object/PacketDoorState.hpp>
 #include <components/openmw-mp/Packets/Worldstate/PacketRecordDynamic.hpp>
@@ -705,6 +709,13 @@ namespace
         return cellId + "|" + refId + "|" + std::to_string(refNum);
     }
 
+    std::string makeWorldItemKey(const mwmp::PlacedObjectIdentity& identity)
+    {
+        return std::to_string(static_cast<unsigned>(identity.kind)) + "|" + identity.cellId + "|"
+            + identity.refId + "|" + std::to_string(identity.refIndex) + "|"
+            + std::to_string(identity.refContentFile) + "|" + std::to_string(identity.mpNum);
+    }
+
     void appendOrMergeContainerItem(std::vector<mwmp::ContainerItem>& items, const mwmp::ContainerItem& item)
     {
         if (item.refId.empty() || item.count <= 0)
@@ -718,7 +729,7 @@ namespace
                 return lowerAscii(current.refId) == lowerAscii(item.refId)
                     && current.charge == item.charge
                     && std::abs(current.enchantmentCharge - item.enchantmentCharge) < 0.001f
-                    && current.soul == item.soul;
+                    && current.soul == item.soul && current.restocking == item.restocking;
             });
 
         if (it == items.end())
@@ -955,7 +966,7 @@ namespace
                 return lowerAscii(current.refId) == lowerAscii(item.refId)
                     && current.charge == item.charge
                     && std::abs(current.enchantmentCharge - item.enchantmentCharge) < 0.001f
-                    && current.soul == item.soul;
+                    && current.soul == item.soul && current.restocking == item.restocking;
             });
 
         if (action == mwmp::ContainerAction::Add)
@@ -983,7 +994,8 @@ namespace
 
         for (auto current = items.begin(); remaining > 0 && current != items.end();)
         {
-            if (lowerAscii(current->refId) != lowerAscii(item.refId))
+            if (lowerAscii(current->refId) != lowerAscii(item.refId)
+                || current->restocking != item.restocking)
             {
                 ++current;
                 continue;
@@ -5650,6 +5662,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::WorldItemTakeRequest: handleWorldItemTakeRequest(client, data, size); break;
         case PacketType::InventoryTakeRequest: handleInventoryTakeRequest(client, data, size); break;
         case PacketType::InventoryPutRequest: handleInventoryPutRequest(client, data, size); break;
+        case PacketType::BarterRequest: handleBarterRequest(client, data, size); break;
         case PacketType::CrimeInteractionRequest: handleCrimeInteractionRequest(client, data, size); break;
         case PacketType::GuardArrest:     handleGuardArrest(client, data, size);       break;
         case PacketType::ObjectDelete:     handleObjectDelete(client, data, size);       break;
@@ -5729,6 +5742,13 @@ void MPServer::loadPersistentWorldState()
     {
         mWorld.takenItemReferences[identity.cellId].push_back(std::move(identity));
         ++takenReferenceCount;
+    }
+
+    std::size_t partialWorldItemCount = 0;
+    for (const WorldItemMutation& mutation : mPlayerDb->loadWorldItemCountOverrides())
+    {
+        mWorld.worldItemCountOverrides[makeWorldItemKey(mutation.object)] = mutation;
+        ++partialWorldItemCount;
     }
 
     for (const auto& record : mPlayerDb->loadContainerRecords())
@@ -5993,6 +6013,7 @@ void MPServer::loadPersistentWorldState()
                      << " doorCells=" << mWorld.doorStates.size()
                      << " dynamicRecords=" << dynamicRecordCount
                      << " takenReferences=" << takenReferenceCount
+                     << " partialWorldItems=" << partialWorldItemCount
                      << " nextMpNum=" << nextMpNum;
 }
 
@@ -6025,6 +6046,17 @@ void MPServer::sendCellObjectStateToClient(HSteamNetConnection conn, const std::
         pkt.container = record;
         pkt.mAction = static_cast<uint8_t>(ContainerAction::Set);
         sendTo(conn, pkt.encode());
+    }
+
+    for (const auto& [key, mutation] : mWorld.worldItemCountOverrides)
+    {
+        (void)key;
+        if (mutation.object.cellId != cellId || mutation.resultingWorldCount <= 0)
+            continue;
+        PacketObjectCount packet;
+        packet.object = mutation.object;
+        packet.count = mutation.resultingWorldCount;
+        sendTo(conn, packet.encode());
     }
 
     const auto takenIt = mWorld.takenItemReferences.find(cellId);
@@ -13767,6 +13799,13 @@ void MPServer::handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* dat
             return;
         }
         item = *found;
+        const auto countOverride = mWorld.worldItemCountOverrides.find(makeWorldItemKey(request.object));
+        if (countOverride != mWorld.worldItemCountOverrides.end())
+        {
+            item.worldCount = countOverride->second.resultingWorldCount;
+            item.inventoryCount = item.gold ? item.worldCount * item.itemValue : item.worldCount;
+            item.enabled = item.worldCount > 0;
+        }
     }
     else
     {
@@ -13951,6 +13990,7 @@ void MPServer::handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* dat
     commit.requestHash = crypto::sha256hex(canonicalWorldItemTakeRequest(request));
     commit.object = request.object;
     commit.result = result;
+    commit.expectedWorldCount = item.worldCount;
     commit.expectedInventoryRevision = request.expectedInventoryRevision;
     commit.resultingInventoryRevision = result.inventoryRevision;
     commit.inventory = inventory;
@@ -13989,7 +14029,8 @@ void MPServer::handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* dat
         sendResult();
         return;
     }
-    if (committed.status == WorldItemTakeCommitStatus::ObjectAlreadyTaken)
+    if (committed.status == WorldItemTakeCommitStatus::ObjectAlreadyTaken
+        || committed.status == WorldItemTakeCommitStatus::StaleSource)
     {
         result.accepted = false;
         result.error = WorldItemTakeError::ObjectUnavailable;
@@ -14032,6 +14073,7 @@ void MPServer::handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* dat
         c.player.inventoryChanges.revision = c.inventoryRevision;
         c.restoredInventorySnapshot = c.player.inventoryChanges.items;
         c.hasRestoredInventorySnapshot = true;
+        mWorld.worldItemCountOverrides.erase(makeWorldItemKey(result.object));
         mWorld.takenItemReferences[result.object.cellId].push_back(result.object);
 
         if (result.object.kind == PlacedObjectKind::ServerPlaced)
@@ -15158,6 +15200,871 @@ void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data
                      << " actorNetId=" << request.destination.actorInstanceId
                      << " item=" << request.itemRefId << " instanceId=" << request.itemInstanceId
                      << " count=" << result.itemCount << " replayed=" << result.replayed;
+    sendResult();
+}
+
+// ---------------------------------------------------------------------------
+void MPServer::handleBarterRequest(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    PacketBarterRequest packet;
+    if (!packet.decode(data, size))
+        return;
+
+    const BarterRequest& request = packet.request;
+    BarterResult result;
+    result.requestId = request.requestId;
+    result.balance = request.balance;
+    for (const BarterLine& line : request.lines)
+    {
+        if (line.kind == BarterLineKind::Sell)
+            ++result.sellLines;
+        else
+            ++result.buyLines;
+    }
+    auto sendResult = [&] {
+        PacketBarterResult response;
+        response.result = result;
+        sendTo(c.conn, response.encode());
+    };
+    auto reject = [&](BarterError error) {
+        result.accepted = false;
+        result.error = error;
+        result.inventoryRevision = c.inventoryRevision;
+        sendResult();
+    };
+
+    const BarterError validation = validateBarterRequest(request);
+    if (validation != BarterError::None || !mPlayerDb || !mContentRegistry
+        || c.dbAccountId <= 0 || c.dbCharacterId <= 0)
+    {
+        reject(validation != BarterError::None ? validation : BarterError::PersistenceFailure);
+        return;
+    }
+
+    const std::string requestHash = crypto::sha256hex(canonicalBarterRequest(request));
+    if (const auto stored = mPlayerDb->loadInventoryTake(c.dbAccountId, c.dbCharacterId, request.requestId))
+    {
+        if (stored->requestHash != requestHash)
+            reject(BarterError::DuplicateConflict);
+        else
+        {
+            result.accepted = true;
+            result.replayed = true;
+            result.error = BarterError::None;
+            result.inventoryRevision = stored->result.inventoryRevision;
+            result.merchantGold = std::max(0, stored->result.itemCharge);
+            sendAuthoritativeInventory(c);
+            sendResult();
+        }
+        return;
+    }
+
+    const std::string canonicalPlayerCell = makeCellKey(c.player.cell);
+    if (request.merchant.cellId != canonicalPlayerCell)
+    {
+        reject(BarterError::WrongCell);
+        return;
+    }
+    constexpr std::uint64_t MaximumSnapshotAgeMs = 1000;
+    const std::uint64_t nowMs = currentServerTimeMs();
+    const AcceptedMechanicsSnapshot* acceptedPlayer = mMechanicsSnapshots.findFresh(
+        { MechanicsSubjectKind::Player, c.guid, 0 }, nowMs, MaximumSnapshotAgeMs);
+    if (!acceptedPlayer || acceptedPlayer->snapshot.cellId != canonicalPlayerCell
+        || acceptedPlayer->snapshot.migrationGeneration != 1
+        || acceptedPlayer->snapshot.authorityGeneration != c.guid)
+    {
+        reject(BarterError::PlayerSnapshotUnavailable);
+        return;
+    }
+    if (request.expectedInventoryRevision != c.inventoryRevision)
+    {
+        sendAuthoritativeInventory(c);
+        reject(BarterError::StaleInventoryRevision);
+        return;
+    }
+
+    const auto merchantKeyIt = mWorld.actorKeysByNetId.find(request.merchant.actorInstanceId);
+    const auto merchantLocationIt = merchantKeyIt == mWorld.actorKeysByNetId.end()
+        ? mWorld.actorLocations.end() : mWorld.actorLocations.find(merchantKeyIt->second);
+    auto merchantCellIt = merchantLocationIt == mWorld.actorLocations.end()
+        ? mWorld.actorCells.end() : mWorld.actorCells.find(merchantLocationIt->second);
+    auto merchantIt = merchantCellIt == mWorld.actorCells.end() || merchantKeyIt == mWorld.actorKeysByNetId.end()
+        ? std::unordered_map<std::string, ActorRegistryRecord>::iterator{}
+        : merchantCellIt->second.actors.find(merchantKeyIt->second);
+    if (merchantCellIt == mWorld.actorCells.end() || merchantKeyIt == mWorld.actorKeysByNetId.end()
+        || merchantIt == merchantCellIt->second.actors.end())
+    {
+        reject(BarterError::StaleSource);
+        return;
+    }
+
+    ActorRegistryRecord& merchantRecord = merchantIt->second;
+    if (merchantLocationIt->second != canonicalPlayerCell
+        || merchantRecord.actorNetId != request.merchant.actorInstanceId
+        || merchantRecord.migrationGeneration != request.merchant.migrationGeneration
+        || merchantRecord.actor.refId != request.merchant.refId
+        || merchantRecord.actor.refNum != request.merchant.refNum
+        || merchantRecord.actor.mpNum != request.merchant.mpNum
+        || merchantRecord.actor.isDead
+        || (merchantRecord.actor.mpNum == 0 && merchantRecord.actor.refNum == 0))
+    {
+        reject(BarterError::StaleSource);
+        return;
+    }
+
+    const float mdx = acceptedPlayer->snapshot.position.pos[0] - merchantRecord.actor.position.pos[0];
+    const float mdy = acceptedPlayer->snapshot.position.pos[1] - merchantRecord.actor.position.pos[1];
+    const float mdz = acceptedPlayer->snapshot.position.pos[2] - merchantRecord.actor.position.pos[2];
+    const float merchantDistanceSquared = mdx * mdx + mdy * mdy + mdz * mdz;
+    if (!std::isfinite(merchantDistanceSquared)
+        || merchantDistanceSquared > mDoorInteractionRadius * mDoorInteractionRadius)
+    {
+        Log(Debug::Warning) << "[Barter] out of range request=" << request.requestId
+                            << " merchant=" << request.merchant.refId
+                            << " distance=" << std::sqrt(std::max(0.f, merchantDistanceSquared))
+                            << " limit=" << mDoorInteractionRadius;
+        reject(BarterError::OutOfRange);
+        return;
+    }
+
+    ESM::RefId merchantContentId = ESM::RefId::deserializeText(merchantRecord.actor.refId);
+    if (merchantContentId.empty())
+        merchantContentId = ESM::RefId::stringRefId(merchantRecord.actor.refId);
+    const auto& contentStore = mContentRegistry->store();
+    const ESM::NPC* merchantNpc = contentStore.get<ESM::NPC>().search(merchantContentId);
+    const ESM::Creature* merchantCreature = merchantNpc == nullptr
+        ? contentStore.get<ESM::Creature>().search(merchantContentId) : nullptr;
+    int merchantServices = 0;
+    if (merchantNpc != nullptr)
+    {
+        merchantServices = (merchantNpc->mFlags & ESM::NPC::Autocalc) && !merchantNpc->mClass.empty()
+            ? contentStore.get<ESM::Class>().search(merchantNpc->mClass) != nullptr
+                ? contentStore.get<ESM::Class>().find(merchantNpc->mClass)->mData.mServices
+                : 0
+            : merchantNpc->mAiData.mServices;
+    }
+    else if (merchantCreature != nullptr)
+        merchantServices = merchantCreature->mAiData.mServices;
+    if ((merchantServices & ESM::NPC::AllItems) == 0)
+    {
+        reject(BarterError::StaleSource);
+        return;
+    }
+
+    const std::int32_t baseMerchantGold = std::max(0,
+        merchantNpc != nullptr ? merchantNpc->mNpdt.mGold : merchantCreature->mData.mGold);
+    const double currentGameHours = (static_cast<double>(mWorld.year) * 12.0 * 30.0
+        + static_cast<double>(mWorld.month) * 30.0 + static_cast<double>(mWorld.day - 1)) * 24.0
+        + static_cast<double>(mWorld.gameHour);
+    const double barterGoldResetDelay = std::max(0.0,
+        static_cast<double>(contentStore.get<ESM::GameSetting>()
+            .find("fBarterGoldResetDelay")->mValue.getFloat()));
+    const auto storedMerchantGold = mPlayerDb->loadMerchantGold(request.merchant.actorInstanceId);
+    std::optional<BarterMerchantGoldState> storedGoldState;
+    if (storedMerchantGold)
+        storedGoldState = BarterMerchantGoldState{ storedMerchantGold->gold, storedMerchantGold->lastRestockTime };
+    const BarterMerchantGoldResolution merchantGoldState = resolveBarterMerchantGold(
+        baseMerchantGold, storedGoldState, currentGameHours, barterGoldResetDelay);
+    const std::int32_t authoritativeMerchantGold = merchantGoldState.authoritativeGold;
+    result.merchantGold = authoritativeMerchantGold;
+
+    const std::uint32_t merchantBootstrapAuthority
+        = isActorAuthorityLeaseValid(merchantRecord, canonicalPlayerCell, nowMs)
+        ? merchantRecord.actorAuthorityGuid : merchantCellIt->second.authorityGuid;
+    const std::string merchantContainerKey = makeContainerKey(canonicalPlayerCell,
+        merchantRecord.actor.refId, merchantRecord.actor.refNum, merchantRecord.actor.mpNum);
+
+    auto requestBootstrap = [&](const InventorySourceIdentity& identity, std::uint32_t authorityGuid) {
+        if (authorityGuid == 0)
+            return;
+        const auto authority = std::find_if(mClients.begin(), mClients.end(),
+            [&](const auto& entry) { return entry.second.guid == authorityGuid; });
+        if (authority == mClients.end())
+            return;
+        PacketContainer bootstrap;
+        bootstrap.container.cellId = identity.cellId;
+        bootstrap.container.refId = identity.refId;
+        bootstrap.container.refNum = identity.refNum;
+        bootstrap.container.mpNum = identity.mpNum;
+        bootstrap.mAction = static_cast<std::uint8_t>(ContainerAction::BootstrapRequest);
+        sendTo(authority->second.conn, bootstrap.encode());
+    };
+
+    std::unordered_set<std::string> requestedBootstrapKeys;
+    auto markMissingSource = [&](const std::string& key, const InventorySourceIdentity& identity,
+                                 std::uint32_t authorityGuid) {
+        if (requestedBootstrapKeys.insert(key).second)
+        {
+            result.missingSources.push_back(identity);
+            requestBootstrap(identity, authorityGuid);
+        }
+    };
+
+    struct WorkingContainer
+    {
+        ContainerRecord expected;
+        ContainerRecord resulting;
+    };
+    std::map<std::string, WorkingContainer> working;
+    auto ensureWorking = [&](const std::string& key, const InventorySourceIdentity& identity,
+                             std::uint32_t bootstrapAuthority) -> WorkingContainer* {
+        auto found = working.find(key);
+        if (found != working.end())
+            return &found->second;
+        auto authoritative = mWorld.containers.find(key);
+        if (authoritative == mWorld.containers.end() || !authoritative->second.hasAuthority)
+        {
+            markMissingSource(key, identity, bootstrapAuthority);
+            return nullptr;
+        }
+        ContainerRecord expected = authoritative->second;
+        normalizeContainerItems(expected.items);
+        auto [inserted, ok] = working.emplace(key, WorkingContainer{ expected, expected });
+        (void)ok;
+        return &inserted->second;
+    };
+
+    const bool hasSales = std::any_of(request.lines.begin(), request.lines.end(),
+        [](const BarterLine& line) { return line.kind == BarterLineKind::Sell; });
+    if (hasSales)
+        ensureWorking(merchantContainerKey, request.merchant, merchantBootstrapAuthority);
+
+    // Resolve and request every persistent buy source before any semantic
+    // inventory construction. One response tells the client the complete set
+    // it must await, avoiding partial/repeated one-container retries.
+    for (const BarterLine& line : request.lines)
+    {
+        if (line.kind == BarterLineKind::Sell || line.kind == BarterLineKind::BuyWorldItem)
+            continue;
+        std::string sourceKey;
+        std::uint32_t bootstrapAuthority = 0;
+        if (line.source.actorInstanceId != 0)
+        {
+            if (line.source.actorInstanceId != request.merchant.actorInstanceId
+                || line.source.cellId != request.merchant.cellId
+                || line.source.refId != request.merchant.refId
+                || line.source.refNum != request.merchant.refNum
+                || line.source.mpNum != request.merchant.mpNum
+                || line.source.migrationGeneration != request.merchant.migrationGeneration)
+            {
+                reject(BarterError::StaleSource);
+                return;
+            }
+            sourceKey = merchantContainerKey;
+            bootstrapAuthority = merchantBootstrapAuthority;
+        }
+        else
+        {
+            if (line.source.cellId != canonicalPlayerCell || line.source.mpNum != 0)
+            {
+                reject(line.source.cellId != canonicalPlayerCell
+                    ? BarterError::WrongCell : BarterError::StaleSource);
+                return;
+            }
+            const auto placed = mContentRegistry->findContainerReference(
+                line.source.cellId, line.source.refId, line.source.refNum);
+            if (!placed || !placed->enabled || placed->ownerId.empty()
+                || lowerAscii(placed->ownerId) != lowerAscii(merchantRecord.actor.refId))
+            {
+                reject(BarterError::StaleSource);
+                return;
+            }
+            sourceKey = makeContainerKey(line.source.cellId, line.source.refId,
+                line.source.refNum, line.source.mpNum);
+            bootstrapAuthority = merchantCellIt->second.authorityGuid;
+        }
+        ensureWorking(sourceKey, line.source, bootstrapAuthority);
+    }
+    if (!result.missingSources.empty())
+    {
+        reject(BarterError::SourceUnavailable);
+        return;
+    }
+
+    auto isRestockingTemplate = [&](const InventorySourceIdentity& source,
+                                    std::string_view itemRefId, int count) {
+        const auto matches = [&](const ESM::InventoryList& inventory) {
+            return std::any_of(inventory.mList.begin(), inventory.mList.end(), [&](const ESM::ContItem& item) {
+                if (item.mCount >= 0 || std::abs(static_cast<std::int64_t>(item.mCount)) < count)
+                    return false;
+                if (lowerAscii(item.mItem.serializeText()) == lowerAscii(std::string(itemRefId)))
+                    return true;
+                const ESM::ItemLevList* list = contentStore.get<ESM::ItemLevList>().search(item.mItem);
+                return list != nullptr && isEligibleBarterRestockDescendant(*list, itemRefId,
+                    std::max(1, c.player.level), [&](std::string_view listId) {
+                        ESM::RefId id = ESM::RefId::deserializeText(listId);
+                        if (id.empty())
+                            id = ESM::RefId::stringRefId(listId);
+                        return contentStore.get<ESM::ItemLevList>().search(id);
+                    });
+            });
+        };
+        if (source.actorInstanceId != 0)
+        {
+            if (source.actorInstanceId != request.merchant.actorInstanceId)
+                return false;
+            if (merchantNpc)
+                return matches(merchantNpc->mInventory);
+            return merchantCreature && matches(merchantCreature->mInventory);
+        }
+        ESM::RefId sourceId = ESM::RefId::deserializeText(source.refId);
+        if (sourceId.empty())
+            sourceId = ESM::RefId::stringRefId(source.refId);
+        const ESM::Container* container = contentStore.get<ESM::Container>().search(sourceId);
+        return container != nullptr && matches(container->mInventory);
+    };
+
+    const std::vector<Item> initialInventory = c.player.inventoryChanges.items;
+    std::vector<Item> inventory = initialInventory;
+    std::unordered_map<std::uint32_t, std::int64_t> remainingSaleCounts;
+    for (const Item& item : initialInventory)
+    {
+        if (item.instanceId != 0 && item.count > 0)
+            remainingSaleCounts[item.instanceId] += item.count;
+    }
+    std::vector<WorldItemMutation> worldItemMutations;
+    std::int64_t minimumBuyCost = 0;
+    std::int64_t maximumSellRevenue = 0;
+
+    for (const BarterLine& line : request.lines)
+    {
+        ESM::RefId contentId = ESM::RefId::deserializeText(line.itemRefId);
+        if (contentId.empty())
+            contentId = ESM::RefId::stringRefId(line.itemRefId);
+        MWWorld::ManualRef contentRef(contentStore, contentId, line.count);
+        MWWorld::Ptr contentPtr = contentRef.getPtr();
+        if (contentPtr.isEmpty() || contentPtr.getClass().isGold(contentPtr)
+            || !contentPtr.getClass().canSell(contentPtr, merchantServices))
+        {
+            reject(BarterError::ItemUnavailable);
+            return;
+        }
+
+        float effectiveUnitValue = static_cast<float>(contentPtr.getClass().getValue(contentPtr));
+        if (contentPtr.getClass().hasItemHealth(contentPtr))
+        {
+            if (line.itemCharge >= 0)
+                contentPtr.getCellRef().setCharge(line.itemCharge);
+            effectiveUnitValue *= contentPtr.getClass().getItemNormalizedHealth(contentPtr);
+        }
+        const double effectiveValue = static_cast<double>(effectiveUnitValue) * line.count;
+        const double boundedPrice = std::max(1.0, 0.75 * effectiveValue);
+        if (!std::isfinite(effectiveValue) || effectiveValue < 0.0
+            || boundedPrice > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
+        {
+            reject(BarterError::InvalidBalance);
+            return;
+        }
+        const std::int64_t cappedValue = static_cast<std::int64_t>(boundedPrice);
+
+        if (line.kind == BarterLineKind::BuyWorldItem)
+        {
+            ServerContentRegistry::PlacedItemReference placedItem;
+            if (line.worldObject.cellId != canonicalPlayerCell)
+            {
+                reject(BarterError::WrongCell);
+                return;
+            }
+            if (line.worldObject.kind == PlacedObjectKind::ContentReference)
+            {
+                const auto found = mContentRegistry->findPlacedItemReference(line.worldObject);
+                if (!found)
+                {
+                    reject(BarterError::WorldItemUnavailable);
+                    return;
+                }
+                placedItem = *found;
+            }
+            else
+            {
+                // Server-placed objects currently carry no authoritative owner
+                // metadata. They cannot be proved as merchant stock, so fail
+                // closed until that lifecycle gains an ownership field.
+                reject(BarterError::StaleSource);
+                return;
+            }
+
+            const auto taken = mWorld.takenItemReferences.find(line.worldObject.cellId);
+            const bool alreadyTaken = taken != mWorld.takenItemReferences.end()
+                && std::find(taken->second.begin(), taken->second.end(), line.worldObject) != taken->second.end();
+            std::int32_t currentWorldCount = placedItem.worldCount;
+            const auto countOverride = mWorld.worldItemCountOverrides.find(makeWorldItemKey(line.worldObject));
+            if (countOverride != mWorld.worldItemCountOverrides.end())
+                currentWorldCount = countOverride->second.resultingWorldCount;
+            const float wdx = merchantRecord.actor.position.pos[0] - placedItem.position.pos[0];
+            const float wdy = merchantRecord.actor.position.pos[1] - placedItem.position.pos[1];
+            const float wdz = merchantRecord.actor.position.pos[2] - placedItem.position.pos[2];
+            const float worldDistanceSquared = wdx * wdx + wdy * wdy + wdz * wdz;
+            if (alreadyTaken || !placedItem.enabled || placedItem.gold
+                || currentWorldCount <= 0 || line.count <= 0 || line.count > currentWorldCount
+                || placedItem.charge != line.itemCharge
+                || std::abs(placedItem.enchantmentCharge - line.itemEnchantmentCharge) >= 0.001f
+                || placedItem.soul != line.itemSoul || placedItem.ownerId.empty()
+                || lowerAscii(placedItem.ownerId) != lowerAscii(merchantRecord.actor.refId)
+                || !std::isfinite(worldDistanceSquared)
+                || worldDistanceSquared > mDoorInteractionRadius * mDoorInteractionRadius)
+            {
+                reject(BarterError::WorldItemUnavailable);
+                return;
+            }
+
+            Item added;
+            added.refId = placedItem.identity.refId;
+            added.count = line.count;
+            added.charge = placedItem.charge;
+            added.enchantmentCharge = placedItem.enchantmentCharge;
+            added.soul = placedItem.soul;
+            auto destinationStack = std::find_if(inventory.begin(), inventory.end(),
+                [&](const Item& item) { return sameItemIdentity(item, added); });
+            if (destinationStack != inventory.end())
+            {
+                if (destinationStack->count > std::numeric_limits<std::int32_t>::max() - added.count)
+                {
+                    reject(BarterError::InvalidCount);
+                    return;
+                }
+                destinationStack->count += added.count;
+            }
+            else
+            {
+                const auto instance = reserveWorldMpNum();
+                if (!instance)
+                {
+                    reject(BarterError::PersistenceFailure);
+                    return;
+                }
+                added.instanceId = *instance;
+                inventory.push_back(std::move(added));
+            }
+            worldItemMutations.push_back({ line.worldObject, currentWorldCount, currentWorldCount - line.count });
+            minimumBuyCost += cappedValue;
+            continue;
+        }
+
+        if (line.kind == BarterLineKind::Sell)
+        {
+            const auto originalSource = std::find_if(initialInventory.begin(), initialInventory.end(),
+                [&](const Item& item) {
+                return item.instanceId == line.itemInstanceId
+                    && lowerAscii(item.refId) == lowerAscii(line.itemRefId)
+                    && item.charge == line.itemCharge
+                    && std::abs(item.enchantmentCharge - line.itemEnchantmentCharge) < 0.001f
+                    && item.soul == line.itemSoul && item.count >= line.count;
+            });
+            auto remaining = remainingSaleCounts.find(line.itemInstanceId);
+            if (originalSource == initialInventory.end() || remaining == remainingSaleCounts.end()
+                || remaining->second < line.count || !isAuthoritativeRecordReference(originalSource->refId))
+            {
+                reject(BarterError::ItemUnavailable);
+                return;
+            }
+            remaining->second -= line.count;
+
+            // Apply the sale to the working inventory only after proving it
+            // against the immutable pre-offer snapshot. This makes offer line
+            // order irrelevant and prevents a client from buying an item and
+            // selling those newly acquired units in the same transaction.
+            auto sourceItem = std::find_if(inventory.begin(), inventory.end(), [&](const Item& item) {
+                return item.instanceId == line.itemInstanceId
+                    && lowerAscii(item.refId) == lowerAscii(line.itemRefId)
+                    && item.charge == line.itemCharge
+                    && std::abs(item.enchantmentCharge - line.itemEnchantmentCharge) < 0.001f
+                    && item.soul == line.itemSoul && item.count >= line.count;
+            });
+            if (sourceItem == inventory.end())
+            {
+                reject(BarterError::ItemUnavailable);
+                return;
+            }
+
+            WorkingContainer* merchantInventory = ensureWorking(
+                merchantContainerKey, request.merchant, merchantBootstrapAuthority);
+            if (!merchantInventory)
+            {
+                reject(BarterError::SourceUnavailable);
+                return;
+            }
+
+            ContainerItem sold;
+            sold.refId = sourceItem->refId;
+            sold.count = line.count;
+            sold.charge = sourceItem->charge;
+            sold.enchantmentCharge = sourceItem->enchantmentCharge;
+            sold.soul = sourceItem->soul;
+            if (line.count == sourceItem->count)
+                sold.instanceId = sourceItem->instanceId;
+            else
+            {
+                const auto instance = reserveWorldMpNum();
+                if (!instance)
+                {
+                    reject(BarterError::PersistenceFailure);
+                    return;
+                }
+                sold.instanceId = *instance;
+            }
+            appendOrMergeContainerItem(merchantInventory->resulting.items, sold);
+            normalizeContainerItems(merchantInventory->resulting.items);
+
+            sourceItem->count -= line.count;
+            if (sourceItem->count == 0)
+                inventory.erase(sourceItem);
+            maximumSellRevenue += cappedValue;
+            continue;
+        }
+
+        std::string sourceKey;
+        std::uint32_t bootstrapAuthority = 0;
+        if (line.source.actorInstanceId != 0)
+        {
+            if (line.source.actorInstanceId != request.merchant.actorInstanceId
+                || line.source.cellId != request.merchant.cellId
+                || line.source.refId != request.merchant.refId
+                || line.source.refNum != request.merchant.refNum
+                || line.source.mpNum != request.merchant.mpNum
+                || line.source.migrationGeneration != request.merchant.migrationGeneration)
+            {
+                reject(BarterError::StaleSource);
+                return;
+            }
+            sourceKey = merchantContainerKey;
+            bootstrapAuthority = merchantBootstrapAuthority;
+        }
+        else
+        {
+            if (line.source.cellId != canonicalPlayerCell || line.source.mpNum != 0)
+            {
+                reject(line.source.cellId != canonicalPlayerCell ? BarterError::WrongCell : BarterError::StaleSource);
+                return;
+            }
+            const auto placed = mContentRegistry->findContainerReference(
+                line.source.cellId, line.source.refId, line.source.refNum);
+            if (!placed || !placed->enabled
+                || placed->ownerId.empty()
+                || lowerAscii(placed->ownerId) != lowerAscii(merchantRecord.actor.refId))
+            {
+                reject(BarterError::StaleSource);
+                return;
+            }
+            sourceKey = makeContainerKey(line.source.cellId, line.source.refId,
+                line.source.refNum, line.source.mpNum);
+            bootstrapAuthority = merchantCellIt->second.authorityGuid;
+        }
+
+        WorkingContainer* source = ensureWorking(sourceKey, line.source, bootstrapAuthority);
+        if (!source)
+        {
+            reject(BarterError::SourceUnavailable);
+            return;
+        }
+        auto sourceItem = std::find_if(source->resulting.items.begin(), source->resulting.items.end(),
+            [&](const ContainerItem& item) {
+                return lowerAscii(item.refId) == lowerAscii(line.itemRefId)
+                    && item.instanceId == line.itemInstanceId
+                    && item.charge == line.itemCharge
+                    && std::abs(item.enchantmentCharge - line.itemEnchantmentCharge) < 0.001f
+                    && item.soul == line.itemSoul && item.count >= line.count;
+            });
+        if (sourceItem == source->resulting.items.end())
+        {
+            reject(BarterError::ItemUnavailable);
+            return;
+        }
+        if (line.kind == BarterLineKind::BuyRestocking
+            && (!sourceItem->restocking
+                || !isRestockingTemplate(line.source, line.itemRefId, line.count)))
+        {
+            Log(Debug::Warning) << "[Barter] rejected unproven restocking line request=" << request.requestId
+                                << " source=" << line.source.refId << " item=" << line.itemRefId;
+            reject(BarterError::StaleSource);
+            return;
+        }
+        if (line.kind == BarterLineKind::BuyFinite && sourceItem->restocking)
+        {
+            reject(BarterError::StaleSource);
+            return;
+        }
+
+        Item added;
+        added.refId = sourceItem->refId;
+        added.count = line.count;
+        added.charge = sourceItem->charge;
+        added.enchantmentCharge = sourceItem->enchantmentCharge;
+        added.soul = sourceItem->soul;
+        auto destinationStack = std::find_if(inventory.begin(), inventory.end(),
+            [&](const Item& item) { return sameItemIdentity(item, added); });
+        if (destinationStack != inventory.end())
+        {
+            if (destinationStack->count > std::numeric_limits<std::int32_t>::max() - added.count)
+            {
+                reject(BarterError::InvalidCount);
+                return;
+            }
+            destinationStack->count += added.count;
+            added.instanceId = destinationStack->instanceId;
+        }
+        else
+        {
+            const auto instance = reserveWorldMpNum();
+            if (!instance)
+            {
+                reject(BarterError::PersistenceFailure);
+                return;
+            }
+            added.instanceId = *instance;
+            inventory.push_back(added);
+        }
+
+        if (line.kind == BarterLineKind::BuyFinite)
+        {
+            sourceItem->count -= line.count;
+            if (sourceItem->count == 0)
+                source->resulting.items.erase(sourceItem);
+            normalizeContainerItems(source->resulting.items);
+        }
+        minimumBuyCost += cappedValue;
+    }
+
+    const std::int64_t maximumSafeBalance = maximumSellRevenue - minimumBuyCost;
+    if (static_cast<std::int64_t>(request.balance) > maximumSafeBalance)
+    {
+        Log(Debug::Warning) << "[Barter] rejected unsafe balance request=" << request.requestId
+                            << " balance=" << request.balance
+                            << " maximum=" << maximumSafeBalance
+                            << " buyFloor=" << minimumBuyCost
+                            << " sellCap=" << maximumSellRevenue;
+        reject(BarterError::InvalidBalance);
+        return;
+    }
+    if (request.balance > 0 && request.balance > authoritativeMerchantGold)
+    {
+        reject(BarterError::MerchantGoldInsufficient);
+        return;
+    }
+
+    const std::int64_t resultingMerchantGold64
+        = static_cast<std::int64_t>(authoritativeMerchantGold) - request.balance;
+    if (resultingMerchantGold64 < 0
+        || resultingMerchantGold64 > std::numeric_limits<std::int32_t>::max())
+    {
+        reject(BarterError::InvalidBalance);
+        return;
+    }
+    const std::int32_t resultingMerchantGold = static_cast<std::int32_t>(resultingMerchantGold64);
+    result.merchantGold = resultingMerchantGold;
+
+    if (request.balance < 0)
+    {
+        std::int64_t remainingGold = -static_cast<std::int64_t>(request.balance);
+        std::int64_t availableGold = 0;
+        for (const Item& item : inventory)
+        {
+            if (lowerAscii(item.refId) == "gold_001")
+                availableGold += item.count;
+        }
+        if (availableGold < remainingGold)
+        {
+            reject(BarterError::InsufficientGold);
+            return;
+        }
+        for (auto it = inventory.begin(); it != inventory.end() && remainingGold > 0;)
+        {
+            if (lowerAscii(it->refId) != "gold_001")
+            {
+                ++it;
+                continue;
+            }
+            const int removed = static_cast<int>(std::min<std::int64_t>(it->count, remainingGold));
+            it->count -= removed;
+            remainingGold -= removed;
+            if (it->count <= 0)
+                it = inventory.erase(it);
+            else
+                ++it;
+        }
+    }
+    else if (request.balance > 0)
+    {
+        Item gold;
+        gold.refId = "gold_001";
+        gold.count = request.balance;
+        gold.charge = -1;
+        auto existingGold = std::find_if(inventory.begin(), inventory.end(),
+            [&](const Item& item) { return lowerAscii(item.refId) == "gold_001"; });
+        if (existingGold != inventory.end())
+        {
+            if (existingGold->count > std::numeric_limits<std::int32_t>::max() - request.balance)
+            {
+                reject(BarterError::InvalidCount);
+                return;
+            }
+            existingGold->count += request.balance;
+        }
+        else
+        {
+            const auto instance = reserveWorldMpNum();
+            if (!instance)
+            {
+                reject(BarterError::PersistenceFailure);
+                return;
+            }
+            gold.instanceId = *instance;
+            inventory.push_back(std::move(gold));
+        }
+    }
+
+    if (request.expectedInventoryRevision == std::numeric_limits<std::uint64_t>::max())
+    {
+        reject(BarterError::StaleInventoryRevision);
+        return;
+    }
+    const std::uint64_t resultingRevision = request.expectedInventoryRevision + 1;
+    InventoryTakeCommit commit;
+    commit.accountId = c.dbAccountId;
+    commit.characterId = c.dbCharacterId;
+    commit.requestId = request.requestId;
+    commit.requestHash = requestHash;
+    commit.expectedInventoryRevision = request.expectedInventoryRevision;
+    commit.resultingInventoryRevision = resultingRevision;
+    commit.inventory = inventory;
+    commit.result.requestId = request.requestId;
+    commit.result.accepted = true;
+    commit.result.kind = InventoryTakeKind::Barter;
+    commit.result.source = request.merchant;
+    commit.result.itemRefId = "__barter_batch__";
+    // The shared durable take journal stores the canonical resulting merchant
+    // gold in itemCharge for exact barter replay.
+    commit.result.itemCharge = resultingMerchantGold;
+    commit.result.itemCount = result.buyLines;
+    commit.result.inventoryRevision = resultingRevision;
+    commit.worldItemMutations = worldItemMutations;
+    commit.merchantGoldMutation = MerchantGoldMutation{ request.merchant.actorInstanceId,
+        merchantRecord.actor.refId, merchantGoldState.expectedGold, resultingMerchantGold,
+        merchantGoldState.expectedRestockTime, merchantGoldState.resultingRestockTime };
+    for (const auto& [key, source] : working)
+    {
+        (void)key;
+        // Even unchanged restocking sources participate in the transaction's
+        // compare-and-swap set. Their concrete authoritative snapshot proves
+        // the materialized item while the negative ESM template remains intact.
+        commit.containerMutations.push_back({ source.expected, source.resulting });
+    }
+
+    InventoryTakeCommitResult committed;
+    try
+    {
+        committed = mPlayerDb->commitInventoryTake(commit);
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[Barter] persistence failure request=" << request.requestId
+                          << " player=" << c.name << " error=" << e.what();
+        reject(BarterError::PersistenceFailure);
+        return;
+    }
+    if (committed.status == InventoryTakeCommitStatus::DuplicateRequestConflict)
+    {
+        reject(BarterError::DuplicateConflict);
+        return;
+    }
+    if (committed.status == InventoryTakeCommitStatus::StaleInventoryRevision)
+    {
+        sendAuthoritativeInventory(c);
+        reject(BarterError::StaleInventoryRevision);
+        return;
+    }
+    if (committed.status == InventoryTakeCommitStatus::StaleSource)
+    {
+        reject(BarterError::StaleSource);
+        return;
+    }
+    if (committed.status != InventoryTakeCommitStatus::Committed
+        && committed.status != InventoryTakeCommitStatus::DuplicateRequest)
+    {
+        reject(BarterError::PersistenceFailure);
+        return;
+    }
+
+    result.accepted = true;
+    result.error = BarterError::None;
+    result.replayed = committed.status == InventoryTakeCommitStatus::DuplicateRequest;
+    result.inventoryRevision = committed.result.inventoryRevision;
+    result.merchantGold = std::max(0, committed.result.itemCharge);
+    if (!result.replayed)
+    {
+        c.player.inventoryChanges.action = BasePlayer::InventoryChanges::Action::Set;
+        c.player.inventoryChanges.items = std::move(inventory);
+        c.inventoryRevision = resultingRevision;
+        c.player.inventoryChanges.revision = resultingRevision;
+        c.restoredInventorySnapshot = c.player.inventoryChanges.items;
+        c.hasRestoredInventorySnapshot = true;
+        for (const ContainerMutation& mutation : commit.containerMutations)
+        {
+            if (mutation.expected.items == mutation.resulting.items)
+                continue;
+            const std::string key = makeContainerKey(mutation.resulting.cellId, mutation.resulting.refId,
+                mutation.resulting.refNum, mutation.resulting.mpNum);
+            mWorld.containers[key] = mutation.resulting;
+            PacketContainer update;
+            update.container = mutation.resulting;
+            update.container.hasAuthority = true;
+            update.mAction = static_cast<std::uint8_t>(ContainerAction::Set);
+            broadcastToCell(canonicalPlayerCell, update.encode());
+        }
+        for (const WorldItemMutation& mutation : commit.worldItemMutations)
+        {
+            const std::string worldKey = makeWorldItemKey(mutation.object);
+            if (mutation.resultingWorldCount > 0)
+            {
+                if (mutation.object.kind == PlacedObjectKind::ServerPlaced)
+                {
+                    auto placed = mWorld.placedObjects.find(mutation.object.cellId);
+                    if (placed != mWorld.placedObjects.end())
+                    {
+                        const auto object = std::find_if(placed->second.begin(), placed->second.end(),
+                            [&](const PlacedObject& value) { return value.mpNum == mutation.object.mpNum; });
+                        if (object != placed->second.end())
+                            object->count = mutation.resultingWorldCount;
+                    }
+                }
+                else
+                    mWorld.worldItemCountOverrides[worldKey] = mutation;
+
+                PacketObjectCount update;
+                update.object = mutation.object;
+                update.count = mutation.resultingWorldCount;
+                broadcastToCell(mutation.object.cellId, update.encode());
+                continue;
+            }
+
+            mWorld.worldItemCountOverrides.erase(worldKey);
+            mWorld.takenItemReferences[mutation.object.cellId].push_back(mutation.object);
+            if (mutation.object.kind == PlacedObjectKind::ServerPlaced)
+                removePlacedObjectAuthoritative(mutation.object.mpNum, mutation.object.cellId);
+            else
+            {
+                PacketObjectDelete deletion;
+                deletion.cellId = mutation.object.cellId;
+                deletion.refId = mutation.object.refId;
+                deletion.refNum = mutation.object.refIndex;
+                deletion.refContentFile = mutation.object.refContentFile;
+                broadcastToCell(mutation.object.cellId, deletion.encode());
+            }
+        }
+        scheduleGeneratedDynamicRecordGc("barter_transaction");
+        syncLuaPlayerSnapshot();
+    }
+    sendAuthoritativeInventory(c);
+    Log(Debug::Info) << "[Barter] accepted request=" << request.requestId
+                     << " merchant=" << request.merchant.refId
+                     << " lines=" << request.lines.size()
+                     << " buys=" << result.buyLines << " sells=" << result.sellLines
+                     << " balance=" << request.balance
+                     << " merchantGold=" << result.merchantGold
+                     << " containers=" << commit.containerMutations.size()
+                     << " worldItems=" << commit.worldItemMutations.size()
+                     << " revision=" << result.inventoryRevision
+                     << " replayed=" << result.replayed;
     sendResult();
 }
 

@@ -39,6 +39,7 @@ namespace mwmp
             ws.write(item.instanceId);
             ws.write(item.enchantmentCharge);
             ws.writeString(item.soul);
+            ws.write(static_cast<std::uint8_t>(item.restocking));
         }
 
         void unpackItem(ReadStream& rs, ContainerItem& item)
@@ -49,6 +50,11 @@ namespace mwmp
             rs.read(item.instanceId);
             rs.read(item.enchantmentCharge);
             item.soul = rs.readString();
+            std::uint8_t restocking = 0;
+            rs.read(restocking);
+            if (restocking > 1)
+                throw std::runtime_error("PacketContainer: invalid restocking flag");
+            item.restocking = restocking != 0;
         }
 
         void pack(WriteStream& ws) override

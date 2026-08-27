@@ -172,6 +172,8 @@ TEST(InventoryTakeProtocol, ContainerBootstrapIsStrictAndCanonical)
     outgoing.container.refNum = 42;
     outgoing.container.items.push_back(
         { "daedric dagger", 1, 314, 123456, 87.25f, "golden saint" });
+    outgoing.container.items.push_back(
+        { "restocking potion", 5, -1, 0, -1.f, "", true });
     outgoing.mAction = static_cast<std::uint8_t>(mwmp::ContainerAction::BootstrapRequest);
     const auto encoded = outgoing.encode();
     mwmp::PacketContainer incoming;

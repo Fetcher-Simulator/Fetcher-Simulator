@@ -415,6 +415,7 @@ CREATE TABLE IF NOT EXISTS world_container_items (
     instance_id         INTEGER NOT NULL DEFAULT 0,
     enchantment_charge  REAL    NOT NULL DEFAULT -1,
     soul                TEXT    NOT NULL DEFAULT '',
+    restocking          INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(cell_id, ref_id, ref_num, mp_num, item_index),
     FOREIGN KEY(cell_id, ref_id, ref_num, mp_num)
         REFERENCES world_containers(cell_id, ref_id, ref_num, mp_num)
@@ -435,6 +436,14 @@ CREATE TABLE IF NOT EXISTS world_taken_references (
     PRIMARY KEY(object_kind, cell_id, ref_id, ref_index, ref_content_file, mp_num)
 );
 CREATE INDEX IF NOT EXISTS idx_world_taken_references_cell ON world_taken_references(cell_id);
+CREATE TABLE IF NOT EXISTS world_item_count_overrides (
+    object_kind INTEGER NOT NULL, cell_id TEXT NOT NULL, ref_id TEXT NOT NULL,
+    ref_index INTEGER NOT NULL DEFAULT 0, ref_content_file INTEGER NOT NULL DEFAULT -1,
+    mp_num INTEGER NOT NULL DEFAULT 0, item_count INTEGER NOT NULL CHECK(item_count > 0),
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(object_kind, cell_id, ref_id, ref_index, ref_content_file, mp_num)
+);
+CREATE INDEX IF NOT EXISTS idx_world_item_count_overrides_cell ON world_item_count_overrides(cell_id);
 CREATE TABLE IF NOT EXISTS world_item_take_requests (
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
@@ -471,6 +480,13 @@ CREATE TABLE IF NOT EXISTS inventory_take_requests (
     crime_value INTEGER NOT NULL,
     created_at INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(account_id, character_id, request_id)
+);
+CREATE TABLE IF NOT EXISTS merchant_barter_state (
+    actor_instance_id INTEGER PRIMARY KEY,
+    actor_ref_id TEXT NOT NULL,
+    gold INTEGER NOT NULL CHECK(gold >= 0),
+    last_restock_time REAL NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL DEFAULT 0
 );
 )SQL";
 
@@ -543,6 +559,8 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
         "ALTER TABLE world_container_items ADD COLUMN instance_id INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE world_container_items ADD COLUMN enchantment_charge REAL NOT NULL DEFAULT -1",
         "ALTER TABLE world_container_items ADD COLUMN soul TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE world_container_items ADD COLUMN restocking INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE merchant_barter_state ADD COLUMN last_restock_time REAL NOT NULL DEFAULT 0",
         "CREATE TABLE IF NOT EXISTS character_stolen_items ("
         "  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,"
         "  ref_id TEXT NOT NULL,"
@@ -928,16 +946,16 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                     " mp_num INTEGER NOT NULL DEFAULT 0, item_index INTEGER NOT NULL, item_ref_id TEXT NOT NULL,"
                     " item_count INTEGER NOT NULL DEFAULT 0, charge INTEGER NOT NULL DEFAULT -1,"
                     " instance_id INTEGER NOT NULL DEFAULT 0, enchantment_charge REAL NOT NULL DEFAULT -1,"
-                    " soul TEXT NOT NULL DEFAULT '',"
+                    " soul TEXT NOT NULL DEFAULT '', restocking INTEGER NOT NULL DEFAULT 0,"
                     " PRIMARY KEY(cell_id, ref_id, ref_num, mp_num, item_index),"
                     " FOREIGN KEY(cell_id, ref_id, ref_num, mp_num)"
                     " REFERENCES world_containers_v2(cell_id, ref_id, ref_num, mp_num) ON DELETE CASCADE)",
                     "create world_container_items_v2");
                 execChecked(
                     "INSERT INTO world_container_items_v2(cell_id, ref_id, ref_num, mp_num, item_index, item_ref_id,"
-                    " item_count, charge, instance_id, enchantment_charge, soul)"
+                    " item_count, charge, instance_id, enchantment_charge, soul, restocking)"
                     " SELECT i.cell_id, i.ref_id, i.ref_num, p.mp_num, i.item_index, i.item_ref_id,"
-                    " i.item_count, i.charge, i.instance_id, i.enchantment_charge, i.soul"
+                    " i.item_count, i.charge, i.instance_id, i.enchantment_charge, i.soul, 0"
                     " FROM world_container_items i JOIN world_containers p"
                     " ON p.cell_id=i.cell_id AND p.ref_id=i.ref_id AND p.ref_num=i.ref_num",
                     "copy world_container_items");
@@ -1700,6 +1718,50 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                 return { WorldItemTakeCommitStatus::ObjectAlreadyTaken, {} };
             }
 
+            sqlite3_stmt* overrideCount = prepare(
+                "SELECT item_count FROM world_item_count_overrides WHERE object_kind=?1 AND cell_id=?2"
+                " AND ref_id=?3 AND ref_index=?4 AND ref_content_file=?5 AND mp_num=?6");
+            bindIdentity(overrideCount, 1, commit.object);
+            const bool hasOverride = sqlite3_step(overrideCount) == SQLITE_ROW;
+            const bool overrideMatches = !hasOverride
+                || sqlite3_column_int(overrideCount, 0) == commit.expectedWorldCount;
+            sqlite3_finalize(overrideCount);
+            if (!overrideMatches)
+            {
+                exec("COMMIT");
+                return { WorldItemTakeCommitStatus::StaleSource, {} };
+            }
+
+            if (commit.object.kind == PlacedObjectKind::ServerPlaced && !hasOverride)
+            {
+                sqlite3_stmt* placed = prepare(
+                    "SELECT 1 FROM world_objects WHERE mp_num=?1 AND cell_id=?2 AND ref_id=?3 AND item_count=?4");
+                sqlite3_bind_int64(placed, 1, commit.object.mpNum);
+                sqlite3_bind_text(placed, 2, commit.object.cellId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(placed, 3, commit.object.refId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int(placed, 4, commit.expectedWorldCount);
+                const bool matches = sqlite3_step(placed) == SQLITE_ROW;
+                sqlite3_finalize(placed);
+                if (!matches)
+                {
+                    exec("COMMIT");
+                    return { WorldItemTakeCommitStatus::StaleSource, {} };
+                }
+            }
+
+            if (hasOverride)
+            {
+                sqlite3_stmt* clearOverride = prepare(
+                    "DELETE FROM world_item_count_overrides WHERE object_kind=?1 AND cell_id=?2 AND ref_id=?3"
+                    " AND ref_index=?4 AND ref_content_file=?5 AND mp_num=?6 AND item_count=?7");
+                bindIdentity(clearOverride, 1, commit.object);
+                sqlite3_bind_int(clearOverride, 7, commit.expectedWorldCount);
+                checkSqlite(sqlite3_step(clearOverride), mDb, "clearTakenWorldItemCountOverride");
+                if (sqlite3_changes(mDb) != 1)
+                    throw std::runtime_error("world item count changed during take");
+                sqlite3_finalize(clearOverride);
+            }
+
             sqlite3_stmt* insertTaken = prepare(
                 "INSERT INTO world_taken_references(object_kind, cell_id, ref_id, ref_index, ref_content_file,"
                 " mp_num, taken_by_character, take_request_id, taken_at)"
@@ -1714,9 +1776,15 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
 
             if (commit.object.kind == PlacedObjectKind::ServerPlaced)
             {
-                sqlite3_stmt* removeWorld = prepare("DELETE FROM world_objects WHERE mp_num=?1");
+                sqlite3_stmt* removeWorld = prepare(
+                    "DELETE FROM world_objects WHERE mp_num=?1 AND cell_id=?2 AND ref_id=?3 AND item_count=?4");
                 sqlite3_bind_int64(removeWorld, 1, commit.object.mpNum);
+                sqlite3_bind_text(removeWorld, 2, commit.object.cellId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(removeWorld, 3, commit.object.refId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int(removeWorld, 4, commit.expectedWorldCount);
                 checkSqlite(sqlite3_step(removeWorld), mDb, "deleteTakenWorldObject");
+                if (sqlite3_changes(mDb) != 1)
+                    throw std::runtime_error("world item changed during take");
                 sqlite3_finalize(removeWorld);
 
                 const std::string placedOwner = std::to_string(commit.object.mpNum);
@@ -1880,8 +1948,34 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
         return stored;
     }
 
+    std::optional<PlayerDatabase::MerchantGoldState> PlayerDatabase::loadMerchantGold(ActorInstanceId actorInstanceId)
+    {
+        sqlite3_stmt* statement = prepare(
+            "SELECT gold, last_restock_time FROM merchant_barter_state WHERE actor_instance_id=?1");
+        sqlite3_bind_int64(statement, 1, static_cast<sqlite3_int64>(actorInstanceId));
+        if (sqlite3_step(statement) != SQLITE_ROW)
+        {
+            sqlite3_finalize(statement);
+            return std::nullopt;
+        }
+        MerchantGoldState state;
+        state.gold = sqlite3_column_int(statement, 0);
+        state.lastRestockTime = sqlite3_column_double(statement, 1);
+        sqlite3_finalize(statement);
+        return state;
+    }
+
     InventoryTakeCommitResult PlayerDatabase::commitInventoryTake(const InventoryTakeCommit& commit)
     {
+        auto bindWorldIdentity = [](sqlite3_stmt* statement, int first,
+                                     const PlacedObjectIdentity& identity) {
+            sqlite3_bind_int(statement, first, static_cast<int>(identity.kind));
+            sqlite3_bind_text(statement, first + 1, identity.cellId.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(statement, first + 2, identity.refId.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(statement, first + 3, identity.refIndex);
+            sqlite3_bind_int(statement, first + 4, identity.refContentFile);
+            sqlite3_bind_int64(statement, first + 5, identity.mpNum);
+        };
         auto textColumn = [](sqlite3_stmt* statement, int column) {
             const char* value = reinterpret_cast<const char*>(sqlite3_column_text(statement, column));
             return std::string(value ? value : "");
@@ -1952,7 +2046,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
             {
                 const ContainerRecord& expected = *commit.expectedSource;
                 sqlite3_stmt* items = prepare(
-                    "SELECT item_ref_id, item_count, charge, instance_id, enchantment_charge, soul"
+                    "SELECT item_ref_id, item_count, charge, instance_id, enchantment_charge, soul, restocking"
                     " FROM world_container_items"
                     " WHERE cell_id=?1 AND ref_id=?2 AND ref_num=?3 AND mp_num=?4 ORDER BY item_index");
                 sqlite3_bind_text(items, 1, expected.cellId.c_str(), -1, SQLITE_TRANSIENT);
@@ -1969,6 +2063,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                     item.instanceId = static_cast<std::uint32_t>(sqlite3_column_int64(items, 3));
                     item.enchantmentCharge = static_cast<float>(sqlite3_column_double(items, 4));
                     item.soul = textColumn(items, 5);
+                    item.restocking = sqlite3_column_int(items, 6) != 0;
                     stored.push_back(std::move(item));
                 }
                 sqlite3_finalize(items);
@@ -1977,6 +2072,107 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                     exec("COMMIT");
                     return { InventoryTakeCommitStatus::StaleSource, {} };
                 }
+            }
+
+            for (const ContainerMutation& mutation : commit.containerMutations)
+            {
+                const ContainerRecord& expected = mutation.expected;
+                sqlite3_stmt* items = prepare(
+                    "SELECT item_ref_id, item_count, charge, instance_id, enchantment_charge, soul, restocking"
+                    " FROM world_container_items"
+                    " WHERE cell_id=?1 AND ref_id=?2 AND ref_num=?3 AND mp_num=?4 ORDER BY item_index");
+                sqlite3_bind_text(items, 1, expected.cellId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(items, 2, expected.refId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int64(items, 3, expected.refNum);
+                sqlite3_bind_int64(items, 4, expected.mpNum);
+                std::vector<ContainerItem> stored;
+                while (sqlite3_step(items) == SQLITE_ROW)
+                {
+                    ContainerItem item;
+                    item.refId = textColumn(items, 0);
+                    item.count = sqlite3_column_int(items, 1);
+                    item.charge = sqlite3_column_int(items, 2);
+                    item.instanceId = static_cast<std::uint32_t>(sqlite3_column_int64(items, 3));
+                    item.enchantmentCharge = static_cast<float>(sqlite3_column_double(items, 4));
+                    item.soul = textColumn(items, 5);
+                    item.restocking = sqlite3_column_int(items, 6) != 0;
+                    stored.push_back(std::move(item));
+                }
+                sqlite3_finalize(items);
+                if (stored != expected.items)
+                {
+                    exec("COMMIT");
+                    return { InventoryTakeCommitStatus::StaleSource, {} };
+                }
+            }
+
+            for (const WorldItemMutation& mutation : commit.worldItemMutations)
+            {
+                sqlite3_stmt* taken = prepare(
+                    "SELECT 1 FROM world_taken_references WHERE object_kind=?1 AND cell_id=?2 AND ref_id=?3"
+                    " AND ref_index=?4 AND ref_content_file=?5 AND mp_num=?6");
+                bindWorldIdentity(taken, 1, mutation.object);
+                const bool alreadyTaken = sqlite3_step(taken) == SQLITE_ROW;
+                sqlite3_finalize(taken);
+                if (alreadyTaken)
+                {
+                    exec("COMMIT");
+                    return { InventoryTakeCommitStatus::StaleSource, {} };
+                }
+
+                sqlite3_stmt* overrideCount = prepare(
+                    "SELECT item_count FROM world_item_count_overrides WHERE object_kind=?1 AND cell_id=?2"
+                    " AND ref_id=?3 AND ref_index=?4 AND ref_content_file=?5 AND mp_num=?6");
+                bindWorldIdentity(overrideCount, 1, mutation.object);
+                const bool hasOverride = sqlite3_step(overrideCount) == SQLITE_ROW;
+                const bool overrideMatches = !hasOverride
+                    || sqlite3_column_int(overrideCount, 0) == mutation.expectedWorldCount;
+                sqlite3_finalize(overrideCount);
+                if (!overrideMatches)
+                {
+                    exec("COMMIT");
+                    return { InventoryTakeCommitStatus::StaleSource, {} };
+                }
+
+                if (mutation.object.kind == PlacedObjectKind::ServerPlaced && !hasOverride)
+                {
+                    sqlite3_stmt* placed = prepare(
+                        "SELECT 1 FROM world_objects WHERE mp_num=?1 AND cell_id=?2 AND ref_id=?3"
+                        " AND item_count=?4");
+                    sqlite3_bind_int64(placed, 1, mutation.object.mpNum);
+                    sqlite3_bind_text(placed, 2, mutation.object.cellId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(placed, 3, mutation.object.refId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int(placed, 4, mutation.expectedWorldCount);
+                    const bool matches = sqlite3_step(placed) == SQLITE_ROW;
+                    sqlite3_finalize(placed);
+                    if (!matches)
+                    {
+                        exec("COMMIT");
+                        return { InventoryTakeCommitStatus::StaleSource, {} };
+                    }
+                }
+            }
+
+            if (commit.merchantGoldMutation)
+            {
+                const MerchantGoldMutation& gold = *commit.merchantGoldMutation;
+                sqlite3_stmt* current = prepare(
+                    "SELECT actor_ref_id, gold, last_restock_time FROM merchant_barter_state WHERE actor_instance_id=?1");
+                sqlite3_bind_int64(current, 1, static_cast<sqlite3_int64>(gold.actorInstanceId));
+                if (sqlite3_step(current) == SQLITE_ROW)
+                {
+                    const bool matches = textColumn(current, 0) == gold.actorRefId
+                        && sqlite3_column_int(current, 1) == gold.expectedGold
+                        && sqlite3_column_double(current, 2) == gold.expectedRestockTime;
+                    sqlite3_finalize(current);
+                    if (!matches)
+                    {
+                        exec("COMMIT");
+                        return { InventoryTakeCommitStatus::StaleSource, {} };
+                    }
+                }
+                else
+                    sqlite3_finalize(current);
             }
 
             if (commit.resultingSource)
@@ -2003,8 +2199,8 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                 sqlite3_finalize(clear);
                 sqlite3_stmt* insert = prepare(
                     "INSERT INTO world_container_items(cell_id, ref_id, ref_num, mp_num, item_index, item_ref_id,"
-                    " item_count, charge, instance_id, enchantment_charge, soul)"
-                    " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)");
+                    " item_count, charge, instance_id, enchantment_charge, soul, restocking)"
+                    " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)");
                 for (std::size_t index = 0; index < source.items.size(); ++index)
                 {
                     const ContainerItem& item = source.items[index];
@@ -2019,6 +2215,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                     sqlite3_bind_int64(insert, 9, item.instanceId);
                     sqlite3_bind_double(insert, 10, item.enchantmentCharge);
                     sqlite3_bind_text(insert, 11, item.soul.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int(insert, 12, item.restocking ? 1 : 0);
                     checkSqlite(sqlite3_step(insert), mDb, "commitInventoryTake(insertSource)");
                     sqlite3_reset(insert);
                     sqlite3_clear_bindings(insert);
@@ -2043,6 +2240,180 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                     insertDynamicRecordLink(mDb, insertLink, source.items[index].refId, "container_item",
                         source.cellId, source.refId, ownerC, static_cast<std::int64_t>(index));
                 sqlite3_finalize(insertLink);
+            }
+
+            for (const ContainerMutation& mutation : commit.containerMutations)
+            {
+                const ContainerRecord& source = mutation.resulting;
+                sqlite3_stmt* parent = prepare(
+                    "INSERT INTO world_containers(cell_id, ref_id, ref_num, mp_num, has_authority)"
+                    " VALUES(?1, ?2, ?3, ?4, 1) ON CONFLICT(cell_id, ref_id, ref_num, mp_num) DO UPDATE SET"
+                    " has_authority=1");
+                sqlite3_bind_text(parent, 1, source.cellId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(parent, 2, source.refId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int64(parent, 3, source.refNum);
+                sqlite3_bind_int64(parent, 4, source.mpNum);
+                checkSqlite(sqlite3_step(parent), mDb, "commitInventoryTake(extraSourceParent)");
+                sqlite3_finalize(parent);
+
+                sqlite3_stmt* clear = prepare(
+                    "DELETE FROM world_container_items WHERE cell_id=?1 AND ref_id=?2 AND ref_num=?3 AND mp_num=?4");
+                sqlite3_bind_text(clear, 1, source.cellId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(clear, 2, source.refId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int64(clear, 3, source.refNum);
+                sqlite3_bind_int64(clear, 4, source.mpNum);
+                checkSqlite(sqlite3_step(clear), mDb, "commitInventoryTake(clearExtraSource)");
+                sqlite3_finalize(clear);
+
+                sqlite3_stmt* insert = prepare(
+                    "INSERT INTO world_container_items(cell_id, ref_id, ref_num, mp_num, item_index, item_ref_id,"
+                    " item_count, charge, instance_id, enchantment_charge, soul, restocking)"
+                    " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)");
+                for (std::size_t index = 0; index < source.items.size(); ++index)
+                {
+                    const ContainerItem& item = source.items[index];
+                    sqlite3_bind_text(insert, 1, source.cellId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(insert, 2, source.refId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int64(insert, 3, source.refNum);
+                    sqlite3_bind_int64(insert, 4, source.mpNum);
+                    sqlite3_bind_int(insert, 5, static_cast<int>(index));
+                    sqlite3_bind_text(insert, 6, item.refId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int(insert, 7, item.count);
+                    sqlite3_bind_int(insert, 8, item.charge);
+                    sqlite3_bind_int64(insert, 9, item.instanceId);
+                    sqlite3_bind_double(insert, 10, item.enchantmentCharge);
+                    sqlite3_bind_text(insert, 11, item.soul.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int(insert, 12, item.restocking ? 1 : 0);
+                    checkSqlite(sqlite3_step(insert), mDb, "commitInventoryTake(insertExtraSource)");
+                    sqlite3_reset(insert);
+                    sqlite3_clear_bindings(insert);
+                }
+                sqlite3_finalize(insert);
+
+                const std::string ownerC = makeContainerDynamicRecordOwnerKey(source.refNum, source.mpNum);
+                sqlite3_stmt* clearLinks = prepare(
+                    "DELETE FROM world_dynamic_record_links"
+                    " WHERE link_kind=?1 AND owner_a=?2 AND owner_b=?3 AND owner_c=?4");
+                clearDynamicRecordLinksForOwner(
+                    mDb, clearLinks, "container_parent", source.cellId, source.refId, ownerC);
+                clearDynamicRecordLinksForOwner(
+                    mDb, clearLinks, "container_item", source.cellId, source.refId, ownerC);
+                sqlite3_finalize(clearLinks);
+                sqlite3_stmt* insertLink = prepare(
+                    "INSERT OR REPLACE INTO world_dynamic_record_links(record_id, link_kind, owner_a, owner_b,"
+                    " owner_c, owner_index) VALUES(?1, ?2, ?3, ?4, ?5, ?6)");
+                insertDynamicRecordLink(mDb, insertLink, source.refId, "container_parent",
+                    source.cellId, source.refId, ownerC, 0);
+                for (std::size_t index = 0; index < source.items.size(); ++index)
+                    insertDynamicRecordLink(mDb, insertLink, source.items[index].refId, "container_item",
+                        source.cellId, source.refId, ownerC, static_cast<std::int64_t>(index));
+                sqlite3_finalize(insertLink);
+            }
+
+            for (const WorldItemMutation& mutation : commit.worldItemMutations)
+            {
+                if (mutation.expectedWorldCount <= 0 || mutation.resultingWorldCount < 0
+                    || mutation.resultingWorldCount >= mutation.expectedWorldCount)
+                    throw std::runtime_error("invalid world item barter count mutation");
+
+                if (mutation.resultingWorldCount == 0)
+                {
+                    sqlite3_stmt* clearOverride = prepare(
+                        "DELETE FROM world_item_count_overrides WHERE object_kind=?1 AND cell_id=?2 AND ref_id=?3"
+                        " AND ref_index=?4 AND ref_content_file=?5 AND mp_num=?6");
+                    bindWorldIdentity(clearOverride, 1, mutation.object);
+                    checkSqlite(sqlite3_step(clearOverride), mDb, "commitInventoryTake(clearWorldItemCountOverride)");
+                    sqlite3_finalize(clearOverride);
+
+                    sqlite3_stmt* insertTaken = prepare(
+                        "INSERT INTO world_taken_references(object_kind, cell_id, ref_id, ref_index, ref_content_file,"
+                        " mp_num, taken_by_character, take_request_id, taken_at)"
+                        " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)");
+                    bindWorldIdentity(insertTaken, 1, mutation.object);
+                    sqlite3_bind_int64(insertTaken, 7, commit.characterId);
+                    sqlite3_bind_text(insertTaken, 8, commit.requestId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int64(insertTaken, 9, static_cast<sqlite3_int64>(std::time(nullptr)));
+                    checkSqlite(sqlite3_step(insertTaken), mDb, "commitInventoryTake(insertTakenWorldReference)");
+                    sqlite3_finalize(insertTaken);
+
+                    if (mutation.object.kind == PlacedObjectKind::ServerPlaced)
+                    {
+                        sqlite3_stmt* removeWorld = prepare(
+                            "DELETE FROM world_objects WHERE mp_num=?1 AND cell_id=?2 AND ref_id=?3 AND item_count=?4");
+                        sqlite3_bind_int64(removeWorld, 1, mutation.object.mpNum);
+                        sqlite3_bind_text(removeWorld, 2, mutation.object.cellId.c_str(), -1, SQLITE_TRANSIENT);
+                        sqlite3_bind_text(removeWorld, 3, mutation.object.refId.c_str(), -1, SQLITE_TRANSIENT);
+                        sqlite3_bind_int(removeWorld, 4, mutation.expectedWorldCount);
+                        checkSqlite(sqlite3_step(removeWorld), mDb, "commitInventoryTake(deleteWorldObject)");
+                        if (sqlite3_changes(mDb) != 1)
+                            throw std::runtime_error("world item changed during barter");
+                        sqlite3_finalize(removeWorld);
+
+                        const std::string placedOwner = std::to_string(mutation.object.mpNum);
+                        sqlite3_stmt* clearPlacedLink = prepare(
+                            "DELETE FROM world_dynamic_record_links WHERE link_kind='placed_object' AND owner_a=?1");
+                        sqlite3_bind_text(clearPlacedLink, 1, placedOwner.c_str(), -1, SQLITE_TRANSIENT);
+                        checkSqlite(sqlite3_step(clearPlacedLink), mDb,
+                            "commitInventoryTake(deleteWorldObjectLink)");
+                        sqlite3_finalize(clearPlacedLink);
+                    }
+                }
+                else if (mutation.object.kind == PlacedObjectKind::ServerPlaced)
+                {
+                    sqlite3_stmt* updateWorld = prepare(
+                        "UPDATE world_objects SET item_count=?1 WHERE mp_num=?2 AND cell_id=?3 AND ref_id=?4"
+                        " AND item_count=?5");
+                    sqlite3_bind_int(updateWorld, 1, mutation.resultingWorldCount);
+                    sqlite3_bind_int64(updateWorld, 2, mutation.object.mpNum);
+                    sqlite3_bind_text(updateWorld, 3, mutation.object.cellId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_text(updateWorld, 4, mutation.object.refId.c_str(), -1, SQLITE_TRANSIENT);
+                    sqlite3_bind_int(updateWorld, 5, mutation.expectedWorldCount);
+                    checkSqlite(sqlite3_step(updateWorld), mDb, "commitInventoryTake(updateWorldObjectCount)");
+                    if (sqlite3_changes(mDb) != 1)
+                        throw std::runtime_error("world item changed during barter");
+                    sqlite3_finalize(updateWorld);
+                }
+                else
+                {
+                    sqlite3_stmt* updateOverride = prepare(
+                        "INSERT INTO world_item_count_overrides(object_kind, cell_id, ref_id, ref_index,"
+                        " ref_content_file, mp_num, item_count, updated_at)"
+                        " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
+                        " ON CONFLICT(object_kind, cell_id, ref_id, ref_index, ref_content_file, mp_num)"
+                        " DO UPDATE SET item_count=excluded.item_count, updated_at=excluded.updated_at"
+                        " WHERE world_item_count_overrides.item_count=?9");
+                    bindWorldIdentity(updateOverride, 1, mutation.object);
+                    sqlite3_bind_int(updateOverride, 7, mutation.resultingWorldCount);
+                    sqlite3_bind_int64(updateOverride, 8, static_cast<sqlite3_int64>(std::time(nullptr)));
+                    sqlite3_bind_int(updateOverride, 9, mutation.expectedWorldCount);
+                    checkSqlite(sqlite3_step(updateOverride), mDb, "commitInventoryTake(updateWorldItemCountOverride)");
+                    if (sqlite3_changes(mDb) != 1)
+                        throw std::runtime_error("world item changed during barter");
+                    sqlite3_finalize(updateOverride);
+                }
+            }
+
+            if (commit.merchantGoldMutation)
+            {
+                const MerchantGoldMutation& gold = *commit.merchantGoldMutation;
+                sqlite3_stmt* updateGold = prepare(
+                    "INSERT INTO merchant_barter_state(actor_instance_id, actor_ref_id, gold, last_restock_time, updated_at)"
+                    " VALUES(?1, ?2, ?3, ?4, ?5)"
+                    " ON CONFLICT(actor_instance_id) DO UPDATE SET actor_ref_id=excluded.actor_ref_id,"
+                    " gold=excluded.gold, last_restock_time=excluded.last_restock_time, updated_at=excluded.updated_at"
+                    " WHERE merchant_barter_state.actor_ref_id=?2 AND merchant_barter_state.gold=?6"
+                    " AND merchant_barter_state.last_restock_time=?7");
+                sqlite3_bind_int64(updateGold, 1, static_cast<sqlite3_int64>(gold.actorInstanceId));
+                sqlite3_bind_text(updateGold, 2, gold.actorRefId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int(updateGold, 3, gold.resultingGold);
+                sqlite3_bind_double(updateGold, 4, gold.resultingRestockTime);
+                sqlite3_bind_int64(updateGold, 5, static_cast<sqlite3_int64>(std::time(nullptr)));
+                sqlite3_bind_int(updateGold, 6, gold.expectedGold);
+                sqlite3_bind_double(updateGold, 7, gold.expectedRestockTime);
+                checkSqlite(sqlite3_step(updateGold), mDb, "commitInventoryTake(updateMerchantGold)");
+                if (sqlite3_changes(mDb) != 1)
+                    throw std::runtime_error("merchant gold changed during barter");
+                sqlite3_finalize(updateGold);
             }
 
             if (commit.resultingInventoryRevision != commit.expectedInventoryRevision)
@@ -2329,7 +2700,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                     if (evidenceMatches && commit.evidenceWasPersisted)
                     {
                         sqlite3_stmt* items = prepare(
-                            "SELECT item_ref_id, item_count, charge, instance_id, enchantment_charge, soul"
+                            "SELECT item_ref_id, item_count, charge, instance_id, enchantment_charge, soul, restocking"
                             " FROM world_container_items"
                             " WHERE cell_id=?1 AND ref_id=?2 AND ref_num=?3 AND mp_num=?4 ORDER BY item_index");
                         sqlite3_bind_text(items, 1, expected.cellId.c_str(), -1, SQLITE_TRANSIENT);
@@ -2346,6 +2717,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                             item.instanceId = static_cast<std::uint32_t>(sqlite3_column_int64(items, 3));
                             item.enchantmentCharge = static_cast<float>(sqlite3_column_double(items, 4));
                             item.soul = textColumn(items, 5);
+                            item.restocking = sqlite3_column_int(items, 6) != 0;
                             stored.push_back(std::move(item));
                         }
                         sqlite3_finalize(items);
@@ -2380,8 +2752,8 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
 
                     sqlite3_stmt* insertEvidence = prepare(
                         "INSERT INTO world_container_items(cell_id, ref_id, ref_num, mp_num, item_index, item_ref_id,"
-                        " item_count, charge, instance_id, enchantment_charge, soul)"
-                        " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)");
+                        " item_count, charge, instance_id, enchantment_charge, soul, restocking)"
+                        " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)");
                     for (std::size_t index = 0; index < evidence.items.size(); ++index)
                     {
                         const ContainerItem& item = evidence.items[index];
@@ -2396,6 +2768,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                         sqlite3_bind_int64(insertEvidence, 9, item.instanceId);
                         sqlite3_bind_double(insertEvidence, 10, item.enchantmentCharge);
                         sqlite3_bind_text(insertEvidence, 11, item.soul.c_str(), -1, SQLITE_TRANSIENT);
+                        sqlite3_bind_int(insertEvidence, 12, item.restocking ? 1 : 0);
                         checkSqlite(sqlite3_step(insertEvidence), mDb, "commitGuardArrest(insertEvidence)");
                         sqlite3_reset(insertEvidence);
                         sqlite3_clear_bindings(insertEvidence);
@@ -2479,6 +2852,34 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
             identity.mpNum = static_cast<std::uint32_t>(sqlite3_column_int64(statement, 5));
             if (isCanonicalPlacedObjectIdentity(identity))
                 result.push_back(std::move(identity));
+        }
+        sqlite3_finalize(statement);
+        return result;
+    }
+
+    std::vector<WorldItemMutation> PlayerDatabase::loadWorldItemCountOverrides()
+    {
+        sqlite3_stmt* statement = prepare(
+            "SELECT object_kind, cell_id, ref_id, ref_index, ref_content_file, mp_num, item_count"
+            " FROM world_item_count_overrides ORDER BY cell_id, ref_id, ref_index, ref_content_file, mp_num");
+        std::vector<WorldItemMutation> result;
+        while (sqlite3_step(statement) == SQLITE_ROW)
+        {
+            auto textColumn = [&](int column) {
+                const char* value = reinterpret_cast<const char*>(sqlite3_column_text(statement, column));
+                return std::string(value ? value : "");
+            };
+            WorldItemMutation mutation;
+            mutation.object.kind = static_cast<PlacedObjectKind>(sqlite3_column_int(statement, 0));
+            mutation.object.cellId = textColumn(1);
+            mutation.object.refId = textColumn(2);
+            mutation.object.refIndex = static_cast<std::uint32_t>(sqlite3_column_int64(statement, 3));
+            mutation.object.refContentFile = sqlite3_column_int(statement, 4);
+            mutation.object.mpNum = static_cast<std::uint32_t>(sqlite3_column_int64(statement, 5));
+            mutation.expectedWorldCount = sqlite3_column_int(statement, 6);
+            mutation.resultingWorldCount = mutation.expectedWorldCount;
+            if (isCanonicalPlacedObjectIdentity(mutation.object) && mutation.expectedWorldCount > 0)
+                result.push_back(std::move(mutation));
         }
         sqlite3_finalize(statement);
         return result;
@@ -3907,7 +4308,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
 
         sqlite3_stmt* items = prepare(
             "SELECT cell_id, ref_id, ref_num, mp_num, item_ref_id, item_count, charge, instance_id,"
-            " enchantment_charge, soul"
+            " enchantment_charge, soul, restocking"
             " FROM world_container_items"
             " ORDER BY cell_id, ref_id, ref_num, mp_num, item_index");
 
@@ -3935,6 +4336,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                     item.instanceId = static_cast<std::uint32_t>(sqlite3_column_int64(items, 7));
                     item.enchantmentCharge = static_cast<float>(sqlite3_column_double(items, 8));
                     item.soul = col(9);
+                    item.restocking = sqlite3_column_int(items, 10) != 0;
                     record.items.push_back(std::move(item));
                     break;
                 }
@@ -3976,8 +4378,8 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
 
             sqlite3_stmt* itemStmt = prepare(
                 "INSERT INTO world_container_items(cell_id, ref_id, ref_num, mp_num, item_index, item_ref_id, item_count,"
-                " charge, instance_id, enchantment_charge, soul)"
-                " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)");
+                " charge, instance_id, enchantment_charge, soul, restocking)"
+                " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)");
 
             for (std::size_t i = 0; i < record.items.size(); ++i)
             {
@@ -3993,6 +4395,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                 sqlite3_bind_int64(itemStmt, 9, item.instanceId);
                 sqlite3_bind_double(itemStmt, 10, item.enchantmentCharge);
                 sqlite3_bind_text(itemStmt, 11, item.soul.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int(itemStmt, 12, item.restocking ? 1 : 0);
                 checkSqlite(sqlite3_step(itemStmt), mDb, "upsertContainerRecord(item)");
                 sqlite3_reset(itemStmt);
                 sqlite3_clear_bindings(itemStmt);

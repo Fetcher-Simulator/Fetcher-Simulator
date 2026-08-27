@@ -164,6 +164,9 @@ namespace mwmp
         GuardArrest = 159, // Typed server-authoritative guard arrest choice/result
         InventoryPutRequest = 160, // Atomic player-inventory to persistent-container transfer
         InventoryPutResult = 161, // Durable terminal inventory-put result
+        BarterRequest = 162, // Atomic multi-line merchant transaction request
+        BarterResult = 163, // Durable terminal multi-line barter result
+        ObjectCount = 164, // Server-authoritative remaining count for a placed world item
 
         // --- Lua bridge (7C+) ---
         // IDs 150-199 reserved; exact assignments TBD in Phase 7C/7D.
