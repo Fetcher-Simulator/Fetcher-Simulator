@@ -9,6 +9,7 @@
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
+#include "../mwbase/world.hpp"
 #include "../mwlua/context.hpp"
 #include "../mwlua/object.hpp"
 #include "../mwlua/magictypebindings.hpp"
@@ -525,6 +526,35 @@ namespace mwmp
             if (!Main::isInitialised() || !Main::isConnected())
                 return 0;
             return Main::get().getWorldObjectSync().getContainerRevision(object.ptrOrEmpty());
+        });
+        containerUpdatesApi.set_function("request", [](const MWLua::GObject& object) -> bool {
+            if (!Main::isInitialised() || !Main::isConnected())
+                return false;
+            return Main::get().getWorldObjectSync().requestContainerBootstrap(object.ptrOrEmpty());
+        });
+        containerUpdatesApi.set_function("requestBarterSources", [lua](const MWLua::GObject& merchant) {
+            sol::table requested(lua, sol::create);
+            if (!Main::isInitialised() || !Main::isConnected())
+                return requested;
+
+            const MWWorld::Ptr merchantPtr = merchant.ptrOrEmpty();
+            if (merchantPtr.isEmpty() || !merchantPtr.getClass().isActor())
+                return requested;
+
+            std::vector<MWWorld::Ptr> sources;
+            sources.push_back(merchantPtr);
+            if (MWBase::World* world = MWBase::Environment::get().getWorld())
+                world->getContainersOwnedBy(merchantPtr, sources);
+
+            int index = 1;
+            auto& sync = Main::get().getWorldObjectSync();
+            for (const MWWorld::Ptr& source : sources)
+            {
+                if (source.isEmpty() || !sync.requestContainerBootstrap(source))
+                    continue;
+                requested[index++] = MWLua::GObject(source);
+            }
+            return requested;
         });
         mp["containerUpdates"] = LuaUtil::makeReadOnly(containerUpdatesApi);
 

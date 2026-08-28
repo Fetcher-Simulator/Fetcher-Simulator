@@ -2,6 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include <apps/openmw-server/ServerLuaPackageRegistry.hpp>
+#include <components/openmw-mp/ServerLuaPackage.hpp>
+
 #include <filesystem>
 #include <fstream>
 
@@ -128,4 +131,36 @@ TEST(ServerLuaPackageRegistry, OverrideTargetPolicyDefaultsToRequired)
     ASSERT_EQ(registry.packageSet().packages[0].overrides.size(), 1u);
     EXPECT_EQ(registry.packageSet().packages[0].overrides[0].targetPolicy,
         mwmp::serverlua::OverrideTargetPolicy::Required);
+}
+
+
+TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBeforeShowingStock)
+{
+    const auto root = std::filesystem::path{ OPENMW_PROJECT_SOURCE_DIR }
+        / "files" / "server" / "server-lua-packages";
+    mwmp::ServerLuaPackageRegistry registry(root, 139);
+    ASSERT_EQ(registry.packageSet().packages.size(), 1u);
+
+    const auto& package = registry.packageSet().packages.front();
+    EXPECT_EQ(package.packageId, "fetcher.inventoryextender-fix");
+    EXPECT_EQ(package.packageVersion, 10u);
+    EXPECT_EQ(package.requiredMultiplayerLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion);
+
+    const auto findSource = [&](std::string_view path) -> const std::string* {
+        const auto it = std::find_if(package.files.begin(), package.files.end(), [&](const auto& file) {
+            return file.path == path;
+        });
+        return it == package.files.end() ? nullptr : &it->source;
+    };
+
+    const std::string* global = findSource("overrides/global.lua");
+    const std::string* api = findSource("overrides/api.lua");
+    const std::string* inventory = findSource("overrides/inventory.lua");
+    ASSERT_NE(global, nullptr);
+    ASSERT_NE(api, nullptr);
+    ASSERT_NE(inventory, nullptr);
+    EXPECT_NE(global->find("requestBarterSources"), std::string::npos);
+    EXPECT_NE(global->find("IE_BarterAuthorityReady"), std::string::npos);
+    EXPECT_NE(api->find("barterAuthorityReady = false"), std::string::npos);
+    EXPECT_NE(inventory->find("barterAuthorityReady == false"), std::string::npos);
 }
