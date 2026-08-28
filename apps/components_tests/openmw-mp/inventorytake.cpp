@@ -230,6 +230,21 @@ TEST(InventoryAuthority, WorldPickupMergesIntoExistingCanonicalPlayerStack)
     EXPECT_EQ(pickedUp.instanceId, 6001u);
 }
 
+TEST(InventoryAuthority, RefIdsStackCaseInsensitively)
+{
+    std::vector<mwmp::Item> inventory{ inventoryMedkit(1, 6001) };
+    inventory.front().refId = "sw_medkit";
+    mwmp::Item restockingPurchase = inventoryMedkit(2, 0);
+    restockingPurchase.refId = "SW_Medkit";
+
+    EXPECT_EQ(mwmp::mergeAuthoritativeInventoryItem(inventory, restockingPurchase),
+        mwmp::AuthoritativeStackMutation::Merged);
+    ASSERT_EQ(inventory.size(), 1u);
+    EXPECT_EQ(inventory.front().count, 3);
+    EXPECT_EQ(inventory.front().instanceId, 6001u);
+    EXPECT_EQ(restockingPurchase.instanceId, 6001u);
+}
+
 TEST(InventoryAuthority, NativeNonStackableWorldPickupRetainsSeparateIdentity)
 {
     std::vector<mwmp::Item> inventory{ inventoryMedkit(1, 6001) };
