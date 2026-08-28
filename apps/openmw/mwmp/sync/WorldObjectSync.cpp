@@ -608,6 +608,19 @@ void WorldObjectSync::markLocalPlayerInventoryDetached(const MWWorld::Ptr& ptr)
     mLocalPlayerInventoryDetached.insert(ptr.getCellRef().getRefNum());
 }
 
+bool WorldObjectSync::isLocalPlayerInventoryDetached(const MWWorld::Ptr& ptr) const
+{
+    return !ptr.isEmpty()
+        && mLocalPlayerInventoryDetached.contains(ptr.getCellRef().getRefNum());
+}
+
+bool WorldObjectSync::requiresAuthoritativeWorldItemTake(bool sourceOwnerEmpty, bool itemInCell,
+    bool destinationIsLocalPlayer, bool barterOpen, bool detachedFromLocalPlayer)
+{
+    return sourceOwnerEmpty && itemInCell && destinationIsLocalPlayer && !barterOpen
+        && !detachedFromLocalPlayer;
+}
+
 bool WorldObjectSync::consumeLocalPlayerInventoryDetached(const MWWorld::Ptr& ptr)
 {
     if (ptr.isEmpty())

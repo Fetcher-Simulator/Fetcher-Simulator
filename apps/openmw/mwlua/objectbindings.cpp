@@ -689,14 +689,24 @@ namespace MWLua
                         return;
                     }
 
-                    if (mwmp::Main::isConnected() && sourceOwner.isEmpty() && ptr.isInCell()
-                        && destPtr == MWBase::Environment::get().getWorld()->getPlayerPtr()
-                        && !MWBase::Environment::get().getWindowManager()->containsMode(MWGui::GM_Barter))
+                    if (mwmp::Main::isConnected())
                     {
-                        Log(Debug::Warning) << "[MP] Rejected Lua object.moveInto world-to-player mutation item="
-                                            << ptr.toString() << "; use openmw.mp.worldItemTake.request";
-                        mwmp::Main::get().getWorldObjectSync().forgetLocalPlayerInventoryDetached(ptr);
-                        return;
+                        auto& worldObjectSync = mwmp::Main::get().getWorldObjectSync();
+                        const bool destinationIsLocalPlayer
+                            = destPtr == MWBase::Environment::get().getWorld()->getPlayerPtr();
+                        const bool barterOpen
+                            = MWBase::Environment::get().getWindowManager()->containsMode(MWGui::GM_Barter);
+                        const bool detachedFromLocalPlayer
+                            = worldObjectSync.isLocalPlayerInventoryDetached(ptr);
+                        if (mwmp::WorldObjectSync::requiresAuthoritativeWorldItemTake(
+                                sourceOwner.isEmpty(), ptr.isInCell(), destinationIsLocalPlayer,
+                                barterOpen, detachedFromLocalPlayer))
+                        {
+                            Log(Debug::Warning) << "[MP] Rejected Lua object.moveInto world-to-player mutation item="
+                                                << ptr.toString() << "; use openmw.mp.worldItemTake.request";
+                            worldObjectSync.forgetLocalPlayerInventoryDetached(ptr);
+                            return;
+                        }
                     }
 
                     bool sourceWasKnownWorldObject = false;
