@@ -2239,6 +2239,9 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
             clearDeadActorEquipmentVisuals(*world, target);
     }
 
+    if (action == ContainerAction::Set)
+        MWBase::Environment::get().getWindowManager()->inventoryUpdated(target);
+
     Log(Debug::Info) << "[MP] WorldObjectSync: applied Container action="
                      << static_cast<int>(action)
                      << " refId=" << record.refId
