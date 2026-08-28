@@ -32,12 +32,12 @@ namespace
 {
     void addScripts(MWWorld::ContainerStore& store, MWWorld::CellStore* cell)
     {
-        auto& scripts = MWBase::Environment::get().getWorld()->getLocalScripts();
         for (const auto&& ptr : store)
         {
             const auto& script = ptr.getClass().getScript(ptr);
             if (!script.empty())
             {
+                auto& scripts = MWBase::Environment::get().getWorld()->getLocalScripts();
                 MWWorld::Ptr item = ptr;
                 item.mCell = cell;
                 scripts.add(script, item);
@@ -798,6 +798,12 @@ void MWWorld::ContainerStore::clear()
 void MWWorld::ContainerStore::clearResolved()
 {
     clear();
+    mResolved = true;
+}
+
+void MWWorld::ContainerStore::commitResolved()
+{
+    mModified = true;
     mResolved = true;
 }
 

@@ -3,10 +3,13 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <components/openmw-mp/Base/ActorSyncProtocol.hpp>
+#include <components/openmw-mp/Base/BaseObject.hpp>
 
 namespace mwmp
 {
@@ -122,10 +125,35 @@ namespace mwmp
         std::int32_t threshold = 0;
     };
 
+    enum class AuthoritativeStackMutation
+    {
+        Added,
+        Merged,
+        Invalid,
+        Overflow,
+    };
+
+    struct ContainerAggregateTake
+    {
+        ContainerItem taken;
+        std::vector<ContainerItem> backingRows;
+    };
+
     InventoryTakeError validateInventoryTakeRequest(const InventoryTakeRequest& request);
     std::string canonicalInventoryTakeRequest(const InventoryTakeRequest& request);
     std::string_view getInventoryTakeErrorCode(InventoryTakeError error);
     PickpocketDetectionResult evaluatePickpocketDetection(const PickpocketDetectionInput& input);
+    bool sameAuthoritativeItemIdentity(const Item& left, const Item& right);
+    bool sameAuthoritativeContainerIdentity(const ContainerItem& left, const ContainerItem& right);
+    bool hasCompatibleAuthoritativeContainerStack(
+        const std::vector<ContainerItem>& items, const ContainerItem& incoming);
+    AuthoritativeStackMutation mergeAuthoritativeInventoryItem(
+        std::vector<Item>& items, Item& incoming, bool allowStacking = true);
+    AuthoritativeStackMutation mergeAuthoritativeContainerItem(
+        std::vector<ContainerItem>& items, ContainerItem& incoming, bool allowStacking = true);
+    std::optional<ContainerAggregateTake> takeAuthoritativeContainerItems(std::vector<ContainerItem>& items,
+        std::string_view refId, std::int32_t charge, float enchantmentCharge, std::string_view soul,
+        std::int32_t count);
 }
 
 #endif
