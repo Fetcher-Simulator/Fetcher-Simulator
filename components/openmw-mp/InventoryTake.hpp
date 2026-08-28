@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -139,6 +140,9 @@ namespace mwmp
         std::vector<ContainerItem> backingRows;
     };
 
+    using AuthoritativeContainerIdentityPredicate
+        = std::function<bool(const ContainerItem&, const ContainerItem&)>;
+
     InventoryTakeError validateInventoryTakeRequest(const InventoryTakeRequest& request);
     std::string canonicalInventoryTakeRequest(const InventoryTakeRequest& request);
     std::string_view getInventoryTakeErrorCode(InventoryTakeError error);
@@ -153,7 +157,7 @@ namespace mwmp
         std::vector<ContainerItem>& items, ContainerItem& incoming, bool allowStacking = true);
     std::optional<ContainerAggregateTake> takeAuthoritativeContainerItems(std::vector<ContainerItem>& items,
         std::string_view refId, std::int32_t charge, float enchantmentCharge, std::string_view soul,
-        std::int32_t count);
+        std::int32_t count, const AuthoritativeContainerIdentityPredicate& identityPredicate = {});
 }
 
 #endif
