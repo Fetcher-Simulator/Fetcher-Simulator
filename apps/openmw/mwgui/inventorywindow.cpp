@@ -1,7 +1,10 @@
 #include "inventorywindow.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 #include <MyGUI_Button.h>
 #include <MyGUI_EditBox.h>
@@ -877,8 +880,94 @@ namespace MWGui
 #ifdef BUILD_MULTIPLAYER
         if (mwmp::Main::isConnected())
         {
-            mwmp::Main::get().getWorldObjectSync().requestLocalObjectTake(object);
-            return;
+            const ESM::RefId pickupRefId = object.getCellRef().getRefId();
+            const int pickupCharge = static_cast<int>(object.getCellRef().getCharge());
+            const float pickupEnchantmentCharge = object.getCellRef().getEnchantmentCharge();
+            const ESM::RefId pickupSoul = object.getCellRef().getSoul();
+            const bool instantTransfer = MyGUI::InputManager::getInstance().isAltPressed();
+
+            std::vector<std::pair<MWWorld::Ptr, int>> pickupStacksBefore;
+            mTradeModel->update();
+            for (std::size_t index = 0; index < mTradeModel->getItemCount(); ++index)
+            {
+                const ItemStack stack = mTradeModel->getItem(static_cast<ItemModel::ModelIndex>(index));
+                const MWWorld::Ptr& candidate = stack.mBase;
+                if (candidate.getCellRef().getRefId() == pickupRefId
+                    && static_cast<int>(candidate.getCellRef().getCharge()) == pickupCharge
+                    && std::abs(candidate.getCellRef().getEnchantmentCharge() - pickupEnchantmentCharge) < 0.001f
+                    && candidate.getCellRef().getSoul() == pickupSoul)
+                    pickupStacksBefore.emplace_back(candidate, stack.mCount);
+            }
+
+            const bool queued = mwmp::Main::get().getWorldObjectSync().requestLocalObjectTake(object,
+                [this, pickupRefId, pickupCharge, pickupEnchantmentCharge, pickupSoul, instantTransfer,
+                    pickupStacksBefore = std::move(pickupStacksBefore)](
+                    const mwmp::WorldItemTakeResult& result) {
+                    if (!result.accepted || result.itemCount <= 0)
+                        return;
+
+                    mTradeModel->update();
+                    const std::size_t noIndex = mTradeModel->getItemCount();
+                    std::size_t index = noIndex;
+                    std::size_t fallbackIndex = noIndex;
+                    for (std::size_t candidateIndex = 0; candidateIndex < mTradeModel->getItemCount(); ++candidateIndex)
+                    {
+                        const ItemStack stack
+                            = mTradeModel->getItem(static_cast<ItemModel::ModelIndex>(candidateIndex));
+                        const MWWorld::Ptr& candidate = stack.mBase;
+                        if (candidate.getCellRef().getRefId() != pickupRefId
+                            || static_cast<int>(candidate.getCellRef().getCharge()) != pickupCharge
+                            || std::abs(candidate.getCellRef().getEnchantmentCharge() - pickupEnchantmentCharge) >= 0.001f
+                            || candidate.getCellRef().getSoul() != pickupSoul
+                            || stack.mCount < result.itemCount)
+                            continue;
+
+                        if (fallbackIndex == noIndex)
+                            fallbackIndex = candidateIndex;
+
+                        const auto previous = std::find_if(pickupStacksBefore.begin(), pickupStacksBefore.end(),
+                            [&](const auto& entry) { return entry.first == candidate; });
+                        if (previous == pickupStacksBefore.end() || stack.mCount > previous->second)
+                        {
+                            index = candidateIndex;
+                            break;
+                        }
+                    }
+
+                    if (index == noIndex)
+                        index = fallbackIndex;
+                    if (index == noIndex)
+                    {
+                        mItemView->update();
+                        return;
+                    }
+
+                    if (mDragAndDrop->mIsOnDragAndDrop)
+                        mDragAndDrop->finish();
+
+                    const MWWorld::Ptr item
+                        = mTradeModel->getItem(static_cast<ItemModel::ModelIndex>(index)).mBase;
+                    if (instantTransfer)
+                    {
+                        MWBase::Environment::get().getWindowManager()->playSound(item.getClass().getDownSoundId(item));
+                        mItemView->update();
+                    }
+                    else
+                    {
+                        const MWGui::GuiMode mode = MWBase::Environment::get().getWindowManager()->getMode();
+                        if (mode == MWGui::GM_Inventory || mode == MWGui::GM_Container)
+                        {
+                            mDragAndDrop->startDrag(static_cast<int>(index), mSortModel, mTradeModel,
+                                mItemView, static_cast<std::size_t>(result.itemCount));
+                        }
+                        else
+                            mItemView->update();
+                    }
+
+                    MWBase::Environment::get().getWindowManager()->updateSpellWindow();
+                });
+            if (queued)
+                return;
         }
 #endif
 
