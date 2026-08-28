@@ -263,7 +263,8 @@ mwmp::AuthoritativeStackMutation mwmp::mergeAuthoritativeContainerItem(
 }
 
 std::optional<mwmp::ContainerAggregateTake> mwmp::takeAuthoritativeContainerItems(std::vector<ContainerItem>& items,
-    std::string_view refId, std::int32_t charge, float enchantmentCharge, std::string_view soul, std::int32_t count)
+    std::string_view refId, std::int32_t charge, float enchantmentCharge, std::string_view soul, std::int32_t count,
+    const AuthoritativeContainerIdentityPredicate& identityPredicate)
 {
     if (refId.empty() || count <= 0)
         return std::nullopt;
@@ -273,8 +274,11 @@ std::optional<mwmp::ContainerAggregateTake> mwmp::takeAuthoritativeContainerItem
     requested.charge = charge;
     requested.enchantmentCharge = enchantmentCharge;
     requested.soul = soul;
+    const auto sameIdentity = [&](const ContainerItem& left, const ContainerItem& right) {
+        return identityPredicate ? identityPredicate(left, right) : sameAuthoritativeContainerIdentity(left, right);
+    };
     const auto anchor = std::find_if(items.begin(), items.end(),
-        [&](const ContainerItem& item) { return sameAuthoritativeContainerIdentity(item, requested); });
+        [&](const ContainerItem& item) { return sameIdentity(item, requested); });
     if (anchor == items.end())
         return std::nullopt;
 
@@ -282,7 +286,7 @@ std::optional<mwmp::ContainerAggregateTake> mwmp::takeAuthoritativeContainerItem
     std::int64_t available = 0;
     for (const ContainerItem& item : items)
     {
-        if (item.restocking == restocking && sameAuthoritativeContainerIdentity(item, requested) && item.count > 0)
+        if (item.restocking == restocking && sameIdentity(item, requested) && item.count > 0)
             available += item.count;
     }
     if (available < count)
@@ -299,7 +303,7 @@ std::optional<mwmp::ContainerAggregateTake> mwmp::takeAuthoritativeContainerItem
     int remaining = count;
     for (auto item = items.begin(); item != items.end() && remaining > 0;)
     {
-        if (item->restocking != restocking || !sameAuthoritativeContainerIdentity(*item, requested) || item->count <= 0)
+        if (item->restocking != restocking || !sameIdentity(*item, requested) || item->count <= 0)
         {
             ++item;
             continue;

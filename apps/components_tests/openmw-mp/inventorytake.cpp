@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
+
 #include <components/openmw-mp/InventoryTake.hpp>
 #include <components/openmw-mp/Packets/Object/PacketInventoryTake.hpp>
 #include <components/openmw-mp/Packets/Object/PacketContainer.hpp>
@@ -379,6 +381,30 @@ TEST(InventoryAuthority, AggregateTakeRejectsIncompatibleMetadataWithoutMutation
 
     EXPECT_FALSE(mwmp::takeAuthoritativeContainerItems(source, "sw_medkit", -1, -1.f, "", 4));
     EXPECT_EQ(source, original);
+}
+
+TEST(InventoryAuthority, AggregateTakeCanUseNativeStackCompatibilityAcrossRawCharge)
+{
+    std::vector<mwmp::ContainerItem> source{
+        medkit(3, 6337, false, -1), medkit(1, 6338, false, 0)
+    };
+    const auto exactSource = source;
+    EXPECT_FALSE(mwmp::takeAuthoritativeContainerItems(source, "sw_medkit", -1, -1.f, "", 4));
+    EXPECT_EQ(source, exactSource);
+
+    auto nativeCompatible = mwmp::takeAuthoritativeContainerItems(source, "sw_medkit", -1, -1.f, "", 4,
+        [](const mwmp::ContainerItem& left, const mwmp::ContainerItem& right) {
+            return left.refId == right.refId
+                && std::abs(left.enchantmentCharge - right.enchantmentCharge) < 0.001f
+                && left.soul == right.soul;
+        });
+
+    ASSERT_TRUE(nativeCompatible);
+    EXPECT_TRUE(source.empty());
+    EXPECT_EQ(nativeCompatible->taken.count, 4);
+    ASSERT_EQ(nativeCompatible->backingRows.size(), 2u);
+    EXPECT_EQ(nativeCompatible->backingRows[0].count, 3);
+    EXPECT_EQ(nativeCompatible->backingRows[1].count, 1);
 }
 
 TEST(InventoryAuthority, FiniteAndRestockingRowsCannotBeAggregatedByOneTake)

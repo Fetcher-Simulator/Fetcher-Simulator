@@ -117,6 +117,7 @@
 #include <components/esm3/loadspel.hpp>
 #include <apps/openmw/mwworld/esmstore.hpp>
 #include <apps/openmw/mwworld/class.hpp>
+#include <apps/openmw/mwworld/containerstore.hpp>
 #include <apps/openmw/mwworld/manualref.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAI.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAnimFlags.hpp>
@@ -752,6 +753,46 @@ namespace
     bool sameItemIdentity(const mwmp::Item& left, const mwmp::Item& right)
     {
         return mwmp::sameAuthoritativeItemIdentity(left, right);
+    }
+
+    ESM::RefId authoritativeRefId(std::string_view value)
+    {
+        if (value.empty())
+            return {};
+        ESM::RefId id = ESM::RefId::deserializeText(value);
+        if (id.empty())
+            id = ESM::RefId::stringRefId(value);
+        return id;
+    }
+
+    bool authoritativeContainerItemsStackNatively(const MWWorld::ESMStore& store,
+        const mwmp::ContainerItem& left, const mwmp::ContainerItem& right)
+    {
+        if (lowerAscii(left.refId) != lowerAscii(right.refId))
+            return false;
+
+        try
+        {
+            MWWorld::ManualRef leftRef(store, authoritativeRefId(left.refId), 1);
+            MWWorld::ManualRef rightRef(store, authoritativeRefId(right.refId), 1);
+            MWWorld::Ptr leftPtr = leftRef.getPtr();
+            MWWorld::Ptr rightPtr = rightRef.getPtr();
+
+            const auto applyState = [](MWWorld::Ptr& ptr, const mwmp::ContainerItem& item) {
+                ptr.getCellRef().setCharge(item.charge);
+                ptr.getCellRef().setEnchantmentCharge(item.enchantmentCharge);
+                ptr.getCellRef().setSoul(authoritativeRefId(item.soul));
+            };
+            applyState(leftPtr, left);
+            applyState(rightPtr, right);
+
+            MWWorld::ContainerStore stackRules;
+            return stackRules.stacks(leftPtr, rightPtr);
+        }
+        catch (const std::exception&)
+        {
+            return false;
+        }
     }
 
     bool canStackAuthoritativeContainerItem(const MWWorld::Ptr& ptr)
@@ -14547,7 +14588,10 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
     if (!finish)
     {
         aggregateTake = takeAuthoritativeContainerItems(resultingSource.items, request.itemRefId,
-            request.itemCharge, request.itemEnchantmentCharge, request.itemSoul, request.requestedCount);
+            request.itemCharge, request.itemEnchantmentCharge, request.itemSoul, request.requestedCount,
+            [&](const ContainerItem& left, const ContainerItem& right) {
+                return authoritativeContainerItemsStackNatively(mContentRegistry->store(), left, right);
+            });
     }
     if (!finish && !aggregateTake)
     {
