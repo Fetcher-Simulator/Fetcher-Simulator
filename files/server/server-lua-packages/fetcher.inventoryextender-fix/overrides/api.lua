@@ -245,8 +245,10 @@ local eventHandlers = {
         -- or, worse, until the first rejected purchase forces reconciliation.
         if data.newMode == 'Barter' then
             windowManager.ctx.barterAuthorityReady = false
+            windowManager.ctx.barterAuthoritySources = nil
         elseif data.oldMode == 'Barter' then
             windowManager.ctx.barterAuthorityReady = true
+            windowManager.ctx.barterAuthoritySources = nil
         end
         windowManager:onUiModeChanged(data.oldMode, data.newMode, data.arg)
         core.sendGlobalEvent('IE_UIModeChanged', { actor = I.InventoryExtender.Actor(), oldMode = data.oldMode, newMode = data.newMode, arg = data.arg })
@@ -266,8 +268,9 @@ local eventHandlers = {
         --print("update")
         windowManager:update()
     end,
-    IE_BarterAuthorityReady = function()
+    IE_BarterAuthorityReady = function(props)
         windowManager.ctx.barterAuthorityReady = true
+        windowManager.ctx.barterAuthoritySources = props and props.sources or nil
         windowManager:update()
     end,
     IE_CompanionProfit = function(props)

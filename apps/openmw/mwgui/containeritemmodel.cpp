@@ -124,6 +124,55 @@ namespace MWGui
         }
     }
 
+    bool ContainerItemModel::getBarterBackingItems(
+        const ItemStack& item, std::size_t count, std::vector<BarterBackingItem>& out) const
+    {
+        if (!mTrading || count == 0 || count > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+            return false;
+
+        int remaining = static_cast<int>(count);
+        for (const auto& source : mItemSources)
+        {
+            if (source.first.isEmpty())
+                continue;
+
+            MWWorld::ContainerStore& store = source.first.getClass().getContainerStore(source.first);
+            for (MWWorld::ContainerStoreIterator it = store.begin(); it != store.end() && remaining > 0; ++it)
+            {
+                if (!stacks(*it, item.mBase))
+                    continue;
+
+                const int rawCount = it->getCellRef().getCount(false);
+                const int available = rawCount < 0 ? -rawCount : rawCount;
+                if (available <= 0)
+                    continue;
+
+                const int moved = std::min(available, remaining);
+                out.push_back(BarterBackingItem{ source.first, *it, moved, rawCount < 0, false });
+                remaining -= moved;
+            }
+            if (remaining <= 0)
+                return true;
+        }
+
+        for (const MWWorld::Ptr& worldItem : mWorldItems)
+        {
+            if (remaining <= 0)
+                return true;
+            if (worldItem.isEmpty() || !stacks(worldItem, item.mBase))
+                continue;
+
+            const int available = worldItem.getCellRef().getCount();
+            if (available <= 0)
+                continue;
+            const int moved = std::min(available, remaining);
+            out.push_back(BarterBackingItem{ worldItem, worldItem, moved, false, true });
+            remaining -= moved;
+        }
+
+        return remaining == 0;
+    }
+
     bool ContainerItemModel::allowedToUseItems() const
     {
         if (mItemSources.empty())
