@@ -91,6 +91,12 @@ namespace mwmp
                                     const std::string& refId, uint32_t refNum,
                                     uint32_t mpNum);
 
+        // Ask the server for its current authoritative snapshot without offering
+        // the caller's local contents as a replacement. Barter uses this before
+        // presenting merchant stock so stale local stores cannot remain visible
+        // until the first transaction attempt.
+        bool requestContainerBootstrap(const MWWorld::Ptr& container);
+
         // Called when the local player modifies container contents (take/add).
         void onLocalContainerChanged(const std::string& cellId,
                                      const std::string& refId, uint32_t refNum, uint32_t mpNum,

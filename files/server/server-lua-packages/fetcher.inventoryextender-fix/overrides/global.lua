@@ -565,6 +565,7 @@ local lastItemPickedUp = nil
 
 local lastInteractedContainer = {}
 local observedContainerRevisions = {}
+local barterAuthorityRefresh = {}
 
 local function refreshChangedOpenContainers()
     if not mp.isConnected() or not mp.containerUpdates then
@@ -578,6 +579,26 @@ local function refreshChangedOpenContainers()
             if previous ~= nil and revision ~= previous then
                 entry.actor:sendEvent('IE_Update')
             end
+        end
+    end
+
+    for actorId, entry in pairs(barterAuthorityRefresh) do
+        local allReady = true
+        for index, source in ipairs(entry.sources) do
+            local ok, revision = pcall(mp.containerUpdates.revision, source)
+            if not ok then
+                allReady = false
+            else
+                local initial = entry.initialRevisions[index]
+                if initial == nil or revision == initial then
+                    allReady = false
+                end
+            end
+        end
+
+        if allReady then
+            entry.actor:sendEvent('IE_BarterAuthorityReady')
+            barterAuthorityRefresh[actorId] = nil
         end
     end
 end
@@ -661,6 +682,33 @@ local function onUiModeChanged(data)
         if mp.isConnected() and mp.containerUpdates then
             local ok, revision = pcall(mp.containerUpdates.revision, data.arg)
             observedContainerRevisions[data.actor.id] = ok and revision or nil
+        end
+    end
+
+    if data.oldMode == 'Barter' then
+        barterAuthorityRefresh[data.actor.id] = nil
+    end
+    if data.newMode == 'Barter' then
+        if mp.isConnected() and mp.containerUpdates and mp.containerUpdates.requestBarterSources then
+            local ok, sources = pcall(mp.containerUpdates.requestBarterSources, data.arg)
+            if ok and type(sources) == 'table' and #sources > 0 then
+                local entry = {
+                    actor = data.actor,
+                    sources = sources,
+                    initialRevisions = {},
+                }
+                for index, source in ipairs(sources) do
+                    local revisionOk, revision = pcall(mp.containerUpdates.revision, source)
+                    entry.initialRevisions[index] = revisionOk and revision or nil
+                end
+                barterAuthorityRefresh[data.actor.id] = entry
+            else
+                -- Fail open only when no canonical source could be requested.
+                -- The server still validates every transaction authoritatively.
+                data.actor:sendEvent('IE_BarterAuthorityReady')
+            end
+        else
+            data.actor:sendEvent('IE_BarterAuthorityReady')
         end
     end
 

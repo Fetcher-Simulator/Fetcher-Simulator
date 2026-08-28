@@ -765,6 +765,42 @@ void WorldObjectSync::onLocalContainerOpened(const MWWorld::Ptr& container)
     sendLocalContainerSnapshot(record, container);
 }
 
+bool WorldObjectSync::requestContainerBootstrap(const MWWorld::Ptr& container)
+{
+    if (container.isEmpty() || container.getCell() == nullptr || !isContainerTarget(container))
+        return false;
+
+    ContainerRecord record;
+    record.cellId = makeCellId(container);
+    record.refId = container.getCellRef().getRefId().serializeText();
+    if (container.getClass().isActor() && Main::isInitialised())
+    {
+        const ActorSync& actorSync = Main::get().getActorSync();
+        record.mpNum = actorSync.getActorMpNum(container);
+        record.refNum = record.mpNum == 0 ? actorSync.getActorCanonicalRefNum(container) : 0;
+    }
+    else
+    {
+        record.refNum = container.getCellRef().getRefNum().mIndex;
+        record.mpNum = getMpNumForObject(container);
+    }
+
+    if (record.cellId.empty() || record.refId.empty())
+        return false;
+
+    const std::string key = makeContainerRevisionKey(
+        record.cellId, record.refId, record.refNum, record.mpNum);
+    mOpenContainerTargets[key] = container;
+
+    PacketContainer packet;
+    packet.container = record;
+    packet.mAction = static_cast<uint8_t>(ContainerAction::BootstrapRequest);
+    mClient.sendReliable(packet.encode());
+    Log(Debug::Verbose) << "[MP] WorldObjectSync: requested authoritative Container bootstrap refId="
+                        << record.refId << " refNum=" << record.refNum << " mpNum=" << record.mpNum;
+    return true;
+}
+
 void WorldObjectSync::onLocalContainerOpened(const std::string& cellId,
                                               const std::string& refId,
                                               uint32_t refNum, uint32_t mpNum)

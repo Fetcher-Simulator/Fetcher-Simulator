@@ -1572,6 +1572,10 @@ function Inventory:create(windowType, ctx)
 
     self.itemTable.layout.userData.setFilter('barterFilter', function(row)
         if I.UI.getMode() == 'Barter' then
+            if self.type == 'Trade' and self.ctx.barterAuthorityReady == false then
+                return false
+            end
+
             if helpers.isGold(row.item) then
                 return false
             end

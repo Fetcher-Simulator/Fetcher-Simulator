@@ -233,6 +233,15 @@ API.registerRowActivateHandler = API.registerRowPickupHandler
 
 local eventHandlers = {
     UiModeChanged = function(data)
+        -- Multiplayer merchant stock is hidden until the server has replayed the
+        -- authoritative actor/owned-container snapshots for this barter session.
+        -- This prevents stale local trade rows from being clickable for a frame
+        -- or, worse, until the first rejected purchase forces reconciliation.
+        if data.newMode == 'Barter' then
+            windowManager.ctx.barterAuthorityReady = false
+        elseif data.oldMode == 'Barter' then
+            windowManager.ctx.barterAuthorityReady = true
+        end
         windowManager:onUiModeChanged(data.oldMode, data.newMode, data.arg)
         core.sendGlobalEvent('IE_UIModeChanged', { actor = I.InventoryExtender.Actor(), oldMode = data.oldMode, newMode = data.newMode, arg = data.arg })
     end,
@@ -249,6 +258,10 @@ local eventHandlers = {
     end,
     IE_Update = function()
         --print("update")
+        windowManager:update()
+    end,
+    IE_BarterAuthorityReady = function()
+        windowManager.ctx.barterAuthorityReady = true
         windowManager:update()
     end,
     IE_CompanionProfit = function(props)
