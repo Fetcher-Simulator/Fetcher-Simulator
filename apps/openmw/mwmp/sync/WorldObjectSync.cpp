@@ -621,6 +621,12 @@ bool WorldObjectSync::requiresAuthoritativeWorldItemTake(bool sourceOwnerEmpty, 
         && !detachedFromLocalPlayer;
 }
 
+bool WorldObjectSync::requiresContainerBootstrapOnOpen(bool isActorContainer,
+    bool hasActorAuthority, bool hasCellAuthority)
+{
+    return isActorContainer ? !hasActorAuthority : !hasCellAuthority;
+}
+
 bool WorldObjectSync::consumeLocalPlayerInventoryDetached(const MWWorld::Ptr& ptr)
 {
     if (ptr.isEmpty())
@@ -760,11 +766,17 @@ void WorldObjectSync::onLocalContainerOpened(const MWWorld::Ptr& container)
         record.refNum = container.getCellRef().getRefNum().mIndex;
         record.mpNum = getMpNumForObject(container);
     }
-    if (container.getType() == ESM::Container::sRecordId && Main::isConnected()
-        && !Main::get().getActorSync().hasAuthority(record.cellId))
+    if (Main::isConnected())
     {
-        requestContainerBootstrap(container);
-        return;
+        const ActorSync& actorSync = Main::get().getActorSync();
+        const bool isActorContainer = container.getClass().isActor();
+        const bool hasActorAuthority = isActorContainer && actorSync.hasAuthorityForObject(container);
+        const bool hasCellAuthority = actorSync.hasAuthority(record.cellId);
+        if (requiresContainerBootstrapOnOpen(isActorContainer, hasActorAuthority, hasCellAuthority))
+        {
+            requestContainerBootstrap(container);
+            return;
+        }
     }
 
     mOpenContainerTargets[makeContainerRevisionKey(

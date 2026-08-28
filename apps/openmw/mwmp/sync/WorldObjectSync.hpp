@@ -73,6 +73,8 @@ namespace mwmp
         // inventory so drag-and-drop can preserve its original stack count.
         static bool requiresAuthoritativeWorldItemTake(bool sourceOwnerEmpty, bool itemInCell,
             bool destinationIsLocalPlayer, bool barterOpen, bool detachedFromLocalPlayer);
+        static bool requiresContainerBootstrapOnOpen(bool isActorContainer,
+            bool hasActorAuthority, bool hasCellAuthority);
 
         // Called when the local player clicks the vanilla Dispose of Corpse button
         // for a dead actor corpse. Sends a dedicated CorpseDispose packet.
