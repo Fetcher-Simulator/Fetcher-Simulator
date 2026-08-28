@@ -63,8 +63,16 @@ namespace mwmp
         // from the local player's inventory so a later world placement can use
         // the normal ObjectPlace route without requiring a mod-specific patch.
         void markLocalPlayerInventoryDetached(const MWWorld::Ptr& ptr);
+        bool isLocalPlayerInventoryDetached(const MWWorld::Ptr& ptr) const;
         bool consumeLocalPlayerInventoryDetached(const MWWorld::Ptr& ptr);
         void forgetLocalPlayerInventoryDetached(const MWWorld::Ptr& ptr);
+
+        // A Lua split() of the local player's stack temporarily looks like a
+        // loose world object. Only genuine loose objects must be forced through
+        // WorldItemTake; detached player splits are allowed to rejoin the player
+        // inventory so drag-and-drop can preserve its original stack count.
+        static bool requiresAuthoritativeWorldItemTake(bool sourceOwnerEmpty, bool itemInCell,
+            bool destinationIsLocalPlayer, bool barterOpen, bool detachedFromLocalPlayer);
 
         // Called when the local player clicks the vanilla Dispose of Corpse button
         // for a dead actor corpse. Sends a dedicated CorpseDispose packet.

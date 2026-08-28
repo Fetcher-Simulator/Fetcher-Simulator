@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include <apps/openmw-server/PlayerDatabase.hpp>
+#include <apps/openmw/mwmp/sync/WorldObjectSync.hpp>
 #include <components/openmw-mp/Sha256.hpp>
 
 namespace
@@ -72,6 +73,26 @@ namespace
         crime.resultingState.revision = 1;
         return crime;
     }
+}
+
+TEST(WorldItemTakeClientPolicy, GenuineLooseWorldObjectRequiresAuthority)
+{
+    EXPECT_TRUE(mwmp::WorldObjectSync::requiresAuthoritativeWorldItemTake(
+        true, true, true, false, false));
+}
+
+TEST(WorldItemTakeClientPolicy, DetachedLocalPlayerSplitMayRejoinInventory)
+{
+    EXPECT_FALSE(mwmp::WorldObjectSync::requiresAuthoritativeWorldItemTake(
+        true, true, true, false, true));
+}
+
+TEST(WorldItemTakeClientPolicy, BarterAndNonPlayerDestinationsDoNotUseWorldTakeGate)
+{
+    EXPECT_FALSE(mwmp::WorldObjectSync::requiresAuthoritativeWorldItemTake(
+        true, true, true, true, false));
+    EXPECT_FALSE(mwmp::WorldObjectSync::requiresAuthoritativeWorldItemTake(
+        true, true, false, false, false));
 }
 
 TEST(WorldItemTakePersistence, CommitsTombstoneInventoryAndReplayAtomically)
