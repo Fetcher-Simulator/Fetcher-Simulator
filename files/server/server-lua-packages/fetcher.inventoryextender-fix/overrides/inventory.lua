@@ -1750,10 +1750,16 @@ local function getMerchantItemsForTrade(npc, authoritySources)
     local virtualMerged = {}
     for _, item in ipairs(unmerged) do
         local key = item.recordId:lower()
+        -- Vanilla ContainerStore stacking keeps an equipped actor item separate
+        -- from an otherwise identical merchant-container item. Preserve that
+        -- distinction here so the Trade filter can hide only the equipped Ptr
+        -- instead of hiding a merged row that also contains sellable chest stock.
+        local equipped = npc.type.hasEquipped and npc.type.hasEquipped(npc, item) or false
         if virtualMerged[key] then
             local existing = false
             for _, virtualStack in ipairs(virtualMerged[key]) do
-                if helpers.itemCanStack(item, virtualStack.stacks[1]) then
+                if virtualStack.equipped == equipped
+                    and helpers.itemCanStack(item, virtualStack.stacks[1]) then
                     existing = true
                     table.insert(virtualStack.stacks, item)
                     virtualStack.totalCount = virtualStack.totalCount + item.count
@@ -1764,12 +1770,14 @@ local function getMerchantItemsForTrade(npc, authoritySources)
                 table.insert(virtualMerged[key], {
                     stacks = { item },
                     totalCount = item.count,
+                    equipped = equipped,
                 })
             end
         else
             virtualMerged[key] = { {
                 stacks = { item },
                 totalCount = item.count,
+                equipped = equipped,
             } }
         end
     end
