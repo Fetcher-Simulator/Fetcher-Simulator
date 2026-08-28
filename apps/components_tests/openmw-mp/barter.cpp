@@ -3,6 +3,7 @@
 #include <components/openmw-mp/Barter.hpp>
 #include <components/openmw-mp/Packets/Object/PacketBarter.hpp>
 #include <components/openmw-mp/Packets/Object/PacketObjectCount.hpp>
+#include <components/esm3/loadcont.hpp>
 #include <components/esm3/loadlevlist.hpp>
 
 namespace
@@ -193,6 +194,32 @@ TEST(BarterRestock, ProvesEligibleDirectAndNestedLeveledListDescendantsWithoutRe
 
     root.mFlags = ESM::ItemLevList::AllLevels;
     EXPECT_TRUE(mwmp::isEligibleBarterRestockDescendant(root, "low_item", 10, find));
+}
+
+TEST(BarterRestock, ProvesUnambiguousNegativeInventoryTemplatesAndRejectsFiniteAmbiguity)
+{
+    ESM::ItemLevList nested;
+    nested.mId = ESM::RefId::stringRefId("restock_list");
+    nested.mFlags = ESM::ItemLevList::AllLevels;
+    nested.mList = { { ESM::RefId::stringRefId("spice"), 1 } };
+    const auto find = [&](std::string_view id) -> const ESM::ItemLevList* {
+        return id == "restock_list" ? &nested : nullptr;
+    };
+
+    ESM::InventoryList inventory;
+    inventory.mList = {
+        { -2, ESM::RefId::stringRefId("medkit") },
+        { -3, nested.mId },
+    };
+    EXPECT_TRUE(mwmp::isBarterRestockingTemplate(inventory, "medkit", 2, 1, find));
+    EXPECT_FALSE(mwmp::isBarterRestockingTemplate(inventory, "medkit", 3, 1, find));
+    EXPECT_TRUE(mwmp::isBarterRestockingTemplate(inventory, "spice", 3, 10, find));
+    EXPECT_FALSE(mwmp::isBarterRestockingTemplate(inventory, "unrelated", 1, 10, find));
+
+    // If the same concrete record can also come from finite base stock, the
+    // persisted flag is not safe to infer and must remain authoritative.
+    inventory.mList.push_back({ 1, ESM::RefId::stringRefId("medkit") });
+    EXPECT_FALSE(mwmp::isBarterRestockingTemplate(inventory, "medkit", 1, 1, find));
 }
 
 TEST(BarterMerchantGold, RestocksAtVanillaDelayAndCarriesExpectedStateForCas)

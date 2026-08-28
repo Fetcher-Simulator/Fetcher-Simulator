@@ -14,6 +14,7 @@
 
 namespace ESM
 {
+    struct InventoryList;
     struct ItemLevList;
 }
 
@@ -132,6 +133,9 @@ namespace mwmp
     std::string_view getBarterErrorCode(BarterError error);
     bool isEligibleBarterRestockDescendant(const ESM::ItemLevList& root,
         std::string_view concreteItemRefId, int playerLevel,
+        const std::function<const ESM::ItemLevList*(std::string_view)>& findList);
+    bool isBarterRestockingTemplate(const ESM::InventoryList& inventory,
+        std::string_view concreteItemRefId, int count, int playerLevel,
         const std::function<const ESM::ItemLevList*(std::string_view)>& findList);
 }
 

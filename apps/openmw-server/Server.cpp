@@ -6018,6 +6018,58 @@ void MPServer::loadPersistentWorldState()
 }
 
 // ---------------------------------------------------------------------------
+bool MPServer::repairContainerRestockingMetadata(ContainerRecord& record, int playerLevel)
+{
+    if (!mContentRegistry || record.refId.empty())
+        return false;
+
+    const auto& contentStore = mContentRegistry->store();
+    ESM::RefId sourceId = ESM::RefId::deserializeText(record.refId);
+    if (sourceId.empty())
+        sourceId = ESM::RefId::stringRefId(record.refId);
+
+    const ESM::InventoryList* inventory = nullptr;
+    if (const ESM::Container* container = contentStore.get<ESM::Container>().search(sourceId))
+        inventory = &container->mInventory;
+    else if (const ESM::NPC* npc = contentStore.get<ESM::NPC>().search(sourceId))
+        inventory = &npc->mInventory;
+    else if (const ESM::Creature* creature = contentStore.get<ESM::Creature>().search(sourceId))
+        inventory = &creature->mInventory;
+    if (!inventory)
+        return false;
+
+    const auto findList = [&](std::string_view listId) {
+        ESM::RefId id = ESM::RefId::deserializeText(listId);
+        if (id.empty())
+            id = ESM::RefId::stringRefId(listId);
+        return contentStore.get<ESM::ItemLevList>().search(id);
+    };
+
+    bool changed = false;
+    for (ContainerItem& item : record.items)
+    {
+        // Server-issued/sold inventory instances are dynamic stock. Only repair
+        // unresolved base/template stacks, which use instanceId 0.
+        if (item.restocking || item.instanceId != 0 || item.count <= 0)
+            continue;
+
+        // Upgrade only when content proves an unambiguous negative template.
+        // If the same concrete item can also come from finite base stock, keep
+        // the persisted distinction rather than guessing.
+        if (isBarterRestockingTemplate(*inventory, item.refId, item.count,
+                std::max(1, playerLevel), findList))
+        {
+            item.restocking = true;
+            changed = true;
+        }
+    }
+
+    if (changed)
+        normalizeContainerItems(record.items);
+    return changed;
+}
+
+// ---------------------------------------------------------------------------
 void MPServer::sendCellStateToClient(HSteamNetConnection conn, const std::string& cellId)
 {
     sendGameSettingsToClient(conn, cellId);
@@ -6039,9 +6091,20 @@ void MPServer::sendCellObjectStateToClient(HSteamNetConnection conn, const std::
         }
     }
 
-    for (const auto& [key, record] : mWorld.containers)
+    const auto clientIt = mClients.find(conn);
+    const int playerLevel = clientIt != mClients.end() ? std::max(1, clientIt->second.player.level) : 1;
+    for (auto& [key, record] : mWorld.containers)
     {
-        if (record.cellId != cellId || !record.hasAuthority) continue;
+        (void)key;
+        if (record.cellId != cellId || !record.hasAuthority)
+            continue;
+        if (repairContainerRestockingMetadata(record, playerLevel))
+        {
+            if (mPlayerDb)
+                mPlayerDb->upsertContainerRecord(record);
+            Log(Debug::Info) << "[Server] Repaired persisted restocking metadata"
+                             << " refId=" << record.refId << " cell=" << record.cellId;
+        }
         PacketContainer pkt;
         pkt.container = record;
         pkt.mAction = static_cast<uint8_t>(ContainerAction::Set);
@@ -7783,6 +7846,14 @@ void MPServer::handlePlayerCellChange(ConnectedClient& c, const uint8_t* data, s
         Log(Debug::Verbose) << "[Server] Ignoring same-cell PlayerCellChange side effects for "
                             << c.name << " cell=" << newCell
                             << " sequence=" << cellChangeSequence;
+
+        // Character restore commonly confirms the already-restored cell with a
+        // same-cell PlayerCellChange after the client has finished loading it.
+        // The earlier character bootstrap may have sent persistent container
+        // state before those placed references existed locally, so resend the
+        // object/container layer here without repeating actor/cell side effects.
+        if (!newCell.empty())
+            sendCellObjectStateToClient(c.conn, newCell);
 
         PacketPlayerPosition positionPacket;
         positionPacket.setPlayer(&c.player);
@@ -15417,6 +15488,14 @@ void MPServer::handleBarterRequest(ConnectedClient& c, const uint8_t* data, size
             markMissingSource(key, identity, bootstrapAuthority);
             return nullptr;
         }
+        if (repairContainerRestockingMetadata(authoritative->second, std::max(1, c.player.level)))
+        {
+            if (mPlayerDb)
+                mPlayerDb->upsertContainerRecord(authoritative->second);
+            Log(Debug::Info) << "[Barter] repaired persisted restocking metadata"
+                             << " source=" << authoritative->second.refId
+                             << " request=" << request.requestId;
+        }
         ContainerRecord expected = authoritative->second;
         normalizeContainerItems(expected.items);
         auto [inserted, ok] = working.emplace(key, WorkingContainer{ expected, expected });
@@ -15481,23 +15560,17 @@ void MPServer::handleBarterRequest(ConnectedClient& c, const uint8_t* data, size
         return;
     }
 
+    const auto findRestockList = [&](std::string_view listId) {
+        ESM::RefId id = ESM::RefId::deserializeText(listId);
+        if (id.empty())
+            id = ESM::RefId::stringRefId(listId);
+        return contentStore.get<ESM::ItemLevList>().search(id);
+    };
     auto isRestockingTemplate = [&](const InventorySourceIdentity& source,
                                     std::string_view itemRefId, int count) {
         const auto matches = [&](const ESM::InventoryList& inventory) {
-            return std::any_of(inventory.mList.begin(), inventory.mList.end(), [&](const ESM::ContItem& item) {
-                if (item.mCount >= 0 || std::abs(static_cast<std::int64_t>(item.mCount)) < count)
-                    return false;
-                if (lowerAscii(item.mItem.serializeText()) == lowerAscii(std::string(itemRefId)))
-                    return true;
-                const ESM::ItemLevList* list = contentStore.get<ESM::ItemLevList>().search(item.mItem);
-                return list != nullptr && isEligibleBarterRestockDescendant(*list, itemRefId,
-                    std::max(1, c.player.level), [&](std::string_view listId) {
-                        ESM::RefId id = ESM::RefId::deserializeText(listId);
-                        if (id.empty())
-                            id = ESM::RefId::stringRefId(listId);
-                        return contentStore.get<ESM::ItemLevList>().search(id);
-                    });
-            });
+            return isBarterRestockingTemplate(inventory, itemRefId, count,
+                std::max(1, c.player.level), findRestockList);
         };
         if (source.actorInstanceId != 0)
         {
@@ -17134,6 +17207,14 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
 
         if (authoritative.hasAuthority)
         {
+            if (repairContainerRestockingMetadata(authoritative, std::max(1, c.player.level)))
+            {
+                if (mPlayerDb)
+                    mPlayerDb->upsertContainerRecord(authoritative);
+                Log(Debug::Info) << "[Server] Repaired persisted restocking metadata on Container(Set replay)"
+                                 << " refId=" << authoritative.refId
+                                 << " player=" << c.name;
+            }
             PacketContainer current;
             current.container = authoritative;
             current.mAction = static_cast<uint8_t>(ContainerAction::Set);
@@ -17148,6 +17229,10 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
 
         authoritative = pkt.container;
         authoritative.hasAuthority = true;
+        if (repairContainerRestockingMetadata(authoritative, std::max(1, c.player.level)))
+            Log(Debug::Info) << "[Server] Repaired restocking metadata on initial Container(Set)"
+                             << " refId=" << authoritative.refId
+                             << " player=" << c.name;
         if (mPlayerDb)
             mPlayerDb->upsertContainerRecord(authoritative);
 

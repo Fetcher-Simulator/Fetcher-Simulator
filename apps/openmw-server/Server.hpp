@@ -828,6 +828,7 @@ private:
     // ── Config ────────────────────────────────────────────────────────────
     static constexpr float       MAX_MOVE_SPEED = 600.f;
     void loadPersistentWorldState();
+    bool repairContainerRestockingMetadata(ContainerRecord& record, int playerLevel);
     void sendCellStateToClient(HSteamNetConnection conn, const std::string& cellId);
     void sendCellObjectStateToClient(HSteamNetConnection conn, const std::string& cellId);
 };
