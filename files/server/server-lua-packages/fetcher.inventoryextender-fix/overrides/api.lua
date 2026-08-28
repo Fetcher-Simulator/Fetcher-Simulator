@@ -35,6 +35,12 @@ function API.Player()
 end
 
 function API.show(windowName, arg)
+    -- Gate merchant rows before WindowManager makes the Trade window visible.
+    -- UiModeChanged arrives after show()/updateTarget(), which otherwise allows
+    -- stale local merchant rows to flash for the first rendered frame.
+    if windowName == 'Trade' then
+        windowManager.ctx.barterAuthorityReady = false
+    end
 --    if I.InventoryExtender.Actor()~=self then
         windowManager:show(windowName, arg)
 --        print("show",windowName, arg)
