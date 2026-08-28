@@ -760,6 +760,13 @@ void WorldObjectSync::onLocalContainerOpened(const MWWorld::Ptr& container)
         record.refNum = container.getCellRef().getRefNum().mIndex;
         record.mpNum = getMpNumForObject(container);
     }
+    if (container.getType() == ESM::Container::sRecordId && Main::isConnected()
+        && !Main::get().getActorSync().hasAuthority(record.cellId))
+    {
+        requestContainerBootstrap(container);
+        return;
+    }
+
     mOpenContainerTargets[makeContainerRevisionKey(
         record.cellId, record.refId, record.refNum, record.mpNum)] = container;
     sendLocalContainerSnapshot(record, container);
@@ -2026,6 +2033,27 @@ MWWorld::Ptr WorldObjectSync::findContainerTarget(const ContainerRecord& record)
     auto& scene = static_cast<MWWorld::World*>(world)->getWorldScene();
     for (MWWorld::CellStore* store : scene.getActiveCells())
     {
+        if (!store || !store->getCell())
+            continue;
+
+        const MWWorld::Cell* cell = store->getCell();
+        std::string activeCellId;
+        if (cell->isExterior())
+        {
+            char buffer[32];
+            std::snprintf(buffer, sizeof(buffer), "EXT:%d,%d", cell->getGridX(), cell->getGridY());
+            activeCellId = buffer;
+        }
+        else
+            activeCellId = std::string(cell->getNameId());
+        if (activeCellId != record.cellId)
+            continue;
+
+        // A newly active cell can still have references lazily materialized. A
+        // bootstrap request must be able to resolve an untouched static container
+        // by canonical refNum without requiring the authority player to open it first.
+        store->load();
+
         store->forEach([&](MWWorld::Ptr ptr) -> bool {
             if (ptr.getType() != ESM::Container::sRecordId && !ptr.getClass().isActor())
                 return true;
