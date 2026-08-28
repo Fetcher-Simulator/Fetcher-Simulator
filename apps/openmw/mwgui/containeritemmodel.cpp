@@ -138,8 +138,15 @@ namespace MWGui
                 continue;
 
             MWWorld::ContainerStore& store = source.first.getClass().getContainerStore(source.first);
+            const bool sourceHasInventoryStore = source.first.getClass().hasInventoryStore(source.first);
+            MWWorld::InventoryStore* inventoryStore = sourceHasInventoryStore
+                ? &source.first.getClass().getInventoryStore(source.first) : nullptr;
+
             for (MWWorld::ContainerStoreIterator it = store.begin(); it != store.end() && remaining > 0; ++it)
             {
+                const bool equipped = inventoryStore != nullptr && inventoryStore->isEquipped(*it);
+                if (!shouldIncludeTradingSourceItem(mTrading, sourceHasInventoryStore, equipped))
+                    continue;
                 if (!stacks(*it, item.mBase))
                     continue;
 
