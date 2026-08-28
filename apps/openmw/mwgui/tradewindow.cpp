@@ -1,5 +1,7 @@
 #include "tradewindow.hpp"
 
+#include <algorithm>
+
 #include <MyGUI_Button.h>
 #include <MyGUI_ControllerManager.h>
 #include <MyGUI_ControllerRepeatClick.h>
@@ -193,6 +195,61 @@ namespace MWGui
         }
     }
 
+    void TradeWindow::rebuildItemModel()
+    {
+        std::vector<MWWorld::Ptr> itemSources;
+        // Important: actor goes first, so purchased items come out of the actor's pocket first.
+        itemSources.push_back(mPtr);
+        MWBase::Environment::get().getWorld()->getContainersOwnedBy(mPtr, itemSources);
+
+        std::vector<MWWorld::Ptr> worldItems;
+        MWBase::Environment::get().getWorld()->getItemsOwnedBy(mPtr, worldItems);
+
+        auto tradeModel
+            = std::make_unique<TradeItemModel>(std::make_unique<ContainerItemModel>(itemSources, worldItems), mPtr);
+        mTradeModel = tradeModel.get();
+        auto sortModel = std::make_unique<SortFilterItemModel>(std::move(tradeModel));
+        mSortModel = sortModel.get();
+        mItemView->setModel(std::move(sortModel));
+        mItemView->resetScrollBars();
+    }
+
+    void TradeWindow::beginAuthoritativeBarterBootstrap()
+    {
+        mAwaitingAuthoritativeBarterSources = false;
+        mAuthoritativeBarterSources.clear();
+        if (!mwmp::Main::isInitialised() || !mwmp::Main::isConnected() || mPtr.isEmpty())
+            return;
+
+        std::vector<MWWorld::Ptr> sources;
+        sources.push_back(mPtr);
+        MWBase::Environment::get().getWorld()->getContainersOwnedBy(mPtr, sources);
+
+        auto& sync = mwmp::Main::get().getWorldObjectSync();
+        for (const MWWorld::Ptr& source : sources)
+        {
+            if (source.isEmpty())
+                continue;
+            const std::uint64_t initialRevision = sync.getContainerRevision(source);
+            if (sync.requestContainerBootstrap(source))
+                mAuthoritativeBarterSources.emplace_back(source, initialRevision);
+        }
+
+        mAwaitingAuthoritativeBarterSources = !mAuthoritativeBarterSources.empty();
+    }
+
+    bool TradeWindow::authoritativeBarterBootstrapReady() const
+    {
+        if (!mAwaitingAuthoritativeBarterSources)
+            return true;
+        if (!mwmp::Main::isInitialised() || !mwmp::Main::isConnected())
+            return true;
+
+        const auto& sync = mwmp::Main::get().getWorldObjectSync();
+        return std::all_of(mAuthoritativeBarterSources.begin(), mAuthoritativeBarterSources.end(),
+            [&](const auto& source) { return sync.getContainerRevision(source.first) != source.second; });
+    }
+
     void TradeWindow::setPtr(const MWWorld::Ptr& actor)
     {
         if (actor.isEmpty() || !actor.getClass().isActor())
@@ -202,21 +259,9 @@ namespace MWGui
         mCurrentBalance = 0;
         mCurrentMerchantOffer = 0;
 
-        std::vector<MWWorld::Ptr> itemSources;
-        // Important: actor goes first, so purchased items come out of the actor's pocket first
-        itemSources.push_back(actor);
-        MWBase::Environment::get().getWorld()->getContainersOwnedBy(actor, itemSources);
-
-        std::vector<MWWorld::Ptr> worldItems;
-        MWBase::Environment::get().getWorld()->getItemsOwnedBy(actor, worldItems);
-
-        auto tradeModel
-            = std::make_unique<TradeItemModel>(std::make_unique<ContainerItemModel>(itemSources, worldItems), mPtr);
-        mTradeModel = tradeModel.get();
-        auto sortModel = std::make_unique<SortFilterItemModel>(std::move(tradeModel));
-        mSortModel = sortModel.get();
-        mItemView->setModel(std::move(sortModel));
-        mItemView->resetScrollBars();
+        beginAuthoritativeBarterBootstrap();
+        rebuildItemModel();
+        mItemView->setVisible(!mAwaitingAuthoritativeBarterSources);
 
         updateLabels();
 
@@ -233,6 +278,16 @@ namespace MWGui
     void TradeWindow::onFrame(float dt)
     {
         checkReferenceAvailable();
+
+        if (mAwaitingAuthoritativeBarterSources && authoritativeBarterBootstrapReady())
+        {
+            mAwaitingAuthoritativeBarterSources = false;
+            mAuthoritativeBarterSources.clear();
+            rebuildItemModel();
+            onFilterChanged(mFilterAll);
+            mItemView->setVisible(true);
+            mUpdateNextFrame = true;
+        }
 
         if (isVisible() && mUpdateNextFrame)
         {
@@ -753,8 +808,11 @@ namespace MWGui
     {
         ReferenceInterface::resetReference();
         mItemView->setModel(nullptr);
+        mItemView->setVisible(true);
         mTradeModel = nullptr;
         mSortModel = nullptr;
+        mAwaitingAuthoritativeBarterSources = false;
+        mAuthoritativeBarterSources.clear();
     }
 
     void TradeWindow::onClose()

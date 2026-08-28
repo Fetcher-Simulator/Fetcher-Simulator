@@ -1,6 +1,10 @@
 #ifndef MWGUI_TRADEWINDOW_H
 #define MWGUI_TRADEWINDOW_H
 
+#include <cstdint>
+#include <utility>
+#include <vector>
+
 #include "referenceinterface.hpp"
 #include "windowbase.hpp"
 
@@ -86,7 +90,12 @@ namespace MWGui
         int mCurrentMerchantOffer;
 
         bool mUpdateNextFrame;
+        bool mAwaitingAuthoritativeBarterSources = false;
+        std::vector<std::pair<MWWorld::Ptr, std::uint64_t>> mAuthoritativeBarterSources;
 
+        void rebuildItemModel();
+        void beginAuthoritativeBarterBootstrap();
+        bool authoritativeBarterBootstrapReady() const;
         void updateOffer();
 
         void onItemSelected(int index);
