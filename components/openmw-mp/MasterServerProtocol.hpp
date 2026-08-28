@@ -29,7 +29,9 @@ namespace mwmp
     // so server-validated barter can distinguish purchases from ordinary looting.
     // Protocol 15 adds atomic multi-line barter transactions covering mixed buys,
     // sells, finite stock and server-validated restocking stock in one commit.
-    inline constexpr int MultiplayerProtocolVersion = 15;
+    // Protocol 16 preserves signed restocking counts through container snapshots
+    // and rehydrates persistent same-cell container state after character restore.
+    inline constexpr int MultiplayerProtocolVersion = 16;
     inline constexpr std::string_view MultiplayerBuildVersion = "0.1.0";
     inline constexpr std::string_view DefaultMasterServerUrl = "https://master.fetchers.org";
 

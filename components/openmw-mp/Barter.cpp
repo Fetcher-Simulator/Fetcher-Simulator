@@ -7,6 +7,7 @@
 #include <limits>
 #include <unordered_set>
 
+#include <components/esm3/loadcont.hpp>
 #include <components/esm3/loadlevlist.hpp>
 
 namespace
@@ -296,4 +297,44 @@ bool mwmp::isEligibleBarterRestockDescendant(const ESM::ItemLevList& root,
             return found;
         };
     return visit(root, 0);
+}
+
+bool mwmp::isBarterRestockingTemplate(const ESM::InventoryList& inventory,
+    std::string_view concreteItemRefId, int count, int playerLevel,
+    const std::function<const ESM::ItemLevList*(std::string_view)>& findList)
+{
+    if (concreteItemRefId.empty() || count <= 0 || playerLevel < 1)
+        return false;
+
+    const auto lower = [](std::string_view value) {
+        std::string result(value);
+        std::transform(result.begin(), result.end(), result.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return result;
+    };
+    const std::string concrete = lower(concreteItemRefId);
+    const auto matches = [&](const ESM::ContItem& item) {
+        if (lower(item.mItem.serializeText()) == concrete)
+            return true;
+        if (!findList)
+            return false;
+        const ESM::ItemLevList* list = findList(item.mItem.serializeText());
+        return list != nullptr && isEligibleBarterRestockDescendant(
+            *list, concreteItemRefId, playerLevel, findList);
+    };
+
+    std::int64_t negativeCapacity = 0;
+    bool hasPositiveTemplate = false;
+    for (const ESM::ContItem& item : inventory.mList)
+    {
+        if (item.mCount == 0 || !matches(item))
+            continue;
+        if (item.mCount < 0)
+            negativeCapacity += std::abs(static_cast<std::int64_t>(item.mCount));
+        else
+            hasPositiveTemplate = true;
+    }
+
+    return !hasPositiveTemplate && negativeCapacity >= count;
 }

@@ -254,7 +254,7 @@ namespace
         {
             ContainerItem item;
             item.refId = it->getCellRef().getRefId().toString();
-            const int rawCount = it->getCellRef().getCount();
+            const int rawCount = it->getCellRef().getCount(false);
             item.count = std::abs(rawCount);
             item.restocking = rawCount < 0;
             item.charge = static_cast<int>(it->getCellRef().getCharge());
@@ -336,7 +336,7 @@ namespace
         {
             if (ptr.isEmpty())
                 continue;
-            const int rawCount = ptr.getCellRef().getCount();
+            const int rawCount = ptr.getCellRef().getCount(false);
             if (rawCount == 0)
                 continue;
             const int currentCount = std::abs(rawCount);
@@ -781,7 +781,7 @@ void WorldObjectSync::sendLocalContainerSnapshot(const ContainerRecord& record, 
     {
         ContainerItem ci;
         ci.refId = it->getCellRef().getRefId().toString();
-        const int rawCount = it->getCellRef().getCount();
+        const int rawCount = it->getCellRef().getCount(false);
         ci.count = std::abs(rawCount);
         ci.restocking = rawCount < 0;
         ci.charge = static_cast<int>(it->getCellRef().getCharge());
@@ -2038,7 +2038,8 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
                 cstore.clearResolved();
                 for (const auto& ci : record.items)
                 {
-                    MWWorld::ManualRef ref(esmStore, ESM::RefId::stringRefId(ci.refId), ci.count);
+                    const int signedCount = ci.restocking ? -ci.count : ci.count;
+                    MWWorld::ManualRef ref(esmStore, ESM::RefId::stringRefId(ci.refId), signedCount);
                     if (!ref.getPtr().isEmpty())
                     {
                         MWWorld::Ptr ptr = ref.getPtr();
@@ -2046,7 +2047,7 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
                         ptr.getCellRef().setEnchantmentCharge(ci.enchantmentCharge);
                         ptr.getCellRef().setSoul(ci.soul.empty() ? ESM::RefId()
                             : ESM::RefId::deserializeText(ci.soul));
-                        cstore.add(ptr, ci.count, true, false);
+                        cstore.add(ptr, signedCount, true, false);
                     }
                 }
             }
@@ -2064,7 +2065,8 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
     {
         for (const auto& ci : record.items)
         {
-            MWWorld::ManualRef ref(esmStore, ESM::RefId::stringRefId(ci.refId), ci.count);
+            const int signedCount = ci.restocking ? -ci.count : ci.count;
+            MWWorld::ManualRef ref(esmStore, ESM::RefId::stringRefId(ci.refId), signedCount);
             if (!ref.getPtr().isEmpty())
             {
                 MWWorld::Ptr ptr = ref.getPtr();
@@ -2072,7 +2074,7 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
                 ptr.getCellRef().setEnchantmentCharge(ci.enchantmentCharge);
                 ptr.getCellRef().setSoul(ci.soul.empty() ? ESM::RefId()
                     : ESM::RefId::deserializeText(ci.soul));
-                cstore.add(ptr, ci.count);
+                cstore.add(ptr, signedCount);
             }
         }
     }
