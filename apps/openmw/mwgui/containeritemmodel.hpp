@@ -33,6 +33,22 @@ namespace MWGui
         bool usesAuthoritativeInventoryTransfer() const;
         MWWorld::Ptr getPrimaryItemSource() const;
 
+        struct BarterBackingItem
+        {
+            MWWorld::Ptr source;
+            MWWorld::Ptr item;
+            int count = 0;
+            bool restocking = false;
+            bool worldItem = false;
+        };
+
+        // Decompose a merged vanilla trade stack back into the concrete actor,
+        // owned-container and world-item sources that will actually supply it.
+        // Multiplayer barter needs this because the server validates each source
+        // independently, while the vanilla UI intentionally merges them.
+        bool getBarterBackingItems(
+            const ItemStack& item, std::size_t count, std::vector<BarterBackingItem>& out) const;
+
         ItemStack getItem(ModelIndex index) override;
         ModelIndex getIndex(const ItemStack& item) override;
         size_t getItemCount() override;

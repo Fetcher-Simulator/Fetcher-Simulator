@@ -24,6 +24,9 @@
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/creaturestats.hpp"
 
+#include "../mwmp/Main.hpp"
+#include "../mwmp/sync/WorldObjectSync.hpp"
+
 #include "containeritemmodel.hpp"
 #include "countdialog.hpp"
 #include "inventorywindow.hpp"
@@ -45,19 +48,22 @@ namespace
         return static_cast<int>(price * count);
     }
 
-    bool haggle(const MWWorld::Ptr& player, const MWWorld::Ptr& merchant, int playerOffer, int merchantOffer)
+    struct HaggleResult
+    {
+        bool accepted = false;
+        bool awardSkill = false;
+        float skillGain = 0.f;
+    };
+
+    HaggleResult haggle(const MWWorld::Ptr& player, const MWWorld::Ptr& merchant, int playerOffer, int merchantOffer)
     {
         // accept if merchant offer is better than player offer
         if (playerOffer <= merchantOffer)
-        {
-            return true;
-        }
+            return { true, false, 0.f };
 
         // reject if npc is a creature
         if (merchant.getType() != ESM::NPC::sRecordId)
-        {
-            return false;
-        }
+            return {};
 
         const MWWorld::Store<ESM::GameSetting>& gmst
             = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
@@ -92,27 +98,18 @@ namespace
         // reject if roll fails
         // (or if player tries to buy things and get money)
         if (roll > x || (merchantOffer < 0 && 0 < playerOffer))
-        {
-            return false;
-        }
+            return {};
 
-        // apply skill gain on successful barter
         float skillGain = 0.f;
         int finalPrice = std::abs(playerOffer);
         int initialMerchantOffer = std::abs(merchantOffer);
 
         if (!buying && (finalPrice > initialMerchantOffer))
-        {
             skillGain = std::floor(100.f * (finalPrice - initialMerchantOffer) / finalPrice);
-        }
         else if (buying && (finalPrice < initialMerchantOffer))
-        {
             skillGain = std::floor(100.f * (initialMerchantOffer - finalPrice) / initialMerchantOffer);
-        }
-        player.getClass().skillUsageSucceeded(
-            player, ESM::Skill::Mercantile, ESM::Skill::Mercantile_Success, skillGain);
 
-        return true;
+        return { true, true, skillGain };
     }
 }
 
@@ -444,29 +441,123 @@ namespace MWGui
             }
         }
 
-        bool offerAccepted = haggle(player, mPtr, mCurrentBalance, mCurrentMerchantOffer);
+        const HaggleResult haggleResult = haggle(player, mPtr, mCurrentBalance, mCurrentMerchantOffer);
 
-        // apply disposition change if merchant is NPC
-        if (mPtr.getClass().isNpc())
+        // A failed haggle is a local mechanics outcome in both singleplayer and
+        // multiplayer. Only a successful offer proceeds to inventory authority.
+        if (!haggleResult.accepted)
         {
-            int dispositionDelta = offerAccepted ? gmst.find("iBarterSuccessDisposition")->mValue.getInteger()
-                                                 : gmst.find("iBarterFailDisposition")->mValue.getInteger();
-
-            MWBase::Environment::get().getDialogueManager()->applyBarterDispositionChange(dispositionDelta);
-        }
-
-        // display message on haggle failure
-        if (!offerAccepted)
-        {
+            if (mPtr.getClass().isNpc())
+            {
+                const int dispositionDelta = gmst.find("iBarterFailDisposition")->mValue.getInteger();
+                MWBase::Environment::get().getDialogueManager()->applyBarterDispositionChange(dispositionDelta);
+            }
             MWBase::Environment::get().getWindowManager()->messageBox("#{sNotifyMessage9}");
             return;
         }
 
-        // make the item transfer
+        if (mwmp::Main::isInitialised() && mwmp::Main::isConnected())
+        {
+            auto* merchantSource = dynamic_cast<ContainerItemModel*>(mTradeModel->getSourceModel());
+            if (!merchantSource)
+            {
+                MWBase::Environment::get().getWindowManager()->messageBox(
+                    "Authoritative barter could not resolve the merchant inventory.");
+                return;
+            }
+
+            std::vector<mwmp::WorldObjectSync::BarterLineInput> lines;
+            for (const ItemStack& itemStack : playerBought)
+            {
+                std::vector<ContainerItemModel::BarterBackingItem> backingItems;
+                if (!merchantSource->getBarterBackingItems(itemStack, itemStack.mCount, backingItems))
+                {
+                    MWBase::Environment::get().getWindowManager()->messageBox(
+                        "Merchant stock changed before the transaction could be submitted. Reopen barter and try again.");
+                    return;
+                }
+
+                for (const ContainerItemModel::BarterBackingItem& backing : backingItems)
+                {
+                    mwmp::WorldObjectSync::BarterLineInput input;
+                    input.kind = backing.worldItem ? mwmp::BarterLineKind::BuyWorldItem
+                        : backing.restocking ? mwmp::BarterLineKind::BuyRestocking
+                                             : mwmp::BarterLineKind::BuyFinite;
+                    input.source = backing.source;
+                    input.item = backing.item;
+                    input.count = backing.count;
+                    lines.push_back(std::move(input));
+                }
+            }
+            for (const ItemStack& itemStack : merchantBought)
+            {
+                mwmp::WorldObjectSync::BarterLineInput input;
+                input.kind = mwmp::BarterLineKind::Sell;
+                input.item = itemStack.mBase;
+                input.count = static_cast<int>(itemStack.mCount);
+                lines.push_back(std::move(input));
+            }
+
+            const MWWorld::Ptr merchant = mPtr;
+            const int successDisposition = merchant.getClass().isNpc()
+                ? gmst.find("iBarterSuccessDisposition")->mValue.getInteger() : 0;
+            const bool queued = mwmp::Main::get().getWorldObjectSync().requestBarterTransaction(
+                merchant, lines, mCurrentBalance, getMerchantGold(),
+                [this, player, merchant, awardSkill = haggleResult.awardSkill,
+                    skillGain = haggleResult.skillGain, successDisposition](const mwmp::BarterResult& result) {
+                    if (!result.accepted)
+                    {
+                        MWBase::Environment::get().getWindowManager()->messageBox(
+                            "Barter transaction was rejected by the server. Reopen the merchant and try again.");
+                        return;
+                    }
+
+                    if (awardSkill && !player.isEmpty())
+                    {
+                        player.getClass().skillUsageSucceeded(
+                            player, ESM::Skill::Mercantile, ESM::Skill::Mercantile_Success, skillGain);
+                    }
+                    if (successDisposition != 0)
+                        MWBase::Environment::get().getDialogueManager()->applyBarterDispositionChange(successDisposition);
+                    if (!merchant.isEmpty())
+                        merchant.getClass().getCreatureStats(merchant).setGoldPool(result.merchantGold);
+
+                    eventTradeDone();
+                    MWBase::Environment::get().getWindowManager()->playSound(
+                        ESM::RefId::stringRefId("Item Gold Up"));
+                });
+            if (!queued)
+            {
+                MWBase::Environment::get().getWindowManager()->messageBox(
+                    "Authoritative barter could not be queued. Reopen the merchant and try again.");
+                return;
+            }
+
+            // The preview has not mutated either inventory yet. Clear it and
+            // close immediately, matching the asynchronous InventoryExtender
+            // path. Authoritative Container/PlayerInventory snapshots arrive
+            // before the result callback and perform the actual reconciliation.
+            mTradeModel->abort();
+            playerItemModel->abort();
+            MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_Barter);
+            return;
+        }
+
+        // Singleplayer retains the original immediate local transaction path.
+        if (haggleResult.awardSkill)
+        {
+            player.getClass().skillUsageSucceeded(
+                player, ESM::Skill::Mercantile, ESM::Skill::Mercantile_Success, haggleResult.skillGain);
+        }
+        if (mPtr.getClass().isNpc())
+        {
+            const int dispositionDelta = gmst.find("iBarterSuccessDisposition")->mValue.getInteger();
+            MWBase::Environment::get().getDialogueManager()->applyBarterDispositionChange(dispositionDelta);
+        }
+
         mTradeModel->transferItems();
         playerItemModel->transferItems();
 
-        // transfer the gold
         if (mCurrentBalance != 0)
         {
             addOrRemoveGold(mCurrentBalance, player);

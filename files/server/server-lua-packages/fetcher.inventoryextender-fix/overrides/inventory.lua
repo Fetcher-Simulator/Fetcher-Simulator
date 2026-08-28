@@ -1715,6 +1715,67 @@ function Inventory:refresh()
     end
 end
 
+local function getMerchantItemsForTrade(npc, authoritySources)
+    if not authoritySources then
+        return helpers.getMerchantItems(npc)
+    end
+
+    -- Match vanilla TradeWindow's source model: merchant actor first, then every
+    -- owned container returned by World::getContainersOwnedBy(). The multiplayer
+    -- bootstrap API supplies exactly that list, including hidden merchant chests
+    -- that are intentionally absent from openmw.nearby.containers.
+    local unmerged = {}
+    for _, source in ipairs(authoritySources) do
+        local ok, inventory = pcall(function()
+            return source.type.inventory(source)
+        end)
+        if ok and inventory then
+            for _, item in ipairs(inventory:getAll()) do
+                table.insert(unmerged, item)
+            end
+        end
+    end
+
+    -- Vanilla also includes owned loose world items. Keep using nearby.items for
+    -- those because the authoritative barter API validates their exact world ref.
+    local nearbyOk, nearby = pcall(require, 'openmw.nearby')
+    if nearbyOk then
+        for _, item in ipairs(nearby.items) do
+            if item.owner and item.owner.recordId == npc.recordId then
+                table.insert(unmerged, item)
+            end
+        end
+    end
+
+    local virtualMerged = {}
+    for _, item in ipairs(unmerged) do
+        local key = item.recordId:lower()
+        if virtualMerged[key] then
+            local existing = false
+            for _, virtualStack in ipairs(virtualMerged[key]) do
+                if helpers.itemCanStack(item, virtualStack.stacks[1]) then
+                    existing = true
+                    table.insert(virtualStack.stacks, item)
+                    virtualStack.totalCount = virtualStack.totalCount + item.count
+                    break
+                end
+            end
+            if not existing then
+                table.insert(virtualMerged[key], {
+                    stacks = { item },
+                    totalCount = item.count,
+                })
+            end
+        else
+            virtualMerged[key] = { {
+                stacks = { item },
+                totalCount = item.count,
+            } }
+        end
+    end
+    return virtualMerged
+end
+
 function Inventory:createData()
     if not self.target then
         return {}
@@ -1788,7 +1849,7 @@ function Inventory:createData()
             table.insert(data, createRowData(item, false, false))
         end
     else
-        for _, recordId in pairs(helpers.getMerchantItems(self.target)) do
+        for _, recordId in pairs(getMerchantItemsForTrade(self.target, self.ctx.barterAuthoritySources)) do
             for _, virtualItem in ipairs(recordId) do
                 table.insert(data, createRowData(virtualItem, false, true))
             end
@@ -1804,7 +1865,7 @@ function Inventory:createData()
         else
             local barterNpc = self.ctx.windowArgs.Trade
             if barterNpc then
-                for _, recordId in pairs(helpers.getMerchantItems(barterNpc)) do
+                for _, recordId in pairs(getMerchantItemsForTrade(barterNpc, self.ctx.barterAuthoritySources)) do
                     for _, virtualItem in ipairs(recordId) do
                         table.insert(data, createRowData(virtualItem, true, true))
                     end

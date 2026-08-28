@@ -597,7 +597,7 @@ local function refreshChangedOpenContainers()
         end
 
         if allReady then
-            entry.actor:sendEvent('IE_BarterAuthorityReady')
+            entry.actor:sendEvent('IE_BarterAuthorityReady', { sources = entry.sources })
             barterAuthorityRefresh[actorId] = nil
         end
     end
