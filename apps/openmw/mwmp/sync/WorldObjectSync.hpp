@@ -55,7 +55,8 @@ namespace mwmp
 
         // Connected pickup is request-first. No local inventory/world mutation
         // occurs until the authoritative inventory and deletion arrive.
-        void requestLocalObjectTake(const MWWorld::Ptr& worldObject);
+        using WorldItemTakeCallback = std::function<void(const WorldItemTakeResult&)>;
+        bool requestLocalObjectTake(const MWWorld::Ptr& worldObject, WorldItemTakeCallback callback = {});
 
         // Lua split() creates a disabled detached world Ptr before a later
         // moveInto() or teleport(). Preserve whether that detached object came
@@ -214,6 +215,7 @@ namespace mwmp
         bool mSuppressLocalDelete = false;
         bool mSuppressPickpocketFinish = false;
         std::unordered_set<uint32_t> mPendingTakenMpNums;
+        std::unordered_map<std::string, WorldItemTakeCallback> mWorldItemTakeCallbacks;
         std::unordered_set<ESM::RefNum> mLocalPlayerInventoryDetached;
         std::string mTakeRequestPrefix;
         std::uint64_t mNextTakeRequestId = 1;

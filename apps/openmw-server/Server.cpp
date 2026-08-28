@@ -751,10 +751,7 @@ namespace
 
     bool sameItemIdentity(const mwmp::Item& left, const mwmp::Item& right)
     {
-        return left.refId == right.refId
-            && left.charge == right.charge
-            && std::abs(left.enchantmentCharge - right.enchantmentCharge) < 0.001f
-            && left.soul == right.soul;
+        return mwmp::sameAuthoritativeItemIdentity(left, right);
     }
 
     bool canStackAuthoritativeContainerItem(const MWWorld::Ptr& ptr)

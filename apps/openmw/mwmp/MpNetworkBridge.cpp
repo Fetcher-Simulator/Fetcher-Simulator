@@ -326,6 +326,35 @@ namespace mwmp
             });
         mp["records"] = LuaUtil::makeReadOnly(recordApi);
 
+        sol::table worldItemTakeApi(lua, sol::create);
+        worldItemTakeApi.set_function("isAvailable", [] { return Main::isInitialised() && Main::isConnected(); });
+        worldItemTakeApi.set_function("request",
+            [lua](const MWLua::GObject& item, sol::main_protected_function callback) {
+                if (!Main::isInitialised() || !Main::isConnected())
+                    throw std::runtime_error("mp.worldItemTake.request requires an active multiplayer connection");
+                const MWWorld::Ptr itemPtr = item.ptrOrEmpty();
+                if (itemPtr.isEmpty() || !itemPtr.isInCell())
+                    throw std::runtime_error("mp.worldItemTake.request requires a live world item");
+
+                const bool queued = Main::get().getWorldObjectSync().requestLocalObjectTake(
+                    itemPtr, [lua, callback = std::move(callback)](const WorldItemTakeResult& result) mutable {
+                        sol::table value(lua, sol::create);
+                        value["requestId"] = result.requestId;
+                        value["accepted"] = result.accepted;
+                        value["replayed"] = result.replayed;
+                        value["error"] = std::string(getWorldItemTakeErrorCode(result.error));
+                        value["itemRefId"] = result.itemRefId;
+                        value["itemCount"] = result.itemCount;
+                        value["inventoryRevision"] = result.inventoryRevision;
+                        value["theft"] = result.theft;
+                        value["crimeValue"] = result.crimeValue;
+                        LuaUtil::call(callback, value);
+                    });
+                if (!queued)
+                    throw std::runtime_error("mp.worldItemTake.request could not build a canonical request");
+            });
+        mp["worldItemTake"] = LuaUtil::makeReadOnly(worldItemTakeApi);
+
         sol::table inventoryTakeApi(lua, sol::create);
         inventoryTakeApi.set_function("isAvailable", [] { return Main::isInitialised() && Main::isConnected(); });
         inventoryTakeApi.set_function("request",

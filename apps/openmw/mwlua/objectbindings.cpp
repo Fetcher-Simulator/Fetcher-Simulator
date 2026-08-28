@@ -689,6 +689,16 @@ namespace MWLua
                         return;
                     }
 
+                    if (mwmp::Main::isConnected() && sourceOwner.isEmpty() && ptr.isInCell()
+                        && destPtr == MWBase::Environment::get().getWorld()->getPlayerPtr()
+                        && !MWBase::Environment::get().getWindowManager()->containsMode(MWGui::GM_Barter))
+                    {
+                        Log(Debug::Warning) << "[MP] Rejected Lua object.moveInto world-to-player mutation item="
+                                            << ptr.toString() << "; use openmw.mp.worldItemTake.request";
+                        mwmp::Main::get().getWorldObjectSync().forgetLocalPlayerInventoryDetached(ptr);
+                        return;
+                    }
+
                     bool sourceWasKnownWorldObject = false;
                     if (mwmp::Main::isConnected())
                     {

@@ -64,6 +64,7 @@ void WorldObjectSync::resetSessionState()
     mInventoryTakeSources.clear();
     mInventoryTakesAwaitingSource.clear();
     mInventoryTakeCallbacks.clear();
+    mWorldItemTakeCallbacks.clear();
     mPendingInventoryPuts.clear();
     mInventoryPutDestinations.clear();
     mInventoryPutsAwaitingDestination.clear();
@@ -551,10 +552,11 @@ void WorldObjectSync::onLocalObjectTaken(
     setInventoryInstanceAlias(inventoryObject.getCellRef().getRefNum(), mpNum);
 }
 
-void WorldObjectSync::requestLocalObjectTake(const MWWorld::Ptr& worldObject)
+bool WorldObjectSync::requestLocalObjectTake(
+    const MWWorld::Ptr& worldObject, WorldItemTakeCallback callback)
 {
     if (worldObject.isEmpty() || !worldObject.isInCell())
-        return;
+        return false;
 
     WorldItemTakeRequest request;
     request.requestId = mTakeRequestPrefix + "-world-" + std::to_string(mNextTakeRequestId++);
@@ -583,8 +585,11 @@ void WorldObjectSync::requestLocalObjectTake(const MWWorld::Ptr& worldObject)
         Log(Debug::Warning) << "[MP] WorldObjectSync: cannot request take without canonical identity"
                             << " refId=" << request.object.refId
                             << " cell=" << request.object.cellId;
-        return;
+        return false;
     }
+
+    if (callback)
+        mWorldItemTakeCallbacks.emplace(request.requestId, std::move(callback));
 
     PacketWorldItemTakeRequest packet;
     packet.request = request;
@@ -593,6 +598,7 @@ void WorldObjectSync::requestLocalObjectTake(const MWWorld::Ptr& worldObject)
                         << " request=" << request.requestId
                         << " refId=" << request.object.refId
                         << " cell=" << request.object.cellId;
+    return true;
 }
 
 void WorldObjectSync::markLocalPlayerInventoryDetached(const MWWorld::Ptr& ptr)
@@ -1302,6 +1308,22 @@ void WorldObjectSync::onServerWorldItemTakeResult(const WorldItemTakeResult& res
         << " refId=" << result.itemRefId
         << " count=" << result.itemCount
         << " inventoryRevision=" << result.inventoryRevision;
+
+    const auto callback = mWorldItemTakeCallbacks.find(result.requestId);
+    if (callback == mWorldItemTakeCallbacks.end())
+        return;
+
+    WorldItemTakeCallback fn = std::move(callback->second);
+    mWorldItemTakeCallbacks.erase(callback);
+    try
+    {
+        fn(result);
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[MP] World item take callback failed request=" << result.requestId
+                          << " error=" << e.what();
+    }
 }
 
 void WorldObjectSync::onServerInventoryTakeResult(const InventoryTakeResult& result)

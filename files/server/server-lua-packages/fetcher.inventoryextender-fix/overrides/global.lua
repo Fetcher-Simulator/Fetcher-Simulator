@@ -179,6 +179,47 @@ local function moveInto(props)
     local recordId = obj.recordId
     local moveCount = props.count or obj.count
 
+    if mp.isConnected() and props.source == nil
+        and types.Player.objectIsInstance(destination)
+        and obj.parentContainer == nil and obj.cell ~= nil
+        and mp.worldItemTake and mp.worldItemTake.isAvailable() then
+        local dragKey = 'world\0' .. obj.id
+        if authoritativeDragInFlight[dragKey] then
+            return
+        end
+        authoritativeDragInFlight[dragKey] = true
+        local previousCounts = snapshotDestinationRecord(destination, recordId)
+        local dragStart = props.dragStart
+        local player = props.player
+        local ok, requestError = pcall(function()
+            mp.worldItemTake.request(obj, function(result)
+                authoritativeDragInFlight[dragKey] = nil
+                if result.accepted and dragStart then
+                    local authoritativeObj = resolveAuthoritativeDestinationStack(
+                        destination,
+                        result.itemRefId or recordId,
+                        previousCounts,
+                        result.itemCount or moveCount)
+                    if authoritativeObj then
+                        player:sendEvent('IE_SetDraggingObject', {
+                            obj = authoritativeObj,
+                            target = destination,
+                        })
+                    else
+                        print(('[MP] InventoryExtender authoritative world pickup could not resolve destination stack recordId=%s request=%s')
+                            :format(result.itemRefId or recordId, result.requestId or 'unknown'))
+                    end
+                end
+                player:sendEvent('IE_Update')
+            end)
+        end)
+        if not ok then
+            authoritativeDragInFlight[dragKey] = nil
+            error(requestError)
+        end
+        return
+    end
+
     local resultingObj = obj
     local destinationInv = destination.type.inventory(destination)
 
