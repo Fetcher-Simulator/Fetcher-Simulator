@@ -13,6 +13,7 @@
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/containerstore.hpp"
+#include "../mwworld/inventorystore.hpp"
 #include "../mwworld/manualref.hpp"
 
 #include "../mwbase/environment.hpp"
@@ -291,9 +292,15 @@ namespace MWGui
                 continue;
 
             MWWorld::ContainerStore& store = source.first.getClass().getContainerStore(source.first);
+            const bool sourceHasInventoryStore = source.first.getClass().hasInventoryStore(source.first);
+            MWWorld::InventoryStore* inventoryStore = sourceHasInventoryStore
+                ? &source.first.getClass().getInventoryStore(source.first) : nullptr;
 
             for (MWWorld::ContainerStoreIterator it = store.begin(); it != store.end(); ++it)
             {
+                const bool equipped = inventoryStore != nullptr && inventoryStore->isEquipped(*it);
+                if (!shouldIncludeTradingSourceItem(mTrading, sourceHasInventoryStore, equipped))
+                    continue;
                 if (!(*it).getClass().showsInInventory(*it))
                     continue;
 
@@ -429,6 +436,13 @@ namespace MWGui
     MWWorld::Ptr ContainerItemModel::getPrimaryItemSource() const
     {
         return mItemSources.empty() ? MWWorld::Ptr{} : mItemSources[0].first;
+    }
+
+
+    bool ContainerItemModel::shouldIncludeTradingSourceItem(
+        bool trading, bool sourceHasInventoryStore, bool sourceItemEquipped)
+    {
+        return !trading || !sourceHasInventoryStore || !sourceItemEquipped;
     }
 
     bool ContainerItemModel::usesContainer(const MWWorld::Ptr& container)

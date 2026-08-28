@@ -33,6 +33,13 @@ namespace MWGui
         bool usesAuthoritativeInventoryTransfer() const;
         MWWorld::Ptr getPrimaryItemSource() const;
 
+        // Trading models must discard equipped actor stacks before merging
+        // identical stock from owned containers. Otherwise the equipped Ptr can
+        // become the representative for the merged row and hide sellable chest
+        // stock in TradeItemModel.
+        static bool shouldIncludeTradingSourceItem(
+            bool trading, bool sourceHasInventoryStore, bool sourceItemEquipped);
+
         struct BarterBackingItem
         {
             MWWorld::Ptr source;
