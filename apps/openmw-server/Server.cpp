@@ -17824,6 +17824,16 @@ bool MPServer::worldMpNumInUse(uint32_t mpNum) const
         }
     }
 
+    // World mpNums are durable identities. Once a server-placed item has been
+    // taken, its tombstone permanently retires that mpNum. Reusing it for a
+    // whole-stack re-drop would resurrect an identity persistence still marks
+    // as consumed, making the new world object impossible to take.
+    for (const auto& [cellId, identities] : mWorld.takenItemReferences)
+    {
+        if (containsRetiredServerPlacedMpNum(identities, mpNum))
+            return true;
+    }
+
     return false;
 }
 

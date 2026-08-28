@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace mwmp
 {
@@ -76,6 +77,8 @@ namespace mwmp
     };
 
     bool isCanonicalPlacedObjectIdentity(const PlacedObjectIdentity& identity);
+    bool containsRetiredServerPlacedMpNum(
+        const std::vector<PlacedObjectIdentity>& identities, std::uint32_t mpNum);
     WorldItemTakeError validateWorldItemTakeRequest(const WorldItemTakeRequest& request);
     std::string canonicalWorldItemTakeRequest(const WorldItemTakeRequest& request);
     std::string_view getWorldItemTakeErrorCode(WorldItemTakeError error);

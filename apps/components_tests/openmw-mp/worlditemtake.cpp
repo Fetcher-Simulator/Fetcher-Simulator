@@ -34,6 +34,22 @@ TEST(WorldItemTakeProtocol, CanonicalIdentityRejectsMixedAndIncompleteKeys)
     EXPECT_TRUE(mwmp::isCanonicalPlacedObjectIdentity(value.object));
 }
 
+TEST(WorldItemTakeProtocol, ConsumedServerPlacedMpNumsRemainRetired)
+{
+    mwmp::PlacedObjectIdentity content = request().object;
+    mwmp::PlacedObjectIdentity retired;
+    retired.kind = mwmp::PlacedObjectKind::ServerPlaced;
+    retired.cellId = "Balmora";
+    retired.refId = "misc_com_bottle_01";
+    retired.refContentFile = -1;
+    retired.mpNum = 6441;
+
+    const std::vector<mwmp::PlacedObjectIdentity> identities{ content, retired };
+    EXPECT_TRUE(mwmp::containsRetiredServerPlacedMpNum(identities, 6441));
+    EXPECT_FALSE(mwmp::containsRetiredServerPlacedMpNum(identities, 6442));
+    EXPECT_FALSE(mwmp::containsRetiredServerPlacedMpNum(identities, 0));
+}
+
 TEST(WorldItemTakeProtocol, RequestValidationAndCanonicalEncodingAreDeterministic)
 {
     const auto value = request();
