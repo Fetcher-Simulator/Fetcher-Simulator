@@ -143,7 +143,7 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
 
     const auto& package = registry.packageSet().packages.front();
     EXPECT_EQ(package.packageId, "fetcher.inventoryextender-fix");
-    EXPECT_EQ(package.packageVersion, 10u);
+    EXPECT_EQ(package.packageVersion, 11u);
     EXPECT_EQ(package.requiredMultiplayerLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion);
 
     const auto findSource = [&](std::string_view path) -> const std::string* {
@@ -161,6 +161,11 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
     ASSERT_NE(inventory, nullptr);
     EXPECT_NE(global->find("requestBarterSources"), std::string::npos);
     EXPECT_NE(global->find("IE_BarterAuthorityReady"), std::string::npos);
+    const auto preShowGate = api->find("if windowName == 'Trade'");
+    const auto showTradeWindow = api->find("windowManager:show(windowName, arg)");
+    EXPECT_NE(preShowGate, std::string::npos);
+    EXPECT_NE(showTradeWindow, std::string::npos);
+    EXPECT_LT(preShowGate, showTradeWindow);
     EXPECT_NE(api->find("barterAuthorityReady = false"), std::string::npos);
     EXPECT_NE(inventory->find("barterAuthorityReady == false"), std::string::npos);
 }
