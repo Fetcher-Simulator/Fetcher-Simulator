@@ -95,6 +95,22 @@ TEST(WorldItemTakeClientPolicy, BarterAndNonPlayerDestinationsDoNotUseWorldTakeG
         true, true, false, false, false));
 }
 
+TEST(ContainerOpenClientPolicy, NonAuthorityStaticContainerRequestsBootstrap)
+{
+    EXPECT_TRUE(mwmp::WorldObjectSync::requiresContainerBootstrapOnOpen(
+        false, false, false));
+    EXPECT_FALSE(mwmp::WorldObjectSync::requiresContainerBootstrapOnOpen(
+        false, false, true));
+}
+
+TEST(ContainerOpenClientPolicy, NonAuthorityActorCorpseRequestsBootstrap)
+{
+    EXPECT_TRUE(mwmp::WorldObjectSync::requiresContainerBootstrapOnOpen(
+        true, false, true));
+    EXPECT_FALSE(mwmp::WorldObjectSync::requiresContainerBootstrapOnOpen(
+        true, true, false));
+}
+
 TEST(WorldItemTakePersistence, CommitsTombstoneInventoryAndReplayAtomically)
 {
     TemporaryDatabase temporary;
