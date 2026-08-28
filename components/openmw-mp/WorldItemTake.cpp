@@ -36,6 +36,16 @@ bool mwmp::isCanonicalPlacedObjectIdentity(const PlacedObjectIdentity& identity)
     return false;
 }
 
+bool mwmp::containsRetiredServerPlacedMpNum(
+    const std::vector<PlacedObjectIdentity>& identities, std::uint32_t mpNum)
+{
+    if (mpNum == 0)
+        return false;
+    return std::any_of(identities.begin(), identities.end(), [&](const PlacedObjectIdentity& identity) {
+        return identity.kind == PlacedObjectKind::ServerPlaced && identity.mpNum == mpNum;
+    });
+}
+
 mwmp::WorldItemTakeError mwmp::validateWorldItemTakeRequest(const WorldItemTakeRequest& request)
 {
     if (request.protocolVersion != WorldItemTakeProtocolVersion)
