@@ -189,3 +189,188 @@ TEST(InventoryTakeProtocol, ContainerBootstrapIsStrictAndCanonical)
     outgoing.mAction = 99;
     EXPECT_FALSE(incoming.decode(outgoing.encode()));
 }
+
+namespace
+{
+    mwmp::ContainerItem medkit(int count, std::uint32_t instanceId, bool restocking = false,
+        int charge = -1, float enchantmentCharge = -1.f, std::string soul = {})
+    {
+        mwmp::ContainerItem item;
+        item.refId = "sw_medkit";
+        item.count = count;
+        item.charge = charge;
+        item.instanceId = instanceId;
+        item.enchantmentCharge = enchantmentCharge;
+        item.soul = std::move(soul);
+        item.restocking = restocking;
+        return item;
+    }
+
+    mwmp::Item inventoryMedkit(int count, std::uint32_t instanceId, int charge = -1)
+    {
+        mwmp::Item item;
+        item.refId = "sw_medkit";
+        item.count = count;
+        item.charge = charge;
+        item.instanceId = instanceId;
+        return item;
+    }
+}
+
+TEST(InventoryAuthority, WorldPickupMergesIntoExistingCanonicalPlayerStack)
+{
+    std::vector<mwmp::Item> inventory{ inventoryMedkit(4, 6001) };
+    mwmp::Item pickedUp = inventoryMedkit(2, 7001);
+
+    EXPECT_EQ(mwmp::mergeAuthoritativeInventoryItem(inventory, pickedUp),
+        mwmp::AuthoritativeStackMutation::Merged);
+    ASSERT_EQ(inventory.size(), 1u);
+    EXPECT_EQ(inventory.front().count, 6);
+    EXPECT_EQ(inventory.front().instanceId, 6001u);
+    EXPECT_EQ(pickedUp.instanceId, 6001u);
+}
+
+TEST(InventoryAuthority, NativeNonStackableWorldPickupRetainsSeparateIdentity)
+{
+    std::vector<mwmp::Item> inventory{ inventoryMedkit(1, 6001) };
+    mwmp::Item scriptedPickup = inventoryMedkit(1, 7001);
+
+    EXPECT_EQ(mwmp::mergeAuthoritativeInventoryItem(inventory, scriptedPickup, false),
+        mwmp::AuthoritativeStackMutation::Added);
+    ASSERT_EQ(inventory.size(), 2u);
+    EXPECT_EQ(inventory[0].instanceId, 6001u);
+    EXPECT_EQ(inventory[1].instanceId, 7001u);
+}
+
+TEST(InventoryAuthority, RepeatedPartialPutsRetainOneDestinationIdentity)
+{
+    std::vector<mwmp::ContainerItem> destination{ medkit(3, 6337) };
+    mwmp::ContainerItem first = medkit(1, 6338);
+    mwmp::ContainerItem second = medkit(2, 6339);
+
+    EXPECT_EQ(mwmp::mergeAuthoritativeContainerItem(destination, first),
+        mwmp::AuthoritativeStackMutation::Merged);
+    EXPECT_EQ(mwmp::mergeAuthoritativeContainerItem(destination, second),
+        mwmp::AuthoritativeStackMutation::Merged);
+    ASSERT_EQ(destination.size(), 1u);
+    EXPECT_EQ(destination.front().count, 6);
+    EXPECT_EQ(destination.front().instanceId, 6337u);
+    EXPECT_EQ(first.instanceId, 6337u);
+    EXPECT_EQ(second.instanceId, 6337u);
+}
+
+TEST(InventoryAuthority, NativeNonStackableItemsRetainSeparateDestinationIdentities)
+{
+    std::vector<mwmp::ContainerItem> destination{ medkit(1, 6337) };
+    mwmp::ContainerItem scriptedItem = medkit(1, 6338);
+
+    EXPECT_EQ(mwmp::mergeAuthoritativeContainerItem(destination, scriptedItem, false),
+        mwmp::AuthoritativeStackMutation::Added);
+    ASSERT_EQ(destination.size(), 2u);
+    EXPECT_EQ(destination[0].instanceId, 6337u);
+    EXPECT_EQ(destination[1].instanceId, 6338u);
+}
+
+TEST(InventoryAuthority, ActorLocalNegativeRestockIsInfectiousOnSale)
+{
+    std::vector<mwmp::ContainerItem> actorInventory{ medkit(2, 0, true) };
+    mwmp::ContainerItem sold = medkit(1, 6335);
+
+    EXPECT_EQ(mwmp::mergeAuthoritativeContainerItem(actorInventory, sold),
+        mwmp::AuthoritativeStackMutation::Merged);
+    ASSERT_EQ(actorInventory.size(), 1u);
+    EXPECT_EQ(actorInventory.front().count, 3);
+    EXPECT_TRUE(actorInventory.front().restocking);
+    EXPECT_EQ(actorInventory.front().instanceId, 0u);
+    EXPECT_TRUE(sold.restocking);
+    EXPECT_EQ(sold.instanceId, 0u);
+}
+
+TEST(InventoryAuthority, ChestBackedMerchantConsumesActorFiniteBeforeUnchangedChestRestock)
+{
+    std::vector<mwmp::ContainerItem> actorInventory;
+    std::vector<mwmp::ContainerItem> chestInventory{ medkit(2, 0, true) };
+    mwmp::ContainerItem sold = medkit(1, 6335);
+    ASSERT_EQ(mwmp::mergeAuthoritativeContainerItem(actorInventory, sold),
+        mwmp::AuthoritativeStackMutation::Added);
+
+    auto finite = mwmp::takeAuthoritativeContainerItems(actorInventory,
+        "sw_medkit", -1, -1.f, "", 1);
+    ASSERT_TRUE(finite);
+    EXPECT_TRUE(actorInventory.empty());
+
+    std::vector<mwmp::Item> playerInventory;
+    mwmp::Item actorPurchase = inventoryMedkit(1, 7100);
+    ASSERT_EQ(mwmp::mergeAuthoritativeInventoryItem(playerInventory, actorPurchase),
+        mwmp::AuthoritativeStackMutation::Added);
+    auto restocking = mwmp::takeAuthoritativeContainerItems(chestInventory,
+        "sw_medkit", -1, -1.f, "", 2);
+    ASSERT_TRUE(restocking);
+    EXPECT_TRUE(restocking->backingRows.empty());
+    mwmp::Item chestPurchase = inventoryMedkit(restocking->taken.count, 0);
+    ASSERT_EQ(mwmp::mergeAuthoritativeInventoryItem(playerInventory, chestPurchase),
+        mwmp::AuthoritativeStackMutation::Merged);
+
+    ASSERT_EQ(playerInventory.size(), 1u);
+    EXPECT_EQ(playerInventory.front().count, 3);
+    ASSERT_EQ(chestInventory.size(), 1u);
+    EXPECT_EQ(chestInventory.front().count, 2);
+    EXPECT_TRUE(chestInventory.front().restocking);
+}
+
+TEST(InventoryAuthority, AggregateTakeConsumesCompatibleBackingRowsAtomically)
+{
+    std::vector<mwmp::ContainerItem> source{
+        medkit(3, 6337), medkit(1, 6338), medkit(1, 6339), medkit(1, 6340)
+    };
+    auto taken = mwmp::takeAuthoritativeContainerItems(source, "SW_Medkit", -1, -1.f, "", 6);
+
+    ASSERT_TRUE(taken);
+    EXPECT_TRUE(source.empty());
+    EXPECT_EQ(taken->taken.count, 6);
+    ASSERT_EQ(taken->backingRows.size(), 4u);
+    EXPECT_EQ(taken->backingRows[0].instanceId, 6337u);
+    EXPECT_EQ(taken->backingRows[0].count, 3);
+    EXPECT_EQ(taken->backingRows[3].instanceId, 6340u);
+}
+
+TEST(InventoryAuthority, PartialAggregateTakePreservesSurvivingBackingIdentities)
+{
+    std::vector<mwmp::ContainerItem> source{
+        medkit(3, 6337), medkit(1, 6338), medkit(1, 6339), medkit(1, 6340)
+    };
+    auto taken = mwmp::takeAuthoritativeContainerItems(source, "sw_medkit", -1, -1.f, "", 4);
+
+    ASSERT_TRUE(taken);
+    ASSERT_EQ(taken->backingRows.size(), 2u);
+    EXPECT_EQ(taken->backingRows[0].instanceId, 6337u);
+    EXPECT_EQ(taken->backingRows[1].instanceId, 6338u);
+    ASSERT_EQ(source.size(), 2u);
+    EXPECT_EQ(source[0].instanceId, 6339u);
+    EXPECT_EQ(source[0].count, 1);
+    EXPECT_EQ(source[1].instanceId, 6340u);
+    EXPECT_EQ(source[1].count, 1);
+}
+
+TEST(InventoryAuthority, AggregateTakeRejectsIncompatibleMetadataWithoutMutation)
+{
+    std::vector<mwmp::ContainerItem> source{
+        medkit(3, 6337, false, -1),
+        medkit(2, 6338, false, 10),
+        medkit(2, 6339, false, -1, 5.f),
+        medkit(2, 6340, false, -1, -1.f, "soul"),
+    };
+    const auto original = source;
+
+    EXPECT_FALSE(mwmp::takeAuthoritativeContainerItems(source, "sw_medkit", -1, -1.f, "", 4));
+    EXPECT_EQ(source, original);
+}
+
+TEST(InventoryAuthority, FiniteAndRestockingRowsCannotBeAggregatedByOneTake)
+{
+    std::vector<mwmp::ContainerItem> source{ medkit(1, 6335), medkit(2, 0, true) };
+    const auto original = source;
+
+    EXPECT_FALSE(mwmp::takeAuthoritativeContainerItems(source, "sw_medkit", -1, -1.f, "", 3));
+    EXPECT_EQ(source, original);
+}

@@ -389,7 +389,10 @@ namespace MWWorld
                        },
                 mCellRef.mVariant);
             if (value == 0)
-                MWBase::Environment::get().getWorld()->removeRefScript(this);
+            {
+                if (MWBase::World* world = MWBase::Environment::get().getWorld())
+                    world->removeRefScript(this);
+            }
         }
     }
 

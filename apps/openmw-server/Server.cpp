@@ -757,6 +757,21 @@ namespace
             && left.soul == right.soul;
     }
 
+    bool canStackAuthoritativeContainerItem(const MWWorld::Ptr& ptr)
+    {
+        if (ptr.isEmpty() || !ptr.getClass().getScript(ptr).empty())
+            return false;
+        if (ptr.getClass().hasItemHealth(ptr)
+            && ptr.getClass().getItemHealth(ptr) != ptr.getClass().getItemMaxHealth(ptr))
+            return false;
+        // A used enchanted item does not stack natively. The wire convention
+        // uses -1 for a pristine/full enchantment charge.
+        if (!ptr.getClass().getEnchantment(ptr).empty()
+            && ptr.getCellRef().getEnchantmentCharge() != -1.f)
+            return false;
+        return true;
+    }
+
     bool inventoryContainsItemIdentity(const std::vector<mwmp::Item>& items, const mwmp::Item& target)
     {
         return std::any_of(items.begin(), items.end(), [&](const mwmp::Item& item) {
@@ -13968,22 +13983,62 @@ void MPServer::handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* dat
                      : static_cast<std::int64_t>(item.worldCount) * item.itemValue)
         : 0;
 
-    std::vector<Item> inventory = c.player.inventoryChanges.items;
     Item added;
-    added.instanceId = request.object.kind == PlacedObjectKind::ServerPlaced
-        ? request.object.mpNum : reserveWorldMpNum().value_or(0);
-    if (added.instanceId == 0)
-    {
-        result.error = WorldItemTakeError::PersistenceFailure;
-        sendResult();
-        return;
-    }
     added.refId = item.identity.refId;
     added.count = item.inventoryCount;
     added.charge = item.charge;
     added.enchantmentCharge = item.enchantmentCharge;
     added.soul = item.soul;
-    inventory.push_back(added);
+    bool allowPickupStack = false;
+    try
+    {
+        ESM::RefId contentId = ESM::RefId::deserializeText(added.refId);
+        if (contentId.empty())
+            contentId = ESM::RefId::stringRefId(added.refId);
+        MWWorld::ManualRef contentRef(mContentRegistry->store(), contentId, added.count);
+        MWWorld::Ptr contentPtr = contentRef.getPtr();
+        if (contentPtr.isEmpty())
+        {
+            result.error = WorldItemTakeError::ObjectUnavailable;
+            sendResult();
+            return;
+        }
+        contentPtr.getCellRef().setCharge(added.charge);
+        contentPtr.getCellRef().setEnchantmentCharge(added.enchantmentCharge);
+        contentPtr.getCellRef().setSoul(added.soul.empty()
+            ? ESM::RefId() : ESM::RefId::deserializeText(added.soul));
+        allowPickupStack = canStackAuthoritativeContainerItem(contentPtr);
+    }
+    catch (const std::exception&)
+    {
+        result.error = WorldItemTakeError::ObjectUnavailable;
+        sendResult();
+        return;
+    }
+    std::vector<Item> inventory = c.player.inventoryChanges.items;
+    const bool compatibleStack = allowPickupStack && std::any_of(inventory.begin(), inventory.end(),
+        [&](const Item& current) { return sameAuthoritativeItemIdentity(current, added); });
+    if (!compatibleStack)
+    {
+        added.instanceId = request.object.kind == PlacedObjectKind::ServerPlaced
+            ? request.object.mpNum : reserveWorldMpNum().value_or(0);
+        if (added.instanceId == 0)
+        {
+            result.error = WorldItemTakeError::PersistenceFailure;
+            sendResult();
+            return;
+        }
+    }
+    const AuthoritativeStackMutation pickupMutation
+        = mergeAuthoritativeInventoryItem(inventory, added, allowPickupStack);
+    if (pickupMutation == AuthoritativeStackMutation::Invalid
+        || pickupMutation == AuthoritativeStackMutation::Overflow)
+    {
+        result.error = pickupMutation == AuthoritativeStackMutation::Overflow
+            ? WorldItemTakeError::InvalidCount : WorldItemTakeError::PersistenceFailure;
+        sendResult();
+        return;
+    }
 
     result.accepted = true;
     result.itemRefId = added.refId;
@@ -14491,15 +14546,13 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
     ContainerRecord expectedSource = sourceIt->second;
     normalizeContainerItems(expectedSource.items);
     ContainerRecord resultingSource = expectedSource;
-    auto sourceItem = finish ? resultingSource.items.end()
-        : std::find_if(resultingSource.items.begin(), resultingSource.items.end(),
-            [&](const ContainerItem& item) {
-                return lowerAscii(item.refId) == lowerAscii(request.itemRefId)
-                    && item.charge == request.itemCharge
-                    && std::abs(item.enchantmentCharge - request.itemEnchantmentCharge) < 0.001f
-                    && item.soul == request.itemSoul && item.count >= request.requestedCount;
-            });
-    if (!finish && sourceItem == resultingSource.items.end())
+    std::optional<ContainerAggregateTake> aggregateTake;
+    if (!finish)
+    {
+        aggregateTake = takeAuthoritativeContainerItems(resultingSource.items, request.itemRefId,
+            request.itemCharge, request.itemEnchantmentCharge, request.itemSoul, request.requestedCount);
+    }
+    if (!finish && !aggregateTake)
     {
         std::ostringstream available;
         bool first = true;
@@ -14521,10 +14574,11 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
     }
 
     ContainerItem removedSourceItem;
+    std::vector<ContainerItem> removedSourceItems;
     if (!finish)
     {
-        removedSourceItem = *sourceItem;
-        removedSourceItem.count = request.requestedCount;
+        removedSourceItem = aggregateTake->taken;
+        removedSourceItems = aggregateTake->backingRows;
     }
 
     int itemValue = 0;
@@ -14574,9 +14628,9 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
             }
             added.refId = request.itemRefId;
             added.count = gold ? request.requestedCount * itemValue : request.requestedCount;
-            added.charge = sourceItem->charge;
-            added.enchantmentCharge = sourceItem->enchantmentCharge;
-            added.soul = sourceItem->soul;
+            added.charge = removedSourceItem.charge;
+            added.enchantmentCharge = removedSourceItem.enchantmentCharge;
+            added.soul = removedSourceItem.soul;
         }
         catch (const std::exception&)
         {
@@ -14721,18 +14775,10 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
     std::uint64_t resultingRevision = request.expectedInventoryRevision;
     if (!detected && !finish)
     {
-        sourceItem->count -= request.requestedCount;
-        if (sourceItem->count == 0)
-            resultingSource.items.erase(sourceItem);
         normalizeContainerItems(resultingSource.items);
-        auto destinationStack = std::find_if(inventory.begin(), inventory.end(),
-            [&](const Item& item) { return sameItemIdentity(item, added); });
-        if (destinationStack != inventory.end())
-        {
-            destinationStack->count += added.count;
-            added.instanceId = destinationStack->instanceId;
-        }
-        else
+        const bool compatibleStack = std::any_of(inventory.begin(), inventory.end(),
+            [&](const Item& item) { return sameAuthoritativeItemIdentity(item, added); });
+        if (!compatibleStack)
         {
             const auto instance = reserveWorldMpNum();
             if (!instance)
@@ -14741,7 +14787,14 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
                 return;
             }
             added.instanceId = *instance;
-            inventory.push_back(added);
+        }
+        const AuthoritativeStackMutation takeMutation = mergeAuthoritativeInventoryItem(inventory, added);
+        if (takeMutation == AuthoritativeStackMutation::Invalid
+            || takeMutation == AuthoritativeStackMutation::Overflow)
+        {
+            reject(takeMutation == AuthoritativeStackMutation::Overflow
+                ? InventoryTakeError::InvalidCount : InventoryTakeError::PersistenceFailure);
+            return;
         }
         resultingRevision = request.expectedInventoryRevision + 1;
     }
@@ -14902,7 +14955,7 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
             sourcePacket.container.refNum = sourceIt->second.refNum;
             sourcePacket.container.mpNum = sourceIt->second.mpNum;
             sourcePacket.container.hasAuthority = true;
-            sourcePacket.container.items.push_back(removedSourceItem);
+            sourcePacket.container.items = removedSourceItems;
             sourcePacket.mAction = static_cast<std::uint8_t>(ContainerAction::Remove);
             broadcastToCell(canonicalPlayerCell, sourcePacket.encode());
             scheduleGeneratedDynamicRecordGc("inventory_take");
@@ -15154,19 +15207,57 @@ void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data
     destinationItem.charge = sourceItem->charge;
     destinationItem.enchantmentCharge = sourceItem->enchantmentCharge;
     destinationItem.soul = sourceItem->soul;
-    if (request.requestedCount == sourceItem->count)
-        destinationItem.instanceId = sourceItem->instanceId;
-    else
+    bool allowDestinationStack = false;
+    try
     {
-        const auto instance = reserveWorldMpNum();
-        if (!instance)
+        ESM::RefId destinationContentId = ESM::RefId::deserializeText(destinationItem.refId);
+        if (destinationContentId.empty())
+            destinationContentId = ESM::RefId::stringRefId(destinationItem.refId);
+        MWWorld::ManualRef destinationContentRef(
+            mContentRegistry->store(), destinationContentId, destinationItem.count);
+        MWWorld::Ptr destinationContentPtr = destinationContentRef.getPtr();
+        if (destinationContentPtr.isEmpty())
         {
-            reject(InventoryPutError::PersistenceFailure);
+            reject(InventoryPutError::ItemUnavailable);
             return;
         }
-        destinationItem.instanceId = *instance;
+        destinationContentPtr.getCellRef().setCharge(destinationItem.charge);
+        destinationContentPtr.getCellRef().setEnchantmentCharge(destinationItem.enchantmentCharge);
+        destinationContentPtr.getCellRef().setSoul(destinationItem.soul.empty()
+            ? ESM::RefId() : ESM::RefId::deserializeText(destinationItem.soul));
+        allowDestinationStack = canStackAuthoritativeContainerItem(destinationContentPtr);
     }
-    appendOrMergeContainerItem(resultingDestination.items, destinationItem);
+    catch (const std::exception&)
+    {
+        reject(InventoryPutError::ItemUnavailable);
+        return;
+    }
+    const bool compatibleDestination = allowDestinationStack
+        && hasCompatibleAuthoritativeContainerStack(resultingDestination.items, destinationItem);
+    if (!compatibleDestination)
+    {
+        if (request.requestedCount == sourceItem->count)
+            destinationItem.instanceId = sourceItem->instanceId;
+        else
+        {
+            const auto instance = reserveWorldMpNum();
+            if (!instance)
+            {
+                reject(InventoryPutError::PersistenceFailure);
+                return;
+            }
+            destinationItem.instanceId = *instance;
+        }
+    }
+    const AuthoritativeStackMutation putMutation
+        = mergeAuthoritativeContainerItem(resultingDestination.items, destinationItem, allowDestinationStack);
+    if (putMutation == AuthoritativeStackMutation::Invalid
+        || putMutation == AuthoritativeStackMutation::Overflow)
+    {
+        reject(putMutation == AuthoritativeStackMutation::Overflow
+            ? InventoryPutError::InvalidCount : InventoryPutError::PersistenceFailure);
+        return;
+    }
     normalizeContainerItems(resultingDestination.items);
 
     sourceItem->count -= request.requestedCount;
@@ -15176,6 +15267,7 @@ void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data
 
     result.accepted = true;
     result.error = InventoryPutError::None;
+    result.itemInstanceId = destinationItem.instanceId;
     result.itemCount = request.requestedCount;
     result.inventoryRevision = resultingRevision;
 
@@ -15764,19 +15856,37 @@ void MPServer::handleBarterRequest(ConnectedClient& c, const uint8_t* data, size
             sold.charge = sourceItem->charge;
             sold.enchantmentCharge = sourceItem->enchantmentCharge;
             sold.soul = sourceItem->soul;
-            if (line.count == sourceItem->count)
-                sold.instanceId = sourceItem->instanceId;
-            else
+            contentPtr.getCellRef().setCharge(sold.charge);
+            contentPtr.getCellRef().setEnchantmentCharge(sold.enchantmentCharge);
+            contentPtr.getCellRef().setSoul(sold.soul.empty()
+                ? ESM::RefId() : ESM::RefId::deserializeText(sold.soul));
+            const bool allowMerchantStack = canStackAuthoritativeContainerItem(contentPtr);
+            const bool compatibleMerchantStack = allowMerchantStack
+                && hasCompatibleAuthoritativeContainerStack(merchantInventory->resulting.items, sold);
+            if (!compatibleMerchantStack)
             {
-                const auto instance = reserveWorldMpNum();
-                if (!instance)
+                if (line.count == sourceItem->count)
+                    sold.instanceId = sourceItem->instanceId;
+                else
                 {
-                    reject(BarterError::PersistenceFailure);
-                    return;
+                    const auto instance = reserveWorldMpNum();
+                    if (!instance)
+                    {
+                        reject(BarterError::PersistenceFailure);
+                        return;
+                    }
+                    sold.instanceId = *instance;
                 }
-                sold.instanceId = *instance;
             }
-            appendOrMergeContainerItem(merchantInventory->resulting.items, sold);
+            const AuthoritativeStackMutation saleMutation
+                = mergeAuthoritativeContainerItem(merchantInventory->resulting.items, sold, allowMerchantStack);
+            if (saleMutation == AuthoritativeStackMutation::Invalid
+                || saleMutation == AuthoritativeStackMutation::Overflow)
+            {
+                reject(saleMutation == AuthoritativeStackMutation::Overflow
+                    ? BarterError::InvalidCount : BarterError::PersistenceFailure);
+                return;
+            }
             normalizeContainerItems(merchantInventory->resulting.items);
 
             sourceItem->count -= line.count;

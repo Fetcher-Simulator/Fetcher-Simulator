@@ -433,6 +433,10 @@ namespace MWWorld
         ///< Empty the container and establish that its contents are already concrete/resolved.
         /// Used when loading externally authoritative inventory state that must not resolve leveled lists locally.
 
+        void commitResolved();
+        ///< Promote the current concrete contents to permanent state without clearing them.
+        /// Used after reconciling externally authoritative state while temporary resolution handles are alive.
+
         float getWeight() const;
         ///< Return total weight of the items contained in *this.
 

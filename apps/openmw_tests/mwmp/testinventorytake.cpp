@@ -5,6 +5,7 @@
 #include <filesystem>
 
 #include <apps/openmw-server/PlayerDatabase.hpp>
+#include <apps/openmw/mwmp/sync/InventoryIdentity.hpp>
 #include <components/openmw-mp/Sha256.hpp>
 #include <components/openmw-mp/InventoryPut.hpp>
 #include <sqlite3.h>
@@ -82,6 +83,15 @@ namespace
         crime.resultingState.revision = 1;
         return crime;
     }
+}
+
+TEST(InventoryTakeIdentity, AuthoritativeContainerInstanceIdRoundTripsThroughClientRefNum)
+{
+    constexpr std::uint32_t AuthoritativeInstanceId = 6335;
+    const ESM::RefNum reconstructedRefNum = mwmp::inventoryInstanceRefNum(AuthoritativeInstanceId);
+
+    EXPECT_TRUE(reconstructedRefNum.isSet());
+    EXPECT_EQ(mwmp::inventoryInstanceId(reconstructedRefNum), AuthoritativeInstanceId);
 }
 
 TEST(InventoryTakePersistence, ContainerIdentityMigrationPreservesLegacyRowsAndSeparatesSpawnedInstances)
@@ -362,6 +372,74 @@ TEST(InventoryTakePersistence, SourceDestinationAndReplayAreAtomicAcrossRestart)
     ASSERT_TRUE(stored);
     EXPECT_EQ(stored->result.detectionRoll, -1);
     EXPECT_EQ(stored->result.inventoryRevision, 1u);
+}
+
+TEST(InventoryTakePersistence, AggregateBackingRowsCommitAndReplayAtomicallyAcrossRestart)
+{
+    TemporaryDatabase temporary;
+    std::int64_t account = 0;
+    std::int64_t character = 0;
+    mwmp::InventoryTakeCommit commit;
+    {
+        mwmp::PlayerDatabase database(temporary.path.string());
+        account = database.createAccount("aggregate-take-account");
+        character = database.createCharacter(account, "Aggregate Take Tester").characterId;
+
+        mwmp::ContainerRecord source;
+        source.cellId = "Taris, Lower City Black Market";
+        source.refId = "SW_TarisChestLCVend1";
+        source.refNum = 29598;
+        source.hasAuthority = true;
+        for (const auto [count, instanceId] : {
+                 std::pair{ 3, 6337u }, std::pair{ 1, 6338u },
+                 std::pair{ 1, 6339u }, std::pair{ 1, 6340u } })
+        {
+            mwmp::ContainerItem item;
+            item.refId = "sw_medkit";
+            item.count = count;
+            item.instanceId = instanceId;
+            source.items.push_back(item);
+        }
+        database.upsertContainerRecord(source);
+
+        commit.accountId = account;
+        commit.characterId = character;
+        commit.requestId = "aggregate-take-6";
+        commit.requestHash = mwmp::crypto::sha256hex(commit.requestId);
+        commit.expectedInventoryRevision = 0;
+        commit.resultingInventoryRevision = 1;
+        commit.expectedSource = source;
+        commit.resultingSource = source;
+        commit.resultingSource->items.clear();
+        commit.result.requestId = commit.requestId;
+        commit.result.accepted = true;
+        commit.result.kind = mwmp::InventoryTakeKind::Container;
+        commit.result.source.cellId = source.cellId;
+        commit.result.source.refId = source.refId;
+        commit.result.source.refNum = source.refNum;
+        commit.result.itemRefId = "sw_medkit";
+        commit.result.itemCount = 6;
+        commit.result.inventoryRevision = 1;
+        mwmp::Item received;
+        received.instanceId = 6337;
+        received.refId = "sw_medkit";
+        received.count = 6;
+        commit.inventory = { received };
+
+        EXPECT_EQ(database.commitInventoryTake(commit).status, mwmp::InventoryTakeCommitStatus::Committed);
+        EXPECT_TRUE(database.loadContainerRecords().front().items.empty());
+        ASSERT_EQ(database.loadCharacterInventory(character).size(), 1u);
+        EXPECT_EQ(database.loadCharacterInventory(character).front().count, 6);
+    }
+
+    mwmp::PlayerDatabase reopened(temporary.path.string());
+    const auto replay = reopened.commitInventoryTake(commit);
+    EXPECT_EQ(replay.status, mwmp::InventoryTakeCommitStatus::DuplicateRequest);
+    EXPECT_TRUE(replay.result.replayed);
+    EXPECT_EQ(reopened.loadInventoryRevision(character), 1u);
+    EXPECT_TRUE(reopened.loadContainerRecords().front().items.empty());
+    ASSERT_EQ(reopened.loadCharacterInventory(character).size(), 1u);
+    EXPECT_EQ(reopened.loadCharacterInventory(character).front().count, 6);
 }
 
 TEST(InventoryTakePersistence, BarterGoldAndVendorStockCommitAtomicallyAcrossRestart)

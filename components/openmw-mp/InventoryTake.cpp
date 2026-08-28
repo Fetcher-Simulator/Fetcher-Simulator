@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <bit>
+#include <cctype>
 #include <limits>
 
 namespace
@@ -35,6 +36,13 @@ namespace
                 return false;
         }
         return true;
+    }
+
+    bool equalAsciiCaseInsensitive(std::string_view left, std::string_view right)
+    {
+        return left.size() == right.size()
+            && std::equal(left.begin(), left.end(), right.begin(),
+                [](unsigned char a, unsigned char b) { return std::tolower(a) == std::tolower(b); });
     }
 }
 
@@ -184,5 +192,129 @@ mwmp::PickpocketDetectionResult mwmp::evaluatePickpocketDetection(
     result.valid = true;
     result.threshold = static_cast<std::int32_t>(threshold);
     result.detected = input.roll0To99 > result.threshold;
+    return result;
+}
+
+bool mwmp::sameAuthoritativeItemIdentity(const Item& left, const Item& right)
+{
+    return equalAsciiCaseInsensitive(left.refId, right.refId) && left.charge == right.charge
+        && std::abs(left.enchantmentCharge - right.enchantmentCharge) < 0.001f && left.soul == right.soul;
+}
+
+bool mwmp::sameAuthoritativeContainerIdentity(const ContainerItem& left, const ContainerItem& right)
+{
+    return equalAsciiCaseInsensitive(left.refId, right.refId) && left.charge == right.charge
+        && std::abs(left.enchantmentCharge - right.enchantmentCharge) < 0.001f && left.soul == right.soul;
+}
+
+bool mwmp::hasCompatibleAuthoritativeContainerStack(
+    const std::vector<ContainerItem>& items, const ContainerItem& incoming)
+{
+    return std::any_of(items.begin(), items.end(),
+        [&](const ContainerItem& item) { return sameAuthoritativeContainerIdentity(item, incoming); });
+}
+
+mwmp::AuthoritativeStackMutation mwmp::mergeAuthoritativeInventoryItem(
+    std::vector<Item>& items, Item& incoming, bool allowStacking)
+{
+    if (incoming.refId.empty() || incoming.count <= 0)
+        return AuthoritativeStackMutation::Invalid;
+
+    auto destination = allowStacking
+        ? std::find_if(items.begin(), items.end(),
+              [&](const Item& item) { return sameAuthoritativeItemIdentity(item, incoming); })
+        : items.end();
+    if (destination == items.end())
+    {
+        items.push_back(incoming);
+        return AuthoritativeStackMutation::Added;
+    }
+    if (destination->count > std::numeric_limits<std::int32_t>::max() - incoming.count)
+        return AuthoritativeStackMutation::Overflow;
+
+    destination->count += incoming.count;
+    incoming.instanceId = destination->instanceId;
+    return AuthoritativeStackMutation::Merged;
+}
+
+mwmp::AuthoritativeStackMutation mwmp::mergeAuthoritativeContainerItem(
+    std::vector<ContainerItem>& items, ContainerItem& incoming, bool allowStacking)
+{
+    if (incoming.refId.empty() || incoming.count <= 0)
+        return AuthoritativeStackMutation::Invalid;
+
+    auto destination = allowStacking
+        ? std::find_if(items.begin(), items.end(),
+              [&](const ContainerItem& item) { return sameAuthoritativeContainerIdentity(item, incoming); })
+        : items.end();
+    if (destination == items.end())
+    {
+        items.push_back(incoming);
+        return AuthoritativeStackMutation::Added;
+    }
+    if (destination->count > std::numeric_limits<std::int32_t>::max() - incoming.count)
+        return AuthoritativeStackMutation::Overflow;
+
+    destination->count += incoming.count;
+    destination->restocking = destination->restocking || incoming.restocking;
+    incoming.instanceId = destination->instanceId;
+    incoming.restocking = destination->restocking;
+    return AuthoritativeStackMutation::Merged;
+}
+
+std::optional<mwmp::ContainerAggregateTake> mwmp::takeAuthoritativeContainerItems(std::vector<ContainerItem>& items,
+    std::string_view refId, std::int32_t charge, float enchantmentCharge, std::string_view soul, std::int32_t count)
+{
+    if (refId.empty() || count <= 0)
+        return std::nullopt;
+
+    ContainerItem requested;
+    requested.refId = std::string(refId);
+    requested.charge = charge;
+    requested.enchantmentCharge = enchantmentCharge;
+    requested.soul = soul;
+    const auto anchor = std::find_if(items.begin(), items.end(),
+        [&](const ContainerItem& item) { return sameAuthoritativeContainerIdentity(item, requested); });
+    if (anchor == items.end())
+        return std::nullopt;
+
+    const bool restocking = anchor->restocking;
+    std::int64_t available = 0;
+    for (const ContainerItem& item : items)
+    {
+        if (item.restocking == restocking && sameAuthoritativeContainerIdentity(item, requested) && item.count > 0)
+            available += item.count;
+    }
+    if (available < count)
+        return std::nullopt;
+
+    ContainerAggregateTake result;
+    result.taken = *anchor;
+    result.taken.count = count;
+    // A negative base stack is a restocking template: the transfer yields a
+    // finite player item without consuming or broadcasting removal of its base row.
+    if (restocking)
+        return result;
+
+    int remaining = count;
+    for (auto item = items.begin(); item != items.end() && remaining > 0;)
+    {
+        if (item->restocking != restocking || !sameAuthoritativeContainerIdentity(*item, requested) || item->count <= 0)
+        {
+            ++item;
+            continue;
+        }
+
+        const int removed = std::min(remaining, item->count);
+        ContainerItem backing = *item;
+        backing.count = removed;
+        result.backingRows.push_back(std::move(backing));
+        item->count -= removed;
+        remaining -= removed;
+        if (item->count == 0)
+            item = items.erase(item);
+        else
+            ++item;
+    }
     return result;
 }

@@ -207,7 +207,8 @@ namespace
                     return current.instanceId != 0 && current.instanceId == item.instanceId;
                 return current.refId == item.refId && current.charge == item.charge
                     && std::abs(current.enchantmentCharge - item.enchantmentCharge) < 0.001f
-                    && current.soul == item.soul && current.restocking == item.restocking;
+                    && current.soul == item.soul && current.restocking == item.restocking
+                    && current.instanceId == item.instanceId;
             });
 
         if (it == items.end())
@@ -235,7 +236,8 @@ namespace
             {
                 return current.refId == item.refId && current.charge == item.charge
                     && std::abs(current.enchantmentCharge - item.enchantmentCharge) < 0.001f
-                    && current.soul == item.soul && current.restocking == item.restocking;
+                    && current.soul == item.soul && current.restocking == item.restocking
+                    && current.instanceId == item.instanceId;
             });
 
         if (it == items.end())
@@ -258,6 +260,7 @@ namespace
             item.count = std::abs(rawCount);
             item.restocking = rawCount < 0;
             item.charge = static_cast<int>(it->getCellRef().getCharge());
+            item.instanceId = inventoryInstanceId(it->getCellRef().getRefNum());
             item.enchantmentCharge = it->getCellRef().getEnchantmentCharge();
             item.soul = it->getCellRef().getSoul().serializeText();
             appendOrMergeComparable(currentItems, std::move(item));
@@ -270,8 +273,8 @@ namespace
         {
             if (left.refId != right.refId)
                 return left.refId < right.refId;
-            return std::tie(left.charge, left.enchantmentCharge, left.soul, left.restocking)
-                < std::tie(right.charge, right.enchantmentCharge, right.soul, right.restocking);
+            return std::tie(left.charge, left.enchantmentCharge, left.soul, left.restocking, left.instanceId)
+                < std::tie(right.charge, right.enchantmentCharge, right.soul, right.restocking, right.instanceId);
         };
         std::sort(currentItems.begin(), currentItems.end(), less);
         std::sort(expectedItems.begin(), expectedItems.end(), less);
@@ -286,6 +289,7 @@ namespace
                 || std::abs(currentItems[i].enchantmentCharge - expectedItems[i].enchantmentCharge) >= 0.001f
                 || currentItems[i].soul != expectedItems[i].soul
                 || currentItems[i].restocking != expectedItems[i].restocking
+                || currentItems[i].instanceId != expectedItems[i].instanceId
                 || currentItems[i].count != expectedItems[i].count)
             {
                 return false;
@@ -305,17 +309,19 @@ namespace
             float enchantmentCharge = -1.f;
             std::string soul;
             bool restocking = false;
+            std::uint32_t instanceId = 0;
+            MWWorld::Ptr existingStack;
             int remaining = 0;
         };
 
-        using Identity = std::tuple<std::string, int, float, std::string, bool>;
+        using Identity = std::tuple<std::string, int, float, std::string, bool, std::uint32_t>;
         std::map<Identity, DesiredItem> desired;
         for (const ContainerItem& item : expected)
         {
             if (item.refId.empty() || item.count <= 0)
                 continue;
             const Identity identity { lowerAscii(item.refId), item.charge,
-                item.enchantmentCharge, item.soul, item.restocking };
+                item.enchantmentCharge, item.soul, item.restocking, item.instanceId };
             auto& entry = desired[identity];
             if (entry.refId.empty())
             {
@@ -324,6 +330,7 @@ namespace
                 entry.enchantmentCharge = item.enchantmentCharge;
                 entry.soul = item.soul;
                 entry.restocking = item.restocking;
+                entry.instanceId = item.instanceId;
             }
             entry.remaining += item.count;
         }
@@ -344,12 +351,16 @@ namespace
             const Identity identity { lowerAscii(ptr.getCellRef().getRefId().toString()),
                 static_cast<int>(ptr.getCellRef().getCharge()),
                 ptr.getCellRef().getEnchantmentCharge(), ptr.getCellRef().getSoul().serializeText(),
-                rawCount < 0 };
+                rawCount < 0, inventoryInstanceId(ptr.getCellRef().getRefNum()) };
             auto desiredIt = desired.find(identity);
             const int keep = desiredIt == desired.end()
                 ? 0 : std::min(currentCount, desiredIt->second.remaining);
             if (desiredIt != desired.end())
+            {
                 desiredIt->second.remaining -= keep;
+                if (keep > 0 && desiredIt->second.existingStack.isEmpty())
+                    desiredIt->second.existingStack = ptr;
+            }
 
             const int removeCount = currentCount - keep;
             if (removeCount > 0 && rawCount > 0)
@@ -362,15 +373,24 @@ namespace
             if (item.remaining <= 0)
                 continue;
 
+            if (!item.existingStack.isEmpty())
+            {
+                const int currentCount = item.existingStack.getCellRef().getCount();
+                item.existingStack.getCellRef().setCount(
+                    item.restocking ? -(currentCount + item.remaining) : currentCount + item.remaining);
+                continue;
+            }
+
             const int signedCount = item.restocking ? -item.remaining : item.remaining;
             MWWorld::ManualRef ref(esmStore, ESM::RefId::stringRefId(item.refId), signedCount);
             MWWorld::Ptr ptr = ref.getPtr();
             if (ptr.isEmpty())
                 return false;
             ptr.getCellRef().setCharge(item.charge);
+            ptr.getCellRef().setRefNum(inventoryInstanceRefNum(item.instanceId));
             ptr.getCellRef().setEnchantmentCharge(item.enchantmentCharge);
             ptr.getCellRef().setSoul(item.soul.empty() ? ESM::RefId() : ESM::RefId::deserializeText(item.soul));
-            store.add(ptr, signedCount, false, false);
+            store.add(ptr, signedCount, false, false, true);
         }
 
         return containerStoreMatchesRecord(store, expected);
@@ -2079,16 +2099,22 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
                     {
                         MWWorld::Ptr ptr = ref.getPtr();
                         ptr.getCellRef().setCharge(ci.charge);
+                        ptr.getCellRef().setRefNum(inventoryInstanceRefNum(ci.instanceId));
                         ptr.getCellRef().setEnchantmentCharge(ci.enchantmentCharge);
                         ptr.getCellRef().setSoul(ci.soul.empty() ? ESM::RefId()
                             : ESM::RefId::deserializeText(ci.soul));
-                        cstore.add(ptr, signedCount, true, false);
+                        cstore.add(ptr, signedCount, true, false, true);
                     }
                 }
             }
         }
         if (record.items.empty())
             clearDeadActorEquipmentVisuals(*world, target);
+
+        // A Set is externally authoritative even when it arrived while a GUI
+        // held a temporary-resolution handle. Releasing that handle must not
+        // rebuild the positive base inventory over the reconciled snapshot.
+        cstore.commitResolved();
 
         if (target.getType() == ESM::Container::sRecordId && !cstore.hasVisibleItems())
         {
@@ -2106,6 +2132,7 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
             {
                 MWWorld::Ptr ptr = ref.getPtr();
                 ptr.getCellRef().setCharge(ci.charge);
+                ptr.getCellRef().setRefNum(inventoryInstanceRefNum(ci.instanceId));
                 ptr.getCellRef().setEnchantmentCharge(ci.enchantmentCharge);
                 ptr.getCellRef().setSoul(ci.soul.empty() ? ESM::RefId()
                     : ESM::RefId::deserializeText(ci.soul));
@@ -2122,6 +2149,7 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
             for (auto it = cstore.begin(); it != cstore.end(); ++it)
             {
                 if (lowerAscii(it->getCellRef().getRefId().serializeText()) == lowerAscii(ci.refId)
+                    && (ci.instanceId == 0 || inventoryInstanceId(it->getCellRef().getRefNum()) == ci.instanceId)
                     && static_cast<int>(it->getCellRef().getCharge()) == ci.charge
                     && std::abs(it->getCellRef().getEnchantmentCharge() - ci.enchantmentCharge) < 0.001f
                     && it->getCellRef().getSoul().serializeText() == ci.soul)

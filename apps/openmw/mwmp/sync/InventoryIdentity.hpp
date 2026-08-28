@@ -5,7 +5,7 @@
 #include <limits>
 #include <unordered_map>
 
-#include <components/esm/formid.hpp>
+#include <components/esm3/refnum.hpp>
 
 namespace mwmp
 {
