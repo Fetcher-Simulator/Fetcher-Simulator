@@ -26,6 +26,7 @@ namespace mwmp
         Unavailable = 0,
         StaticContentBase,
         ValidatedActorAuthorityDelegated,
+        ServerOffenderScoped,
     };
 
     enum class CrimeRelationshipProvenance : std::uint8_t
@@ -68,6 +69,7 @@ namespace mwmp
     {
         CellId eventCell;
         ObservationActorSnapshot offender;
+        std::int64_t offenderCharacterId = 0;
         std::optional<ObservationActorIdentity> victim;
         float alarmRadius = 0.f;
         std::uint64_t observedAtMs = 0;

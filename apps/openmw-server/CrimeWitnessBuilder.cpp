@@ -191,7 +191,8 @@ namespace mwmp
                         alarm = mechanics.effectiveAlarm;
                         alarmProvenance = CrimeAlarmProvenance::ValidatedActorAuthorityDelegated;
                     }
-                    if ((mechanics.witnessStateFlags & MechanicsWitnessEffectiveFightKnown) != 0)
+                    if ((mechanics.witnessStateFlags & MechanicsWitnessEffectiveFightKnown) != 0
+                        && fightProvenance != CrimeFightProvenance::ServerOffenderScoped)
                     {
                         fight = mechanics.effectiveFight;
                         fightProvenance = CrimeFightProvenance::ValidatedActorAuthorityDelegated;

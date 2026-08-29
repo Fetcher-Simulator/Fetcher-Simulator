@@ -137,6 +137,8 @@ struct ConnectedClient
     std::unordered_set<std::string> loadedActorCells; ///< empty falls back to player.cell
     uint32_t loadedActorCellsSequence = 0;
     std::string crimePursuitReissueHandledCell;
+    uint64_t lastGuardCrimeScanMs = 0;
+    uint64_t crimeEnforcementRespawnGraceUntilMs = 0;
     uint32_t actorSyncProtocolVersion = ActorSyncProtocolVersionV1;
     std::unordered_set<ActorInstanceId> actorV2IdentitySent;
     std::unordered_set<ActorInstanceId> actorV2IdentityAcked;
@@ -438,7 +440,8 @@ private:
         ObservationResult result;
     };
     std::vector<LiveObservationDiagnostic> observeNpcCandidates(
-        std::uint32_t targetPlayerGuid, std::optional<ActorInstanceId> observerFilter, std::string_view eventId);
+        std::uint32_t targetPlayerGuid, std::optional<ActorInstanceId> observerFilter,
+        std::string_view eventId, float maximumDistance = -1.f, bool guardsOnly = false);
     CrimeWitnessBuildResult buildLiveCrimeWitnesses(const CrimeWitnessBuildRequest& request);
     void dispatchCrimeReactions(ConnectedClient& offender, const CrimeSemanticResult& result);
     void dispatchOutstandingCrimePursuitsForCell(
@@ -446,6 +449,7 @@ private:
     void suspendOutstandingCrimePursuitsForCharacterInCell(
         ConnectedClient& offender, const std::string& cellId);
     void clearOutstandingCrimePursuitsForCharacter(ConnectedClient& offender);
+    void evaluateGuardCrimeEnforcement(ConnectedClient& offender, std::uint64_t nowMs);
     bool handleObservationDiagnosticCommand(ConnectedClient& requester, std::string_view message);
     bool handleCrimeWitnessDiagnosticCommand(ConnectedClient& requester, std::string_view message);
     float playerBootWeight(const ConnectedClient& player) const;
@@ -555,6 +559,15 @@ private:
         Combat,
     };
 
+    struct CrimeHostilityState
+    {
+        std::uint32_t lastGuid = 0;
+        std::int32_t baseFight = 0;
+        std::int32_t fight = 0;
+        std::int32_t crimeId = -1;
+        bool liveCombat = false;
+    };
+
     struct ActorRegistryRecord
     {
         BaseActor actor;
@@ -589,6 +602,11 @@ private:
         CrimeEnforcementState crimeEnforcementState = CrimeEnforcementState::None;
         bool crimePursuitReassertArmed = false;
         uint64_t crimePursuitLastReassertMs = 0;
+        // Ordinary crime hostility is offender-scoped. Native single-player Fight
+        // is player-specific by construction; storing it here prevents a crime
+        // against one multiplayer character from making the actor generically
+        // aggressive toward whichever client currently owns actor simulation.
+        std::unordered_map<std::int64_t, CrimeHostilityState> crimeHostilities;
     };
 
     struct CellActorState

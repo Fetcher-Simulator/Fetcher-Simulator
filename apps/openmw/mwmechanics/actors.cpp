@@ -1240,6 +1240,14 @@ namespace MWMechanics
 
     void Actors::updateCrimePursuit(const MWWorld::Ptr& ptr, float duration, SidingCache& cachedAllies) const
     {
+#ifdef BUILD_MULTIPLAYER
+        // Connected multiplayer owns crime detection/enforcement on the server.
+        // Running this native player-centric scan on an actor-authority client
+        // would let that client's local bounty independently originate guard AI
+        // and cannot target a different multiplayer offender correctly.
+        if (mwmp::Main::isInitialised())
+            return;
+#endif
         const MWWorld::Ptr player = getPlayer();
         if (ptr == player)
             return;

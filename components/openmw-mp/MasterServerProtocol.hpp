@@ -32,9 +32,10 @@ namespace mwmp
     // Protocol 16 preserves signed restocking counts through container snapshots
     // and rehydrates persistent same-cell container state after character restore.
     // Protocol 17 carries authoritative NPC Fight in mechanics snapshots and
-    // server-authored crime reactions so ordinary witnesses preserve native
-    // aggression across actor-authority handoffs.
-    inline constexpr int MultiplayerProtocolVersion = 17;
+    // server-authored crime reactions. Protocol 18 moves crime-adjusted Fight
+    // to offender-scoped server state and makes fresh guard bounty enforcement
+    // server-authored, preventing authority-local player retarget/spawn loops.
+    inline constexpr int MultiplayerProtocolVersion = 18;
     inline constexpr std::string_view MultiplayerBuildVersion = "0.1.0";
     inline constexpr std::string_view DefaultMasterServerUrl = "https://master.fetchers.org";
 
