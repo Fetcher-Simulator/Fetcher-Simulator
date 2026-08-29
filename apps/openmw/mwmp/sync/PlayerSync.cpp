@@ -968,7 +968,8 @@ void PlayerSync::queueAuthoritativeSpellbook(const BasePlayer& authoritative)
     if (player.isEmpty())
         return;
 
-    applyPendingAuthoritativeState(player);
+    // Stage spellbook restoration with the other authoritative startup state.
+    // PlayerSync::update() applies the complete pending batch once per frame.
 }
 
 void PlayerSync::onDynamicRecordsChanged()
