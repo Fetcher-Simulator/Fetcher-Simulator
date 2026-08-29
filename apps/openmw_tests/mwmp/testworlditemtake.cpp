@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include <apps/openmw-server/PlayerDatabase.hpp>
+#include <apps/openmw/mwmp/sync/ActorSync.hpp>
 #include <apps/openmw/mwmp/sync/WorldObjectSync.hpp>
 #include <components/openmw-mp/Sha256.hpp>
 
@@ -109,6 +110,13 @@ TEST(ContainerOpenClientPolicy, NonAuthorityActorCorpseRequestsBootstrap)
         true, false, true));
     EXPECT_FALSE(mwmp::WorldObjectSync::requiresContainerBootstrapOnOpen(
         true, true, false));
+}
+
+TEST(ActorDeathClientPolicy, RealtimeDeathBindingDoesNotReapplyBootstrapFinalPose)
+{
+    EXPECT_TRUE(mwmp::ActorSync::requiresBootstrapDeathPresentation(false, false));
+    EXPECT_TRUE(mwmp::ActorSync::requiresBootstrapDeathPresentation(true, false));
+    EXPECT_FALSE(mwmp::ActorSync::requiresBootstrapDeathPresentation(true, true));
 }
 
 TEST(WorldItemTakePersistence, CommitsTombstoneInventoryAndReplayAtomically)
