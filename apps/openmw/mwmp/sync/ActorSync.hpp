@@ -83,6 +83,11 @@ namespace mwmp
         ActorInstanceId actorNetIdForPtr(const std::string& cellId, const MWWorld::Ptr& ptr) const;
         std::uint32_t actorMigrationGenerationForPtr(const std::string& cellId, const MWWorld::Ptr& ptr) const;
 
+        // A realtime death is already being presented by the current scene binding.
+        // Bootstrap final-pose reconstruction is only for bindings that have not
+        // presented that death (for example, a newly-created node after cell reload).
+        static bool requiresBootstrapDeathPresentation(bool deathAlreadyApplied, bool deathAppliedToBinding);
+
     private:
         struct BufferedSnapshot
         {

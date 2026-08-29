@@ -4973,6 +4973,11 @@ namespace mwmp
                          << attack.hitPos[1] << "," << attack.hitPos[2] << ")";
     }
 
+    bool ActorSync::requiresBootstrapDeathPresentation(bool deathAlreadyApplied, bool deathAppliedToBinding)
+    {
+        return !deathAlreadyApplied || !deathAppliedToBinding;
+    }
+
     bool ActorSync::hasAuthority(const std::string& cellId) const
     {
         auto it = mAuthority.find(cellId);
@@ -6435,7 +6440,8 @@ namespace mwmp
         // resolveActorBinding revisits an already-bound runtime during normal
         // updates. Apply the bootstrap state once per scene node, while still
         // allowing a newly-created binding after cell reload to receive it.
-        const bool firstBootstrapApply = !actor.deathAlreadyApplied || !deathAppliedToBinding;
+        const bool firstBootstrapApply
+            = requiresBootstrapDeathPresentation(actor.deathAlreadyApplied, deathAppliedToBinding);
         if (!firstBootstrapApply)
             return;
 
@@ -10213,6 +10219,7 @@ namespace mwmp
 
         if (actor.state.isDead && !waitingForRealtimeDeathPacket)
         {
+            const bool presentedRealtimeDeath = actor.deathFromRealtimePacket;
             if (!stats.isDead())
             {
                 MWMechanics::DynamicStat<float> deadHealth = stats.getHealth();
@@ -10283,6 +10290,15 @@ namespace mwmp
             actor.attackLocomotionHoldTimer = 0.f;
             actor.attackControlReleaseTimer = 0.f;
             actor.deathAlreadyApplied = true;
+            if (presentedRealtimeDeath)
+            {
+                // The authoritative realtime ActorDeath has already selected and
+                // started the death presentation on this scene node. Mark this
+                // binding so the post-world/bootstrap corpse pass cannot immediately
+                // replace it with a baseline final-pose reconstruction.
+                if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
+                    baseNode->setUserValue(BootstrapDeathAppliedUserValue, true);
+            }
             actor.deathFromRealtimePacket = false;
             actor.observedLiveSinceBinding = false;
             actor.pendingRealtimeDeathReplay = false;
