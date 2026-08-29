@@ -63,6 +63,7 @@ namespace mwmp
                     const char* packetName = "Unknown";
                     switch (packetType)
                     {
+                        case PacketType::HandshakeResponse: packetName = "HandshakeResponse"; break;
                         case PacketType::PlayerPosition: packetName = "PlayerPosition"; break;
                         case PacketType::PlayerAnimFlags: packetName = "PlayerAnimFlags"; break;
                         case PacketType::PlayerEquipment: packetName = "PlayerEquipment"; break;

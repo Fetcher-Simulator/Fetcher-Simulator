@@ -197,6 +197,7 @@ namespace mwmp
         std::unique_ptr<EnchantingCreationManager> mEnchantingCreationManager;
 
         std::string mPlayerName;
+        std::string mResolvedContentFingerprint;
         bool        mWorldReady           = false;
         bool        mIsNewCharacter       = true;
         bool        mHasSavedSpellbook     = false;
