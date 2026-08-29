@@ -138,6 +138,17 @@ local function snapshotDestinationRecord(destination, recordId)
     return counts
 end
 
+local function resolveCurrentCorpseItem(source, obj)
+    if not source or not types.Actor.objectIsInstance(source) or not types.Actor.isDead(source) then
+        return obj
+    end
+    local candidates = source.type.inventory(source):findAll(obj.recordId)
+    if #candidates == 1 then
+        return candidates[1]
+    end
+    return obj
+end
+
 local function resolveAuthoritativeDestinationStack(destination, recordId, previousCounts, expectedIncrease)
     local candidates = destination.type.inventory(destination):findAll(recordId)
     local changedCandidate
@@ -273,6 +284,11 @@ local function moveInto(props)
         and types.Player.objectIsInstance(props.destination)
         and (types.Container.objectIsInstance(props.source) or types.Actor.objectIsInstance(props.source))
         and mp.inventoryTake and mp.inventoryTake.isAvailable() then
+        obj = resolveCurrentCorpseItem(props.source, obj)
+        recordId = obj.recordId
+        if props.count == nil then
+            moveCount = obj.count
+        end
         local stolenRecordId = obj.recordId
         local stolenCount = moveCount
         local stolenIsGold = helpers.isGold(obj)
@@ -334,9 +350,11 @@ local function moveInto(props)
         return
     end
 
+    local authoritativePutDestination = types.Container.objectIsInstance(props.destination)
+        or (types.Actor.objectIsInstance(props.destination) and types.Actor.isDead(props.destination))
     if mp.isConnected() and props.source and props.source ~= props.destination
         and types.Player.objectIsInstance(props.source)
-        and types.Container.objectIsInstance(props.destination)
+        and authoritativePutDestination
         and mp.inventoryPut and mp.inventoryPut.isAvailable() then
         local dragState
         if props.dragStart then
