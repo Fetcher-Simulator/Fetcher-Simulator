@@ -382,7 +382,7 @@ namespace mwmp
         std::unordered_map<ActorInstanceId, std::uint64_t>  mLastAppliedCombatEventIds;
         std::unordered_set<std::string> mAppliedCrimeReactionKeys;
         std::deque<std::string> mAppliedCrimeReactionOrder;
-        // Server-authored guard Combat relationships observed by this client for
+        // Server-authored crime Combat relationships observed by this client for
         // the local offender. The stored crime id makes old hostility inert once
         // that crime cycle is paid/served, even if the guard was in another cell
         // when the authoritative clear was broadcast.

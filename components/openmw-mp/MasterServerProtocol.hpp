@@ -31,7 +31,10 @@ namespace mwmp
     // sells, finite stock and server-validated restocking stock in one commit.
     // Protocol 16 preserves signed restocking counts through container snapshots
     // and rehydrates persistent same-cell container state after character restore.
-    inline constexpr int MultiplayerProtocolVersion = 16;
+    // Protocol 17 carries authoritative NPC Fight in mechanics snapshots and
+    // server-authored crime reactions so ordinary witnesses preserve native
+    // aggression across actor-authority handoffs.
+    inline constexpr int MultiplayerProtocolVersion = 17;
     inline constexpr std::string_view MultiplayerBuildVersion = "0.1.0";
     inline constexpr std::string_view DefaultMasterServerUrl = "https://master.fetchers.org";
 

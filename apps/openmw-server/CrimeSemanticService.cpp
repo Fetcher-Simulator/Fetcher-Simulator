@@ -222,6 +222,47 @@ namespace
         return state;
     }
 
+    void writeAggression(Writer& writer, const mwmp::CrimeAggressionResult& value)
+    {
+        writer.u8(value.evaluated);
+        writer.u8(value.combat);
+        writer.i32(value.baseFight);
+        writer.i32(value.finalFight);
+        writer.i32(value.crimeFight);
+        writer.f32(value.dispositionTerm);
+        writer.f32(value.dispositionBias);
+        writer.f32(value.distance);
+        writer.f32(value.distanceBias);
+        writer.f32(value.alarmTerm);
+        writer.f32(value.unclampedFightTerm);
+        writer.f32(value.fightTerm);
+    }
+
+    mwmp::CrimeAggressionResult readAggression(Reader& reader)
+    {
+        mwmp::CrimeAggressionResult value;
+        value.evaluated = reader.boolean();
+        value.combat = reader.boolean();
+        value.baseFight = reader.i32();
+        value.finalFight = reader.i32();
+        value.crimeFight = reader.i32();
+        value.dispositionTerm = reader.f32();
+        value.dispositionBias = reader.f32();
+        value.distance = reader.f32();
+        value.distanceBias = reader.f32();
+        value.alarmTerm = reader.f32();
+        value.unclampedFightTerm = reader.f32();
+        value.fightTerm = reader.f32();
+        if (value.baseFight < 0 || value.baseFight > 100 || value.finalFight < 0
+            || value.finalFight > 100 || (value.combat && !value.evaluated)
+            || !std::isfinite(value.dispositionTerm) || !std::isfinite(value.dispositionBias)
+            || !std::isfinite(value.distance) || value.distance < 0.f
+            || !std::isfinite(value.distanceBias) || !std::isfinite(value.alarmTerm)
+            || !std::isfinite(value.unclampedFightTerm) || !std::isfinite(value.fightTerm))
+            throw std::runtime_error("Invalid stored crime aggression result");
+        return value;
+    }
+
     std::string encodeIntent(const mwmp::CrimeIntent& intent)
     {
         Writer writer;
@@ -340,6 +381,8 @@ namespace
             writer.u8(witness.victim);
             writer.u8(static_cast<std::uint8_t>(witness.eligibility));
             writer.i32(witness.alarm);
+            writer.i32(witness.fight);
+            writer.u8(witness.guard);
             writer.u8(static_cast<std::uint8_t>(witness.relationshipAuthority));
             writer.u8(witness.observation.has_value());
             if (witness.observation)
@@ -347,6 +390,7 @@ namespace
             writer.u8(witness.perceived);
             writer.u8(witness.reportCapable);
             writer.u8(witness.reported);
+            writeAggression(writer, witness.aggression);
         }
         writer.u8(result.crimeSeen);
         writer.u8(result.reportingStageRun);
@@ -385,6 +429,8 @@ namespace
             witness.victim = reader.boolean();
             witness.eligibility = static_cast<mwmp::CrimeWitnessEligibility>(reader.u8());
             witness.alarm = reader.i32();
+            witness.fight = reader.i32();
+            witness.guard = reader.boolean();
             witness.relationshipAuthority = static_cast<mwmp::ObservationAuthority>(reader.u8());
             if (static_cast<std::uint8_t>(witness.eligibility)
                     > static_cast<std::uint8_t>(mwmp::CrimeWitnessEligibility::RelationshipUnknown)
@@ -396,6 +442,7 @@ namespace
             witness.perceived = reader.boolean();
             witness.reportCapable = reader.boolean();
             witness.reported = reader.boolean();
+            witness.aggression = readAggression(reader);
             result.witnesses.push_back(std::move(witness));
         }
         result.crimeSeen = reader.boolean();
@@ -455,7 +502,7 @@ namespace
             && !intent.victim)
             return false;
         if (intent.type == mwmp::CrimeType::Theft)
-            return intent.value >= 0;
+            return intent.value >= 0 && intent.value <= std::numeric_limits<std::int32_t>::max();
         return intent.value == 0;
     }
 
@@ -500,7 +547,15 @@ namespace mwmp
             || !std::isfinite(policy.alarmRadius * policy.alarmRadius) || !std::isfinite(policy.theftBountyMultiplier)
             || policy.theftBountyMultiplier < 0.f || policy.pickpocketBounty < 0 || policy.trespassBounty < 0
             || policy.assaultBounty < 0 || policy.murderBounty < 0 || policy.werewolfBounty < 0
-            || policy.reportingAlarmThreshold != 100)
+            || policy.reportingAlarmThreshold != 100
+            || !std::isfinite(policy.aggression.dispositionTrespass)
+            || !std::isfinite(policy.aggression.dispositionPickpocket)
+            || !std::isfinite(policy.aggression.dispositionAttack)
+            || !std::isfinite(policy.aggression.dispositionAttacking)
+            || !std::isfinite(policy.aggression.dispositionKilling)
+            || !std::isfinite(policy.aggression.dispositionStealing)
+            || !std::isfinite(policy.aggression.fightDispositionMultiplier)
+            || !std::isfinite(policy.aggression.fightDistanceMultiplier))
             throw std::invalid_argument("Invalid authoritative crime policy");
     }
 
@@ -569,6 +624,8 @@ namespace mwmp
 
         if (std::any_of(witnesses.begin(), witnesses.end(), [](const CrimeWitnessCandidate& witness) {
                 return !witness.actor.identity.isValid()
+                    || witness.alarm < 0 || witness.alarm > 100
+                    || witness.fight < 0 || witness.fight > 100
                     || static_cast<std::uint8_t>(witness.relationship)
                     > static_cast<std::uint8_t>(CrimeWitnessRelationship::Unknown)
                     || static_cast<std::uint8_t>(witness.relationshipAuthority)
@@ -597,6 +654,8 @@ namespace mwmp
             CrimeWitnessResult witness;
             witness.identity = input.actor.identity;
             witness.alarm = input.alarm;
+            witness.fight = input.fight;
+            witness.guard = input.guard;
             witness.relationshipAuthority = input.relationshipAuthority;
             witness.victim = intent.victim && *intent.victim == input.actor.identity;
             witness.candidate = finite(input.actor.position)
@@ -656,6 +715,26 @@ namespace mwmp
                 && witness.alarm >= mPolicy.reportingAlarmThreshold;
             witness.reported = outcome.result.reportingStageRun && witness.reportCapable;
             outcome.result.bountyApplied = outcome.result.bountyApplied || witness.reported;
+            if (outcome.result.reportingStageRun
+                && witness.eligibility == CrimeWitnessEligibility::Eligible
+                && !(witness.guard && witness.reportCapable))
+            {
+                const auto inputIt = std::find_if(witnesses.begin(), witnesses.end(), [&](const auto& input) {
+                    return input.actor.identity == witness.identity;
+                });
+                if (inputIt != witnesses.end())
+                {
+                    CrimeAggressionInput aggressionInput;
+                    aggressionInput.type = intent.type;
+                    aggressionInput.value = intent.value;
+                    aggressionInput.victim = witness.victim;
+                    aggressionInput.baseFight = witness.fight;
+                    aggressionInput.alarm = witness.alarm;
+                    aggressionInput.witnessPosition = inputIt->actor.position;
+                    aggressionInput.offenderPosition = intent.offender.position;
+                    witness.aggression = calculateCrimeAggression(aggressionInput, mPolicy.aggression);
+                }
+            }
         }
 
         const std::optional<std::int32_t> bounty = bountyFor(intent, mPolicy);

@@ -32,6 +32,7 @@ namespace mwmp
                 stream.write(actor.migrationGeneration);
                 stream.write(static_cast<std::uint8_t>(actor.dialogue));
                 stream.write(actor.flags);
+                stream.write(actor.fight);
             }
         }
 
@@ -54,6 +55,7 @@ namespace mwmp
                 stream.read(dialogue);
                 actor.dialogue = static_cast<CrimeReactionDialogue>(dialogue);
                 stream.read(actor.flags);
+                stream.read(actor.fight);
             }
             if (!validateCrimeReactionDirective(directive) || !stream.eof()
                 || mHeader.payloadSize + PacketHeader::WIRE_SIZE != stream.pos())

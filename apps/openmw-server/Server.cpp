@@ -150,6 +150,44 @@ namespace
 {
     constexpr std::uint16_t ServerLuaValidationVersion = 3;
 
+    mwmp::CrimePolicy makeCrimePolicy(const MWWorld::ESMStore& store, float alarmRadius)
+    {
+        const auto& settings = store.get<ESM::GameSetting>();
+        const auto integer = [&](std::string_view id) {
+            return settings.find(id)->mValue.getInteger();
+        };
+        const auto real = [&](std::string_view id) {
+            return settings.find(id)->mValue.getFloat();
+        };
+
+        mwmp::CrimePolicy policy;
+        policy.alarmRadius = alarmRadius;
+        policy.theftBountyMultiplier = real("fCrimeStealing");
+        policy.pickpocketBounty = integer("iCrimePickPocket");
+        policy.trespassBounty = integer("iCrimeTresspass");
+        policy.assaultBounty = integer("iCrimeAttack");
+        policy.murderBounty = integer("iCrimeKilling");
+        policy.werewolfBounty = integer("iWereWolfBounty");
+
+        policy.aggression.fightTrespass = integer("iFightTrespass");
+        policy.aggression.fightPickpocket = integer("iFightPickpocket");
+        policy.aggression.fightAttack = integer("iFightAttack");
+        policy.aggression.fightAttacking = integer("iFightAttacking");
+        policy.aggression.fightKilling = integer("iFightKilling");
+        // Native reportCrime intentionally reads this f-prefixed GMST as an integer.
+        policy.aggression.fightStealing = integer("fFightStealing");
+        policy.aggression.dispositionTrespass = real("iDispTresspass");
+        policy.aggression.dispositionPickpocket = real("fDispPickPocketMod");
+        policy.aggression.dispositionAttack = real("iDispAttackMod");
+        policy.aggression.dispositionAttacking = real("fDispAttacking");
+        policy.aggression.dispositionKilling = real("iDispKilling");
+        policy.aggression.dispositionStealing = real("fDispStealing");
+        policy.aggression.fightDispositionMultiplier = real("fFightDispMult");
+        policy.aggression.fightDistanceBase = integer("iFightDistanceBase");
+        policy.aggression.fightDistanceMultiplier = real("fFightDistanceMultiplier");
+        return policy;
+    }
+
     std::string lowerAscii(std::string_view value)
     {
         std::string out(value);
@@ -2746,6 +2784,9 @@ CrimeWitnessBuildResult MPServer::buildLiveCrimeWitnesses(const CrimeWitnessBuil
                 actor.identity.kind = ObservationActorKind::Npc;
                 actor.alarm = static_cast<std::int32_t>(npc->mAiData.mAlarm);
                 actor.alarmProvenance = CrimeAlarmProvenance::StaticContentBase;
+                actor.fight = static_cast<std::int32_t>(npc->mAiData.mFight);
+                actor.fightProvenance = CrimeFightProvenance::StaticContentBase;
+                actor.guard = npc->mClass == "guard";
             }
             else if (mContentRegistry->store().get<ESM::Creature>().search(refId))
                 actor.identity.kind = ObservationActorKind::Creature;
@@ -2803,6 +2844,7 @@ void MPServer::dispatchCrimeReactions(ConnectedClient& offender, const CrimeSema
         CrimeActorReaction reaction;
         reaction.actorNetId = record.actorNetId;
         reaction.migrationGeneration = record.migrationGeneration;
+        const std::string offenderTargetId = crimeReactionOffenderTargetId(offender.guid);
 
         // Native commitCrime makes every witness that actually perceived Theft
         // or Pickpocket complain, even if its Alarm is too low to report it.
@@ -2845,13 +2887,54 @@ void MPServer::dispatchCrimeReactions(ConnectedClient& offender, const CrimeSema
 
             if (record.crimeEnforcementState != CrimeEnforcementState::ArrestPending)
             {
-                record.actor.ai.targetId = std::string("mp_remote_") + std::to_string(offender.guid);
+                record.actor.ai.targetId = offenderTargetId;
                 record.actor.ai.targetMpNum = 0;
                 record.actor.ai.duration = 0.f;
                 record.actor.ai.reset = false;
                 record.lastSnapshotTime = nowMs;
                 markLuaActorDirty(record, locationIt->second);
             }
+        }
+        else if (witness.aggression.combat)
+        {
+            reaction.flags = static_cast<std::uint8_t>(CrimeReactionSetAlarmed
+                | CrimeReactionStartCombat | CrimeReactionSetFight);
+            reaction.fight = witness.aggression.finalFight;
+            record.actor.ai.type = BaseActor::AIAction::Type::Combat;
+            record.actor.ai.targetId = offenderTargetId;
+            record.actor.ai.targetMpNum = 0;
+            record.actor.ai.duration = 0.f;
+            record.actor.ai.reset = false;
+            record.lastSnapshotTime = nowMs;
+            markLuaActorDirty(record, locationIt->second);
+        }
+
+        if (witness.aggression.evaluated)
+        {
+            Log(Debug::Info) << "[CrimeAggression] decision"
+                             << " event=" << result.eventId
+                             << " type=" << static_cast<unsigned>(result.type)
+                             << " actorNetId=" << record.actorNetId
+                             << " refId=" << record.actor.refId
+                             << " victim=" << witness.victim
+                             << " perceived=" << witness.perceived
+                             << " reported=" << witness.reported
+                             << " guard=" << guard
+                             << " baseFight=" << witness.aggression.baseFight
+                             << " alarm=" << witness.alarm
+                             << " crimeFight=" << witness.aggression.crimeFight
+                             << " dispTerm=" << witness.aggression.dispositionTerm
+                             << " dispBias=" << witness.aggression.dispositionBias
+                             << " distance=" << witness.aggression.distance
+                             << " distanceBias=" << witness.aggression.distanceBias
+                             << " alarmTerm=" << witness.aggression.alarmTerm
+                             << " fightTerm=" << witness.aggression.fightTerm
+                             << " finalFight=" << witness.aggression.finalFight
+                             << " decision=" << (witness.aggression.combat ? "combat" : "passive")
+                             << " offenderGuid=" << offender.guid
+                             << " authorityGuid="
+                             << (isActorAuthorityLeaseValid(record, locationIt->second, nowMs)
+                                     ? record.actorAuthorityGuid : cellIt->second.authorityGuid);
         }
 
         if (reaction.dialogue == CrimeReactionDialogue::None && reaction.flags == 0)
@@ -2881,10 +2964,12 @@ void MPServer::dispatchCrimeReactions(ConnectedClient& offender, const CrimeSema
 
         std::size_t dialogueCount = 0;
         std::size_t pursueCount = 0;
+        std::size_t combatCount = 0;
         for (const CrimeActorReaction& reaction : directive.actors)
         {
             dialogueCount += reaction.dialogue != CrimeReactionDialogue::None ? 1 : 0;
             pursueCount += (reaction.flags & CrimeReactionPursueOffender) != 0 ? 1 : 0;
+            combatCount += (reaction.flags & CrimeReactionStartCombat) != 0 ? 1 : 0;
         }
         Log(Debug::Info) << "[CrimeReaction] dispatched"
                          << " event=" << result.eventId
@@ -2893,6 +2978,7 @@ void MPServer::dispatchCrimeReactions(ConnectedClient& offender, const CrimeSema
                          << " actors=" << directive.actors.size()
                          << " dialogue=" << dialogueCount
                          << " pursue=" << pursueCount
+                         << " combat=" << combatCount
                          << " offenderGuid=" << offender.guid;
     }
 }
@@ -4419,18 +4505,7 @@ void MPServer::processWerewolfExposure(ConnectedClient& c, const AcceptedMechani
                 intent.collisionGenerations.push_back({ cellId, generation });
         }
 
-        const auto gmstInt = [&](std::string_view id) {
-            return mContentRegistry->store().get<ESM::GameSetting>().find(id)->mValue.getInteger();
-        };
-        CrimePolicy policy;
-        policy.alarmRadius = mObservationAlarmRadius;
-        policy.theftBountyMultiplier = mContentRegistry->store().get<ESM::GameSetting>()
-            .find("fCrimeStealing")->mValue.getFloat();
-        policy.pickpocketBounty = gmstInt("iCrimePickPocket");
-        policy.trespassBounty = gmstInt("iCrimeTresspass");
-        policy.assaultBounty = gmstInt("iCrimeAttack");
-        policy.murderBounty = gmstInt("iCrimeKilling");
-        policy.werewolfBounty = gmstInt("iWereWolfBounty");
+        const CrimePolicy policy = makeCrimePolicy(mContentRegistry->store(), mObservationAlarmRadius);
 
         CrimeService crime(*mPlayerDb);
         CrimeSemanticService semantics(*mPlayerDb, crime, *mObservationService, policy);
@@ -13426,17 +13501,7 @@ void MPServer::handleActorCombatResult(ConnectedClient& c, const uint8_t* data, 
         witnessRequest.maximumSnapshotAgeMs = MaximumSnapshotAgeMs;
         CrimeWitnessBuildResult witnesses = buildLiveCrimeWitnesses(witnessRequest);
 
-        const auto gmstInt = [&](std::string_view id) {
-            return mContentRegistry->store().get<ESM::GameSetting>().find(id)->mValue.getInteger();
-        };
-        CrimePolicy policy;
-        policy.alarmRadius = mObservationAlarmRadius;
-        policy.theftBountyMultiplier = mContentRegistry->store().get<ESM::GameSetting>()
-            .find("fCrimeStealing")->mValue.getFloat();
-        policy.pickpocketBounty = gmstInt("iCrimePickPocket");
-        policy.trespassBounty = gmstInt("iCrimeTresspass");
-        policy.assaultBounty = gmstInt("iCrimeAttack");
-        policy.murderBounty = gmstInt("iCrimeKilling");
+        const CrimePolicy policy = makeCrimePolicy(mContentRegistry->store(), mObservationAlarmRadius);
         CrimeService crime(*mPlayerDb);
         CrimeSemanticService semantics(*mPlayerDb, crime, *mObservationService, policy);
 
@@ -14115,18 +14180,7 @@ void MPServer::handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* dat
                 intent.collisionGenerations.push_back({ cellId, generation });
         }
 
-        const auto gmstInt = [&](std::string_view id) {
-            return mContentRegistry->store().get<ESM::GameSetting>()
-                .find(id)->mValue.getInteger();
-        };
-        CrimePolicy policy;
-        policy.alarmRadius = mObservationAlarmRadius;
-        policy.theftBountyMultiplier = mContentRegistry->store().get<ESM::GameSetting>()
-            .find("fCrimeStealing")->mValue.getFloat();
-        policy.pickpocketBounty = gmstInt("iCrimePickPocket");
-        policy.trespassBounty = gmstInt("iCrimeTresspass");
-        policy.assaultBounty = gmstInt("iCrimeAttack");
-        policy.murderBounty = gmstInt("iCrimeKilling");
+        const CrimePolicy policy = makeCrimePolicy(mContentRegistry->store(), mObservationAlarmRadius);
 
         CrimeService crime(*mPlayerDb);
         CrimeSemanticService semantics(*mPlayerDb, crime, *mObservationService, policy);
@@ -14882,17 +14936,7 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
             if (generation != 0)
                 intent.collisionGenerations.push_back({ cellId, generation });
         }
-        const auto gmstInt = [&](std::string_view id) {
-            return mContentRegistry->store().get<ESM::GameSetting>().find(id)->mValue.getInteger();
-        };
-        CrimePolicy policy;
-        policy.alarmRadius = mObservationAlarmRadius;
-        policy.theftBountyMultiplier = mContentRegistry->store().get<ESM::GameSetting>()
-            .find("fCrimeStealing")->mValue.getFloat();
-        policy.pickpocketBounty = gmstInt("iCrimePickPocket");
-        policy.trespassBounty = gmstInt("iCrimeTresspass");
-        policy.assaultBounty = gmstInt("iCrimeAttack");
-        policy.murderBounty = gmstInt("iCrimeKilling");
+        const CrimePolicy policy = makeCrimePolicy(mContentRegistry->store(), mObservationAlarmRadius);
         CrimeService crimeService(*mPlayerDb);
         CrimeSemanticService semantics(*mPlayerDb, crimeService, *mObservationService, policy);
         CrimeSemanticService::Context context { c.dbAccountId, c.dbCharacterId, c.guid };
@@ -16390,17 +16434,7 @@ void MPServer::handleCrimeInteractionRequest(ConnectedClient& c, const uint8_t* 
             intent.collisionGenerations.push_back({ cellId, generation });
     }
 
-    const auto gmstInt = [&](std::string_view id) {
-        return mContentRegistry->store().get<ESM::GameSetting>().find(id)->mValue.getInteger();
-    };
-    CrimePolicy policy;
-    policy.alarmRadius = mObservationAlarmRadius;
-    policy.theftBountyMultiplier = mContentRegistry->store().get<ESM::GameSetting>()
-        .find("fCrimeStealing")->mValue.getFloat();
-    policy.pickpocketBounty = gmstInt("iCrimePickPocket");
-    policy.trespassBounty = gmstInt("iCrimeTresspass");
-    policy.assaultBounty = gmstInt("iCrimeAttack");
-    policy.murderBounty = gmstInt("iCrimeKilling");
+    const CrimePolicy policy = makeCrimePolicy(mContentRegistry->store(), mObservationAlarmRadius);
     CrimeService crime(*mPlayerDb);
     CrimeSemanticService semantics(*mPlayerDb, crime, *mObservationService, policy);
     const CrimeSemanticService::Context context { c.dbAccountId, c.dbCharacterId, c.guid };

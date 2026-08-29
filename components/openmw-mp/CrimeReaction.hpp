@@ -10,7 +10,7 @@
 
 namespace mwmp
 {
-    inline constexpr std::uint16_t CrimeReactionProtocolVersion = 2;
+    inline constexpr std::uint16_t CrimeReactionProtocolVersion = 3;
     inline constexpr std::size_t MaximumCrimeReactionEventIdLength = 128;
     inline constexpr std::size_t MaximumCrimeReactionCellIdLength = 255;
     inline constexpr std::size_t MaximumCrimeReactionActors = 64;
@@ -28,10 +28,12 @@ namespace mwmp
         CrimeReactionPursueOffender = 1u << 1,
         CrimeReactionClearPursuit = 1u << 2,
         CrimeReactionStartCombat = 1u << 3,
+        CrimeReactionSetFight = 1u << 4,
     };
 
     inline constexpr std::uint8_t KnownCrimeReactionFlags = CrimeReactionSetAlarmed
-        | CrimeReactionPursueOffender | CrimeReactionClearPursuit | CrimeReactionStartCombat;
+        | CrimeReactionPursueOffender | CrimeReactionClearPursuit | CrimeReactionStartCombat
+        | CrimeReactionSetFight;
 
     struct CrimeActorReaction
     {
@@ -39,6 +41,7 @@ namespace mwmp
         std::uint32_t migrationGeneration = 0;
         CrimeReactionDialogue dialogue = CrimeReactionDialogue::None;
         std::uint8_t flags = 0;
+        std::int32_t fight = 0;
 
         bool operator==(const CrimeActorReaction&) const = default;
     };
@@ -55,6 +58,7 @@ namespace mwmp
     };
 
     bool validateCrimeReactionDirective(const CrimeReactionDirective& directive);
+    std::string crimeReactionOffenderTargetId(std::uint32_t offenderGuid);
 }
 
 #endif

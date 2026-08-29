@@ -10,7 +10,10 @@ TEST(CrimeReactionProtocol, DirectiveRoundTripsStrictly)
     outgoing.directive.actors = {
         { 172965, 1, mwmp::CrimeReactionDialogue::Intruder, 0 },
         { 273861, 1, mwmp::CrimeReactionDialogue::Intruder,
-            static_cast<std::uint8_t>(mwmp::CrimeReactionSetAlarmed | mwmp::CrimeReactionPursueOffender) },
+            static_cast<std::uint8_t>(mwmp::CrimeReactionSetAlarmed | mwmp::CrimeReactionPursueOffender), 0 },
+        { 373862, 1, mwmp::CrimeReactionDialogue::None,
+            static_cast<std::uint8_t>(mwmp::CrimeReactionSetAlarmed | mwmp::CrimeReactionStartCombat
+                | mwmp::CrimeReactionSetFight), 100 },
     };
 
     const auto encoded = outgoing.encode();
@@ -68,6 +71,20 @@ TEST(CrimeReactionProtocol, RejectsInvalidOrAmbiguousDirectives)
     invalid.offenderGuid = 0;
     EXPECT_FALSE(mwmp::validateCrimeReactionDirective(invalid));
 
+    auto fight = combat;
+    fight.actors[0].flags = static_cast<std::uint8_t>(fight.actors[0].flags
+        | mwmp::CrimeReactionSetFight);
+    fight.actors[0].fight = 100;
+    EXPECT_TRUE(mwmp::validateCrimeReactionDirective(fight));
+
+    invalid = fight;
+    invalid.actors[0].fight = 101;
+    EXPECT_FALSE(mwmp::validateCrimeReactionDirective(invalid));
+
+    invalid = directive;
+    invalid.actors[0].fight = 30;
+    EXPECT_FALSE(mwmp::validateCrimeReactionDirective(invalid));
+
     invalid = combat;
     invalid.actors[0].flags = static_cast<std::uint8_t>(mwmp::CrimeReactionStartCombat);
     EXPECT_FALSE(mwmp::validateCrimeReactionDirective(invalid));
@@ -81,4 +98,15 @@ TEST(CrimeReactionProtocol, RejectsInvalidOrAmbiguousDirectives)
     invalid.actors[0].flags = static_cast<std::uint8_t>(mwmp::CrimeReactionSetAlarmed
         | mwmp::CrimeReactionPursueOffender | mwmp::CrimeReactionStartCombat);
     EXPECT_FALSE(mwmp::validateCrimeReactionDirective(invalid));
+}
+
+TEST(CrimeReactionProtocol, RemoteOffenderTargetNeverUsesAuthorityPlayer)
+{
+    constexpr std::uint32_t marioAuthorityGuid = 11;
+    constexpr std::uint32_t sithOffenderGuid = 22;
+
+    EXPECT_EQ(mwmp::crimeReactionOffenderTargetId(sithOffenderGuid), "mp_remote_22");
+    EXPECT_NE(mwmp::crimeReactionOffenderTargetId(sithOffenderGuid),
+        mwmp::crimeReactionOffenderTargetId(marioAuthorityGuid));
+    EXPECT_TRUE(mwmp::crimeReactionOffenderTargetId(0).empty());
 }

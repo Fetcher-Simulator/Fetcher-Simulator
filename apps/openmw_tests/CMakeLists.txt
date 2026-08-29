@@ -30,6 +30,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwmp/testenchantingservice.cpp
     mwmp/testplayerspellbook.cpp
     mwmp/testcrimeservice.cpp
+    mwmp/testcrimeaggression.cpp
     mwmp/testcrimesemanticservice.cpp
     mwmp/testcrimewitnessbuilder.cpp
     mwmp/testworlditemtake.cpp
@@ -70,6 +71,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         ../openmw-server/AlchemyService.cpp
         ../openmw-server/EnchantingService.cpp
         ../openmw-server/CrimeService.cpp
+        ../openmw-server/CrimeAggression.cpp
         ../openmw-server/CrimeSemanticService.cpp
         ../openmw-server/CrimeWitnessBuilder.cpp
         ../openmw-server/ObservationService.cpp

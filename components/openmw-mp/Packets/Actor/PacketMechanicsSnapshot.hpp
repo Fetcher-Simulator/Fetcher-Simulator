@@ -81,6 +81,7 @@ namespace mwmp
             stream.write(snapshot.blind);
             stream.write(snapshot.witnessStateFlags);
             stream.write(snapshot.effectiveAlarm);
+            stream.write(snapshot.effectiveFight);
             stream.write(static_cast<std::uint8_t>(snapshot.combatTargetKind));
             stream.write(snapshot.combatTargetPlayerGuid);
             stream.write(snapshot.combatTargetActorInstanceId);
@@ -112,6 +113,7 @@ namespace mwmp
             stream.read(snapshot.blind);
             stream.read(snapshot.witnessStateFlags);
             stream.read(snapshot.effectiveAlarm);
+            stream.read(snapshot.effectiveFight);
             std::uint8_t combatTargetKind = 0;
             stream.read(combatTargetKind);
             snapshot.combatTargetKind = static_cast<MechanicsSubjectKind>(combatTargetKind);

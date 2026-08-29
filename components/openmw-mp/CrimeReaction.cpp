@@ -33,6 +33,10 @@ bool mwmp::validateCrimeReactionDirective(const CrimeReactionDirective& directiv
                 && actor.dialogue != CrimeReactionDialogue::Thief
                 && actor.dialogue != CrimeReactionDialogue::Intruder)
             || (actor.dialogue == CrimeReactionDialogue::None && actor.flags == 0)
+            || (((actor.flags & CrimeReactionSetFight) != 0)
+                ? (actor.fight < 0 || actor.fight > 100
+                    || (actor.flags & CrimeReactionStartCombat) == 0)
+                : actor.fight != 0)
             || (((actor.flags & CrimeReactionPursueOffender) != 0
                     || (actor.flags & CrimeReactionClearPursuit) != 0
                     || (actor.flags & CrimeReactionStartCombat) != 0)
@@ -49,4 +53,10 @@ bool mwmp::validateCrimeReactionDirective(const CrimeReactionDirective& directiv
             return false;
     }
     return true;
+}
+
+std::string mwmp::crimeReactionOffenderTargetId(std::uint32_t offenderGuid)
+{
+    return offenderGuid == 0
+        ? std::string() : std::string("mp_remote_") + std::to_string(offenderGuid);
 }
