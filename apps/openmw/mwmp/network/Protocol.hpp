@@ -67,6 +67,7 @@ namespace mwmp
                         case PacketType::PlayerPosition: packetName = "PlayerPosition"; break;
                         case PacketType::PlayerAnimFlags: packetName = "PlayerAnimFlags"; break;
                         case PacketType::PlayerEquipment: packetName = "PlayerEquipment"; break;
+                        case PacketType::PlayerSpellbook: packetName = "PlayerSpellbook"; break;
                         case PacketType::PlayerInventory: packetName = "PlayerInventory"; break;
                         case PacketType::ActorList: packetName = "ActorList"; break;
                         case PacketType::ActorIdentity: packetName = "ActorIdentity"; break;
