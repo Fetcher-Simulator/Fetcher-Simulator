@@ -867,6 +867,7 @@ void Main::onConnected()
     Log(Debug::Info) << "[MP] Connected Ã¢â‚¬â€ sending handshake";
 
     mCharacterDataReady = false;
+    mResolvedContentFingerprint.clear();
     mBootstrapCompilationComplete = false;
     mRuntimeContentBootstrapGate.reset();
     mAuthoritativeStateBootstrapGate.reset();
@@ -899,6 +900,7 @@ void Main::onConnected()
     {
         hs.resolvedContentFingerprint
             = MWMP::resolvedContentFingerprint(*MWBase::Environment::get().getESMStore());
+        mResolvedContentFingerprint = hs.resolvedContentFingerprint;
     }
     catch (const std::exception& e)
     {
@@ -1569,10 +1571,15 @@ void Main::registerProtocolHandlers()
                 return;
             }
 
-            const std::string localFingerprint
-                = MWMP::resolvedContentFingerprint(*MWBase::Environment::get().getESMStore());
+            // The resolved store cannot change between our handshake and this response.
+            // Reuse the fingerprint already sent instead of hashing the full ESM store
+            // again inside the network packet callback. Recompute only if the initial
+            // fingerprint attempt failed, preserving the previous recovery behavior.
+            if (mResolvedContentFingerprint.empty() && !rsp.resolvedContentFingerprint.empty())
+                mResolvedContentFingerprint
+                    = MWMP::resolvedContentFingerprint(*MWBase::Environment::get().getESMStore());
             if (!rsp.resolvedContentFingerprint.empty()
-                && rsp.resolvedContentFingerprint != localFingerprint)
+                && rsp.resolvedContentFingerprint != mResolvedContentFingerprint)
             {
                 mRejectReason = "Resolved content changed during connection setup";
                 Log(Debug::Error) << "[MP] " << mRejectReason;

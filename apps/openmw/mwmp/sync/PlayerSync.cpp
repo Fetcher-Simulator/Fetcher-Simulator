@@ -808,8 +808,10 @@ void PlayerSync::queueAuthoritativeEquipment(const BasePlayer& authoritative)
         return;
     }
 
+    // Network callbacks only stage authoritative state. PlayerSync::update() runs
+    // immediately after NetworkClient::update() and coalesces inventory/equipment
+    // restore packets into one authoritative apply pass.
     mPendingEquipmentRestore = true;
-    applyPendingAuthoritativeState(player);
 }
 
 std::optional<std::int64_t> PlayerSync::authoritativeInventoryCount(std::string_view refId) const
@@ -904,7 +906,9 @@ void PlayerSync::queueAuthoritativeInventory(const BasePlayer& authoritative)
         return;
     }
 
-    applyPendingAuthoritativeState(player);
+    // Defer the expensive rebuild until PlayerSync::update(), after the network
+    // client has drained this batch. Equipment arriving in the same batch can
+    // then be restored in the same pass instead of forcing a second UI rebuild.
 }
 
 void PlayerSync::queueAuthoritativeSpellbook(const BasePlayer& authoritative)
