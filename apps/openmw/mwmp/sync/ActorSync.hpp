@@ -6,6 +6,7 @@
 #include <deque>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <osg/Vec3f>
@@ -87,6 +88,8 @@ namespace mwmp
         // Bootstrap final-pose reconstruction is only for bindings that have not
         // presented that death (for example, a newly-created node after cell reload).
         static bool requiresBootstrapDeathPresentation(bool deathAlreadyApplied, bool deathAppliedToBinding);
+        static bool requiresAuthoritativeDeathReplay(bool actorIsDead, bool authoritativeRealtimeDeath,
+            std::string_view presentedDeathGroup, std::string_view authoritativeDeathGroup);
 
     private:
         struct BufferedSnapshot
