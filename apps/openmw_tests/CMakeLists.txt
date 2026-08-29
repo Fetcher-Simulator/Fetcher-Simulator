@@ -31,6 +31,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwmp/testplayerspellbook.cpp
     mwmp/testcrimeservice.cpp
     mwmp/testcrimeaggression.cpp
+    mwmp/testcrimereactionreadiness.cpp
     mwmp/testcrimesemanticservice.cpp
     mwmp/testcrimewitnessbuilder.cpp
     mwmp/testworlditemtake.cpp
