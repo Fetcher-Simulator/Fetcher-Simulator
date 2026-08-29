@@ -4978,6 +4978,13 @@ namespace mwmp
         return !deathAlreadyApplied || !deathAppliedToBinding;
     }
 
+    bool ActorSync::requiresAuthoritativeDeathReplay(bool actorIsDead, bool authoritativeRealtimeDeath,
+        std::string_view presentedDeathGroup, std::string_view authoritativeDeathGroup)
+    {
+        return actorIsDead && authoritativeRealtimeDeath && !authoritativeDeathGroup.empty()
+            && presentedDeathGroup != authoritativeDeathGroup;
+    }
+
     bool ActorSync::hasAuthority(const std::string& cellId) const
     {
         auto it = mAuthority.find(cellId);
@@ -10078,6 +10085,13 @@ namespace mwmp
             }
         }
 
+        std::string presentedDeathGroup;
+        if (actor.state.isDead && actor.deathFromRealtimePacket && stats.isDead())
+        {
+            if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
+                baseNode->getUserValue("mp_death_anim_group", presentedDeathGroup);
+        }
+
         // Pre-set death animation group on the base node BEFORE any health
         // change that could trigger playRandomDeath().  The StatsDynamic packet
         // can arrive before (or in the same frame as) the ActorDeath packet, and
@@ -10247,9 +10261,8 @@ namespace mwmp
             // was called by the mechanics manager in a previous frame), but the
             // ActorDeath packet with the synced animation group just arrived.
             // Replay the correct death animation so both clients match.
-            if (stats.isDead() && actor.deathFromRealtimePacket
-                && !actor.state.deathAnimGroup.empty()
-                && actor.appliedDeathAnimGroup != actor.state.deathAnimGroup)
+            if (requiresAuthoritativeDeathReplay(stats.isDead(), actor.deathFromRealtimePacket,
+                    presentedDeathGroup, actor.state.deathAnimGroup))
             {
                 actor.appliedDeathAnimGroup = actor.state.deathAnimGroup;
                 if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
@@ -10269,7 +10282,8 @@ namespace mwmp
                         0u);    // no loops
                 }
                 Log(Debug::Info) << "[MP] ActorSync: late death anim replay for " << actor.state.refId
-                                 << " anim='" << actor.appliedDeathAnimGroup << "'";
+                                 << " localAnim='" << presentedDeathGroup
+                                 << "' authoritativeAnim='" << actor.appliedDeathAnimGroup << "'";
             }
 
             if (actor.deathFromRealtimePacket)

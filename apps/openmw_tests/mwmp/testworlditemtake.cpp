@@ -119,6 +119,18 @@ TEST(ActorDeathClientPolicy, RealtimeDeathBindingDoesNotReapplyBootstrapFinalPos
     EXPECT_FALSE(mwmp::ActorSync::requiresBootstrapDeathPresentation(true, true));
 }
 
+TEST(ActorDeathClientPolicy, ReplaysCanonicalDeathWhenLocalPoseDiffers)
+{
+    EXPECT_TRUE(mwmp::ActorSync::requiresAuthoritativeDeathReplay(
+        true, true, "death4", "death1"));
+    EXPECT_FALSE(mwmp::ActorSync::requiresAuthoritativeDeathReplay(
+        true, true, "death2", "death2"));
+    EXPECT_FALSE(mwmp::ActorSync::requiresAuthoritativeDeathReplay(
+        false, true, "", "death3"));
+    EXPECT_FALSE(mwmp::ActorSync::requiresAuthoritativeDeathReplay(
+        true, false, "death4", "death1"));
+}
+
 TEST(WorldItemTakePersistence, CommitsTombstoneInventoryAndReplayAtomically)
 {
     TemporaryDatabase temporary;
