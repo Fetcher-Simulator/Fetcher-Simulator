@@ -105,6 +105,7 @@ namespace
         CrimeWitnessCandidate value;
         value.actor = snapshot(identity, position);
         value.alarm = alarm;
+        value.fight = 30;
         value.relationship = CrimeWitnessRelationship::Eligible;
         value.relationshipAuthority = ObservationAuthority::ServerAuthoritative;
         return value;
@@ -134,6 +135,18 @@ namespace
         value.assaultBounty = 40;
         value.murderBounty = 1000;
         value.werewolfBounty = 250;
+        value.aggression.fightTrespass = 5;
+        value.aggression.fightPickpocket = 25;
+        value.aggression.fightAttack = 100;
+        value.aggression.fightAttacking = 50;
+        value.aggression.fightKilling = 50;
+        value.aggression.fightStealing = 1;
+        value.aggression.dispositionAttack = -50.f;
+        value.aggression.dispositionAttacking = -10.f;
+        value.aggression.dispositionKilling = -50.f;
+        value.aggression.fightDispositionMultiplier = 0.2f;
+        value.aggression.fightDistanceBase = 20;
+        value.aggression.fightDistanceMultiplier = 0.01f;
         return value;
     }
 
@@ -481,4 +494,44 @@ TEST(CrimeSemanticService, ADifferentEligibleWitnessCanReportAfterAnotherWitness
     EXPECT_TRUE(outcome.result.witnesses[1].reportCapable);
     EXPECT_TRUE(outcome.result.witnesses[1].reported);
     EXPECT_EQ(outcome.result.state.bounty, 50);
+}
+
+TEST(CrimeSemanticService, AlarmOneHundredGuardStaysOnEnforcementPath)
+{
+    Fixture fixture;
+    CrimeIntent request = intent("guard-assault", CrimeType::Assault);
+    request.victim = npc(99);
+    request.victimAware = true;
+    CrimeWitnessCandidate guard = witness(npc(1), 100);
+    guard.guard = true;
+
+    const auto outcome = fixture.semantic.evaluate(request, { guard }, fixture.context);
+
+    ASSERT_TRUE(outcome.result.accepted);
+    ASSERT_EQ(outcome.result.witnesses.size(), 1u);
+    EXPECT_TRUE(outcome.result.witnesses[0].reported);
+    EXPECT_TRUE(outcome.result.witnesses[0].guard);
+    EXPECT_FALSE(outcome.result.witnesses[0].aggression.evaluated);
+    EXPECT_FALSE(outcome.result.witnesses[0].aggression.combat);
+}
+
+TEST(CrimeSemanticService, DuplicateAssaultReplaysAbsoluteAggressionResult)
+{
+    Fixture fixture;
+    CrimeIntent request = intent("replayed-assault-aggression", CrimeType::Assault);
+    request.victim = npc(99);
+    request.victimAware = true;
+    const CrimeWitnessCandidate candidate = witness(npc(1), 90);
+
+    const auto first = fixture.semantic.evaluate(request, { candidate }, fixture.context);
+    const auto replay = fixture.semantic.evaluate(request, {}, fixture.context);
+
+    ASSERT_TRUE(first.result.accepted);
+    ASSERT_TRUE(replay.replayed);
+    ASSERT_EQ(first.result.witnesses.size(), 1u);
+    ASSERT_EQ(replay.result.witnesses.size(), 1u);
+    EXPECT_TRUE(first.result.witnesses[0].aggression.combat);
+    EXPECT_EQ(replay.result.witnesses[0].aggression,
+        first.result.witnesses[0].aggression);
+    EXPECT_EQ(replay.result.witnesses[0].aggression.finalFight, 100);
 }

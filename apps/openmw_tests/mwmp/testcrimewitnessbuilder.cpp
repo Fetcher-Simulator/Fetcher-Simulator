@@ -93,6 +93,8 @@ namespace
         result.authorityGeneration = 1;
         result.alarm = 100;
         result.alarmProvenance = CrimeAlarmProvenance::StaticContentBase;
+        result.fight = 30;
+        result.fightProvenance = CrimeFightProvenance::StaticContentBase;
         result.relationship = CrimeWitnessRelationship::Eligible;
         result.relationshipProvenance = CrimeRelationshipProvenance::ServerAuthoritative;
         return result;
@@ -279,8 +281,9 @@ TEST(CrimeWitnessBuilder, ValidatedAtomicWitnessStateOverridesStaticFallback)
 
     auto safeSnapshot = snapshot(safe, "Balmora", 0.f, 10.f);
     safeSnapshot.witnessStateFlags = MechanicsWitnessRelationshipKnown
-        | MechanicsWitnessEffectiveAlarmKnown;
+        | MechanicsWitnessEffectiveAlarmKnown | MechanicsWitnessEffectiveFightKnown;
     safeSnapshot.effectiveAlarm = 100;
+    safeSnapshot.effectiveFight = 75;
     accept(registry, safeSnapshot);
 
     auto followerSnapshot = snapshot(follower, "Balmora", 0.f, 10.f);
@@ -310,10 +313,13 @@ TEST(CrimeWitnessBuilder, ValidatedAtomicWitnessStateOverridesStaticFallback)
     ASSERT_EQ(result.witnesses.size(), 2u);
     EXPECT_EQ(result.witnesses[0].actor.identity, safe);
     EXPECT_EQ(result.witnesses[0].alarm, 100);
+    EXPECT_EQ(result.witnesses[0].fight, 75);
     EXPECT_EQ(decisionFor(result, safe).alarmProvenance,
         CrimeAlarmProvenance::ValidatedActorAuthorityDelegated);
     EXPECT_EQ(decisionFor(result, safe).relationshipProvenance,
         CrimeRelationshipProvenance::ValidatedActorAuthorityDelegated);
+    EXPECT_EQ(decisionFor(result, safe).fightProvenance,
+        CrimeFightProvenance::ValidatedActorAuthorityDelegated);
     EXPECT_EQ(decisionFor(result, follower).reason, CrimeWitnessBuildReason::PlayerFollower);
     EXPECT_EQ(decisionFor(result, combat).reason, CrimeWitnessBuildReason::InCombatWithVictim);
 }
@@ -341,6 +347,31 @@ TEST(CrimeWitnessBuilder, AlarmRequiresExplicitValidProvenance)
     EXPECT_EQ(result.witnesses[0].alarm, 75);
     EXPECT_EQ(decisionFor(result, unavailable).reason, CrimeWitnessBuildReason::AlarmUnavailable);
     EXPECT_EQ(decisionFor(result, invalid).reason, CrimeWitnessBuildReason::AlarmInvalid);
+}
+
+TEST(CrimeWitnessBuilder, FightRequiresExplicitValidProvenance)
+{
+    MechanicsSnapshotRegistry registry;
+    Source source;
+    const auto unavailable = npc(1);
+    const auto invalid = npc(2);
+    const auto baseRecord = npc(3);
+    source.cells["Balmora"]
+        = { actor(unavailable, "Balmora"), actor(invalid, "Balmora"), actor(baseRecord, "Balmora") };
+    source.cells["Balmora"][0].fight.reset();
+    source.cells["Balmora"][0].fightProvenance = CrimeFightProvenance::Unavailable;
+    source.cells["Balmora"][1].fight = 101;
+    source.cells["Balmora"][2].fight = 30;
+    accept(registry, snapshot(unavailable, "Balmora", 0.f, 10.f));
+    accept(registry, snapshot(invalid, "Balmora", 0.f, 10.f));
+    accept(registry, snapshot(baseRecord, "Balmora", 0.f, 10.f));
+
+    const auto result = CrimeWitnessBuilder(registry).build(interiorRequest(), source);
+    ASSERT_EQ(result.witnesses.size(), 1u);
+    EXPECT_EQ(result.witnesses[0].actor.identity, baseRecord);
+    EXPECT_EQ(result.witnesses[0].fight, 30);
+    EXPECT_EQ(decisionFor(result, unavailable).reason, CrimeWitnessBuildReason::FightUnavailable);
+    EXPECT_EQ(decisionFor(result, invalid).reason, CrimeWitnessBuildReason::FightInvalid);
 }
 
 TEST(CrimeWitnessBuilder, CanonicalVictimCanBeIncludedOutsideOrdinaryRadius)

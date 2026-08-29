@@ -7,22 +7,13 @@
 #include <vector>
 
 #include "CrimeService.hpp"
+#include "CrimeAggression.hpp"
 #include "ObservationService.hpp"
 
 namespace mwmp
 {
-    inline constexpr std::uint16_t CrimeSemanticVersion = 1;
+    inline constexpr std::uint16_t CrimeSemanticVersion = 2;
     inline constexpr std::size_t MaximumCrimeWitnesses = 1024;
-
-    enum class CrimeType : std::uint8_t
-    {
-        Theft = 1,
-        Pickpocket = 2,
-        Trespass = 3,
-        Assault = 4,
-        Murder = 5,
-        WerewolfExposure = 6,
-    };
 
     enum class CrimeSemanticError : std::uint16_t
     {
@@ -67,6 +58,8 @@ namespace mwmp
     {
         ObservationActorSnapshot actor;
         std::int32_t alarm = 0;
+        std::int32_t fight = 0;
+        bool guard = false;
         CrimeWitnessRelationship relationship = CrimeWitnessRelationship::Unknown;
         ObservationAuthority relationshipAuthority = ObservationAuthority::ServerAuthoritative;
     };
@@ -89,11 +82,14 @@ namespace mwmp
         bool victim = false;
         CrimeWitnessEligibility eligibility = CrimeWitnessEligibility::RelationshipUnknown;
         std::int32_t alarm = 0;
+        std::int32_t fight = 0;
+        bool guard = false;
         ObservationAuthority relationshipAuthority = ObservationAuthority::ServerAuthoritative;
         std::optional<ObservationResult> observation;
         bool perceived = false;
         bool reportCapable = false;
         bool reported = false;
+        CrimeAggressionResult aggression;
     };
 
     struct CrimeSemanticResult
@@ -122,6 +118,7 @@ namespace mwmp
         std::int32_t murderBounty = 0;
         std::int32_t werewolfBounty = 0;
         std::int32_t reportingAlarmThreshold = 100;
+        CrimeAggressionPolicy aggression;
     };
 
     class CrimeSemanticService

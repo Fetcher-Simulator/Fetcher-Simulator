@@ -9,6 +9,7 @@ set(OPENMW_SERVER_SOURCES
     AlchemyService.cpp
     EnchantingService.cpp
     CrimeService.cpp
+    CrimeAggression.cpp
     CrimeSemanticService.cpp
     JailSentenceService.cpp
     CrimeWitnessBuilder.cpp
@@ -40,6 +41,7 @@ set(OPENMW_SERVER_HEADERS
     AlchemyService.hpp
     EnchantingService.hpp
     CrimeService.hpp
+    CrimeAggression.hpp
     CrimeSemanticService.hpp
     JailSentenceService.hpp
     CrimeWitnessBuilder.hpp

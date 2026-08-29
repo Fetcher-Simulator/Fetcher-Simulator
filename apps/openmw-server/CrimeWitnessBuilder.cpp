@@ -140,6 +140,9 @@ namespace mwmp
             decision.cellId = actor.cellId;
             decision.alarm = actor.alarm;
             decision.alarmProvenance = actor.alarmProvenance;
+            decision.fight = actor.fight;
+            decision.fightProvenance = actor.fightProvenance;
+            decision.guard = actor.guard;
             decision.relationship = actor.relationship;
             decision.relationshipProvenance = actor.relationshipProvenance;
             decision.migrationGeneration = actor.migrationGeneration;
@@ -178,6 +181,8 @@ namespace mwmp
 
                     std::optional<std::int32_t> alarm = actor.alarm;
                     CrimeAlarmProvenance alarmProvenance = actor.alarmProvenance;
+                    std::optional<std::int32_t> fight = actor.fight;
+                    CrimeFightProvenance fightProvenance = actor.fightProvenance;
                     CrimeWitnessRelationship relationship = actor.relationship;
                     CrimeRelationshipProvenance relationshipProvenance = actor.relationshipProvenance;
                     const MechanicsSnapshot& mechanics = accepted->snapshot;
@@ -185,6 +190,11 @@ namespace mwmp
                     {
                         alarm = mechanics.effectiveAlarm;
                         alarmProvenance = CrimeAlarmProvenance::ValidatedActorAuthorityDelegated;
+                    }
+                    if ((mechanics.witnessStateFlags & MechanicsWitnessEffectiveFightKnown) != 0)
+                    {
+                        fight = mechanics.effectiveFight;
+                        fightProvenance = CrimeFightProvenance::ValidatedActorAuthorityDelegated;
                     }
                     if ((mechanics.witnessStateFlags & MechanicsWitnessRelationshipKnown) != 0)
                     {
@@ -201,6 +211,8 @@ namespace mwmp
                     }
                     decision.alarm = alarm;
                     decision.alarmProvenance = alarmProvenance;
+                    decision.fight = fight;
+                    decision.fightProvenance = fightProvenance;
                     decision.relationship = relationship;
                     decision.relationshipProvenance = relationshipProvenance;
 
@@ -214,6 +226,10 @@ namespace mwmp
                         decision.reason = CrimeWitnessBuildReason::AlarmUnavailable;
                     else if (*alarm < 0 || *alarm > 100)
                         decision.reason = CrimeWitnessBuildReason::AlarmInvalid;
+                    else if (!fight || fightProvenance == CrimeFightProvenance::Unavailable)
+                        decision.reason = CrimeWitnessBuildReason::FightUnavailable;
+                    else if (*fight < 0 || *fight > 100)
+                        decision.reason = CrimeWitnessBuildReason::FightInvalid;
                     else if (relationship == CrimeWitnessRelationship::InCombatWithVictim)
                         decision.reason = CrimeWitnessBuildReason::InCombatWithVictim;
                     else if (relationship == CrimeWitnessRelationship::PlayerFollower)
@@ -226,6 +242,8 @@ namespace mwmp
                         CrimeWitnessCandidate witness;
                         witness.actor = std::move(snapshot);
                         witness.alarm = *alarm;
+                        witness.fight = *fight;
+                        witness.guard = actor.guard;
                         witness.relationship = relationship;
                         witness.relationshipAuthority
                             = relationshipAuthority(relationshipProvenance);

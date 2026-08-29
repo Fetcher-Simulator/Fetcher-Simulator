@@ -43,8 +43,10 @@ namespace
         snapshot.migrationGeneration = 9;
         snapshot.authorityGeneration = 11;
         snapshot.witnessStateFlags = mwmp::MechanicsWitnessRelationshipKnown
-            | mwmp::MechanicsWitnessHasCombatTarget | mwmp::MechanicsWitnessEffectiveAlarmKnown;
+            | mwmp::MechanicsWitnessHasCombatTarget | mwmp::MechanicsWitnessEffectiveAlarmKnown
+            | mwmp::MechanicsWitnessEffectiveFightKnown;
         snapshot.effectiveAlarm = 100;
+        snapshot.effectiveFight = 30;
         snapshot.combatTargetKind = mwmp::MechanicsSubjectKind::Player;
         snapshot.combatTargetPlayerGuid = 42;
         return snapshot;
@@ -58,9 +60,9 @@ namespace
     }
 }
 
-TEST(MechanicsSnapshotProtocol, MultiplayerProtocolIsSixteen)
+TEST(MechanicsSnapshotProtocol, MultiplayerProtocolIsSeventeen)
 {
-    EXPECT_EQ(mwmp::MultiplayerProtocolVersion, 16);
+    EXPECT_EQ(mwmp::MultiplayerProtocolVersion, 17);
 }
 
 TEST(MechanicsSnapshotProtocol, CanonicalRoundTripIsDeterministic)
@@ -134,6 +136,12 @@ TEST(MechanicsSnapshotProtocol, RejectsIdentityGenerationSequenceAndCellErrors)
     EXPECT_FALSE(mwmp::validateMechanicsSnapshot(snapshot));
     snapshot = makeNpcSnapshot();
     snapshot.effectiveAlarm = 101;
+    EXPECT_FALSE(mwmp::validateMechanicsSnapshot(snapshot));
+    snapshot = makeNpcSnapshot();
+    snapshot.effectiveFight = 101;
+    EXPECT_FALSE(mwmp::validateMechanicsSnapshot(snapshot));
+    snapshot = makeNpcSnapshot();
+    snapshot.witnessStateFlags &= ~mwmp::MechanicsWitnessEffectiveFightKnown;
     EXPECT_FALSE(mwmp::validateMechanicsSnapshot(snapshot));
     snapshot = makeNpcSnapshot();
     snapshot.witnessStateFlags &= ~mwmp::MechanicsWitnessRelationshipKnown;

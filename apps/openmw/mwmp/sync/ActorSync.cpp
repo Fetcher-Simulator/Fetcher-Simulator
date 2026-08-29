@@ -4399,7 +4399,7 @@ namespace mwmp
                 {
                     const PlayerCrimeState& crimeState = mwmp::Main::get().getPlayerSync().localPlayer().crimeState;
                     mAuthoritativeCrimeCombatByActorNetId[reaction.actorNetId] = crimeState.currentCrimeId;
-                    Log(Debug::Info) << "[MP] ActorSync: tracked authoritative local guard combat"
+                    Log(Debug::Info) << "[MP] ActorSync: tracked authoritative local crime combat"
                                      << " actorNetId=" << reaction.actorNetId
                                      << " crimeId=" << crimeState.currentCrimeId
                                      << " event=" << directive.eventId;
@@ -4408,6 +4408,22 @@ namespace mwmp
                     && !directive.eventId.starts_with("crime-pursuit-suspend:"))
                 {
                     mAuthoritativeCrimeCombatByActorNetId.erase(reaction.actorNetId);
+                }
+            }
+
+            // Crime Fight is an absolute server-authored actor value. Observers
+            // keep delegated actors at Fight 0, but their puppet restore slot
+            // must receive the value too so a later authority handoff restores
+            // the same aggression instead of the pre-crime content default.
+            if ((reaction.flags & CrimeReactionSetFight) != 0 && runtime
+                && !runtime->boundActor.isEmpty())
+            {
+                if (auto* baseNode = runtime->boundActor.getRefData().getBaseNode())
+                {
+                    bool puppetAiSaved = false;
+                    if (baseNode->getUserValue("mp_puppet_ai_saved", puppetAiSaved)
+                        && puppetAiSaved)
+                        baseNode->setUserValue("mp_saved_ai_fight", reaction.fight);
                 }
             }
 
@@ -4488,6 +4504,16 @@ namespace mwmp
             }
 
             MWMechanics::NpcStats& npcStats = actor.getClass().getNpcStats(actor);
+            // Fight is actor-global and safe to authoritatively reproduce here.
+            // Native crime disposition/crimeId fields are indexed implicitly to
+            // the local player, so applying Sith's values on Mario's authority
+            // client would corrupt Mario's relationship state. Explicit combat
+            // and hit-attempt targets retain the multiplayer offender identity.
+            if ((reaction.flags & CrimeReactionSetFight) != 0)
+            {
+                npcStats.setAiSetting(MWMechanics::AiSetting::Fight, reaction.fight);
+                applied = true;
+            }
             if ((reaction.flags & CrimeReactionSetAlarmed) != 0)
             {
                 npcStats.setAlarmed(true);
@@ -4537,12 +4563,14 @@ namespace mwmp
                         ai.stopPursuit();
                     if (!ai.isInCombat(offender))
                         MWBase::Environment::get().getMechanicsManager()->startCombat(actor, offender, nullptr);
+                    npcStats.setHitAttemptActor(offender.getCellRef().getRefNum());
                     applied = true;
-                    Log(Debug::Info) << "[MP] ActorSync: applied authoritative guard combat"
+                    Log(Debug::Info) << "[MP] ActorSync: applied authoritative crime combat"
                                      << " event=" << directive.eventId
                                      << " actorNetId=" << reaction.actorNetId
                                      << " refId=" << actorRefId
                                      << " offenderGuid=" << directive.offenderGuid
+                                     << " fight=" << npcStats.getAiSetting(MWMechanics::AiSetting::Fight).getBase()
                                      << " inPursuit=" << ai.isInPursuit()
                                      << " inCombat=" << ai.isInCombat(offender);
                 }
@@ -7365,7 +7393,10 @@ namespace mwmp
                     MWMechanics::CreatureStats& witnessStats = ptr.getClass().getCreatureStats(ptr);
                     mechanics.effectiveAlarm
                         = witnessStats.getAiSetting(MWMechanics::AiSetting::Alarm).getBase();
-                    mechanics.witnessStateFlags |= MechanicsWitnessEffectiveAlarmKnown;
+                    mechanics.effectiveFight
+                        = witnessStats.getAiSetting(MWMechanics::AiSetting::Fight).getBase();
+                    mechanics.witnessStateFlags |= MechanicsWitnessEffectiveAlarmKnown
+                        | MechanicsWitnessEffectiveFightKnown;
 
                     MWMechanics::AiSequence& witnessAiSequence = witnessStats.getAiSequence();
                     mechanics.witnessStateFlags |= MechanicsWitnessRelationshipKnown;
@@ -9026,11 +9057,13 @@ namespace mwmp
                     MWWorld::Ptr combatTarget;
                     MWBase::World* combatWorld = MWBase::Environment::get().getWorld();
                     const std::string& targetId = actor.state.ai.targetId;
+                    bool explicitRemoteTarget = false;
                     if (combatWorld && !targetId.empty())
                     {
                         const std::string remotePrefix = std::string({ 'm', 'p', '_', 'r', 'e', 'm', 'o', 't', 'e', '_' });
                         if (targetId.rfind(remotePrefix, 0) == 0)
                         {
+                            explicitRemoteTarget = true;
                             uint32_t targetGuid = 0;
                             bool parsedGuid = true;
                             for (char ch : targetId.substr(remotePrefix.size()))
@@ -9051,7 +9084,7 @@ namespace mwmp
                             }
                         }
 
-                        if (combatTarget.isEmpty())
+                        if (combatTarget.isEmpty() && !explicitRemoteTarget)
                         {
                             MWWorld::Ptr localPlayer = combatWorld->getPlayerPtr();
                             if (!localPlayer.isEmpty()
@@ -9060,7 +9093,8 @@ namespace mwmp
                         }
                     }
 
-                    if (combatTarget.isEmpty() && actor.state.ai.targetMpNum != 0)
+                    if (combatTarget.isEmpty() && !explicitRemoteTarget
+                        && actor.state.ai.targetMpNum != 0)
                     {
                         for (auto& cellEntry : mCells)
                         {
@@ -9079,8 +9113,19 @@ namespace mwmp
                         }
                     }
 
-                    if (combatTarget.isEmpty() && combatWorld)
+                    // An explicit multiplayer player target is authoritative. If
+                    // that proxy is not ready yet, leave combat reconstruction
+                    // pending instead of silently retargeting the local authority
+                    // player (the exact Mario/Sith authority-transfer failure).
+                    if (combatTarget.isEmpty() && combatWorld && targetId.empty())
                         combatTarget = combatWorld->getPlayerPtr();
+                    else if (combatTarget.isEmpty() && explicitRemoteTarget)
+                    {
+                        Log(Debug::Warning) << "[MP] ActorSync: deferred moved-actor combat restore; remote target unavailable"
+                                            << " cell=" << targetCellId
+                                            << " refId=" << actor.state.refId
+                                            << " targetId=" << targetId;
+                    }
 
                     if (!combatTarget.isEmpty())
                     {

@@ -21,6 +21,13 @@ namespace mwmp
         ValidatedActorAuthorityDelegated,
     };
 
+    enum class CrimeFightProvenance : std::uint8_t
+    {
+        Unavailable = 0,
+        StaticContentBase,
+        ValidatedActorAuthorityDelegated,
+    };
+
     enum class CrimeRelationshipProvenance : std::uint8_t
     {
         Unavailable = 0,
@@ -40,6 +47,9 @@ namespace mwmp
         float bootWeight = 0.f;
         std::optional<std::int32_t> alarm;
         CrimeAlarmProvenance alarmProvenance = CrimeAlarmProvenance::Unavailable;
+        std::optional<std::int32_t> fight;
+        CrimeFightProvenance fightProvenance = CrimeFightProvenance::Unavailable;
+        bool guard = false;
         CrimeWitnessRelationship relationship = CrimeWitnessRelationship::Unknown;
         CrimeRelationshipProvenance relationshipProvenance = CrimeRelationshipProvenance::Unavailable;
     };
@@ -78,6 +88,8 @@ namespace mwmp
         ActorIneligible,
         AlarmUnavailable,
         AlarmInvalid,
+        FightUnavailable,
+        FightInvalid,
         InCombatWithVictim,
         PlayerFollower,
         RelationshipUnknown,
@@ -91,6 +103,9 @@ namespace mwmp
         CrimeWitnessBuildReason reason = CrimeWitnessBuildReason::CanonicalKindRejected;
         std::optional<std::int32_t> alarm;
         CrimeAlarmProvenance alarmProvenance = CrimeAlarmProvenance::Unavailable;
+        std::optional<std::int32_t> fight;
+        CrimeFightProvenance fightProvenance = CrimeFightProvenance::Unavailable;
+        bool guard = false;
         CrimeWitnessRelationship relationship = CrimeWitnessRelationship::Unknown;
         CrimeRelationshipProvenance relationshipProvenance = CrimeRelationshipProvenance::Unavailable;
         std::uint32_t migrationGeneration = 0;
