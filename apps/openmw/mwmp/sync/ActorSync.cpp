@@ -1,4 +1,5 @@
 #include "ActorSync.hpp"
+#include "CrimeReactionReadiness.hpp"
 #include "WorldObjectSync.hpp"
 
 #include <algorithm>
@@ -1393,17 +1394,11 @@ namespace mwmp
                     = mwmp::Main::get().getPlayerList().getPlayer(it->directive.offenderGuid))
                     offender = remotePlayer->getNpcPtr();
 
-                bool pursuitRequiresSameCell = false;
-                for (const CrimeActorReaction& reaction : it->directive.actors)
-                {
-                    if ((reaction.flags & CrimeReactionPursueOffender) != 0)
-                    {
-                        pursuitRequiresSameCell = true;
-                        break;
-                    }
-                }
-                if (offender.isEmpty()
-                    || (pursuitRequiresSameCell && cellIdForPtr(offender) != it->directive.cellId))
+                const bool offenderPresent = !offender.isEmpty();
+                const bool offenderInDirectiveCell
+                    = offenderPresent && cellIdForPtr(offender) == it->directive.cellId;
+                if (!crimeReactionOffenderReady(
+                        it->directive, offenderPresent, offenderInDirectiveCell))
                 {
                     ++it;
                     continue;
@@ -4334,19 +4329,10 @@ namespace mwmp
         else if (auto* remotePlayer = mwmp::Main::get().getPlayerList().getPlayer(directive.offenderGuid))
             offender = remotePlayer->getNpcPtr();
 
-        bool requiresOffender = false;
-        bool offenderRequiresSameCell = false;
-        for (const CrimeActorReaction& reaction : directive.actors)
-        {
-            if ((reaction.flags & (CrimeReactionPursueOffender | CrimeReactionClearPursuit
-                    | CrimeReactionStartCombat)) != 0)
-                requiresOffender = true;
-            if ((reaction.flags & (CrimeReactionPursueOffender | CrimeReactionStartCombat)) != 0)
-                offenderRequiresSameCell = true;
-        }
-        const bool offenderReady = !requiresOffender || (!offender.isEmpty()
-            && (!offenderRequiresSameCell || cellIdForPtr(offender) == directive.cellId));
-        if (!offenderReady)
+        const bool offenderPresent = !offender.isEmpty();
+        const bool offenderInDirectiveCell
+            = offenderPresent && cellIdForPtr(offender) == directive.cellId;
+        if (!crimeReactionOffenderReady(directive, offenderPresent, offenderInDirectiveCell))
         {
             const auto pending = std::find_if(mPendingCrimeReactions.begin(), mPendingCrimeReactions.end(),
                 [&](const PendingCrimeReaction& entry) {
