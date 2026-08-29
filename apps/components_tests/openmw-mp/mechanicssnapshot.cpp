@@ -60,9 +60,9 @@ namespace
     }
 }
 
-TEST(MechanicsSnapshotProtocol, MultiplayerProtocolIsSeventeen)
+TEST(MechanicsSnapshotProtocol, MultiplayerProtocolIsEighteen)
 {
-    EXPECT_EQ(mwmp::MultiplayerProtocolVersion, 17);
+    EXPECT_EQ(mwmp::MultiplayerProtocolVersion, 18);
 }
 
 TEST(MechanicsSnapshotProtocol, CanonicalRoundTripIsDeterministic)

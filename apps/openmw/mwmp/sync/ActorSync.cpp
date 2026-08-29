@@ -4411,22 +4411,10 @@ namespace mwmp
                 }
             }
 
-            // Crime Fight is an absolute server-authored actor value. Observers
-            // keep delegated actors at Fight 0, but their puppet restore slot
-            // must receive the value too so a later authority handoff restores
-            // the same aggression instead of the pre-crime content default.
-            if ((reaction.flags & CrimeReactionSetFight) != 0 && runtime
-                && !runtime->boundActor.isEmpty())
-            {
-                if (auto* baseNode = runtime->boundActor.getRefData().getBaseNode())
-                {
-                    bool puppetAiSaved = false;
-                    if (baseNode->getUserValue("mp_puppet_ai_saved", puppetAiSaved)
-                        && puppetAiSaved)
-                        baseNode->setUserValue("mp_saved_ai_fight", reaction.fight);
-                }
-            }
-
+            // Crime-adjusted Fight is offender-scoped server state in multiplayer.
+            // Do not mirror it into the generic actor Fight rating here: that rating
+            // is evaluated against the authority client's local player and would
+            // make a crime against one player leak aggression onto another.
             // Crime reactions are server-authored but actor simulation remains
             // delegated. Only the current actor authority executes semantic
             // dialogue/AI; the existing ActorSpeech and ActorAI channels then
@@ -4504,16 +4492,6 @@ namespace mwmp
             }
 
             MWMechanics::NpcStats& npcStats = actor.getClass().getNpcStats(actor);
-            // Fight is actor-global and safe to authoritatively reproduce here.
-            // Native crime disposition/crimeId fields are indexed implicitly to
-            // the local player, so applying Sith's values on Mario's authority
-            // client would corrupt Mario's relationship state. Explicit combat
-            // and hit-attempt targets retain the multiplayer offender identity.
-            if ((reaction.flags & CrimeReactionSetFight) != 0)
-            {
-                npcStats.setAiSetting(MWMechanics::AiSetting::Fight, reaction.fight);
-                applied = true;
-            }
             if ((reaction.flags & CrimeReactionSetAlarmed) != 0)
             {
                 npcStats.setAlarmed(true);

@@ -324,6 +324,30 @@ TEST(CrimeWitnessBuilder, ValidatedAtomicWitnessStateOverridesStaticFallback)
     EXPECT_EQ(decisionFor(result, combat).reason, CrimeWitnessBuildReason::InCombatWithVictim);
 }
 
+TEST(CrimeWitnessBuilder, OffenderScopedFightOverridesDelegatedGenericFight)
+{
+    MechanicsSnapshotRegistry registry;
+    Source source;
+    const auto observer = npc(1);
+    LiveCrimeWitnessActor scoped = actor(observer, "Balmora");
+    scoped.fight = 100;
+    scoped.fightProvenance = CrimeFightProvenance::ServerOffenderScoped;
+    source.cells["Balmora"] = { scoped };
+
+    auto delegated = snapshot(observer, "Balmora", 0.f, 10.f);
+    delegated.witnessStateFlags = MechanicsWitnessRelationshipKnown
+        | MechanicsWitnessEffectiveAlarmKnown | MechanicsWitnessEffectiveFightKnown;
+    delegated.effectiveAlarm = 100;
+    delegated.effectiveFight = 30;
+    accept(registry, delegated);
+
+    const auto result = CrimeWitnessBuilder(registry).build(interiorRequest(), source);
+    ASSERT_EQ(result.witnesses.size(), 1u);
+    EXPECT_EQ(result.witnesses[0].fight, 100);
+    EXPECT_EQ(decisionFor(result, observer).fightProvenance,
+        CrimeFightProvenance::ServerOffenderScoped);
+}
+
 TEST(CrimeWitnessBuilder, AlarmRequiresExplicitValidProvenance)
 {
     MechanicsSnapshotRegistry registry;

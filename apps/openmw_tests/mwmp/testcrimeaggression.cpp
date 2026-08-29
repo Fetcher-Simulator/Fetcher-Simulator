@@ -151,3 +151,23 @@ TEST(CrimeAggression, NpcDistanceBiasUsesFullThreeDimensionalDistance)
     EXPECT_FLOAT_EQ(result.distance, 13.f);
     EXPECT_FLOAT_EQ(result.distanceBias, 19.87f);
 }
+
+TEST(CrimeAggression, GuardEnforcementUsesConfiguredCrimeThresholds)
+{
+    EXPECT_EQ(calculateGuardCrimeEnforcement(999, 1000, 5),
+        GuardCrimeEnforcementDecision::None);
+    EXPECT_EQ(calculateGuardCrimeEnforcement(1000, 1000, 5),
+        GuardCrimeEnforcementDecision::Arrest);
+    EXPECT_EQ(calculateGuardCrimeEnforcement(4999, 1000, 5),
+        GuardCrimeEnforcementDecision::Arrest);
+    EXPECT_EQ(calculateGuardCrimeEnforcement(5000, 1000, 5),
+        GuardCrimeEnforcementDecision::Combat);
+}
+
+TEST(CrimeAggression, GuardEnforcementRejectsInvalidPolicy)
+{
+    EXPECT_EQ(calculateGuardCrimeEnforcement(10000, 0, 5),
+        GuardCrimeEnforcementDecision::None);
+    EXPECT_EQ(calculateGuardCrimeEnforcement(10000, 1000, 0),
+        GuardCrimeEnforcementDecision::None);
+}

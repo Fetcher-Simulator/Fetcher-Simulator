@@ -95,3 +95,17 @@ mwmp::CrimeAggressionResult mwmp::calculateCrimeAggression(
         result.finalFight = input.baseFight + static_cast<std::int32_t>(fightTerm);
     return result;
 }
+
+mwmp::GuardCrimeEnforcementDecision mwmp::calculateGuardCrimeEnforcement(
+    std::int32_t bounty, std::int32_t crimeThreshold, std::int32_t thresholdMultiplier)
+{
+    if (bounty < 0 || crimeThreshold <= 0 || thresholdMultiplier <= 0
+        || bounty < crimeThreshold)
+        return GuardCrimeEnforcementDecision::None;
+
+    const std::int64_t combatThreshold
+        = static_cast<std::int64_t>(crimeThreshold) * thresholdMultiplier;
+    return static_cast<std::int64_t>(bounty) >= combatThreshold
+        ? GuardCrimeEnforcementDecision::Combat
+        : GuardCrimeEnforcementDecision::Arrest;
+}

@@ -70,6 +70,16 @@ namespace mwmp
 
     CrimeAggressionResult calculateCrimeAggression(
         const CrimeAggressionInput& input, const CrimeAggressionPolicy& policy);
+
+    enum class GuardCrimeEnforcementDecision : std::uint8_t
+    {
+        None = 0,
+        Arrest,
+        Combat,
+    };
+
+    GuardCrimeEnforcementDecision calculateGuardCrimeEnforcement(
+        std::int32_t bounty, std::int32_t crimeThreshold, std::int32_t thresholdMultiplier);
 }
 
 #endif
