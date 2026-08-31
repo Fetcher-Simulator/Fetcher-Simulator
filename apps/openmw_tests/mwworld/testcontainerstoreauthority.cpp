@@ -5,6 +5,7 @@
 #include "apps/openmw/mwworld/esmstore.hpp"
 #include "apps/openmw/mwworld/livecellref.hpp"
 #include "apps/openmw/mwworld/worldmodel.hpp"
+#include "apps/openmw/mwmp/sync/InventoryIdentity.hpp"
 
 #include <components/esm3/loadcont.hpp>
 #include <components/esm3/loadmisc.hpp>
@@ -18,6 +19,11 @@ namespace MWWorld
 {
     namespace
     {
+        struct ExposedContainerStore : ContainerStore
+        {
+            using ContainerStore::addNewStack;
+        };
+
         struct ContainerAuthorityFixture
         {
             MWBase::Environment environment;
@@ -60,6 +66,35 @@ namespace MWWorld
 
             Ptr containerPtr() { return Ptr(&*liveContainer); }
         };
+
+        TEST(ContainerStoreAuthority, CopiedStackCanDropSourceInventoryIdentity)
+        {
+            ContainerAuthorityFixture fixture;
+
+            ESM::CellRef sourceRef;
+            sourceRef.blank();
+            sourceRef.mRefID = fixture.finiteItem.mId;
+            sourceRef.mRefNum = mwmp::inventoryInstanceRefNum(6537);
+            LiveCellRef<ESM::Miscellaneous> liveSource(sourceRef, &fixture.finiteItem);
+            Ptr source(&liveSource);
+            source.getCellRef().setCount(840);
+
+            ExposedContainerStore preserved;
+            const auto preservedIt = preserved.addNewStack(source, 1);
+            ASSERT_NE(preservedIt, preserved.end());
+            EXPECT_EQ(preservedIt->getCellRef().getCount(), 1);
+            EXPECT_EQ(mwmp::inventoryInstanceId(preservedIt->getCellRef().getRefNum()), 6537u);
+
+            ExposedContainerStore detached;
+            const auto detachedIt = detached.addNewStack(source, 1, false);
+            ASSERT_NE(detachedIt, detached.end());
+            EXPECT_EQ(detachedIt->getCellRef().getCount(), 1);
+            EXPECT_EQ(mwmp::inventoryInstanceId(detachedIt->getCellRef().getRefNum()), 0u);
+            EXPECT_FALSE(detachedIt->getCellRef().getRefNum().isSet());
+
+            EXPECT_EQ(source.getCellRef().getCount(), 840);
+            EXPECT_EQ(mwmp::inventoryInstanceId(source.getCellRef().getRefNum()), 6537u);
+        }
 
         TEST(ContainerStoreAuthority, AuthoritativeTemporaryResolutionSurvivesHandleRelease)
         {

@@ -300,8 +300,8 @@ namespace MWWorld
         std::ptrdiff_t index(const ContainerStoreIterator& iter) const;
 
     private:
-        ContainerStoreIterator addImp(
-            const ConstPtr& ptr, int count, bool markModified = true, bool forceNewStack = false);
+        ContainerStoreIterator addImp(const ConstPtr& ptr, int count, bool markModified = true,
+            bool forceNewStack = false, bool preserveSourceRefNum = true);
         void addInitialItem(
             const ESM::RefId& id, const ESM::RefId& owner, int count, Misc::Rng::Generator* prng, bool topLevel = true);
         void addInitialItemImp(const MWWorld::Ptr& ptr, const ESM::RefId& owner, int count, Misc::Rng::Generator* prng,
@@ -350,9 +350,8 @@ namespace MWWorld
 
         bool hasVisibleItems() const;
 
-        virtual ContainerStoreIterator add(
-            const ConstPtr& itemPtr, int count, bool allowAutoEquip = true, bool resolve = true,
-            bool forceNewStack = false);
+        virtual ContainerStoreIterator add(const ConstPtr& itemPtr, int count, bool allowAutoEquip = true,
+            bool resolve = true, bool forceNewStack = false, bool preserveSourceRefNum = true);
         ///< Add the item pointed to by \a ptr to this container. (Stacks automatically if needed)
         ///
         /// \note The item pointed to is not required to exist beyond this function call.
@@ -406,7 +405,7 @@ namespace MWWorld
         void setContListener(ContainerStoreListener* listener);
 
     protected:
-        ContainerStoreIterator addNewStack(const ConstPtr& ptr, int count);
+        ContainerStoreIterator addNewStack(const ConstPtr& ptr, int count, bool preserveSourceRefNum = true);
         ///< Add the item to this container (do not try to stack it onto existing items)
 
         virtual void flagAsModified();

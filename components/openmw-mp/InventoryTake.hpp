@@ -142,6 +142,7 @@ namespace mwmp
 
     using AuthoritativeContainerIdentityPredicate
         = std::function<bool(const ContainerItem&, const ContainerItem&)>;
+    using AuthoritativeInventoryDestinationPredicate = std::function<bool(const Item&)>;
 
     InventoryTakeError validateInventoryTakeRequest(const InventoryTakeRequest& request);
     std::string canonicalInventoryTakeRequest(const InventoryTakeRequest& request);
@@ -151,8 +152,8 @@ namespace mwmp
     bool sameAuthoritativeContainerIdentity(const ContainerItem& left, const ContainerItem& right);
     bool hasCompatibleAuthoritativeContainerStack(
         const std::vector<ContainerItem>& items, const ContainerItem& incoming);
-    AuthoritativeStackMutation mergeAuthoritativeInventoryItem(
-        std::vector<Item>& items, Item& incoming, bool allowStacking = true);
+    AuthoritativeStackMutation mergeAuthoritativeInventoryItem(std::vector<Item>& items, Item& incoming,
+        bool allowStacking = true, const AuthoritativeInventoryDestinationPredicate& destinationPredicate = {});
     AuthoritativeStackMutation mergeAuthoritativeContainerItem(
         std::vector<ContainerItem>& items, ContainerItem& incoming, bool allowStacking = true);
     std::optional<ContainerAggregateTake> takeAuthoritativeContainerItems(std::vector<ContainerItem>& items,

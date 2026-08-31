@@ -259,6 +259,40 @@ TEST(InventoryAuthority, NativeNonStackableWorldPickupRetainsSeparateIdentity)
     EXPECT_EQ(inventory[1].instanceId, 7001u);
 }
 
+TEST(InventoryAuthority, EquippedDestinationCanBeExcludedFromNativeStackMerge)
+{
+    std::vector<mwmp::Item> inventory{ inventoryMedkit(10, 6001) };
+    mwmp::Item recovered = inventoryMedkit(1, 7001);
+
+    const auto unequippedOnly = [](const mwmp::Item& item) { return item.instanceId != 6001; };
+    EXPECT_EQ(mwmp::mergeAuthoritativeInventoryItem(inventory, recovered, true, unequippedOnly),
+        mwmp::AuthoritativeStackMutation::Added);
+    ASSERT_EQ(inventory.size(), 2u);
+    EXPECT_EQ(inventory[0].count, 10);
+    EXPECT_EQ(inventory[0].instanceId, 6001u);
+    EXPECT_EQ(inventory[1].count, 1);
+    EXPECT_EQ(inventory[1].instanceId, 7001u);
+}
+
+TEST(InventoryAuthority, UnequippedCompatibleDestinationIsPreferredWhenEquippedStackIsBlocked)
+{
+    std::vector<mwmp::Item> inventory{
+        inventoryMedkit(10, 6001),
+        inventoryMedkit(3, 6002),
+    };
+    mwmp::Item recovered = inventoryMedkit(2, 7001);
+
+    const auto unequippedOnly = [](const mwmp::Item& item) { return item.instanceId != 6001; };
+    EXPECT_EQ(mwmp::mergeAuthoritativeInventoryItem(inventory, recovered, true, unequippedOnly),
+        mwmp::AuthoritativeStackMutation::Merged);
+    ASSERT_EQ(inventory.size(), 2u);
+    EXPECT_EQ(inventory[0].count, 10);
+    EXPECT_EQ(inventory[0].instanceId, 6001u);
+    EXPECT_EQ(inventory[1].count, 5);
+    EXPECT_EQ(inventory[1].instanceId, 6002u);
+    EXPECT_EQ(recovered.instanceId, 6002u);
+}
+
 TEST(InventoryAuthority, RepeatedPartialPutsRetainOneDestinationIdentity)
 {
     std::vector<mwmp::ContainerItem> destination{ medkit(3, 6337) };
