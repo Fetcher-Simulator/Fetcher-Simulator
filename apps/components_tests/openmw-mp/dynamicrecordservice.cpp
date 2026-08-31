@@ -6,6 +6,7 @@
 #include <limits>
 #include <unordered_map>
 
+#include <components/openmw-mp/Packets/Records/PacketRecordCreateResult.hpp>
 #include <components/openmw-mp/Records/DynamicRecordCodec.hpp>
 #include <components/openmw-mp/Records/DynamicRecordFingerprint.hpp>
 #include <components/openmw-mp/Records/DynamicRecordValidation.hpp>
@@ -433,6 +434,84 @@ TEST(DynamicRecordService, TrustedServerLuaUsesCanonicalJournalAndReplaysAfterRe
     EXPECT_TRUE(replay.replayed);
     EXPECT_EQ(replay.result, committedResult);
     EXPECT_TRUE(replay.newRecords.empty());
+}
+
+TEST(DynamicRecordService, TrustedServerReplayRefreshesDefinitionFromMigratedDurableRecord)
+{
+    using namespace mwmp;
+    using namespace mwmp::records;
+
+    TemporaryServiceDatabase temporary;
+    PlayerDatabase database(temporary.path.string());
+
+    auto request = makeClothingRequest("server-lua-migrated-replay", AuthoringMode::Override);
+    const DynamicRecordDefinition currentDefinition = canonicalize(request.bundle.records.front().definition);
+    const std::string currentBytes = encodeDefinition(currentDefinition);
+
+    DynamicRecordDefinition staleDefinition = currentDefinition;
+    staleDefinition.schemaVersion = 2;
+    const std::string staleBytes = encodeDefinition(staleDefinition);
+
+    RecordCreateResult staleResult;
+    staleResult.requestId = request.requestId;
+    staleResult.accepted = true;
+    staleResult.commitSequence = 42;
+    staleResult.records.push_back({ "clothing", "static_tunic", false, staleBytes });
+
+    PacketRecordCreateResult packet;
+    packet.result = staleResult;
+    const std::vector<std::uint8_t> encodedResult = packet.encode();
+
+    DynamicRecordCommit commit;
+    commit.requestId = request.requestId;
+    commit.requestHash = "server-lua-migrated-hash";
+    commit.resultPayload.assign(
+        reinterpret_cast<const char*>(encodedResult.data()), encodedResult.size());
+    commit.requireInventoryRevision = false;
+    commit.serverSource = "server_lua";
+
+    DynamicRecordCommitEntry entry;
+    entry.record.recordType = "clothing";
+    entry.record.recordId = "static_tunic";
+    entry.record.data = currentBytes;
+    entry.record.recordScope = "permanent";
+    entry.record.schemaVersion = CurrentSchemaVersion;
+    entry.catalog.recordType = "clothing";
+    entry.catalog.recordId = "static_tunic";
+    entry.catalog.recordScope = "permanent";
+    entry.catalog.persistent = true;
+    entry.catalog.definitionFingerprint = fingerprint(currentDefinition);
+    entry.catalog.creationSource = "server_lua";
+    entry.catalog.schemaVersion = CurrentSchemaVersion;
+    commit.records.push_back(std::move(entry));
+
+    ASSERT_EQ(database.commitDynamicRecordRequest(commit), DynamicRecordCommitStatus::Committed);
+
+    auto context = makeTrustedContentContext("clothing", "static_tunic");
+    context.allowStaticOverrides = true;
+    context.hasStaticRecord = [](auto type, auto) { return type == RecordType::Clothing; };
+    context.findRecordById = [&](auto type, auto id)
+        -> std::optional<DynamicRecordService::CatalogRecord> {
+        if (type != RecordType::Clothing || id != "static_tunic")
+            return std::nullopt;
+        return DynamicRecordService::CatalogRecord{
+            "clothing", "static_tunic", fingerprint(currentDefinition), currentBytes };
+    };
+
+    DynamicRecordService service(database);
+    auto replay = service.execute(request, "server-lua-migrated-hash", context,
+        [](auto, auto) { return std::optional<DynamicRecordService::CatalogRecord>{}; },
+        [](auto) { return std::string{}; }, [] { return 99u; });
+
+    ASSERT_TRUE(replay.result.accepted);
+    ASSERT_TRUE(replay.replayed);
+    ASSERT_EQ(replay.result.records.size(), 1u);
+    EXPECT_NE(replay.result.records.front().definition, staleBytes);
+
+    const DynamicRecordDefinition replayedDefinition
+        = decodeDefinition(replay.result.records.front().definition);
+    EXPECT_EQ(replayedDefinition.schemaVersion, CurrentSchemaVersion);
+    EXPECT_EQ(fingerprint(replayedDefinition), fingerprint(currentDefinition));
 }
 
 TEST(DynamicRecordService, EnforcesExplicitNewAndBootstrapOverrideModes)
