@@ -423,6 +423,42 @@ namespace mwmp
                 if (!packet.decode(outcome.encodedResult))
                     throw std::runtime_error("Persisted record-create result is corrupt");
                 outcome.result = std::move(packet.result);
+
+                // Server-owned record journals can outlive dynamic-record schema migrations.
+                // Preserve the terminal request decision, but refresh accepted replay definitions
+                // from the current durable catalog so stale historical blobs are never reinstalled.
+                if (outcome.result.accepted && !context.serverRequestSource.empty() && context.findRecordById)
+                {
+                    std::unordered_map<std::string, records::RecordType> replayTypes;
+                    replayTypes.reserve(request.bundle.records.size());
+                    for (const records::RecordDraft& draft : request.bundle.records)
+                        replayTypes.emplace(draft.temporaryKey, records::getRecordType(draft.definition));
+
+                    for (records::CreatedRecord& created : outcome.result.records)
+                    {
+                        const auto typeIt = replayTypes.find(created.temporaryKey);
+                        if (typeIt == replayTypes.end())
+                            continue;
+
+                        const auto current = context.findRecordById(typeIt->second, created.recordId);
+                        if (!current)
+                            continue;
+
+                        try
+                        {
+                            records::DynamicRecordDefinition canonical = records::canonicalize(
+                                records::upgradeDefinition(records::decodeDefinition(current->definition)));
+                            if (records::getRecordType(canonical) == typeIt->second)
+                                created.definition = records::encodeDefinition(canonical);
+                        }
+                        catch (const std::exception&)
+                        {
+                            // Leave the historical result untouched if the durable catalog is itself unreadable.
+                        }
+                    }
+                    outcome.encodedResult = encodeResult(outcome.result);
+                }
+
                 outcome.replayed = true;
                 return outcome;
             }
