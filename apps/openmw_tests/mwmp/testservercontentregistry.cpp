@@ -3,6 +3,7 @@
 #include <components/esm3/loadalch.hpp>
 #include <components/esm3/loadappa.hpp>
 #include <components/esm3/loadcrea.hpp>
+#include <components/esm3/loadclas.hpp>
 #include <components/esm3/loaddial.hpp>
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadingr.hpp>
@@ -143,6 +144,30 @@ TEST(ServerContentRegistry, identicalResolvedContentHasIdenticalFingerprint)
     first.insertStatic(makePotion("potion_a", 1.f));
     second.insertStatic(makePotion("potion_a", 1.f));
     second.insertStatic(makePotion("potion_b", 2.f));
+    EXPECT_EQ(MWMP::resolvedContentFingerprint(first), MWMP::resolvedContentFingerprint(second));
+}
+
+TEST(ServerContentRegistry, stringRefIdCasingDoesNotChangeResolvedFingerprint)
+{
+    MWWorld::ESMStore first;
+    MWWorld::ESMStore second;
+
+    ESM::Dialogue firstDialogue = makeDialogue("Same response");
+    ESM::Dialogue secondDialogue = firstDialogue;
+    firstDialogue.mId = ESM::RefId::stringRefId("Thief");
+    secondDialogue.mId = ESM::RefId::stringRefId("thief");
+    first.insertStatic(firstDialogue);
+    second.insertStatic(secondDialogue);
+
+    ESM::Class firstClass;
+    firstClass.blank();
+    firstClass.mId = ESM::RefId::stringRefId("Archer");
+    firstClass.mName = "Archer";
+    ESM::Class secondClass = firstClass;
+    secondClass.mId = ESM::RefId::stringRefId("archer");
+    first.insertStatic(firstClass);
+    second.insertStatic(secondClass);
+
     EXPECT_EQ(MWMP::resolvedContentFingerprint(first), MWMP::resolvedContentFingerprint(second));
 }
 

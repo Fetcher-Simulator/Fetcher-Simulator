@@ -86,6 +86,16 @@ namespace
         appendString(out, value.getNormalized().value());
     }
 
+    std::string canonicalRecordId(const ESM::RefId& id)
+    {
+        return id.serializeText();
+    }
+
+    std::string canonicalRecordId(ESM::StringRefId id)
+    {
+        return ESM::RefId(id).serializeText();
+    }
+
     template <class T>
     void appendTypedRecords(const MWWorld::ESMStore& store, mwmp::records::RecordType type, std::vector<Entry>& out)
     {
@@ -99,7 +109,7 @@ namespace
                 continue;
             Entry entry;
             entry.type = static_cast<std::uint8_t>(type);
-            entry.id = staticRecord->mId.toString();
+            entry.id = canonicalRecordId(staticRecord->mId);
             entry.definition = mwmp::records::encodeDefinition(
                 mwmp::records::canonicalize(mwmp::records::fromEsmRecord(*staticRecord)));
             out.push_back(std::move(entry));
@@ -127,7 +137,7 @@ namespace
                 continue;
             Entry entry;
             entry.type = static_cast<std::uint8_t>(type);
-            entry.id = record.mId.toString();
+            entry.id = canonicalRecordId(record.mId);
             encode(record, entry.definition);
             out.push_back(std::move(entry));
         }
