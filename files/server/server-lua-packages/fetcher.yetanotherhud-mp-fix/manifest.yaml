@@ -1,0 +1,14 @@
+manifestVersion: 3
+packageId: fetcher.yetanotherhud-mp-fix
+packageVersion: 1
+requiredOpenMWLuaApi: 141
+requiredMultiplayerLuaApi: 7
+dependencies: []
+files:
+  - overrides/hud_enemy_npc.lua
+overrides:
+  - target: scripts/yetanotherhud/hud_enemy_npc.lua
+    source: overrides/hud_enemy_npc.lua
+    targetPolicy: if-present
+    acceptedBaseHashes:
+      - 1233fca9bb48ac2b92c601d568b30b6889fe989741d6aba9568b62156f31f768
