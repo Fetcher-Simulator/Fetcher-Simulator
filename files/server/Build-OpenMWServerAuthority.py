@@ -49,10 +49,13 @@ BINARY_CONTENT_EXTENSIONS = {".esm", ".esp", ".omwgame", ".omwaddon"}
 MODEL_SUBRECORDS = {b"MODL", b"MOD2", b"MOD3", b"MOD4", b"MOD5"}
 ICON_SUBRECORDS = {b"ITEX", b"ICON"}
 # DynamicRecordService currently accepts item definitions for these TES3 record types.
-# Only their model/icon assets need to be present in the authority VFS for runtime
-# record validation. Scanning every MODL in the world would unnecessarily copy tens
-# of thousands of static scenery meshes.
+# Their model/icon assets need to be present in the authority VFS for runtime record validation.
 RUNTIME_ITEM_RECORDS = {b"ALCH", b"WEAP", b"ARMO", b"CLOT", b"BOOK"}
+
+# ServerCollisionWorld builds authoritative LOS/world collision from these placed record types.
+# Do not copy every model definition: collect final definitions by record ID, then include only
+# loose models whose IDs are actually referenced by CELL records in the configured content stack.
+COLLISION_BLOCKER_RECORDS = {b"ACTI", b"CONT", b"DOOR", b"LIGH", b"STAT"}
 
 
 @dataclass(frozen=True)
@@ -278,11 +281,16 @@ def decode_subrecord_string(value: bytes, encoding: str) -> str:
     return value.decode(encoding, errors="replace").strip()
 
 
-def collect_asset_references(path: Path, encoding: str) -> tuple[set[str], set[str]]:
-    """Collect runtime-item TES3 model/icon strings without modifying the file."""
+def collect_asset_references(
+    path: Path, encoding: str
+) -> tuple[set[str], set[str], dict[str, str], set[str]]:
+    """Collect runtime-item assets plus placed server-collision model dependencies."""
 
     models: set[str] = set()
     icons: set[str] = set()
+    blocker_models: dict[str, str] = {}
+    placed_reference_ids: set[str] = set()
+
     with path.open("rb") as stream:
         record_index = 0
         while True:
@@ -298,12 +306,20 @@ def collect_asset_references(path: Path, encoding: str) -> tuple[set[str], set[s
                 raise ValueError(
                     f"short record body at record {record_index}: expected {body_size}, got {len(body)}"
                 )
-            # Server-side dynamic records only need static item model/icon assets.
-            # Ignore scenery/NPC/etc. MODL subrecords so the authority stays small.
-            if record_type not in RUNTIME_ITEM_RECORDS:
+
+            interested = (
+                record_type in RUNTIME_ITEM_RECORDS
+                or record_type in COLLISION_BLOCKER_RECORDS
+                or record_type == b"CELL"
+            )
+            if not interested:
                 record_index += 1
                 continue
+
             offset = 0
+            blocker_id = ""
+            blocker_model = ""
+            waiting_for_reference_name = False
             while offset < len(body):
                 if len(body) - offset < 8:
                     raise ValueError(
@@ -317,17 +333,41 @@ def collect_asset_references(path: Path, encoding: str) -> tuple[set[str], set[s
                     raise ValueError(
                         f"short subrecord body {name!r} at record {record_index}, offset {offset}"
                     )
-                if name in MODEL_SUBRECORDS:
-                    value = decode_subrecord_string(body[start:end], encoding)
-                    if value:
-                        models.add(value)
-                elif name in ICON_SUBRECORDS:
-                    value = decode_subrecord_string(body[start:end], encoding)
-                    if value:
-                        icons.add(value)
+                value_bytes = body[start:end]
+
+                if record_type in RUNTIME_ITEM_RECORDS:
+                    if name in MODEL_SUBRECORDS:
+                        value = decode_subrecord_string(value_bytes, encoding)
+                        if value:
+                            models.add(value)
+                    elif name in ICON_SUBRECORDS:
+                        value = decode_subrecord_string(value_bytes, encoding)
+                        if value:
+                            icons.add(value)
+                elif record_type in COLLISION_BLOCKER_RECORDS:
+                    if name == b"NAME" and not blocker_id:
+                        blocker_id = decode_subrecord_string(value_bytes, encoding)
+                    elif name in MODEL_SUBRECORDS and not blocker_model:
+                        blocker_model = decode_subrecord_string(value_bytes, encoding)
+                else:
+                    if name == b"FRMR":
+                        waiting_for_reference_name = True
+                    elif waiting_for_reference_name and name == b"NAME":
+                        reference_id = decode_subrecord_string(value_bytes, encoding)
+                        if reference_id:
+                            placed_reference_ids.add(reference_id.casefold())
+                        waiting_for_reference_name = False
+
                 offset = end
+
+            if record_type in COLLISION_BLOCKER_RECORDS and blocker_id:
+                # Content order determines the effective definition. Preserve an empty model so a
+                # later deletion/override without MODL clears an earlier blocker-model definition.
+                blocker_models[blocker_id.casefold()] = blocker_model
+
             record_index += 1
-    return models, icons
+
+    return models, icons, blocker_models, placed_reference_ids
 
 
 def model_candidates(reference: str) -> list[str]:
@@ -546,14 +586,20 @@ def main() -> int:
 
         model_refs: set[str] = set()
         icon_refs: set[str] = set()
+        blocker_models: dict[str, str] = {}
+        placed_reference_ids: set[str] = set()
         parse_errors: list[dict[str, str]] = []
         for configured_name, resolved in content_entries:
             if PurePosixPath(configured_name).suffix.casefold() not in BINARY_CONTENT_EXTENSIONS:
                 continue
             try:
-                models, icons = collect_asset_references(resolved.physical_path, args.encoding)
+                models, icons, content_blockers, content_references = collect_asset_references(
+                    resolved.physical_path, args.encoding
+                )
                 model_refs.update(models)
                 icon_refs.update(icons)
+                blocker_models.update(content_blockers)
+                placed_reference_ids.update(content_references)
             except (OSError, UnicodeError, ValueError) as error:
                 parse_errors.append({"content": configured_name, "error": str(error)})
         if parse_errors and args.strict_assets:
@@ -580,6 +626,20 @@ def main() -> int:
                 unresolved_icons.append(reference)
             else:
                 resolved_icons[resolved.logical_path.casefold()] = resolved
+
+        collision_model_refs = {
+            blocker_models[reference_id]
+            for reference_id in placed_reference_ids
+            if blocker_models.get(reference_id)
+        }
+        resolved_collision_models: dict[str, VfsFile] = {}
+        unresolved_collision_models: list[str] = []
+        for reference in sorted(collision_model_refs, key=str.casefold):
+            resolved = resolve_first(index, model_candidates(reference))
+            if resolved is None:
+                unresolved_collision_models.append(reference)
+            else:
+                resolved_collision_models[resolved.logical_path.casefold()] = resolved
 
         lua_files = index.effective_by_suffix(".lua")
         sound_files = index.effective_under("sound") if args.include_sounds else []
@@ -618,6 +678,8 @@ def main() -> int:
             plan_file(entry, "model")
         for entry in resolved_icons.values():
             plan_file(entry, "icon")
+        for entry in resolved_collision_models.values():
+            plan_file(entry, "collision-model")
         for entry in sound_files:
             plan_file(entry, "sound")
 
@@ -633,6 +695,10 @@ def main() -> int:
             "icon_refs": len(icon_refs),
             "resolved_loose_icons": len(resolved_icons),
             "unresolved_loose_icons": len(unresolved_icons),
+            "placed_reference_ids": len(placed_reference_ids),
+            "collision_model_refs": len(collision_model_refs),
+            "resolved_loose_collision_models": len(resolved_collision_models),
+            "unresolved_loose_collision_models": len(unresolved_collision_models),
             "sound_files": len(sound_files),
             "planned_bundle_files": len(copy_plan),
             "parse_errors": len(parse_errors),
@@ -696,10 +762,12 @@ def main() -> int:
             "archive_count": len(parsed.fallback_archives),
             "model_refs": len(model_refs),
             "icon_refs": len(icon_refs),
+            "placed_reference_ids": len(placed_reference_ids),
+            "collision_model_refs": len(collision_model_refs),
             "loose_asset_files": sum(
                 1
                 for record in copied_records.values()
-                if record.categories.intersection({"model", "icon", "sound"})
+                if record.categories.intersection({"model", "icon", "collision-model", "sound"})
             ),
             "lua_files": len(lua_files),
             "copied_lua_files": sum(
@@ -712,8 +780,10 @@ def main() -> int:
             "bytes": total_bytes,
             "unresolved_model_count": len(unresolved_models),
             "unresolved_icon_count": len(unresolved_icons),
+            "unresolved_collision_model_count": len(unresolved_collision_models),
             "unresolved_models": unresolved_models,
             "unresolved_icons": unresolved_icons,
+            "unresolved_collision_models": unresolved_collision_models,
             "summary": summary,
             "files": manifest_files,
         }

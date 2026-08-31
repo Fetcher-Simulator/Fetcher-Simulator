@@ -44,6 +44,7 @@ class BuildOpenMWServerAuthorityTests(unittest.TestCase):
             "lua": b"\xef\xbb\xbf-- exact override bytes\r\nreturn 42\r\n",
             "model": b"new-model-bytes\x00\x02",
             "icon": b"new-icon-dds-bytes\x00\x03",
+            "collision_model": b"placed-collision-model\x00\x04",
         }
         (data_a / "Morrowind.bsa").write_bytes(expected["archive"])
         (data_a / "scripts").mkdir()
@@ -57,12 +58,35 @@ class BuildOpenMWServerAuthorityTests(unittest.TestCase):
         (data_b / "meshes" / "example.nif").write_bytes(expected["model"])
         (data_b / "icons").mkdir()
         (data_b / "icons" / "example.dds").write_bytes(expected["icon"])
+        (data_b / "meshes" / "world").mkdir()
+        (data_b / "meshes" / "world" / "thebigm.nif").write_bytes(expected["collision_model"])
+        (data_b / "meshes" / "world" / "unused.nif").write_bytes(b"unplaced-static-model")
 
-        items = record(
-            b"WEAP",
-            subrecord(b"NAME", b"fixture_weapon\0"),
-            subrecord(b"MODL", b"example.nif\0"),
-            subrecord(b"ITEX", b"example.tga\0"),
+        items = b"".join(
+            [
+                record(
+                    b"WEAP",
+                    subrecord(b"NAME", b"fixture_weapon\0"),
+                    subrecord(b"MODL", b"example.nif\0"),
+                    subrecord(b"ITEX", b"example.tga\0"),
+                ),
+                record(
+                    b"STAT",
+                    subrecord(b"NAME", b"TheBigM\0"),
+                    subrecord(b"MODL", b"world\\TheBigM.nif\0"),
+                ),
+                record(
+                    b"STAT",
+                    subrecord(b"NAME", b"UnusedStatic\0"),
+                    subrecord(b"MODL", b"world\\unused.nif\0"),
+                ),
+                record(
+                    b"CELL",
+                    subrecord(b"NAME", b"Fixture Cell\0"),
+                    subrecord(b"FRMR", struct.pack("<I", 1)),
+                    subrecord(b"NAME", b"TheBigM\0"),
+                ),
+            ]
         )
         (data_a / "Items.esp").write_bytes(items)
         (data_b / "Test.omwscripts").write_bytes(b"PLAYER: scripts/test.lua\r\n")
@@ -117,6 +141,11 @@ class BuildOpenMWServerAuthorityTests(unittest.TestCase):
             self.assertEqual((content_data / "scripts" / "test.lua").read_bytes(), expected["lua"])
             self.assertEqual((content_data / "meshes" / "example.nif").read_bytes(), expected["model"])
             self.assertEqual((content_data / "icons" / "example.dds").read_bytes(), expected["icon"])
+            self.assertEqual(
+                (content_data / "meshes" / "world" / "thebigm.nif").read_bytes(),
+                expected["collision_model"],
+            )
+            self.assertFalse((content_data / "meshes" / "world" / "unused.nif").exists())
             self.assertFalse((content_data / "scripts" / "builtin_extra.lua").exists())
 
             generated_cfg = (output / "openmw.cfg").read_text(encoding="utf-8")
@@ -130,12 +159,19 @@ class BuildOpenMWServerAuthorityTests(unittest.TestCase):
             self.assertEqual(files["scripts/test.lua"]["sha256"], sha256(expected["lua"]))
             self.assertEqual(files["meshes/example.nif"]["sha256"], sha256(expected["model"]))
             self.assertEqual(files["icons/example.dds"]["sha256"], sha256(expected["icon"]))
+            self.assertEqual(
+                files["meshes/world/thebigm.nif"]["sha256"], sha256(expected["collision_model"])
+            )
+            self.assertIn("collision-model", files["meshes/world/thebigm.nif"]["categories"])
             self.assertEqual(manifest["content_count"], 2)
             self.assertEqual(manifest["archive_count"], 1)
             self.assertEqual(manifest["model_refs"], 1)
             self.assertEqual(manifest["icon_refs"], 1)
             self.assertEqual(manifest["unresolved_model_count"], 0)
             self.assertEqual(manifest["unresolved_icon_count"], 0)
+            self.assertEqual(manifest["placed_reference_ids"], 1)
+            self.assertEqual(manifest["collision_model_refs"], 1)
+            self.assertEqual(manifest["unresolved_collision_model_count"], 0)
 
     def test_plan_only_does_not_require_output(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

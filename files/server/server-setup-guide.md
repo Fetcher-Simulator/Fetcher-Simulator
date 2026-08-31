@@ -199,7 +199,11 @@ content-authority/
     └── ...
 ```
 
-The builder resolves the source client's ordered `data=` stack, copies the effective files **byte-for-byte**, and generates an authority `openmw.cfg`. By default its data paths are:
+The builder resolves the source client's ordered `data=` stack, copies the effective files **byte-for-byte**, and generates an authority `openmw.cfg`. In addition to content files, Lua, and runtime-item assets, it scans TES3 `CELL` references and includes loose meshes for placed `STAT`, `ACTI`, `CONT`, `DOOR`, and `LIGH` records used by the server's authoritative collision/line-of-sight world. Unplaced scenery meshes are not copied, and archive-backed models remain available through the configured `fallback-archive=` files.
+
+Because collision geometry must exist on the server, heavily modded worldspaces with many loose placed meshes can make `content-authority` substantially larger than a handshake-only bundle. The `collision-model` category and collision counts in `bundle-manifest.json` make that cost auditable.
+
+By default its data paths are:
 
 ```ini
 data="../resources/vfs-mw"
