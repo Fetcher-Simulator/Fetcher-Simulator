@@ -116,6 +116,11 @@ namespace mwmp
             const PlacedObjectIdentity& identity) const;
         std::optional<ContainerReference> findContainerReference(
             std::string_view cellId, std::string_view refId, std::uint32_t refIndex) const;
+        // Resolve a placed actor's content-qualified TES3 FormId32 from its cell,
+        // record id, and local reference index. This is used to migrate older
+        // multiplayer state that stored only RefNum.mIndex.
+        std::optional<std::uint32_t> findActorRefNum(
+            std::string_view cellId, std::string_view refId, std::uint32_t refIndex) const;
         std::optional<CrimeInteractionReference> findCrimeInteractionReference(
             std::string_view cellId, std::string_view refId, std::uint32_t refIndex,
             std::int32_t refContentFile) const;

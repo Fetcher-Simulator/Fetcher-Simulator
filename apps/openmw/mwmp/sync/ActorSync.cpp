@@ -76,6 +76,7 @@
 #include "../../mwmechanics/spellcasting.hpp"
 #include "../../mwmechanics/weapontype.hpp"
 #include <components/esm3/loadweap.hpp>
+#include <components/esm3/refnum.hpp>
 #include <components/esm3/loadench.hpp>
 #include <components/esm3/loadcrea.hpp>
 #include <components/esm3/loadlevlist.hpp>
@@ -116,6 +117,30 @@ namespace
         if (actor.mpNum != 0)
             return "mp|" + std::to_string(actor.mpNum);
         return actor.refId + "|" + std::to_string(actor.refNum) + "|" + std::to_string(actor.mpNum);
+    }
+
+    std::uint32_t canonicalVanillaRefNum(const ESM::RefNum& refNum)
+    {
+        if (refNum.mIndex == 0)
+            return 0;
+        if (!refNum.hasContentFile())
+            return refNum.mIndex;
+        try
+        {
+            return refNum.toUint32();
+        }
+        catch (const std::exception&)
+        {
+            // ActorSync's current wire field is 32-bit. Generated refs are
+            // handled by mpNum and content lists with >255 files cannot be
+            // represented by FormId32, so retain the old index as a fail-safe.
+            return refNum.mIndex;
+        }
+    }
+
+    std::uint32_t canonicalVanillaRefNum(const MWWorld::Ptr& ptr)
+    {
+        return ptr.isEmpty() ? 0 : canonicalVanillaRefNum(ptr.getCellRef().getRefNum());
     }
 
     bool isGeneratedSpawnerRefId(const std::string& refId)
@@ -422,7 +447,7 @@ namespace
     std::string makeLocalActorKey(const std::string& cellId, const MWWorld::Ptr& ptr)
     {
         return cellId + "|" + ptr.getCellRef().getRefId().serializeText() + "|"
-            + std::to_string(ptr.getCellRef().getRefNum().mIndex);
+            + std::to_string(canonicalVanillaRefNum(ptr));
     }
 
     float lerpFloat(float current, float target, float alpha)
@@ -717,7 +742,7 @@ namespace
 
         return cellIdForPtr(lhs) == cellIdForPtr(rhs)
             && lhs.getCellRef().getRefId().serializeText() == rhs.getCellRef().getRefId().serializeText()
-            && lhs.getCellRef().getRefNum().mIndex == rhs.getCellRef().getRefNum().mIndex;
+            && lhs.getCellRef().getRefNum() == rhs.getCellRef().getRefNum();
     }
 
     bool sameLocalActorReference(const MWWorld::Ptr& lhs, const MWWorld::Ptr& rhs)
@@ -726,7 +751,7 @@ namespace
             return false;
 
         return lhs.getCellRef().getRefId() == rhs.getCellRef().getRefId()
-            && lhs.getCellRef().getRefNum().mIndex == rhs.getCellRef().getRefNum().mIndex;
+            && lhs.getCellRef().getRefNum() == rhs.getCellRef().getRefNum();
     }
 
     std::string exteriorCellIdForPosition(const mwmp::Position& position)
@@ -776,7 +801,7 @@ namespace
         if (actor.mpNum != 0 && stampedMpNum != 0 && stampedMpNum != actor.mpNum)
             return false;
 
-        if (actor.mpNum == 0 && actor.refNum != 0 && ptr.getCellRef().getRefNum().mIndex != actor.refNum)
+        if (actor.mpNum == 0 && actor.refNum != 0 && canonicalVanillaRefNum(ptr) != actor.refNum)
             return false;
         return true;
     }
@@ -1103,14 +1128,14 @@ namespace mwmp
                     return runtime.actorNetId;
 
                 if (runtime.state.refId == ptr.getCellRef().getRefId().serializeText()
-                    && runtime.state.refNum == ptr.getCellRef().getRefNum().mIndex
+                    && runtime.state.refNum == canonicalVanillaRefNum(ptr)
                     && isValidActorInstanceId(runtime.actorNetId))
                     return runtime.actorNetId;
             }
         }
 
         return packActorInstanceKey(
-            { ActorKeyKind::VanillaRefNum, ptr.getCellRef().getRefNum().mIndex });
+            { ActorKeyKind::VanillaRefNum, canonicalVanillaRefNum(ptr) });
     }
 
     std::uint32_t ActorSync::actorMigrationGenerationForPtr(
@@ -1139,7 +1164,7 @@ namespace mwmp
                     || (!runtime.boundActor.isEmpty()
                         && (runtime.boundActor == ptr || sameLocalActorObject(runtime.boundActor, ptr)))
                     || (runtime.state.refId == ptr.getCellRef().getRefId().serializeText()
-                        && runtime.state.refNum == ptr.getCellRef().getRefNum().mIndex);
+                        && runtime.state.refNum == canonicalVanillaRefNum(ptr));
                 if (!sameIdentity)
                     continue;
                 if (runtime.migrationGeneration != 0)
@@ -2107,7 +2132,7 @@ namespace mwmp
                                     {
                                         if (ptr.isEmpty() || !ptr.getClass().isActor())
                                             return true;
-                                        const uint32_t ptrRefNum = ptr.getCellRef().getRefNum().mIndex;
+                                        const uint32_t ptrRefNum = canonicalVanillaRefNum(ptr);
                                         if (ptrRefNum == actorState.refNum
                                             && ptr.getCellRef().getRefId().serializeText() == actorState.refId)
                                         {
@@ -2223,7 +2248,9 @@ namespace mwmp
                 && isExteriorActorCellId(actorState.cellId)
                 && isZeroIdentityPosition(actorState.position)
                 && !explicitTransformReset;
-            const bool deathBaseline = actorState.isDead && !zeroIdentityTransform;
+            const bool preserveKnownDeadIdentity = shouldPreserveDeadIdentityRefresh(
+                hadRuntime, runtime.state.isDead, actorState.isDead, explicitTransformReset);
+            const bool deathBaseline = actorState.isDead && !zeroIdentityTransform && !preserveKnownDeadIdentity;
 
             if (hadRuntime && !explicitTransformReset && !deathBaseline)
             {
@@ -2323,7 +2350,7 @@ namespace mwmp
                         if (ptr.isEmpty() || ptr.getType() != ESM::CreatureLevList::sRecordId)
                             return true;
 
-                        const uint32_t spawnerRefNum = ptr.getCellRef().getRefNum().mIndex;
+                        const uint32_t spawnerRefNum = canonicalVanillaRefNum(ptr);
                         const ActorInstanceId actorNetId = packActorInstanceKey(
                             { ActorKeyKind::VanillaRefNum, spawnerRefNum });
                         const auto knownActorIt = mActorsByNetId.find(actorNetId);
@@ -4428,7 +4455,7 @@ namespace mwmp
                     store->forEach([&](MWWorld::Ptr ptr) -> bool {
                         if (!ptr.getClass().isNpc()
                             || cellIdForPtr(ptr) != directive.cellId
-                            || ptr.getCellRef().getRefNum().mIndex != actorKey.id)
+                            || canonicalVanillaRefNum(ptr) != actorKey.id)
                             return true;
                         if (runtime && !runtime->state.refId.empty()
                             && ptr.getCellRef().getRefId().serializeText() != runtime->state.refId)
@@ -4977,6 +5004,12 @@ namespace mwmp
             && presentedDeathGroup != authoritativeDeathGroup;
     }
 
+    bool ActorSync::shouldPreserveDeadIdentityRefresh(bool hadRuntime, bool runtimeIsDead,
+        bool incomingIsDead, bool explicitTransformReset)
+    {
+        return hadRuntime && runtimeIsDead && incomingIsDead && !explicitTransformReset;
+    }
+
     bool ActorSync::hasAuthority(const std::string& cellId) const
     {
         auto it = mAuthority.find(cellId);
@@ -5179,7 +5212,7 @@ namespace mwmp
         const ActorInstanceId victimActorNetId = actorNetIdForPtr(cellId, victim);
         const ActorInstanceKey victimActorKey = unpackActorInstanceId(victimActorNetId);
         const uint32_t victimRefNum = victimActorKey.kind == ActorKeyKind::VanillaRefNum
-            ? victimActorKey.id : victim.getCellRef().getRefNum().mIndex;
+            ? victimActorKey.id : canonicalVanillaRefNum(victim);
 
         ActorList request;
         request.cellId = cellId;
@@ -5256,7 +5289,7 @@ namespace mwmp
 
         BaseActor npcActor;
         npcActor.refId = npcAttacker.getCellRef().getRefId().serializeText();
-        npcActor.refNum = npcAttacker.getCellRef().getRefNum().mIndex;
+        npcActor.refNum = canonicalVanillaRefNum(npcAttacker);
         npcActor.cellId = cellId;
         const uint32_t mappedMpNum = mappedMpNumForPtr(cellId, npcAttacker);
         if (mappedMpNum != 0)
@@ -5342,7 +5375,7 @@ namespace mwmp
 
         BaseActor castActor;
         castActor.refId = npc.getCellRef().getRefId().serializeText();
-        castActor.refNum = npc.getCellRef().getRefNum().mIndex;
+        castActor.refNum = canonicalVanillaRefNum(npc);
         castActor.cellId = cellId;
         const ActorInstanceKey canonicalKey = unpackActorInstanceId(actorNetIdForPtr(cellId, npc));
         if (canonicalKey.kind == ActorKeyKind::SpawnedMpNum)
@@ -6329,7 +6362,7 @@ namespace mwmp
         // but only accept an unambiguous mpNum.
         const std::string localKeySuffix = std::string("|")
             + ptr.getCellRef().getRefId().serializeText() + "|"
-            + std::to_string(ptr.getCellRef().getRefNum().mIndex);
+            + std::to_string(canonicalVanillaRefNum(ptr));
         uint32_t matchedMpNum = 0;
         for (const auto& [localKey, candidateMpNum] : mMpNumsByLocalActor)
         {
@@ -6797,7 +6830,7 @@ namespace mwmp
 
             const auto& leveledClass = static_cast<const MWClass::CreatureLevList&>(ptr.getClass());
             MWWorld::Ptr spawnedActor = leveledClass.getSpawnedActor(ptr);
-            const uint32_t spawnerRefNum = ptr.getCellRef().getRefNum().mIndex;
+            const uint32_t spawnerRefNum = canonicalVanillaRefNum(ptr);
             const ActorInstanceId spawnerActorNetId = packActorInstanceKey(
                 { ActorKeyKind::VanillaRefNum, spawnerRefNum });
             const auto chanceNoneCellIt = mChanceNoneLeveledSpawnersByCell.find(cell.outboundCellId);
@@ -6856,10 +6889,11 @@ namespace mwmp
 
             BaseActor actor;
             actor.refId = ptr.getCellRef().getRefId().serializeText();
-            actor.refNum = ptr.getCellRef().getRefNum().mIndex;
+            const uint32_t localRefNumIndex = ptr.getCellRef().getRefNum().mIndex;
+            actor.refNum = canonicalVanillaRefNum(ptr);
             actor.cellId = cell.outboundCellId;
 
-            const auto leveledSpawnerIt = leveledSpawnerRefNumByChildRefNum.find(actor.refNum);
+            const auto leveledSpawnerIt = leveledSpawnerRefNumByChildRefNum.find(localRefNumIndex);
             if (leveledSpawnerIt != leveledSpawnerRefNumByChildRefNum.end())
                 actor.refNum = leveledSpawnerIt->second;
 
@@ -9267,7 +9301,7 @@ namespace mwmp
             targetCell->forEach([&](MWWorld::Ptr ptr) -> bool
             {
                 if (ptr.isEmpty() || ptr.getType() != ESM::CreatureLevList::sRecordId
-                    || ptr.getCellRef().getRefNum().mIndex != actor.state.refNum)
+                    || canonicalVanillaRefNum(ptr) != actor.state.refNum)
                     return true;
 
                 leveledSpawner = ptr;

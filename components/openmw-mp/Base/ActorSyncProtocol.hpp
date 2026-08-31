@@ -18,7 +18,11 @@ namespace mwmp
     // Version 12 adds authoritative crime-reaction and guard-arrest semantics,
     // including routed arrest prompts, durable combat enforcement, and observer-side
     // hostility needed to prevent resisted guards from reopening arrest dialogue.
-    static constexpr uint32_t ActorSyncProtocolVersionV2 = 12;
+    // Version 13 changes vanilla BaseActor::refNum wire semantics from the local
+    // RefNum.mIndex to OpenMW's content-qualified FormId32. This prevents placed
+    // actors from different content files that reuse the same local index from
+    // collapsing to the same deterministic ActorInstanceId.
+    static constexpr uint32_t ActorSyncProtocolVersionV2 = 13;
 
     using ActorInstanceId = uint64_t;
 
