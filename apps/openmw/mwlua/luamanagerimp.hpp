@@ -130,6 +130,10 @@ namespace MWLua
         void onHit(const MWWorld::Ptr& attacker, const MWWorld::Ptr& victim, const MWWorld::Ptr& weapon,
             const MWWorld::Ptr& ammo, int attackType, float attackStrength, float damage, bool isHealth,
             const osg::Vec3f& hitPos, bool successful, MWMechanics::DamageSourceType sourceType) override;
+        void onProjectileImpact(const MWWorld::Ptr& caster, const MWWorld::Ptr& target,
+            const MWWorld::Ptr& weapon, const MWWorld::Ptr& projectile, const osg::Vec3f& hitPos,
+            const osg::Vec3f& presentationHitPos, const osg::Quat& rotation, float attackStrength, bool hitWater,
+            bool presentationOnly, bool presentationRefined) override;
         void exteriorCreated(MWWorld::CellStore& cell) override
         {
             mEngineEvents.addToQueue(EngineEvents::OnNewExterior{ cell });

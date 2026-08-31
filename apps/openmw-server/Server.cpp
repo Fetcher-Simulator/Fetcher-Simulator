@@ -115,9 +115,11 @@
 #include <components/openmw-mp/SpellbookSync.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerSpellbook.hpp>
 #include <components/esm3/loadspel.hpp>
+#include <components/esm3/loadweap.hpp>
 #include <apps/openmw/mwworld/esmstore.hpp>
 #include <apps/openmw/mwworld/class.hpp>
 #include <apps/openmw/mwworld/containerstore.hpp>
+#include <apps/openmw/mwworld/inventorystore.hpp>
 #include <apps/openmw/mwworld/manualref.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAI.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAnimFlags.hpp>
@@ -1401,6 +1403,40 @@ namespace
             snapshot.currentAnimCompletion = -1.f;
         }
         return snapshot;
+    }
+
+    const ESM::Weapon* findRecoverableProjectile(
+        const MWWorld::ESMStore& store, std::string_view refId, int attackType = 0)
+    {
+        if (refId.empty())
+            return nullptr;
+        const ESM::Weapon* weapon = store.get<ESM::Weapon>().search(ESM::RefId::stringRefId(refId));
+        if (!weapon)
+            return nullptr;
+
+        const int type = weapon->mData.mType;
+        if (attackType == 2 && type != ESM::Weapon::Arrow && type != ESM::Weapon::Bolt)
+            return nullptr;
+        if (attackType == 3 && type != ESM::Weapon::MarksmanThrown)
+            return nullptr;
+        if (attackType != 0 && attackType != 2 && attackType != 3)
+            return nullptr;
+        if (type != ESM::Weapon::Arrow && type != ESM::Weapon::Bolt && type != ESM::Weapon::MarksmanThrown)
+            return nullptr;
+        return weapon;
+    }
+
+    std::string equippedProjectileRefId(const mwmp::BasePlayer& player, int attackType,
+        const MWWorld::ESMStore& store)
+    {
+        const int wantedSlot = attackType == 2 ? MWWorld::InventoryStore::Slot_Ammunition
+                                              : MWWorld::InventoryStore::Slot_CarriedRight;
+        const auto found = std::find_if(player.equipment.begin(), player.equipment.end(),
+            [wantedSlot](const mwmp::EquipmentItem& entry) { return entry.slot == wantedSlot; });
+        if (found == player.equipment.end())
+            return {};
+        const ESM::Weapon* weapon = findRecoverableProjectile(store, found->item.refId, attackType);
+        return weapon ? weapon->mId.serializeText() : std::string{};
     }
 
     uint64_t currentServerTimeMs()
@@ -8616,9 +8652,37 @@ void MPServer::handlePlayerAnimPlay(ConnectedClient& c, const uint8_t* data, siz
 // ---------------------------------------------------------------------------
 void MPServer::handlePlayerAttack(ConnectedClient& c, const uint8_t* data, size_t size)
 {
+    const bool wasPressed = c.player.attack.pressed;
     PacketPlayerAttack pkt;
     pkt.setPlayer(&c.player);
     if (!pkt.decode(data, size)) return;
+
+    if (mContentRegistry && !wasPressed && c.player.attack.pressed
+        && (c.player.attack.type == 2 || c.player.attack.type == 3))
+    {
+        c.pendingRangedProjectileRefId
+            = equippedProjectileRefId(c.player, c.player.attack.type, mContentRegistry->store());
+    }
+    else if (wasPressed && !c.player.attack.pressed
+        && (c.player.attack.type == 2 || c.player.attack.type == 3))
+    {
+        const std::uint64_t nowMs = currentServerTimeMs();
+        std::erase_if(c.projectileRecoveryCredits,
+            [nowMs](const ConnectedClient::ProjectileRecoveryCredit& credit) { return credit.expiresAtMs < nowMs; });
+        if (!c.pendingRangedProjectileRefId.empty())
+        {
+            constexpr std::uint64_t RecoveryCreditLifetimeMs = 30000;
+            constexpr std::size_t MaximumRecoveryCredits = 64;
+            if (c.projectileRecoveryCredits.size() >= MaximumRecoveryCredits)
+                c.projectileRecoveryCredits.pop_front();
+            c.projectileRecoveryCredits.push_back(
+                { c.pendingRangedProjectileRefId, nowMs + RecoveryCreditLifetimeMs });
+            Log(Debug::Verbose) << "[Server] Projectile recovery credit player=" << c.name
+                                << " refId=" << c.pendingRangedProjectileRefId;
+        }
+        c.pendingRangedProjectileRefId.clear();
+    }
+
     broadcastToAll(std::vector<uint8_t>(data, data + size), c.conn);
 }
 
@@ -18033,6 +18097,80 @@ void MPServer::handleLuaEvent(ConnectedClient& c, const uint8_t* data, size_t si
                         << " pid=" << c.guid
                         << " name=" << pkt.eventName
                         << " bytes=" << pkt.eventData.size();
+
+    if (pkt.eventName == "__mp_world_projectile_recover")
+    {
+        try
+        {
+            if (!mContentRegistry)
+                throw std::runtime_error("content_registry_unavailable");
+
+            const LuaWireTable request = parseLuaWireTable(pkt.eventData);
+            const std::string requestedRefId = getLuaStringField(request, "refId");
+            const ESM::Weapon* weapon = findRecoverableProjectile(mContentRegistry->store(), requestedRefId);
+            if (!weapon)
+                throw std::runtime_error("invalid_projectile");
+            const std::string refId = weapon->mId.serializeText();
+
+            Position position{};
+            position.pos[0] = static_cast<float>(getLuaNumberField(request, "x", std::numeric_limits<double>::quiet_NaN()));
+            position.pos[1] = static_cast<float>(getLuaNumberField(request, "y", std::numeric_limits<double>::quiet_NaN()));
+            position.pos[2] = static_cast<float>(getLuaNumberField(request, "z", std::numeric_limits<double>::quiet_NaN()));
+            position.rot[0] = static_cast<float>(getLuaNumberField(request, "rx", std::numeric_limits<double>::quiet_NaN()));
+            position.rot[1] = static_cast<float>(getLuaNumberField(request, "ry", std::numeric_limits<double>::quiet_NaN()));
+            position.rot[2] = static_cast<float>(getLuaNumberField(request, "rz", std::numeric_limits<double>::quiet_NaN()));
+            for (int i = 0; i < 3; ++i)
+            {
+                if (!std::isfinite(position.pos[i]) || !std::isfinite(position.rot[i]))
+                    throw std::runtime_error("invalid_transform");
+            }
+
+            const std::uint64_t nowMs = currentServerTimeMs();
+            std::erase_if(c.projectileRecoveryCredits,
+                [nowMs](const ConnectedClient::ProjectileRecoveryCredit& credit) { return credit.expiresAtMs < nowMs; });
+            const auto credit = std::find_if(c.projectileRecoveryCredits.begin(), c.projectileRecoveryCredits.end(),
+                [&refId](const ConnectedClient::ProjectileRecoveryCredit& candidate) {
+                    return candidate.refId == refId;
+                });
+            if (credit == c.projectileRecoveryCredits.end())
+                throw std::runtime_error("no_matching_release_credit");
+
+            const std::string cellId = makeCellKey(c.player.cell);
+            if (cellId.empty())
+                throw std::runtime_error("player_cell_unavailable");
+
+            constexpr double MaximumRecoveryDistance = 32768.0;
+            const double dx = static_cast<double>(position.pos[0]) - c.player.position.pos[0];
+            const double dy = static_cast<double>(position.pos[1]) - c.player.position.pos[1];
+            const double dz = static_cast<double>(position.pos[2]) - c.player.position.pos[2];
+            if (dx * dx + dy * dy + dz * dz > MaximumRecoveryDistance * MaximumRecoveryDistance)
+                throw std::runtime_error("impact_too_far");
+
+            PlacedObject object;
+            object.refId = refId;
+            object.count = 1;
+            object.cellId = cellId;
+            object.position = position;
+            if (!acceptPlacedObject(object))
+                throw std::runtime_error("placement_rejected");
+
+            c.projectileRecoveryCredits.erase(credit);
+            PacketObjectPlace placed;
+            placed.object = object;
+            sendTo(c.conn, placed.encode());
+            broadcastToCell(cellId, placed.encode(), c.conn);
+            Log(Debug::Info) << "[Server] Projectile recovery accepted player=" << c.name
+                             << " refId=" << object.refId
+                             << " mpNum=" << object.mpNum
+                             << " cell=" << object.cellId;
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "[Server] Projectile recovery rejected player=" << c.name
+                                << " reason=" << e.what();
+        }
+        return;
+    }
 
     if (pkt.eventName == "Activate")
     {

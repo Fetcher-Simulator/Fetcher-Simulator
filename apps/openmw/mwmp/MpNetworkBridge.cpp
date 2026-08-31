@@ -1,11 +1,15 @@
 #include "MpNetworkBridge.hpp"
 
+#include <cmath>
+
 #include <components/debug/debuglog.hpp>
 #include <components/openmw-mp/Packets/Lua/PacketLuaEvent.hpp>
 #include <components/openmw-mp/Packets/Lua/PacketLuaStorage.hpp>
 #include <components/openmw-mp/Records/EsmDynamicRecordConversion.hpp>
 #include <components/openmw-mp/ServerLuaPackage.hpp>
 #include <components/lua/scriptscontainer.hpp>
+#include <components/lua/utilpackage.hpp>
+#include <components/misc/mathutil.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
@@ -360,6 +364,32 @@ namespace mwmp
                     throw std::runtime_error("mp.worldItemTake.request could not build a canonical request");
             });
         mp["worldItemTake"] = LuaUtil::makeReadOnly(worldItemTakeApi);
+
+        sol::table worldProjectileRecoverApi(lua, sol::create);
+        worldProjectileRecoverApi.set_function("isAvailable", [] { return Main::isInitialised() && Main::isConnected(); });
+        worldProjectileRecoverApi.set_function("request",
+            [context, lua](const std::string& refId, const osg::Vec3f& position, const LuaUtil::TransformQ& rotation) {
+                if (!Main::isInitialised() || !Main::isConnected())
+                    throw std::runtime_error("mp.worldProjectileRecover.request requires an active multiplayer connection");
+                if (refId.empty() || !std::isfinite(position.x()) || !std::isfinite(position.y())
+                    || !std::isfinite(position.z()))
+                {
+                    throw std::runtime_error("mp.worldProjectileRecover.request requires a valid projectile and position");
+                }
+
+                const osg::Vec3f euler = Misc::toEulerAnglesZYX(rotation.mQ);
+                sol::table payload(lua, sol::create);
+                payload["refId"] = refId;
+                payload["x"] = position.x();
+                payload["y"] = position.y();
+                payload["z"] = position.z();
+                payload["rx"] = euler.x();
+                payload["ry"] = euler.y();
+                payload["rz"] = euler.z();
+                Main::get().getNetworkBridge().queueOutbound(
+                    "__mp_world_projectile_recover", LuaUtil::serialize(payload, context.mSerializer));
+            });
+        mp["worldProjectileRecover"] = LuaUtil::makeReadOnly(worldProjectileRecoverApi);
 
         sol::table inventoryTakeApi(lua, sol::create);
         inventoryTakeApi.set_function("isAvailable", [] { return Main::isInitialised() && Main::isConnected(); });

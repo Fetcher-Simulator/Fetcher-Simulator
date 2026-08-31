@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <filesystem>
 #include <map>
@@ -106,6 +107,13 @@ struct ConnectedClient
     };
     std::optional<EnchantSkillSyncGuard> enchantSkillSyncGuard;
     bool                acceptedPlayerEquipmentThisSession = false;
+    struct ProjectileRecoveryCredit
+    {
+        std::string refId;
+        uint64_t expiresAtMs = 0;
+    };
+    std::deque<ProjectileRecoveryCredit> projectileRecoveryCredits;
+    std::string pendingRangedProjectileRefId;
     uint64_t            playerInventoryRestoreGuardUntilMs = 0;
     uint64_t            playerEquipmentRestoreGuardUntilMs = 0;
     uint64_t            lastPlayerInventoryRestoreCorrectionLogMs = 0;

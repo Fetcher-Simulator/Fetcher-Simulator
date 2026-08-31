@@ -18,6 +18,7 @@
 #include <components/sceneutil/util.hpp>
 #include <components/vfs/pathutil.hpp>
 
+#include <osg/Matrixf>
 #include <osg/Quat>
 
 #include <array>
@@ -26,6 +27,7 @@
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <unordered_set>
 #include <vector>
 
@@ -483,6 +485,11 @@ namespace MWRender
         /// Return a node with the specified name, or nullptr if not existing.
         /// @note The matching is case-insensitive.
         const osg::Node* getNode(std::string_view name) const;
+
+        /// Finds the animation bone nearest a world-space transform and returns
+        /// the transform converted into that bone's local space.
+        std::pair<std::string, osg::Matrixf> getNearestBoneAttachment(
+            const osg::Matrixf& worldTransform, float offsetScale = 1.f) const;
 
         MWWorld::MovementDirectionFlags getSupportedMovementDirections(
             std::span<const std::string_view> prefixes) const;

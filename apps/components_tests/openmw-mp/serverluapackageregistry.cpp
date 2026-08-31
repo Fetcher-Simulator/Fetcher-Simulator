@@ -180,6 +180,33 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
     EXPECT_NE(inventory->find("virtualStack.equipped == equipped"), std::string::npos);
 }
 
+TEST(ServerLuaPackageRegistry, ShippedArrowStickUsesAuthoritativeProjectileRecovery)
+{
+    const auto root = std::filesystem::path{ OPENMW_PROJECT_SOURCE_DIR }
+        / "files" / "server" / "server-lua-packages";
+    mwmp::ServerLuaPackageRegistry registry(root, 141);
+    const auto packageIt = std::find_if(registry.packageSet().packages.begin(), registry.packageSet().packages.end(),
+        [](const auto& package) { return package.packageId == "fetcher.arrowstick-mp-fix"; });
+    ASSERT_NE(packageIt, registry.packageSet().packages.end());
+
+    const auto& package = *packageIt;
+    EXPECT_EQ(package.packageVersion, 2u);
+    EXPECT_EQ(package.requiredMultiplayerLuaApi, 8u);
+    const auto sourceIt = std::find_if(package.files.begin(), package.files.end(),
+        [](const auto& file) { return file.path == "overrides/global.lua"; });
+    ASSERT_NE(sourceIt, package.files.end());
+    const std::string& source = sourceIt->source;
+    EXPECT_NE(source.find("require('openmw.mp')"), std::string::npos);
+    EXPECT_NE(source.find("require('openmw.animation')"), std::string::npos);
+    const auto recovery = source.find("mp.worldProjectileRecover.request");
+    const auto localFallback = source.find("world.createObject(data.projectile)");
+    EXPECT_NE(recovery, std::string::npos);
+    EXPECT_NE(localFallback, std::string::npos);
+    EXPECT_LT(recovery, localFallback);
+    EXPECT_NE(source.find("presentationTransform or data.transform"), std::string::npos);
+    EXPECT_NE(source.find("data.presentationRefined and 1 or 0.15"), std::string::npos);
+}
+
 TEST(ServerLuaPackageRegistry, ShippedSetBonusFixUsesAuthoritativeSpellRecords)
 {
     const auto root = std::filesystem::path{ OPENMW_PROJECT_SOURCE_DIR }

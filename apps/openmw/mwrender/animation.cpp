@@ -2131,6 +2131,35 @@ namespace MWRender
             return found->second;
     }
 
+    std::pair<std::string, osg::Matrixf> Animation::getNearestBoneAttachment(
+        const osg::Matrixf& worldTransform, float offsetScale) const
+    {
+        std::string nearestBone;
+        osg::Matrixf nearestBoneWorld;
+        double nearestDistance2 = std::numeric_limits<double>::max();
+        for (const auto& [boneName, node] : getNodeMap())
+        {
+            if (!node)
+                continue;
+            const osg::NodePathList paths = node->getParentalNodePaths();
+            if (paths.empty())
+                continue;
+            const osg::Matrixf boneWorld = osg::computeLocalToWorld(paths.front());
+            const double distance2 = (boneWorld.getTrans() - worldTransform.getTrans()).length2();
+            if (distance2 < nearestDistance2)
+            {
+                nearestDistance2 = distance2;
+                nearestBone = boneName;
+                nearestBoneWorld = boneWorld;
+            }
+        }
+        if (nearestBone.empty())
+            throw std::runtime_error("Object has no attachable animation bones");
+        osg::Matrixf relativeTransform = worldTransform * osg::Matrixf::inverse(nearestBoneWorld);
+        relativeTransform.setTrans(relativeTransform.getTrans() * offsetScale);
+        return { nearestBone, relativeTransform };
+    }
+
     void Animation::setAlpha(float alpha)
     {
         if (alpha == mAlpha || !mObjectRoot)

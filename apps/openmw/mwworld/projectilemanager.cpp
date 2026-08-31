@@ -44,6 +44,7 @@
 #include "../mwworld/worldmodel.hpp"
 
 #include "../mwbase/environment.hpp"
+#include "../mwbase/luamanager.hpp"
 #include "../mwbase/soundmanager.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
@@ -667,6 +668,7 @@ namespace MWWorld
 
             const auto target = projectile->getTarget();
             auto caster = projectileState.getCaster();
+            const bool hasCaster = !caster.isEmpty();
             assert(target != caster);
 
             if (caster.isEmpty())
@@ -684,9 +686,90 @@ namespace MWWorld
             }
 
             const auto hitPosition = Misc::Convert::toOsg(projectile->getHitPosition());
+            const bool hitWater = projectile->getHitWater();
 
-            if (projectile->getHitWater())
+            osg::Vec3f presentationHitPosition = hitPosition;
+            bool presentationRefined = false;
+            std::string_view presentationRefineMode = "none";
+            if (!target.isEmpty() && target.getClass().isActor())
+            {
+                osg::Vec3f direction = projectileState.mVelocity;
+                if (direction.length2() > 0.f)
+                {
+                    direction.normalize();
+                    // First preserve the projectile's real trajectory. This is exact when Bullet's actor hit also crosses
+                    // rendered skin, but coarse actor collision shapes can register grazing hits outside the visible mesh.
+                    const auto visualHit = mRendering->castRay(
+                        hitPosition - direction * 32.f, hitPosition + direction * 256.f,
+                        /*ignorePlayer=*/false, /*ignoreActors=*/false, /*ignoreTerrain=*/true);
+                    if (visualHit.mHit && !visualHit.mHitObject.isEmpty() && visualHit.mHitObject == target)
+                    {
+                        presentationHitPosition = visualHit.mHitPointWorld;
+                        presentationRefined = true;
+                        presentationRefineMode = "trajectory";
+                    }
+                }
+
+                // If the real trajectory only clipped Bullet's coarse shell, cast inward toward the nearest animation
+                // bone. That segment crosses the visible body in the same body region and gives the VFX a true skin
+                // surface point instead of leaving it floating on the collision volume.
+                if (!presentationRefined)
+                {
+                    if (MWRender::Animation* animation = mRendering->getAnimation(target))
+                    {
+                        try
+                        {
+                            osg::Matrixf impactTransform(projectileState.mNode->getAttitude());
+                            impactTransform.setTrans(hitPosition);
+                            const auto [boneName, ignoredTransform]
+                                = animation->getNearestBoneAttachment(impactTransform, 0.f);
+                            if (const osg::Node* bone = animation->getNode(boneName))
+                            {
+                                const osg::NodePathList paths = bone->getParentalNodePaths();
+                                if (!paths.empty())
+                                {
+                                    const osg::Vec3f bonePosition = osg::computeLocalToWorld(paths.front()).getTrans();
+                                    const osg::Vec3f inward = bonePosition - hitPosition;
+                                    if (inward.length2() > 0.0001f)
+                                    {
+                                        const auto inwardHit = mRendering->castRay(hitPosition, bonePosition,
+                                            /*ignorePlayer=*/false, /*ignoreActors=*/false, /*ignoreTerrain=*/true);
+                                        if (inwardHit.mHit && !inwardHit.mHitObject.isEmpty()
+                                            && inwardHit.mHitObject == target)
+                                        {
+                                            presentationHitPosition = inwardHit.mHitPointWorld;
+                                            presentationRefined = true;
+                                            presentationRefineMode = "bone-ray";
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        catch (const std::exception&)
+                        {
+                        }
+                    }
+                }
+            }
+
+            if (!target.isEmpty() && target.getClass().isActor())
+            {
+                Log(Debug::Info) << "[ProjectileImpactDiag] target="
+                                 << target.getCellRef().getRefId().serializeText()
+                                 << " refineMode=" << presentationRefineMode
+                                 << " presentationRefined=" << presentationRefined
+                                 << " refineDistance=" << (presentationHitPosition - hitPosition).length();
+            }
+
+            if (hitWater)
                 mRendering->emitWaterRipple(hitPosition);
+
+            if (hasCaster)
+            {
+                MWBase::Environment::get().getLuaManager()->onProjectileImpact(caster, target, bow,
+                    projectileRef.getPtr(), hitPosition, presentationHitPosition, projectileState.mNode->getAttitude(),
+                    projectileState.mAttackStrength, hitWater, projectileState.mVisualOnly, presentationRefined);
+            }
 
             if (!projectileState.mVisualOnly)
             {

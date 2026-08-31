@@ -219,7 +219,7 @@
 
 ---
 -- Plays a VFX on the actor.
--- Can only be used on self. Can also be evoked by sending an AddVfx event to the target actor.
+-- Can be used on self, or on a global object from a global script. Local scripts can also invoke it on another actor by sending an AddVfx event to that actor.
 -- @function [parent=#animation] addVfx
 -- @param openmw.core#GameObject actor
 -- @param #string model path (normally taken from a record such as @{openmw.types#StaticRecord.model} or similar)
@@ -232,6 +232,9 @@
 --   * `useAmbientLight` - boolean, vfx get a white ambient light attached in Morrowind. If false don't attach this. (default: true)
 --   * `autoTransform` - boolean, if true, the engine will auto-calculate the transform. (default: true)
 --   * `transform` - relative transform (openmw.util#Transform) applied to the vfx. If autoTransform is true this will be applied on top of it.
+--   * `worldTransform` - world-space matrix transform (openmw.util#Transform) including position. Used with `attachToNearestBone` to preserve an exact world-space attachment point and orientation.
+--   * `attachToNearestBone` - boolean. If true, attach to the animation bone nearest `worldTransform` and convert that transform into the bone local space. Requires `worldTransform`. (default: false)
+--   * `nearestBoneOffsetScale` - number from 0 to 1. When attaching to the nearest bone, scales the world-impact offset toward the selected bone before converting to bone-local space. `1` preserves the exact world position; smaller values pull coarse collision hits toward the rendered skeleton. (default: 1)
 --
 -- @usage local mgef = core.magic.effects.records[myEffectName]
 -- anim.addVfx(self, 'VFX_Hands', {boneName = 'Bip01 L Hand', particleTextureOverride = mgef.particle, loop = mgef.continuousVfx, vfxId = mgef.id..'_myuniquenamehere'})
