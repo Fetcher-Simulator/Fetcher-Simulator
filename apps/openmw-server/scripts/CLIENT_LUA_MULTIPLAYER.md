@@ -129,6 +129,8 @@ mp.sendToServer("Example_Request", {
 
 The server receives `Example_Request` as an event handler. The runtime injects authenticated sender fields such as `pid` and, when available, `characterId` into a table payload. The handler should validate the request and send back an explicit result.
 
+Multiplayer Lua API 8 also exposes `mp.worldProjectileRecover.request(refId, position, rotation)` for compatibility code that turns a physically fired projectile into a recoverable world pickup. It is intentionally narrower than arbitrary object creation: the server accepts a recovery only when it can consume a short-lived matching credit created by that player's real ranged release, then allocates and persists the normal server-owned world object identity.
+
 This explicit API is useful for native multiplayer mods and curated adapters. The generic compatibility project aims to reduce how often an ordinary existing mod must be changed to call it directly.
 
 ## Compatibility targets from the installed-mod audit

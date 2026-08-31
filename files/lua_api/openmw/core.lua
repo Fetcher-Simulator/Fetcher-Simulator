@@ -21,6 +21,23 @@
 -- @param eventData
 
 ---
+-- Data sent to global scripts as the `ProjectileImpact` event when a locally simulated physical projectile reaches its real physics collision. Remote-player presentation projectiles also emit it locally with `presentationOnly = true`; magic bolts do not emit this event.
+-- @type ProjectileImpactEventData
+-- @field openmw.core#GameObject caster The actor that launched the projectile.
+-- @field openmw.core#GameObject target The collided game object, if the physics hit resolved one.
+-- @field #string weapon Record ID of the launching weapon, if available.
+-- @field #string projectile Record ID of the physical projectile/ammunition.
+-- @field openmw.util#Vector3 hitPos Exact world-space physics collision position.
+-- @field openmw.util#Vector3 presentationHitPos World-space presentation point. For actor hits the engine attempts to refine the coarse physics hit against the rendered actor mesh; otherwise this equals `hitPos`.
+-- @field openmw.util#Transform rotation Projectile orientation at impact.
+-- @field openmw.util#Transform transform World-space transform at the exact physics collision.
+-- @field openmw.util#Transform presentationTransform World-space transform using `presentationHitPos` and the physical projectile orientation.
+-- @field #boolean presentationRefined True when `presentationHitPos` was resolved against the rendered target geometry.
+-- @field #number strength Attack strength used for the projectile.
+-- @field #boolean hitWater Whether the projectile collided with water.
+-- @field #boolean presentationOnly Whether this is a locally simulated presentation-only copy of another player's projectile; gameplay world mutations should not be duplicated for these events.
+
+---
 -- Simulation time in seconds.
 -- The number of simulation seconds passed in the game world since starting a new game. Not available in load scripts.
 -- @function [parent=#core] getSimulationTime

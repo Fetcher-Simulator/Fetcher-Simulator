@@ -1,0 +1,26 @@
+manifestVersion: 3
+packageId: fetcher.arrowstick-mp-fix
+packageVersion: 2
+requiredOpenMWLuaApi: 141
+requiredMultiplayerLuaApi: 8
+dependencies: []
+files:
+  - overrides/player.lua
+  - overrides/global.lua
+  - overrides/settingsglobal.lua
+overrides:
+  - target: scripts/arrowstick/player.lua
+    source: overrides/player.lua
+    targetPolicy: if-present
+    acceptedBaseHashes:
+      - 64715bfb944b164e18981bf8eb248da9aba2f2a15b7828755342be7db3629302
+  - target: scripts/arrowstick/global.lua
+    source: overrides/global.lua
+    targetPolicy: if-present
+    acceptedBaseHashes:
+      - d6b3b8becfa57df55e465888238a16d23585ef5b6f498a68dec24a3bbf0f1c71
+  - target: scripts/arrowstick/settingsglobal.lua
+    source: overrides/settingsglobal.lua
+    targetPolicy: if-present
+    acceptedBaseHashes:
+      - 6d25f3b34be048d110cf4a6822ce0cd2a96c4fd4a93d9195a7293853ad44f9fd

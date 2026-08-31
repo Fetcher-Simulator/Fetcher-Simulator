@@ -4,6 +4,7 @@
 #include <components/lua/utilpackage.hpp>
 #include <components/misc/finitevalues.hpp>
 
+
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/world.hpp"
@@ -241,17 +242,37 @@ namespace MWLua
             return anim->getNode(bonename) != nullptr;
         };
 
-        api["addVfx"] = [context](const SelfObject& object, std::string_view model, sol::optional<sol::table> options) {
+        api["addVfx"] = [context](const Object& object, std::string_view model, sol::optional<sol::table> options) {
+            if (!object.isGObject() && !object.isSelfObject())
+                throw std::runtime_error("Can only be used in global scripts or in local scripts on self.");
+
             if (options)
             {
                 sol::object transformObject = options->get<sol::object>("transform");
-                std::optional<osg::Matrix> transform;
+                std::optional<osg::Matrixf> transform;
                 if (transformObject.is<LuaUtil::TransformM>())
                     transform = LuaUtil::cast<LuaUtil::TransformM>(transformObject).mM;
                 else if (transformObject.is<LuaUtil::TransformQ>())
-                    transform = osg::Matrix(LuaUtil::cast<LuaUtil::TransformQ>(transformObject).mQ);
+                    transform = osg::Matrixf(LuaUtil::cast<LuaUtil::TransformQ>(transformObject).mQ);
                 if (transform.has_value() && !transform->valid())
                     throw std::runtime_error("Transform provided for 'addVfx' is invalid");
+
+                sol::object worldTransformObject = options->get<sol::object>("worldTransform");
+                std::optional<osg::Matrixf> worldTransform;
+                if (worldTransformObject != sol::nil)
+                {
+                    if (!worldTransformObject.is<LuaUtil::TransformM>())
+                        throw std::runtime_error("worldTransform provided for 'addVfx' must include position");
+                    worldTransform = LuaUtil::cast<LuaUtil::TransformM>(worldTransformObject).mM;
+                    if (!worldTransform->valid())
+                        throw std::runtime_error("worldTransform provided for 'addVfx' is invalid");
+                }
+                const bool nearestBone = options->get_or("attachToNearestBone", false);
+                const float nearestBoneOffsetScale = options->get_or("nearestBoneOffsetScale", 1.f);
+                if (nearestBone && !worldTransform)
+                    throw std::runtime_error("attachToNearestBone requires worldTransform");
+                if (nearestBoneOffsetScale < 0.f || nearestBoneOffsetScale > 1.f)
+                    throw std::runtime_error("nearestBoneOffsetScale must be between 0 and 1");
 
                 context.mLuaManager->addAction(
                     [object = Object(object), model = std::string(model),
@@ -259,11 +280,22 @@ namespace MWLua
                         boneName = options->get_or<std::string>("boneName", ""),
                         particleTexture = options->get_or<std::string>("particleTextureOverride", ""),
                         useAmbientLight = options->get_or("useAmbientLight", true),
-                        autoTransform = options->get_or("autoTransform", true), transform] {
+                        autoTransform = options->get_or("autoTransform", true), transform, worldTransform, nearestBone,
+                        nearestBoneOffsetScale] {
                         MWRender::Animation* anim = getMutableAnimationOrThrow(object);
-
-                        anim->addEffect(model, effectId, loop, boneName, particleTexture, useAmbientLight,
-                            autoTransform, transform);
+                        std::string resolvedBoneName = boneName;
+                        std::optional<osg::Matrixf> resolvedTransform = transform;
+                        bool resolvedAutoTransform = autoTransform;
+                        if (nearestBone)
+                        {
+                            auto [nearestName, relativeTransform]
+                                = anim->getNearestBoneAttachment(*worldTransform, nearestBoneOffsetScale);
+                            resolvedBoneName = std::move(nearestName);
+                            resolvedTransform = relativeTransform;
+                            resolvedAutoTransform = false;
+                        }
+                        anim->addEffect(model, effectId, loop, resolvedBoneName, particleTexture, useAmbientLight,
+                            resolvedAutoTransform, resolvedTransform);
                     },
                     "addVfxAction");
             }

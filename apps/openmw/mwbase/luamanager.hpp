@@ -54,6 +54,7 @@ namespace mwmp::serverlua
 
 namespace osg
 {
+    class Quat;
     class Vec3f;
 }
 
@@ -97,6 +98,11 @@ namespace MWBase
         virtual void onHit(const MWWorld::Ptr& attacker, const MWWorld::Ptr& victim, const MWWorld::Ptr& weapon,
             const MWWorld::Ptr& ammo, int attackType, float attackStrength, float damage, bool isHealth,
             const osg::Vec3f& hitPos, bool successful, MWMechanics::DamageSourceType)
+            = 0;
+        virtual void onProjectileImpact(const MWWorld::Ptr& caster, const MWWorld::Ptr& target,
+            const MWWorld::Ptr& weapon, const MWWorld::Ptr& projectile, const osg::Vec3f& hitPos,
+            const osg::Vec3f& presentationHitPos, const osg::Quat& rotation, float attackStrength, bool hitWater,
+            bool presentationOnly, bool presentationRefined)
             = 0;
         virtual void exteriorCreated(MWWorld::CellStore& cell) = 0;
         virtual void actorDied(const MWWorld::Ptr& actor) = 0;

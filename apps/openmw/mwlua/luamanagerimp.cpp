@@ -1575,6 +1575,41 @@ namespace MWLua
         });
     }
 
+    void LuaManager::onProjectileImpact(const MWWorld::Ptr& caster, const MWWorld::Ptr& target,
+        const MWWorld::Ptr& weapon, const MWWorld::Ptr& projectile, const osg::Vec3f& hitPos,
+        const osg::Vec3f& presentationHitPos, const osg::Quat& rotation, float attackStrength, bool hitWater,
+        bool presentationOnly, bool presentationRefined)
+    {
+        if (caster.isEmpty())
+            return;
+
+        mLua.protectedCall([&](LuaUtil::LuaView& view) {
+            sol::table data = view.newTable();
+            data["caster"] = GObject(caster);
+            if (!target.isEmpty())
+                data["target"] = GObject(target);
+            if (!weapon.isEmpty())
+                data["weapon"] = weapon.getCellRef().getRefId().serializeText();
+            if (!projectile.isEmpty())
+                data["projectile"] = projectile.getCellRef().getRefId().serializeText();
+            data["hitPos"] = hitPos;
+            data["presentationHitPos"] = presentationHitPos;
+            data["rotation"] = LuaUtil::TransformQ{ rotation };
+            osg::Matrixf impactTransform(rotation);
+            impactTransform.setTrans(hitPos);
+            data["transform"] = LuaUtil::TransformM{ impactTransform };
+            osg::Matrixf presentationTransform(rotation);
+            presentationTransform.setTrans(presentationHitPos);
+            data["presentationTransform"] = LuaUtil::TransformM{ presentationTransform };
+            data["presentationRefined"] = presentationRefined;
+            data["strength"] = attackStrength;
+            data["hitWater"] = hitWater;
+            data["presentationOnly"] = presentationOnly;
+            mLuaEvents.addGlobalEvent(
+                { "ProjectileImpact", LuaUtil::serialize(data, mGlobalSerializer.get()) });
+        });
+    }
+
     void LuaManager::objectAddedToScene(const MWWorld::Ptr& ptr)
     {
         mObjectLists.objectAddedToScene(ptr); // assigns generated RefNum if it is not set yet.
