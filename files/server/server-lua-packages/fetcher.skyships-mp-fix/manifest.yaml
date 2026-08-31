@@ -1,0 +1,14 @@
+manifestVersion: 3
+packageId: fetcher.skyships-mp-fix
+packageVersion: 1
+requiredOpenMWLuaApi: 141
+requiredMultiplayerLuaApi: 6
+dependencies: []
+files:
+  - overrides/bensmodz_ss_global.lua
+overrides:
+  - target: scripts/bensmodz_ss_global.lua
+    source: overrides/bensmodz_ss_global.lua
+    targetPolicy: if-present
+    acceptedBaseHashes:
+      - 6172f4b4f78bfa7a75ed326f1006f4dfa8e2859587769864cce2290c3c83522d
