@@ -1,12 +1,15 @@
 manifestVersion: 3
 packageId: fetcher.ashlanderarchitect-mp-fix
-packageVersion: 1
+packageVersion: 3
 requiredOpenMWLuaApi: 141
 requiredMultiplayerLuaApi: 6
 dependencies: []
 files:
   - overrides/cellgen2_labels_player.lua
   - overrides/cellgen2_displayinfo.lua
+  - overrides/moveobjects_player.lua
+  - overrides/actions.lua
+  - overrides/triggerhandlers.lua
 overrides:
   - target: scripts/moveobjects/cellgen2/cellgen2_labels_player.lua
     source: overrides/cellgen2_labels_player.lua
@@ -18,3 +21,18 @@ overrides:
     targetPolicy: if-present
     acceptedBaseHashes:
       - 43da6447b39ff4f2df6e37b9e515f7c4c0911896a341f82408fb088c121eb560
+  - target: scripts/moveobjects/moveobjects_player.lua
+    source: overrides/moveobjects_player.lua
+    targetPolicy: if-present
+    acceptedBaseHashes:
+      - 98767fbd9b15f2deddecd901f009de5dfe55d3b2a667daa04a399b7bd467e75a
+  - target: scripts/moveobjects/input/actions.lua
+    source: overrides/actions.lua
+    targetPolicy: if-present
+    acceptedBaseHashes:
+      - 4a8b8eb40af19533c0e803a71bad350a8fcc8f8bb24e6381715419308f15f14f
+  - target: scripts/moveobjects/input/triggerhandlers.lua
+    source: overrides/triggerhandlers.lua
+    targetPolicy: if-present
+    acceptedBaseHashes:
+      - 85860b3c8fcc9d0197b2b47ffed3feac3ccd419cdd244891e6cec4675396ab2f
