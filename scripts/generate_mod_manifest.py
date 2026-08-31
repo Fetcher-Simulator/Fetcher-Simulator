@@ -19,9 +19,10 @@ def unquote(value: str) -> str:
     return value
 
 
-def parse_content_list(path: Path) -> tuple[list[str], list[Path]]:
+def parse_content_list(path: Path) -> tuple[list[str], list[Path], bool]:
     names: list[str] = []
     data_dirs: list[Path] = []
+    is_openmw_config = False
     for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
         line = raw_line.strip()
         if not line or line.startswith(("#", ";")):
@@ -30,6 +31,8 @@ def parse_content_list(path: Path) -> tuple[list[str], list[Path]]:
             key, value = line.split("=", 1)
             key = key.strip().casefold()
             value = unquote(value.strip())
+            if key in {"data", "content"}:
+                is_openmw_config = True
             if key == "data":
                 data_path = Path(value)
                 if not data_path.is_absolute():
@@ -43,7 +46,7 @@ def parse_content_list(path: Path) -> tuple[list[str], list[Path]]:
             line = unquote(line)
         if line:
             names.append(line)
-    return names, data_dirs
+    return names, data_dirs, is_openmw_config
 
 
 def index_data_files(data_dirs: list[Path]) -> dict[str, Path]:
@@ -126,8 +129,9 @@ def main() -> int:
             raise ValueError(f"not a directory: {data_dir}")
         configured_names: list[str] = []
         configured_dirs: list[Path] = []
+        is_openmw_config = False
         if args.content_list:
-            configured_names, configured_dirs = parse_content_list(args.content_list.resolve(strict=True))
+            configured_names, configured_dirs, is_openmw_config = parse_content_list(args.content_list.resolve(strict=True))
 
         # Use the explicitly supplied published directory as a low-priority
         # fallback when it is not already represented by a data= entry.
@@ -135,7 +139,10 @@ def main() -> int:
         if args.required:
             names = args.required
         elif args.content_list:
-            names = configured_names
+            # OpenMW injects builtin.omwscripts ahead of every configured content=
+            # entry at startup (apps/openmw/main.cpp). Exact-order multiplayer
+            # manifests must mirror the runtime list, not just the literal cfg lines.
+            names = ["builtin.omwscripts", *configured_names] if is_openmw_config else configured_names
         else:
             indexed_files = index_data_files(search_dirs)
             names = sorted(
