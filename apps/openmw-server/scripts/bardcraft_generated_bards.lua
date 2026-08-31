@@ -25,6 +25,10 @@ local DEFAULTS = {
 
 local registryCache
 
+local DEFAULT_GENERATED_BARDS = {
+    { sourceRefId = "fargoth", name = "Fargoth the Bard" },
+}
+
 local function trim(value)
     return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
 end
@@ -282,7 +286,48 @@ local function encodeRegistryJson()
     return table.concat(lines, "\n") .. "\n"
 end
 
+local function seedDefaultGeneratedBards()
+    local added = 0
+    for _, seed in ipairs(DEFAULT_GENERATED_BARDS) do
+        if not findRecordBySource(seed.sourceRefId) then
+            local valid, reason = validateSourceNpc(seed.sourceRefId)
+            if valid then
+                local recordId = stableRecordId(seed.sourceRefId)
+                if recordId and not findRecord(recordId) then
+                    local entry = normalizeRecord({
+                        recordId = recordId,
+                        sourceRefId = seed.sourceRefId,
+                        name = seed.name,
+                        class = DEFAULTS.class,
+                        script = DEFAULTS.script,
+                        sheathedInstrument = DEFAULTS.sheathedInstrument,
+                        startingLevel = DEFAULTS.startingLevel,
+                        defaultSpeed = DEFAULTS.defaultSpeed,
+                        defaultFollowDistance = DEFAULTS.defaultFollowDistance,
+                        baked = false,
+                        enabled = true,
+                    })
+                    table.insert(loadRegistry().records, entry)
+                    added = added + 1
+                    mp.log(string.format(
+                        "[bardcraft] seeded default generated bard record=%s source=%s",
+                        entry.recordId, entry.sourceRefId))
+                end
+            else
+                mp.log(string.format(
+                    "[bardcraft] default generated bard seed skipped source=%s reason=%s",
+                    tostring(seed.sourceRefId), tostring(reason)))
+            end
+        end
+    end
+    if added > 0 then
+        saveRegistry()
+    end
+    return added
+end
+
 function M.initialize()
+    seedDefaultGeneratedBards()
     local queued = 0
     local skipped = 0
     local failed = 0
