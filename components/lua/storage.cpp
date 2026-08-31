@@ -67,6 +67,135 @@ namespace LuaUtil
 
     LuaStorage::Value LuaStorage::Section::sEmpty;
 
+    void LuaStorage::Overlay::clear()
+    {
+        mFallback.clear();
+        mOverlay.clear();
+    }
+
+    void LuaStorage::Overlay::updateFallback(const std::vector<SerializedValue>& values)
+    {
+        for (const SerializedValue& value : values)
+        {
+            const auto overlaySection = mOverlay.find(value.mSection);
+            if (overlaySection == mOverlay.end() || !overlaySection->second.contains(value.mKey))
+                mFallback[value.mSection][value.mKey] = value.mValue;
+        }
+    }
+
+    void LuaStorage::Overlay::updateFallbackValue(const SerializedValue& value)
+    {
+        mFallback[value.mSection][value.mKey] = value.mValue;
+    }
+
+    bool LuaStorage::Overlay::hasOverlayValue(std::string_view section, std::string_view key) const
+    {
+        const auto sectionIt = mOverlay.find(section);
+        return sectionIt != mOverlay.end() && sectionIt->second.contains(key);
+    }
+
+    bool LuaStorage::Overlay::restoreOverlayValue(LuaStorage& storage, lua_State* state,
+        std::string_view section, std::string_view key, const UserdataSerializer* serializer) const
+    {
+        const auto sectionIt = mOverlay.find(section);
+        if (sectionIt == mOverlay.end())
+            return false;
+        const auto valueIt = sectionIt->second.find(key);
+        if (valueIt == sectionIt->second.end())
+            return false;
+        storage.setSingleValue(section, key, deserialize(state, valueIt->second, serializer));
+        return true;
+    }
+
+    void LuaStorage::Overlay::replaceStorageSection(
+        LuaStorage& storage, lua_State* state, std::string_view section, const UserdataSerializer* serializer) const
+    {
+        sol::table merged(state, sol::create);
+        bool hasValues = false;
+        if (const auto fallback = mFallback.find(section); fallback != mFallback.end())
+        {
+            for (const auto& [key, value] : fallback->second)
+            {
+                merged[key] = deserialize(state, value, serializer);
+                hasValues = true;
+            }
+        }
+        if (const auto overlay = mOverlay.find(section); overlay != mOverlay.end())
+        {
+            for (const auto& [key, value] : overlay->second)
+            {
+                merged[key] = deserialize(state, value, serializer);
+                hasValues = true;
+            }
+        }
+
+        if (hasValues)
+            storage.setSectionValues(section, merged);
+        else
+            storage.setSectionValues(section, sol::nullopt);
+    }
+
+    void LuaStorage::Overlay::applySnapshot(LuaStorage& storage, lua_State* state,
+        const std::vector<SerializedValue>& values, const UserdataSerializer* serializer)
+    {
+        mOverlay.clear();
+        for (const SerializedValue& value : values)
+            mOverlay[value.mSection][value.mKey] = value.mValue;
+
+        std::set<std::string, std::less<>> sections;
+        for (const auto& [section, _] : storage.getAllSections(state))
+            sections.emplace(cast<std::string>(section));
+        for (const auto& [section, _] : mFallback)
+            sections.emplace(section);
+        for (const auto& [section, _] : mOverlay)
+            sections.emplace(section);
+        for (const std::string& section : sections)
+            replaceStorageSection(storage, state, section, serializer);
+    }
+
+    void LuaStorage::Overlay::applyDelta(
+        LuaStorage& storage, lua_State* state, const SerializedValue& value, const UserdataSerializer* serializer)
+    {
+        sol::object object = deserialize(state, value.mValue, serializer);
+        if (object == sol::nil)
+        {
+            if (auto section = mOverlay.find(value.mSection); section != mOverlay.end())
+            {
+                section->second.erase(value.mKey);
+                if (section->second.empty())
+                    mOverlay.erase(section);
+            }
+        }
+        else
+            mOverlay[value.mSection][value.mKey] = value.mValue;
+
+        if (const auto section = mOverlay.find(value.mSection);
+            section != mOverlay.end() && section->second.contains(value.mKey))
+            storage.setSingleValue(value.mSection, value.mKey, object);
+        else if (const auto fallback = mFallback.find(value.mSection);
+            fallback != mFallback.end() && fallback->second.contains(value.mKey))
+            storage.setSingleValue(
+                value.mSection, value.mKey, deserialize(state, fallback->second.at(value.mKey), serializer));
+        else
+            storage.setSingleValue(value.mSection, value.mKey, sol::make_object(state, sol::nil));
+    }
+
+    void LuaStorage::Overlay::applySection(LuaStorage& storage, lua_State* state, std::string_view section,
+        const std::vector<SerializedValue>& values, const UserdataSerializer* serializer)
+    {
+        Section replacement;
+        for (const SerializedValue& value : values)
+            replacement[value.mKey] = value.mValue;
+        if (replacement.empty())
+        {
+            if (const auto existing = mOverlay.find(section); existing != mOverlay.end())
+                mOverlay.erase(existing);
+        }
+        else
+            mOverlay[std::string(section)] = std::move(replacement);
+        replaceStorageSection(storage, state, section, serializer);
+    }
+
     void LuaStorage::registerLifeTime(LuaUtil::LuaView& view, sol::table& res)
     {
         res["LIFE_TIME"] = LuaUtil::makeStrictReadOnly(tableFromPairs<std::string_view, Section::LifeTime>(view.sol(),

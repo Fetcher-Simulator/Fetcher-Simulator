@@ -2,9 +2,11 @@
 #define COMPONENTS_LUA_STORAGE_H
 
 #include <map>
+#include <set>
 #include <sol/sol.hpp>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "asyncpackage.hpp"
@@ -32,6 +34,36 @@ namespace LuaUtil
             std::string mSection;
             std::string mKey;
             BinaryData mValue;
+        };
+
+        // Maintains a server-authoritative overlay over a selective local fallback.
+        // This is intentionally separate from LuaStorage's full baseline machinery:
+        // callers decide which local values belong to the fallback authority domain.
+        class Overlay
+        {
+        public:
+            void clear();
+            void updateFallback(const std::vector<SerializedValue>& values);
+            void updateFallbackValue(const SerializedValue& value);
+            bool hasOverlayValue(std::string_view section, std::string_view key) const;
+            bool restoreOverlayValue(LuaStorage& storage, lua_State* state, std::string_view section,
+                std::string_view key, const UserdataSerializer* serializer = nullptr) const;
+            void applySnapshot(LuaStorage& storage, lua_State* state, const std::vector<SerializedValue>& values,
+                const UserdataSerializer* serializer = nullptr);
+            void applyDelta(LuaStorage& storage, lua_State* state, const SerializedValue& value,
+                const UserdataSerializer* serializer = nullptr);
+            void applySection(LuaStorage& storage, lua_State* state, std::string_view section,
+                const std::vector<SerializedValue>& values, const UserdataSerializer* serializer = nullptr);
+
+        private:
+            using Section = std::map<std::string, BinaryData, std::less<>>;
+            using Sections = std::map<std::string, Section, std::less<>>;
+
+            void replaceStorageSection(LuaStorage& storage, lua_State* state, std::string_view section,
+                const UserdataSerializer* serializer) const;
+
+            Sections mFallback;
+            Sections mOverlay;
         };
 
         void clearTemporaryAndRemoveCallbacks();

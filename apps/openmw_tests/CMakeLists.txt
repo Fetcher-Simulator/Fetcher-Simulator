@@ -23,6 +23,8 @@ file(GLOB UNITTEST_SRC_FILES
 
     mwscript/testscripts.cpp
 
+    mwlua/testsettingsstorage.cpp
+
     mwmp/testservercontentregistry.cpp
     mwmp/testserverluarecordparser.cpp
     mwmp/testtypeddynamicrecordinstaller.cpp
