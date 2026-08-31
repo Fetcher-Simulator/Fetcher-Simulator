@@ -90,6 +90,8 @@ namespace mwmp
         static bool requiresBootstrapDeathPresentation(bool deathAlreadyApplied, bool deathAppliedToBinding);
         static bool requiresAuthoritativeDeathReplay(bool actorIsDead, bool authoritativeRealtimeDeath,
             std::string_view presentedDeathGroup, std::string_view authoritativeDeathGroup);
+        static bool shouldPreserveDeadIdentityRefresh(bool hadRuntime, bool runtimeIsDead,
+            bool incomingIsDead, bool explicitTransformReset);
 
     private:
         struct BufferedSnapshot

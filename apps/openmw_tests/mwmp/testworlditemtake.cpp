@@ -6,6 +6,8 @@
 #include <apps/openmw-server/PlayerDatabase.hpp>
 #include <apps/openmw/mwmp/sync/ActorSync.hpp>
 #include <apps/openmw/mwmp/sync/WorldObjectSync.hpp>
+#include <components/esm3/refnum.hpp>
+#include <components/openmw-mp/Base/ActorSyncProtocol.hpp>
 #include <components/openmw-mp/Sha256.hpp>
 
 namespace
@@ -129,6 +131,37 @@ TEST(ActorDeathClientPolicy, ReplaysCanonicalDeathWhenLocalPoseDiffers)
         false, true, "", "death3"));
     EXPECT_FALSE(mwmp::ActorSync::requiresAuthoritativeDeathReplay(
         true, false, "death4", "death1"));
+}
+
+TEST(ActorIdentityProtocol, ContentQualifiedVanillaRefNumsDoNotCollide)
+{
+    const ESM::RefNum baseRef { 1, 0 };
+    const ESM::RefNum modRef { 1, 37 };
+
+    mwmp::BaseActor baseActor;
+    baseActor.refNum = baseRef.toUint32();
+    mwmp::BaseActor modActor;
+    modActor.refNum = modRef.toUint32();
+
+    EXPECT_EQ(baseActor.refNum, 1u);
+    EXPECT_EQ(modActor.refNum, (37u << 24) | 1u);
+    EXPECT_NE(baseActor.refNum, modActor.refNum);
+    EXPECT_NE(mwmp::actorInstanceIdFromActor(baseActor), mwmp::actorInstanceIdFromActor(modActor));
+    EXPECT_EQ(mwmp::ActorSyncProtocolVersionV2, 13u);
+}
+
+TEST(ActorDeathClientPolicy, KnownDeadIdentityRefreshPreservesCorpsePresentation)
+{
+    EXPECT_TRUE(mwmp::ActorSync::shouldPreserveDeadIdentityRefresh(
+        true, true, true, false));
+    EXPECT_FALSE(mwmp::ActorSync::shouldPreserveDeadIdentityRefresh(
+        false, true, true, false));
+    EXPECT_FALSE(mwmp::ActorSync::shouldPreserveDeadIdentityRefresh(
+        true, false, true, false));
+    EXPECT_FALSE(mwmp::ActorSync::shouldPreserveDeadIdentityRefresh(
+        true, true, false, false));
+    EXPECT_FALSE(mwmp::ActorSync::shouldPreserveDeadIdentityRefresh(
+        true, true, true, true));
 }
 
 TEST(WorldItemTakePersistence, CommitsTombstoneInventoryAndReplayAtomically)

@@ -34,6 +34,7 @@
 #include <components/esm3/loadglob.hpp>
 #include <components/esm3/loadingr.hpp>
 #include <components/esm3/loadligh.hpp>
+#include <components/esm3/loadlevlist.hpp>
 #include <components/esm3/loadlock.hpp>
 #include <components/esm3/loadmisc.hpp>
 #include <components/esm3/loadprob.hpp>
@@ -551,6 +552,79 @@ mwmp::ServerContentRegistry::findContainerReference(
         return true;
     });
     return ambiguous ? std::nullopt : result;
+}
+
+std::optional<std::uint32_t> mwmp::ServerContentRegistry::findActorRefNum(
+    std::string_view cellId, std::string_view refId, std::uint32_t refIndex) const
+{
+    if (cellId.empty() || refId.empty() || refIndex == 0)
+        return std::nullopt;
+
+    MWWorld::CellStore* cell = nullptr;
+    const std::string cellName(cellId);
+    if (cellId.starts_with("EXT:"))
+    {
+        int x = 0;
+        int y = 0;
+        if (std::sscanf(cellName.c_str(), "EXT:%d,%d", &x, &y) != 2)
+            return std::nullopt;
+        cell = &mRuntime->world->getWorldModel().getExterior(
+            ESM::ExteriorCellLocation(x, y, ESM::Cell::sDefaultWorldspaceId));
+    }
+    else
+        cell = &mRuntime->world->getWorldModel().getInterior(cellName);
+
+    cell->load();
+    std::optional<std::uint32_t> directResult;
+    std::optional<std::uint32_t> leveledSpawnerResult;
+    bool directAmbiguous = false;
+    bool leveledSpawnerAmbiguous = false;
+
+    auto accumulate = [](std::optional<std::uint32_t>& result, bool& ambiguous,
+                          const ESM::RefNum& refNum) {
+        std::uint32_t packedRefNum = 0;
+        try
+        {
+            packedRefNum = refNum.toUint32();
+        }
+        catch (const std::exception&)
+        {
+            ambiguous = true;
+            return;
+        }
+
+        if (result && *result != packedRefNum)
+            ambiguous = true;
+        else
+            result = packedRefNum;
+    };
+
+    cell->forEachConst([&](const MWWorld::ConstPtr& ptr) {
+        if (ptr.isEmpty() || ptr.getCellRef().getRefNum().mIndex != refIndex)
+            return true;
+
+        // Ordinary placed NPC/creature references can be resolved directly by
+        // record id. Leveled-list children are persisted under the stable placed
+        // spawner refNum, so fall back to a unique leveled-list reference with
+        // the same old local index when there is no direct actor match.
+        if (ptr.getClass().isActor()
+            && ptr.getCellRef().getRefId().serializeText() == refId)
+        {
+            accumulate(directResult, directAmbiguous, ptr.getCellRef().getRefNum());
+            return !directAmbiguous;
+        }
+        if (ptr.getType() == ESM::CreatureLevList::sRecordId)
+            accumulate(leveledSpawnerResult, leveledSpawnerAmbiguous, ptr.getCellRef().getRefNum());
+        return true;
+    });
+
+    if (directAmbiguous)
+        return std::nullopt;
+    if (directResult)
+        return directResult;
+    if (leveledSpawnerAmbiguous)
+        return std::nullopt;
+    return leveledSpawnerResult;
 }
 
 std::optional<mwmp::ContainerRecord> mwmp::ServerContentRegistry::resolveJailEvidenceContainer(

@@ -6342,7 +6342,38 @@ void MPServer::loadPersistentWorldState()
         }
     }
 
-    const std::vector<BaseActor> persistedDeadVanillaActors = mPlayerDb->loadDeadVanillaActors();
+    auto migratePersistedVanillaRefNum = [&](BaseActor& actor, bool disposed) -> bool
+    {
+        if (!mContentRegistry || actor.refId.empty() || actor.cellId.empty() || actor.refNum == 0)
+            return false;
+
+        const uint32_t oldRefNum = actor.refNum;
+        const uint32_t localRefIndex = oldRefNum & 0x00ffffffu;
+        const std::optional<uint32_t> resolvedRefNum
+            = mContentRegistry->findActorRefNum(actor.cellId, actor.refId, localRefIndex);
+        if (!resolvedRefNum || *resolvedRefNum == 0 || *resolvedRefNum == oldRefNum)
+            return false;
+
+        // world_dead_vanilla_actors predates content-qualified actor identity.
+        // Rewrite the primary key before rebuilding the in-memory actor maps so
+        // a restart cannot resurrect the old truncated identity.
+        mPlayerDb->deleteDeadVanillaActor(actor.refId, oldRefNum);
+        actor.refNum = *resolvedRefNum;
+        if (disposed)
+            mPlayerDb->upsertDisposedVanillaActor(actor);
+        else
+            mPlayerDb->upsertDeadVanillaActor(actor);
+        return true;
+    };
+
+    std::vector<BaseActor> persistedDeadVanillaActors = mPlayerDb->loadDeadVanillaActors();
+    std::size_t migratedDeadVanillaRefNums = 0;
+    for (BaseActor& persistedActor : persistedDeadVanillaActors)
+    {
+        if (migratePersistedVanillaRefNum(persistedActor, false))
+            ++migratedDeadVanillaRefNums;
+    }
+
     std::unordered_map<ActorInstanceId, std::size_t> persistedDeadIdentityCounts;
     for (const BaseActor& persistedActor : persistedDeadVanillaActors)
     {
@@ -6388,7 +6419,15 @@ void MPServer::loadPersistentWorldState()
         ++deadVanillaActorCount;
     }
 
-    for (BaseActor actor : mPlayerDb->loadDisposedVanillaActors())
+    std::vector<BaseActor> persistedDisposedVanillaActors = mPlayerDb->loadDisposedVanillaActors();
+    std::size_t migratedDisposedVanillaRefNums = 0;
+    for (BaseActor& persistedActor : persistedDisposedVanillaActors)
+    {
+        if (migratePersistedVanillaRefNum(persistedActor, true))
+            ++migratedDisposedVanillaRefNums;
+    }
+
+    for (BaseActor actor : persistedDisposedVanillaActors)
     {
         actor.mpNum = 0;
         actor.isDead = false;
@@ -6399,6 +6438,12 @@ void MPServer::loadPersistentWorldState()
         ++disposedVanillaActorCount;
     }
 
+    if (migratedDeadVanillaRefNums != 0 || migratedDisposedVanillaRefNums != 0)
+    {
+        Log(Debug::Info) << "[Server] Migrated persisted vanilla actor refNums to content-qualified FormId32"
+                         << " dead=" << migratedDeadVanillaRefNums
+                         << " disposed=" << migratedDisposedVanillaRefNums;
+    }
     if (conflictingDeadVanillaActorsPurged != 0)
     {
         Log(Debug::Warning) << "[Server] Purged conflicting persisted vanilla corpses"
@@ -18367,21 +18412,65 @@ bool MPServer::spawnActor(
     persistSpawnedActorIfNeeded(registryRecord);
     markLuaActorDirty(registryRecord, cellId);
 
-    ActorList actorList;
-    actorList.cellId = cellId;
-    actorList.isAuthority = false;
-    actorList.authorityGuid = cellState.authorityGuid;
-    actorList.authorityGeneration = cellState.authorityGeneration;
-    actorList.snapshotSequence = cellState.nextSnapshotSequence++;
-    actorList.serverTimestamp = timestamp;
-    actorList.actors.reserve(cellState.actors.size());
-    for (const auto& [actorKey, record] : cellState.actors)
-        actorList.actors.push_back(record.actor);
+    // A script spawn is a one-actor insertion, not a new complete cell
+    // bootstrap. Rebroadcasting the entire ActorIdentity/ActorList set here
+    // makes existing corpses re-enter bootstrap and can reapply stale transforms.
+    // Send only the new v2 identity to modern clients. Keep the legacy full
+    // ActorList fallback only for clients that do not support actor sync v2.
+    ActorIdentityList identityList;
+    identityList.protocolVersion = ActorSyncProtocolVersionV2;
+    identityList.cellId = cellId;
+    identityList.authorityGuid = cellState.authorityGuid;
+    identityList.authorityGeneration = cellState.authorityGeneration;
+    identityList.sequence = cellState.nextSnapshotSequence++;
+    identityList.serverTimestamp = timestamp;
+    identityList.completeCellSnapshot = false;
 
-    PacketActorList pkt;
-    pkt.setActorList(&actorList);
-    broadcastActorIdentityForCell(cellId, cellState);
-    broadcastActorToCell(cellId, pkt.encode());
+    ActorIdentityRecord identity;
+    identity.actorNetId = registryRecord.actorNetId;
+    identity.persistent = registryRecord.persistent;
+    identity.serverSpawned = true;
+    identity.migrationGeneration = registryRecord.migrationGeneration;
+    identity.actor = registryRecord.actor;
+    identityList.actors.push_back(std::move(identity));
+
+    PacketActorIdentity identityPkt;
+    identityPkt.setIdentityList(&identityList);
+    const std::vector<uint8_t> encodedIdentity = identityPkt.encode();
+
+    std::optional<std::vector<uint8_t>> encodedLegacyActorList;
+    for (auto& [conn, client] : mClients)
+    {
+        if (!clientHasActorCellLoaded(client, cellId))
+            continue;
+
+        if (client.actorSyncProtocolVersion >= ActorSyncProtocolVersionV2)
+        {
+            sendTo(conn, encodedIdentity);
+            if (client.actorV2IdentitySent.insert(registryRecord.actorNetId).second)
+                ++client.actorV2IdentitySentWindow;
+            continue;
+        }
+
+        if (!encodedLegacyActorList)
+        {
+            ActorList actorList;
+            actorList.cellId = cellId;
+            actorList.isAuthority = false;
+            actorList.authorityGuid = cellState.authorityGuid;
+            actorList.authorityGeneration = cellState.authorityGeneration;
+            actorList.snapshotSequence = cellState.nextSnapshotSequence++;
+            actorList.serverTimestamp = timestamp;
+            actorList.actors.reserve(cellState.actors.size());
+            for (const auto& [actorKey, record] : cellState.actors)
+                actorList.actors.push_back(record.actor);
+
+            PacketActorList legacyPkt;
+            legacyPkt.setActorList(&actorList);
+            encodedLegacyActorList = legacyPkt.encode();
+        }
+        sendTo(conn, *encodedLegacyActorList);
+    }
     if (registryRecord.actorAuthorityGuid != 0)
         broadcastActorAuthorityLease(cellId, registryRecord);
 
