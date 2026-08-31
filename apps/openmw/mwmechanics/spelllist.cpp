@@ -91,11 +91,15 @@ namespace MWMechanics
 
     void SpellList::remove(const ESM::Spell* spell)
     {
-        auto& id = spell->mId;
-        bool changed = withBaseRecord([&](auto& spells) {
-            for (auto it = spells.begin(); it != spells.end(); it++)
+        remove(spell->mId);
+    }
+
+    void SpellList::remove(const ESM::RefId& spellId)
+    {
+        withBaseRecord([&](auto& spells) {
+            for (auto it = spells.begin(); it != spells.end(); ++it)
             {
-                if (id == *it)
+                if (spellId == *it)
                 {
                     spells.erase(it);
                     return true;
@@ -103,11 +107,12 @@ namespace MWMechanics
             }
             return false;
         });
-        if (changed)
-        {
-            for (auto listener : mListeners)
-                listener->removeSpell(spell);
-        }
+
+        // A dynamic spell can also have been attached only to an instance. Remove
+        // it from every live listener before the ESM record itself is erased so
+        // no listener retains a dangling ESM::Spell pointer.
+        for (auto listener : mListeners)
+            listener->removeSpell(spellId);
     }
 
     void SpellList::removeAll(const std::vector<ESM::RefId>& ids)

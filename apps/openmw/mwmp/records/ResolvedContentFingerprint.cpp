@@ -313,6 +313,7 @@ std::string MWMP::resolvedContentFingerprint(const MWWorld::ESMStore& store)
     appendTypedRecords<ESM::Armor>(store, mwmp::records::RecordType::Armor, entries);
     appendTypedRecords<ESM::Clothing>(store, mwmp::records::RecordType::Clothing, entries);
     appendTypedRecords<ESM::Book>(store, mwmp::records::RecordType::Book, entries);
+    appendTypedRecords<ESM::Spell>(store, mwmp::records::RecordType::Spell, entries);
     appendTypedRecords<ESM::Dialogue>(store, mwmp::records::RecordType::Dialogue, entries);
     appendTypedRecords<ESM::Script>(store, mwmp::records::RecordType::Script, entries);
 

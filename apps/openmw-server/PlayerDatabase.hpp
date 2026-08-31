@@ -235,6 +235,7 @@ namespace mwmp
         std::string resultPayload;
         uint64_t expectedInventoryRevision = 0;
         uint64_t resultingInventoryRevision = 0;
+        bool requireInventoryRevision = true;
         std::vector<DynamicRecordCommitEntry> records;
         std::optional<std::vector<Item>> inventory;
         /// When set, the character's persistent statistics (attributes,

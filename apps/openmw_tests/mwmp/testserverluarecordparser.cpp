@@ -84,6 +84,28 @@ namespace
         value["source"] = "Begin runtime_script\r\nshort state\r\nEnd runtime_script\r\n";
         return LuaUtil::serialize(value);
     }
+
+    LuaUtil::BinaryData spellPayload()
+    {
+        sol::state lua;
+        sol::table value = lua.create_table();
+        value["name"] = "Runtime Set Bonus";
+        value["type"] = ESM::Spell::ST_Ability;
+        value["cost"] = 0;
+        value["alwaysSucceedFlag"] = true;
+        sol::table effects = lua.create_table();
+        sol::table effect = lua.create_table();
+        effect["id"] = "fortify attribute";
+        effect["affectedAttribute"] = "strength";
+        effect["range"] = 0;
+        effect["area"] = 0;
+        effect["duration"] = 0;
+        effect["magnitudeMin"] = 5;
+        effect["magnitudeMax"] = 5;
+        effects[1] = effect;
+        value["effects"] = effects;
+        return LuaUtil::serialize(value);
+    }
 }
 
 TEST(ServerLuaRecordParser, ConvertsNumericLegacyMagicEffectIds)
@@ -139,6 +161,28 @@ TEST(ServerLuaRecordParser, ConvertsLegacyTableToCanonicalTypedDefinition)
 
     const std::string encoded = mwmp::records::encodeDefinition(first);
     EXPECT_EQ(mwmp::records::decodeDefinition(encoded), first);
+}
+
+TEST(ServerLuaRecordParser, ParsesSpellDefinition)
+{
+    MWBase::Environment environment;
+    MWWorld::ESMStore store;
+    environment.setESMStore(store);
+    ESM::MagicEffect effect;
+    effect.blank();
+    effect.mId = ESM::RefId::stringRefId("fortify attribute");
+    store.insertStatic(effect);
+
+    const auto definition = mwmp::records::canonicalize(
+        mwmp::parseServerLuaRecord("spell", spellPayload()));
+    const auto& spell = std::get<mwmp::records::Spell>(definition.data);
+    EXPECT_EQ(spell.name, "Runtime Set Bonus");
+    EXPECT_EQ(spell.type, ESM::Spell::ST_Ability);
+    EXPECT_EQ(spell.cost, 0);
+    EXPECT_NE(spell.flags & ESM::Spell::F_Always, 0);
+    ASSERT_EQ(spell.effects.size(), 1u);
+    EXPECT_EQ(spell.effects.front().effectId, "fortify attribute");
+    EXPECT_EQ(spell.effects.front().attributeId, "strength");
 }
 
 TEST(ServerLuaRecordParser, RejectsUnsupportedAndMalformedLegacyPayloads)

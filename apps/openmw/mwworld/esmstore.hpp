@@ -5,6 +5,7 @@
 #include <memory>
 #include <stdexcept>
 #include <tuple>
+#include <type_traits>
 #include <unordered_map>
 
 #include <components/esm/luascripts.hpp>
@@ -171,6 +172,8 @@ namespace MWWorld
 
         mutable std::unordered_map<ESM::RefId, std::weak_ptr<MWMechanics::SpellList>> mSpellListCache;
 
+        void removeSpellFromCachedLists(const ESM::RefId& spellId) const;
+
         /// Validate entries in store after setup
         void validate();
 
@@ -275,6 +278,12 @@ namespace MWWorld
         bool eraseDynamic(const ESM::RefId& id)
         {
             Store<T>& store = getWritable<T>();
+            if (!store.isDynamic(id))
+                return false;
+
+            if constexpr (std::is_same_v<T, ESM::Spell>)
+                removeSpellFromCachedLists(id);
+
             if (!store.erase(id))
                 return false;
 

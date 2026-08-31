@@ -78,7 +78,7 @@ namespace mwmp::records
                     addItem(result, record.item);
                     addEffects(result, record.effects);
                 }
-                else if constexpr (std::is_same_v<Record, Enchantment>)
+                else if constexpr (std::is_same_v<Record, Enchantment> || std::is_same_v<Record, Spell>)
                     addEffects(result, record.effects);
                 else if constexpr (std::is_same_v<Record, Weapon> || std::is_same_v<Record, Armor>
                     || std::is_same_v<Record, Clothing> || std::is_same_v<Record, Book>)

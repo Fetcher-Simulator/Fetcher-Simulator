@@ -11,8 +11,8 @@
 
 namespace mwmp::records
 {
-    inline constexpr std::uint16_t CurrentSchemaVersion = 2;
-    inline constexpr std::uint16_t CurrentWireVersion = 2;
+    inline constexpr std::uint16_t CurrentSchemaVersion = 3;
+    inline constexpr std::uint16_t CurrentWireVersion = 3;
     inline constexpr std::size_t MaximumDefinitionBytes = 8 * 1024 * 1024;
     inline constexpr std::size_t MaximumBundleBytes = 16 * 1024 * 1024;
 
@@ -26,6 +26,7 @@ namespace mwmp::records
         Book = 6,
         Dialogue = 7,
         Script = 8,
+        Spell = 9,
     };
 
     /// Durable authoring intent. Generated is the existing content-addressed
@@ -153,6 +154,17 @@ namespace mwmp::records
         bool operator==(const Book&) const = default;
     };
 
+    struct Spell
+    {
+        std::uint32_t recordFlags = 0;
+        std::string name;
+        std::int32_t type = 0;
+        std::int32_t cost = 0;
+        std::int32_t flags = 0;
+        std::vector<MagicEffect> effects;
+        bool operator==(const Spell&) const = default;
+    };
+
     struct DialogueCondition
     {
         std::string variable;
@@ -208,7 +220,7 @@ namespace mwmp::records
     };
 
     using DefinitionData
-        = std::variant<Potion, Enchantment, Weapon, Armor, Clothing, Book, Dialogue, Script>;
+        = std::variant<Potion, Enchantment, Weapon, Armor, Clothing, Book, Dialogue, Script, Spell>;
 
     struct DynamicRecordDefinition
     {

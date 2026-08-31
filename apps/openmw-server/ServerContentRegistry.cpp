@@ -407,6 +407,8 @@ bool mwmp::ServerContentRegistry::hasStaticRecord(std::uint8_t recordType, std::
             return store().get<ESM::Clothing>().searchStatic(refId) != nullptr;
         case records::RecordType::Book:
             return store().get<ESM::Book>().searchStatic(refId) != nullptr;
+        case records::RecordType::Spell:
+            return store().get<ESM::Spell>().searchStatic(refId) != nullptr;
         case records::RecordType::Dialogue:
             return store().get<ESM::Dialogue>().searchStatic(refId) != nullptr;
         case records::RecordType::Script:

@@ -46,6 +46,7 @@ namespace MWMechanics
         ///< Adding a spell that is already listed in *this is a no-op.
 
         void remove(const ESM::Spell* spell);
+        void remove(const ESM::RefId& spellId);
 
         void removeAll(const std::vector<ESM::RefId>& spells);
 

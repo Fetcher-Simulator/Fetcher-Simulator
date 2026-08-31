@@ -170,7 +170,7 @@ bool mwmp::isCanonicalServerLuaRecordType(std::string_view recordType)
 {
     return recordType == "potion" || recordType == "enchantment" || recordType == "weapon"
         || recordType == "armor" || recordType == "clothing" || recordType == "book"
-        || recordType == "dialogue" || recordType == "script";
+        || recordType == "spell" || recordType == "dialogue" || recordType == "script";
 }
 
 mwmp::records::DynamicRecordDefinition mwmp::parseServerLuaRecord(
@@ -206,10 +206,12 @@ mwmp::records::DynamicRecordDefinition mwmp::parseServerLuaRecord(
         definition = { records::CurrentSchemaVersion,
             restoreTextReferences(
                 std::get<records::Clothing>(records::fromEsmRecord(MWLua::tableToClothing(table)).data), table) };
-    else
+    else if (recordType == "book")
         definition = { records::CurrentSchemaVersion,
             restoreTextReferences(
                 std::get<records::Book>(records::fromEsmRecord(MWLua::tableToBook(table)).data), table) };
+    else
+        definition = records::fromEsmRecord(MWLua::tableToSpell(table));
     definition.authoringMode = authoringMode;
     return definition;
 }

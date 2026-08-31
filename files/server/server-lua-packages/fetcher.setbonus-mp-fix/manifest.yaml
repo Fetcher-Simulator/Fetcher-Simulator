@@ -1,0 +1,14 @@
+manifestVersion: 3
+packageId: fetcher.setbonus-mp-fix
+packageVersion: 1
+requiredOpenMWLuaApi: 141
+requiredMultiplayerLuaApi: 7
+dependencies: []
+files:
+  - overrides/global.lua
+overrides:
+  - target: scripts/setbonus/global.lua
+    source: overrides/global.lua
+    targetPolicy: if-present
+    acceptedBaseHashes:
+      - 40a705b89eb243f93e868c07eef36fe4d720efe484f71b0dbdd08ae9cff04194

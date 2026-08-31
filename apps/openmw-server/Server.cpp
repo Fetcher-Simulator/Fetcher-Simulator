@@ -213,6 +213,7 @@ namespace
         if (normalized == "armor") return Type::Armor;
         if (normalized == "clothing") return Type::Clothing;
         if (normalized == "book") return Type::Book;
+        if (normalized == "spell") return Type::Spell;
         return std::nullopt;
     }
 
@@ -9250,6 +9251,10 @@ void MPServer::handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data
     context.accountId = c.dbAccountId;
     context.characterId = c.dbCharacterId;
     context.inventoryRevision = c.inventoryRevision;
+    // Capability-authorized custom record definitions are world/content mutations,
+    // not inventory mutations. Do not make them fail because an unrelated
+    // inventory snapshot is still catching up during character bootstrap.
+    context.requireInventoryRevision = packet.request.operation != records::CreateOperation::CustomRecord;
     context.creationSource = "client_lua";
     bool isReplay = false;
     try
@@ -9288,6 +9293,11 @@ void MPServer::handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data
         context.allowCustomDefinitions = true;
         context.permittedTypes = capability->second;
         context.creationSource += ":" + packageId;
+        // Capability-authorized Lua definitions are script-owned shared records,
+        // not crafted/inventory-owned records. Keep them outside generated-link
+        // GC so an unrelated inventory/equipment unlink cannot delete them.
+        context.recordScope = "permanent";
+        context.persistent = true;
     }
 
     try
@@ -9352,8 +9362,8 @@ void MPServer::handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data
                 stored.recordType = created.recordType;
                 stored.recordId = created.recordId;
                 stored.data = created.definition;
-                stored.recordScope = "generated";
-                stored.persistent = true;
+                stored.recordScope = context.recordScope;
+                stored.persistent = context.persistent;
                 stored.sequence = outcome.result.commitSequence;
                 stored.dependencyRecordIds = created.dependencyRecordIds;
                 mWorld.dynamicRecords[makeDynamicRecordKey(stored.recordType, stored.recordId)] = std::move(stored);

@@ -26,6 +26,29 @@ namespace
     }
 }
 
+TEST(TypedDynamicRecordInstaller, GeneratedSpellInstallsIntoLiveStore)
+{
+    const ESM::RefId spellId = ESM::RefId::stringRefId("$custom_spell_1");
+    MWWorld::ESMStore store;
+    store.setUp();
+
+    mwmp::records::Spell spell;
+    spell.name = "Runtime Set Bonus";
+    spell.type = ESM::Spell::ST_Ability;
+    spell.flags = ESM::Spell::F_Always;
+    spell.effects.push_back({ "fortify attribute", {}, "strength", 0, 0, 0, 5, 5 });
+
+    mwmp::records::DynamicRecordDefinition definition;
+    definition.data = std::move(spell);
+    mwmp::installTypedDynamicRecord(store, "$custom_spell_1", definition, true, {});
+
+    const ESM::Spell* installed = store.get<ESM::Spell>().search(spellId);
+    ASSERT_NE(installed, nullptr);
+    EXPECT_EQ(installed->mName, "Runtime Set Bonus");
+    EXPECT_EQ(installed->mData.mType, ESM::Spell::ST_Ability);
+    EXPECT_EQ(installed->mEffects.mList.size(), 1u);
+}
+
 TEST(TypedDynamicRecordInstaller, ScriptOverrideInvalidatesCacheWithoutStartingOrStoppingGlobalScripts)
 {
     const ESM::RefId scriptId = ESM::RefId::stringRefId("runtime_cache_test");

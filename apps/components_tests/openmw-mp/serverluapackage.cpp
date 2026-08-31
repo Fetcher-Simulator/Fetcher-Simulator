@@ -9,7 +9,7 @@
 
 namespace
 {
-    constexpr std::uint32_t OpenMWLuaApi = 139;
+    constexpr std::uint32_t OpenMWLuaApi = 141;
 
     mwmp::serverlua::Package makePackage(std::string id = "fetcher.gameplay")
     {

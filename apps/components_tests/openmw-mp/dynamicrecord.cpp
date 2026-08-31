@@ -98,6 +98,14 @@ TEST(DynamicRecord, DefinitionCodecRoundTripsEverySupportedType)
     book.isScroll = true;
     definitions.push_back({ CurrentSchemaVersion, book });
 
+    Spell spell;
+    spell.name = "Set Bonus";
+    spell.type = 1;
+    spell.cost = 0;
+    spell.flags = 4;
+    spell.effects = { effect("fortifyAttribute", 5) };
+    definitions.push_back({ CurrentSchemaVersion, spell });
+
     Dialogue dialogue;
     dialogue.stringId = "A New Topic";
     dialogue.type = 0;
@@ -206,6 +214,21 @@ TEST(DynamicRecord, SchemaOneDefinitionsUpgradeToGeneratedMode)
     const DynamicRecordDefinition upgraded = upgradeDefinition(decoded);
     EXPECT_EQ(upgraded.schemaVersion, CurrentSchemaVersion);
     EXPECT_EQ(upgraded.authoringMode, AuthoringMode::Generated);
+    EXPECT_TRUE(validate(upgraded).empty());
+}
+
+TEST(DynamicRecord, SchemaTwoDefinitionsUpgradePreservingAuthoringMode)
+{
+    using namespace mwmp::records;
+    DynamicRecordDefinition old = potionDefinition();
+    old.schemaVersion = 2;
+    old.authoringMode = AuthoringMode::New;
+    const DynamicRecordDefinition decoded = decodeDefinition(encodeDefinition(old));
+    ASSERT_EQ(decoded.schemaVersion, 2);
+    ASSERT_EQ(decoded.authoringMode, AuthoringMode::New);
+    const DynamicRecordDefinition upgraded = upgradeDefinition(decoded);
+    EXPECT_EQ(upgraded.schemaVersion, CurrentSchemaVersion);
+    EXPECT_EQ(upgraded.authoringMode, AuthoringMode::New);
     EXPECT_TRUE(validate(upgraded).empty());
 }
 
