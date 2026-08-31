@@ -78,6 +78,7 @@ void WorldObjectSync::resetSessionState()
     mBarterRetryStates.clear();
     mOpenContainerTargets.clear();
     mContainerRevisions.clear();
+    mPendingContainerBootstrapSets.clear();
     mNextContainerRevision = 1;
     mSuppressPickpocketFinish = false;
 }
@@ -627,6 +628,12 @@ bool WorldObjectSync::requiresContainerBootstrapOnOpen(bool isActorContainer,
     return isActorContainer ? !hasActorAuthority : !hasCellAuthority;
 }
 
+bool WorldObjectSync::requiresProjectileStoredActorBootstrap(
+    bool hasAuthoritativeRevision, bool bootstrapAlreadyQueued)
+{
+    return !hasAuthoritativeRevision && !bootstrapAlreadyQueued;
+}
+
 bool WorldObjectSync::consumeLocalPlayerInventoryDetached(const MWWorld::Ptr& ptr)
 {
     if (ptr.isEmpty())
@@ -912,6 +919,68 @@ void WorldObjectSync::onLocalContainerChanged(const std::string& cellId,
                         << ") refId=" << refId
                         << " refNum=" << refNum
                         << " items=" << items.size();
+}
+
+void WorldObjectSync::onLocalProjectileStoredInActor(
+    const MWWorld::Ptr& actor, const MWWorld::Ptr& projectile)
+{
+    if (!Main::isInitialised() || !Main::isConnected()
+        || actor.isEmpty() || projectile.isEmpty()
+        || actor.getCell() == nullptr || !actor.getClass().isActor())
+        return;
+
+    const ActorSync& actorSync = Main::get().getActorSync();
+    if (!actorSync.hasAuthorityForObject(actor))
+    {
+        Log(Debug::Verbose) << "[MP] WorldObjectSync: skipped projectile container sync for non-authority actor refId="
+                            << actor.getCellRef().getRefId().serializeText();
+        return;
+    }
+
+    ContainerRecord record;
+    record.cellId = makeCellId(actor);
+    record.refId = actor.getCellRef().getRefId().serializeText();
+    record.mpNum = actorSync.getActorMpNum(actor);
+    record.refNum = record.mpNum == 0 ? actorSync.getActorCanonicalRefNum(actor) : 0;
+    if (record.cellId.empty() || record.refId.empty())
+        return;
+
+    ContainerItem delta;
+    delta.refId = projectile.getCellRef().getRefId().serializeText();
+    delta.count = 1;
+    delta.charge = static_cast<int>(projectile.getCellRef().getCharge());
+    delta.instanceId = inventoryInstanceId(projectile.getCellRef().getRefNum());
+    delta.enchantmentCharge = projectile.getCellRef().getEnchantmentCharge();
+    delta.soul = projectile.getCellRef().getSoul().serializeText();
+
+    const std::string key = makeContainerRevisionKey(
+        record.cellId, record.refId, record.refNum, record.mpNum);
+    const bool hasAuthoritativeRevision = mContainerRevisions.find(key) != mContainerRevisions.end();
+    const bool bootstrapAlreadyQueued = mPendingContainerBootstrapSets.contains(key);
+    if (requiresProjectileStoredActorBootstrap(hasAuthoritativeRevision, bootstrapAlreadyQueued))
+    {
+        // The projectile has already been inserted into the local actor store by
+        // vanilla combat. Establish server authority from that concrete post-hit
+        // snapshot before sending any later deltas. Reliable ordering guarantees
+        // subsequent Add packets follow this Set.
+        mPendingContainerBootstrapSets.insert(key);
+        mOpenContainerTargets[key] = actor;
+        sendLocalContainerSnapshot(record, actor);
+        Log(Debug::Info) << "[MP] WorldObjectSync: bootstrapped projectile-stored actor inventory"
+                         << " refId=" << record.refId
+                         << " refNum=" << record.refNum
+                         << " mpNum=" << record.mpNum
+                         << " projectile=" << delta.refId;
+        return;
+    }
+
+    onLocalContainerChanged(record.cellId, record.refId, record.refNum, record.mpNum,
+        ContainerAction::Add, { delta });
+    Log(Debug::Info) << "[MP] WorldObjectSync: synced projectile-stored actor inventory delta"
+                     << " refId=" << record.refId
+                     << " refNum=" << record.refNum
+                     << " mpNum=" << record.mpNum
+                     << " projectile=" << delta.refId;
 }
 
 // ---------------------------------------------------------------------------
@@ -1609,6 +1678,8 @@ void WorldObjectSync::onServerContainer(const ContainerRecord& record, Container
     }
     if (action == ContainerAction::Set)
     {
+        mPendingContainerBootstrapSets.erase(makeContainerRevisionKey(
+            record.cellId, record.refId, record.refNum, record.mpNum));
         for (InventoryTakeRequest& request : mPendingInventoryTakes)
         {
             const bool sameStatic = request.source.actorInstanceId == 0
@@ -1696,9 +1767,18 @@ std::uint64_t WorldObjectSync::getContainerRevision(const MWWorld::Ptr& ptr) con
 {
     if (ptr.isEmpty())
         return 0;
+
+    uint32_t refNum = ptr.getCellRef().getRefNum().mIndex;
+    uint32_t mpNum = getMpNumForObject(ptr);
+    if (ptr.getClass().isActor() && Main::isInitialised())
+    {
+        const ActorSync& actorSync = Main::get().getActorSync();
+        mpNum = actorSync.getActorMpNum(ptr);
+        refNum = mpNum == 0 ? actorSync.getActorCanonicalRefNum(ptr) : 0;
+    }
+
     const std::string key = makeContainerRevisionKey(makeCellId(ptr),
-        ptr.getCellRef().getRefId().serializeText(), ptr.getCellRef().getRefNum().mIndex,
-        getMpNumForObject(ptr));
+        ptr.getCellRef().getRefId().serializeText(), refNum, mpNum);
     const auto it = mContainerRevisions.find(key);
     return it == mContainerRevisions.end() ? 0 : it->second;
 }

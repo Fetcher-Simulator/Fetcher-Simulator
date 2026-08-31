@@ -23,6 +23,7 @@
 #ifdef BUILD_MULTIPLAYER
 #include "../mwmp/Main.hpp"
 #include "../mwmp/sync/PlayerSync.hpp"
+#include "../mwmp/sync/WorldObjectSync.hpp"
 #endif
 
 #include "../mwworld/class.hpp"
@@ -305,7 +306,29 @@ namespace MWMechanics
                 static const float fProjectileThrownStoreChance
                     = gmst.find("fProjectileThrownStoreChance")->mValue.getFloat();
                 if (Misc::Rng::rollProbability(world->getPrng()) < fProjectileThrownStoreChance / 100.f)
-                    victim.getClass().getContainerStore(victim).add(projectile, 1);
+                {
+                    MWWorld::ContainerStore& victimStore = victim.getClass().getContainerStore(victim);
+#ifdef BUILD_MULTIPLAYER
+                    if (attacker == getPlayer() && mwmp::Main::isInitialised() && mwmp::Main::isConnected())
+                    {
+                        // The fired projectile can be the player's authoritative inventory stack. A normal
+                        // ContainerStore copy preserves its RefNum, which would make the one-arrow victim copy
+                        // alias the player's entire ammo stack in multiplayer UI reconciliation. Preserve all
+                        // normal item state while explicitly giving a newly-created victim stack fresh identity.
+                        const MWWorld::ContainerStoreIterator storedProjectile
+                            = victimStore.add(projectile, 1, true, true, false, false);
+                        if (storedProjectile != victimStore.end())
+                        {
+                            mwmp::Main::get().getWorldObjectSync().onLocalProjectileStoredInActor(
+                                victim, *storedProjectile);
+                        }
+                    }
+                    else
+#endif
+                    {
+                        victimStore.add(projectile, 1);
+                    }
+                }
             }
 
             MWBase::Environment::get().getLuaManager()->onHit(attacker, victim, weapon, projectile, 0, attackStrength,

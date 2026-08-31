@@ -15287,8 +15287,23 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
     if (!detected && !finish)
     {
         normalizeContainerItems(resultingSource.items);
+        // Match OpenMW InventoryStore::addImp(): newly acquired items do not
+        // stack into a currently equipped stack. They may still merge into a
+        // compatible unequipped stack, and unequipping later lets OpenMW's
+        // native restack() combine them.
+        const auto canStackIntoPlayerItem = [&](const Item& candidate) {
+            if (candidate.instanceId == 0)
+                return true;
+            return std::none_of(c.player.equipment.begin(), c.player.equipment.end(),
+                [&](const EquipmentItem& equipped) {
+                    return equipped.item.instanceId != 0
+                        && equipped.item.instanceId == candidate.instanceId;
+                });
+        };
         const bool compatibleStack = std::any_of(inventory.begin(), inventory.end(),
-            [&](const Item& item) { return sameAuthoritativeItemIdentity(item, added); });
+            [&](const Item& item) {
+                return sameAuthoritativeItemIdentity(item, added) && canStackIntoPlayerItem(item);
+            });
         if (!compatibleStack)
         {
             const auto instance = reserveWorldMpNum();
@@ -15299,7 +15314,8 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
             }
             added.instanceId = *instance;
         }
-        const AuthoritativeStackMutation takeMutation = mergeAuthoritativeInventoryItem(inventory, added);
+        const AuthoritativeStackMutation takeMutation
+            = mergeAuthoritativeInventoryItem(inventory, added, true, canStackIntoPlayerItem);
         if (takeMutation == AuthoritativeStackMutation::Invalid
             || takeMutation == AuthoritativeStackMutation::Overflow)
         {

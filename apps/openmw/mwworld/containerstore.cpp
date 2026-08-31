@@ -406,12 +406,13 @@ MWWorld::ContainerStoreIterator MWWorld::ContainerStore::add(const ESM::RefId& i
     return add(ref.getPtr(), count, allowAutoEquip);
 }
 
-MWWorld::ContainerStoreIterator MWWorld::ContainerStore::add(
-    const ConstPtr& itemPtr, int count, bool /*allowAutoEquip*/, bool resolve, bool forceNewStack)
+MWWorld::ContainerStoreIterator MWWorld::ContainerStore::add(const ConstPtr& itemPtr, int count,
+    bool /*allowAutoEquip*/, bool resolve, bool forceNewStack, bool preserveSourceRefNum)
 {
     Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
 
-    MWWorld::ContainerStoreIterator it = addImp(itemPtr, count, resolve, forceNewStack);
+    MWWorld::ContainerStoreIterator it
+        = addImp(itemPtr, count, resolve, forceNewStack, preserveSourceRefNum);
 
     // The copy of the original item we just made
     MWWorld::Ptr item = *it;
@@ -471,7 +472,7 @@ MWWorld::ContainerStoreIterator MWWorld::ContainerStore::add(
 }
 
 MWWorld::ContainerStoreIterator MWWorld::ContainerStore::addImp(
-    const ConstPtr& ptr, int count, bool markModified, bool forceNewStack)
+    const ConstPtr& ptr, int count, bool markModified, bool forceNewStack, bool preserveSourceRefNum)
 {
     if (markModified)
         resolve();
@@ -499,7 +500,7 @@ MWWorld::ContainerStoreIterator MWWorld::ContainerStore::addImp(
         }
 
         MWWorld::ManualRef ref(esmStore, MWWorld::ContainerStore::sGoldId, count);
-        return addNewStack(ref.getPtr(), count);
+        return addNewStack(ref.getPtr(), count, preserveSourceRefNum);
     }
 
     // determine whether to stack or not
@@ -520,10 +521,11 @@ MWWorld::ContainerStoreIterator MWWorld::ContainerStore::addImp(
         }
     }
     // if we got here, this means no stacking
-    return addNewStack(ptr, count);
+    return addNewStack(ptr, count, preserveSourceRefNum);
 }
 
-MWWorld::ContainerStoreIterator MWWorld::ContainerStore::addNewStack(const ConstPtr& ptr, int count)
+MWWorld::ContainerStoreIterator MWWorld::ContainerStore::addNewStack(
+    const ConstPtr& ptr, int count, bool preserveSourceRefNum)
 {
     // As with MWWorld::CellStore::insert, the caller is expected to deal with LiveCellRefBase's copy constructor
     // copying RefData and CellRef, thereby creating another instance with the same ESM::RefNum and MWLua::LocalScripts.
@@ -583,6 +585,8 @@ MWWorld::ContainerStoreIterator MWWorld::ContainerStore::addNewStack(const Const
             break;
     }
 
+    if (!preserveSourceRefNum)
+        it->getCellRef().unsetRefNum();
     it->getCellRef().setCount(count);
 
     flagAsModified();

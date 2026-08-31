@@ -114,6 +114,13 @@ TEST(ContainerOpenClientPolicy, NonAuthorityActorCorpseRequestsBootstrap)
         true, true, false));
 }
 
+TEST(ContainerProjectileRecoveryPolicy, BootstrapsOnlyBeforeFirstAuthoritativeSnapshot)
+{
+    EXPECT_TRUE(mwmp::WorldObjectSync::requiresProjectileStoredActorBootstrap(false, false));
+    EXPECT_FALSE(mwmp::WorldObjectSync::requiresProjectileStoredActorBootstrap(true, false));
+    EXPECT_FALSE(mwmp::WorldObjectSync::requiresProjectileStoredActorBootstrap(false, true));
+}
+
 TEST(ActorDeathClientPolicy, RealtimeDeathBindingDoesNotReapplyBootstrapFinalPose)
 {
     EXPECT_TRUE(mwmp::ActorSync::requiresBootstrapDeathPresentation(false, false));

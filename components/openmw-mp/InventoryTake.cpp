@@ -214,15 +214,17 @@ bool mwmp::hasCompatibleAuthoritativeContainerStack(
         [&](const ContainerItem& item) { return sameAuthoritativeContainerIdentity(item, incoming); });
 }
 
-mwmp::AuthoritativeStackMutation mwmp::mergeAuthoritativeInventoryItem(
-    std::vector<Item>& items, Item& incoming, bool allowStacking)
+mwmp::AuthoritativeStackMutation mwmp::mergeAuthoritativeInventoryItem(std::vector<Item>& items, Item& incoming,
+    bool allowStacking, const AuthoritativeInventoryDestinationPredicate& destinationPredicate)
 {
     if (incoming.refId.empty() || incoming.count <= 0)
         return AuthoritativeStackMutation::Invalid;
 
     auto destination = allowStacking
-        ? std::find_if(items.begin(), items.end(),
-              [&](const Item& item) { return sameAuthoritativeItemIdentity(item, incoming); })
+        ? std::find_if(items.begin(), items.end(), [&](const Item& item) {
+              return sameAuthoritativeItemIdentity(item, incoming)
+                  && (!destinationPredicate || destinationPredicate(item));
+          })
         : items.end();
     if (destination == items.end())
     {

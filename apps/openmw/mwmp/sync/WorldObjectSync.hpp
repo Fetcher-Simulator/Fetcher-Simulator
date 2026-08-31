@@ -75,6 +75,8 @@ namespace mwmp
             bool destinationIsLocalPlayer, bool barterOpen, bool detachedFromLocalPlayer);
         static bool requiresContainerBootstrapOnOpen(bool isActorContainer,
             bool hasActorAuthority, bool hasCellAuthority);
+        static bool requiresProjectileStoredActorBootstrap(
+            bool hasAuthoritativeRevision, bool bootstrapAlreadyQueued);
 
         // Called when the local player clicks the vanilla Dispose of Corpse button
         // for a dead actor corpse. Sends a dedicated CorpseDispose packet.
@@ -104,6 +106,11 @@ namespace mwmp
                                      const std::string& refId, uint32_t refNum, uint32_t mpNum,
                                      ContainerAction action,
                                      const std::vector<ContainerItem>& items);
+
+        // Called when vanilla ranged combat stores a recoverable projectile in
+        // an actor's inventory. Persists the exact local RNG result immediately
+        // instead of waiting for the corpse/container UI to be opened.
+        void onLocalProjectileStoredInActor(const MWWorld::Ptr& actor, const MWWorld::Ptr& projectile);
         using InventoryTakeCallback = std::function<void(const InventoryTakeResult&)>;
         bool requestInventoryTake(const MWWorld::Ptr& source, const MWWorld::Ptr& item,
             int count, InventoryTakeKind kind, InventoryTakeCallback callback = {});
@@ -227,6 +234,7 @@ namespace mwmp
         // reconcile the same store that the UI is currently displaying.
         std::unordered_map<std::string, MWWorld::Ptr> mOpenContainerTargets;
         std::unordered_map<std::string, std::uint64_t> mContainerRevisions;
+        std::unordered_set<std::string> mPendingContainerBootstrapSets;
         std::uint64_t mNextContainerRevision = 1;
         bool mSuppressLocalDelete = false;
         bool mSuppressPickpocketFinish = false;
