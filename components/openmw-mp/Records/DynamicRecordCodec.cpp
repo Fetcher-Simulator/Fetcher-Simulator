@@ -374,6 +374,15 @@ namespace mwmp::records
                         out.i32(record.skillId);
                         out.i32(record.enchantCapacity);
                     }
+                    else if constexpr (std::is_same_v<Record, Spell>)
+                    {
+                        out.u32(record.recordFlags);
+                        out.string(record.name);
+                        out.i32(record.type);
+                        out.i32(record.cost);
+                        out.i32(record.flags);
+                        writeEffects(out, record.effects);
+                    }
                     else if constexpr (std::is_same_v<Record, Dialogue>)
                     {
                         out.string(record.stringId);
@@ -483,6 +492,18 @@ namespace mwmp::records
                     definition.data = std::move(value);
                     break;
                 }
+                case RecordType::Spell:
+                {
+                    Spell value;
+                    value.recordFlags = in.u32();
+                    value.name = in.string();
+                    value.type = in.i32();
+                    value.cost = in.i32();
+                    value.flags = in.i32();
+                    value.effects = readEffects(in);
+                    definition.data = std::move(value);
+                    break;
+                }
                 case RecordType::Dialogue:
                 {
                     Dialogue value;
@@ -541,6 +562,8 @@ namespace mwmp::records
                     return RecordType::Clothing;
                 else if constexpr (std::is_same_v<Record, Book>)
                     return RecordType::Book;
+                else if constexpr (std::is_same_v<Record, Spell>)
+                    return RecordType::Spell;
                 else if constexpr (std::is_same_v<Record, Dialogue>)
                     return RecordType::Dialogue;
                 else
@@ -565,6 +588,8 @@ namespace mwmp::records
                 return "clothing";
             case RecordType::Book:
                 return "book";
+            case RecordType::Spell:
+                return "spell";
             case RecordType::Dialogue:
                 return "dialogue";
             case RecordType::Script:

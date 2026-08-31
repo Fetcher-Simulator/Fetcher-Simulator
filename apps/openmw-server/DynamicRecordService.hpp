@@ -35,6 +35,10 @@ namespace mwmp
             int64_t accountId = 0;
             int64_t characterId = 0;
             uint64_t inventoryRevision = 0;
+            // Standalone custom record definitions do not mutate character inventory,
+            // so capability-authorized client Lua can opt out of inventory CAS while
+            // crafting paths keep the strict revision check.
+            bool requireInventoryRevision = true;
             std::string creationSource;
             std::uint16_t validationVersion = 1;
             bool trustedServerRequest = false;

@@ -123,6 +123,22 @@ namespace
         return request;
     }
 
+    mwmp::records::RecordCreateRequest makeSpellRequest(std::string requestId)
+    {
+        using namespace mwmp::records;
+        Spell spell;
+        spell.name = "Runtime Set Bonus";
+        spell.type = 1;
+        spell.flags = 4;
+        spell.effects.push_back({ "fortify attribute", {}, "strength", 0, 0, 0, 5, 5 });
+
+        RecordCreateRequest request;
+        request.requestId = std::move(requestId);
+        request.operation = CreateOperation::CustomRecord;
+        request.bundle.records.push_back({ "spell", { CurrentSchemaVersion, std::move(spell) } });
+        return request;
+    }
+
     mwmp::DynamicRecordService::Context makeTrustedContentContext(std::string key, std::string id)
     {
         mwmp::DynamicRecordService::Context context;
@@ -203,6 +219,53 @@ TEST(DynamicRecordService, CommitsDependencyBundleReplaysAndDeduplicates)
     EXPECT_TRUE(std::all_of(deduplicated.result.records.begin(), deduplicated.result.records.end(),
         [](const auto& value) { return value.reused; }));
     EXPECT_EQ(database.loadDynamicRecords().size(), 2u);
+}
+
+TEST(DynamicRecordService, PermittedSpellDefinitionCommits)
+{
+    TemporaryServiceDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+    const int64_t account = database.createAccount("spell-author");
+    const int64_t character = database.createCharacter(account, "Spell Author").characterId;
+    mwmp::DynamicRecordService service(database);
+
+    mwmp::DynamicRecordService::Context context;
+    context.accountId = account;
+    context.characterId = character;
+    context.inventoryRevision = 37;
+    context.requireInventoryRevision = false;
+    context.allowCustomDefinitions = true;
+    context.creationSource = "client_lua:scripts/setbonus/global.lua";
+    context.recordScope = "permanent";
+    context.persistent = true;
+    context.permittedTypes = { mwmp::records::RecordType::Spell };
+    context.isContentIdAllowed = [](std::string_view) { return true; };
+    context.isAssetAllowed = [](std::string_view) { return true; };
+
+    uint64_t sequence = 1;
+    auto request = makeSpellRequest("spell-1");
+    request.inventoryRevision = 3; // deliberately stale; custom records are inventory-independent
+    const auto outcome = service.execute(request, "spell-hash", context,
+        [](mwmp::records::RecordType, std::string_view)
+            -> std::optional<mwmp::DynamicRecordService::CatalogRecord> { return std::nullopt; },
+        [](mwmp::records::RecordType type) {
+            return "$custom_" + std::string(mwmp::records::getRecordTypeName(type)) + "_1";
+        },
+        [&] { return sequence++; });
+
+    ASSERT_TRUE(outcome.result.accepted);
+    EXPECT_EQ(outcome.result.inventoryRevision, 37u);
+    ASSERT_EQ(outcome.newRecords.size(), 1u);
+    EXPECT_EQ(outcome.newRecords.front().recordType, "spell");
+    EXPECT_EQ(mwmp::records::getRecordType(
+                  mwmp::records::decodeDefinition(outcome.newRecords.front().definition)),
+        mwmp::records::RecordType::Spell);
+
+    const auto catalog = database.loadDynamicRecordCatalog();
+    ASSERT_EQ(catalog.size(), 1u);
+    EXPECT_EQ(catalog.front().recordScope, "permanent");
+    EXPECT_TRUE(catalog.front().persistent);
+    EXPECT_EQ(catalog.front().linkCount, 0);
 }
 
 TEST(DynamicRecordService, DefaultDenyRejectionIsRestartPersistent)

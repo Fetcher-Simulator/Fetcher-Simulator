@@ -102,7 +102,8 @@ namespace mwmp
                                 error = records::CreateError::ContentMismatch;
                         }
                         if constexpr (std::is_same_v<Record, records::Potion>
-                            || std::is_same_v<Record, records::Enchantment>)
+                            || std::is_same_v<Record, records::Enchantment>
+                            || std::is_same_v<Record, records::Spell>)
                         {
                             for (const records::MagicEffect& effect : record.effects)
                             {
@@ -438,7 +439,8 @@ namespace mwmp
             earlyError = records::CreateError::InvalidRequest;
         else if (context.admissionError != records::CreateError::None)
             earlyError = context.admissionError;
-        else if (request.inventoryRevision != context.inventoryRevision)
+        else if (context.requireInventoryRevision
+            && request.inventoryRevision != context.inventoryRevision)
             earlyError = records::CreateError::StaleInventoryRevision;
         else if (request.operation == records::CreateOperation::Alchemy
             || request.operation == records::CreateOperation::Enchanting)
@@ -603,6 +605,7 @@ namespace mwmp
         commit.resultPayload = asString(outcome.encodedResult);
         commit.expectedInventoryRevision = context.inventoryRevision;
         commit.resultingInventoryRevision = context.inventoryRevision;
+        commit.requireInventoryRevision = context.requireInventoryRevision;
         commit.records = std::move(commitEntries);
         commit.serverSource = context.serverRequestSource;
         const DynamicRecordCommitStatus status = mDatabase.commitDynamicRecordRequest(commit);

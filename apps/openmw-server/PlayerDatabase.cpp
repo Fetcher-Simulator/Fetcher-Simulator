@@ -5560,7 +5560,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
             checkSqlite(existingRc, mDb, "commitDynamicRecordRequest(existing)");
             sqlite3_finalize(existing);
 
-            if (!serverRequest)
+            if (!serverRequest && commit.requireInventoryRevision)
             {
                 sqlite3_stmt* revisionStmt = prepare(
                     "SELECT inventory_revision FROM characters WHERE id=?1 AND account_id=?2");
@@ -5722,7 +5722,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                 sqlite3_finalize(insertLink);
             }
 
-            if (!serverRequest)
+            if (!serverRequest && commit.requireInventoryRevision)
             {
                 sqlite3_stmt* updateRevision = prepare(
                     "UPDATE characters SET inventory_revision=?1, inventory_saved=MAX(inventory_saved, ?2),"

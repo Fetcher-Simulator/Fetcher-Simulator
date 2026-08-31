@@ -100,6 +100,18 @@ namespace MWMechanics
             mSpells.erase(it);
     }
 
+    void Spells::removeSpell(const ESM::RefId& spellId)
+    {
+        mSpells.erase(std::remove_if(mSpells.begin(), mSpells.end(), [&](const ESM::Spell* spell) {
+            return spell && spell->mId == spellId;
+        }), mSpells.end());
+        mUsedPowers.erase(std::remove_if(mUsedPowers.begin(), mUsedPowers.end(), [&](const auto& power) {
+            return power.first && power.first->mId == spellId;
+        }), mUsedPowers.end());
+        if (spellId == mSelectedSpell)
+            mSelectedSpell = ESM::RefId();
+    }
+
     void Spells::removeAllSpells()
     {
         mSpells.clear();

@@ -43,7 +43,7 @@ namespace
         writeFile(package / "main.lua", "return { engineHandlers = {} }");
         writeFile(package / "manifest.yaml",
             "manifestVersion: 3\npackageId: " + std::string(id)
-                + "\npackageVersion: 1\nrequiredOpenMWLuaApi: 139\nrequiredMultiplayerLuaApi: 1\n"
+                + "\npackageVersion: 1\nrequiredOpenMWLuaApi: 141\nrequiredMultiplayerLuaApi: 1\n"
                   "dependencies: "
                 + std::string(dependencies)
                 + "\nfiles:\n  - main.lua\nscripts:\n  - path: main.lua\n    flags: [global]\n");
@@ -54,7 +54,7 @@ TEST(ServerLuaPackageRegistry, MissingRootProducesExplicitEmptyGeneration)
 {
     TemporaryDirectory temp;
     const auto missing = temp.path() / "missing";
-    mwmp::ServerLuaPackageRegistry registry(missing, 139);
+    mwmp::ServerLuaPackageRegistry registry(missing, 141);
     EXPECT_TRUE(registry.packageSet().packages.empty());
     EXPECT_FALSE(registry.packageSet().packageSetHash.empty());
     EXPECT_NE(registry.packageSet().generation, 0u);
@@ -66,7 +66,7 @@ TEST(ServerLuaPackageRegistry, LoadsAndOrdersDependenciesDeterministically)
     writePackage(temp.path(), "z-policy", "fetcher.policy", "[fetcher.base]");
     writePackage(temp.path(), "a-base", "fetcher.base");
 
-    mwmp::ServerLuaPackageRegistry registry(temp.path(), 139);
+    mwmp::ServerLuaPackageRegistry registry(temp.path(), 141);
     ASSERT_EQ(registry.packageSet().packages.size(), 2u);
     EXPECT_EQ(registry.packageSet().packages[0].packageId, "fetcher.base");
     EXPECT_EQ(registry.packageSet().packages[1].packageId, "fetcher.policy");
@@ -79,7 +79,7 @@ TEST(ServerLuaPackageRegistry, FailsStartupForInvalidPackageConfiguration)
     TemporaryDirectory temp;
     writePackage(temp.path(), "bad", "fetcher.bad");
     writeFile(temp.path() / "bad" / "manifest.yaml",
-        "manifestVersion: 3\npackageId: fetcher.bad\npackageVersion: 1\nrequiredOpenMWLuaApi: 140\n"
+        "manifestVersion: 3\npackageId: fetcher.bad\npackageVersion: 1\nrequiredOpenMWLuaApi: 141\n"
         "requiredMultiplayerLuaApi: 1\ndependencies: []\nfiles: [main.lua]\n"
         "scripts:\n  - path: main.lua\n    flags: [global]\n");
     EXPECT_THROW(mwmp::ServerLuaPackageRegistry(temp.path(), 139), std::runtime_error);
@@ -90,10 +90,10 @@ TEST(ServerLuaPackageRegistry, RejectsNonCanonicalFilesystemPaths)
     TemporaryDirectory temp;
     writePackage(temp.path(), "bad", "fetcher.bad");
     writeFile(temp.path() / "bad" / "manifest.yaml",
-        "manifestVersion: 3\npackageId: fetcher.bad\npackageVersion: 1\nrequiredOpenMWLuaApi: 139\n"
+        "manifestVersion: 3\npackageId: fetcher.bad\npackageVersion: 1\nrequiredOpenMWLuaApi: 141\n"
         "requiredMultiplayerLuaApi: 1\ndependencies: []\nfiles: [MAIN.LUA]\n"
         "scripts:\n  - path: MAIN.LUA\n    flags: [global]\n");
-    EXPECT_THROW(mwmp::ServerLuaPackageRegistry(temp.path(), 139), std::runtime_error);
+    EXPECT_THROW(mwmp::ServerLuaPackageRegistry(temp.path(), 141), std::runtime_error);
 }
 
 TEST(ServerLuaPackageRegistry, LoadsOverrideOnlyPackageWithExplicitBasePolicy)
@@ -102,12 +102,12 @@ TEST(ServerLuaPackageRegistry, LoadsOverrideOnlyPackageWithExplicitBasePolicy)
     const auto package = temp.path() / "compatibility";
     writeFile(package / "overrides" / "item.lua", "return { engineHandlers = {} }");
     writeFile(package / "manifest.yaml",
-        "manifestVersion: 3\npackageId: fetcher.compatibility\npackageVersion: 1\nrequiredOpenMWLuaApi: 139\n"
+        "manifestVersion: 3\npackageId: fetcher.compatibility\npackageVersion: 1\nrequiredOpenMWLuaApi: 141\n"
         "requiredMultiplayerLuaApi: 1\ndependencies: []\nfiles: [overrides/item.lua]\n"
         "overrides:\n  - target: scripts/inventoryextender/item.lua\n"
         "    source: overrides/item.lua\n    basePolicy: any\n    targetPolicy: if-present\n");
 
-    mwmp::ServerLuaPackageRegistry registry(temp.path(), 139);
+    mwmp::ServerLuaPackageRegistry registry(temp.path(), 141);
     ASSERT_EQ(registry.packageSet().packages.size(), 1u);
     const auto& loaded = registry.packageSet().packages[0];
     EXPECT_TRUE(loaded.registrations.empty());
@@ -122,12 +122,12 @@ TEST(ServerLuaPackageRegistry, OverrideTargetPolicyDefaultsToRequired)
     const auto package = temp.path() / "compatibility";
     writeFile(package / "overrides" / "item.lua", "return { engineHandlers = {} }");
     writeFile(package / "manifest.yaml",
-        "manifestVersion: 3\npackageId: fetcher.compatibility\npackageVersion: 1\nrequiredOpenMWLuaApi: 139\n"
+        "manifestVersion: 3\npackageId: fetcher.compatibility\npackageVersion: 1\nrequiredOpenMWLuaApi: 141\n"
         "requiredMultiplayerLuaApi: 1\ndependencies: []\nfiles: [overrides/item.lua]\n"
         "overrides:\n  - target: scripts/inventoryextender/item.lua\n"
         "    source: overrides/item.lua\n    basePolicy: any\n");
 
-    mwmp::ServerLuaPackageRegistry registry(temp.path(), 139);
+    mwmp::ServerLuaPackageRegistry registry(temp.path(), 141);
     ASSERT_EQ(registry.packageSet().packages[0].overrides.size(), 1u);
     EXPECT_EQ(registry.packageSet().packages[0].overrides[0].targetPolicy,
         mwmp::serverlua::OverrideTargetPolicy::Required);
@@ -138,13 +138,15 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
 {
     const auto root = std::filesystem::path{ OPENMW_PROJECT_SOURCE_DIR }
         / "files" / "server" / "server-lua-packages";
-    mwmp::ServerLuaPackageRegistry registry(root, 139);
-    ASSERT_EQ(registry.packageSet().packages.size(), 1u);
+    mwmp::ServerLuaPackageRegistry registry(root, 141);
+    const auto packageIt = std::find_if(registry.packageSet().packages.begin(), registry.packageSet().packages.end(),
+        [](const auto& package) { return package.packageId == "fetcher.inventoryextender-fix"; });
+    ASSERT_NE(packageIt, registry.packageSet().packages.end());
 
-    const auto& package = registry.packageSet().packages.front();
+    const auto& package = *packageIt;
     EXPECT_EQ(package.packageId, "fetcher.inventoryextender-fix");
     EXPECT_EQ(package.packageVersion, 14u);
-    EXPECT_EQ(package.requiredMultiplayerLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion);
+    EXPECT_LE(package.requiredMultiplayerLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion);
 
     const auto findSource = [&](std::string_view path) -> const std::string* {
         const auto it = std::find_if(package.files.begin(), package.files.end(), [&](const auto& file) {
@@ -176,4 +178,28 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
     EXPECT_NE(inventory->find("barterAuthoritySources"), std::string::npos);
     EXPECT_NE(inventory->find("npc.type.hasEquipped"), std::string::npos);
     EXPECT_NE(inventory->find("virtualStack.equipped == equipped"), std::string::npos);
+}
+
+TEST(ServerLuaPackageRegistry, ShippedSetBonusFixUsesAuthoritativeSpellRecords)
+{
+    const auto root = std::filesystem::path{ OPENMW_PROJECT_SOURCE_DIR }
+        / "files" / "server" / "server-lua-packages";
+    mwmp::ServerLuaPackageRegistry registry(root, 141);
+    const auto packageIt = std::find_if(registry.packageSet().packages.begin(), registry.packageSet().packages.end(),
+        [](const auto& package) { return package.packageId == "fetcher.setbonus-mp-fix"; });
+    ASSERT_NE(packageIt, registry.packageSet().packages.end());
+
+    const auto& package = *packageIt;
+    EXPECT_EQ(package.packageVersion, 1u);
+    EXPECT_LE(package.requiredMultiplayerLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion);
+    ASSERT_EQ(package.overrides.size(), 1u);
+    EXPECT_EQ(package.overrides.front().target, "scripts/setbonus/global.lua");
+
+    const auto sourceIt = std::find_if(package.files.begin(), package.files.end(),
+        [](const auto& file) { return file.path == "overrides/global.lua"; });
+    ASSERT_NE(sourceIt, package.files.end());
+    EXPECT_NE(sourceIt->source.find("require('openmw.mp')"), std::string::npos);
+    EXPECT_NE(sourceIt->source.find("mp.records.request"), std::string::npos);
+    EXPECT_NE(sourceIt->source.find("type = 'spell'"), std::string::npos);
+    EXPECT_NE(sourceIt->source.find("SCALE_REBUILD_DEBOUNCE"), std::string::npos);
 }

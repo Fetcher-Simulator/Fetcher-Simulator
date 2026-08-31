@@ -11,7 +11,7 @@ namespace mwmp::records
 {
     struct ValidationLimits
     {
-        std::size_t maxRecordsPerBundle = 8;
+        std::size_t maxRecordsPerBundle = 16;
         std::size_t maxDependenciesPerBundle = 16;
         std::size_t maxEffectsPerRecord = 64;
         std::size_t maxBodyPartsPerRecord = 64;

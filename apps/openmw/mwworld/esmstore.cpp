@@ -792,6 +792,20 @@ namespace MWWorld
             throw std::runtime_error("Invalid player record (race or class unavailable");
     }
 
+    void ESMStore::removeSpellFromCachedLists(const ESM::RefId& spellId) const
+    {
+        for (auto it = mSpellListCache.begin(); it != mSpellListCache.end();)
+        {
+            if (const std::shared_ptr<MWMechanics::SpellList> spellList = it->second.lock())
+            {
+                spellList->remove(spellId);
+                ++it;
+            }
+            else
+                it = mSpellListCache.erase(it);
+        }
+    }
+
     std::pair<std::shared_ptr<MWMechanics::SpellList>, bool> ESMStore::getSpellList(const ESM::RefId& id) const
     {
         auto result = mSpellListCache.find(id);

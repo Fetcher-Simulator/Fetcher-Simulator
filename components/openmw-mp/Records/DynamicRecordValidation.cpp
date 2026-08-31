@@ -396,6 +396,15 @@ namespace mwmp::records
                     if (record.skillId < -1 || record.skillId > 26 || record.enchantCapacity < 0)
                         add(errors, "invalid_number", "book", "Book skill or enchantment capacity is out of range");
                 }
+                else if constexpr (std::is_same_v<Record, Spell>)
+                {
+                    checkString(errors, record.name, limits.maxNameLength, "spell.name", true);
+                    if (record.type < 0 || record.type > 5)
+                        add(errors, "invalid_spell_type", "spell.type", "Spell type is out of range");
+                    if (record.cost < 0)
+                        add(errors, "invalid_number", "spell.cost", "Spell cost must be non-negative");
+                    checkEffects(errors, record.effects, limits, "spell.effects");
+                }
                 else if constexpr (std::is_same_v<Record, Dialogue>)
                     checkDialogue(errors, record, limits);
                 else if constexpr (std::is_same_v<Record, Script>)
@@ -492,7 +501,8 @@ namespace mwmp::records
                     || std::is_same_v<Record, Armor> || std::is_same_v<Record, Clothing>
                     || std::is_same_v<Record, Book>)
                     normalizeItem(record.item);
-                if constexpr (std::is_same_v<Record, Potion> || std::is_same_v<Record, Enchantment>)
+                if constexpr (std::is_same_v<Record, Potion> || std::is_same_v<Record, Enchantment>
+                    || std::is_same_v<Record, Spell>)
                     normalizeEffects(record.effects);
                 if constexpr (std::is_same_v<Record, Weapon> || std::is_same_v<Record, Armor>
                     || std::is_same_v<Record, Clothing> || std::is_same_v<Record, Book>)
@@ -576,10 +586,18 @@ namespace mwmp::records
         if (definition.schemaVersion == 1)
         {
             const RecordType type = getRecordType(definition);
-            if (type == RecordType::Dialogue || type == RecordType::Script)
-                throw std::runtime_error("Dialogue and Script do not exist in dynamic record schema v1");
+            if (type == RecordType::Dialogue || type == RecordType::Script || type == RecordType::Spell)
+                throw std::runtime_error("Dialogue, Script, and Spell do not exist in dynamic record schema v1");
             definition.schemaVersion = CurrentSchemaVersion;
             definition.authoringMode = AuthoringMode::Generated;
+            return definition;
+        }
+        if (definition.schemaVersion == 2)
+        {
+            const RecordType type = getRecordType(definition);
+            if (type == RecordType::Spell)
+                throw std::runtime_error("Spell does not exist in dynamic record schema v2");
+            definition.schemaVersion = CurrentSchemaVersion;
             return definition;
         }
         throw std::runtime_error("Unsupported dynamic record schema version");

@@ -42,6 +42,7 @@ namespace MWMechanics
 
         void addSpell(const ESM::Spell* spell);
         void removeSpell(const ESM::Spell* spell);
+        void removeSpell(const ESM::RefId& spellId);
         void removeAllSpells();
 
         friend class SpellList;

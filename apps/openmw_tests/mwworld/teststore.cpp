@@ -25,6 +25,8 @@
 #include <components/misc/strings/algorithm.hpp>
 #include <components/testing/util.hpp>
 
+#include "apps/openmw/mwbase/environment.hpp"
+#include "apps/openmw/mwmechanics/spells.hpp"
 #include "apps/openmw/mwworld/esmstore.hpp"
 #include "apps/openmw/mwmp/sync/PlayerSync.hpp"
 
@@ -442,6 +444,39 @@ namespace
         EXPECT_EQ(store.get<Record>().search(id), nullptr);
         EXPECT_EQ(store.find(id), 0);
         EXPECT_EQ(store.get<Record>().getSize(), 0);
+    }
+
+    TEST(DynamicRecordEraseTest, removesDynamicSpellFromCachedActorSpellListsBeforeFreeingRecord)
+    {
+        MWBase::Environment environment;
+        MWWorld::ESMStore store;
+        environment.setESMStore(store);
+
+        const ESM::RefId actorId = ESM::RefId::stringRefId("dynamic_spell_actor");
+        const ESM::RefId spellId = ESM::RefId::stringRefId("$custom_spell_dangling_pointer_regression");
+
+        ESM::NPC actor;
+        actor.blank();
+        actor.mId = actorId;
+        actor.mSpells.mList.push_back(spellId);
+        ASSERT_NE(store.insertStatic(actor), nullptr);
+        store.setUp();
+
+        ESM::Spell spell;
+        spell.blank();
+        spell.mId = spellId;
+        spell.mName = "Dynamic Spell";
+        spell.mData.mType = ESM::Spell::ST_Ability;
+        ASSERT_NE(store.overrideRecord(spell), nullptr);
+
+        MWMechanics::Spells actorSpells;
+        actorSpells.setSpells(actorId);
+        ASSERT_EQ(actorSpells.count(), 1u);
+
+        EXPECT_TRUE(store.eraseDynamic<ESM::Spell>(spellId));
+        EXPECT_EQ(actorSpells.count(), 0u);
+        EXPECT_EQ(store.get<ESM::Spell>().search(spellId), nullptr);
+        EXPECT_TRUE(store.get<ESM::NPC>().find(actorId)->mSpells.mList.empty());
     }
 }
 

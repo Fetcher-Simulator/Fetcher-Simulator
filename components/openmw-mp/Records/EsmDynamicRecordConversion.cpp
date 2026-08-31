@@ -288,6 +288,18 @@ namespace mwmp::records
                     target.mText = source.text;
                     return target;
                 }
+                else if constexpr (std::is_same_v<Record, Spell>)
+                {
+                    ESM::Spell target;
+                    target.blank();
+                    target.mRecordFlags = source.recordFlags;
+                    target.mName = source.name;
+                    target.mData.mType = source.type;
+                    target.mData.mCost = source.cost;
+                    target.mData.mFlags = source.flags;
+                    target.mEffects = toEsmEffects(source.effects);
+                    return target;
+                }
                 else if constexpr (std::is_same_v<Record, Dialogue>)
                 {
                     ESM::Dialogue target;
@@ -396,6 +408,18 @@ namespace mwmp::records
         target.isScroll = source.mData.mIsScroll != 0;
         target.skillId = source.mData.mSkillId;
         target.enchantCapacity = source.mData.mEnchant;
+        return { CurrentSchemaVersion, std::move(target) };
+    }
+
+    DynamicRecordDefinition fromEsmRecord(const ESM::Spell& source)
+    {
+        Spell target;
+        target.recordFlags = source.mRecordFlags;
+        target.name = source.mName;
+        target.type = source.mData.mType;
+        target.cost = source.mData.mCost;
+        target.flags = source.mData.mFlags;
+        target.effects = fromEsmEffects(source.mEffects);
         return { CurrentSchemaVersion, std::move(target) };
     }
 

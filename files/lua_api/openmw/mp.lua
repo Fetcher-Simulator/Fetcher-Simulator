@@ -16,7 +16,7 @@
 -- for both the script path and every record type.
 --
 -- Supported framework types are `potion`, `enchantment`, `weapon`, `armor`,
--- `clothing`, and `book`. A server can enable only a subset. Each `definition`
+-- `clothing`, `book`, and `spell`. A server can enable only a subset. Each `definition`
 -- may be an upstream typed record draft or its record-definition table. Drafts
 -- have no authoritative ID and cannot be placed, equipped, or saved.
 --

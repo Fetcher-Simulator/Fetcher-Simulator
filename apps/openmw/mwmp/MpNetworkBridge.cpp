@@ -89,6 +89,11 @@ namespace mwmp
                 if (value.is<ESM::Book>()) return records::fromEsmRecord(value.as<ESM::Book>());
                 if (value.is<sol::table>()) return records::fromEsmRecord(MWLua::tableToBook(value.as<sol::table>()));
             }
+            else if (type == "spell")
+            {
+                if (value.is<ESM::Spell>()) return records::fromEsmRecord(value.as<ESM::Spell>());
+                if (value.is<sol::table>()) return records::fromEsmRecord(MWLua::tableToSpell(value.as<sol::table>()));
+            }
             throw std::invalid_argument("Record definition does not match supported type '" + std::string(type) + "'");
         }
 
