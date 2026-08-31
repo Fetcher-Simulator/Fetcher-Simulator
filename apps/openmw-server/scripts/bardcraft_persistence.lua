@@ -2140,21 +2140,41 @@ local function autoJoinBandMembersForSession(session)
     return sent
 end
 
+local BARDCRAFT_INSTRUMENT_GRANT_ITEMS = {
+    'r_bc_bassflute',
+    'misc_de_drum_01',
+    'r_bc_fiddle',
+    't_de_music_sudahk',
+    'misc_de_lute_01',
+    't_de_music_lyre_01',
+    'r_bc_ocarina',
+    't_de_music_panflute_01',
+}
+
 local function sendBardcraftInstrumentGrant(player, reason)
-    reason = reason or "command"
-    mp.send(tonumber(player.guid), "BC_BardcraftGiveAllInstruments", {
-        reason = reason,
-    })
-    if reason == "initial-character-load" then
-        player:sendMessage("[Bardcraft] Starter instruments added to your inventory.")
+    reason = reason or 'command'
+    local guid = tonumber(player.guid)
+    local ensured = 0
+    local failed = 0
+    for _, recordId in ipairs(BARDCRAFT_INSTRUMENT_GRANT_ITEMS) do
+        if guid and mp.ensureInventoryItem(guid, recordId) then
+            ensured = ensured + 1
+        else
+            failed = failed + 1
+        end
+    end
+    if reason == 'initial-character-load' then
+        player:sendMessage('[Bardcraft] Starter instruments added to your inventory.')
     else
-        player:sendMessage("[Bardcraft] Adding Bardcraft instruments to your inventory.")
+        player:sendMessage('[Bardcraft] Bardcraft instruments added to your inventory.')
     end
     mp.log(string.format(
-        "[bardcraft] instrument grant guid=%s name=%s reason=%s",
+        '[bardcraft] authoritative instrument grant guid=%s name=%s reason=%s ensured=%d failed=%d',
         tostring(player.guid),
         tostring(player.name),
-        tostring(reason)))
+        tostring(reason),
+        ensured,
+        failed))
 end
 
 local function grantInitialCharacterInstruments(player, characterId)
