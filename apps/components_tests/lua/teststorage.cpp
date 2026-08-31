@@ -236,4 +236,98 @@ namespace
         });
     }
 
+    TEST(LuaUtilStorageTest, OverlayKeepsMutableFallbackBehindServerOverride)
+    {
+        LuaUtil::LuaState luaState{ nullptr, nullptr };
+        luaState.protectedCall([](LuaUtil::LuaView& view) {
+            LuaUtil::LuaStorage::initLuaBindings(view);
+            auto& lua = view.sol();
+            LuaUtil::LuaStorage storage;
+            storage.setActive(true);
+            lua["settings"] = storage.getMutableSection(lua, "SettingsTest");
+            lua.safe_script("settings:set('chance', 100)");
+
+            LuaUtil::LuaStorage::Overlay overlay;
+            overlay.updateFallback({ { "SettingsTest", "chance", LuaUtil::serialize(sol::make_object(lua, 100)) } });
+            overlay.applySnapshot(storage, lua.lua_state(),
+                { { "SettingsTest", "chance", LuaUtil::serialize(sol::make_object(lua, 50)) } });
+            EXPECT_TRUE(overlay.hasOverlayValue("SettingsTest", "chance"));
+            EXPECT_EQ(get<int>(lua, "settings:get('chance')"), 50);
+
+            overlay.updateFallbackValue(
+                { "SettingsTest", "chance", LuaUtil::serialize(sol::make_object(lua, 75)) });
+            lua.safe_script("settings:set('chance', 75)");
+            EXPECT_TRUE(overlay.restoreOverlayValue(storage, lua.lua_state(), "SettingsTest", "chance"));
+            EXPECT_EQ(get<int>(lua, "settings:get('chance')"), 50);
+
+            overlay.applyDelta(storage, lua.lua_state(),
+                { "SettingsTest", "chance", LuaUtil::serialize(sol::make_object(lua, sol::nil)) });
+            EXPECT_EQ(get<int>(lua, "settings:get('chance')"), 75);
+        });
+    }
+
+    TEST(LuaUtilStorageTest, SelectiveOverlayPreservesFallbackAndServerAuthority)
+    {
+        LuaUtil::LuaState luaState{ nullptr, nullptr };
+        luaState.protectedCall([](LuaUtil::LuaView& view) {
+            LuaUtil::LuaStorage::initLuaBindings(view);
+            auto& lua = view.sol();
+            LuaUtil::LuaStorage storage;
+            storage.setActive(true);
+
+            sol::table callbackHiddenData(lua, sol::create);
+            callbackHiddenData[LuaUtil::ScriptsContainer::sScriptIdKey] = LuaUtil::ScriptId{};
+            LuaUtil::getAsyncPackageInitializer(
+                lua.lua_state(), []() { return 0.0; }, []() { return 0.0; })(callbackHiddenData);
+            lua["async"] = LuaUtil::AsyncPackageId{ nullptr, 0, callbackHiddenData };
+            lua["settings"] = storage.getMutableSection(lua, "SettingsTest");
+            lua["unrelated"] = storage.getMutableSection(lua, "UnrelatedState");
+            lua.safe_script(R"(
+                settings:set('chance', 100)
+                settings:set('enabled', true)
+                unrelated:set('stale', 7)
+                callbackCalls = {}
+                settings:subscribe(async:callback(function(section, key)
+                    table.insert(callbackCalls, section .. '_' .. (key or '*'))
+                end))
+            )");
+
+            std::vector<LuaUtil::LuaStorage::SerializedValue> fallback;
+            for (const auto& value : storage.getSerializedValues())
+            {
+                if (value.mSection == "SettingsTest")
+                    fallback.push_back(value);
+            }
+
+            LuaUtil::LuaStorage::Overlay overlay;
+            overlay.updateFallback(fallback);
+            overlay.applySnapshot(storage, lua.lua_state(),
+                {
+                    { "SettingsTest", "chance", LuaUtil::serialize(sol::make_object(lua, 50)) },
+                    { "ServerState", "value", LuaUtil::serialize(sol::make_object(lua, 9)) },
+                });
+            EXPECT_EQ(get<int>(lua, "settings:get('chance')"), 50);
+            EXPECT_TRUE(get<bool>(lua, "settings:get('enabled')"));
+            EXPECT_TRUE(get<bool>(lua, "unrelated:get('stale') == nil"));
+            lua["server"] = storage.getReadOnlySection(lua, "ServerState");
+            EXPECT_EQ(get<int>(lua, "server:get('value')"), 9);
+
+            overlay.applyDelta(storage, lua.lua_state(),
+                { "SettingsTest", "enabled", LuaUtil::serialize(sol::make_object(lua, false)) });
+            EXPECT_FALSE(get<bool>(lua, "settings:get('enabled')"));
+
+            overlay.applySection(storage, lua.lua_state(), "SettingsTest", {});
+            EXPECT_EQ(get<int>(lua, "settings:get('chance')"), 100);
+            EXPECT_TRUE(get<bool>(lua, "settings:get('enabled')"));
+
+            overlay.applyDelta(
+                storage, lua.lua_state(), { "SettingsTest", "chance", LuaUtil::serialize(sol::make_object(lua, 25)) });
+            overlay.applyDelta(storage, lua.lua_state(),
+                { "SettingsTest", "chance", LuaUtil::serialize(sol::make_object(lua, sol::nil)) });
+            EXPECT_EQ(get<int>(lua, "settings:get('chance')"), 100);
+            EXPECT_THAT(get<std::string>(lua, "table.concat(callbackCalls, ', ')"),
+                "SettingsTest_*, SettingsTest_enabled, SettingsTest_*, "
+                "SettingsTest_chance, SettingsTest_chance");
+        });
+    }
 }

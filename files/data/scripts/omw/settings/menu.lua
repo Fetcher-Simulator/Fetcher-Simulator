@@ -90,6 +90,12 @@ local function setSettingValue(global, groupKey, settingKey, value)
 end
 
 local function renderSetting(group, setting, value, global)
+    -- A multiplayer global-storage snapshot may not contain a freshly
+    -- registered setting yet. Render its declared default until the mirrored
+    -- value arrives instead of passing nil into custom renderers.
+    if value == nil then
+        value = setting.default
+    end
     local renderFunction = renderers[setting.renderer]
     if not renderFunction then
         error(('Setting %s of %s has unknown renderer %s'):format(setting.key, group.key, setting.renderer))
@@ -120,6 +126,13 @@ local function renderSetting(group, setting, value, global)
         }
     end
     local argument = common.getArgumentSection(global, group.key):get(setting.key)
+    -- Multiplayer global-storage mirroring can replace the mutable argument
+    -- section after a group was registered. The immutable group metadata keeps
+    -- the renderer's original argument, so use it as a safe fallback while
+    -- still preferring runtime updates from updateRendererArgument().
+    if argument == nil then
+        argument = setting.argument
+    end
     local ok, rendererResult = pcall(renderFunction, value, set, argument)
     if not ok then
         print(string.format('Setting %s renderer "%s" error: %s', setting.key, setting.renderer, rendererResult))
@@ -367,7 +380,7 @@ local function onSettingChanged(global)
 
         if not settingKey then
             if groupElement then
-                groupElement.layout = renderGroup(group)
+                groupElement.layout = renderGroup(group, global)
                 groupElement:update()
             else
                 renderPage(pages[group.page], pageOptions[group.page])

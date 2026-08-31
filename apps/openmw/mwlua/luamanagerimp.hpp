@@ -44,7 +44,7 @@ namespace MWLua
     // This class implements the interface defined in MWBase::LuaManager.
     // In addition to the interface, this class exposes lower level interaction between the engine
     // and the lua world.
-    class LuaManager : public MWBase::LuaManager
+    class LuaManager : public MWBase::LuaManager, private LuaUtil::LuaStorage::Listener
     {
     public:
         LuaManager(const VFS::Manager* vfs, const std::filesystem::path& libsDir,
@@ -218,6 +218,11 @@ namespace MWLua
         bool isSynchronizedUpdateRunning() const { return mRunningSynchronizedUpdates; }
 
     private:
+        void valueChanged(std::string_view section, std::string_view key, const sol::object& value) const override;
+        void sectionReplaced(std::string_view section, const sol::optional<sol::table>& values) const override;
+        void refreshClientGlobalSettings(lua_State* state);
+        void syncClientGlobalSetting(lua_State* state, std::string_view section, std::string_view key,
+            const sol::object& value);
         void initConfiguration(bool reload);
         LocalScripts* createLocalScripts(const MWWorld::Ptr& ptr,
             std::optional<LuaUtil::ScriptIdsWithInitializationData> autoStartConf = std::nullopt);
@@ -307,7 +312,11 @@ namespace MWLua
         std::optional<ObjectId> mDelayedUiModeChangedArg;
 
         LuaUtil::LuaStorage mGlobalStorage;
+        LuaUtil::LuaStorage mClientGlobalStorage;
         LuaUtil::LuaStorage mPlayerStorage;
+        LuaUtil::LuaStorage::Overlay mGlobalStorageServerOverlay;
+        std::set<std::pair<std::string, std::string>> mRegisteredGlobalSettingValues;
+        bool mApplyingServerGlobalStorage = false;
         bool mGlobalStorageMirroredFromServer = false;
         std::filesystem::path mDefaultPlayerStoragePath;
         std::filesystem::path mMultiplayerPlayerStorageRoot;
