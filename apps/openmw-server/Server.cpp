@@ -3,6 +3,7 @@
 #include "AlchemyService.hpp"
 #include "CrimeService.hpp"
 #include "CrimeSemanticService.hpp"
+#include "ConfiguredCell.hpp"
 #include "FactionService.hpp"
 #include "JailSentenceService.hpp"
 #include "DynamicRecordService.hpp"
@@ -2185,45 +2186,19 @@ void MPServer::run()
     mLua.syncGeneratedRecordState(
         mGeneratedRecordIdPrefix, buildGeneratedDynamicRecordCounters(mGeneratedRecordIdPrefix));
 
-    auto normalizeConfiguredCell = [](std::string raw) {
-        // Normalise "x, y" coords: strip spaces that follow a comma so
-        // findExteriorPosition / std::from_chars can parse the string.
-        std::string norm;
-        norm.reserve(raw.size());
-        bool afterComma = false;
-        for (char c : raw)
-        {
-            if (c == ',')
-            {
-                norm += c;
-                afterComma = true;
-            }
-            else if (c == ' ' && afterComma)
-            {
-                // drop
-            }
-            else
-            {
-                norm += c;
-                afterComma = false;
-            }
-        }
-        return norm;
-    };
-
     // If config.lua set Config.SPAWN_CELL, let it override the C++ default.
     // Config.DEFAULT_SPAWN can additionally provide a full position/rotation.
     {
         std::string raw = mLua.getString("Config", "SPAWN_CELL", "");
         if (!raw.empty())
         {
-            mDefaultSpawnCell = normalizeConfiguredCell(std::move(raw));
+            mDefaultSpawnCell = mwmp::normalizeConfiguredCell(std::move(raw));
             Log(Debug::Info) << "[Server] Spawn cell set from config.lua: " << mDefaultSpawnCell;
         }
 
         if (auto defaultSpawn = mLua.getConfigPlayerMark("DEFAULT_SPAWN"))
         {
-            mDefaultSpawnCell = normalizeConfiguredCell(defaultSpawn->cell);
+            mDefaultSpawnCell = mwmp::normalizeConfiguredCell(defaultSpawn->cell);
             mDefaultSpawnPosition = defaultSpawn->position;
             mHasDefaultSpawnPosition = true;
             Log(Debug::Info) << "[Server] Default spawn position set from config.lua: " << mDefaultSpawnCell
@@ -2234,7 +2209,7 @@ void MPServer::run()
 
         mDefaultPlayerMarks = mLua.getConfigPlayerMarks("DEFAULT_PLAYER_MARKS");
         for (auto& mark : mDefaultPlayerMarks)
-            mark.cell = normalizeConfiguredCell(std::move(mark.cell));
+            mark.cell = mwmp::normalizeConfiguredCell(std::move(mark.cell));
         if (!mDefaultPlayerMarks.empty())
             Log(Debug::Info) << "[Server] Default new-character marks loaded: " << mDefaultPlayerMarks.size();
     }
