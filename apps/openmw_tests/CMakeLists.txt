@@ -26,6 +26,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwlua/testsettingsstorage.cpp
 
     mwmp/testservercontentregistry.cpp
+    mwmp/testnetworkclient.cpp
     mwmp/testserverluarecordparser.cpp
     mwmp/testtypeddynamicrecordinstaller.cpp
     mwmp/testalchemyservice.cpp

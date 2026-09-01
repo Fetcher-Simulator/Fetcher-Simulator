@@ -34,6 +34,11 @@ namespace mwmp
     // -----------------------------------------------------------------------
     NetworkClient::~NetworkClient()
     {
+        // The client is owned by Main and is destroyed after the subsystems that its
+        // callbacks target. Teardown must therefore be callback-silent: disconnecting
+        // here must not re-enter an owner whose dependent members are already gone.
+        mMessageCb = {};
+        mStateChangeCb = {};
         disconnect("Client shutting down");
         GameNetworkingSockets_Kill();
         sInstance = nullptr;
