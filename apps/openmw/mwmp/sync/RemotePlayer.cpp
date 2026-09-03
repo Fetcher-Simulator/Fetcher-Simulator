@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <unordered_map>
 #include <string_view>
+#include <vector>
 
 #include <osg/Math>
 
@@ -232,6 +233,38 @@ namespace mwmp
             }
 
             return nullptr;
+        }
+
+        std::size_t deleteActiveRemotePlayerProxyCopies(
+            MWBase::World* world, uint32_t guid, const MWWorld::Ptr& keep = MWWorld::Ptr())
+        {
+            if (world == nullptr)
+                return 0;
+
+            auto* worldImpl = static_cast<MWWorld::World*>(world);
+            const ESM::RefId proxyRecordId
+                = ESM::RefId::stringRefId("mp_remote_" + std::to_string(guid));
+            std::vector<MWWorld::Ptr> staleProxies;
+            for (MWWorld::CellStore* activeCell : worldImpl->getWorldScene().getActiveCells())
+            {
+                if (activeCell == nullptr)
+                    continue;
+
+                activeCell->forEach([&](MWWorld::Ptr existing) {
+                    if (!existing.isEmpty() && existing.getCellRef().getCount() > 0
+                        && existing.getCellRef().getRefId() == proxyRecordId
+                        && (keep.isEmpty() || !(existing == keep)))
+                    {
+                        staleProxies.push_back(existing);
+                    }
+                    return true;
+                });
+            }
+
+            for (const MWWorld::Ptr& staleProxy : staleProxies)
+                world->deleteObject(staleProxy);
+
+            return staleProxies.size();
         }
 
         bool sameCosmeticItem(const Item& left, const Item& right)
@@ -1488,30 +1521,14 @@ namespace mwmp
 
             // A cell transition or forced process interruption can leave an old
             // instance of this deterministic proxy record in an active CellStore.
-            // Remove every live copy before placing the one owned by this
+            // Remove every unowned live copy before placing the one owned by this
             // RemotePlayer so death/resurrect/coc can never display duplicates.
-            std::vector<MWWorld::Ptr> staleProxies;
-            const ESM::RefId proxyRecordId = ESM::RefId::stringRefId(npcRecordId);
-            for (MWWorld::CellStore* activeCell : worldImpl->getWorldScene().getActiveCells())
-            {
-                if (!activeCell)
-                    continue;
-                activeCell->forEach([&](MWWorld::Ptr existing) {
-                    if (!existing.isEmpty() && existing.getCellRef().getCount() > 0
-                        && existing.getCellRef().getRefId() == proxyRecordId
-                        && (mNpcPtr.isEmpty() || !(existing == mNpcPtr)))
-                    {
-                        staleProxies.push_back(existing);
-                    }
-                    return true;
-                });
-            }
-            for (const MWWorld::Ptr& staleProxy : staleProxies)
-                world->deleteObject(staleProxy);
-            if (!staleProxies.empty())
+            const std::size_t staleProxyCount
+                = deleteActiveRemotePlayerProxyCopies(world, mGuid, mNpcPtr);
+            if (staleProxyCount != 0)
             {
                 Log(Debug::Warning) << "[MP] RemotePlayer " << mName
-                                    << ": removed " << staleProxies.size()
+                                    << ": removed " << staleProxyCount
                                     << " stale proxy instance(s) before spawn";
             }
 
@@ -1598,21 +1615,22 @@ namespace mwmp
         mNameplate.reset();
 
         MWBase::World* world = MWBase::Environment::get().getWorld();
-        // A disconnect can return to the main menu and unload the remote NPC's
-        // cell before Main destroys its PlayerList. In that state mNpcPtr still
-        // looks non-empty but points into a released CellStore, so deleteObject
-        // would dereference freed RefData during shutdown.
-        // onCellUpdate() has already replaced mState.cell with the destination.
-        // Test the Ptr's actual source CellStore; checking the new state can skip
-        // deletion and leave a stationary proxy behind when the player respawns.
-        const bool cellStillActive = world && !mNpcPtr.isEmpty() && mNpcPtr.getCell() != nullptr
-            && static_cast<MWWorld::World*>(world)->getWorldScene().getActiveCells().find(mNpcPtr.getCell())
-                != static_cast<MWWorld::World*>(world)->getWorldScene().getActiveCells().end();
-        if (cellStillActive && !mNpcPtr.isEmpty())
+        // A disconnect or local cell transition can unload mNpcPtr's CellStore
+        // before this cleanup runs. Never dereference that possibly stale Ptr.
+        // Instead, delete every currently active instance of our deterministic
+        // proxy record. This also removes an orphan that was persisted in a cell
+        // during an earlier transition and has just become active again.
+        if (world != nullptr)
         {
             try
             {
-                world->deleteObject(mNpcPtr);
+                const std::size_t removed = deleteActiveRemotePlayerProxyCopies(world, mGuid);
+                if (removed > 1)
+                {
+                    Log(Debug::Warning) << "[MP] RemotePlayer " << mName
+                                        << ": removed " << removed
+                                        << " active proxy instances during despawn";
+                }
             }
             catch (const std::exception& e)
             {
@@ -3925,6 +3943,32 @@ namespace mwmp
         return match;
     }
 
+    std::size_t RemotePlayer::purgeUnownedProxyCopies()
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (world == nullptr)
+            return 0;
+
+        try
+        {
+            const MWWorld::Ptr keep = mIsSpawned ? mNpcPtr : MWWorld::Ptr();
+            const std::size_t removed = deleteActiveRemotePlayerProxyCopies(world, mGuid, keep);
+            if (removed != 0)
+            {
+                Log(Debug::Warning) << "[MP] RemotePlayer " << mName
+                                    << ": purged " << removed
+                                    << " unowned proxy instance(s) after local cell change";
+            }
+            return removed;
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "[MP] RemotePlayer " << mName
+                                << ": stale proxy purge error: " << e.what();
+            return 0;
+        }
+    }
+
     // ===========================================================================
     // PlayerList
     // ===========================================================================
@@ -4038,6 +4082,17 @@ namespace mwmp
             }
             passenger->update(dt);
         }
+    }
+
+    std::size_t PlayerList::purgeUnownedProxyCopies()
+    {
+        std::size_t removed = 0;
+        for (auto& [guid, player] : mPlayers)
+        {
+            (void)guid;
+            removed += player->purgeUnownedProxyCopies();
+        }
+        return removed;
     }
 
     void PlayerList::onDynamicRecordsChanged()

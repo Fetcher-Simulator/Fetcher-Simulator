@@ -1285,6 +1285,12 @@ void PlayerSync::update(float dt)
             && mLocal.vehicle.occupantRole == VehicleOccupantRole::Passenger))
     {
         snapshotCell();
+        const std::size_t purgedRemoteProxies = Main::get().getPlayerList().purgeUnownedProxyCopies();
+        if (purgedRemoteProxies != 0)
+        {
+            Log(Debug::Warning) << "[MP] PlayerSync: purged " << purgedRemoteProxies
+                                << " stale remote-player proxy instance(s) after local cell change";
+        }
         sendCellChange();
         sendLoadedActorCells(true);
     }

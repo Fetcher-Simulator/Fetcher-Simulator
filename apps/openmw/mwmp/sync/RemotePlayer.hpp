@@ -80,6 +80,7 @@ namespace mwmp
         // with what they're carrying so equipment renders correctly.
         void onInventoryUpdate   (const BasePlayer& state);
         void onDynamicRecordsChanged();
+        std::size_t purgeUnownedProxyCopies();
 
         // Accessors
         uint32_t           getGuid()     const { return mGuid; }
@@ -290,6 +291,7 @@ namespace mwmp
         void updateNonPassengers(float dt);
         void updatePassengers(float dt);
         void onDynamicRecordsChanged();
+        std::size_t purgeUnownedProxyCopies();
         void refreshLocalDriverPassengerAttachments();
 
         size_t count() const { return mPlayers.size(); }
