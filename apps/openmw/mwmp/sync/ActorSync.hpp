@@ -22,6 +22,11 @@ namespace MWBase
     class World;
 }
 
+namespace MWWorld
+{
+    class CellStore;
+}
+
 namespace mwmp
 {
     class NetworkClient;
@@ -37,6 +42,12 @@ namespace mwmp
         // Called after World::update so actors inserted while loading a cell
         // can receive bootstrap presentation before the first render traversal.
         void updateLoadedCellBootstrapVisuals();
+        // Called after the viewer update traversal and before cull/render. Corpse
+        // skeletons prepared earlier in the frame are safe to reveal here.
+        void revealBootstrapDeathVisualsAfterViewerUpdate();
+        // Called after optional CellStore::respawn and immediately before Scene
+        // inserts the cell, so retained disposal tombstones can prevent leveled rolls.
+        void prepareCellForInsertion(MWWorld::CellStore& cell);
 
         // Must be called when the local player fully disconnects from a server
         // (e.g. returns to main menu).  Clears all per-session cell/actor
@@ -92,6 +103,17 @@ namespace mwmp
             std::string_view presentedDeathGroup, std::string_view authoritativeDeathGroup);
         static bool shouldPreserveDeadIdentityRefresh(bool hadRuntime, bool runtimeIsDead,
             bool incomingIsDead, bool explicitTransformReset);
+        static bool shouldRevealBootstrapDeathAfterViewerUpdate(
+            bool revealPending, bool waitingForFreshCellBootstrap, bool hasBinding);
+        static bool shouldPresentActorDeathAsRealtime(bool isDead, bool isInstantDeath,
+            bool wasDead, bool baselineAlreadyQueuedRealtimeDeath, bool pendingRealtimeDeathReplay);
+        static bool matchesDisposedVanillaReference(uint32_t disposedRefNum, std::string_view disposedRefId,
+            uint32_t candidateCanonicalRefNum, std::string_view candidateRefId, bool candidateIsLeveledSpawner);
+        static bool isCompleteActorIdentitySnapshot(bool completeCellSnapshot);
+        static bool shouldRetireLocalLeveledRoll(bool completeIdentitySnapshot,
+            bool authoritativeActorPresent, bool authoritativeActorMigrated);
+        static bool shouldReplaceLocalLeveledRoll(bool authoritativeTransform,
+            bool hasLocalActorAuthority, bool canonicalHandoffBaseline);
 
     private:
         struct BufferedSnapshot
@@ -142,10 +164,10 @@ namespace mwmp
             // re-entering a cell with dead actors skips to the final death pose
             // instead of replaying the death animation from scratch.
             bool deathAlreadyApplied = false;
-            // A bootstrapped corpse is hidden until the frame after its final
-            // death pose is installed, so the bind pose cannot flash on the
-            // first rendered cell frame.
-            uint64_t bootstrapDeathRevealUpdate = 0;
+            // A bootstrapped corpse remains hidden while its final pose is
+            // installed. The post-viewer-update hook reveals it before this
+            // frame's render traversal consumes the updated skeleton.
+            bool bootstrapDeathRevealPending = false;
             // When true, the death came from a real-time ActorDeath packet (not an
             // ActorList load), so the death animation should play from the start.
             bool deathFromRealtimePacket = false;
@@ -326,6 +348,9 @@ namespace mwmp
         void queueSnapshot(ActorRuntime& actor, const BaseActor& state, const ActorList& list);
         void mergeActorState(ActorRuntime& actor, const BaseActor& state, bool includeTransform);
         void updateLocalCellBootstrapState();
+        void applyDisposedVanillaActorTombstones();
+        void applyDisposedVanillaActorTombstones(
+            MWWorld::CellStore& targetCell, const std::string& cellId, bool beforeSceneInsertion);
         void markActorsNeedFreshCellBootstrap(const std::string& oldCellId, const std::string& newCellId);
         void completeFreshCellBootstrap(ActorRuntime& actor, const char* source, uint64_t serverTimestamp);
         bool shouldHideForFreshCellBootstrap(const ActorRuntime& actor) const;
@@ -347,7 +372,8 @@ namespace mwmp
         void sendAuthoritativeActorUpdates(const std::string& cellId, CellRuntime& cell, float dt);
         bool shouldAcceptSnapshot(CellRuntime& cell, const ActorList& list, const char* packetName,
             bool isPositionSnapshot = false);
-        bool resolveActorBinding(const std::string& cellId, ActorRuntime& actor, bool forceCanonicalCell = false);
+        bool resolveActorBinding(const std::string& cellId, ActorRuntime& actor,
+            bool forceCanonicalCell = false, bool canonicalHandoffBaseline = false);
         void applyBootstrapDeathState(ActorRuntime& actor);
         void applyBoundActorState(ActorRuntime& actor);
         void rememberServerSpawnedActor(const std::string& cellId, const MWWorld::Ptr& ptr, uint32_t mpNum);
@@ -376,6 +402,11 @@ namespace mwmp
         // newly loaded local RNG roll cannot become a client-only actor.
         std::unordered_map<std::string, std::unordered_set<ActorInstanceId>>
             mChanceNoneLeveledSpawnersByCell;
+        // CorpseDisposed is an authoritative, persistent absence. Retain vanilla
+        // removals even when their cell is not active yet so a later cell load or
+        // leveled-list reroll cannot recreate an unmanaged local actor.
+        std::unordered_map<std::string, std::unordered_map<ActorInstanceId, BaseActor>>
+            mDisposedVanillaActorsByCell;
         std::unordered_map<ActorInstanceId, ActorRuntime>   mActorsByNetId;
         std::unordered_map<ActorInstanceId, uint32_t>       mActorAuthorityGuids;
         std::unordered_map<ActorInstanceId, uint32_t>       mActorAuthorityGenerations;

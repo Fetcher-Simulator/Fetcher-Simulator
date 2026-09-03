@@ -52,6 +52,11 @@
 #include "player.hpp"
 #include "worldimp.hpp"
 
+#ifdef BUILD_MULTIPLAYER
+#include "../mwmp/Main.hpp"
+#include "../mwmp/sync/ActorSync.hpp"
+#endif
+
 namespace
 {
     using MWWorld::RotationOrder;
@@ -494,6 +499,13 @@ namespace MWWorld
 
         if (respawn)
             cell.respawn();
+
+#ifdef BUILD_MULTIPLAYER
+        // A retained authoritative corpse tombstone must reach a leveled
+        // spawner after respawn, but before insertion can roll/place its child.
+        if (mwmp::Main::isConnected())
+            mwmp::Main::get().getActorSync().prepareCellForInsertion(cell);
+#endif
 
         insertCell(cell, loadingListener, navigatorUpdateGuard);
 

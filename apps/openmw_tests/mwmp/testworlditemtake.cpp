@@ -4,8 +4,12 @@
 #include <filesystem>
 
 #include <apps/openmw-server/PlayerDatabase.hpp>
+#include <apps/openmw/mwclass/creaturelevlist.hpp>
 #include <apps/openmw/mwmp/sync/ActorSync.hpp>
 #include <apps/openmw/mwmp/sync/WorldObjectSync.hpp>
+#include <apps/openmw/mwworld/livecellref.hpp>
+#include <components/esm3/creaturelevliststate.hpp>
+#include <components/esm3/loadlevlist.hpp>
 #include <components/esm3/refnum.hpp>
 #include <components/openmw-mp/Base/ActorSyncProtocol.hpp>
 #include <components/openmw-mp/Sha256.hpp>
@@ -157,6 +161,53 @@ TEST(ActorIdentityProtocol, ContentQualifiedVanillaRefNumsDoNotCollide)
     EXPECT_EQ(mwmp::ActorSyncProtocolVersionV2, 13u);
 }
 
+TEST(ActorIdentityProtocol, EmptyCompleteSnapshotRemainsComplete)
+{
+    mwmp::ActorIdentityList snapshot;
+    snapshot.completeCellSnapshot = true;
+    ASSERT_TRUE(snapshot.actors.empty());
+    EXPECT_TRUE(mwmp::ActorSync::isCompleteActorIdentitySnapshot(
+        snapshot.completeCellSnapshot));
+
+    mwmp::ActorIdentityList removalOnly;
+    removalOnly.completeCellSnapshot = false;
+    mwmp::ActorIdentityRecord removal;
+    removal.removed = true;
+    removalOnly.actors.push_back(removal);
+    EXPECT_FALSE(mwmp::ActorSync::isCompleteActorIdentitySnapshot(
+        removalOnly.completeCellSnapshot));
+}
+
+TEST(ActorIdentityProtocol, CompleteEmptyCellRetiresLocalLeveledRoll)
+{
+    EXPECT_TRUE(mwmp::ActorSync::shouldRetireLocalLeveledRoll(
+        true, false, false));
+    EXPECT_FALSE(mwmp::ActorSync::shouldRetireLocalLeveledRoll(
+        false, false, false));
+    EXPECT_FALSE(mwmp::ActorSync::shouldRetireLocalLeveledRoll(
+        true, true, false));
+    EXPECT_FALSE(mwmp::ActorSync::shouldRetireLocalLeveledRoll(
+        true, false, true));
+}
+
+TEST(ActorIdentityProtocol, DifferentLocalRollIsReplacedByCanonicalChild)
+{
+    EXPECT_TRUE(mwmp::ActorSync::shouldReplaceLocalLeveledRoll(
+        true, false, false));
+    EXPECT_FALSE(mwmp::ActorSync::shouldReplaceLocalLeveledRoll(
+        false, false, false));
+}
+
+TEST(ActorIdentityProtocol, AuthorityHandoffBaselineReconcilesBeforeGrant)
+{
+    // A canonical handoff baseline is allowed to replace a stale local roll
+    // even if a previous packet already made local authority appear true.
+    EXPECT_TRUE(mwmp::ActorSync::shouldReplaceLocalLeveledRoll(
+        true, true, true));
+    EXPECT_FALSE(mwmp::ActorSync::shouldReplaceLocalLeveledRoll(
+        true, true, false));
+}
+
 TEST(ActorDeathClientPolicy, KnownDeadIdentityRefreshPreservesCorpsePresentation)
 {
     EXPECT_TRUE(mwmp::ActorSync::shouldPreserveDeadIdentityRefresh(
@@ -169,6 +220,80 @@ TEST(ActorDeathClientPolicy, KnownDeadIdentityRefreshPreservesCorpsePresentation
         true, true, false, false));
     EXPECT_FALSE(mwmp::ActorSync::shouldPreserveDeadIdentityRefresh(
         true, true, true, true));
+}
+
+TEST(ActorCorpseDisposalClientPolicy, MatchesLeveledSpawnerByStablePlacedRefNum)
+{
+    constexpr std::uint32_t stableSpawnerRefNum = 0x6a000b89u;
+
+    EXPECT_TRUE(mwmp::ActorSync::matchesDisposedVanillaReference(
+        stableSpawnerRefNum, "zombie 1 walker", stableSpawnerRefNum,
+        "ex_terurise_creature_list", true));
+    EXPECT_FALSE(mwmp::ActorSync::matchesDisposedVanillaReference(
+        stableSpawnerRefNum, "zombie 1 walker", stableSpawnerRefNum,
+        "different direct actor", false));
+    EXPECT_FALSE(mwmp::ActorSync::matchesDisposedVanillaReference(
+        stableSpawnerRefNum, "zombie 1 walker", 0x6a000b88u,
+        "ex_terurise_creature_list", true));
+}
+
+TEST(ActorCorpseDisposalClientPolicy, DirectPlacedActorStillRequiresRefIdMatch)
+{
+    constexpr std::uint32_t placedRefNum = 0x01000042u;
+
+    EXPECT_TRUE(mwmp::ActorSync::matchesDisposedVanillaReference(
+        placedRefNum, "guard", placedRefNum, "guard", false));
+    EXPECT_FALSE(mwmp::ActorSync::matchesDisposedVanillaReference(
+        placedRefNum, "guard", placedRefNum, "rat", false));
+    EXPECT_FALSE(mwmp::ActorSync::matchesDisposedVanillaReference(
+        0, "guard", 0, "guard", false));
+}
+
+TEST(ActorDeathClientPolicy, BootstrapCorpseRevealsOnlyAfterViewerUpdateWhenReady)
+{
+    EXPECT_TRUE(mwmp::ActorSync::shouldRevealBootstrapDeathAfterViewerUpdate(
+        true, false, true));
+    EXPECT_FALSE(mwmp::ActorSync::shouldRevealBootstrapDeathAfterViewerUpdate(
+        false, false, true));
+    EXPECT_FALSE(mwmp::ActorSync::shouldRevealBootstrapDeathAfterViewerUpdate(
+        true, true, true));
+    EXPECT_FALSE(mwmp::ActorSync::shouldRevealBootstrapDeathAfterViewerUpdate(
+        true, false, false));
+}
+
+TEST(ActorDeathClientPolicy, OffCellInstantBaselineNeverRequestsRealtimeReplay)
+{
+    EXPECT_FALSE(mwmp::ActorSync::shouldPresentActorDeathAsRealtime(
+        true, true, false, false, false));
+    EXPECT_TRUE(mwmp::ActorSync::shouldPresentActorDeathAsRealtime(
+        true, false, false, false, false));
+    EXPECT_FALSE(mwmp::ActorSync::shouldPresentActorDeathAsRealtime(
+        true, false, true, false, false));
+}
+
+TEST(ActorCorpseDisposalClientPolicy, AuthoritativeEmptySpawnPrimesPreRenderSkip)
+{
+    MWClass::CreatureLevList::registerSelf();
+
+    ESM::CreatureLevList record;
+    record.blank();
+    record.mId = ESM::RefId::stringRefId("disposed leveled spawner");
+    ESM::CellRef cellRef;
+    cellRef.blank();
+    cellRef.mRefID = record.mId;
+    MWWorld::LiveCellRef<ESM::CreatureLevList> liveRef(cellRef, &record);
+    MWWorld::Ptr spawner(&liveRef);
+
+    const auto& leveledClass
+        = static_cast<const MWClass::CreatureLevList&>(spawner.getClass());
+    leveledClass.setSpawnedActor(spawner, MWWorld::Ptr());
+
+    ESM::CreatureLevListState state;
+    state.blank();
+    leveledClass.writeAdditionalState(spawner, state);
+    EXPECT_TRUE(state.mHasCustomState);
+    EXPECT_FALSE(state.mSpawn);
+    EXPECT_FALSE(state.mSpawnedActor.isSet());
 }
 
 TEST(WorldItemTakePersistence, CommitsTombstoneInventoryAndReplayAtomically)

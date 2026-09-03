@@ -75,6 +75,7 @@ namespace mwmp
         // Per-frame update — call from engine frame loop
         void frame(float dt);
         void postWorldUpdate();
+        void postViewerUpdateTraversal();
 
         // Subsystem accessors
         NetworkClient&  getNetworking()     { return *mClient; }

@@ -724,15 +724,21 @@ namespace
         return nullptr;
     }
 
+    std::string cellIdForStore(const MWWorld::CellStore& store)
+    {
+        const MWWorld::Cell* cell = store.getCell();
+        if (cell == nullptr)
+            return {};
+        if (cell->isExterior())
+            return std::string("EXT:") + std::to_string(cell->getGridX()) + "," + std::to_string(cell->getGridY());
+        return std::string(cell->getNameId());
+    }
+
     std::string cellIdForPtr(const MWWorld::Ptr& ptr)
     {
         if (ptr.isEmpty() || ptr.getCell() == nullptr || ptr.getCell()->getCell() == nullptr)
             return {};
-
-        const MWWorld::Cell* cell = ptr.getCell()->getCell();
-        if (cell->isExterior())
-            return std::string("EXT:") + std::to_string(cell->getGridX()) + "," + std::to_string(cell->getGridY());
-        return std::string(cell->getNameId());
+        return cellIdForStore(*ptr.getCell());
     }
 
     bool sameLocalActorObject(const MWWorld::Ptr& lhs, const MWWorld::Ptr& rhs)
@@ -1037,6 +1043,7 @@ namespace mwmp
         mServerSpawnedActorLastTimestamps.clear();
         mReconciledVanillaActorsByNetId.clear();
         mChanceNoneLeveledSpawnersByCell.clear();
+        mDisposedVanillaActorsByCell.clear();
         mActorsByNetId.clear();
         mCellActorIds.clear();
         mActorNetIdsByKey.clear();
@@ -1379,10 +1386,207 @@ namespace mwmp
                          << " resolvedEmpty=" << resolvedPtr.isEmpty();
     }
 
+    void ActorSync::applyDisposedVanillaActorTombstones()
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (!world || mDisposedVanillaActorsByCell.empty())
+            return;
+
+        MWWorld::World& worldImp = static_cast<MWWorld::World&>(*world);
+        for (const auto& entry : mDisposedVanillaActorsByCell)
+        {
+            const std::string& cellId = entry.first;
+            MWWorld::CellStore* targetCell = findActiveCellById(worldImp, cellId);
+            if (!targetCell)
+                continue;
+
+            applyDisposedVanillaActorTombstones(*targetCell, cellId, false);
+        }
+    }
+
+    void setBootstrapCorpseHiddenUntilViewerUpdate(const MWWorld::Ptr& ptr, bool hidden)
+    {
+        if (ptr.isEmpty())
+            return;
+
+        if (auto* baseNode = ptr.getRefData().getBaseNode())
+        {
+            baseNode->setUserValue(FreshSnapshotHiddenUserValue, hidden);
+            // Mask_UpdateVisitor is excluded from render-camera cull masks but
+            // remains in the viewer update visitor. This lets skeleton
+            // controllers consume the sampled death pose while the corpse is
+            // still guaranteed not to render upright.
+            baseNode->setNodeMask(hidden ? MWRender::Mask_UpdateVisitor : MWRender::Mask_Actor);
+        }
+    }
+
+    void ActorSync::prepareCellForInsertion(MWWorld::CellStore& cell)
+    {
+        const std::string cellId = cellIdForStore(cell);
+        if (cellId.empty())
+            return;
+        applyDisposedVanillaActorTombstones(cell, cellId, true);
+
+        const auto chanceNoneIt = mChanceNoneLeveledSpawnersByCell.find(cellId);
+        if (chanceNoneIt == mChanceNoneLeveledSpawnersByCell.end())
+            return;
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        cell.forEach([&](MWWorld::Ptr ptr) -> bool
+        {
+            if (ptr.isEmpty() || ptr.getType() != ESM::CreatureLevList::sRecordId)
+                return true;
+
+            const uint32_t spawnerRefNum = canonicalVanillaRefNum(ptr);
+            const ActorInstanceId actorNetId = packActorInstanceKey(
+                { ActorKeyKind::VanillaRefNum, spawnerRefNum });
+            if (chanceNoneIt->second.count(actorNetId) == 0)
+                return true;
+
+            const auto& leveledClass
+                = static_cast<const MWClass::CreatureLevList&>(ptr.getClass());
+            MWWorld::Ptr localRoll = leveledClass.getSpawnedActor(ptr);
+            if (world && !localRoll.isEmpty() && localRoll.getCellRef().getCount() > 0)
+            {
+                ScopedLocalDeleteSuppression suppression(
+                    mwmp::Main::get().getWorldObjectSync());
+                world->deleteObject(localRoll);
+            }
+            // Create the custom state even when no child exists yet. Rendering
+            // then observes mSpawn=false and cannot reroll a server-canonical
+            // Chance None outcome while the cell is being inserted.
+            leveledClass.setSpawnedActor(ptr, MWWorld::Ptr());
+            mReconciledVanillaActorsByNetId.erase(actorNetId);
+            return true;
+        });
+    }
+
+    void ActorSync::applyDisposedVanillaActorTombstones(
+        MWWorld::CellStore& targetCell, const std::string& cellId, bool beforeSceneInsertion)
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        const auto cellIt = mDisposedVanillaActorsByCell.find(cellId);
+        if (!world || cellIt == mDisposedVanillaActorsByCell.end())
+            return;
+
+        for (const auto& [actorNetId, actorState] : cellIt->second)
+        {
+            if (actorState.refNum == 0)
+                continue;
+
+            MWWorld::Ptr leveledSpawner;
+            targetCell.forEach([&](MWWorld::Ptr ptr) -> bool
+            {
+                if (ptr.isEmpty() || ptr.getType() != ESM::CreatureLevList::sRecordId)
+                    return true;
+
+                if (!matchesDisposedVanillaReference(actorState.refNum, actorState.refId,
+                        canonicalVanillaRefNum(ptr),
+                        ptr.getCellRef().getRefId().serializeText(), true))
+                    return true;
+
+                leveledSpawner = ptr;
+                return false;
+            });
+
+            if (!leveledSpawner.isEmpty())
+            {
+                const auto& leveledClass
+                    = static_cast<const MWClass::CreatureLevList&>(leveledSpawner.getClass());
+                MWWorld::Ptr spawnedActor = leveledClass.getSpawnedActor(leveledSpawner);
+                const bool hasLiveChild = !spawnedActor.isEmpty()
+                    && spawnedActor.getCellRef().getCount() > 0;
+                std::string localRefId;
+                if (hasLiveChild)
+                {
+                    localRefId = spawnedActor.getCellRef().getRefId().serializeText();
+                    forgetServerSpawnedActorPtrMappings(spawnedActor, 0);
+                    ScopedLocalDeleteSuppression suppression(
+                        mwmp::Main::get().getWorldObjectSync());
+                    world->deleteObject(spawnedActor);
+                }
+                // This must run even when there is no child yet. It creates the
+                // leveled-list custom data with mSpawn=false, causing
+                // CreatureLevList::insertObjectRendering to return before RNG.
+                leveledClass.setSpawnedActor(leveledSpawner, MWWorld::Ptr());
+
+                mReconciledVanillaActorsByNetId.erase(actorNetId);
+                mChanceNoneLeveledSpawnersByCell[cellId].insert(actorNetId);
+                if (hasLiveChild)
+                {
+                    Log(Debug::Info) << "[MP] ActorSync: suppressed disposed leveled spawner child"
+                                     << " cell=" << cellId
+                                     << " spawnerRefNum=" << actorState.refNum
+                                     << " localRefId=" << localRefId
+                                     << " actorNetId=" << actorNetId;
+                }
+                else if (beforeSceneInsertion)
+                {
+                    Log(Debug::Info) << "[MP] ActorSync: suppressed disposed leveled spawner before roll"
+                                     << " cell=" << cellId
+                                     << " spawnerRefNum=" << actorState.refNum
+                                     << " actorNetId=" << actorNetId;
+                }
+                continue;
+            }
+
+            // The pre-insertion hook exists to stop leveled-list RNG. Ordinary
+            // placed actors retain the established post-load deletion path.
+            if (beforeSceneInsertion)
+                continue;
+
+            MWWorld::Ptr disposedActor;
+            auto reconciledIt = mReconciledVanillaActorsByNetId.find(actorNetId);
+            if (reconciledIt != mReconciledVanillaActorsByNetId.end())
+            {
+                if (!reconciledIt->second.isEmpty()
+                    && reconciledIt->second.getCellRef().getCount() > 0)
+                    disposedActor = reconciledIt->second;
+                mReconciledVanillaActorsByNetId.erase(reconciledIt);
+            }
+
+            if (disposedActor.isEmpty())
+            {
+                targetCell.forEach([&](MWWorld::Ptr ptr) -> bool
+                {
+                    if (ptr.isEmpty() || !ptr.getClass().isActor()
+                        || ptr.getCellRef().getCount() <= 0)
+                        return true;
+
+                    if (!matchesDisposedVanillaReference(actorState.refNum, actorState.refId,
+                            canonicalVanillaRefNum(ptr),
+                            ptr.getCellRef().getRefId().serializeText(), false))
+                        return true;
+
+                    disposedActor = ptr;
+                    return false;
+                });
+            }
+
+            if (disposedActor.isEmpty())
+                continue;
+
+            const std::string localRefId
+                = disposedActor.getCellRef().getRefId().serializeText();
+            forgetServerSpawnedActorPtrMappings(disposedActor, 0);
+            {
+                ScopedLocalDeleteSuppression suppression(
+                    mwmp::Main::get().getWorldObjectSync());
+                world->deleteObject(disposedActor);
+            }
+            Log(Debug::Info) << "[MP] ActorSync: suppressed disposed vanilla actor"
+                             << " cell=" << cellId
+                             << " refNum=" << actorState.refNum
+                             << " refId=" << localRefId
+                             << " actorNetId=" << actorNetId;
+        }
+    }
+
     void ActorSync::update(float dt)
     {
         ++mUpdateSerial;
         updateLocalCellBootstrapState();
+        applyDisposedVanillaActorTombstones();
         sendPendingActorSpeechEvents();
 
         if (!mPendingCrimeReactions.empty())
@@ -1443,33 +1647,9 @@ namespace mwmp
             }
         }
 
-        std::size_t bootstrapDeathReveals = 0;
-        auto finishBootstrapDeathReveal = [&](ActorRuntime& actor)
-        {
-            if (actor.bootstrapDeathRevealUpdate == 0
-                || mUpdateSerial < actor.bootstrapDeathRevealUpdate
-                || actor.boundActor.isEmpty())
-                return;
-
-            if (actor.waitingForFreshCellBootstrap)
-            {
-                setHiddenUntilFreshSnapshot(actor.boundActor, true);
-                return;
-            }
-
-            setHiddenUntilFreshSnapshot(actor.boundActor, false);
-            actor.bootstrapDeathRevealUpdate = 0;
-            ++bootstrapDeathReveals;
-            Log(Debug::Verbose) << "[MP] ActorSync: revealed bootstrapped corpse"
-                                << " refId=" << actor.state.refId
-                                << " refNum=" << actor.state.refNum
-                                << " mpNum=" << actor.state.mpNum;
-        };
-
         std::size_t primaryActors = 0;
         for (auto& [actorNetId, actor] : mActorsByNetId)
         {
-            finishBootstrapDeathReveal(actor);
             actor.pendingCellChangeRetryTimer
                 = std::max(0.f, actor.pendingCellChangeRetryTimer - std::max(0.f, dt));
             actor.cellChangeReverseGuardTimer
@@ -1618,7 +1798,6 @@ namespace mwmp
             std::size_t cellShadowSuppressedByPrimary = 0;
             for (auto& [actorKey, actor] : cell.actors)
             {
-                finishBootstrapDeathReveal(actor);
                 if (actor.actorNetId != 0
                     && hasAuthorityForActor(actor.actorNetId, cellId))
                     continue;
@@ -1653,16 +1832,14 @@ namespace mwmp
                                     << " cell=" << cellId;
         }
 
-        if (bootstrapDeathReveals != 0)
-        {
-            Log(Debug::Info) << "[MP] ActorSync: revealed bootstrap corpse visuals"
-                             << " count=" << bootstrapDeathReveals
-                             << " update=" << mUpdateSerial;
-        }
     }
 
     void ActorSync::updateLoadedCellBootstrapVisuals()
     {
+        // Keep this post-load pass as reconciliation for removals received after
+        // scene insertion and for already-instantiated children.
+        applyDisposedVanillaActorTombstones();
+
         std::size_t bootstrappedAfterWorldUpdate = 0;
         auto applyPendingCorpse = [&](const std::string& cellId, ActorRuntime& actor)
         {
@@ -1719,6 +1896,46 @@ namespace mwmp
         {
             Log(Debug::Info) << "[MP] ActorSync: post-world corpse bootstrap"
                              << " count=" << bootstrappedAfterWorldUpdate
+                             << " update=" << mUpdateSerial;
+        }
+    }
+
+    void ActorSync::revealBootstrapDeathVisualsAfterViewerUpdate()
+    {
+        std::size_t revealed = 0;
+        auto reveal = [&](ActorRuntime& actor)
+        {
+            if (!shouldRevealBootstrapDeathAfterViewerUpdate(actor.bootstrapDeathRevealPending,
+                    actor.waitingForFreshCellBootstrap, !actor.boundActor.isEmpty()))
+                return;
+
+            setHiddenUntilFreshSnapshot(actor.boundActor, false);
+            actor.bootstrapDeathRevealPending = false;
+            ++revealed;
+            Log(Debug::Verbose) << "[MP] ActorSync: revealed bootstrapped corpse after viewer update"
+                                << " refId=" << actor.state.refId
+                                << " refNum=" << actor.state.refNum
+                                << " mpNum=" << actor.state.mpNum;
+        };
+
+        for (auto& [actorNetId, actor] : mActorsByNetId)
+            reveal(actor);
+
+        for (auto& [cellId, cell] : mCells)
+        {
+            for (auto& [actorKey, actor] : cell.actors)
+            {
+                if (actor.actorNetId != 0
+                    && mActorsByNetId.find(actor.actorNetId) != mActorsByNetId.end())
+                    continue;
+                reveal(actor);
+            }
+        }
+
+        if (revealed != 0)
+        {
+            Log(Debug::Info) << "[MP] ActorSync: revealed bootstrap corpse visuals before render"
+                             << " count=" << revealed
                              << " update=" << mUpdateSerial;
         }
     }
@@ -1945,7 +2162,8 @@ namespace mwmp
         std::vector<ActorInstanceId> ackedActorNetIds;
         ackedActorNetIds.reserve(list.actors.size());
         std::unordered_set<uint32_t> authoritativeVanillaRefNums;
-        bool completeIdentitySnapshot = list.completeCellSnapshot && !list.actors.empty();
+        const bool completeIdentitySnapshot
+            = isCompleteActorIdentitySnapshot(list.completeCellSnapshot);
         auto forgetLocalMpNumMappings = [this](uint32_t mpNum)
         {
             if (mpNum == 0)
@@ -1963,8 +2181,6 @@ namespace mwmp
 
         for (const ActorIdentityRecord& record : list.actors)
         {
-            if (record.removed)
-                completeIdentitySnapshot = false;
             if (!isValidActorInstanceId(record.actorNetId))
             {
                 ++invalidActorNetId;
@@ -2023,12 +2239,27 @@ namespace mwmp
                         else
                             ++chanceNoneIt;
                     }
+                    for (auto disposedIt = mDisposedVanillaActorsByCell.begin();
+                         disposedIt != mDisposedVanillaActorsByCell.end();)
+                    {
+                        disposedIt->second.erase(record.actorNetId);
+                        if (disposedIt->second.empty())
+                            disposedIt = mDisposedVanillaActorsByCell.erase(disposedIt);
+                        else
+                            ++disposedIt;
+                    }
                 }
             }
             ackedActorNetIds.push_back(record.actorNetId);
 
             if (record.removed)
             {
+                if (record.removalReason == ActorRemovalReason::CorpseDisposed
+                    && actorState.mpNum == 0 && actorState.refNum != 0
+                    && !actorState.cellId.empty())
+                {
+                    mDisposedVanillaActorsByCell[actorState.cellId][record.actorNetId] = actorState;
+                }
                 auto runtimeIt = mActorsByNetId.find(record.actorNetId);
                 if (runtimeIt != mActorsByNetId.end())
                 {
@@ -2314,8 +2545,9 @@ namespace mwmp
             // Bind the canonical runtime immediately while the target cell is
             // active. Late interaction paths (notably corpse inventory bootstrap)
             // must be able to resolve actorNetId/refNum back to the live object.
-            if (actorState.mpNum == 0 && runtime.boundActor.isEmpty())
-                resolveActorBinding(actorState.cellId, runtime, true);
+            if (actorState.mpNum == 0
+                && (runtime.boundActor.isEmpty() || completeIdentitySnapshot))
+                resolveActorBinding(actorState.cellId, runtime, true, completeIdentitySnapshot);
 
             rememberServerSpawnedActorTimestamp(actorState.mpNum, list.serverTimestamp);
             if (runtime.state.isDead)
@@ -2327,6 +2559,31 @@ namespace mwmp
                     : (oldCellId != actorState.cellId ? "identity-migrated" : "identity-reused"),
                 list.cellId, actorState, &runtime, runtime.boundActor, "identity");
             mActorsByNetId[record.actorNetId] = std::move(runtime);
+
+            // A former authority can still have a cell-shadow runtime for its
+            // different local leveled-list roll. The primary runtime above now
+            // owns this stable spawner identity; discard only mismatched
+            // same-cell shadows so their deleted Ptr cannot later be republished.
+            if (completeIdentitySnapshot && actorState.mpNum == 0 && actorState.refNum != 0)
+            {
+                for (auto& [trackedCellId, trackedCell] : mCells)
+                {
+                    (void)trackedCellId;
+                    for (auto actorIt = trackedCell.actors.begin();
+                         actorIt != trackedCell.actors.end();)
+                    {
+                        const ActorRuntime& shadow = actorIt->second;
+                        const ActorInstanceId shadowActorNetId = shadow.actorNetId != 0
+                            ? shadow.actorNetId : actorNetIdForActorState(shadow.state);
+                        if (shadowActorNetId == record.actorNetId
+                            && shadow.state.cellId == actorState.cellId
+                            && shadow.state.refId != actorState.refId)
+                            actorIt = trackedCell.actors.erase(actorIt);
+                        else
+                            ++actorIt;
+                    }
+                }
+            }
         }
 
         // A complete identity broadcast is the authority's full set of enabled
@@ -2334,8 +2591,7 @@ namespace mwmp
         // therefore resolved Chance None on the authority. Retire only the child
         // owned by that exact spawner; unrelated disabled/dead references are not
         // inferred from absence.
-        const uint32_t localGuid = mwmp::Main::get().getPlayerSync().localPlayer().guid;
-        if (completeIdentitySnapshot && list.authorityGuid != 0 && list.authorityGuid != localGuid)
+        if (completeIdentitySnapshot)
         {
             MWBase::World* world = MWBase::Environment::get().getWorld();
             if (world)
@@ -2361,8 +2617,10 @@ namespace mwmp
                             && !knownActorIt->second.state.refId.empty()
                             && !knownActorIt->second.state.cellId.empty()
                             && knownActorIt->second.state.cellId != list.cellId;
-                        if (authoritativeVanillaRefNums.count(spawnerRefNum) != 0
-                            || authoritativeActorMigrated)
+                        const bool authoritativeActorPresent
+                            = authoritativeVanillaRefNums.count(spawnerRefNum) != 0;
+                        if (!shouldRetireLocalLeveledRoll(completeIdentitySnapshot,
+                                authoritativeActorPresent, authoritativeActorMigrated))
                         {
                             chanceNoneSpawners.erase(actorNetId);
                             return true;
@@ -2378,20 +2636,90 @@ namespace mwmp
                         const auto& leveledClass
                             = static_cast<const MWClass::CreatureLevList&>(ptr.getClass());
                         MWWorld::Ptr localRoll = leveledClass.getSpawnedActor(ptr);
-                        if (localRoll.isEmpty())
-                            return true;
+                        const std::string localRefId = localRoll.isEmpty()
+                            ? std::string("<none>")
+                            : localRoll.getCellRef().getRefId().serializeText();
+                        std::vector<MWWorld::Ptr> staleActors;
+                        auto addStaleActor = [&](const MWWorld::Ptr& candidate)
+                        {
+                            if (candidate.isEmpty() || candidate.getCellRef().getCount() <= 0)
+                                return;
+                            if (std::none_of(staleActors.begin(), staleActors.end(),
+                                    [&](const MWWorld::Ptr& existing) {
+                                        return existing == candidate
+                                            || sameLocalActorObject(existing, candidate);
+                                    }))
+                                staleActors.push_back(candidate);
+                        };
+                        addStaleActor(localRoll);
+                        if (const auto reconciledIt
+                                = mReconciledVanillaActorsByNetId.find(actorNetId);
+                            reconciledIt != mReconciledVanillaActorsByNetId.end())
+                            addStaleActor(reconciledIt->second);
+                        if (const auto runtimeIt = mActorsByNetId.find(actorNetId);
+                            runtimeIt != mActorsByNetId.end()
+                            && runtimeIt->second.state.mpNum == 0
+                            && runtimeIt->second.state.refNum == spawnerRefNum
+                            && runtimeIt->second.state.cellId == list.cellId)
+                            addStaleActor(runtimeIt->second.boundActor);
 
-                        const std::string localRefId
-                            = localRoll.getCellRef().getRefId().serializeText();
-                        world->deleteObject(localRoll);
+                        for (const MWWorld::Ptr& staleActor : staleActors)
+                        {
+                            ScopedLocalDeleteSuppression suppression(
+                                mwmp::Main::get().getWorldObjectSync());
+                            world->deleteObject(staleActor);
+                        }
+                        // Always create custom state with mSpawn=false, including
+                        // an already-empty spawner, so a later rendering pass or
+                        // reload cannot reroll this canonical Chance None result.
                         leveledClass.setSpawnedActor(ptr, MWWorld::Ptr());
                         mReconciledVanillaActorsByNetId.erase(actorNetId);
-                        ++chanceNoneRetired;
+
+                        if (const auto runtimeIt = mActorsByNetId.find(actorNetId);
+                            runtimeIt != mActorsByNetId.end()
+                            && runtimeIt->second.state.mpNum == 0
+                            && runtimeIt->second.state.refNum == spawnerRefNum
+                            && runtimeIt->second.state.cellId == list.cellId)
+                        {
+                            mActorsByNetId.erase(runtimeIt);
+                        }
+                        for (auto& [trackedCellId, trackedCell] : mCells)
+                        {
+                            (void)trackedCellId;
+                            for (auto actorIt = trackedCell.actors.begin();
+                                 actorIt != trackedCell.actors.end();)
+                            {
+                                const ActorRuntime& staleRuntime = actorIt->second;
+                                const ActorInstanceId staleActorNetId = staleRuntime.actorNetId != 0
+                                    ? staleRuntime.actorNetId
+                                    : actorNetIdForActorState(staleRuntime.state);
+                                if (staleActorNetId == actorNetId
+                                    && staleRuntime.state.cellId == list.cellId)
+                                    actorIt = trackedCell.actors.erase(actorIt);
+                                else
+                                    ++actorIt;
+                            }
+                        }
+                        indexActorNetId(actorNetId, list.cellId, {});
+                        for (auto mappingIt = mActorNetIdsByKey.begin();
+                             mappingIt != mActorNetIdsByKey.end();)
+                        {
+                            if (mappingIt->second == actorNetId)
+                                mappingIt = mActorNetIdsByKey.erase(mappingIt);
+                            else
+                                ++mappingIt;
+                        }
+                        mActorAuthorityGuids.erase(actorNetId);
+                        mActorAuthorityGenerations.erase(actorNetId);
+
+                        if (!staleActors.empty())
+                            ++chanceNoneRetired;
                         Log(Debug::Info) << "[MP] ActorSync: reconciled leveled spawner Chance None"
                                          << " cell=" << list.cellId
                                          << " spawnerRefNum=" << spawnerRefNum
                                          << " localRefId=" << localRefId
-                                         << " actorNetId=" << actorNetId;
+                                         << " actorNetId=" << actorNetId
+                                         << " retiredActors=" << staleActors.size();
                         return true;
                     });
 
@@ -2405,6 +2733,10 @@ namespace mwmp
                 }
             }
         }
+
+        // A CorpseDisposed identity may precede local cell insertion. Apply
+        // cached tombstones now when possible; the per-frame passes handle later loads.
+        applyDisposedVanillaActorTombstones();
 
         if (!ackedActorNetIds.empty())
         {
@@ -4203,9 +4535,9 @@ namespace mwmp
             if (!actorState.deathAnimGroup.empty())
                 runtime.state.deathAnimGroup = actorState.deathAnimGroup;
             runtime.state.dynamicStats.health.current = actorState.dynamicStats.health.current;
-            runtime.deathFromRealtimePacket = actorState.isDead
-                && !actorState.isInstantDeath
-                && (!wasDead || baselineAlreadyQueuedRealtimeDeath || pendingRealtimeDeathReplay);
+            runtime.deathFromRealtimePacket = shouldPresentActorDeathAsRealtime(
+                actorState.isDead, actorState.isInstantDeath, wasDead,
+                baselineAlreadyQueuedRealtimeDeath, pendingRealtimeDeathReplay);
             if (runtime.deathFromRealtimePacket)
             {
                 runtime.pendingRealtimeDeathReplay = false;
@@ -5008,6 +5340,50 @@ namespace mwmp
         bool incomingIsDead, bool explicitTransformReset)
     {
         return hadRuntime && runtimeIsDead && incomingIsDead && !explicitTransformReset;
+    }
+
+    bool ActorSync::shouldRevealBootstrapDeathAfterViewerUpdate(
+        bool revealPending, bool waitingForFreshCellBootstrap, bool hasBinding)
+    {
+        return revealPending && !waitingForFreshCellBootstrap && hasBinding;
+    }
+
+    bool ActorSync::shouldPresentActorDeathAsRealtime(bool isDead, bool isInstantDeath,
+        bool wasDead, bool baselineAlreadyQueuedRealtimeDeath, bool pendingRealtimeDeathReplay)
+    {
+        return isDead && !isInstantDeath
+            && (!wasDead || baselineAlreadyQueuedRealtimeDeath || pendingRealtimeDeathReplay);
+    }
+
+    bool ActorSync::matchesDisposedVanillaReference(uint32_t disposedRefNum,
+        std::string_view disposedRefId, uint32_t candidateCanonicalRefNum,
+        std::string_view candidateRefId, bool candidateIsLeveledSpawner)
+    {
+        return disposedRefNum != 0 && disposedRefNum == candidateCanonicalRefNum
+            && (candidateIsLeveledSpawner || disposedRefId == candidateRefId);
+    }
+
+    bool ActorSync::isCompleteActorIdentitySnapshot(bool completeCellSnapshot)
+    {
+        // Record count is deliberately irrelevant: actors=[] is the canonical
+        // representation of a complete empty cell. Removal-only packets remain
+        // partial because their sender leaves this explicit flag false.
+        return completeCellSnapshot;
+    }
+
+    bool ActorSync::shouldRetireLocalLeveledRoll(bool completeIdentitySnapshot,
+        bool authoritativeActorPresent, bool authoritativeActorMigrated)
+    {
+        return completeIdentitySnapshot
+            && !authoritativeActorPresent
+            && !authoritativeActorMigrated;
+    }
+
+    bool ActorSync::shouldReplaceLocalLeveledRoll(bool authoritativeTransform,
+        bool hasLocalActorAuthority, bool canonicalHandoffBaseline)
+    {
+        return authoritativeTransform
+            && (!hasLocalActorAuthority || canonicalHandoffBaseline);
     }
 
     bool ActorSync::hasAuthority(const std::string& cellId) const
@@ -6480,8 +6856,8 @@ namespace mwmp
         // The animation time is installed below, but the skeleton controllers
         // consume it during the following scene-graph update. Keep the node out
         // of the current cull traversal so its upright bind pose never flashes.
-        setHiddenUntilFreshSnapshot(actor.boundActor, true);
-        actor.bootstrapDeathRevealUpdate = mUpdateSerial + 2;
+        setBootstrapCorpseHiddenUntilViewerUpdate(actor.boundActor, true);
+        actor.bootstrapDeathRevealPending = true;
         // Place a bootstrapped corpse at its reliable authoritative transform
         // exactly once. Reapplying this whenever resolveActorBinding revisits an
         // already-dead runtime fights local corpse grounding and causes a
@@ -8664,8 +9040,8 @@ namespace mwmp
         cell.latest = outgoing;
     }
 
-    bool ActorSync::resolveActorBinding(
-        const std::string& cellId, ActorRuntime& actor, bool forceCanonicalCell)
+    bool ActorSync::resolveActorBinding(const std::string& cellId, ActorRuntime& actor,
+        bool forceCanonicalCell, bool canonicalHandoffBaseline)
     {
         MWBase::World* world = MWBase::Environment::get().getWorld();
         if (!world)
@@ -9320,8 +9696,8 @@ namespace mwmp
                 found = localRoll;
                 mReconciledVanillaActorsByNetId[actor.actorNetId] = found;
             }
-            else if (actor.hasAuthoritativeTransform
-                && !hasAuthorityForActor(actor.actorNetId, targetCellId))
+            else if (shouldReplaceLocalLeveledRoll(actor.hasAuthoritativeTransform,
+                hasAuthorityForActor(actor.actorNetId, targetCellId), canonicalHandoffBaseline))
             {
                 try
                 {
@@ -9351,7 +9727,11 @@ namespace mwmp
                                 ? std::string("<none>")
                                 : localRoll.getCellRef().getRefId().serializeText();
                             if (!localRoll.isEmpty())
+                            {
+                                ScopedLocalDeleteSuppression suppression(
+                                    mwmp::Main::get().getWorldObjectSync());
                                 world->deleteObject(localRoll);
+                            }
                             leveledClass.setSpawnedActor(leveledSpawner, found);
                             mReconciledVanillaActorsByNetId[actor.actorNetId] = found;
                             Log(Debug::Info) << "[MP] ActorSync: reconciled leveled spawner roll"
@@ -9660,14 +10040,10 @@ namespace mwmp
             setHiddenUntilFreshSnapshot(actor.boundActor, true);
             return;
         }
-        if (actor.bootstrapDeathRevealUpdate != 0)
+        if (actor.bootstrapDeathRevealPending)
         {
-            if (mUpdateSerial < actor.bootstrapDeathRevealUpdate)
-            {
-                setHiddenUntilFreshSnapshot(actor.boundActor, true);
-                return;
-            }
-            actor.bootstrapDeathRevealUpdate = 0;
+            setBootstrapCorpseHiddenUntilViewerUpdate(actor.boundActor, true);
+            return;
         }
         setHiddenUntilFreshSnapshot(actor.boundActor, false);
 
@@ -10366,7 +10742,7 @@ namespace mwmp
                 mechanics->resurrect(actor.boundActor);
             if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
                 baseNode->setUserValue(BootstrapDeathAppliedUserValue, false);
-            actor.bootstrapDeathRevealUpdate = 0;
+            actor.bootstrapDeathRevealPending = false;
             actor.lastAppliedAnimGroup.clear();
             actor.lastAppliedHitFlags = 0;
             actor.lastAttackPressed = false;
