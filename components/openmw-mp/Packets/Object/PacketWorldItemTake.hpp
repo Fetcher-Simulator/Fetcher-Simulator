@@ -1,6 +1,8 @@
 #ifndef OPENMW_MP_PACKETWORLDITEMTAKE_HPP
 #define OPENMW_MP_PACKETWORLDITEMTAKE_HPP
 
+#include <stdexcept>
+
 #include <components/openmw-mp/Packets/BasePacket.hpp>
 #include <components/openmw-mp/WorldItemTake.hpp>
 
@@ -42,6 +44,7 @@ namespace mwmp
             writePlacedObjectIdentity(stream, request.object);
             stream.write(request.requestedCount);
             stream.write(request.expectedInventoryRevision);
+            stream.write(static_cast<std::uint8_t>(request.soundDirection));
         }
         void unpack(ReadStream& stream) override
         {
@@ -50,6 +53,12 @@ namespace mwmp
             readPlacedObjectIdentity(stream, request.object);
             stream.read(request.requestedCount);
             stream.read(request.expectedInventoryRevision);
+            std::uint8_t soundDirection = 0;
+            stream.read(soundDirection);
+            request.soundDirection = static_cast<InventoryTransferSoundDirection>(soundDirection);
+            if (validateWorldItemTakeRequest(request) != WorldItemTakeError::None || !stream.eof()
+                || mHeader.payloadSize + PacketHeader::WIRE_SIZE != stream.pos())
+                throw std::runtime_error("PacketWorldItemTakeRequest: invalid payload");
         }
     };
 

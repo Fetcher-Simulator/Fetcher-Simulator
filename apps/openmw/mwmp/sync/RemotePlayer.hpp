@@ -7,8 +7,10 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include <components/openmw-mp/Base/BasePlayer.hpp>
+#include <components/openmw-mp/InventoryTransferSound.hpp>
 
 #include "../../mwworld/ptr.hpp"
 
@@ -69,6 +71,7 @@ namespace mwmp
         // Cosmetic inventory delta: keep remote NPC ContainerStore consistent
         // with what they're carrying so equipment renders correctly.
         void onInventoryUpdate   (const BasePlayer& state);
+        void onInventoryTransferSound(const InventoryTransferSound& event);
         void onDynamicRecordsChanged();
         std::size_t purgeUnownedProxyCopies();
 
@@ -110,6 +113,18 @@ namespace mwmp
         bool         mMechanicsRegistered = false;
         bool         mEquipmentSoundReady = false;
         bool         mInventorySoundReady = false;
+        std::vector<Item> mInventorySoundBaseline;
+        bool mInventorySoundBaselineReady = false;
+        std::deque<std::string> mRecentInventoryTransferSoundIds;
+        std::deque<std::uint64_t> mRecentInventoryTransferSoundRevisions;
+        struct PendingEquipmentSoundSuppression
+        {
+            std::uint32_t itemInstanceId = 0;
+            std::string itemRefId;
+            InventoryTransferSoundDirection direction = InventoryTransferSoundDirection::Up;
+            float remainingSeconds = 0.f;
+        };
+        std::deque<PendingEquipmentSoundSuppression> mPendingEquipmentSoundSuppressions;
         std::optional<BasePlayer> mPendingRecordInventory;
         std::optional<BasePlayer> mPendingRecordEquipment;
         std::unique_ptr<Nameplate> mNameplate;

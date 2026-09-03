@@ -6,9 +6,11 @@
 #include <string_view>
 #include <vector>
 
+#include "InventoryTransferSound.hpp"
+
 namespace mwmp
 {
-    inline constexpr std::uint16_t WorldItemTakeProtocolVersion = 1;
+    inline constexpr std::uint16_t WorldItemTakeProtocolVersion = 2;
     inline constexpr std::size_t MaximumWorldItemTakeRequestIdLength = 128;
     inline constexpr std::size_t MaximumWorldItemTakeCellIdLength = 255;
     inline constexpr std::size_t MaximumWorldItemTakeRefIdLength = 255;
@@ -55,6 +57,7 @@ namespace mwmp
         PlacedObjectIdentity object;
         std::int32_t requestedCount = 0;
         std::uint64_t expectedInventoryRevision = 0;
+        InventoryTransferSoundDirection soundDirection = InventoryTransferSoundDirection::Up;
 
         bool operator==(const WorldItemTakeRequest&) const = default;
     };

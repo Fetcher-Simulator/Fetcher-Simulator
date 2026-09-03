@@ -120,6 +120,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         openmw-mp/barter.cpp
         openmw-mp/barterdatabase.cpp
         openmw-mp/inventoryput.cpp
+        openmw-mp/inventorytransfersound.cpp
         openmw-mp/crimeinteraction.cpp
         openmw-mp/crimereaction.cpp
         openmw-mp/guardarrest.cpp

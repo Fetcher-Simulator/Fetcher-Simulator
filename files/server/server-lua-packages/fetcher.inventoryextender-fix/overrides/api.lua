@@ -5,6 +5,7 @@ local types = require('openmw.types')
 local I = require('openmw.interfaces')
 local auxUi = require('openmw_aux.ui')
 local ambient = require('openmw.ambient')
+local mp = require('openmw.mp')
 
 local helpers = require('scripts.InventoryExtender.util.helpers')
 local constants = require('scripts.InventoryExtender.util.constants')
@@ -278,7 +279,15 @@ local eventHandlers = {
     end,
     IE_SetDraggingObject = function(props)
         local obj = props.obj
-        if helpers.isGold(props.obj) then
+        if mp.isConnected() then
+            print(('[MPINVTRACE] InventoryExtender cursor-event receive recordId=%s objectId=%s targetId=%s resetMode=%s')
+                :format(
+                    tostring(obj and obj.recordId),
+                    tostring(obj and obj.id),
+                    tostring(props.target and props.target.id),
+                    tostring(props.resetMode == true)))
+        end
+        if helpers.isGold(props.obj) and not props.preserveObject then
             local targetInv = props.target.type.inventory(props.target)
             local foundGold = targetInv:find('gold_001')
             if foundGold then
@@ -287,6 +296,14 @@ local eventHandlers = {
         end
 
         windowManager.ctx.dragAndDrop:setDraggingObject(obj, props.resetMode)
+        if mp.isConnected() then
+            print(('[MPINVTRACE] InventoryExtender cursor-event attached recordId=%s objectId=%s dragging=%s icon=%s')
+                :format(
+                    tostring(obj and obj.recordId),
+                    tostring(obj and obj.id),
+                    tostring(windowManager.ctx.dragAndDrop.draggingObject ~= nil),
+                    tostring(windowManager.ctx.cursorAttachedIcon ~= nil)))
+        end
     end,
     IE_BarterFinalized = function(props)
         ambient.playSound('item gold up')

@@ -49,6 +49,7 @@ namespace mwmp
             stream.write(request.requestedCount);
             stream.write(request.barterPrice);
             stream.write(request.expectedInventoryRevision);
+            stream.write(static_cast<std::uint8_t>(request.soundDirection));
         }
         void unpack(ReadStream& stream) override
         {
@@ -66,6 +67,9 @@ namespace mwmp
             stream.read(request.requestedCount);
             stream.read(request.barterPrice);
             stream.read(request.expectedInventoryRevision);
+            std::uint8_t soundDirection = 0;
+            stream.read(soundDirection);
+            request.soundDirection = static_cast<InventoryTransferSoundDirection>(soundDirection);
             if (validateInventoryTakeRequest(request) != InventoryTakeError::None || !stream.eof()
                 || mHeader.payloadSize + PacketHeader::WIRE_SIZE != stream.pos())
                 throw std::runtime_error("PacketInventoryTakeRequest: invalid payload");

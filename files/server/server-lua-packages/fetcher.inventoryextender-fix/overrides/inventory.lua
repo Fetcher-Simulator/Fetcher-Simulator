@@ -33,6 +33,12 @@ local l10n = core.l10n('InventoryExtender')
 local windowOptionsSection = storage.playerSection('InventoryExtender')
 local columnVisibilityKey = 'ColumnVisibility'
 
+local function traceInventory(formatString, ...)
+    if mp.isConnected() then
+        print(('[MPINVTRACE] InventoryExtender UI ' .. formatString):format(...))
+    end
+end
+
 local Inventory = Window:new()
 
 function Inventory:update(deep)
@@ -720,6 +726,16 @@ function Inventory:create(windowType, ctx)
     end
 
     onRowUse = function(row, rowWidget, fromKBMKeybind, forceBarterAction)
+        traceInventory('row-use recordId=%s objectId=%s window=%s mode=%s swapUsePickup=%s fromKeybind=%s alt=%s dragging=%s',
+            tostring(row and row.item and row.item.recordId),
+            tostring(row and row.item and row.item.id),
+            tostring(self.type),
+            tostring(I.UI.getMode()),
+            tostring(configPlayer.keybinds.b_SwapUsePickup),
+            tostring(fromKBMKeybind == true),
+            tostring(input.isAltPressed()),
+            tostring(ctx.dragAndDrop.draggingObject ~= nil))
+
         if ctx.dragAndDrop.draggingObject then
             if fromKBMKeybind then
                 if rowWidget and rowWidget.layout and rowWidget.layout.props then
@@ -730,8 +746,20 @@ function Inventory:create(windowType, ctx)
             return true
         end
 
-        if not configPlayer.keybinds.b_SwapUsePickup and not fromKBMKeybind then
+        local mode = I.UI.getMode()
+        local multiplayerRemotePickup = mp.isConnected()
+            and (mode == 'Container' or mode == 'Companion')
+            and self.type == mode
+
+        if not configPlayer.keybinds.b_SwapUsePickup and not fromKBMKeybind and not multiplayerRemotePickup then
+            traceInventory('row-use route=use-item reason=swap-use-pickup-disabled recordId=%s',
+                tostring(row and row.item and row.item.recordId))
             return onRowPickup(row, rowWidget, nil, true)
+        end
+
+        if multiplayerRemotePickup and not configPlayer.keybinds.b_SwapUsePickup and not fromKBMKeybind then
+            traceInventory('row-use bypass=swap-use-pickup-disabled reason=multiplayer-remote-pickup recordId=%s',
+                tostring(row and row.item and row.item.recordId))
         end
 
         for i = #ctx.handlers.onRowUse, 1, -1 do
@@ -760,6 +788,13 @@ function Inventory:create(windowType, ctx)
         local takeAll = input.isShiftPressed() or input.getAxisValue(input.CONTROLLER_AXIS.TriggerRight) > 0.5
         local takeOne = input.isCtrlPressed() or input.getAxisValue(input.CONTROLLER_AXIS.TriggerLeft) > 0.5
 
+        traceInventory('row-use route=%s recordId=%s count=%s takeAll=%s takeOne=%s',
+            transfer and 'instant-transfer' or 'cursor-drag',
+            tostring(row.item.recordId),
+            tostring(row.getCount()),
+            tostring(takeAll),
+            tostring(takeOne))
+
         if takeAll and takeOne and not forceBarterAction then
             onRowPickup(row, rowWidget)
             return
@@ -786,6 +821,14 @@ function Inventory:create(windowType, ctx)
             local mode = I.UI.getMode()
             local pickpocket = ctx.pickpocket
             local isPickpocketTake = mode == 'Container' and self.type == 'Container' and pickpocket and pickpocket.active
+
+            traceInventory('row-action route=%s recordId=%s count=%s sourceWindow=%s mode=%s pickpocket=%s',
+                transfer and 'instant-transfer' or 'cursor-drag',
+                tostring(row.item.recordId),
+                tostring(count),
+                tostring(self.type),
+                tostring(mode),
+                tostring(isPickpocketTake == true))
 
             if isPickpocketTake and not (mp.isConnected() and mp.inventoryTake and mp.inventoryTake.isAvailable()) then
                 local success = Pickpocket.rollTake(I.InventoryExtender.Actor(), self.target, row.item, row.getCount())

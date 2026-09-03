@@ -33,6 +33,7 @@ TEST(InventoryTakeProtocol, RequestRoundTripsCanonically)
 {
     mwmp::PacketInventoryTakeRequest outgoing;
     outgoing.request = request();
+    outgoing.request.soundDirection = mwmp::InventoryTransferSoundDirection::Down;
     const auto first = outgoing.encode();
     EXPECT_EQ(first, outgoing.encode());
 
@@ -45,6 +46,15 @@ TEST(InventoryTakeProtocol, RequestRoundTripsCanonically)
     auto trailing = first;
     trailing.push_back(0);
     EXPECT_FALSE(incoming.decode(trailing));
+
+    auto invalidDirection = request();
+    invalidDirection.soundDirection = static_cast<mwmp::InventoryTransferSoundDirection>(0);
+    EXPECT_EQ(mwmp::validateInventoryTakeRequest(invalidDirection), mwmp::InventoryTakeError::InvalidRequest);
+
+    auto downSound = request();
+    downSound.soundDirection = mwmp::InventoryTransferSoundDirection::Down;
+    EXPECT_NE(mwmp::canonicalInventoryTakeRequest(downSound),
+        mwmp::canonicalInventoryTakeRequest(request()));
 }
 
 TEST(InventoryTakeProtocol, BarterRequestCarriesStrictMerchantIdentity)

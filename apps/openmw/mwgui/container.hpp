@@ -8,6 +8,7 @@
 #include <components/misc/notnullptr.hpp>
 
 #include <cstdint>
+#include <functional>
 
 namespace MyGUI
 {
@@ -76,6 +77,7 @@ namespace MWGui
         bool mAuthoritativeTakeAllPending = false;
         bool mDisposeAfterAuthoritativeTakeAll = false;
         std::uint64_t mAuthoritativeTransferSerial = 0;
+        std::function<bool()> mAuthoritativeCursorResolver;
         MyGUI::Button* mDisposeCorpseButton;
         MyGUI::Button* mTakeButton;
         MyGUI::Button* mCloseButton;

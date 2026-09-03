@@ -61,6 +61,7 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerCast.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerSpeech.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerInventory.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerInventoryTransferSound.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerJournal.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerSpellbook.hpp>
 #include <components/openmw-mp/Packets/Lua/PacketLuaEvent.hpp>
@@ -2159,6 +2160,21 @@ void Main::registerProtocolHandlers()
                 return;
             }
             mWorldObjectSync->onServerInventoryPutResult(packet.result);
+        });
+
+    proto.registerHandler(PacketType::InventoryTransferSound,
+        [this](const uint8_t* data, size_t size)
+        {
+            PacketPlayerInventoryTransferSound packet;
+            if (!packet.decode(data, size))
+            {
+                disconnect("Malformed authoritative inventory transfer sound");
+                return;
+            }
+            if (packet.event.actorGuid == mPlayerSync->localPlayer().guid)
+                return;
+            if (auto* remote = mPlayerList->getPlayer(packet.event.actorGuid))
+                remote->onInventoryTransferSound(packet.event);
         });
 
     proto.registerHandler(PacketType::BarterResult,
