@@ -469,7 +469,10 @@ mwmp::ServerContentRegistry::findPlacedItemReference(const PlacedObjectIdentity&
         item.worldCount = ptr.getCellRef().getCount();
         item.gold = ptr.getClass().isGold(ptr);
         item.itemValue = ptr.getClass().getValue(ptr);
-        item.inventoryCount = item.gold ? item.worldCount * item.itemValue : item.worldCount;
+        // Gold denomination records are world-model variants only. OpenMW's
+        // ContainerStore canonicalizes all of them to gold_001 while preserving
+        // the stack count exactly (1 gold_100 == 1 gold_001 in inventory).
+        item.inventoryCount = item.worldCount;
         item.charge = static_cast<std::int32_t>(ptr.getCellRef().getCharge());
         item.enchantmentCharge = ptr.getCellRef().getEnchantmentCharge();
         item.soul = ptr.getCellRef().getSoul().serializeText();

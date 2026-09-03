@@ -14393,7 +14393,7 @@ void MPServer::handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* dat
         if (countOverride != mWorld.worldItemCountOverrides.end())
         {
             item.worldCount = countOverride->second.resultingWorldCount;
-            item.inventoryCount = item.gold ? item.worldCount * item.itemValue : item.worldCount;
+            item.inventoryCount = item.worldCount;
             item.enabled = item.worldCount > 0;
         }
     }
@@ -14431,7 +14431,7 @@ void MPServer::handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* dat
             item.gold = ptr.getClass().isGold(ptr);
             item.itemValue = ptr.getClass().getValue(ptr);
             if (item.gold)
-                item.inventoryCount = item.worldCount * item.itemValue;
+                item.inventoryCount = item.worldCount;
             item.charge = static_cast<std::int32_t>(ptr.getCellRef().getCharge());
             item.enchantmentCharge = ptr.getCellRef().getEnchantmentCharge();
             item.soul = ptr.getCellRef().getSoul().serializeText();
@@ -14488,7 +14488,11 @@ void MPServer::handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* dat
         : 0;
 
     Item added;
-    added.refId = item.identity.refId;
+    // OpenMW canonicalizes every gold denomination into gold_001 once it enters
+    // an actor inventory. Keep the world object's denomination in result.object,
+    // but make the authoritative player-inventory identity match what the client
+    // can actually resolve after applying the snapshot.
+    added.refId = item.gold ? "gold_001" : item.identity.refId;
     added.count = item.inventoryCount;
     added.charge = item.charge;
     added.enchantmentCharge = item.enchantmentCharge;
@@ -15126,8 +15130,10 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
                     return;
                 }
             }
-            added.refId = request.itemRefId;
-            added.count = gold ? request.requestedCount * itemValue : request.requestedCount;
+            // Player inventories use OpenMW's canonical currency stack regardless
+            // of the denomination record stored in the source container/corpse.
+            added.refId = gold ? "gold_001" : request.itemRefId;
+            added.count = request.requestedCount;
             added.charge = removedSourceItem.charge;
             added.enchantmentCharge = removedSourceItem.enchantmentCharge;
             added.soul = removedSourceItem.soul;
@@ -15317,7 +15323,13 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
 
     result.accepted = true;
     result.error = InventoryTakeError::None;
-    result.itemCount = finish ? 0 : request.requestedCount;
+    if (!finish)
+    {
+        result.itemRefId = added.refId;
+        result.itemCount = added.count;
+    }
+    else
+        result.itemCount = 0;
     result.inventoryRevision = resultingRevision;
     result.detected = detected;
     result.detectionRoll = detectionRoll;
