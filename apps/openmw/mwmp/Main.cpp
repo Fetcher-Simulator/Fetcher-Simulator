@@ -749,6 +749,16 @@ void Main::postWorldUpdate()
 }
 
 // ---------------------------------------------------------------------------
+void Main::postViewerUpdateTraversal()
+{
+    if (!mClient || !mClient->isConnected())
+        return;
+
+    if (mActorSync)
+        mActorSync->revealBootstrapDeathVisualsAfterViewerUpdate();
+}
+
+// ---------------------------------------------------------------------------
 bool Main::captureCurrentChargenData(const char* context)
 {
     try

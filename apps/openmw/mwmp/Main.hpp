@@ -76,6 +76,7 @@ namespace mwmp
         void frame(float dt);
         void postMechanicsUpdate();
         void postWorldUpdate();
+        void postViewerUpdateTraversal();
 
         // Subsystem accessors
         NetworkClient&  getNetworking()     { return *mClient; }

@@ -513,6 +513,8 @@ bool OMW::Engine::frame(unsigned frameNumber, float frametime)
     mViewer->eventTraversal();
     mViewer->updateTraversal();
 #ifdef BUILD_MULTIPLAYER
+    if (mwmp::Main::isInitialised())
+        mwmp::Main::get().postViewerUpdateTraversal();
     markHitchPhase(hitchTimings.viewerUpdate);
 #endif
 
