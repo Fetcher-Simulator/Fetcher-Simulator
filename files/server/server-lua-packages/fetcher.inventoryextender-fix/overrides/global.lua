@@ -9,6 +9,12 @@ local CellUtils = require('scripts.InventoryExtender.util.cell')
 
 local helpers = require('scripts.InventoryExtender.util.helpers')
 
+local function traceInventory(formatString, ...)
+    if mp.isConnected() then
+        print(('[MPINVTRACE] InventoryExtender global ' .. formatString):format(...))
+    end
+end
+
 local disposedBodies = {}
 
 ---@type {func: function, frameDelay: number}[]
@@ -113,7 +119,16 @@ local function commitPickpocket(props)
 end
 
 local function scriptedDragStart(props)
-    if props.obj.parentContainer == nil then return end
+    traceInventory('scripted-drag recordId=%s objectId=%s parent=%s resultingId=%s',
+        tostring(props.obj and props.obj.recordId),
+        tostring(props.obj and props.obj.id),
+        tostring(props.obj and props.obj.parentContainer and props.obj.parentContainer.id),
+        tostring(props.resultingObj and props.resultingObj.id))
+    if props.obj.parentContainer == nil then
+        traceInventory('scripted-drag rejected reason=no-parent recordId=%s',
+            tostring(props.obj and props.obj.recordId))
+        return
+    end
 
     props.player:sendEvent('IE_SetDraggingObject', {
         obj = props.resultingObj,
@@ -177,18 +192,92 @@ local function resolveAuthoritativeDestinationStack(destination, recordId, previ
     if newCandidateCount == 1 then
         return newCandidate
     end
-    if #candidates == 1 then
-        return candidates[1]
-    end
     return nil
 end
 
+local AUTHORITATIVE_CURSOR_RESOLVE_ATTEMPTS = 8
+
+local function resolveAuthoritativeCursor(props)
+    local attempt = 0
+
+    local function finish()
+        if props.dragKey then
+            authoritativeDragInFlight[props.dragKey] = nil
+        end
+        props.player:sendEvent('IE_Update')
+    end
+
+    local function tryResolve()
+        attempt = attempt + 1
+        local ok, authoritativeObj = pcall(
+            resolveAuthoritativeDestinationStack,
+            props.destination,
+            props.recordId,
+            props.previousCounts,
+            props.expectedIncrease)
+
+        if ok and authoritativeObj then
+            traceInventory('%s cursor-resolved recordId=%s objectId=%s request=%s attempt=%s',
+                props.traceRoute,
+                tostring(authoritativeObj.recordId),
+                tostring(authoritativeObj.id),
+                tostring(props.requestId),
+                tostring(attempt))
+            props.player:sendEvent('IE_SetDraggingObject', {
+                obj = authoritativeObj,
+                target = props.destination,
+            })
+            finish()
+            return
+        end
+
+        if attempt < AUTHORITATIVE_CURSOR_RESOLVE_ATTEMPTS then
+            traceInventory('%s cursor-pending recordId=%s request=%s attempt=%s/%s',
+                props.traceRoute,
+                tostring(props.recordId),
+                tostring(props.requestId),
+                tostring(attempt),
+                tostring(AUTHORITATIVE_CURSOR_RESOLVE_ATTEMPTS))
+            -- The authoritative inventory snapshot is already visible to Lua on the
+            -- next frame. Do not refresh the inventory UI before cursor attachment;
+            -- doing so renders the received stack for one frame and causes a visible
+            -- flicker before IE_SetDraggingObject claims it for the cursor.
+            queueDelayedJob(tryResolve, 1)
+            return
+        end
+
+        local resolutionError = ok and '' or (' error=' .. tostring(authoritativeObj))
+        print(('[MP] InventoryExtender %s could not resolve destination stack recordId=%s request=%s attempts=%s%s')
+            :format(
+                props.warningRoute,
+                tostring(props.recordId),
+                tostring(props.requestId),
+                tostring(AUTHORITATIVE_CURSOR_RESOLVE_ATTEMPTS),
+                resolutionError))
+        finish()
+    end
+
+    tryResolve()
+end
+
 local function moveInto(props)
-    if not props.obj or not props.destination then return end
+    if not props.obj or not props.destination then
+        traceInventory('move-into rejected reason=missing-object-or-destination object=%s destination=%s',
+            tostring(props.obj ~= nil), tostring(props.destination ~= nil))
+        return
+    end
     local obj = props.obj
     local destination = props.destination
     local recordId = obj.recordId
     local moveCount = props.count or obj.count
+
+    traceInventory('move-into receive recordId=%s objectId=%s count=%s sourceId=%s destinationId=%s dragStart=%s',
+        tostring(recordId),
+        tostring(obj.id),
+        tostring(moveCount),
+        tostring(props.source and props.source.id),
+        tostring(destination.id),
+        tostring(props.dragStart == true))
 
     if mp.isConnected() and props.source == nil
         and types.Player.objectIsInstance(destination)
@@ -196,32 +285,41 @@ local function moveInto(props)
         and mp.worldItemTake and mp.worldItemTake.isAvailable() then
         local dragKey = 'world\0' .. obj.id
         if authoritativeDragInFlight[dragKey] then
+            traceInventory('world-take suppressed reason=in-flight recordId=%s objectId=%s',
+                tostring(recordId), tostring(obj.id))
             return
         end
         authoritativeDragInFlight[dragKey] = true
         local previousCounts = snapshotDestinationRecord(destination, recordId)
         local dragStart = props.dragStart
         local player = props.player
+        traceInventory('world-take request recordId=%s objectId=%s count=%s dragStart=%s',
+            tostring(recordId), tostring(obj.id), tostring(moveCount), tostring(dragStart == true))
         local ok, requestError = pcall(function()
-            mp.worldItemTake.request(obj, function(result)
-                authoritativeDragInFlight[dragKey] = nil
+            mp.worldItemTake.requestWithSound(obj, not dragStart, function(result)
+                traceInventory('world-take result request=%s accepted=%s error=%s itemRefId=%s count=%s dragStart=%s',
+                    tostring(result.requestId),
+                    tostring(result.accepted == true),
+                    tostring(result.error),
+                    tostring(result.itemRefId or recordId),
+                    tostring(result.itemCount),
+                    tostring(dragStart == true))
                 if result.accepted and dragStart then
-                    local authoritativeObj = resolveAuthoritativeDestinationStack(
-                        destination,
-                        result.itemRefId or recordId,
-                        previousCounts,
-                        result.itemCount or moveCount)
-                    if authoritativeObj then
-                        player:sendEvent('IE_SetDraggingObject', {
-                            obj = authoritativeObj,
-                            target = destination,
-                        })
-                    else
-                        print(('[MP] InventoryExtender authoritative world pickup could not resolve destination stack recordId=%s request=%s')
-                            :format(result.itemRefId or recordId, result.requestId or 'unknown'))
-                    end
+                    resolveAuthoritativeCursor({
+                        traceRoute = 'world-take',
+                        warningRoute = 'authoritative world pickup',
+                        dragKey = dragKey,
+                        player = player,
+                        destination = destination,
+                        recordId = result.itemRefId or recordId,
+                        previousCounts = previousCounts,
+                        expectedIncrease = result.itemCount or moveCount,
+                        requestId = result.requestId or 'unknown',
+                    })
+                else
+                    authoritativeDragInFlight[dragKey] = nil
+                    player:sendEvent('IE_Update')
                 end
-                player:sendEvent('IE_Update')
             end)
         end)
         if not ok then
@@ -298,6 +396,8 @@ local function moveInto(props)
         if props.dragStart then
             local dragKey = getAuthoritativeDragKey(props.source, obj)
             if authoritativeDragInFlight[dragKey] then
+                traceInventory('inventory-take suppressed reason=in-flight recordId=%s objectId=%s sourceId=%s',
+                    tostring(recordId), tostring(obj.id), tostring(props.source.id))
                 return
             end
             authoritativeDragInFlight[dragKey] = true
@@ -307,11 +407,23 @@ local function moveInto(props)
             }
         end
 
+        traceInventory('inventory-take request recordId=%s objectId=%s count=%s sourceId=%s dragStart=%s pickpocket=%s',
+            tostring(recordId),
+            tostring(obj.id),
+            tostring(moveCount),
+            tostring(props.source.id),
+            tostring(props.dragStart == true),
+            tostring(pickpocket))
         local ok, requestError = pcall(function()
-            mp.inventoryTake.request(props.source, obj, moveCount, pickpocket, function(result)
-                if dragState then
-                    authoritativeDragInFlight[dragState.key] = nil
-                end
+            mp.inventoryTake.requestWithSound(props.source, obj, moveCount, pickpocket, not props.dragStart, function(result)
+                traceInventory('inventory-take result request=%s accepted=%s detected=%s error=%s itemRefId=%s count=%s dragStart=%s',
+                    tostring(result.requestId),
+                    tostring(result.accepted == true),
+                    tostring(result.detected == true),
+                    tostring(result.error),
+                    tostring(result.itemRefId or recordId),
+                    tostring(result.itemCount),
+                    tostring(dragState ~= nil))
 
                 if result.accepted and result.theft and victimInfo and not stolenIsGold then
                     props.player:sendEvent('IE_StoleItem', {
@@ -322,23 +434,23 @@ local function moveInto(props)
                 end
 
                 if result.accepted and not result.detected and dragState then
-                    local resultingObj = resolveAuthoritativeDestinationStack(
-                        destination,
-                        result.itemRefId or recordId,
-                        dragState.previousCounts,
-                        result.itemCount or moveCount)
-                    if resultingObj then
-                        props.player:sendEvent('IE_SetDraggingObject', {
-                            obj = resultingObj,
-                            target = destination,
-                        })
-                    else
-                        print(('[MP] InventoryExtender authoritative drag result could not resolve destination stack recordId=%s request=%s')
-                            :format(result.itemRefId or recordId, result.requestId or 'unknown'))
+                    resolveAuthoritativeCursor({
+                        traceRoute = 'inventory-take',
+                        warningRoute = 'authoritative drag result',
+                        dragKey = dragState.key,
+                        player = props.player,
+                        destination = destination,
+                        recordId = result.itemRefId or recordId,
+                        previousCounts = dragState.previousCounts,
+                        expectedIncrease = result.itemCount or moveCount,
+                        requestId = result.requestId or 'unknown',
+                    })
+                else
+                    if dragState then
+                        authoritativeDragInFlight[dragState.key] = nil
                     end
+                    props.player:sendEvent('IE_Update')
                 end
-
-                props.player:sendEvent('IE_Update')
             end)
         end)
         if not ok then
@@ -360,6 +472,8 @@ local function moveInto(props)
         if props.dragStart then
             local dragKey = getAuthoritativeDragKey(props.source, obj)
             if authoritativeDragInFlight[dragKey] then
+                traceInventory('inventory-put suppressed reason=in-flight recordId=%s objectId=%s destinationId=%s',
+                    tostring(recordId), tostring(obj.id), tostring(destination.id))
                 return
             end
             authoritativeDragInFlight[dragKey] = true
@@ -369,28 +483,39 @@ local function moveInto(props)
             }
         end
 
+        traceInventory('inventory-put request recordId=%s objectId=%s count=%s destinationId=%s dragStart=%s',
+            tostring(recordId),
+            tostring(obj.id),
+            tostring(moveCount),
+            tostring(destination.id),
+            tostring(props.dragStart == true))
         local ok, requestError = pcall(function()
             mp.inventoryPut.request(destination, obj, moveCount, function(result)
-                if dragState then
-                    authoritativeDragInFlight[dragState.key] = nil
-                end
+                traceInventory('inventory-put result request=%s accepted=%s error=%s itemRefId=%s count=%s dragStart=%s',
+                    tostring(result.requestId),
+                    tostring(result.accepted == true),
+                    tostring(result.error),
+                    tostring(result.itemRefId or recordId),
+                    tostring(result.itemCount),
+                    tostring(dragState ~= nil))
                 if result.accepted and dragState then
-                    local authoritativeObj = resolveAuthoritativeDestinationStack(
-                        destination,
-                        result.itemRefId or recordId,
-                        dragState.previousCounts,
-                        result.itemCount or moveCount)
-                    if authoritativeObj then
-                        props.player:sendEvent('IE_SetDraggingObject', {
-                            obj = authoritativeObj,
-                            target = destination,
-                        })
-                    else
-                        print(('[MP] InventoryExtender authoritative put drag result could not resolve destination stack recordId=%s request=%s')
-                            :format(result.itemRefId or recordId, result.requestId or 'unknown'))
+                    resolveAuthoritativeCursor({
+                        traceRoute = 'inventory-put',
+                        warningRoute = 'authoritative put drag result',
+                        dragKey = dragState.key,
+                        player = props.player,
+                        destination = destination,
+                        recordId = result.itemRefId or recordId,
+                        previousCounts = dragState.previousCounts,
+                        expectedIncrease = result.itemCount or moveCount,
+                        requestId = result.requestId or 'unknown',
+                    })
+                else
+                    if dragState then
+                        authoritativeDragInFlight[dragState.key] = nil
                     end
+                    props.player:sendEvent('IE_Update')
                 end
-                props.player:sendEvent('IE_Update')
             end)
         end)
         if not ok then
@@ -457,16 +582,38 @@ local function moveInto(props)
         end
     end
 
-    if moveCount ~= obj.count or helpers.isGold(obj) then
+    local detachedSelfDrag = false
+    local multiplayerSelfDrag = mp.isConnected() and props.dragStart and props.source == props.destination
+    if multiplayerSelfDrag and moveCount == obj.count then
+        -- Full-stack cursor drags already have a stable inventory object. Gold is
+        -- special-cased by OpenMW and splitting a complete gold stack can rewrite
+        -- gold_001 into gold_100, which makes the cursor operate on a different
+        -- record than the row the player clicked. Mirror the normal non-gold path:
+        -- keep the original object in place and attach that exact handle.
+        resultingObj = obj
+        traceInventory('cursor-drag direct-self-full-stack recordId=%s objectId=%s count=%s',
+            tostring(recordId), tostring(obj.id), tostring(moveCount))
+    elseif moveCount ~= obj.count or helpers.isGold(obj) then
         obj = obj:split(moveCount)
         if props.source ~= props.destination then
             resultingObj = obj
+        elseif multiplayerSelfDrag then
+            -- A multiplayer partial cursor split is already detached from the local
+            -- player's inventory by object:split(). Reinserting it into the same
+            -- inventory before attaching the cursor exposes remove -> add churn and
+            -- can merge/invalidate the cursor handle. Keep it detached until drop.
+            resultingObj = obj
+            detachedSelfDrag = true
+            traceInventory('cursor-drag detached-self-split recordId=%s objectId=%s count=%s',
+                tostring(recordId), tostring(obj.id), tostring(moveCount))
         end
     end
 
-    obj:moveInto(destination)
+    if not detachedSelfDrag then
+        obj:moveInto(destination)
+    end
 
-    if props.dragStart and helpers.isGold(obj) then
+    if props.dragStart and helpers.isGold(obj) and not detachedSelfDrag then
         local foundGold = destinationInv:find('gold_001')
         if foundGold then
             resultingObj = foundGold
@@ -477,6 +624,7 @@ local function moveInto(props)
         props.player:sendEvent('IE_SetDraggingObject', {
             obj = resultingObj,
             target = destination,
+            preserveObject = detachedSelfDrag,
         })
     end
 
@@ -521,7 +669,7 @@ local function moveAll(props)
                 local recordId = item.recordId
                 local count = item.count
                 local isGold = helpers.isGold(item)
-                mp.inventoryTake.request(props.source, item, count, false, function(result)
+                mp.inventoryTake.requestWithSound(props.source, item, count, false, true, function(result)
                     if result.accepted and result.theft and victimInfo and not isGold then
                         props.player:sendEvent('IE_StoleItem', {
                             recordId = recordId,

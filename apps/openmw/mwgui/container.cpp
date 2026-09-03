@@ -63,6 +63,7 @@ namespace MWGui
         }
 
         using InventoryStackCounts = std::unordered_map<ESM::RefNum, std::size_t>;
+        constexpr int AuthoritativeCursorResolveAttempts = 8;
 
         InventoryStackCounts snapshotPlayerStacks(ItemModel& model, const std::string& refId, int charge)
         {
@@ -145,6 +146,17 @@ namespace MWGui
         }
 
         const ItemStack& item = mSortModel->getItem(index);
+
+        if (mwmp::Main::isConnected())
+        {
+            Log(Debug::Info) << "[MPINVTRACE] Native container row-click index=" << index
+                             << " item=" << item.mBase.getCellRef().getRefId().serializeText()
+                             << " count=" << item.mCount
+                             << " alt=" << MyGUI::InputManager::getInstance().isAltPressed()
+                             << " ctrl=" << MyGUI::InputManager::getInstance().isControlPressed()
+                             << " shift=" << MyGUI::InputManager::getInstance().isShiftPressed()
+                             << " controllerMenus=" << Settings::gui().mControllerMenus;
+        }
 
         // We can't take a conjured item from a container (some NPC we're pickpocketing, a box, etc)
         if (item.mFlags & ItemStack::Flag_Bound)
@@ -276,23 +288,34 @@ namespace MWGui
         const std::uint64_t serial = ++mAuthoritativeTransferSerial;
         mAuthoritativeTransferPending = true;
 
+        Log(Debug::Info) << "[MPINVTRACE] Native container take-request item=" << itemRefId
+                         << " count=" << count << " startDrag=" << startDrag << " serial=" << serial;
+
         const mwmp::InventoryTakeKind kind = mPtr.getClass().isActor()
                 && mPtr.getClass().getCreatureStats(mPtr).isDead()
             ? mwmp::InventoryTakeKind::Corpse : mwmp::InventoryTakeKind::Container;
+        const auto soundDirection = startDrag ? mwmp::InventoryTransferSoundDirection::Up
+                                              : mwmp::InventoryTransferSoundDirection::Down;
         const bool queued = mwmp::Main::get().getWorldObjectSync().requestInventoryTake(mPtr, item.mBase,
-            static_cast<int>(count), kind,
+            static_cast<int>(count), kind, soundDirection,
             [this, before, itemRefId, itemCharge, sound, serial, startDrag](const mwmp::InventoryTakeResult& result) {
                 InventoryWindow* inventoryWindow = MWBase::Environment::get().getWindowManager()->getInventoryWindow();
                 ItemModel* playerModel = inventoryWindow->getModel();
                 playerModel->update();
                 inventoryWindow->updateItemView();
 
+                Log(Debug::Info) << "[MPINVTRACE] Native container take-result request=" << result.requestId
+                                 << " item=" << itemRefId << " accepted=" << result.accepted
+                                 << " count=" << result.itemCount
+                                 << " error=" << mwmp::getInventoryTakeErrorCode(result.error)
+                                 << " startDrag=" << startDrag << " serial=" << serial;
+
                 if (serial != mAuthoritativeTransferSerial)
                     return;
-                mAuthoritativeTransferPending = false;
 
                 if (!result.accepted)
                 {
+                    mAuthoritativeTransferPending = false;
                     const bool takeAll = mAuthoritativeTakeAllPending;
                     mAuthoritativeTakeAllPending = false;
                     mDisposeAfterAuthoritativeTakeAll = false;
@@ -309,6 +332,7 @@ namespace MWGui
 
                 if (mAuthoritativeTakeAllPending)
                 {
+                    mAuthoritativeTransferPending = false;
                     MWBase::Environment::get().getWindowManager()->playSound(sound);
                     continueAuthoritativeTakeAll();
                     return;
@@ -316,28 +340,66 @@ namespace MWGui
 
                 if (!startDrag)
                 {
+                    mAuthoritativeTransferPending = false;
                     MWBase::Environment::get().getWindowManager()->playSound(sound);
                     return;
                 }
 
-                std::size_t receivedCount = 0;
-                const ItemModel::ModelIndex receivedIndex
-                    = findReceivedPlayerStack(*playerModel, itemRefId, itemCharge, before, receivedCount);
-                const std::size_t dragCount
-                    = std::min<std::size_t>(receivedCount, static_cast<std::size_t>(result.itemCount));
-                if (receivedIndex < 0 || dragCount == 0 || mModel == nullptr || mDragAndDrop->mIsOnDragAndDrop)
-                {
-                    MWBase::Environment::get().getWindowManager()->playSound(sound);
-                    Log(Debug::Warning) << "[MP] ContainerWindow: authoritative take "
-                                           "accepted without native cursor"
-                                        << " item=" << itemRefId << " received=" << receivedCount;
-                    return;
-                }
+                const int resultItemCount = result.itemCount;
+                const std::string requestId = result.requestId;
+                mAuthoritativeCursorResolver
+                    = [this, before, itemRefId, itemCharge, sound, serial, resultItemCount, requestId,
+                          attempt = 0]() mutable -> bool {
+                    if (serial != mAuthoritativeTransferSerial)
+                        return true;
 
-                mDragAndDrop->startDrag(receivedIndex, inventoryWindow->getSortFilterModel(), playerModel,
-                    inventoryWindow->getItemView(), dragCount);
-                if (mItemView)
-                    mItemView->update();
+                    ++attempt;
+                    InventoryWindow* inventoryWindow
+                        = MWBase::Environment::get().getWindowManager()->getInventoryWindow();
+                    ItemModel* playerModel = inventoryWindow->getModel();
+                    std::size_t receivedCount = 0;
+                    const ItemModel::ModelIndex receivedIndex
+                        = findReceivedPlayerStack(*playerModel, itemRefId, itemCharge, before, receivedCount);
+                    const std::size_t dragCount
+                        = std::min<std::size_t>(receivedCount, static_cast<std::size_t>(resultItemCount));
+                    Log(Debug::Info) << "[MPINVTRACE] Native container cursor-resolution item=" << itemRefId
+                                     << " received=" << receivedCount << " dragCount=" << dragCount
+                                     << " index=" << receivedIndex << " model=" << (mModel != nullptr)
+                                     << " alreadyDragging=" << mDragAndDrop->mIsOnDragAndDrop << " attempt=" << attempt
+                                     << "/" << AuthoritativeCursorResolveAttempts << " request=" << requestId;
+
+                    if (receivedIndex >= 0 && dragCount > 0 && mModel != nullptr && !mDragAndDrop->mIsOnDragAndDrop)
+                    {
+                        mDragAndDrop->startDrag(receivedIndex, inventoryWindow->getSortFilterModel(), playerModel,
+                            inventoryWindow->getItemView(), dragCount);
+                        mAuthoritativeTransferPending = false;
+                        Log(Debug::Info) << "[MPINVTRACE] Native container cursor-attached item=" << itemRefId
+                                         << " count=" << dragCount << " attempt=" << attempt;
+                        if (mItemView)
+                            mItemView->update();
+                        return true;
+                    }
+
+                    if (mDragAndDrop->mIsOnDragAndDrop || mModel == nullptr
+                        || attempt >= AuthoritativeCursorResolveAttempts)
+                    {
+                        mAuthoritativeTransferPending = false;
+                        MWBase::Environment::get().getWindowManager()->playSound(sound);
+                        Log(Debug::Warning) << "[MP] ContainerWindow: authoritative take accepted without native cursor"
+                                            << " item=" << itemRefId << " received=" << receivedCount
+                                            << " attempts=" << attempt << " request=" << requestId;
+                        return true;
+                    }
+
+                    Log(Debug::Info) << "[MPINVTRACE] Native container cursor-pending item=" << itemRefId
+                                     << " attempt=" << attempt << "/" << AuthoritativeCursorResolveAttempts
+                                     << " request=" << requestId;
+                    inventoryWindow->updateItemView();
+                    return false;
+                };
+
+                if (mAuthoritativeCursorResolver())
+                    mAuthoritativeCursorResolver = {};
             });
 
         if (!queued)
@@ -508,6 +570,7 @@ namespace MWGui
     void ContainerWindow::resetReference()
     {
         ++mAuthoritativeTransferSerial;
+        mAuthoritativeCursorResolver = {};
         mAuthoritativeTransferPending = false;
         mAuthoritativeTakeAllPending = false;
         mDisposeAfterAuthoritativeTakeAll = false;
@@ -765,6 +828,9 @@ namespace MWGui
     void ContainerWindow::onFrame(float dt)
     {
         checkReferenceAvailable();
+
+        if (mAuthoritativeCursorResolver && mAuthoritativeCursorResolver())
+            mAuthoritativeCursorResolver = {};
 
         if (mUpdateNextFrame)
         {

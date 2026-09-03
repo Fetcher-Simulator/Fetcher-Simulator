@@ -474,6 +474,10 @@ private:
     void flushLuaActorChanges();
     void syncLuaAuthorityState();
     void sendAuthoritativeInventory(ConnectedClient& c);
+    void broadcastInventoryTransferSound(ConnectedClient& c, std::string eventId,
+        const std::string& itemRefId, std::uint32_t itemInstanceId, std::int32_t itemCount,
+        std::uint64_t inventoryRevision, InventoryTransferMutation mutation,
+        InventoryTransferSoundDirection direction);
     void sendAuthoritativeEquipment(
         ConnectedClient& c, bool includeOthers = true, bool includeSelf = true);
     void sendAuthoritativeJournal(ConnectedClient& c);

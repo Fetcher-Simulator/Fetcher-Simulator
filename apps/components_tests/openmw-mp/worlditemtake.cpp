@@ -58,12 +58,20 @@ TEST(WorldItemTakeProtocol, RequestValidationAndCanonicalEncodingAreDeterministi
     auto invalid = value;
     invalid.requestedCount = 0;
     EXPECT_EQ(mwmp::validateWorldItemTakeRequest(invalid), mwmp::WorldItemTakeError::InvalidCount);
+    invalid = value;
+    invalid.soundDirection = static_cast<mwmp::InventoryTransferSoundDirection>(0);
+    EXPECT_EQ(mwmp::validateWorldItemTakeRequest(invalid), mwmp::WorldItemTakeError::InvalidRequest);
+    auto downSound = value;
+    downSound.soundDirection = mwmp::InventoryTransferSoundDirection::Down;
+    EXPECT_NE(mwmp::canonicalWorldItemTakeRequest(downSound),
+        mwmp::canonicalWorldItemTakeRequest(value));
 }
 
 TEST(WorldItemTakeProtocol, RequestAndResultPacketsRoundTrip)
 {
     mwmp::PacketWorldItemTakeRequest outgoingRequest;
     outgoingRequest.request = request();
+    outgoingRequest.request.soundDirection = mwmp::InventoryTransferSoundDirection::Down;
     const auto requestBytes = outgoingRequest.encode();
     mwmp::PacketWorldItemTakeRequest incomingRequest;
     ASSERT_TRUE(incomingRequest.decode(requestBytes.data(), requestBytes.size()));

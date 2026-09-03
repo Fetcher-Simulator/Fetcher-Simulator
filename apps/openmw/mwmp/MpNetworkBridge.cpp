@@ -338,30 +338,42 @@ namespace mwmp
 
         sol::table worldItemTakeApi(lua, sol::create);
         worldItemTakeApi.set_function("isAvailable", [] { return Main::isInitialised() && Main::isConnected(); });
-        worldItemTakeApi.set_function("request",
-            [lua](const MWLua::GObject& item, sol::main_protected_function callback) {
-                if (!Main::isInitialised() || !Main::isConnected())
-                    throw std::runtime_error("mp.worldItemTake.request requires an active multiplayer connection");
-                const MWWorld::Ptr itemPtr = item.ptrOrEmpty();
-                if (itemPtr.isEmpty() || !itemPtr.isInCell())
-                    throw std::runtime_error("mp.worldItemTake.request requires a live world item");
+        const auto requestWorldItemTake = [lua](const MWLua::GObject& item, bool downSound,
+            sol::main_protected_function callback) {
+            if (!Main::isInitialised() || !Main::isConnected())
+                throw std::runtime_error("mp.worldItemTake.request requires an active multiplayer connection");
+            const MWWorld::Ptr itemPtr = item.ptrOrEmpty();
+            if (itemPtr.isEmpty() || !itemPtr.isInCell())
+                throw std::runtime_error("mp.worldItemTake.request requires a live world item");
 
-                const bool queued = Main::get().getWorldObjectSync().requestLocalObjectTake(
-                    itemPtr, [lua, callback = std::move(callback)](const WorldItemTakeResult& result) mutable {
-                        sol::table value(lua, sol::create);
-                        value["requestId"] = result.requestId;
-                        value["accepted"] = result.accepted;
-                        value["replayed"] = result.replayed;
-                        value["error"] = std::string(getWorldItemTakeErrorCode(result.error));
-                        value["itemRefId"] = result.itemRefId;
-                        value["itemCount"] = result.itemCount;
-                        value["inventoryRevision"] = result.inventoryRevision;
-                        value["theft"] = result.theft;
-                        value["crimeValue"] = result.crimeValue;
-                        LuaUtil::call(callback, value);
-                    });
-                if (!queued)
-                    throw std::runtime_error("mp.worldItemTake.request could not build a canonical request");
+            const auto soundDirection = downSound ? InventoryTransferSoundDirection::Down
+                                                  : InventoryTransferSoundDirection::Up;
+            const bool queued = Main::get().getWorldObjectSync().requestLocalObjectTake(
+                itemPtr, soundDirection,
+                [lua, callback = std::move(callback)](const WorldItemTakeResult& result) mutable {
+                    sol::table value(lua, sol::create);
+                    value["requestId"] = result.requestId;
+                    value["accepted"] = result.accepted;
+                    value["replayed"] = result.replayed;
+                    value["error"] = std::string(getWorldItemTakeErrorCode(result.error));
+                    value["itemRefId"] = result.itemRefId;
+                    value["itemCount"] = result.itemCount;
+                    value["inventoryRevision"] = result.inventoryRevision;
+                    value["theft"] = result.theft;
+                    value["crimeValue"] = result.crimeValue;
+                    LuaUtil::call(callback, value);
+                });
+            if (!queued)
+                throw std::runtime_error("mp.worldItemTake.request could not build a canonical request");
+        };
+        worldItemTakeApi.set_function("request",
+            [requestWorldItemTake](const MWLua::GObject& item, sol::main_protected_function callback) mutable {
+                requestWorldItemTake(item, false, std::move(callback));
+            });
+        worldItemTakeApi.set_function("requestWithSound",
+            [requestWorldItemTake](const MWLua::GObject& item, bool downSound,
+                sol::main_protected_function callback) mutable {
+                requestWorldItemTake(item, downSound, std::move(callback));
             });
         mp["worldItemTake"] = LuaUtil::makeReadOnly(worldItemTakeApi);
 
@@ -393,47 +405,58 @@ namespace mwmp
 
         sol::table inventoryTakeApi(lua, sol::create);
         inventoryTakeApi.set_function("isAvailable", [] { return Main::isInitialised() && Main::isConnected(); });
+        const auto requestInventoryTake = [lua](const MWLua::GObject& source, const MWLua::GObject& item,
+            int count, bool pickpocket, bool downSound, sol::main_protected_function callback) {
+            if (!Main::isInitialised() || !Main::isConnected())
+                throw std::runtime_error("mp.inventoryTake.request requires an active multiplayer connection");
+            const MWWorld::Ptr sourcePtr = source.ptrOrEmpty();
+            const MWWorld::Ptr itemPtr = item.ptrOrEmpty();
+            if (sourcePtr.isEmpty() || itemPtr.isEmpty() || count <= 0)
+                throw std::runtime_error("mp.inventoryTake.request requires a valid source, item, and positive count");
+
+            InventoryTakeKind kind = InventoryTakeKind::Container;
+            if (sourcePtr.getClass().isActor())
+            {
+                if (sourcePtr.getClass().getCreatureStats(sourcePtr).isDead())
+                    kind = InventoryTakeKind::Corpse;
+                else
+                    kind = pickpocket ? InventoryTakeKind::Pickpocket : InventoryTakeKind::ActorInventory;
+            }
+            else if (pickpocket)
+                throw std::runtime_error("mp.inventoryTake.request cannot pickpocket a non-actor source");
+
+            const auto soundDirection = downSound ? InventoryTransferSoundDirection::Down
+                                                  : InventoryTransferSoundDirection::Up;
+            const bool queued = Main::get().getWorldObjectSync().requestInventoryTake(
+                sourcePtr, itemPtr, count, kind, soundDirection,
+                [lua, callback = std::move(callback)](const InventoryTakeResult& result) mutable {
+                    sol::table value(lua, sol::create);
+                    value["requestId"] = result.requestId;
+                    value["accepted"] = result.accepted;
+                    value["replayed"] = result.replayed;
+                    value["error"] = std::string(getInventoryTakeErrorCode(result.error));
+                    value["kind"] = static_cast<unsigned>(result.kind);
+                    value["itemRefId"] = result.itemRefId;
+                    value["itemCount"] = result.itemCount;
+                    value["inventoryRevision"] = result.inventoryRevision;
+                    value["detected"] = result.detected;
+                    value["detectionRoll"] = result.detectionRoll;
+                    value["theft"] = result.theft;
+                    value["crimeValue"] = result.crimeValue;
+                    LuaUtil::call(callback, value);
+                });
+            if (!queued)
+                throw std::runtime_error("mp.inventoryTake.request could not build a canonical request");
+        };
         inventoryTakeApi.set_function("request",
-            [lua](const MWLua::GObject& source, const MWLua::GObject& item, int count, bool pickpocket,
-                sol::main_protected_function callback) {
-                if (!Main::isInitialised() || !Main::isConnected())
-                    throw std::runtime_error("mp.inventoryTake.request requires an active multiplayer connection");
-                const MWWorld::Ptr sourcePtr = source.ptrOrEmpty();
-                const MWWorld::Ptr itemPtr = item.ptrOrEmpty();
-                if (sourcePtr.isEmpty() || itemPtr.isEmpty() || count <= 0)
-                    throw std::runtime_error("mp.inventoryTake.request requires a valid source, item, and positive count");
-
-                InventoryTakeKind kind = InventoryTakeKind::Container;
-                if (sourcePtr.getClass().isActor())
-                {
-                    if (sourcePtr.getClass().getCreatureStats(sourcePtr).isDead())
-                        kind = InventoryTakeKind::Corpse;
-                    else
-                        kind = pickpocket ? InventoryTakeKind::Pickpocket : InventoryTakeKind::ActorInventory;
-                }
-                else if (pickpocket)
-                    throw std::runtime_error("mp.inventoryTake.request cannot pickpocket a non-actor source");
-
-                const bool queued = Main::get().getWorldObjectSync().requestInventoryTake(
-                    sourcePtr, itemPtr, count, kind,
-                    [lua, callback = std::move(callback)](const InventoryTakeResult& result) mutable {
-                        sol::table value(lua, sol::create);
-                        value["requestId"] = result.requestId;
-                        value["accepted"] = result.accepted;
-                        value["replayed"] = result.replayed;
-                        value["error"] = std::string(getInventoryTakeErrorCode(result.error));
-                        value["kind"] = static_cast<unsigned>(result.kind);
-                        value["itemRefId"] = result.itemRefId;
-                        value["itemCount"] = result.itemCount;
-                        value["inventoryRevision"] = result.inventoryRevision;
-                        value["detected"] = result.detected;
-                        value["detectionRoll"] = result.detectionRoll;
-                        value["theft"] = result.theft;
-                        value["crimeValue"] = result.crimeValue;
-                        LuaUtil::call(callback, value);
-                    });
-                if (!queued)
-                    throw std::runtime_error("mp.inventoryTake.request could not build a canonical request");
+            [requestInventoryTake](const MWLua::GObject& source, const MWLua::GObject& item, int count,
+                bool pickpocket, sol::main_protected_function callback) mutable {
+                requestInventoryTake(source, item, count, pickpocket, false, std::move(callback));
+            });
+        inventoryTakeApi.set_function("requestWithSound",
+            [requestInventoryTake](const MWLua::GObject& source, const MWLua::GObject& item, int count,
+                bool pickpocket, bool downSound, sol::main_protected_function callback) mutable {
+                requestInventoryTake(source, item, count, pickpocket, downSound, std::move(callback));
             });
         mp["inventoryTake"] = LuaUtil::makeReadOnly(inventoryTakeApi);
 

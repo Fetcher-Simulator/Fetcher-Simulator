@@ -309,7 +309,8 @@ namespace mwmp
             return true;
         }
 
-        void playItemSoundForActor(const MWWorld::Ptr& actor, const Item& item, bool pickedUp)
+        void playItemSoundForActor(const MWWorld::Ptr& actor, const Item& item, bool pickedUp,
+            bool suppressRangedAmmoDown = true)
         {
             if (actor.isEmpty() || item.refId.empty())
                 return;
@@ -327,7 +328,7 @@ namespace mwmp
             // arrow, bolt, or thrown weapon. Treating that decrement like a
             // manual drop plays Item Ammo Down on observers after every shot.
             // The firing animation already supplies the correct spatial cue.
-            if (!pickedUp && ref.getPtr().getType() == ESM::Weapon::sRecordId)
+            if (suppressRangedAmmoDown && !pickedUp && ref.getPtr().getType() == ESM::Weapon::sRecordId)
             {
                 const int weaponType = ref.getPtr().get<ESM::Weapon>()->mBase->mData.mType;
                 if (weaponType == ESM::Weapon::Arrow || weaponType == ESM::Weapon::Bolt
@@ -385,6 +386,49 @@ namespace mwmp
             }
 
             return false;
+        }
+
+        void applyInventoryTransferToSoundBaseline(
+            std::vector<Item>& items, const InventoryTransferSound& event)
+        {
+            auto matching = [&](const Item& item) {
+                if (event.itemInstanceId != 0 && item.instanceId == event.itemInstanceId)
+                    return true;
+                return item.refId == event.itemRefId;
+            };
+
+            if (event.mutation == InventoryTransferMutation::Added)
+            {
+                auto found = std::find_if(items.begin(), items.end(), matching);
+                if (found != items.end())
+                    found->count += event.itemCount;
+                else
+                {
+                    Item added;
+                    added.instanceId = event.itemInstanceId;
+                    added.refId = event.itemRefId;
+                    added.count = event.itemCount;
+                    items.push_back(std::move(added));
+                }
+                return;
+            }
+
+            int remaining = event.itemCount;
+            for (auto item = items.begin(); item != items.end() && remaining > 0;)
+            {
+                if (!matching(*item) || item->count <= 0)
+                {
+                    ++item;
+                    continue;
+                }
+                const int removed = std::min(remaining, item->count);
+                item->count -= removed;
+                remaining -= removed;
+                if (item->count == 0)
+                    item = items.erase(item);
+                else
+                    ++item;
+            }
         }
 
         void playReplicatedImpactSound(const MWWorld::Ptr& attacker, const MWWorld::Ptr& target, const Attack& atk)
@@ -545,6 +589,20 @@ namespace mwmp
     void RemotePlayer::update(float dt)
     {
         const float safeDt = std::max(0.f, dt);
+        for (auto pending = mPendingEquipmentSoundSuppressions.begin();
+             pending != mPendingEquipmentSoundSuppressions.end();)
+        {
+            if (pending->remainingSeconds < 0.f)
+            {
+                ++pending;
+                continue;
+            }
+            pending->remainingSeconds -= safeDt;
+            if (pending->remainingSeconds <= 0.f)
+                pending = mPendingEquipmentSoundSuppressions.erase(pending);
+            else
+                ++pending;
+        }
         mRangedAttackLocomotionSuppressTimer
             = std::max(0.f, mRangedAttackLocomotionSuppressTimer - safeDt);
         mMovementDiagFrameDtMax = std::max(mMovementDiagFrameDtMax, safeDt);
@@ -2154,10 +2212,28 @@ namespace mwmp
                 if (oldRefId == newRefId)
                     continue;
 
-                if (!newRefId.empty())
-                    playItemSoundForActor(mNpcPtr, state.equipment[slot].item, /*pickedUp=*/true);
-                else if (!oldRefId.empty())
-                    playItemSoundForActor(mNpcPtr, previousEquipment[slot].item, /*pickedUp=*/false);
+                const bool pickedUp = !newRefId.empty();
+                const Item& soundItem = pickedUp
+                    ? state.equipment[slot].item : previousEquipment[slot].item;
+                const auto direction = pickedUp ? InventoryTransferSoundDirection::Up
+                                                : InventoryTransferSoundDirection::Down;
+                const auto suppression = std::find_if(mPendingEquipmentSoundSuppressions.begin(),
+                    mPendingEquipmentSoundSuppressions.end(), [&](const auto& pending) {
+                        return pending.direction == direction
+                            && pending.itemRefId == soundItem.refId
+                            && (pending.itemInstanceId == 0
+                                || pending.itemInstanceId == soundItem.instanceId);
+                    });
+                if (suppression != mPendingEquipmentSoundSuppressions.end())
+                {
+                    Log(Debug::Verbose) << "[MP] RemotePlayer " << mName
+                                        << ": coalesced equipment sound with authoritative transfer"
+                                        << " item=" << soundItem.refId
+                                        << " instanceId=" << soundItem.instanceId;
+                    mPendingEquipmentSoundSuppressions.erase(suppression);
+                }
+                else
+                    playItemSoundForActor(mNpcPtr, soundItem, pickedUp);
                 break;
             }
         }
@@ -3254,6 +3330,57 @@ namespace mwmp
             mInventorySoundReady = true;
     }
 
+    void RemotePlayer::onInventoryTransferSound(const InventoryTransferSound& event)
+    {
+        if (!validateInventoryTransferSound(event) || event.actorGuid != mGuid)
+            return;
+        if (std::find(mRecentInventoryTransferSoundIds.begin(), mRecentInventoryTransferSoundIds.end(),
+                event.eventId) != mRecentInventoryTransferSoundIds.end())
+            return;
+
+        mRecentInventoryTransferSoundIds.push_back(event.eventId);
+        mRecentInventoryTransferSoundRevisions.push_back(event.inventoryRevision);
+        constexpr std::size_t MaximumRecentTransfers = 64;
+        if (mRecentInventoryTransferSoundIds.size() > MaximumRecentTransfers)
+            mRecentInventoryTransferSoundIds.pop_front();
+        if (mRecentInventoryTransferSoundRevisions.size() > MaximumRecentTransfers)
+            mRecentInventoryTransferSoundRevisions.pop_front();
+
+        if (!mInventorySoundBaselineReady)
+        {
+            mInventorySoundBaseline = mState.inventoryChanges.items;
+            mInventorySoundBaselineReady = true;
+        }
+        applyInventoryTransferToSoundBaseline(mInventorySoundBaseline, event);
+
+        if (event.mutation == InventoryTransferMutation::Added)
+        {
+            std::erase_if(mPendingEquipmentSoundSuppressions, [&](const auto& pending) {
+                return pending.itemRefId == event.itemRefId
+                    && ((pending.itemInstanceId != 0 && pending.itemInstanceId == event.itemInstanceId)
+                        || (pending.itemInstanceId == 0 && event.itemInstanceId == 0));
+            });
+        }
+        else
+        {
+            mPendingEquipmentSoundSuppressions.push_back({ event.itemInstanceId, event.itemRefId,
+                InventoryTransferSoundDirection::Down, event.itemInstanceId == 0 ? 1.f : -1.f });
+            if (mPendingEquipmentSoundSuppressions.size() > 16)
+                mPendingEquipmentSoundSuppressions.pop_front();
+        }
+
+        if (mIsSpawned && !mNpcPtr.isEmpty())
+        {
+            Item soundItem;
+            soundItem.instanceId = event.itemInstanceId;
+            soundItem.refId = event.itemRefId;
+            soundItem.count = event.itemCount;
+            playItemSoundForActor(mNpcPtr, soundItem,
+                event.direction == InventoryTransferSoundDirection::Up,
+                /*suppressRangedAmmoDown=*/false);
+        }
+    }
+
     void RemotePlayer::onDynamicRecordsChanged()
     {
         if (mPendingRecordInventory)
@@ -3275,23 +3402,47 @@ namespace mwmp
         const auto previousChanges = mState.inventoryChanges;
         mState.inventoryChanges = state.inventoryChanges;
         const auto& changes = state.inventoryChanges;
-        if (mNpcPtr.isEmpty())
-            return;
-
-        if (playSounds)
+        if (!mInventorySoundBaselineReady)
         {
-            using Action = BasePlayer::InventoryChanges::Action;
-            if (changes.action == Action::Add && !changes.items.empty())
-                playItemSoundForActor(mNpcPtr, changes.items.front(), /*pickedUp=*/true);
-            else if (changes.action == Action::Remove && !changes.items.empty())
-                playItemSoundForActor(mNpcPtr, changes.items.front(), /*pickedUp=*/false);
-            else if (changes.action == Action::Set && !sameCosmeticInventory(previousChanges.items, changes.items))
-                playInventoryDiffSound(mNpcPtr, previousChanges.items, changes.items);
+            mInventorySoundBaseline = previousChanges.items;
+            mInventorySoundBaselineReady = true;
+        }
+        if (mNpcPtr.isEmpty())
+        {
+            if (changes.action == BasePlayer::InventoryChanges::Action::Set)
+                mInventorySoundBaseline = changes.items;
+            return;
+        }
+
+        // Generic remote inventory replication is state synchronization, not an
+        // audible gameplay event. Cursor-only stack splits, scripted inventory
+        // churn, and reconciliation snapshots must remain silent to observers.
+        // World/container pickup and placement audio is replicated explicitly via
+        // InventoryTransferSound; equipment has its own independent sound path.
+        (void)playSounds;
+
+        using Action = BasePlayer::InventoryChanges::Action;
+        if (changes.action == Action::Set)
+            mInventorySoundBaseline = changes.items;
+        else if (std::find(mRecentInventoryTransferSoundRevisions.begin(),
+                     mRecentInventoryTransferSoundRevisions.end(), changes.revision)
+            == mRecentInventoryTransferSoundRevisions.end())
+        {
+            for (const Item& item : changes.items)
+            {
+                InventoryTransferSound delta;
+                delta.itemRefId = item.refId;
+                delta.itemInstanceId = item.instanceId;
+                delta.itemCount = item.count;
+                delta.mutation = changes.action == Action::Add
+                    ? InventoryTransferMutation::Added : InventoryTransferMutation::Removed;
+                delta.direction = changes.action == Action::Add
+                    ? InventoryTransferSoundDirection::Up : InventoryTransferSoundDirection::Down;
+                applyInventoryTransferToSoundBaseline(mInventorySoundBaseline, delta);
+            }
         }
 
         MWWorld::ContainerStore& store = mNpcPtr.getClass().getContainerStore(mNpcPtr);
-
-        using Action = BasePlayer::InventoryChanges::Action;
 
         // Ignore pure charge/duration churn for cosmetics. This avoids remote
         // lights rapidly clearing and re-equipping every second as they burn down.

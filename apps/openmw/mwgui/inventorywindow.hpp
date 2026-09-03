@@ -9,6 +9,9 @@
 
 #include <components/misc/notnullptr.hpp>
 
+#include <cstdint>
+#include <functional>
+
 namespace osg
 {
     class Group;
@@ -122,6 +125,8 @@ namespace MWGui
 
         bool mTrading;
         bool mUpdateNextFrame;
+        std::uint64_t mAuthoritativeWorldPickupSerial = 0;
+        std::function<bool()> mAuthoritativeWorldPickupResolver;
 
         void toggleMaximized();
 

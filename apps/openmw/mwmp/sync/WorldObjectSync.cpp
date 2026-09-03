@@ -556,6 +556,12 @@ void WorldObjectSync::onLocalObjectTaken(
 bool WorldObjectSync::requestLocalObjectTake(
     const MWWorld::Ptr& worldObject, WorldItemTakeCallback callback)
 {
+    return requestLocalObjectTake(worldObject, InventoryTransferSoundDirection::Up, std::move(callback));
+}
+
+bool WorldObjectSync::requestLocalObjectTake(const MWWorld::Ptr& worldObject,
+    InventoryTransferSoundDirection soundDirection, WorldItemTakeCallback callback)
+{
     if (worldObject.isEmpty() || !worldObject.isInCell())
         return false;
 
@@ -566,6 +572,7 @@ bool WorldObjectSync::requestLocalObjectTake(
     request.requestedCount = worldObject.getCellRef().getCount();
     request.expectedInventoryRevision
         = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
+    request.soundDirection = soundDirection;
 
     const std::uint32_t mpNum = getMpNumForObject(worldObject);
     if (mpNum != 0)
@@ -1045,6 +1052,14 @@ void WorldObjectSync::onServerObjectCount(const PlacedObjectIdentity& identity, 
 bool WorldObjectSync::requestInventoryTake(const MWWorld::Ptr& source, const MWWorld::Ptr& item,
     int count, InventoryTakeKind kind, InventoryTakeCallback callback)
 {
+    return requestInventoryTake(source, item, count, kind,
+        InventoryTransferSoundDirection::Up, std::move(callback));
+}
+
+bool WorldObjectSync::requestInventoryTake(const MWWorld::Ptr& source, const MWWorld::Ptr& item,
+    int count, InventoryTakeKind kind, InventoryTransferSoundDirection soundDirection,
+    InventoryTakeCallback callback)
+{
     if (!Main::isInitialised() || source.isEmpty() || item.isEmpty() || count <= 0)
         return false;
     if (isRemotePlayerInventorySource(source))
@@ -1077,6 +1092,7 @@ bool WorldObjectSync::requestInventoryTake(const MWWorld::Ptr& source, const MWW
     request.itemSoul = item.getCellRef().getSoul().serializeText();
     request.requestedCount = count;
     request.expectedInventoryRevision = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
+    request.soundDirection = soundDirection;
     if (validateInventoryTakeRequest(request) != InventoryTakeError::None)
     {
         Log(Debug::Warning) << "[MP] Cannot build canonical inventory take request source="

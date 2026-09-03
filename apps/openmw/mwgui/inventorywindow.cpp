@@ -15,6 +15,7 @@
 
 #include <osg/Texture2D>
 
+#include <components/debug/debuglog.hpp>
 #include <components/esm3/loadbook.hpp>
 #include <components/misc/strings/algorithm.hpp>
 
@@ -87,6 +88,8 @@ namespace MWGui
 {
     namespace
     {
+        constexpr int AuthoritativeWorldCursorResolveAttempts = 8;
+
         WindowSettingValues getModeSettings(GuiMode mode)
         {
             switch (mode)
@@ -228,6 +231,8 @@ namespace MWGui
 
     void InventoryWindow::clear()
     {
+        ++mAuthoritativeWorldPickupSerial;
+        mAuthoritativeWorldPickupResolver = {};
         mPtr = MWWorld::Ptr();
         mTradeModel = nullptr;
         mSortModel = nullptr;
@@ -535,6 +540,8 @@ namespace MWGui
 
     void InventoryWindow::onClose()
     {
+        ++mAuthoritativeWorldPickupSerial;
+        mAuthoritativeWorldPickupResolver = {};
         mItemTransfer->removeTarget(*mItemView);
     }
 
@@ -785,6 +792,9 @@ namespace MWGui
     {
         updateEncumbranceBar();
 
+        if (mAuthoritativeWorldPickupResolver && mAuthoritativeWorldPickupResolver())
+            mAuthoritativeWorldPickupResolver = {};
+
         if (mUpdateNextFrame)
         {
             if (mTrading)
@@ -881,93 +891,155 @@ namespace MWGui
         if (mwmp::Main::isConnected())
         {
             const ESM::RefId pickupRefId = object.getCellRef().getRefId();
+            // OpenMW canonicalizes every gold world-model variant (gold_005/010/025/100)
+            // to gold_001 when it enters an actor inventory. Resolve the cursor against
+            // that inventory identity rather than the world object's presentation record.
+            const ESM::RefId pickupInventoryRefId = object.getClass().isGold(object)
+                ? ESM::RefId::stringRefId("gold_001") : pickupRefId;
             const int pickupCharge = static_cast<int>(object.getCellRef().getCharge());
             const float pickupEnchantmentCharge = object.getCellRef().getEnchantmentCharge();
             const ESM::RefId pickupSoul = object.getCellRef().getSoul();
             const bool instantTransfer = MyGUI::InputManager::getInstance().isAltPressed();
+            const ESM::RefId pickupDownSound = object.getClass().getDownSoundId(object);
+            const std::uint64_t serial = ++mAuthoritativeWorldPickupSerial;
 
-            std::vector<std::pair<MWWorld::Ptr, int>> pickupStacksBefore;
+            Log(Debug::Info) << "[MPINVTRACE] Native world pickup request item="
+                             << pickupRefId.serializeText() << " objectCount=" << object.getCellRef().getCount()
+                             << " instantTransfer=" << instantTransfer
+                             << " guiMode=" << MWBase::Environment::get().getWindowManager()->getMode()
+                             << " serial=" << serial;
+
+            std::vector<std::pair<MWWorld::Ptr, std::size_t>> pickupStacksBefore;
             mTradeModel->update();
             for (std::size_t index = 0; index < mTradeModel->getItemCount(); ++index)
             {
                 const ItemStack stack = mTradeModel->getItem(static_cast<ItemModel::ModelIndex>(index));
                 const MWWorld::Ptr& candidate = stack.mBase;
-                if (candidate.getCellRef().getRefId() == pickupRefId
+                if (candidate.getCellRef().getRefId() == pickupInventoryRefId
                     && static_cast<int>(candidate.getCellRef().getCharge()) == pickupCharge
                     && std::abs(candidate.getCellRef().getEnchantmentCharge() - pickupEnchantmentCharge) < 0.001f
                     && candidate.getCellRef().getSoul() == pickupSoul)
                     pickupStacksBefore.emplace_back(candidate, stack.mCount);
             }
 
-            const bool queued = mwmp::Main::get().getWorldObjectSync().requestLocalObjectTake(object,
-                [this, pickupRefId, pickupCharge, pickupEnchantmentCharge, pickupSoul, instantTransfer,
-                    pickupStacksBefore = std::move(pickupStacksBefore)](
+            const auto soundDirection = instantTransfer ? mwmp::InventoryTransferSoundDirection::Down
+                                                        : mwmp::InventoryTransferSoundDirection::Up;
+            const bool queued = mwmp::Main::get().getWorldObjectSync().requestLocalObjectTake(object, soundDirection,
+                [this, pickupRefId, pickupInventoryRefId, pickupCharge, pickupEnchantmentCharge, pickupSoul,
+                    pickupDownSound, instantTransfer, serial, pickupStacksBefore = std::move(pickupStacksBefore)](
                     const mwmp::WorldItemTakeResult& result) {
-                    if (!result.accepted || result.itemCount <= 0)
+                    Log(Debug::Info) << "[MPINVTRACE] Native world pickup result request=" << result.requestId
+                                     << " worldItem=" << pickupRefId.serializeText()
+                                     << " inventoryItem=" << pickupInventoryRefId.serializeText()
+                                     << " resultItem=" << result.itemRefId
+                                     << " accepted=" << result.accepted << " count=" << result.itemCount
+                                     << " error=" << mwmp::getWorldItemTakeErrorCode(result.error)
+                                     << " instantTransfer=" << instantTransfer << " serial=" << serial;
+                    if (!result.accepted || result.itemCount <= 0 || serial != mAuthoritativeWorldPickupSerial)
                         return;
 
-                    mTradeModel->update();
-                    const std::size_t noIndex = mTradeModel->getItemCount();
-                    std::size_t index = noIndex;
-                    std::size_t fallbackIndex = noIndex;
-                    for (std::size_t candidateIndex = 0; candidateIndex < mTradeModel->getItemCount(); ++candidateIndex)
-                    {
-                        const ItemStack stack
-                            = mTradeModel->getItem(static_cast<ItemModel::ModelIndex>(candidateIndex));
-                        const MWWorld::Ptr& candidate = stack.mBase;
-                        if (candidate.getCellRef().getRefId() != pickupRefId
-                            || static_cast<int>(candidate.getCellRef().getCharge()) != pickupCharge
-                            || std::abs(candidate.getCellRef().getEnchantmentCharge() - pickupEnchantmentCharge) >= 0.001f
-                            || candidate.getCellRef().getSoul() != pickupSoul
-                            || stack.mCount < result.itemCount)
-                            continue;
-
-                        if (fallbackIndex == noIndex)
-                            fallbackIndex = candidateIndex;
-
-                        const auto previous = std::find_if(pickupStacksBefore.begin(), pickupStacksBefore.end(),
-                            [&](const auto& entry) { return entry.first == candidate; });
-                        if (previous == pickupStacksBefore.end() || stack.mCount > previous->second)
-                        {
-                            index = candidateIndex;
-                            break;
-                        }
-                    }
-
-                    if (index == noIndex)
-                        index = fallbackIndex;
-                    if (index == noIndex)
-                    {
-                        mItemView->update();
-                        return;
-                    }
-
-                    if (mDragAndDrop->mIsOnDragAndDrop)
-                        mDragAndDrop->finish();
-
-                    const MWWorld::Ptr item
-                        = mTradeModel->getItem(static_cast<ItemModel::ModelIndex>(index)).mBase;
                     if (instantTransfer)
                     {
-                        MWBase::Environment::get().getWindowManager()->playSound(item.getClass().getDownSoundId(item));
+                        Log(Debug::Info) << "[MPINVTRACE] Native world pickup route=instant-transfer item="
+                                         << pickupRefId.serializeText() << " count=" << result.itemCount;
+                        MWBase::Environment::get().getWindowManager()->playSound(pickupDownSound);
                         mItemView->update();
-                    }
-                    else
-                    {
-                        const MWGui::GuiMode mode = MWBase::Environment::get().getWindowManager()->getMode();
-                        if (mode == MWGui::GM_Inventory || mode == MWGui::GM_Container)
-                        {
-                            mDragAndDrop->startDrag(static_cast<int>(index), mSortModel, mTradeModel,
-                                mItemView, static_cast<std::size_t>(result.itemCount));
-                        }
-                        else
-                            mItemView->update();
+                        MWBase::Environment::get().getWindowManager()->updateSpellWindow();
+                        return;
                     }
 
-                    MWBase::Environment::get().getWindowManager()->updateSpellWindow();
+                    const int resultItemCount = result.itemCount;
+                    const std::string requestId = result.requestId;
+                    mAuthoritativeWorldPickupResolver
+                        = [this, pickupRefId, pickupInventoryRefId, pickupCharge, pickupEnchantmentCharge, pickupSoul,
+                              serial, resultItemCount, requestId, pickupStacksBefore, attempt = 0]() mutable -> bool {
+                        if (serial != mAuthoritativeWorldPickupSerial || mTradeModel == nullptr)
+                            return true;
+
+                        ++attempt;
+                        mTradeModel->update();
+                        const std::size_t noIndex = mTradeModel->getItemCount();
+                        std::size_t index = noIndex;
+                        std::size_t receivedCount = 0;
+                        for (std::size_t candidateIndex = 0; candidateIndex < mTradeModel->getItemCount(); ++candidateIndex)
+                        {
+                            const ItemStack stack
+                                = mTradeModel->getItem(static_cast<ItemModel::ModelIndex>(candidateIndex));
+                            const MWWorld::Ptr& candidate = stack.mBase;
+                            if (candidate.getCellRef().getRefId() != pickupInventoryRefId
+                                || static_cast<int>(candidate.getCellRef().getCharge()) != pickupCharge
+                                || std::abs(candidate.getCellRef().getEnchantmentCharge() - pickupEnchantmentCharge) >= 0.001f
+                                || candidate.getCellRef().getSoul() != pickupSoul)
+                                continue;
+
+                            const auto previous = std::find_if(pickupStacksBefore.begin(), pickupStacksBefore.end(),
+                                [&](const auto& entry) { return entry.first == candidate; });
+                            const std::size_t previousCount
+                                = previous == pickupStacksBefore.end() ? 0 : static_cast<std::size_t>(previous->second);
+                            const std::size_t increase
+                                = stack.mCount > previousCount ? stack.mCount - previousCount : 0;
+                            if (increase > receivedCount)
+                            {
+                                index = candidateIndex;
+                                receivedCount = increase;
+                            }
+                        }
+
+                        const std::size_t dragCount
+                            = std::min<std::size_t>(receivedCount, static_cast<std::size_t>(resultItemCount));
+                        Log(Debug::Info) << "[MPINVTRACE] Native world pickup cursor-resolution item="
+                                         << pickupRefId.serializeText() << " received=" << receivedCount
+                                         << " dragCount=" << dragCount << " index="
+                                         << (index == noIndex ? -1 : static_cast<int>(index)) << " attempt=" << attempt
+                                         << "/" << AuthoritativeWorldCursorResolveAttempts << " request=" << requestId;
+
+                        if (index != noIndex && dragCount > 0)
+                        {
+                            if (mDragAndDrop->mIsOnDragAndDrop)
+                                mDragAndDrop->finish();
+
+                            const MWGui::GuiMode mode = MWBase::Environment::get().getWindowManager()->getMode();
+                            if (mode == MWGui::GM_Inventory || mode == MWGui::GM_Container)
+                            {
+                                mDragAndDrop->startDrag(static_cast<int>(index), mSortModel, mTradeModel, mItemView, dragCount);
+                                Log(Debug::Info) << "[MPINVTRACE] Native world pickup cursor-attached item="
+                                                 << pickupRefId.serializeText() << " count=" << dragCount
+                                                 << " index=" << index << " attempt=" << attempt;
+                            }
+                            else
+                            {
+                                Log(Debug::Info) << "[MPINVTRACE] Native world pickup cursor-skipped item="
+                                                 << pickupRefId.serializeText() << " guiMode=" << mode;
+                                mItemView->update();
+                            }
+                            MWBase::Environment::get().getWindowManager()->updateSpellWindow();
+                            return true;
+                        }
+
+                        if (attempt >= AuthoritativeWorldCursorResolveAttempts)
+                        {
+                            Log(Debug::Warning) << "[MPINVTRACE] Native world pickup cursor-resolution failed item="
+                                                << pickupRefId.serializeText() << " count=" << resultItemCount
+                                                << " attempts=" << attempt << " request=" << requestId;
+                            mItemView->update();
+                            MWBase::Environment::get().getWindowManager()->updateSpellWindow();
+                            return true;
+                        }
+
+                        Log(Debug::Info) << "[MPINVTRACE] Native world pickup cursor-pending item="
+                                         << pickupRefId.serializeText() << " attempt=" << attempt << "/"
+                                         << AuthoritativeWorldCursorResolveAttempts << " request=" << requestId;
+                        mItemView->update();
+                        return false;
+                    };
+
+                    if (mAuthoritativeWorldPickupResolver())
+                        mAuthoritativeWorldPickupResolver = {};
                 });
             if (queued)
                 return;
+            Log(Debug::Warning) << "[MPINVTRACE] Native world pickup queue-failed item="
+                                << pickupRefId.serializeText();
         }
 #endif
 

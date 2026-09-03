@@ -60,6 +60,8 @@ mwmp::InventoryTakeError mwmp::validateInventoryTakeRequest(const InventoryTakeR
         && request.kind != InventoryTakeKind::PickpocketFinish
         && request.kind != InventoryTakeKind::Barter)
         return InventoryTakeError::InvalidRequest;
+    if (!isInventoryTransferSoundDirection(request.soundDirection))
+        return InventoryTakeError::InvalidRequest;
 
     const auto validIdentityShape = [](const InventorySourceIdentity& identity, bool actor) {
         const bool hasRefNum = identity.refNum != 0;
@@ -141,6 +143,7 @@ std::string mwmp::canonicalInventoryTakeRequest(const InventoryTakeRequest& requ
     appendU32(bytes, std::bit_cast<std::uint32_t>(request.requestedCount));
     appendU32(bytes, std::bit_cast<std::uint32_t>(request.barterPrice));
     appendU64(bytes, request.expectedInventoryRevision);
+    bytes.push_back(static_cast<char>(request.soundDirection));
     return bytes;
 }
 

@@ -145,7 +145,8 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
 
     const auto& package = *packageIt;
     EXPECT_EQ(package.packageId, "fetcher.inventoryextender-fix");
-    EXPECT_EQ(package.packageVersion, 14u);
+    EXPECT_EQ(package.packageVersion, 20u);
+    EXPECT_EQ(package.requiredMultiplayerLuaApi, 9u);
     EXPECT_LE(package.requiredMultiplayerLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion);
 
     const auto findSource = [&](std::string_view path) -> const std::string* {
@@ -153,6 +154,12 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
             return file.path == path;
         });
         return it == package.files.end() ? nullptr : &it->source;
+    };
+    const auto countOccurrences = [](const std::string& source, std::string_view needle) {
+        std::size_t count = 0;
+        for (std::size_t pos = 0; (pos = source.find(needle, pos)) != std::string::npos; pos += needle.size())
+            ++count;
+        return count;
     };
 
     const std::string* global = findSource("overrides/global.lua");
@@ -166,6 +173,17 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
     EXPECT_NE(global->find("types.Actor.objectIsInstance(props.destination) and types.Actor.isDead(props.destination)"), std::string::npos);
     EXPECT_NE(global->find("authoritativePutDestination"), std::string::npos);
     EXPECT_NE(global->find("resolveCurrentCorpseItem"), std::string::npos);
+    EXPECT_NE(global->find("AUTHORITATIVE_CURSOR_RESOLVE_ATTEMPTS = 8"), std::string::npos);
+    EXPECT_NE(global->find("local function resolveAuthoritativeCursor"), std::string::npos);
+    EXPECT_EQ(countOccurrences(*global, "resolveAuthoritativeCursor({"), 3u);
+    EXPECT_EQ(countOccurrences(*global, "requestWithSound"), 3u);
+    EXPECT_NE(global->find("local detachedSelfDrag = false"), std::string::npos);
+    EXPECT_NE(global->find("cursor-drag detached-self-split"), std::string::npos);
+    EXPECT_NE(global->find("cursor-drag direct-self-full-stack"), std::string::npos);
+    EXPECT_NE(global->find("Do not refresh the inventory UI before cursor attachment"), std::string::npos);
+    EXPECT_NE(global->find("preserveObject = detachedSelfDrag"), std::string::npos);
+    EXPECT_NE(api->find("helpers.isGold(props.obj) and not props.preserveObject"), std::string::npos);
+    EXPECT_NE(global->find("[MPINVTRACE] InventoryExtender global"), std::string::npos);
     const auto preShowGate = api->find("if windowName == 'Trade'");
     const auto showTradeWindow = api->find("windowManager:show(windowName, arg)");
     EXPECT_NE(preShowGate, std::string::npos);
@@ -173,11 +191,20 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
     EXPECT_LT(preShowGate, showTradeWindow);
     EXPECT_NE(api->find("barterAuthorityReady = false"), std::string::npos);
     EXPECT_NE(api->find("barterAuthoritySources = props and props.sources or nil"), std::string::npos);
+    EXPECT_NE(api->find("[MPINVTRACE] InventoryExtender cursor-event receive"), std::string::npos);
+    EXPECT_NE(api->find("windowManager.ctx.dragAndDrop:setDraggingObject(obj, props.resetMode)"), std::string::npos);
     EXPECT_NE(inventory->find("barterAuthorityReady == false"), std::string::npos);
     EXPECT_NE(inventory->find("getMerchantItemsForTrade"), std::string::npos);
     EXPECT_NE(inventory->find("barterAuthoritySources"), std::string::npos);
     EXPECT_NE(inventory->find("npc.type.hasEquipped"), std::string::npos);
     EXPECT_NE(inventory->find("virtualStack.equipped == equipped"), std::string::npos);
+    EXPECT_NE(inventory->find("local multiplayerRemotePickup = mp.isConnected()"), std::string::npos);
+    EXPECT_NE(inventory->find("and self.type == mode"), std::string::npos);
+    EXPECT_NE(inventory->find("and not multiplayerRemotePickup"), std::string::npos);
+    EXPECT_NE(inventory->find("local transfer = input.isAltPressed() or I.UI.getMode() == 'Barter'"), std::string::npos);
+    EXPECT_NE(inventory->find("ctx.dragAndDrop:startDrag("), std::string::npos);
+    EXPECT_NE(inventory->find("ctx.dragAndDrop:transferInto("), std::string::npos);
+    EXPECT_NE(inventory->find("[MPINVTRACE] InventoryExtender UI"), std::string::npos);
 }
 
 TEST(ServerLuaPackageRegistry, ShippedArrowStickUsesAuthoritativeProjectileRecovery)

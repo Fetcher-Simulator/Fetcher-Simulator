@@ -79,6 +79,7 @@
 #include <components/openmw-mp/Packets/Player/PacketPlayerVehicleRequest.hpp>
 #include <components/openmw-mp/Base/VehicleProfiles.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerInventory.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerInventoryTransferSound.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerJournal.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerStatsDynamic.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerDeath.hpp>
@@ -14318,6 +14319,16 @@ void MPServer::handleObjectPlace(ConnectedClient& c, const uint8_t* data, size_t
 
     sendTo(c.conn, pkt.encode());
     broadcastToCell(pkt.object.cellId, pkt.encode(), c.conn);
+
+    // A successful player-originated world placement is an explicit audible
+    // transfer. Do not rely on remote PlayerInventory diffs for this cue: those
+    // also contain cursor-only stack splits and reconciliation churn that must
+    // remain silent to observers.
+    broadcastInventoryTransferSound(c,
+        "object-place:" + std::to_string(c.guid) + ':' + std::to_string(pkt.object.mpNum),
+        pkt.object.refId, 0, pkt.object.count,
+        std::max<std::uint64_t>(1, c.player.inventoryChanges.revision),
+        InventoryTransferMutation::Removed, InventoryTransferSoundDirection::Down);
 }
 
 // ---------------------------------------------------------------------------
@@ -14698,6 +14709,9 @@ void MPServer::handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* dat
         }
         syncLuaPlayerSnapshot();
         scheduleGeneratedDynamicRecordGc("world_item_take");
+        broadcastInventoryTransferSound(c, "world-take:" + std::to_string(c.guid) + ":" + request.requestId,
+            result.itemRefId, added.instanceId, result.itemCount, result.inventoryRevision,
+            InventoryTransferMutation::Added, request.soundDirection);
     }
     sendAuthoritativeInventory(c);
 
@@ -15452,6 +15466,13 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
             sourcePacket.mAction = static_cast<std::uint8_t>(ContainerAction::Remove);
             broadcastToCell(canonicalPlayerCell, sourcePacket.encode());
             scheduleGeneratedDynamicRecordGc("inventory_take");
+            if (request.kind != InventoryTakeKind::Barter)
+            {
+                broadcastInventoryTransferSound(c,
+                    "inventory-take:" + std::to_string(c.guid) + ":" + request.requestId,
+                    result.itemRefId, added.instanceId, result.itemCount, result.inventoryRevision,
+                    InventoryTransferMutation::Added, request.soundDirection);
+            }
         }
         syncLuaPlayerSnapshot();
     }
@@ -15846,6 +15867,10 @@ void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data
         broadcastToCell(canonicalPlayerCell, destinationDelta.encode());
         scheduleGeneratedDynamicRecordGc("inventory_put");
         syncLuaPlayerSnapshot();
+        broadcastInventoryTransferSound(c,
+            "inventory-put:" + std::to_string(c.guid) + ":" + request.requestId,
+            result.itemRefId, request.itemInstanceId, result.itemCount, result.inventoryRevision,
+            InventoryTransferMutation::Removed, InventoryTransferSoundDirection::Down);
     }
     sendAuthoritativeInventory(c);
 
@@ -19487,6 +19512,39 @@ void MPServer::sendAuthoritativeInventory(ConnectedClient& c)
     PacketPlayerInventory inventory;
     inventory.setPlayer(&c.player);
     sendTo(c.conn, inventory.encode());
+}
+
+void MPServer::broadcastInventoryTransferSound(ConnectedClient& c, std::string eventId,
+    const std::string& itemRefId, std::uint32_t itemInstanceId, std::int32_t itemCount,
+    std::uint64_t inventoryRevision, InventoryTransferMutation mutation,
+    InventoryTransferSoundDirection direction)
+{
+    PacketPlayerInventoryTransferSound packet;
+    packet.event.eventId = std::move(eventId);
+    packet.event.actorGuid = c.guid;
+    packet.event.itemRefId = itemRefId;
+    packet.event.itemInstanceId = itemInstanceId;
+    packet.event.itemCount = itemCount;
+    packet.event.inventoryRevision = inventoryRevision;
+    packet.event.mutation = mutation;
+    packet.event.direction = direction;
+    if (!validateInventoryTransferSound(packet.event))
+    {
+        Log(Debug::Error) << "[InventoryTransferSound] refused invalid server-authored event"
+                          << " actorGuid=" << c.guid << " item=" << itemRefId
+                          << " instanceId=" << itemInstanceId << " count=" << itemCount
+                          << " revision=" << inventoryRevision;
+        return;
+    }
+
+    const std::string playerCell = makeCellKey(c.player.cell);
+    broadcastToCell(playerCell, packet.encode(), c.conn);
+    Log(Debug::Verbose) << "[InventoryTransferSound] broadcast event=" << packet.event.eventId
+                        << " actorGuid=" << c.guid << " item=" << itemRefId
+                        << " instanceId=" << itemInstanceId << " count=" << itemCount
+                        << " mutation=" << static_cast<unsigned>(mutation)
+                        << " direction=" << static_cast<unsigned>(direction)
+                        << " revision=" << inventoryRevision;
 }
 
 void MPServer::sendAuthoritativeSpellbook(ConnectedClient& c)

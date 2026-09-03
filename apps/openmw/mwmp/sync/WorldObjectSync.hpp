@@ -57,6 +57,8 @@ namespace mwmp
         // occurs until the authoritative inventory and deletion arrive.
         using WorldItemTakeCallback = std::function<void(const WorldItemTakeResult&)>;
         bool requestLocalObjectTake(const MWWorld::Ptr& worldObject, WorldItemTakeCallback callback = {});
+        bool requestLocalObjectTake(const MWWorld::Ptr& worldObject,
+            InventoryTransferSoundDirection soundDirection, WorldItemTakeCallback callback = {});
 
         // Lua split() creates a disabled detached world Ptr before a later
         // moveInto() or teleport(). Preserve whether that detached object came
@@ -114,6 +116,9 @@ namespace mwmp
         using InventoryTakeCallback = std::function<void(const InventoryTakeResult&)>;
         bool requestInventoryTake(const MWWorld::Ptr& source, const MWWorld::Ptr& item,
             int count, InventoryTakeKind kind, InventoryTakeCallback callback = {});
+        bool requestInventoryTake(const MWWorld::Ptr& source, const MWWorld::Ptr& item,
+            int count, InventoryTakeKind kind, InventoryTransferSoundDirection soundDirection,
+            InventoryTakeCallback callback = {});
         bool requestBarterTake(const MWWorld::Ptr& merchant, const MWWorld::Ptr& source,
             const MWWorld::Ptr& item, int count, int barterPrice, InventoryTakeCallback callback = {});
         struct BarterLineInput

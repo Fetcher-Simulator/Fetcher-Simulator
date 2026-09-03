@@ -11,10 +11,11 @@
 
 #include <components/openmw-mp/Base/ActorSyncProtocol.hpp>
 #include <components/openmw-mp/Base/BaseObject.hpp>
+#include <components/openmw-mp/InventoryTransferSound.hpp>
 
 namespace mwmp
 {
-    inline constexpr std::uint16_t InventoryTakeProtocolVersion = 3;
+    inline constexpr std::uint16_t InventoryTakeProtocolVersion = 4;
     inline constexpr std::size_t MaximumInventoryTakeStringLength = 255;
     inline constexpr std::size_t MaximumInventoryTakeRequestIdLength = 128;
     inline constexpr std::int32_t MaximumInventoryTakeCount = 1000000;
@@ -78,6 +79,7 @@ namespace mwmp
         // same transaction as the stock transfer. Zero for every other kind.
         std::int32_t barterPrice = 0;
         std::uint64_t expectedInventoryRevision = 0;
+        InventoryTransferSoundDirection soundDirection = InventoryTransferSoundDirection::Up;
 
         bool operator==(const InventoryTakeRequest&) const = default;
     };

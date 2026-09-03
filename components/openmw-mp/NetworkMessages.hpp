@@ -167,6 +167,7 @@ namespace mwmp
         BarterRequest = 162, // Atomic multi-line merchant transaction request
         BarterResult = 163, // Durable terminal multi-line barter result
         ObjectCount = 164, // Server-authoritative remaining count for a placed world item
+        InventoryTransferSound = 165, // Server-authored accepted inventory transfer audio cue
 
         // --- Lua bridge (7C+) ---
         // IDs 150-199 reserved; exact assignments TBD in Phase 7C/7D.

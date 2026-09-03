@@ -55,6 +55,8 @@ mwmp::WorldItemTakeError mwmp::validateWorldItemTakeRequest(const WorldItemTakeR
         return WorldItemTakeError::InvalidRequest;
     if (request.requestedCount <= 0 || request.requestedCount > MaximumWorldItemTakeCount)
         return WorldItemTakeError::InvalidCount;
+    if (!isInventoryTransferSoundDirection(request.soundDirection))
+        return WorldItemTakeError::InvalidRequest;
     return WorldItemTakeError::None;
 }
 
@@ -72,6 +74,7 @@ std::string mwmp::canonicalWorldItemTakeRequest(const WorldItemTakeRequest& requ
     appendInteger(output, request.object.mpNum);
     appendInteger(output, request.requestedCount);
     appendInteger(output, request.expectedInventoryRevision);
+    appendInteger(output, static_cast<std::uint8_t>(request.soundDirection));
     return output;
 }
 
