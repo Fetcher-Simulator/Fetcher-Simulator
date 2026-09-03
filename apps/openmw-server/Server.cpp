@@ -4278,6 +4278,28 @@ bool MPServer::refreshActorAuthorityForCell(
         }
     }
 
+    // Once a cell has a canonical population, a new owner must consume that
+    // population before the authority grant makes its local CellStore eligible
+    // to publish. ActorIdentity and ActorAuthority share a reliable lane, so
+    // this targeted baseline is ordered ahead of the grant below. The first
+    // owner of a genuinely blank server cell is intentionally not gated: it is
+    // responsible for establishing the initial complete snapshot.
+    if (authorityChanged && newAuthorityGuid != 0 && cellState.hasCompleteAuthoritySnapshot)
+    {
+        for (const auto& [conn, client] : mClients)
+        {
+            if (client.guid != newAuthorityGuid)
+                continue;
+            sendActorIdentityToClient(conn, cellId, cellState);
+            Log(Debug::Info) << "[Server] Sent canonical actor population before authority handoff"
+                             << " cell=" << cellId
+                             << " owner=" << newAuthorityGuid
+                             << " generation=" << cellState.authorityGeneration
+                             << " actors=" << cellState.actors.size();
+            break;
+        }
+    }
+
     sendActorStateToInterestedClients(cellId);
     if (authorityChanged && newAuthorityGuid != 0 && reissueOutstandingPursuits)
         dispatchOutstandingCrimePursuitsForCell(cellId);
@@ -4309,10 +4331,15 @@ void MPServer::sendActorStateToClient(HSteamNetConnection conn, const std::strin
 {
     auto it = mWorld.actorCells.find(cellId);
     CellActorState emptyState;
-    const CellActorState& state = (it != mWorld.actorCells.end()) ? it->second : emptyState;
+    CellActorState& state = (it != mWorld.actorCells.end()) ? it->second : emptyState;
 
     std::unordered_map<std::string, ActorRegistryRecord> actors = state.actors;
     mergeDeadVanillaActorsForCell(cellId, actors);
+
+    // Identity bootstrap must run even when the cell has no live/dead actor
+    // snapshot: retained CorpseDisposed tombstones are authoritative absence and
+    // must reach the client before CharacterData allows world insertion.
+    sendActorIdentityToClient(conn, cellId, state);
     if (actors.empty())
         return;
 
@@ -4358,9 +4385,6 @@ void MPServer::sendActorStateToClient(HSteamNetConnection conn, const std::strin
                             << " includesHul=" << includesHul;
     }
 
-    if (it != mWorld.actorCells.end())
-        sendActorIdentityToClient(conn, cellId, it->second);
-
     PacketActorList pkt;
     pkt.setActorList(&actorList);
     sendTo(conn, pkt.encode());
@@ -4400,6 +4424,111 @@ void MPServer::sendActorStateToClient(HSteamNetConnection conn, const std::strin
     }
 }
 
+void MPServer::sendDurableVanillaLifecycleToClient(
+    HSteamNetConnection conn, const std::string& excludedCellId)
+{
+    auto clientIt = mClients.find(conn);
+    if (clientIt == mClients.end()
+        || clientIt->second.actorSyncProtocolVersion < ActorSyncProtocolVersionV2)
+        return;
+
+    std::vector<std::string> cellIds;
+    cellIds.reserve(mWorld.deadVanillaActorCells.size() + mWorld.disposedVanillaActors.size());
+    for (const auto& [cellId, actors] : mWorld.deadVanillaActorCells)
+    {
+        if (!actors.empty() && cellId != excludedCellId)
+            cellIds.push_back(cellId);
+    }
+    for (const auto& [actorKey, actor] : mWorld.disposedVanillaActors)
+    {
+        (void)actorKey;
+        if (!actor.cellId.empty() && actor.cellId != excludedCellId)
+            cellIds.push_back(actor.cellId);
+    }
+    std::sort(cellIds.begin(), cellIds.end());
+    cellIds.erase(std::unique(cellIds.begin(), cellIds.end()), cellIds.end());
+
+    std::size_t deadCount = 0;
+    std::size_t disposedCount = 0;
+    for (const std::string& cellId : cellIds)
+    {
+        auto stateIt = mWorld.actorCells.find(cellId);
+        const uint32_t authorityGuid = stateIt != mWorld.actorCells.end()
+            ? stateIt->second.authorityGuid : 0;
+        const uint32_t authorityGeneration = stateIt != mWorld.actorCells.end()
+            ? stateIt->second.authorityGeneration : 0;
+        auto nextSequence = [&]() -> uint32_t
+        {
+            return stateIt != mWorld.actorCells.end()
+                ? stateIt->second.nextSnapshotSequence++ : 0;
+        };
+
+        ActorList deathList;
+        deathList.cellId = cellId;
+        deathList.isAuthority = false;
+        deathList.authorityGuid = authorityGuid;
+        deathList.authorityGeneration = authorityGeneration;
+        deathList.snapshotSequence = nextSequence();
+        deathList.serverTimestamp = currentServerTimeMs();
+        const auto deadCellIt = mWorld.deadVanillaActorCells.find(cellId);
+        if (deadCellIt != mWorld.deadVanillaActorCells.end())
+        {
+            deathList.actors.reserve(deadCellIt->second.size());
+            for (const auto& [actorKey, record] : deadCellIt->second)
+            {
+                (void)actorKey;
+                if (auto baseline = makeDurableVanillaDeathBaseline(record.actor, cellId))
+                    deathList.actors.push_back(std::move(*baseline));
+            }
+        }
+        if (!deathList.actors.empty())
+        {
+            PacketActorDeath deathPacket;
+            deathPacket.setActorList(&deathList);
+            sendTo(conn, deathPacket.encode());
+            deadCount += deathList.actors.size();
+        }
+
+        ActorIdentityList identityList;
+        identityList.protocolVersion = ActorSyncProtocolVersionV2;
+        identityList.cellId = cellId;
+        identityList.authorityGuid = authorityGuid;
+        identityList.authorityGeneration = authorityGeneration;
+        identityList.sequence = nextSequence();
+        identityList.serverTimestamp = currentServerTimeMs();
+        for (const auto& [actorKey, disposedActor] : mWorld.disposedVanillaActors)
+        {
+            (void)actorKey;
+            if (disposedActor.cellId != cellId)
+                continue;
+            if (auto tombstone = makeCorpseDisposedActorIdentity(disposedActor, cellId))
+                identityList.actors.push_back(std::move(*tombstone));
+        }
+        if (!identityList.actors.empty())
+        {
+            PacketActorIdentity identityPacket;
+            identityPacket.setIdentityList(&identityList);
+            sendTo(conn, identityPacket.encode());
+            disposedCount += identityList.actors.size();
+            for (const ActorIdentityRecord& record : identityList.actors)
+            {
+                if (clientIt->second.actorV2IdentitySent.insert(record.actorNetId).second)
+                    ++clientIt->second.actorV2IdentitySentWindow;
+            }
+        }
+    }
+
+    if (deadCount != 0 || disposedCount != 0)
+    {
+        Log(Debug::Info) << "[Server] Sent pre-world durable vanilla lifecycle bootstrap"
+                         << " to=" << clientIt->second.name
+                         << " cells=" << cellIds.size()
+                         << " dead=" << deadCount
+                         << " disposed=" << disposedCount
+                         << " excludedCell=" << excludedCellId;
+    }
+}
+
 void MPServer::sendActorIdentityToClient(HSteamNetConnection conn, const std::string& cellId, CellActorState& cellState)
 {
     auto clientIt = mClients.find(conn);
@@ -4408,11 +4537,27 @@ void MPServer::sendActorIdentityToClient(HSteamNetConnection conn, const std::st
 
     std::unordered_map<std::string, ActorRegistryRecord> actors = cellState.actors;
     mergeDeadVanillaActorsForCell(cellId, actors);
-    if (actors.empty())
-        return;
 
     ActorIdentityList identityList = buildActorIdentityList(cellId, cellState, actors);
-    if (identityList.actors.empty())
+    std::size_t disposedVanillaCount = 0;
+    for (const auto& [actorKey, disposedActor] : mWorld.disposedVanillaActors)
+    {
+        (void)actorKey;
+        if (disposedActor.cellId != cellId)
+            continue;
+
+        auto tombstone = makeCorpseDisposedActorIdentity(disposedActor, cellId);
+        if (!tombstone)
+            continue;
+
+        std::erase_if(identityList.actors, [&](const ActorIdentityRecord& identity) {
+            return identity.actorNetId == tombstone->actorNetId;
+        });
+        identityList.actors.push_back(std::move(*tombstone));
+        ++disposedVanillaCount;
+    }
+
+    if (identityList.actors.empty() && !identityList.completeCellSnapshot)
         return;
 
     PacketActorIdentity pkt;
@@ -4428,6 +4573,7 @@ void MPServer::sendActorIdentityToClient(HSteamNetConnection conn, const std::st
                         << " to=" << clientIt->second.name
                         << " cell=" << cellId
                         << " actors=" << identityList.actors.size()
+                        << " disposedVanilla=" << disposedVanillaCount
                         << " seq=" << identityList.sequence;
 }
 
@@ -4436,11 +4582,8 @@ void MPServer::broadcastActorIdentityForCell(
 {
     std::unordered_map<std::string, ActorRegistryRecord> actors = cellState.actors;
     mergeDeadVanillaActorsForCell(cellId, actors);
-    if (actors.empty())
-        return;
-
     ActorIdentityList identityList = buildActorIdentityList(cellId, cellState, actors);
-    if (identityList.actors.empty())
+    if (identityList.actors.empty() && !identityList.completeCellSnapshot)
         return;
 
     PacketActorIdentity pkt;
@@ -4513,7 +4656,13 @@ void MPServer::broadcastActorIdentityRemovalForCell(
         if (client.actorSyncProtocolVersion < ActorSyncProtocolVersionV2)
             continue;
 
-        bool shouldSend = clientHasActorCellLoaded(client, cellId);
+        const bool durableVanillaDisposal
+            = std::any_of(identityList.actors.begin(), identityList.actors.end(),
+                [&](const ActorIdentityRecord& record) {
+                    return isGloballyDurableVanillaRemoval(removalReason, record.actor);
+                });
+        bool shouldSend = durableVanillaDisposal && client.charSelectComplete;
+        shouldSend = shouldSend || clientHasActorCellLoaded(client, cellId);
         if (!shouldSend)
         {
             for (const ActorIdentityRecord& record : identityList.actors)
@@ -7909,6 +8058,10 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
                             << " to=" << sel.charName
                             << " cell=" << cdPkt.spawnCell;
     }
+    // Only durable vanilla lifecycle facts are global. The spawn-cell call
+    // above still carries its ordinary live baseline; every other cell gets
+    // only instant-death corpses and CorpseDisposed tombstones.
+    sendDurableVanillaLifecycleToClient(c.conn, cdPkt.spawnCell);
 
     // Semantic player state is distinct from runtime content, but both crime
     // faction state, and known topics are explicit world-entry prerequisites. They share the
@@ -13116,6 +13269,8 @@ void MPServer::handleActorDeath(ConnectedClient& c, const uint8_t* data, size_t 
     ActorList filtered = incoming;
     filtered.actors.clear();
     filtered.actors.reserve(incoming.actors.size());
+    std::vector<BaseActor> durableVanillaDeaths;
+    durableVanillaDeaths.reserve(incoming.actors.size());
     std::unordered_set<std::string> changedCellIds;
 
     for (auto& actor : incoming.actors)
@@ -13330,6 +13485,8 @@ void MPServer::handleActorDeath(ConnectedClient& c, const uint8_t* data, size_t 
                              << "," << stored->actor.position.pos[2] << ")"
                              << " deathAnim='" << stored->actor.deathAnimGroup << "'";
             rememberDeadVanillaActor(*stored);
+            if (auto baseline = makeDurableVanillaDeathBaseline(stored->actor, incoming.cellId))
+                durableVanillaDeaths.push_back(std::move(*baseline));
         }
         else if (wasDead)
             forgetDeadVanillaActor(stored->actor, incoming.cellId);
@@ -13358,6 +13515,29 @@ void MPServer::handleActorDeath(ConnectedClient& c, const uint8_t* data, size_t 
     out.setActorList(&filtered);
     broadcastActorToCell(filtered.cellId, out.encode(), c.conn);
     Log(Debug::Info) << "[Server] Broadcast ActorDeath to cell=" << filtered.cellId;
+
+    if (!durableVanillaDeaths.empty())
+    {
+        ActorList durable = filtered;
+        durable.actors = std::move(durableVanillaDeaths);
+        PacketActorDeath durablePacket;
+        durablePacket.setActorList(&durable);
+        const std::vector<uint8_t> encodedDurable = durablePacket.encode();
+        std::size_t offCellRecipients = 0;
+        for (auto& [conn, client] : mClients)
+        {
+            if (!shouldSendDurableVanillaDeathToClient(conn == c.conn,
+                    client.charSelectComplete, client.actorSyncProtocolVersion,
+                    clientHasActorCellLoaded(client, filtered.cellId)))
+                continue;
+            sendTo(conn, encodedDurable);
+            ++offCellRecipients;
+        }
+        Log(Debug::Info) << "[Server] Broadcast durable vanilla death baseline"
+                         << " cell=" << filtered.cellId
+                         << " actors=" << durable.actors.size()
+                         << " offCellRecipients=" << offCellRecipients;
+    }
     broadcastChangedDeathCells();
 }
 
@@ -20133,6 +20313,8 @@ EResult MPServer::sendPacketOnConfiguredLane(HSteamNetConnection conn,
         || type == PacketType::ActorAttack
         || type == PacketType::ActorCast
         || type == PacketType::ActorDeath
+        || type == PacketType::ActorAuthority
+        || type == PacketType::ActorIdentity
         || type == PacketType::ActorSpeech
         || type == PacketType::ActorCombatRequest
         || type == PacketType::ActorPositionV2

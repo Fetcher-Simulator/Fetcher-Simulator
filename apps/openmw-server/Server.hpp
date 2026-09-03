@@ -537,6 +537,8 @@ private:
         const std::string& cellId, uint32_t preferredGuid = 0, bool reissueOutstandingPursuits = true);
     void sendActorAuthorityToClient(HSteamNetConnection conn, const std::string& cellId);
     void sendActorStateToClient(HSteamNetConnection conn, const std::string& cellId);
+    void sendDurableVanillaLifecycleToClient(
+        HSteamNetConnection conn, const std::string& excludedCellId = {});
     void sendActorStateToInterestedClients(const std::string& cellId);
     void sendActorIdentityToClient(HSteamNetConnection conn, const std::string& cellId, CellActorState& cellState);
     void broadcastActorIdentityForCell(const std::string& cellId, CellActorState& cellState,
