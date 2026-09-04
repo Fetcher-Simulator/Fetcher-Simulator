@@ -48,6 +48,7 @@ namespace mwmp
         // Called after optional CellStore::respawn and immediately before Scene
         // inserts the cell, so retained disposal tombstones can prevent leveled rolls.
         void prepareCellForInsertion(MWWorld::CellStore& cell);
+        void invalidateCellForReset(const std::string& cellId);
 
         // Must be called when the local player fully disconnects from a server
         // (e.g. returns to main menu).  Clears all per-session cell/actor
@@ -78,6 +79,7 @@ namespace mwmp
         void onActorCellChange(const ActorList& list);
 
         bool hasAuthority(const std::string& cellId) const;
+        uint32_t authorityGenerationForCell(const std::string& cellId) const;
         bool hasAuthorityForMpNum(uint32_t mpNum, const std::string& cellId) const;
         bool hasAuthorityForObject(const MWWorld::Ptr& ptr) const;
         std::string getActorAuthorityCellId(const MWWorld::Ptr& ptr) const;
@@ -349,6 +351,8 @@ namespace mwmp
         void mergeActorState(ActorRuntime& actor, const BaseActor& state, bool includeTransform);
         void updateLocalCellBootstrapState();
         void applyDisposedVanillaActorTombstones();
+        void forceResetCellActorsToBaseState(MWWorld::CellStore& cell, bool suppressLeveledRoll);
+        void rerollResetLeveledSpawners(MWWorld::CellStore& cell);
         void applyDisposedVanillaActorTombstones(
             MWWorld::CellStore& targetCell, const std::string& cellId, bool beforeSceneInsertion);
         void markActorsNeedFreshCellBootstrap(const std::string& oldCellId, const std::string& newCellId);
@@ -402,6 +406,8 @@ namespace mwmp
         // newly loaded local RNG roll cannot become a client-only actor.
         std::unordered_map<std::string, std::unordered_set<ActorInstanceId>>
             mChanceNoneLeveledSpawnersByCell;
+        std::unordered_set<std::string> mCellResetsPending;
+        std::unordered_set<std::string> mCellResetLeveledRollPending;
         // CorpseDisposed is an authoritative, persistent absence. Retain vanilla
         // removals even when their cell is not active yet so a later cell load or
         // leveled-list reroll cannot recreate an unmanaged local actor.

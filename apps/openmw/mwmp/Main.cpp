@@ -2111,7 +2111,7 @@ void Main::registerProtocolHandlers()
             if (!pkt.decode(data, size)) return;
             mWorldObjectSync->onServerObjectPlace(
                 pkt.object.mpNum, pkt.object.refId, pkt.object.count,
-                pkt.object.position, pkt.object.cellId);
+                pkt.object.position, pkt.object.cellId, pkt.authorityGeneration);
         });
 
     proto.registerHandler(PacketType::ObjectDelete,
@@ -2214,7 +2214,7 @@ void Main::registerProtocolHandlers()
             if (!pkt.decode(data, size)) return;
             mWorldObjectSync->onServerContainer(
                 pkt.container,
-                static_cast<ContainerAction>(pkt.mAction));
+                static_cast<ContainerAction>(pkt.mAction), pkt.authorityGeneration);
         });
 
     // --- Remote player animation flags ---

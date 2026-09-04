@@ -35,7 +35,7 @@ namespace mwmp
     // server-authored crime reactions. Protocol 18 moves crime-adjusted Fight
     // to offender-scoped server state and makes fresh guard bounty enforcement
     // server-authored, preventing authority-local player retarget/spawn loops.
-    inline constexpr int MultiplayerProtocolVersion = 18;
+    inline constexpr int MultiplayerProtocolVersion = 19;
     inline constexpr std::string_view MultiplayerBuildVersion = "0.1.0";
     inline constexpr std::string_view DefaultMasterServerUrl = "https://master.fetchers.org";
 

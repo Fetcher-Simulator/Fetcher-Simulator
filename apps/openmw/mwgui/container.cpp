@@ -547,7 +547,12 @@ namespace MWGui
         }
         else
         {
-            model = std::make_unique<ContainerItemModel>(container);
+            const bool deferResolution = mwmp::Main::isInitialised()
+                && mwmp::Main::get().getWorldObjectSync().shouldDeferContainerResolutionOnOpen(container);
+            const auto contentResolution = deferResolution
+                ? ContainerItemModel::ContentResolution::RequireAuthoritative
+                : ContainerItemModel::ContentResolution::ResolveTemporarily;
+            model = std::make_unique<ContainerItemModel>(container, contentResolution);
             shouldSyncOpen = true;
         }
 

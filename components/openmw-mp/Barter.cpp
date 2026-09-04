@@ -78,6 +78,7 @@ namespace
         appendU32(bytes, identity.mpNum);
         appendU64(bytes, identity.actorInstanceId);
         appendU32(bytes, identity.migrationGeneration);
+        appendU32(bytes, identity.authorityGeneration);
     }
 
     void appendWorldIdentity(std::string& bytes, const mwmp::PlacedObjectIdentity& identity)

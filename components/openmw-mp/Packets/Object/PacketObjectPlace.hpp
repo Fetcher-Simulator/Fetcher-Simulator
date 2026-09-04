@@ -26,12 +26,14 @@ namespace mwmp
     {
     public:
         PlacedObject object;
+        std::uint32_t authorityGeneration = 0;
 
         PacketObjectPlace() : BasePacket(PacketType::ObjectPlace) {}
 
     protected:
         void pack(WriteStream& ws) override
         {
+            ws.write(authorityGeneration);
             ws.write(object.mpNum);
             ws.writeString(object.refId);
             ws.write(object.count);
@@ -46,6 +48,7 @@ namespace mwmp
 
         void unpack(ReadStream& rs) override
         {
+            rs.read(authorityGeneration);
             rs.read(object.mpNum);
             object.refId  = rs.readString();
             rs.read(object.count);

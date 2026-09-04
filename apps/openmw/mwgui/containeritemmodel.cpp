@@ -87,18 +87,26 @@ namespace MWGui
         assert(!itemSources.empty());
         // Tie resolution lifetimes to the ItemModel
         mItemSources.reserve(itemSources.size());
+        mContentResolutions.reserve(itemSources.size());
         for (const MWWorld::Ptr& source : itemSources)
         {
             MWWorld::ContainerStore& store = source.getClass().getContainerStore(source);
-            mItemSources.emplace_back(source, store.resolveTemporarily());
+            const bool deferResolution = mwmp::Main::isInitialised()
+                && mwmp::Main::get().getWorldObjectSync().shouldDeferContainerResolutionOnOpen(source);
+            const ContentResolution contentResolution = deferResolution
+                ? ContentResolution::RequireAuthoritative : ContentResolution::ResolveTemporarily;
+            mItemSources.emplace_back(source, resolveContentsForDisplay(store, contentResolution));
+            mContentResolutions.push_back(contentResolution);
         }
     }
 
-    ContainerItemModel::ContainerItemModel(const MWWorld::Ptr& source)
+    ContainerItemModel::ContainerItemModel(
+        const MWWorld::Ptr& source, ContentResolution contentResolution)
         : mTrading(false)
     {
         MWWorld::ContainerStore& store = source.getClass().getContainerStore(source);
-        mItemSources.emplace_back(source, store.resolveTemporarily());
+        mItemSources.emplace_back(source, resolveContentsForDisplay(store, contentResolution));
+        mContentResolutions.push_back(contentResolution);
 
         const bool deadActor = source.getClass().isActor()
             && source.getClass().getCreatureStats(source).isDead();
@@ -125,6 +133,20 @@ namespace MWGui
         }
     }
 
+    MWWorld::ResolutionHandle ContainerItemModel::resolveContentsForDisplay(
+        MWWorld::ContainerStore& store, ContentResolution contentResolution)
+    {
+        if (contentResolution == ContentResolution::RequireAuthoritative)
+            return {};
+        return store.resolveTemporarily();
+    }
+
+    bool ContainerItemModel::canDisplayContents(
+        const MWWorld::ContainerStore& store, ContentResolution contentResolution)
+    {
+        return contentResolution != ContentResolution::RequireAuthoritative || store.isResolved();
+    }
+
     bool ContainerItemModel::getBarterBackingItems(
         const ItemStack& item, std::size_t count, std::vector<BarterBackingItem>& out) const
     {
@@ -132,12 +154,15 @@ namespace MWGui
             return false;
 
         int remaining = static_cast<int>(count);
-        for (const auto& source : mItemSources)
+        for (std::size_t sourceIndex = 0; sourceIndex < mItemSources.size(); ++sourceIndex)
         {
+            const auto& source = mItemSources[sourceIndex];
             if (source.first.isEmpty())
                 continue;
 
             MWWorld::ContainerStore& store = source.first.getClass().getContainerStore(source.first);
+            if (!canDisplayContents(store, mContentResolutions[sourceIndex]))
+                continue;
             const bool sourceHasInventoryStore = source.first.getClass().hasInventoryStore(source.first);
             MWWorld::InventoryStore* inventoryStore = sourceHasInventoryStore
                 ? &source.first.getClass().getInventoryStore(source.first) : nullptr;
@@ -293,12 +318,15 @@ namespace MWGui
     void ContainerItemModel::update()
     {
         mItems.clear();
-        for (auto& source : mItemSources)
+        for (std::size_t sourceIndex = 0; sourceIndex < mItemSources.size(); ++sourceIndex)
         {
+            auto& source = mItemSources[sourceIndex];
             if (source.first.isEmpty())
                 continue;
 
             MWWorld::ContainerStore& store = source.first.getClass().getContainerStore(source.first);
+            if (!canDisplayContents(store, mContentResolutions[sourceIndex]))
+                continue;
             const bool sourceHasInventoryStore = source.first.getClass().hasInventoryStore(source.first);
             MWWorld::InventoryStore* inventoryStore = sourceHasInventoryStore
                 ? &source.first.getClass().getInventoryStore(source.first) : nullptr;

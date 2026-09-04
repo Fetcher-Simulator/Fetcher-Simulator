@@ -33,6 +33,8 @@ namespace mwmp
         std::string refId;
         std::uint32_t refNum = 0;
         std::array<float, 3> position {};
+        bool baseLocked = false;
+        int baseLockLevel = 0;
     };
 
     struct DoorStateProposalContext

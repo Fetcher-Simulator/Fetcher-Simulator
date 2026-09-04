@@ -1,6 +1,8 @@
 #include "apps/openmw/mwbase/environment.hpp"
 #include "apps/openmw/mwclass/container.hpp"
 #include "apps/openmw/mwclass/misc.hpp"
+#include "apps/openmw/mwgui/containeritemmodel.hpp"
+#include "apps/openmw/mwmp/sync/WorldObjectSync.hpp"
 #include "apps/openmw/mwworld/containerstore.hpp"
 #include "apps/openmw/mwworld/esmstore.hpp"
 #include "apps/openmw/mwworld/livecellref.hpp"
@@ -137,6 +139,139 @@ namespace MWWorld
             }
 
             EXPECT_FALSE(store.isResolved());
+            int finiteCount = 0;
+            int restockingCount = 0;
+            for (auto item = store.begin(); item != store.end(); ++item)
+            {
+                if (item->getCellRef().getRefId() == fixture.finiteItem.mId)
+                    finiteCount += item->getCellRef().getCount(false);
+                if (item->getCellRef().getRefId() == fixture.restockingItem.mId)
+                    restockingCount += item->getCellRef().getCount(false);
+            }
+            EXPECT_EQ(finiteCount, 1);
+            EXPECT_EQ(restockingCount, -2);
+
+        }
+        TEST(ContainerStoreAuthority, DeferredModelDoesNotResolveUntilAuthoritativeSet)
+        {
+            ContainerAuthorityFixture fixture;
+            ContainerStore store;
+            store.setPtr(fixture.containerPtr());
+
+            MWWorld::ResolutionHandle handle = MWGui::ContainerItemModel::resolveContentsForDisplay(store,
+                MWGui::ContainerItemModel::ContentResolution::RequireAuthoritative);
+            EXPECT_FALSE(store.isResolved());
+            EXPECT_FALSE(MWGui::ContainerItemModel::canDisplayContents(store,
+                MWGui::ContainerItemModel::ContentResolution::RequireAuthoritative));
+
+            store.resolve();
+            store.commitResolved();
+            EXPECT_TRUE(MWGui::ContainerItemModel::canDisplayContents(store,
+                MWGui::ContainerItemModel::ContentResolution::RequireAuthoritative));
+        }
+
+        TEST(ContainerStoreAuthority, AuthoritySnapshotMayResolveAndPublishConcreteContents)
+        {
+            ContainerAuthorityFixture fixture;
+            ContainerStore store;
+            store.setPtr(fixture.containerPtr());
+
+            MWWorld::ResolutionHandle handle = MWGui::ContainerItemModel::resolveContentsForDisplay(store,
+                MWGui::ContainerItemModel::ContentResolution::RequireAuthoritative);
+            EXPECT_FALSE(store.isResolved());
+
+            store.resolve();
+            store.commitResolved();
+            EXPECT_TRUE(store.isResolved());
+            EXPECT_TRUE(MWGui::ContainerItemModel::canDisplayContents(store,
+                MWGui::ContainerItemModel::ContentResolution::RequireAuthoritative));
+        }
+
+        TEST(ContainerStoreAuthority, SinglePlayerModelPreservesTemporaryResolution)
+        {
+            ContainerAuthorityFixture fixture;
+            ContainerStore store;
+            store.setPtr(fixture.containerPtr());
+
+            MWWorld::ResolutionHandle handle = MWGui::ContainerItemModel::resolveContentsForDisplay(store,
+                MWGui::ContainerItemModel::ContentResolution::ResolveTemporarily);
+            EXPECT_TRUE(store.isResolved());
+        }
+
+        TEST(ContainerStoreAuthority, OrganicAuthoritySnapshotResolvesBeforeIteration)
+        {
+            ContainerAuthorityFixture fixture;
+            fixture.container.mFlags |= ESM::Container::Organic;
+            ContainerStore store;
+            store.setPtr(fixture.containerPtr());
+            EXPECT_FALSE(store.isResolved());
+
+            mwmp::WorldObjectSync::resolveContainerForAuthoritativeSnapshot(store);
+
+            EXPECT_TRUE(store.isResolved());
+            EXPECT_NE(store.begin(), store.end());
+        }
+
+        TEST(ContainerStoreAuthority, DeferredModelImmediatelyUsesKnownAuthoritativeContents)
+        {
+            ContainerAuthorityFixture fixture;
+            ContainerStore store;
+            store.setPtr(fixture.containerPtr());
+            store.resolve();
+            store.commitResolved();
+
+            MWWorld::ResolutionHandle handle = MWGui::ContainerItemModel::resolveContentsForDisplay(store,
+                MWGui::ContainerItemModel::ContentResolution::RequireAuthoritative);
+            EXPECT_TRUE(store.isResolved());
+            EXPECT_TRUE(MWGui::ContainerItemModel::canDisplayContents(store,
+                MWGui::ContainerItemModel::ContentResolution::RequireAuthoritative));
+        }
+
+        TEST(ContainerStoreAuthority, ResetToBaseStateDiscardsAuthoritativeMutationAndResolvesVanillaSeed)
+        {
+            ContainerAuthorityFixture fixture;
+            ContainerStore store;
+            store.setPtr(fixture.containerPtr());
+            store.resolve();
+            for (auto item = store.begin(); item != store.end(); ++item)
+            {
+                if (item->getCellRef().getRefId() == fixture.finiteItem.mId)
+                    item->getCellRef().setCount(99);
+                if (item->getCellRef().getRefId() == fixture.restockingItem.mId)
+                    item->getCellRef().setCount(-9);
+            }
+            store.commitResolved();
+
+            store.resetToBaseState();
+
+            EXPECT_TRUE(store.isResolved());
+            int finiteCount = 0;
+            int restockingCount = 0;
+            for (auto item = store.begin(); item != store.end(); ++item)
+            {
+                if (item->getCellRef().getRefId() == fixture.finiteItem.mId)
+                    finiteCount += item->getCellRef().getCount(false);
+                if (item->getCellRef().getRefId() == fixture.restockingItem.mId)
+                    restockingCount += item->getCellRef().getCount(false);
+            }
+            EXPECT_EQ(finiteCount, 1);
+            EXPECT_EQ(restockingCount, -2);
+        }
+
+        TEST(ContainerStoreAuthority, DeferredResetWaitsForFreshAuthorityResolution)
+        {
+            ContainerAuthorityFixture fixture;
+            ContainerStore store;
+            store.setPtr(fixture.containerPtr());
+            store.resolve();
+            store.commitResolved();
+
+            store.resetToBaseState(false);
+            EXPECT_FALSE(store.isResolved());
+
+            store.resolve();
+            store.commitResolved();
+            EXPECT_TRUE(store.isResolved());
             int finiteCount = 0;
             int restockingCount = 0;
             for (auto item = store.begin(); item != store.end(); ++item)

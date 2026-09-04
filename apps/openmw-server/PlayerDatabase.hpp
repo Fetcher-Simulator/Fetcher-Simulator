@@ -449,6 +449,26 @@ namespace mwmp
         std::vector<std::vector<std::optional<std::string>>> rows;
     };
 
+    enum class WorldCellResetFailurePoint
+    {
+        None,
+        AfterWorldObjects,
+        AfterSpawnedActors,
+        AfterDeadVanillaActors,
+        AfterContainers,
+        AfterDoors,
+    };
+
+    struct WorldCellResetDbResult
+    {
+        std::size_t worldObjects = 0;
+        std::size_t spawnedActors = 0;
+        std::size_t deadAndDisposedVanillaActors = 0;
+        std::size_t containers = 0;
+        std::size_t doors = 0;
+        std::size_t dynamicRecordLinks = 0;
+    };
+
     struct JournalCharacterIdentity
     {
         int64_t characterId = 0;
@@ -662,6 +682,15 @@ namespace mwmp
 
         /// Delete all persisted door states in a cell.
         std::size_t deleteDoorStatesForCell(std::string_view cellId);
+
+        /// Atomically remove resettable world state for the selected cells.
+        /// When resetAll is true the cell list is used only for reporting by the
+        /// caller and all resettable world rows are removed set-wise. The
+        /// serialized SQLite connection is held exclusively for the entire
+        /// BEGIN IMMEDIATE/COMMIT or ROLLBACK sequence.
+        WorldCellResetDbResult resetWorldCells(const std::vector<std::string>& cellIds,
+            bool resetAll = false,
+            WorldCellResetFailurePoint failurePoint = WorldCellResetFailurePoint::None);
 
         /// Load or initialize the durable increment-only multiplayer object id allocator.
         uint64_t loadNextMpNum(uint64_t minimumNext);

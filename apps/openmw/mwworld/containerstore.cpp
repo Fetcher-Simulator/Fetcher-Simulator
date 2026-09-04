@@ -811,6 +811,25 @@ void MWWorld::ContainerStore::commitResolved()
     mResolved = true;
 }
 
+void MWWorld::ContainerStore::resetToBaseState(bool resolveContents)
+{
+    for (auto&& iter : *this)
+        iter.getCellRef().setCount(0);
+
+    mModified = false;
+    mResolved = false;
+    flagAsModified();
+
+    const Ptr& container = getPtr();
+    if (resolveContents)
+        resolve();
+    else if (!container.isEmpty() && container.getType() == ESM::REC_CONT)
+    {
+        fillNonRandom(container.get<ESM::Container>()->mBase->mInventory, ESM::RefId(), mSeed);
+        addScripts(*this, container.mCell);
+    }
+}
+
 void MWWorld::ContainerStore::flagAsModified()
 {
     mWeightUpToDate = false;

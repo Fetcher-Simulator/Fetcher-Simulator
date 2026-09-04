@@ -108,6 +108,8 @@ TEST(ContainerOpenClientPolicy, NonAuthorityStaticContainerRequestsBootstrap)
         false, false, false));
     EXPECT_FALSE(mwmp::WorldObjectSync::requiresContainerBootstrapOnOpen(
         false, false, true));
+    EXPECT_FALSE(mwmp::WorldObjectSync::requiresContainerBootstrapOnOpen(
+        false, false, false, true));
 }
 
 TEST(ContainerOpenClientPolicy, NonAuthorityActorCorpseRequestsBootstrap)
@@ -116,6 +118,18 @@ TEST(ContainerOpenClientPolicy, NonAuthorityActorCorpseRequestsBootstrap)
         true, false, true));
     EXPECT_FALSE(mwmp::WorldObjectSync::requiresContainerBootstrapOnOpen(
         true, true, false));
+    EXPECT_TRUE(mwmp::WorldObjectSync::requiresContainerBootstrapOnOpen(
+        true, false, true, true));
+}
+
+TEST(ContainerOpenClientPolicy, ConnectedStaticContainerUiNeverOwnsContentResolution)
+{
+    EXPECT_TRUE(mwmp::WorldObjectSync::shouldDeferContainerResolutionOnOpen(
+        true, false));
+    EXPECT_FALSE(mwmp::WorldObjectSync::shouldDeferContainerResolutionOnOpen(
+        false, false));
+    EXPECT_FALSE(mwmp::WorldObjectSync::shouldDeferContainerResolutionOnOpen(
+        true, true));
 }
 
 TEST(ContainerProjectileRecoveryPolicy, BootstrapsOnlyBeforeFirstAuthoritativeSnapshot)
@@ -378,4 +392,40 @@ TEST(WorldItemTakePersistence, CrimeFailureRollsBackTombstoneInventoryAndSemanti
     EXPECT_FALSE(database.loadSemanticRequest(
         "crime-event", account, character, commit.crimeMutation->requestId).has_value());
     EXPECT_EQ(database.loadPlayerCrimeState(character), mwmp::PlayerCrimeState{});
+}
+
+TEST(ContainerResetClientPolicy, ResetMayAdvanceGenerationBeforeAuthorityGrant)
+{
+    EXPECT_TRUE(mwmp::WorldObjectSync::shouldAcceptContainerAuthorityGeneration(0, 1, true));
+    EXPECT_TRUE(mwmp::WorldObjectSync::shouldAcceptContainerAuthorityGeneration(7, 8, true));
+    EXPECT_TRUE(mwmp::WorldObjectSync::shouldAcceptContainerAuthorityGeneration(8, 8, true));
+    EXPECT_FALSE(mwmp::WorldObjectSync::shouldAcceptContainerAuthorityGeneration(9, 8, true));
+}
+
+TEST(ContainerResetClientPolicy, NormalContainerTrafficRequiresExactCurrentGeneration)
+{
+    EXPECT_TRUE(mwmp::WorldObjectSync::shouldAcceptContainerAuthorityGeneration(8, 8, false));
+    EXPECT_FALSE(mwmp::WorldObjectSync::shouldAcceptContainerAuthorityGeneration(8, 7, false));
+    EXPECT_FALSE(mwmp::WorldObjectSync::shouldAcceptContainerAuthorityGeneration(8, 9, false));
+    EXPECT_FALSE(mwmp::WorldObjectSync::shouldAcceptContainerAuthorityGeneration(8, 0, false));
+}
+
+TEST(ObjectPlaceResetClientPolicy, StartupCatchupAllowsGenerationBeforeLocalAuthority)
+{
+    EXPECT_TRUE(mwmp::WorldObjectSync::shouldAcceptObjectPlaceAuthorityGeneration(0, 0, 1));
+    EXPECT_FALSE(mwmp::WorldObjectSync::shouldAcceptObjectPlaceAuthorityGeneration(0, 0, 0));
+}
+
+TEST(ObjectPlaceResetClientPolicy, ResetFloorRejectsOldRelayDuringAuthorityGap)
+{
+    EXPECT_FALSE(mwmp::WorldObjectSync::shouldAcceptObjectPlaceAuthorityGeneration(0, 8, 7));
+    EXPECT_TRUE(mwmp::WorldObjectSync::shouldAcceptObjectPlaceAuthorityGeneration(0, 8, 8));
+    EXPECT_TRUE(mwmp::WorldObjectSync::shouldAcceptObjectPlaceAuthorityGeneration(0, 8, 9));
+}
+
+TEST(ObjectPlaceResetClientPolicy, NormalAuthorityHandoffDoesNotInvalidateCommittedRelay)
+{
+    EXPECT_TRUE(mwmp::WorldObjectSync::shouldAcceptObjectPlaceAuthorityGeneration(10, 8, 9));
+    EXPECT_TRUE(mwmp::WorldObjectSync::shouldAcceptObjectPlaceAuthorityGeneration(10, 8, 10));
+    EXPECT_FALSE(mwmp::WorldObjectSync::shouldAcceptObjectPlaceAuthorityGeneration(10, 8, 7));
 }

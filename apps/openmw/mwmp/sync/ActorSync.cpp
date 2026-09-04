@@ -41,6 +41,7 @@
 #include "../../mwbase/mechanicsmanager.hpp"
 #include "../../mwbase/soundmanager.hpp"
 #include "../../mwbase/world.hpp"
+#include "../../mwbase/windowmanager.hpp"
 #include "../../mwclass/creaturelevlist.hpp"
 #include "../../mwmechanics/aisequence.hpp"
 #include "../../mwmechanics/aipackage.hpp"
@@ -54,6 +55,7 @@
 #include "../../mwmechanics/movement.hpp"
 #include "../../mwmechanics/npcstats.hpp"
 #include "../../mwrender/animation.hpp"
+#include "../../mwrender/renderingmanager.hpp"
 #include "../../mwrender/vismask.hpp"
 #include "../../mwworld/cellstore.hpp"
 #include "../../mwworld/class.hpp"
@@ -1043,6 +1045,8 @@ namespace mwmp
         mServerSpawnedActorLastTimestamps.clear();
         mReconciledVanillaActorsByNetId.clear();
         mChanceNoneLeveledSpawnersByCell.clear();
+        mCellResetsPending.clear();
+        mCellResetLeveledRollPending.clear();
         mDisposedVanillaActorsByCell.clear();
         mActorsByNetId.clear();
         mCellActorIds.clear();
@@ -1420,11 +1424,190 @@ namespace mwmp
         }
     }
 
+    void ActorSync::forceResetCellActorsToBaseState(MWWorld::CellStore& cell, bool suppressLeveledRoll)
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (!world)
+            return;
+
+        std::vector<MWWorld::Ptr> vanillaActors;
+        std::vector<MWWorld::Ptr> leveledSpawners;
+        cell.forEach([&](MWWorld::Ptr ptr) -> bool
+        {
+            if (ptr.isEmpty())
+                return true;
+            if (ptr.getType() == ESM::CreatureLevList::sRecordId)
+                leveledSpawners.push_back(ptr);
+            else if (ptr.getClass().isActor() && ptr.getCellRef().hasContentFile())
+                vanillaActors.push_back(ptr);
+            return true;
+        }, true);
+
+        for (const MWWorld::Ptr& spawner : leveledSpawners)
+        {
+            const auto& leveledClass = static_cast<const MWClass::CreatureLevList&>(spawner.getClass());
+            const MWWorld::Ptr previous = leveledClass.getSpawnedActor(spawner);
+            if (!previous.isEmpty())
+            {
+                ScopedLocalDeleteSuppression suppression(Main::get().getWorldObjectSync());
+                world->deleteObject(previous);
+            }
+            spawner.getRefData().setCustomData(nullptr);
+            if (suppressLeveledRoll)
+                leveledClass.setSpawnedActor(spawner, MWWorld::Ptr());
+        }
+
+        for (const MWWorld::Ptr& actor : vanillaActors)
+        {
+            const bool restoreCount = actor.getCellRef().getCount() <= 0;
+            if (actor.getRefData().hasCustomData())
+            {
+                world->removeContainerScripts(actor);
+                MWBase::Environment::get().getWindowManager()->onDeleteCustomData(actor);
+                actor.getRefData().setCustomData(nullptr);
+            }
+            if (restoreCount)
+            {
+                actor.getCellRef().setCount(1);
+                const ESM::RefId& script = actor.getClass().getScript(actor);
+                if (!script.empty())
+                    world->getLocalScripts().add(script, actor);
+            }
+
+            MWWorld::CellStore* originCell = actor.getCell()->getOriginCell(actor);
+            if (!originCell)
+                originCell = &cell;
+            world->moveObject(actor, originCell, actor.getCellRef().getPosition().asVec3());
+            world->rotateObject(
+                actor, actor.getCellRef().getPosition().asRotationVec3(), MWBase::RotationFlag_none);
+            actor.getClass().adjustPosition(actor, true);
+        }
+    }
+
+    void ActorSync::rerollResetLeveledSpawners(MWWorld::CellStore& cell)
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (!world || !world->getRenderingManager())
+            return;
+
+        std::vector<MWWorld::Ptr> leveledSpawners;
+        cell.forEach([&](MWWorld::Ptr ptr) -> bool
+        {
+            if (!ptr.isEmpty() && ptr.getType() == ESM::CreatureLevList::sRecordId)
+                leveledSpawners.push_back(ptr);
+            return true;
+        }, true);
+
+        for (const MWWorld::Ptr& spawner : leveledSpawners)
+        {
+            const auto& leveledClass = static_cast<const MWClass::CreatureLevList&>(spawner.getClass());
+            const MWWorld::Ptr previous = leveledClass.getSpawnedActor(spawner);
+            if (!previous.isEmpty())
+            {
+                ScopedLocalDeleteSuppression suppression(Main::get().getWorldObjectSync());
+                world->deleteObject(previous);
+            }
+            spawner.getRefData().setCustomData(nullptr);
+            leveledClass.insertObjectRendering(spawner, {}, *world->getRenderingManager());
+        }
+    }
+
+    void ActorSync::invalidateCellForReset(const std::string& cellId)
+    {
+        if (cellId.empty())
+            return;
+
+        std::unordered_set<ActorInstanceId> actorNetIds;
+        if (const auto cellIndex = mCellActorIds.find(cellId); cellIndex != mCellActorIds.end())
+            actorNetIds.insert(cellIndex->second.begin(), cellIndex->second.end());
+        for (const auto& [actorNetId, runtime] : mActorsByNetId)
+        {
+            if (runtime.state.cellId == cellId
+                || (!runtime.boundActor.isEmpty() && cellIdForPtr(runtime.boundActor) == cellId))
+                actorNetIds.insert(actorNetId);
+        }
+
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        std::unordered_set<std::uint32_t> mpNums;
+        for (const ActorInstanceId actorNetId : actorNetIds)
+        {
+            if (const auto runtime = mActorsByNetId.find(actorNetId); runtime != mActorsByNetId.end())
+            {
+                if (runtime->second.state.mpNum != 0)
+                {
+                    mpNums.insert(runtime->second.state.mpNum);
+                    if (world && !runtime->second.boundActor.isEmpty())
+                    {
+                        ScopedLocalDeleteSuppression suppression(Main::get().getWorldObjectSync());
+                        world->deleteObject(runtime->second.boundActor);
+                    }
+                }
+            }
+            mActorsByNetId.erase(actorNetId);
+            mActorAuthorityGuids.erase(actorNetId);
+            mActorAuthorityGenerations.erase(actorNetId);
+            mMechanicsSnapshotSequences.erase(actorNetId);
+            mNextSpeechEventIds.erase(actorNetId);
+            mLastAppliedCombatEventIds.erase(actorNetId);
+            mAuthoritativeCrimeCombatByActorNetId.erase(actorNetId);
+            mPendingRealtimeDeathActorNetIds.erase(actorNetId);
+            mReconciledVanillaActorsByNetId.erase(actorNetId);
+        }
+
+        std::erase_if(mActorNetIdsByKey, [&](const auto& entry) {
+            return actorNetIds.contains(entry.second);
+        });
+        std::erase_if(mMpNumsByLocalActor, [&](const auto& entry) {
+            return mpNums.contains(entry.second);
+        });
+        for (const std::uint32_t mpNum : mpNums)
+        {
+            mServerSpawnedActorsByMpNum.erase(mpNum);
+            mServerSpawnedActorLastTimestamps.erase(mpNum);
+        }
+        std::erase_if(mReconciledVanillaActorsByNetId, [&](const auto& entry) {
+            return !entry.second.isEmpty() && cellIdForPtr(entry.second) == cellId;
+        });
+
+        mCells.erase(cellId);
+        mAuthority.erase(cellId);
+        mCellActorIds.erase(cellId);
+        mChanceNoneLeveledSpawnersByCell.erase(cellId);
+        mDisposedVanillaActorsByCell.erase(cellId);
+        mCellResetsPending.insert(cellId);
+        mCellResetLeveledRollPending.insert(cellId);
+
+        if (world)
+        {
+            auto& worldImp = static_cast<MWWorld::World&>(*world);
+            if (MWWorld::CellStore* activeCell = findActiveCellById(worldImp, cellId))
+            {
+                forceResetCellActorsToBaseState(*activeCell, true);
+                mCellResetsPending.erase(cellId);
+            }
+        }
+
+        Log(Debug::Info) << "[MP] ActorSync: invalidated cached actor state for cell reset"
+                         << " cell=" << cellId
+                         << " actors=" << actorNetIds.size();
+    }
+
+
     void ActorSync::prepareCellForInsertion(MWWorld::CellStore& cell)
     {
         const std::string cellId = cellIdForStore(cell);
         if (cellId.empty())
             return;
+        if (mCellResetsPending.erase(cellId) != 0)
+        {
+            const bool localAuthority = hasAuthority(cellId);
+            forceResetCellActorsToBaseState(cell, !localAuthority);
+            if (localAuthority)
+                mCellResetLeveledRollPending.erase(cellId);
+            Log(Debug::Info) << "[MP] ActorSync: applied pending actor cell reset before insertion"
+                             << " cell=" << cellId
+                             << " authority=" << localAuthority;
+        }
         applyDisposedVanillaActorTombstones(cell, cellId, true);
 
         const auto chanceNoneIt = mChanceNoneLeveledSpawnersByCell.find(cellId);
@@ -2062,6 +2245,18 @@ namespace mwmp
 
             if (!previous && hasLocalAuthority)
             {
+                if (mCellResetLeveledRollPending.contains(list.cellId))
+                {
+                    if (MWBase::World* world = MWBase::Environment::get().getWorld())
+                    {
+                        auto& worldImp = static_cast<MWWorld::World&>(*world);
+                        if (MWWorld::CellStore* activeCell = findActiveCellById(worldImp, list.cellId))
+                        {
+                            rerollResetLeveledSpawners(*activeCell);
+                            mCellResetLeveledRollPending.erase(list.cellId);
+                        }
+                    }
+                }
                 std::size_t presentationReset = 0;
                 auto resetAuthorityPresentation = [&](ActorRuntime& runtime)
                 {
@@ -2747,6 +2942,13 @@ namespace mwmp
             PacketActorIdentityAck ackPacket;
             ackPacket.setAck(&ack);
             mClient.sendReliable(ackPacket.encode());
+        }
+
+        if (completeIdentitySnapshot)
+        {
+            const uint32_t localGuid = Main::get().getPlayerSync().localPlayer().guid;
+            if (list.authorityGuid != 0 && list.authorityGuid != localGuid)
+                mCellResetLeveledRollPending.erase(list.cellId);
         }
 
         mActorV2IdentityTransformPreservedWindow += transformPreserved;
@@ -5399,6 +5601,12 @@ namespace mwmp
             return hasAuthority(cellId);
         const uint32_t localGuid = mwmp::Main::get().getPlayerSync().localPlayer().guid;
         return localGuid != 0 && leaseIt->second == localGuid;
+    }
+
+    uint32_t ActorSync::authorityGenerationForCell(const std::string& cellId) const
+    {
+        const auto it = mCells.find(cellId);
+        return it == mCells.end() ? 0 : it->second.latest.authorityGeneration;
     }
 
     bool ActorSync::hasAuthorityForMpNum(uint32_t mpNum, const std::string& cellId) const

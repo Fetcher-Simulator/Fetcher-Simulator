@@ -243,3 +243,146 @@ TEST(DynamicRecordDatabase, FailedLegacyReplacementRollsBackAndPreservesBackup)
     ASSERT_TRUE(backup.has_value());
     EXPECT_EQ(backup->totalRows, 1);
 }
+
+namespace
+{
+    void seedResetCell(mwmp::PlayerDatabase& database, const std::string& cellId, std::uint32_t base)
+    {
+        mwmp::PlacedObject object;
+        object.mpNum = base + 1;
+        object.refId = "misc_de_pot_blue_01";
+        object.cellId = cellId;
+        database.upsertWorldObject(object);
+
+        mwmp::PersistedSpawnedActor spawned;
+        spawned.actor.mpNum = base + 2;
+        spawned.actor.refId = "rat";
+        spawned.actor.cellId = cellId;
+        spawned.persistent = true;
+        database.upsertSpawnedActor(spawned);
+
+        mwmp::BaseActor dead;
+        dead.refId = "rat";
+        dead.refNum = base + 3;
+        dead.cellId = cellId;
+        dead.isDead = true;
+        database.upsertDeadVanillaActor(dead);
+
+        mwmp::BaseActor disposed;
+        disposed.refId = "scrib";
+        disposed.refNum = base + 4;
+        disposed.cellId = cellId;
+        database.upsertDisposedVanillaActor(disposed);
+
+        mwmp::ContainerRecord container;
+        container.cellId = cellId;
+        container.refId = "crate_01";
+        container.refNum = base + 5;
+        container.hasAuthority = true;
+        mwmp::ContainerItem item;
+        item.refId = "gold_001";
+        item.count = 7;
+        container.items.push_back(item);
+        database.upsertContainerRecord(container);
+
+        mwmp::DoorEntry door;
+        door.cellId = cellId;
+        door.refId = "door_01";
+        door.refNum = base + 6;
+        door.isOpen = true;
+        door.revision = 1;
+        database.upsertDoorState(door);
+    }
+
+    std::size_t cellWorldStateCount(mwmp::PlayerDatabase& database, const std::string& cellId)
+    {
+        std::size_t count = 0;
+        for (const auto& object : database.loadWorldObjects())
+            count += object.cellId == cellId;
+        for (const auto& actor : database.loadSpawnedActors())
+            count += actor.actor.cellId == cellId;
+        for (const auto& actor : database.loadDeadVanillaActors())
+            count += actor.cellId == cellId;
+        for (const auto& actor : database.loadDisposedVanillaActors())
+            count += actor.cellId == cellId;
+        for (const auto& container : database.loadContainerRecords())
+            count += container.cellId == cellId;
+        for (const auto& door : database.loadDoorStates())
+            count += door.cellId == cellId;
+        return count;
+    }
+}
+
+TEST(WorldCellResetDatabase, SingleCellResetIsAtomicAndLeavesOtherCellAndPlayerDataUntouched)
+{
+    TemporaryDynamicRecordDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+    const auto account = database.createAccount("reset-owner");
+    const auto character = database.createCharacter(account, "Reset Survivor");
+    mwmp::Item inventoryItem;
+    inventoryItem.refId = "gold_001";
+    inventoryItem.count = 11;
+    inventoryItem.instanceId = 99;
+    database.saveCharacterInventory(character.characterId, { inventoryItem });
+
+    seedResetCell(database, "EXT:-2,-9", 1000);
+    seedResetCell(database, "Balmora", 2000);
+    ASSERT_EQ(cellWorldStateCount(database, "EXT:-2,-9"), 6u);
+    ASSERT_EQ(cellWorldStateCount(database, "Balmora"), 6u);
+
+    const auto result = database.resetWorldCells({ "EXT:-2,-9" });
+    EXPECT_EQ(result.worldObjects, 1u);
+    EXPECT_EQ(result.spawnedActors, 1u);
+    EXPECT_EQ(result.deadAndDisposedVanillaActors, 2u);
+    EXPECT_EQ(result.containers, 1u);
+    EXPECT_EQ(result.doors, 1u);
+    EXPECT_EQ(cellWorldStateCount(database, "EXT:-2,-9"), 0u);
+    EXPECT_EQ(cellWorldStateCount(database, "Balmora"), 6u);
+
+    EXPECT_EQ(database.lookupAccount("reset-owner"), account);
+    ASSERT_TRUE(database.lookupCharacter(account, "Reset Survivor").has_value());
+    const auto inventory = database.loadCharacterInventory(character.characterId);
+    ASSERT_EQ(inventory.size(), 1u);
+    EXPECT_EQ(inventory.front().refId, "gold_001");
+    EXPECT_EQ(inventory.front().count, 11);
+}
+
+TEST(WorldCellResetDatabase, InjectedMidTransactionFailureRollsBackDurablyAcrossReopen)
+{
+    TemporaryDynamicRecordDatabase temporary;
+    {
+        mwmp::PlayerDatabase database(temporary.path.string());
+        seedResetCell(database, "EXT:-2,-9", 3000);
+        seedResetCell(database, "Balmora", 4000);
+        EXPECT_THROW(database.resetWorldCells({ "EXT:-2,-9" }, false,
+                         mwmp::WorldCellResetFailurePoint::AfterContainers),
+            std::runtime_error);
+        EXPECT_EQ(cellWorldStateCount(database, "EXT:-2,-9"), 6u);
+        EXPECT_EQ(cellWorldStateCount(database, "Balmora"), 6u);
+    }
+
+    mwmp::PlayerDatabase reopened(temporary.path.string());
+    EXPECT_EQ(cellWorldStateCount(reopened, "EXT:-2,-9"), 6u);
+    EXPECT_EQ(cellWorldStateCount(reopened, "Balmora"), 6u);
+}
+
+TEST(WorldCellResetDatabase, GlobalResetClearsEveryWorldCellButPreservesAccountsAndCharacters)
+{
+    TemporaryDynamicRecordDatabase temporary;
+    mwmp::PlayerDatabase database(temporary.path.string());
+    const auto account = database.createAccount("global-reset-owner");
+    database.createCharacter(account, "Persistent Character");
+    seedResetCell(database, "EXT:-2,-9", 5000);
+    seedResetCell(database, "Balmora", 6000);
+
+    const auto result = database.resetWorldCells({}, true);
+    EXPECT_EQ(result.worldObjects, 2u);
+    EXPECT_EQ(result.spawnedActors, 2u);
+    EXPECT_EQ(result.deadAndDisposedVanillaActors, 4u);
+    EXPECT_EQ(result.containers, 2u);
+    EXPECT_EQ(result.doors, 2u);
+    EXPECT_EQ(cellWorldStateCount(database, "EXT:-2,-9"), 0u);
+    EXPECT_EQ(cellWorldStateCount(database, "Balmora"), 0u);
+    EXPECT_EQ(database.lookupAccount("global-reset-owner"), account);
+    EXPECT_TRUE(database.lookupCharacter(account, "Persistent Character").has_value());
+}

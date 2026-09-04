@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <components/openmw-mp/Packets/Object/PacketObjectPlace.hpp>
 #include <components/openmw-mp/Packets/Object/PacketWorldItemTake.hpp>
 #include <components/openmw-mp/WorldItemTake.hpp>
 
@@ -90,4 +91,26 @@ TEST(WorldItemTakeProtocol, RequestAndResultPacketsRoundTrip)
     mwmp::PacketWorldItemTakeResult incomingResult;
     ASSERT_TRUE(incomingResult.decode(resultBytes.data(), resultBytes.size()));
     EXPECT_EQ(incomingResult.result, outgoingResult.result);
+}
+
+TEST(WorldItemTakeProtocol, ObjectPlaceCarriesCellAuthorityGeneration)
+{
+    mwmp::PacketObjectPlace outgoing;
+    outgoing.authorityGeneration = 23;
+    outgoing.object.mpNum = 6441;
+    outgoing.object.refId = "misc_com_bottle_01";
+    outgoing.object.count = 2;
+    outgoing.object.cellId = "Balmora";
+    outgoing.object.position.pos[0] = 1.f;
+    outgoing.object.position.pos[1] = 2.f;
+    outgoing.object.position.pos[2] = 3.f;
+
+    const auto bytes = outgoing.encode();
+    mwmp::PacketObjectPlace incoming;
+    ASSERT_TRUE(incoming.decode(bytes.data(), bytes.size()));
+    EXPECT_EQ(incoming.authorityGeneration, 23u);
+    EXPECT_EQ(incoming.object.mpNum, 6441u);
+    EXPECT_EQ(incoming.object.refId, "misc_com_bottle_01");
+    EXPECT_EQ(incoming.object.cellId, "Balmora");
+    EXPECT_EQ(incoming.object.count, 2);
 }

@@ -45,6 +45,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwmp/testservercollisionlifecycle.cpp
     mwmp/testmechanicssnapshotregistry.cpp
     mwmp/testcollisioncellownership.cpp
+    mwmp/testadminmutationqueue.cpp
     mwmp/testdoorstateauthority.cpp
     mwmp/testliveobservationruntime.cpp
     mwmp/testtopicpersistence.cpp
