@@ -79,6 +79,8 @@ void WorldObjectSync::resetSessionState()
     mOpenContainerTargets.clear();
     mContainerRevisions.clear();
     mPendingContainerBootstrapSets.clear();
+    mContainerResetCellsPending.clear();
+    mCellResetGenerationFloors.clear();
     mNextContainerRevision = 1;
     mSuppressPickpocketFinish = false;
 }
@@ -98,6 +100,21 @@ namespace
             return buffer;
         }
         return std::string(cell->getNameId());
+    }
+
+    std::string makeCellId(const MWWorld::CellStore& store)
+    {
+        const MWWorld::Cell* cell = store.getCell();
+        if (!cell)
+            return {};
+        if (cell->isExterior())
+            return "EXT:" + std::to_string(cell->getGridX()) + "," + std::to_string(cell->getGridY());
+        return std::string(cell->getNameId());
+    }
+
+    std::uint32_t currentCellAuthorityGeneration(const std::string& cellId)
+    {
+        return Main::isInitialised() ? Main::get().getActorSync().authorityGenerationForCell(cellId) : 0;
     }
 
     std::string makeContainerRevisionKey(
@@ -452,6 +469,14 @@ WorldObjectSync::WorldObjectSync(NetworkClient& client)
     mTakeRequestPrefix = prefix.str();
 }
 
+void WorldObjectSync::prepareCellForInsertion(MWWorld::CellStore& cell)
+{
+    const std::string cellId = makeCellId(cell);
+    if (cellId.empty() || !mContainerResetCellsPending.contains(cellId))
+        return;
+    applyContainerCellReset(cell, cellId);
+}
+
 // ---------------------------------------------------------------------------
 // update — retry queued operations that failed because the cell wasn't loaded
 // ---------------------------------------------------------------------------
@@ -524,6 +549,7 @@ void WorldObjectSync::onLocalObjectPlaced(const MWWorld::Ptr& ptr, const std::st
                                           const std::string& cellId)
 {
     PacketObjectPlace pkt;
+    pkt.authorityGeneration = currentCellAuthorityGeneration(cellId);
     // A whole-stack drop may retain its inventory identity. The server checks
     // that this ID belongs to the sender and allocates a new one for splits.
     pkt.object.mpNum   = inventoryInstanceId(ptr.getCellRef().getRefNum());
@@ -630,15 +656,51 @@ bool WorldObjectSync::requiresAuthoritativeWorldItemTake(bool sourceOwnerEmpty, 
 }
 
 bool WorldObjectSync::requiresContainerBootstrapOnOpen(bool isActorContainer,
-    bool hasActorAuthority, bool hasCellAuthority)
+    bool hasActorAuthority, bool hasCellAuthority, bool hasAuthoritativeRevision)
 {
-    return isActorContainer ? !hasActorAuthority : !hasCellAuthority;
+    return isActorContainer ? !hasActorAuthority : !hasCellAuthority && !hasAuthoritativeRevision;
+}
+
+bool WorldObjectSync::shouldDeferContainerResolutionOnOpen(bool connected, bool isActorContainer)
+{
+    return connected && !isActorContainer;
+}
+
+void WorldObjectSync::resolveContainerForAuthoritativeSnapshot(MWWorld::ContainerStore& store)
+{
+    store.resolve();
+}
+
+bool WorldObjectSync::shouldDeferContainerResolutionOnOpen(const MWWorld::Ptr& container) const
+{
+    if (container.isEmpty() || container.getCell() == nullptr)
+        return false;
+
+    return shouldDeferContainerResolutionOnOpen(
+        Main::isConnected(), container.getClass().isActor());
 }
 
 bool WorldObjectSync::requiresProjectileStoredActorBootstrap(
     bool hasAuthoritativeRevision, bool bootstrapAlreadyQueued)
 {
     return !hasAuthoritativeRevision && !bootstrapAlreadyQueued;
+}
+
+bool WorldObjectSync::shouldAcceptContainerAuthorityGeneration(
+    std::uint32_t currentGeneration, std::uint32_t incomingGeneration, bool reset)
+{
+    if (incomingGeneration == 0)
+        return false;
+    return reset ? incomingGeneration >= currentGeneration : incomingGeneration == currentGeneration;
+}
+
+bool WorldObjectSync::shouldAcceptObjectPlaceAuthorityGeneration(
+    std::uint32_t currentGeneration, std::uint32_t resetGenerationFloor, std::uint32_t incomingGeneration)
+{
+    (void)currentGeneration;
+    if (incomingGeneration == 0)
+        return false;
+    return resetGenerationFloor == 0 || incomingGeneration >= resetGenerationFloor;
 }
 
 bool WorldObjectSync::consumeLocalPlayerInventoryDetached(const MWWorld::Ptr& ptr)
@@ -780,21 +842,32 @@ void WorldObjectSync::onLocalContainerOpened(const MWWorld::Ptr& container)
         record.refNum = container.getCellRef().getRefNum().mIndex;
         record.mpNum = getMpNumForObject(container);
     }
+    const std::string key = makeContainerRevisionKey(
+        record.cellId, record.refId, record.refNum, record.mpNum);
     if (Main::isConnected())
     {
         const ActorSync& actorSync = Main::get().getActorSync();
         const bool isActorContainer = container.getClass().isActor();
         const bool hasActorAuthority = isActorContainer && actorSync.hasAuthorityForObject(container);
         const bool hasCellAuthority = actorSync.hasAuthority(record.cellId);
-        if (requiresContainerBootstrapOnOpen(isActorContainer, hasActorAuthority, hasCellAuthority))
+        const bool hasAuthoritativeRevision = mContainerRevisions.contains(key);
+        if (requiresContainerBootstrapOnOpen(
+                isActorContainer, hasActorAuthority, hasCellAuthority, hasAuthoritativeRevision))
         {
             requestContainerBootstrap(container);
             return;
         }
+        if (!isActorContainer && !hasCellAuthority)
+        {
+            // The local store already contains a Set accepted from the server.
+            // Keep the exact Ptr bound for later deltas without re-requesting or
+            // publishing a non-authority snapshot.
+            mOpenContainerTargets[key] = container;
+            return;
+        }
     }
 
-    mOpenContainerTargets[makeContainerRevisionKey(
-        record.cellId, record.refId, record.refNum, record.mpNum)] = container;
+    mOpenContainerTargets[key] = container;
     sendLocalContainerSnapshot(record, container);
 }
 
@@ -827,6 +900,7 @@ bool WorldObjectSync::requestContainerBootstrap(const MWWorld::Ptr& container)
 
     PacketContainer packet;
     packet.container = record;
+    packet.authorityGeneration = currentCellAuthorityGeneration(record.cellId);
     packet.mAction = static_cast<uint8_t>(ContainerAction::BootstrapRequest);
     mClient.sendReliable(packet.encode());
     Log(Debug::Verbose) << "[MP] WorldObjectSync: requested authoritative Container bootstrap refId="
@@ -847,6 +921,7 @@ void WorldObjectSync::onLocalContainerOpened(const std::string& cellId,
     pkt.container.refId  = refId;
     pkt.container.refNum = refNum;
     pkt.container.mpNum  = mpNum;
+    pkt.authorityGeneration = currentCellAuthorityGeneration(cellId);
     pkt.mAction = static_cast<uint8_t>(ContainerAction::Set);
 
     MWWorld::Ptr target = findContainerTarget(pkt.container);
@@ -877,6 +952,7 @@ void WorldObjectSync::sendLocalContainerSnapshot(const ContainerRecord& record, 
     pkt.container.refId = record.refId;
     pkt.container.refNum = record.refNum;
     pkt.container.mpNum = record.mpNum;
+    pkt.authorityGeneration = currentCellAuthorityGeneration(record.cellId);
     pkt.mAction = static_cast<uint8_t>(ContainerAction::Set);
 
     auto& cstore = target.getClass().getContainerStore(target);
@@ -884,7 +960,7 @@ void WorldObjectSync::sendLocalContainerSnapshot(const ContainerRecord& record, 
     // containers may still be unresolved here; iterating an unresolved store can
     // serialize an empty Set and incorrectly make the server authoritative for an
     // empty container before the activating client can request the harvest.
-    cstore.resolve();
+    resolveContainerForAuthoritativeSnapshot(cstore);
     for (auto it = cstore.begin(); it != cstore.end(); ++it)
     {
         ContainerItem ci;
@@ -920,6 +996,7 @@ void WorldObjectSync::onLocalContainerChanged(const std::string& cellId,
     pkt.container.refNum  = refNum;
     pkt.container.mpNum   = mpNum;
     pkt.container.items   = items;
+    pkt.authorityGeneration = currentCellAuthorityGeneration(cellId);
     pkt.mAction = static_cast<uint8_t>(action);
     mClient.sendReliable(pkt.encode());
     Log(Debug::Verbose) << "[MP] WorldObjectSync: sent Container(" << static_cast<int>(action)
@@ -995,8 +1072,21 @@ void WorldObjectSync::onLocalProjectileStoredInActor(
 // ---------------------------------------------------------------------------
 void WorldObjectSync::onServerObjectPlace(uint32_t mpNum, const std::string& refId,
                                            int count, const Position& pos,
-                                           const std::string& cellId)
+                                           const std::string& cellId, std::uint32_t authorityGeneration)
 {
+    const std::uint32_t currentGeneration = currentCellAuthorityGeneration(cellId);
+    const auto floorIt = mCellResetGenerationFloors.find(cellId);
+    const std::uint32_t resetFloor = floorIt == mCellResetGenerationFloors.end() ? 0 : floorIt->second;
+    if (!shouldAcceptObjectPlaceAuthorityGeneration(currentGeneration, resetFloor, authorityGeneration))
+    {
+        Log(Debug::Warning) << "[MP] WorldObjectSync: dropped stale ObjectPlace"
+                            << " cell=" << cellId
+                            << " mpNum=" << mpNum
+                            << " incomingGeneration=" << authorityGeneration
+                            << " currentGeneration=" << currentGeneration
+                            << " resetFloor=" << resetFloor;
+        return;
+    }
     auto localIt = std::find_if(
         mPendingLocalPlace.begin(), mPendingLocalPlace.end(),
         [&](const PendingLocalPlace& pending)
@@ -1073,6 +1163,7 @@ bool WorldObjectSync::requestInventoryTake(const MWWorld::Ptr& source, const MWW
         + std::to_string(mNextInventoryTakeRequestId++);
     request.kind = kind;
     request.source.cellId = makeCellId(source);
+    request.source.authorityGeneration = currentCellAuthorityGeneration(request.source.cellId);
     request.source.refId = source.getCellRef().getRefId().serializeText();
     request.source.refNum = source.getCellRef().getRefNum().mIndex;
     request.source.mpNum = getMpNumForObject(source);
@@ -1120,6 +1211,7 @@ bool WorldObjectSync::requestBarterTake(const MWWorld::Ptr& merchant, const MWWo
         + std::to_string(mNextInventoryTakeRequestId++);
     request.kind = InventoryTakeKind::Barter;
     request.source.cellId = makeCellId(source);
+    request.source.authorityGeneration = currentCellAuthorityGeneration(request.source.cellId);
     request.source.refId = source.getCellRef().getRefId().serializeText();
     request.source.refNum = source.getCellRef().getRefNum().mIndex;
     request.source.mpNum = getMpNumForObject(source);
@@ -1136,6 +1228,7 @@ bool WorldObjectSync::requestBarterTake(const MWWorld::Ptr& merchant, const MWWo
     }
 
     request.merchant.cellId = makeCellId(merchant);
+    request.merchant.authorityGeneration = currentCellAuthorityGeneration(request.merchant.cellId);
     request.merchant.refId = merchant.getCellRef().getRefId().serializeText();
     request.merchant.actorInstanceId = actorSync.actorNetIdForPtr(request.merchant.cellId, merchant);
     request.merchant.migrationGeneration
@@ -1189,6 +1282,7 @@ bool WorldObjectSync::requestBarterTransaction(const MWWorld::Ptr& merchant,
 
     ActorSync& actorSync = Main::get().getActorSync();
     request.merchant.cellId = makeCellId(merchant);
+    request.merchant.authorityGeneration = currentCellAuthorityGeneration(request.merchant.cellId);
     request.merchant.refId = merchant.getCellRef().getRefId().serializeText();
     request.merchant.actorInstanceId = actorSync.actorNetIdForPtr(request.merchant.cellId, merchant);
     request.merchant.migrationGeneration
@@ -1248,6 +1342,7 @@ bool WorldObjectSync::requestBarterTransaction(const MWWorld::Ptr& merchant,
             if (input.source.isEmpty() || isRemotePlayerInventorySource(input.source))
                 return false;
             line.source.cellId = makeCellId(input.source);
+            line.source.authorityGeneration = currentCellAuthorityGeneration(line.source.cellId);
             line.source.refId = input.source.getCellRef().getRefId().serializeText();
             line.source.refNum = input.source.getCellRef().getRefNum().mIndex;
             line.source.mpNum = getMpNumForObject(input.source);
@@ -1319,6 +1414,7 @@ bool WorldObjectSync::requestInventoryPut(const MWWorld::Ptr& destination, const
     InventoryPutRequest request;
     request.requestId = mTakeRequestPrefix + "-put-" + std::to_string(mNextInventoryPutRequestId++);
     request.destination.cellId = makeCellId(destination);
+    request.destination.authorityGeneration = currentCellAuthorityGeneration(request.destination.cellId);
     request.destination.refId = destination.getCellRef().getRefId().serializeText();
     request.destination.refNum = destination.getCellRef().getRefNum().mIndex;
     request.destination.mpNum = getMpNumForObject(destination);
@@ -1376,6 +1472,7 @@ bool WorldObjectSync::requestHarvest(const MWWorld::Ptr& source)
 
     PacketContainer packet;
     packet.container = record;
+    packet.authorityGeneration = currentCellAuthorityGeneration(record.cellId);
     packet.mAction = static_cast<std::uint8_t>(ContainerAction::BootstrapRequest);
     mClient.sendReliable(packet.encode());
     Log(Debug::Info) << "[MP] WorldObjectSync: requested authoritative harvest bootstrap refId=" << record.refId
@@ -1402,6 +1499,7 @@ bool WorldObjectSync::requestPickpocketFinish(const MWWorld::Ptr& source)
         + std::to_string(mNextInventoryTakeRequestId++);
     request.kind = InventoryTakeKind::PickpocketFinish;
     request.source.cellId = makeCellId(source);
+    request.source.authorityGeneration = currentCellAuthorityGeneration(request.source.cellId);
     request.source.refId = source.getCellRef().getRefId().serializeText();
     ActorSync& actorSync = Main::get().getActorSync();
     request.source.actorInstanceId = actorSync.actorNetIdForPtr(request.source.cellId, source);
@@ -1679,8 +1777,158 @@ void WorldObjectSync::onServerObjectMove(uint32_t mpNum, const std::string& /*ce
 }
 
 // ---------------------------------------------------------------------------
-void WorldObjectSync::onServerContainer(const ContainerRecord& record, ContainerAction action)
+void WorldObjectSync::invalidateContainerCellForReset(const std::string& cellId)
 {
+    if (cellId.empty())
+        return;
+
+    MWBase::World* world = MWBase::Environment::get().getWorld();
+    std::unordered_set<std::uint32_t> resetMpNums;
+    std::vector<MWWorld::Ptr> resetPlacedObjects;
+    for (const auto& [mpNum, ptr] : mObjects)
+    {
+        if (!ptr.isEmpty() && makeCellId(ptr) == cellId)
+        {
+            resetMpNums.insert(mpNum);
+            resetPlacedObjects.push_back(ptr);
+        }
+    }
+    for (const std::uint32_t mpNum : resetMpNums)
+    {
+        unregisterObject(mpNum);
+        mLastKnownObjectPositions.erase(mpNum);
+    }
+
+    std::vector<MWWorld::Ptr> resetPendingLocalObjects;
+    for (const PendingLocalPlace& pending : mPendingLocalPlace)
+    {
+        if (pending.cellId == cellId && !pending.ptr.isEmpty())
+            resetPendingLocalObjects.push_back(pending.ptr);
+    }
+
+    if (world)
+    {
+        const bool previousSuppression = mSuppressLocalDelete;
+        mSuppressLocalDelete = true;
+        for (const MWWorld::Ptr& ptr : resetPlacedObjects)
+            world->deleteObject(ptr);
+        for (const MWWorld::Ptr& ptr : resetPendingLocalObjects)
+            world->deleteObject(ptr);
+        mSuppressLocalDelete = previousSuppression;
+    }
+
+    std::erase_if(mPendingPlace, [&](const PendingPlace& pending) { return pending.cellId == cellId; });
+    std::erase_if(mPendingLocalPlace, [&](const PendingLocalPlace& pending) { return pending.cellId == cellId; });
+    std::erase_if(mPendingDelete, [&](const PendingDelete& pending) { return pending.identity.cellId == cellId; });
+    std::erase_if(mPendingCount, [&](const PendingCount& pending) { return pending.identity.cellId == cellId; });
+    std::erase_if(mPendingMove, [&](const PendingMove& pending) { return resetMpNums.contains(pending.mpNum); });
+    const std::string prefix = cellId + '\0';
+    std::erase_if(mPendingContainer, [&](const PendingContainer& pending) { return pending.record.cellId == cellId; });
+    std::erase_if(mPendingHarvests, [&](const PendingHarvest& pending) { return pending.source.cellId == cellId; });
+
+    for (auto it = mPendingInventoryTakes.begin(); it != mPendingInventoryTakes.end();)
+    {
+        if (it->source.cellId != cellId || it->source.actorInstanceId != 0)
+        {
+            ++it;
+            continue;
+        }
+        mInventoryTakeCallbacks.erase(it->requestId);
+        mInventoryTakeSources.erase(it->requestId);
+        mInventoryTakesAwaitingSource.erase(it->requestId);
+        it = mPendingInventoryTakes.erase(it);
+    }
+    for (auto it = mPendingInventoryPuts.begin(); it != mPendingInventoryPuts.end();)
+    {
+        if (it->destination.cellId != cellId || it->destination.actorInstanceId != 0)
+        {
+            ++it;
+            continue;
+        }
+        mInventoryPutCallbacks.erase(it->requestId);
+        mInventoryPutDestinations.erase(it->requestId);
+        mInventoryPutsAwaitingDestination.erase(it->requestId);
+        it = mPendingInventoryPuts.erase(it);
+    }
+    for (auto it = mPendingBarters.begin(); it != mPendingBarters.end();)
+    {
+        const bool touchesCell = std::any_of(it->lines.begin(), it->lines.end(), [&](const BarterLine& line) {
+            return line.source.actorInstanceId == 0 && line.source.cellId == cellId;
+        });
+        if (!touchesCell)
+        {
+            ++it;
+            continue;
+        }
+        mBarterCallbacks.erase(it->requestId);
+        mBarterSources.erase(it->requestId);
+        mBarterMerchants.erase(it->requestId);
+        mBartersAwaitingSource.erase(it->requestId);
+        mBarterMissingSources.erase(it->requestId);
+        mBarterRetryStates.erase(it->requestId);
+        it = mPendingBarters.erase(it);
+    }
+
+    std::erase_if(mOpenContainerTargets, [&](const auto& entry) { return entry.first.rfind(prefix, 0) == 0; });
+    std::erase_if(mContainerRevisions, [&](const auto& entry) { return entry.first.rfind(prefix, 0) == 0; });
+    std::erase_if(mPendingContainerBootstrapSets, [&](const std::string& key) { return key.rfind(prefix, 0) == 0; });
+}
+
+void WorldObjectSync::applyContainerCellReset(MWWorld::CellStore& cell, const std::string& cellId)
+{
+    std::size_t resetCount = 0;
+    cell.forEach([&](MWWorld::Ptr ptr) -> bool
+    {
+        if (ptr.isEmpty() || ptr.getType() != ESM::Container::sRecordId
+            || !ptr.getRefData().hasCustomData())
+            return true;
+
+        auto& store = ptr.getClass().getContainerStore(ptr);
+        // Reset invalidates the prior canonical Set. Leave leveled contents
+        // unresolved on every client; the server-selected authority will resolve
+        // them in sendLocalContainerSnapshot() before publishing the fresh Set.
+        store.resetToBaseState(false);
+        MWBase::Environment::get().getWindowManager()->inventoryUpdated(ptr);
+        ++resetCount;
+        return true;
+    });
+
+    mContainerResetCellsPending.erase(cellId);
+    Log(Debug::Info) << "[MP] WorldObjectSync: restored cached container base state after cell reset"
+                     << " cell=" << cellId
+                     << " containers=" << resetCount;
+}
+
+void WorldObjectSync::onServerContainer(const ContainerRecord& record, ContainerAction action, std::uint32_t authorityGeneration)
+{
+    const std::uint32_t currentGeneration = currentCellAuthorityGeneration(record.cellId);
+    const bool reset = action == ContainerAction::Reset;
+    if (!shouldAcceptContainerAuthorityGeneration(currentGeneration, authorityGeneration, reset))
+    {
+        Log(Debug::Warning) << "[MP] WorldObjectSync: dropped stale Container packet"
+                            << " action=" << static_cast<unsigned>(action)
+                            << " cell=" << record.cellId
+                            << " generation=" << authorityGeneration
+                            << " currentGeneration=" << currentGeneration;
+        return;
+    }
+    if (reset)
+    {
+        invalidateContainerCellForReset(record.cellId);
+        mContainerResetCellsPending.insert(record.cellId);
+        auto& resetFloor = mCellResetGenerationFloors[record.cellId];
+        resetFloor = std::max(resetFloor, authorityGeneration);
+        if (Main::isInitialised())
+            Main::get().getActorSync().invalidateCellForReset(record.cellId);
+
+        if (MWBase::World* world = MWBase::Environment::get().getWorld())
+        {
+            auto& worldImp = static_cast<MWWorld::World&>(*world);
+            if (MWWorld::CellStore* activeCell = findActiveCellById(worldImp, record.cellId))
+                applyContainerCellReset(*activeCell, record.cellId);
+        }
+        return;
+    }
     if (action == ContainerAction::BootstrapRequest)
     {
         onLocalContainerOpened(record.cellId, record.refId, record.refNum, record.mpNum);

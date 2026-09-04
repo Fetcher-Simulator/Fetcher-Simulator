@@ -32,8 +32,8 @@ mwmp::DoorStateProposalError mwmp::validateDoorStateProposal(
         return DoorStateProposalError::StaleRevision;
 
     const bool currentOpen = context.current ? context.current->isOpen : false;
-    const bool currentLocked = context.current ? context.current->isLocked : false;
-    const int currentLockLevel = context.current ? context.current->lockLevel : 0;
+    const bool currentLocked = context.current ? context.current->isLocked : context.reference->baseLocked;
+    const int currentLockLevel = context.current ? context.current->lockLevel : context.reference->baseLockLevel;
     if (proposed.isOpen == currentOpen)
         return DoorStateProposalError::InvalidTransition;
     if (proposed.isLocked != currentLocked || proposed.lockLevel != currentLockLevel)

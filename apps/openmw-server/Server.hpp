@@ -33,6 +33,7 @@
 
 #include "LuaServerContext.hpp"
 #include "AdminHttpServer.hpp"
+#include "AdminMutationQueue.hpp"
 #include "MasterServerClient.hpp"
 #include "MechanicsSnapshotRegistry.hpp"
 #include "CollisionCellOwnership.hpp"
@@ -493,6 +494,7 @@ private:
     void sendPlayerStateBootstrapToClient(ConnectedClient& receiver);
     void startAdminHttpServer();
     void stopAdminHttpServer();
+    void drainPendingAdminMutations();
     AdminHttpServer::Response handleAdminHttpRequest(
         std::string_view action, const std::map<std::string, std::string>& query);
     bool acceptPlacedObject(PlacedObject& object, ConnectedClient* source = nullptr);
@@ -510,6 +512,44 @@ private:
     void setNextWorldMpNum(uint64_t nextMpNum);
     bool removePlacedObjectAuthoritative(uint32_t mpNum, const std::string& cellId);
     bool removePlacedObjectAuthoritativeAnyCell(uint32_t mpNum, const std::string& preferredCellId);
+
+    struct CellResetSummary
+    {
+        std::string cellId;
+        std::size_t runtimeSpawnedActors = 0;
+        std::size_t runtimeVanillaActors = 0;
+        std::size_t deadVanillaActors = 0;
+        std::size_t disposedVanillaActors = 0;
+        std::size_t runtimePlacedObjects = 0;
+        std::size_t runtimeContainers = 0;
+        std::size_t runtimeDoorStates = 0;
+    };
+
+    struct CellResetPlan
+    {
+        CellResetSummary summary;
+        std::vector<ActorRegistryRecord> removedActors;
+        std::unordered_set<std::string> resetSuppressedVanillaDeaths;
+        std::vector<PlacedObject> placedObjects;
+        std::vector<ContainerRecord> containers;
+        std::vector<DoorEntry> doors;
+    };
+
+    struct WorldResetResult
+    {
+        bool success = false;
+        std::vector<CellResetSummary> cells;
+        WorldCellResetDbResult database;
+        std::string error;
+        double dbMs = 0.0;
+        double runtimeMs = 0.0;
+        double publishMs = 0.0;
+    };
+
+    WorldResetResult resetCellStatesForTesting(
+        const std::vector<std::string>& cellIds, bool resetAll);
+    std::vector<std::string> collectResettableCellIds();
+    CellResetPlan prepareCellResetPlan(const std::string& cellId);
     void persistSpawnedActorIfNeeded(ActorRegistryRecord& record, uint64_t now = 0, bool force = true);
     void deletePersistedSpawnedActor(uint32_t mpNum);
     void sendActorLifecycleEvent(const char* eventName, const BaseActor& actor, bool persistent);
@@ -729,8 +769,10 @@ private:
     bool mAdminHttpEnabled = true;
     int mAdminHttpPort = 8081;
     int mAdminHttpTimeoutMs = 250;
+    int mAdminResetTimeoutMs = 30000;
     std::string mAdminHttpHost = "127.0.0.1";
     std::unique_ptr<AdminHttpServer> mAdminHttpServer;
+    AdminMutationQueue mAdminMutationQueue;
     std::mutex mPendingAdminDiagnosticMutex;
     std::vector<std::pair<std::uint32_t, std::string>> mPendingAdminDiagnosticCommands;
     MechanicsSnapshotRegistry mMechanicsSnapshots;
@@ -861,6 +903,8 @@ private:
     static constexpr float       MAX_MOVE_SPEED = 600.f;
     void loadPersistentWorldState();
     bool repairContainerRestockingMetadata(ContainerRecord& record, int playerLevel);
+    bool isCurrentStaticContainerAuthorityGeneration(const InventorySourceIdentity& identity) const;
+    std::uint32_t currentActorAuthorityGenerationForCell(std::string_view cellId) const;
     void sendCellStateToClient(HSteamNetConnection conn, const std::string& cellId);
     void sendCellObjectStateToClient(HSteamNetConnection conn, const std::string& cellId);
 };

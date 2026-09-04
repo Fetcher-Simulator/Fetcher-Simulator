@@ -75,6 +75,7 @@ std::string mwmp::canonicalInventoryPutRequest(const InventoryPutRequest& reques
     appendU32(bytes, request.destination.mpNum);
     appendU64(bytes, request.destination.actorInstanceId);
     appendU32(bytes, request.destination.migrationGeneration);
+    appendU32(bytes, request.destination.authorityGeneration);
     appendString(bytes, request.itemRefId);
     appendU32(bytes, request.itemInstanceId);
     appendU32(bytes, std::bit_cast<std::uint32_t>(request.itemCharge));

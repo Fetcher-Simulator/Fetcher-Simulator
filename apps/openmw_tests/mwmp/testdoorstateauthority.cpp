@@ -86,3 +86,21 @@ TEST(DoorStateAuthorityTest, RejectsDynamicDoorUntilAuthoritativeGeometryExists)
     EXPECT_EQ(mwmp::validateDoorStateProposal(proposalValue, context()),
         mwmp::DoorStateProposalError::UnsupportedDynamicDoor);
 }
+
+TEST(DoorStateAuthorityTest, BaseLockedDoorRemainsLockedWithoutPersistedOverride)
+{
+    auto contextValue = context();
+    contextValue.reference->baseLocked = true;
+    contextValue.reference->baseLockLevel = 75;
+
+    auto proposed = proposal();
+    proposed.isLocked = true;
+    proposed.lockLevel = 75;
+    EXPECT_EQ(mwmp::validateDoorStateProposal(proposed, contextValue),
+        mwmp::DoorStateProposalError::None);
+
+    proposed.isLocked = false;
+    proposed.lockLevel = 0;
+    EXPECT_EQ(mwmp::validateDoorStateProposal(proposed, contextValue),
+        mwmp::DoorStateProposalError::LockStateMutation);
+}

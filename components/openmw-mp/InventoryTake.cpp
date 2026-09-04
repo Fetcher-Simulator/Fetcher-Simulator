@@ -130,12 +130,14 @@ std::string mwmp::canonicalInventoryTakeRequest(const InventoryTakeRequest& requ
     appendU32(bytes, request.source.mpNum);
     appendU64(bytes, request.source.actorInstanceId);
     appendU32(bytes, request.source.migrationGeneration);
+    appendU32(bytes, request.source.authorityGeneration);
     appendString(bytes, request.merchant.cellId);
     appendString(bytes, request.merchant.refId);
     appendU32(bytes, request.merchant.refNum);
     appendU32(bytes, request.merchant.mpNum);
     appendU64(bytes, request.merchant.actorInstanceId);
     appendU32(bytes, request.merchant.migrationGeneration);
+    appendU32(bytes, request.merchant.authorityGeneration);
     appendString(bytes, request.itemRefId);
     appendU32(bytes, std::bit_cast<std::uint32_t>(request.itemCharge));
     appendU32(bytes, std::bit_cast<std::uint32_t>(request.itemEnchantmentCharge));

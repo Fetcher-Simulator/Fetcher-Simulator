@@ -19,12 +19,24 @@ namespace MWGui
     class ContainerItemModel : public ItemModel
     {
     public:
+        enum class ContentResolution
+        {
+            ResolveTemporarily,
+            RequireAuthoritative
+        };
+
         ContainerItemModel(const std::vector<MWWorld::Ptr>& itemSources, const std::vector<MWWorld::Ptr>& worldItems);
         ///< @note The order of elements \a itemSources matters here. The first element has the highest priority for
         ///< removal,
         ///  while the last element will be used to add new items to.
 
-        ContainerItemModel(const MWWorld::Ptr& source);
+        ContainerItemModel(const MWWorld::Ptr& source,
+            ContentResolution contentResolution = ContentResolution::ResolveTemporarily);
+
+        static MWWorld::ResolutionHandle resolveContentsForDisplay(
+            MWWorld::ContainerStore& store, ContentResolution contentResolution);
+        static bool canDisplayContents(
+            const MWWorld::ContainerStore& store, ContentResolution contentResolution);
 
         bool allowedToUseItems() const override;
 
@@ -85,6 +97,7 @@ namespace MWGui
         void flushSyncBatch();
 
         std::vector<std::pair<MWWorld::Ptr, MWWorld::ResolutionHandle>> mItemSources;
+        std::vector<ContentResolution> mContentResolutions;
         std::vector<MWWorld::Ptr> mWorldItems;
         const bool mTrading;
         std::vector<ItemStack> mItems;

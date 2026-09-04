@@ -9,6 +9,7 @@
 
 namespace mwmp
 {
+    inline constexpr std::uint16_t ContainerWireVersion = 2;
     // -----------------------------------------------------------------------
     // PacketContainer — shared container (chest/barrel/crate) sync.
     //
@@ -27,6 +28,7 @@ namespace mwmp
     {
     public:
         ContainerRecord container;
+        std::uint32_t authorityGeneration = 0;
 
         PacketContainer() : BasePacket(PacketType::Container) {}
 
@@ -59,6 +61,8 @@ namespace mwmp
 
         void pack(WriteStream& ws) override
         {
+            ws.write(ContainerWireVersion);
+            ws.write(authorityGeneration);
             ws.writeString(container.cellId);
             ws.writeString(container.refId);
             ws.write(container.refNum);
@@ -72,6 +76,11 @@ namespace mwmp
 
         void unpack(ReadStream& rs) override
         {
+            std::uint16_t wireVersion = 0;
+            rs.read(wireVersion);
+            if (wireVersion != ContainerWireVersion)
+                throw std::runtime_error("PacketContainer: unsupported wire version");
+            rs.read(authorityGeneration);
             container.cellId = rs.readString();
             container.refId  = rs.readString();
             rs.read(container.refNum);
@@ -83,9 +92,15 @@ namespace mwmp
             for (auto& item : container.items)
                 unpackItem(rs, item);
             const auto action = static_cast<ContainerAction>(mAction);
-            if (container.cellId.empty() || container.refId.empty()
+            const bool cellReset = action == ContainerAction::Reset;
+            if (container.cellId.empty()
+                || (cellReset
+                    ? (!container.refId.empty() || container.refNum != 0 || container.mpNum != 0
+                        || !container.items.empty())
+                    : container.refId.empty())
                 || (action != ContainerAction::Set && action != ContainerAction::Add
-                    && action != ContainerAction::Remove && action != ContainerAction::BootstrapRequest)
+                    && action != ContainerAction::Remove && action != ContainerAction::BootstrapRequest
+                    && action != ContainerAction::Reset)
                 || std::any_of(container.items.begin(), container.items.end(), [](const ContainerItem& item) {
                     return item.refId.empty() || item.count <= 0;
                 })

@@ -815,6 +815,29 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
 
     namespace
     {
+        class ConnectionExclusiveGuard
+        {
+        public:
+            explicit ConnectionExclusiveGuard(sqlite3* db)
+                : mMutex(db ? sqlite3_db_mutex(db) : nullptr)
+            {
+                if (mMutex)
+                    sqlite3_mutex_enter(mMutex);
+            }
+
+            ~ConnectionExclusiveGuard()
+            {
+                if (mMutex)
+                    sqlite3_mutex_leave(mMutex);
+            }
+
+            ConnectionExclusiveGuard(const ConnectionExclusiveGuard&) = delete;
+            ConnectionExclusiveGuard& operator=(const ConnectionExclusiveGuard&) = delete;
+
+        private:
+            sqlite3_mutex* mMutex = nullptr;
+        };
+
         struct BrowsableTableDef
         {
             const char* name;
@@ -4655,6 +4678,110 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
 
             exec("COMMIT");
             return removed;
+        }
+        catch (...)
+        {
+            try
+            {
+                exec("ROLLBACK");
+            }
+            catch (...)
+            {
+            }
+            throw;
+        }
+    }
+
+    WorldCellResetDbResult PlayerDatabase::resetWorldCells(const std::vector<std::string>& cellIds,
+        bool resetAll, WorldCellResetFailurePoint failurePoint)
+    {
+        if (!resetAll && cellIds.empty())
+            return {};
+
+        ConnectionExclusiveGuard connectionGuard(mDb);
+        WorldCellResetDbResult result;
+        exec("BEGIN IMMEDIATE");
+        try
+        {
+            if (!resetAll)
+            {
+                exec("CREATE TEMP TABLE IF NOT EXISTS openmw_reset_cells(cell_id TEXT PRIMARY KEY)");
+                exec("DELETE FROM openmw_reset_cells");
+                sqlite3_stmt* insert = prepare(
+                    "INSERT OR IGNORE INTO openmw_reset_cells(cell_id) VALUES(?1)");
+                for (const std::string& cellId : cellIds)
+                {
+                    if (cellId.empty())
+                        continue;
+                    sqlite3_bind_text(insert, 1, cellId.c_str(), -1, SQLITE_TRANSIENT);
+                    checkSqlite(sqlite3_step(insert), mDb, "resetWorldCells(insert target)");
+                    sqlite3_reset(insert);
+                    sqlite3_clear_bindings(insert);
+                }
+                sqlite3_finalize(insert);
+            }
+
+            auto deleteRows = [&](const char* table, const char* cellColumn, const char* operation) {
+                std::string sql = "DELETE FROM ";
+                sql += table;
+                if (!resetAll)
+                {
+                    sql += " WHERE ";
+                    sql += cellColumn;
+                    sql += " IN (SELECT cell_id FROM openmw_reset_cells)";
+                }
+                sqlite3_stmt* statement = prepare(sql.c_str());
+                checkSqlite(sqlite3_step(statement), mDb, operation);
+                const std::size_t removed = static_cast<std::size_t>(sqlite3_changes(mDb));
+                sqlite3_finalize(statement);
+                return removed;
+            };
+            auto injectFailure = [&](WorldCellResetFailurePoint point) {
+                if (failurePoint == point)
+                    throw std::runtime_error("injected world cell reset failure");
+            };
+
+            result.worldObjects = deleteRows(
+                "world_objects", "cell_id", "resetWorldCells(world objects)");
+            injectFailure(WorldCellResetFailurePoint::AfterWorldObjects);
+            result.spawnedActors = deleteRows(
+                "world_spawned_actors", "cell_id", "resetWorldCells(spawned actors)");
+            injectFailure(WorldCellResetFailurePoint::AfterSpawnedActors);
+            result.deadAndDisposedVanillaActors = deleteRows(
+                "world_dead_vanilla_actors", "cell_id", "resetWorldCells(dead vanilla actors)");
+            injectFailure(WorldCellResetFailurePoint::AfterDeadVanillaActors);
+            result.containers = deleteRows(
+                "world_containers", "cell_id", "resetWorldCells(containers)");
+            injectFailure(WorldCellResetFailurePoint::AfterContainers);
+            result.doors = deleteRows(
+                "world_doors", "cell_id", "resetWorldCells(doors)");
+            injectFailure(WorldCellResetFailurePoint::AfterDoors);
+
+            std::string linkSql =
+                "DELETE FROM world_dynamic_record_links WHERE ";
+            if (resetAll)
+            {
+                linkSql += "link_kind IN ('placed_object','spawned_actor','container_parent',"
+                           "'container_item','door_state')";
+            }
+            else
+            {
+                linkSql +=
+                    "((link_kind='placed_object' OR link_kind='spawned_actor')"
+                    " AND owner_b IN (SELECT cell_id FROM openmw_reset_cells))"
+                    " OR ((link_kind='container_parent' OR link_kind='container_item'"
+                    " OR link_kind='door_state')"
+                    " AND owner_a IN (SELECT cell_id FROM openmw_reset_cells))";
+            }
+            sqlite3_stmt* links = prepare(linkSql.c_str());
+            checkSqlite(sqlite3_step(links), mDb, "resetWorldCells(dynamic record links)");
+            result.dynamicRecordLinks = static_cast<std::size_t>(sqlite3_changes(mDb));
+            sqlite3_finalize(links);
+
+            if (!resetAll)
+                exec("DELETE FROM openmw_reset_cells");
+            exec("COMMIT");
+            return result;
         }
         catch (...)
         {

@@ -64,6 +64,7 @@ namespace mwmp
         Add    = 1,  // Add items to contents
         Remove = 2,  // Remove items from contents
         BootstrapRequest = 3, // Server asks current source authority for a full Set
+        Reset = 4, // Server invalidates all cached world/container state for a cell
     };
 
 } // namespace mwmp

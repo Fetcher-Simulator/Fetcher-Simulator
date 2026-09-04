@@ -1855,6 +1855,7 @@ bool MPServer::restoreActiveVehicleObject(ConnectedClient& client)
 
     PacketObjectPlace packet;
     packet.object = object;
+    packet.authorityGeneration = currentActorAuthorityGenerationForCell(object.cellId);
     broadcastToCell(object.cellId, packet.encode());
 
     Log(Debug::Info) << "[Server] Restored parked vehicle"
@@ -2305,6 +2306,8 @@ void MPServer::run()
     mAdminHttpHost = mLua.getString("Config", "ADMIN_HTTP_HOST", "127.0.0.1");
     mAdminHttpPort = std::max(1, mLua.getInt("Config", "ADMIN_HTTP_PORT", 8081));
     mAdminHttpTimeoutMs = std::max(1, mLua.getInt("Config", "ADMIN_HTTP_TIMEOUT_MS", 250));
+    mAdminResetTimeoutMs = std::max(1000,
+        mLua.getInt("Config", "ADMIN_HTTP_RESET_TIMEOUT_MS", 30000));
     mObservationDiagnosticsEnabled = mLua.getBool("Config", "OBSERVATION_DIAGNOSTICS_ENABLED", false);
 
     std::string normalizedAdminHttpHost = mAdminHttpHost;
@@ -2352,6 +2355,7 @@ void MPServer::run()
 
         mInterface->RunCallbacks();
         processIncomingMessages();
+        drainPendingAdminMutations();
         {
             std::vector<std::pair<std::uint32_t, std::string>> pendingDiagnostics;
             {
@@ -2422,6 +2426,9 @@ void MPServer::run()
 // ---------------------------------------------------------------------------
 void MPServer::shutdown()
 {
+    // Wake HTTP handlers before joining the listener thread. A cancelled
+    // queued destructive mutation is guaranteed never to run later.
+    mAdminMutationQueue.cancelAll();
     stopAdminHttpServer();
     mLua.stop();
 
@@ -6686,6 +6693,22 @@ bool MPServer::repairContainerRestockingMetadata(ContainerRecord& record, int pl
 }
 
 // ---------------------------------------------------------------------------
+bool MPServer::isCurrentStaticContainerAuthorityGeneration(const InventorySourceIdentity& identity) const
+{
+    if (identity.cellId.empty() || identity.actorInstanceId != 0)
+        return true;
+    const auto cellIt = mWorld.actorCells.find(identity.cellId);
+    return identity.authorityGeneration != 0 && cellIt != mWorld.actorCells.end()
+        && identity.authorityGeneration == cellIt->second.authorityGeneration;
+}
+
+std::uint32_t MPServer::currentActorAuthorityGenerationForCell(std::string_view cellId) const
+{
+    const auto cellIt = mWorld.actorCells.find(std::string(cellId));
+    return cellIt == mWorld.actorCells.end() ? 0 : cellIt->second.authorityGeneration;
+}
+
+// ---------------------------------------------------------------------------
 void MPServer::sendCellStateToClient(HSteamNetConnection conn, const std::string& cellId)
 {
     sendGameSettingsToClient(conn, cellId);
@@ -6703,6 +6726,7 @@ void MPServer::sendCellObjectStateToClient(HSteamNetConnection conn, const std::
         {
             PacketObjectPlace pkt;
             pkt.object = object;
+            pkt.authorityGeneration = currentActorAuthorityGenerationForCell(object.cellId);
             sendTo(conn, pkt.encode());
         }
     }
@@ -6723,6 +6747,8 @@ void MPServer::sendCellObjectStateToClient(HSteamNetConnection conn, const std::
         }
         PacketContainer pkt;
         pkt.container = record;
+        const auto actorCellIt = mWorld.actorCells.find(cellId);
+        pkt.authorityGeneration = actorCellIt == mWorld.actorCells.end() ? 0 : actorCellIt->second.authorityGeneration;
         pkt.mAction = static_cast<uint8_t>(ContainerAction::Set);
         sendTo(conn, pkt.encode());
     }
@@ -7104,6 +7130,7 @@ MPServer::DynamicReferenceCleanupStats MPServer::cleanupDynamicReferences(
         {
             PacketContainer pkt;
             pkt.container = record;
+            pkt.authorityGeneration = currentActorAuthorityGenerationForCell(record.cellId);
             pkt.mAction = static_cast<uint8_t>(ContainerAction::Set);
             broadcastToCell(record.cellId, pkt.encode());
         }
@@ -14488,6 +14515,16 @@ void MPServer::handleObjectPlace(ConnectedClient& c, const uint8_t* data, size_t
     PacketObjectPlace pkt;
     if (!pkt.decode(data, size)) return;
 
+    const std::uint32_t currentGeneration = currentActorAuthorityGenerationForCell(pkt.object.cellId);
+    if (pkt.authorityGeneration == 0 || pkt.authorityGeneration != currentGeneration)
+    {
+        Log(Debug::Warning) << "[Server] Rejected stale ObjectPlace player=" << c.name
+                            << " cell=" << pkt.object.cellId
+                            << " incomingGeneration=" << pkt.authorityGeneration
+                            << " currentGeneration=" << currentGeneration;
+        return;
+    }
+
     if (!acceptPlacedObject(pkt.object, &c))
         return;
 
@@ -14960,6 +14997,14 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
         reject(validation != InventoryTakeError::None ? validation : InventoryTakeError::PersistenceFailure);
         return;
     }
+    if (!isCurrentStaticContainerAuthorityGeneration(request.source))
+    {
+        Log(Debug::Warning) << "[InventoryTake] stale static container generation request="
+                            << request.requestId << " cell=" << request.source.cellId
+                            << " incoming=" << request.source.authorityGeneration;
+        reject(InventoryTakeError::StaleSource);
+        return;
+    }
     if (request.source.refId.starts_with("mp_remote_"))
     {
         Log(Debug::Warning) << "[InventoryTake] rejected remote-player inventory source request="
@@ -15201,6 +15246,7 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
                 bootstrap.container.refId = request.source.refId;
                 bootstrap.container.refNum = request.source.refNum;
                 bootstrap.container.mpNum = request.source.mpNum;
+                bootstrap.authorityGeneration = currentActorAuthorityGenerationForCell(request.source.cellId);
                 bootstrap.mAction = static_cast<std::uint8_t>(ContainerAction::BootstrapRequest);
                 sendTo(authority->second.conn, bootstrap.encode());
             }
@@ -15655,6 +15701,7 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
             sourcePacket.container.mpNum = sourceIt->second.mpNum;
             sourcePacket.container.hasAuthority = true;
             sourcePacket.container.items = removedSourceItems;
+            sourcePacket.authorityGeneration = currentActorAuthorityGenerationForCell(sourceIt->second.cellId);
             sourcePacket.mAction = static_cast<std::uint8_t>(ContainerAction::Remove);
             broadcastToCell(canonicalPlayerCell, sourcePacket.encode());
             scheduleGeneratedDynamicRecordGc("inventory_take");
@@ -15738,6 +15785,14 @@ void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data
         return;
     }
 
+    if (!isCurrentStaticContainerAuthorityGeneration(request.destination))
+    {
+        Log(Debug::Warning) << "[InventoryPut] stale static container generation request="
+                            << request.requestId << " cell=" << request.destination.cellId
+                            << " incoming=" << request.destination.authorityGeneration;
+        reject(InventoryPutError::StaleDestination);
+        return;
+    }
     const std::string requestHash = crypto::sha256hex(canonicalInventoryPutRequest(request));
     if (const auto stored = mPlayerDb->loadInventoryTake(
             c.dbAccountId, c.dbCharacterId, request.requestId))
@@ -15762,6 +15817,7 @@ void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data
         {
             PacketContainer correction;
             correction.container = destinationIt->second;
+            correction.authorityGeneration = currentActorAuthorityGenerationForCell(destinationIt->second.cellId);
             correction.mAction = static_cast<std::uint8_t>(ContainerAction::Set);
             sendTo(c.conn, correction.encode());
         }
@@ -15873,6 +15929,7 @@ void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data
                 bootstrap.container.refId = request.destination.refId;
                 bootstrap.container.refNum = request.destination.refNum;
                 bootstrap.container.mpNum = request.destination.mpNum;
+                bootstrap.authorityGeneration = currentActorAuthorityGenerationForCell(request.destination.cellId);
                 bootstrap.mAction = static_cast<std::uint8_t>(ContainerAction::BootstrapRequest);
                 sendTo(authority->second.conn, bootstrap.encode());
             }
@@ -16055,6 +16112,7 @@ void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data
         destinationDelta.container.mpNum = resultingDestination.mpNum;
         destinationDelta.container.hasAuthority = true;
         destinationDelta.container.items.push_back(destinationItem);
+        destinationDelta.authorityGeneration = currentActorAuthorityGenerationForCell(resultingDestination.cellId);
         destinationDelta.mAction = static_cast<std::uint8_t>(ContainerAction::Add);
         broadcastToCell(canonicalPlayerCell, destinationDelta.encode());
         scheduleGeneratedDynamicRecordGc("inventory_put");
@@ -16114,6 +16172,16 @@ void MPServer::handleBarterRequest(ConnectedClient& c, const uint8_t* data, size
         return;
     }
 
+    const auto staleStaticBarterSource = std::find_if(request.lines.begin(), request.lines.end(),
+        [&](const BarterLine& line) { return !isCurrentStaticContainerAuthorityGeneration(line.source); });
+    if (staleStaticBarterSource != request.lines.end())
+    {
+        Log(Debug::Warning) << "[Barter] stale static barter source generation request="
+                            << request.requestId << " cell=" << staleStaticBarterSource->source.cellId
+                            << " incoming=" << staleStaticBarterSource->source.authorityGeneration;
+        reject(BarterError::StaleSource);
+        return;
+    }
     const std::string requestHash = crypto::sha256hex(canonicalBarterRequest(request));
     if (const auto stored = mPlayerDb->loadInventoryTake(c.dbAccountId, c.dbCharacterId, request.requestId))
     {
@@ -16259,6 +16327,7 @@ void MPServer::handleBarterRequest(ConnectedClient& c, const uint8_t* data, size
         bootstrap.container.refId = identity.refId;
         bootstrap.container.refNum = identity.refNum;
         bootstrap.container.mpNum = identity.mpNum;
+        bootstrap.authorityGeneration = currentActorAuthorityGenerationForCell(identity.cellId);
         bootstrap.mAction = static_cast<std::uint8_t>(ContainerAction::BootstrapRequest);
         sendTo(authority->second.conn, bootstrap.encode());
     };
@@ -16901,6 +16970,7 @@ void MPServer::handleBarterRequest(ConnectedClient& c, const uint8_t* data, size
             PacketContainer update;
             update.container = mutation.resulting;
             update.container.hasAuthority = true;
+            update.authorityGeneration = currentActorAuthorityGenerationForCell(mutation.resulting.cellId);
             update.mAction = static_cast<std::uint8_t>(ContainerAction::Set);
             broadcastToCell(canonicalPlayerCell, update.encode());
         }
@@ -17619,6 +17689,7 @@ void MPServer::handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t
             evidence.cellId, evidence.refId, evidence.refNum, evidence.mpNum)] = evidence;
         PacketContainer evidencePacket;
         evidencePacket.container = evidence;
+        evidencePacket.authorityGeneration = currentActorAuthorityGenerationForCell(evidence.cellId);
         evidencePacket.mAction = static_cast<std::uint8_t>(ContainerAction::Set);
         broadcastToCell(evidence.cellId, evidencePacket.encode());
     }
@@ -17904,6 +17975,16 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
 
     bool senderAuthoritative = false;
     auto actorCellIt = mWorld.actorCells.find(pkt.container.cellId);
+    const std::uint32_t currentAuthorityGeneration = actorCellIt == mWorld.actorCells.end()
+        ? 0 : actorCellIt->second.authorityGeneration;
+    if (pkt.authorityGeneration == 0 || pkt.authorityGeneration != currentAuthorityGeneration)
+    {
+        Log(Debug::Warning) << "[Server] Rejected stale Container generation from=" << c.name
+                            << " cell=" << pkt.container.cellId
+                            << " incoming=" << pkt.authorityGeneration
+                            << " current=" << currentAuthorityGeneration;
+        return;
+    }
 
     if (action == ContainerAction::BootstrapRequest)
     {
@@ -17914,6 +17995,7 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
         {
             PacketContainer current;
             current.container = currentIt->second;
+                current.authorityGeneration = currentAuthorityGeneration;
             current.mAction = static_cast<std::uint8_t>(ContainerAction::Set);
             sendTo(c.conn, current.encode());
             Log(Debug::Info) << "[Server] Container bootstrap satisfied from authoritative state requester=" << c.name
@@ -17953,6 +18035,7 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
         bootstrap.container.refId = pkt.container.refId;
         bootstrap.container.refNum = pkt.container.refNum;
         bootstrap.container.mpNum = pkt.container.mpNum;
+        bootstrap.authorityGeneration = currentAuthorityGeneration;
         bootstrap.mAction = static_cast<std::uint8_t>(ContainerAction::BootstrapRequest);
         sendTo(authority->conn, bootstrap.encode());
         Log(Debug::Info) << "[Server] Container bootstrap relayed requester=" << c.name
@@ -17990,6 +18073,7 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
             {
                 PacketContainer current;
                 current.container = currentIt->second;
+                current.authorityGeneration = currentAuthorityGeneration;
                 current.mAction = static_cast<std::uint8_t>(ContainerAction::Set);
                 sendTo(c.conn, current.encode());
             }
@@ -18027,6 +18111,7 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
             }
             PacketContainer current;
             current.container = authoritative;
+                current.authorityGeneration = currentAuthorityGeneration;
             current.mAction = static_cast<uint8_t>(ContainerAction::Set);
             sendTo(c.conn, current.encode());
             Log(Debug::Info) << "[Server] Container(Set replay): player=" << c.name
@@ -18050,6 +18135,7 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
 
         PacketContainer accepted;
         accepted.container = authoritative;
+        accepted.authorityGeneration = currentAuthorityGeneration;
         accepted.mAction = static_cast<uint8_t>(ContainerAction::Set);
         sendTo(c.conn, accepted.encode());
         broadcastToCell(authoritative.cellId, accepted.encode(), c.conn);
@@ -18141,8 +18227,28 @@ void MPServer::handleDoorState(ConnectedClient& c, const uint8_t* data, size_t s
             {
                 DoorEntry initial = requested;
                 initial.isOpen = false;
-                initial.isLocked = false;
-                initial.lockLevel = 0;
+                if (mCollisionWorld)
+                {
+                    const auto base = mCollisionWorld->findDoor(
+                        requested.cellId, requested.refId, requested.refNum);
+                    if (base)
+                    {
+                        initial.refId = base->refId;
+                        initial.refNum = base->refNum;
+                        initial.isLocked = base->baseLocked;
+                        initial.lockLevel = base->baseLockLevel;
+                    }
+                    else
+                    {
+                        initial.isLocked = false;
+                        initial.lockLevel = 0;
+                    }
+                }
+                else
+                {
+                    initial.isLocked = false;
+                    initial.lockLevel = 0;
+                }
                 initial.revision = 0;
                 correction.doors.push_back(std::move(initial));
             }
@@ -18188,7 +18294,8 @@ void MPServer::handleDoorState(ConnectedClient& c, const uint8_t* data, size_t s
     if (door)
     {
         context.reference = DoorStateReference { accepted.cellId, door->refId, door->refNum,
-            { door->position.x(), door->position.y(), door->position.z() } };
+            { door->position.x(), door->position.y(), door->position.z() },
+            door->baseLocked, door->baseLockLevel };
         accepted.refId = door->refId;
         accepted.refNum = door->refNum;
     }
@@ -18214,8 +18321,8 @@ void MPServer::handleDoorState(ConnectedClient& c, const uint8_t* data, size_t s
     }
     else
     {
-        accepted.isLocked = false;
-        accepted.lockLevel = 0;
+        accepted.isLocked = context.reference->baseLocked;
+        accepted.lockLevel = context.reference->baseLockLevel;
     }
 
     try
@@ -18365,6 +18472,7 @@ void MPServer::handleLuaEvent(ConnectedClient& c, const uint8_t* data, size_t si
             c.projectileRecoveryCredits.erase(credit);
             PacketObjectPlace placed;
             placed.object = object;
+            placed.authorityGeneration = currentActorAuthorityGenerationForCell(object.cellId);
             sendTo(c.conn, placed.encode());
             broadcastToCell(cellId, placed.encode(), c.conn);
             Log(Debug::Info) << "[Server] Projectile recovery accepted player=" << c.name
@@ -18510,6 +18618,7 @@ bool MPServer::placeObject(const std::string& refId, int count, const std::strin
 
     PacketObjectPlace pkt;
     pkt.object = object;
+    pkt.authorityGeneration = currentActorAuthorityGenerationForCell(object.cellId);
     broadcastToCell(object.cellId, pkt.encode());
     return true;
 }
@@ -18949,160 +19058,7 @@ bool MPServer::removeActor(uint32_t mpNum, const std::string& cellId)
     return true;
 }
 
-bool MPServer::resetCellStateForTesting(const std::string& cellId)
-{
-    if (cellId.empty())
-        return false;
-
-    std::vector<ActorRegistryRecord> removedRecords;
-    std::unordered_set<std::string> resetSuppressedVanillaDeaths;
-    std::size_t runtimeSpawnedActors = 0;
-    std::size_t runtimeVanillaActors = 0;
-    std::size_t deadVanillaActors = 0;
-    std::size_t disposedVanillaActors = 0;
-
-    auto cellIt = mWorld.actorCells.find(cellId);
-    if (cellIt != mWorld.actorCells.end())
-    {
-        removedRecords.reserve(cellIt->second.actors.size());
-        for (auto& [actorKey, record] : cellIt->second.actors)
-        {
-            ensureActorNetId(record, cellId);
-            removedRecords.push_back(record);
-            if (record.actor.mpNum != 0)
-            {
-                ++runtimeSpawnedActors;
-                markLuaActorRemoved(record.actor.mpNum);
-            }
-            else
-            {
-                ++runtimeVanillaActors;
-                resetSuppressedVanillaDeaths.insert(actorKey);
-            }
-            forgetActorLocation(record.actor, cellId);
-        }
-        cellIt->second.actors.clear();
-        cellIt->second.staleLiveVanillaDeathResendMs.clear();
-    }
-
-    auto deadCellIt = mWorld.deadVanillaActorCells.find(cellId);
-    if (deadCellIt != mWorld.deadVanillaActorCells.end())
-    {
-        for (auto& [actorKey, record] : deadCellIt->second)
-        {
-            ActorRegistryRecord removedRecord = record;
-            ensureActorNetId(removedRecord, cellId);
-            removedRecords.push_back(removedRecord);
-            forgetActorLocation(removedRecord.actor, cellId);
-            resetSuppressedVanillaDeaths.insert(actorKey);
-            ++deadVanillaActors;
-        }
-        mWorld.deadVanillaActorCells.erase(deadCellIt);
-    }
-
-    for (auto it = mWorld.disposedVanillaActors.begin(); it != mWorld.disposedVanillaActors.end();)
-    {
-        if (it->second.cellId != cellId)
-        {
-            ++it;
-            continue;
-        }
-        it = mWorld.disposedVanillaActors.erase(it);
-        ++disposedVanillaActors;
-    }
-
-    if (cellIt == mWorld.actorCells.end())
-        cellIt = mWorld.actorCells.emplace(cellId, CellActorState {}).first;
-    cellIt->second.staleLiveVanillaDeathResendMs.clear();
-    cellIt->second.resetSuppressedVanillaDeaths.insert(
-        resetSuppressedVanillaDeaths.begin(), resetSuppressedVanillaDeaths.end());
-
-    if (!removedRecords.empty())
-    {
-        broadcastActorIdentityRemovalForCell(cellId, cellIt->second, removedRecords);
-        for (const ActorRegistryRecord& record : removedRecords)
-            forgetActorNetId(record.actorNetId, record.actor);
-
-        ActorList actorList;
-        actorList.cellId = cellId;
-        actorList.isAuthority = false;
-        actorList.authorityGuid = cellIt->second.authorityGuid;
-        actorList.authorityGeneration = cellIt->second.authorityGeneration;
-        actorList.snapshotSequence = cellIt->second.nextSnapshotSequence++;
-        actorList.serverTimestamp = currentServerTimeMs();
-
-        PacketActorList pkt;
-        pkt.setActorList(&actorList);
-        broadcastActorToCell(cellId, pkt.encode());
-    }
-
-    std::size_t runtimePlacedObjects = 0;
-    auto objectsIt = mWorld.placedObjects.find(cellId);
-    if (objectsIt != mWorld.placedObjects.end())
-    {
-        runtimePlacedObjects = objectsIt->second.size();
-        for (const PlacedObject& object : objectsIt->second)
-            mLua.removePlacedObject(object.mpNum);
-        mWorld.placedObjects.erase(objectsIt);
-    }
-
-    std::size_t runtimeContainers = 0;
-    for (auto it = mWorld.containers.begin(); it != mWorld.containers.end();)
-    {
-        if (it->second.cellId != cellId)
-        {
-            ++it;
-            continue;
-        }
-
-        it = mWorld.containers.erase(it);
-        ++runtimeContainers;
-    }
-
-    const std::size_t runtimeDoorStates = mWorld.doorStates.erase(cellId);
-
-    std::size_t dbPlacedObjects = 0;
-    std::size_t dbSpawnedActors = 0;
-    std::size_t dbDeadVanillaActors = 0;
-    std::size_t dbContainers = 0;
-    std::size_t dbDoorStates = 0;
-    std::size_t dbSpawnedActorLinks = 0;
-    if (mPlayerDb)
-    {
-        dbPlacedObjects = mPlayerDb->deleteWorldObjectsForCell(cellId);
-        dbSpawnedActors = mPlayerDb->deleteSpawnedActorsForCell(cellId);
-        dbDeadVanillaActors = mPlayerDb->deleteDeadVanillaActorsForCell(cellId);
-        dbContainers = mPlayerDb->deleteContainerRecordsForCell(cellId);
-        dbDoorStates = mPlayerDb->deleteDoorStatesForCell(cellId);
-        dbSpawnedActorLinks = mPlayerDb->deleteSpawnedActorDynamicRecordLinksForCell(cellId);
-        scheduleGeneratedDynamicRecordGc("reset_cell");
-    }
-
-    refreshActorAuthorityForCell(cellId);
-    sendActorStateToInterestedClients(cellId);
-    syncLuaPlayerSnapshot();
-
-    Log(Debug::Info) << "[Server] Reset cell state"
-                     << " cell=" << cellId
-                     << " runtimeSpawnedActors=" << runtimeSpawnedActors
-                     << " runtimeVanillaActors=" << runtimeVanillaActors
-                     << " deadVanillaActors=" << deadVanillaActors
-                     << " disposedVanillaActors=" << disposedVanillaActors
-                     << " resetSuppressedVanillaDeaths=" << resetSuppressedVanillaDeaths.size()
-                     << " runtimePlacedObjects=" << runtimePlacedObjects
-                     << " runtimeContainers=" << runtimeContainers
-                     << " runtimeDoorStates=" << runtimeDoorStates
-                     << " dbPlacedObjects=" << dbPlacedObjects
-                     << " dbSpawnedActors=" << dbSpawnedActors
-                     << " dbDeadVanillaActors=" << dbDeadVanillaActors
-                     << " dbContainers=" << dbContainers
-                     << " dbDoorStates=" << dbDoorStates
-                     << " dbSpawnedActorLinks=" << dbSpawnedActorLinks;
-
-    return true;
-}
-
-std::size_t MPServer::resetAllCellStatesForTesting()
+std::vector<std::string> MPServer::collectResettableCellIds()
 {
     std::unordered_set<std::string> uniqueCellIds;
     auto rememberCell = [&](const std::string& cellId) {
@@ -19157,18 +19113,290 @@ std::size_t MPServer::resetAllCellStatesForTesting()
             rememberCell(door.cellId);
     }
 
-    std::vector<std::string> cellIds(uniqueCellIds.begin(), uniqueCellIds.end());
-    std::sort(cellIds.begin(), cellIds.end());
+    std::vector<std::string> result(uniqueCellIds.begin(), uniqueCellIds.end());
+    std::sort(result.begin(), result.end());
+    return result;
+}
 
-    std::size_t resetCells = 0;
-    for (const std::string& cellId : cellIds)
+MPServer::CellResetPlan MPServer::prepareCellResetPlan(const std::string& cellId)
+{
+    CellResetPlan plan;
+    plan.summary.cellId = cellId;
+
+    if (const auto cellIt = mWorld.actorCells.find(cellId); cellIt != mWorld.actorCells.end())
     {
-        if (resetCellStateForTesting(cellId))
-            ++resetCells;
+        plan.removedActors.reserve(cellIt->second.actors.size());
+        for (const auto& [actorKey, record] : cellIt->second.actors)
+        {
+            ActorRegistryRecord copy = record;
+            if (copy.actorNetId == 0)
+                copy.actorNetId = actorInstanceIdFromActor(copy.actor);
+            plan.removedActors.push_back(std::move(copy));
+            if (record.actor.mpNum != 0)
+                ++plan.summary.runtimeSpawnedActors;
+            else
+            {
+                ++plan.summary.runtimeVanillaActors;
+                plan.resetSuppressedVanillaDeaths.insert(actorKey);
+            }
+        }
     }
 
-    Log(Debug::Info) << "[Server] Reset all cell state cells=" << resetCells;
-    return resetCells;
+    if (const auto deadIt = mWorld.deadVanillaActorCells.find(cellId);
+        deadIt != mWorld.deadVanillaActorCells.end())
+    {
+        for (const auto& [actorKey, record] : deadIt->second)
+        {
+            ActorRegistryRecord copy = record;
+            if (copy.actorNetId == 0)
+                copy.actorNetId = actorInstanceIdFromActor(copy.actor);
+            plan.removedActors.push_back(std::move(copy));
+            plan.resetSuppressedVanillaDeaths.insert(actorKey);
+            ++plan.summary.deadVanillaActors;
+        }
+    }
+    for (const auto& [actorKey, actor] : mWorld.disposedVanillaActors)
+    {
+        (void)actorKey;
+        if (actor.cellId == cellId)
+            ++plan.summary.disposedVanillaActors;
+    }
+    if (const auto objectsIt = mWorld.placedObjects.find(cellId);
+        objectsIt != mWorld.placedObjects.end())
+        plan.placedObjects = objectsIt->second;
+    plan.summary.runtimePlacedObjects = plan.placedObjects.size();
+    for (const auto& [key, container] : mWorld.containers)
+    {
+        (void)key;
+        if (container.cellId == cellId)
+            plan.containers.push_back(container);
+    }
+    plan.summary.runtimeContainers = plan.containers.size();
+    if (const auto doorsIt = mWorld.doorStates.find(cellId);
+        doorsIt != mWorld.doorStates.end())
+        plan.doors = doorsIt->second;
+    plan.summary.runtimeDoorStates = plan.doors.size();
+    return plan;
+}
+
+MPServer::WorldResetResult MPServer::resetCellStatesForTesting(
+    const std::vector<std::string>& cellIds, bool resetAll)
+{
+    WorldResetResult result;
+    if (!resetAll && cellIds.empty())
+    {
+        result.error = "no_cells";
+        return result;
+    }
+
+    std::vector<CellResetPlan> plans;
+    plans.reserve(cellIds.size());
+    for (const std::string& cellId : cellIds)
+    {
+        if (!cellId.empty())
+            plans.push_back(prepareCellResetPlan(cellId));
+    }
+
+    const auto dbStarted = std::chrono::steady_clock::now();
+    try
+    {
+        if (mPlayerDb)
+            result.database = mPlayerDb->resetWorldCells(cellIds, resetAll);
+    }
+    catch (const std::exception& e)
+    {
+        result.dbMs = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - dbStarted).count();
+        result.error = e.what();
+        Log(Debug::Error) << "[Server] Atomic world reset persistence failed"
+                          << " all=" << resetAll
+                          << " cells=" << cellIds.size()
+                          << " dbMs=" << result.dbMs
+                          << " error=" << e.what();
+        return result;
+    }
+    result.dbMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - dbStarted).count();
+
+    const auto runtimeStarted = std::chrono::steady_clock::now();
+    for (CellResetPlan& plan : plans)
+    {
+        const std::string& cellId = plan.summary.cellId;
+        CellActorState& cellState = mWorld.actorCells[cellId];
+        cellState.authorityGuid = 0;
+        // Reset establishes a new cell epoch even when no client currently owns
+        // the cell. Otherwise stale writes from a previously visited cell could
+        // survive an ownerless reset and be accepted after the next handoff.
+        ++cellState.authorityGeneration;
+        cellState.authorityStickyUntilMs = 0;
+        cellState.hasCompleteAuthoritySnapshot = false;
+        cellState.actors.clear();
+        cellState.staleLiveVanillaDeathResendMs.clear();
+        cellState.resetSuppressedVanillaDeaths.insert(
+            plan.resetSuppressedVanillaDeaths.begin(), plan.resetSuppressedVanillaDeaths.end());
+
+        mWorld.deadVanillaActorCells.erase(cellId);
+        std::erase_if(mWorld.disposedVanillaActors,
+            [&](const auto& entry) { return entry.second.cellId == cellId; });
+        mWorld.placedObjects.erase(cellId);
+        std::erase_if(mWorld.containers,
+            [&](const auto& entry) { return entry.second.cellId == cellId; });
+        mWorld.doorStates.erase(cellId);
+
+        for (const ActorRegistryRecord& record : plan.removedActors)
+        {
+            forgetActorLocation(record.actor, cellId);
+            forgetActorNetId(record.actorNetId, record.actor);
+        }
+    }
+    result.runtimeMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - runtimeStarted).count();
+
+    const auto publishStarted = std::chrono::steady_clock::now();
+    for (CellResetPlan& plan : plans)
+    {
+        const std::string& cellId = plan.summary.cellId;
+        CellActorState& cellState = mWorld.actorCells[cellId];
+
+        if (!plan.removedActors.empty())
+            broadcastActorIdentityRemovalForCell(
+                cellId, cellState, plan.removedActors, ActorRemovalReason::CellReset);
+        for (const ActorRegistryRecord& record : plan.removedActors)
+        {
+            if (record.actor.mpNum != 0)
+                markLuaActorRemoved(record.actor.mpNum);
+        }
+
+        ActorList emptyActors;
+        emptyActors.cellId = cellId;
+        emptyActors.authorityGuid = 0;
+        emptyActors.authorityGeneration = cellState.authorityGeneration;
+        emptyActors.snapshotSequence = cellState.nextSnapshotSequence++;
+        emptyActors.serverTimestamp = currentServerTimeMs();
+        PacketActorList actorPacket;
+        actorPacket.setActorList(&emptyActors);
+        broadcastActorToCell(cellId, actorPacket.encode());
+
+        for (const PlacedObject& object : plan.placedObjects)
+        {
+            mLua.removePlacedObject(object.mpNum);
+            PacketObjectDelete deletion;
+            deletion.mpNum = object.mpNum;
+            deletion.cellId = cellId;
+            broadcastToCell(cellId, deletion.encode());
+        }
+
+        const auto isRemovedActorContainer = [&](const ContainerRecord& container) {
+            return std::any_of(plan.removedActors.begin(), plan.removedActors.end(), [&](const ActorRegistryRecord& record) {
+                return record.actor.refId == container.refId
+                    && ((container.mpNum != 0 && record.actor.mpNum == container.mpNum)
+                        || (container.mpNum == 0 && record.actor.mpNum == 0 && record.actor.refNum == container.refNum));
+            });
+        };
+
+        // Cell reset is a session-wide invalidation barrier, not a per-record
+        // mutation. Send it to every selected client so stale CellStores from a
+        // previously visited cell cannot be republished after the new generation.
+        PacketContainer resetCell;
+        resetCell.container.cellId = cellId;
+        resetCell.authorityGeneration = cellState.authorityGeneration;
+        resetCell.mAction = static_cast<std::uint8_t>(ContainerAction::Reset);
+        const std::vector<std::uint8_t> encodedCellReset = resetCell.encode();
+        for (const auto& [conn, client] : mClients)
+        {
+            if (client.charSelectComplete)
+                sendTo(conn, encodedCellReset);
+        }
+
+        // Restore persisted doors to their content-file base lock state. Revision
+        // zero means no persisted override; old in-flight proposals are stale.
+        for (DoorEntry door : plan.doors)
+        {
+            const auto baseDoor = mCollisionWorld
+                ? mCollisionWorld->findDoor(cellId, door.refId, door.refNum) : std::nullopt;
+            door.isOpen = false;
+            door.isLocked = baseDoor ? baseDoor->baseLocked : door.isLocked;
+            door.lockLevel = baseDoor ? baseDoor->baseLockLevel : door.lockLevel;
+            door.revision = 0;
+            PacketDoorState doorPacket;
+            doorPacket.authorGuid = 0;
+            doorPacket.cellId = cellId;
+            doorPacket.doors.push_back(door);
+            broadcastToCell(cellId, doorPacket.encode());
+            if (mCollisionWorld)
+                mCollisionWorld->setDoorOpen(cellId, door.refId, door.refNum, false);
+            mLua.onDoorState(cellId, door.refId, false);
+        }
+
+        // Publish the explicit revoke while the population is uninitialized.
+        sendActorStateToInterestedClients(cellId);
+        refreshActorAuthorityForCell(cellId);
+
+        // Once the fresh owner grant has been ordered, ask it to seed every reset
+        // static container from its now-reset base store.
+        if (cellState.authorityGuid != 0)
+        {
+            HSteamNetConnection authorityConn = k_HSteamNetConnection_Invalid;
+            for (const auto& [conn, client] : mClients)
+            {
+                if (client.guid == cellState.authorityGuid)
+                {
+                    authorityConn = conn;
+                    break;
+                }
+            }
+            if (authorityConn != k_HSteamNetConnection_Invalid)
+            {
+                for (const ContainerRecord& container : plan.containers)
+                {
+                    if (container.mpNum != 0 || container.refNum == 0 || isRemovedActorContainer(container))
+                        continue;
+                    PacketContainer bootstrap;
+                    bootstrap.container.cellId = container.cellId;
+                    bootstrap.container.refId = container.refId;
+                    bootstrap.container.refNum = container.refNum;
+                    bootstrap.container.mpNum = 0;
+                    bootstrap.authorityGeneration = cellState.authorityGeneration;
+                    bootstrap.mAction = static_cast<std::uint8_t>(ContainerAction::BootstrapRequest);
+                    sendTo(authorityConn, bootstrap.encode());
+                }
+            }
+        }
+    }
+
+    syncLuaPlayerSnapshot();
+    if (mPlayerDb)
+        scheduleGeneratedDynamicRecordGc(resetAll ? "reset_all_cells" : "reset_cell");
+    result.publishMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - publishStarted).count();
+    result.success = true;
+    for (const CellResetPlan& plan : plans)
+        result.cells.push_back(plan.summary);
+
+    Log(Debug::Info) << "[Server] Atomic world reset complete"
+                     << " all=" << resetAll
+                     << " cells=" << result.cells.size()
+                     << " dbMs=" << result.dbMs
+                     << " runtimeMs=" << result.runtimeMs
+                     << " publishMs=" << result.publishMs
+                     << " dbObjects=" << result.database.worldObjects
+                     << " dbSpawnedActors=" << result.database.spawnedActors
+                     << " dbDeadDisposed=" << result.database.deadAndDisposedVanillaActors
+                     << " dbContainers=" << result.database.containers
+                     << " dbDoors=" << result.database.doors
+                     << " dbLinks=" << result.database.dynamicRecordLinks;
+    return result;
+}
+
+bool MPServer::resetCellStateForTesting(const std::string& cellId)
+{
+    return !cellId.empty() && resetCellStatesForTesting({ cellId }, false).success;
+}
+
+std::size_t MPServer::resetAllCellStatesForTesting()
+{
+    const WorldResetResult result = resetCellStatesForTesting(collectResettableCellIds(), true);
+    return result.success ? result.cells.size() : 0;
 }
 
 bool MPServer::upsertDynamicRecord(const std::string& recordType, const std::string& recordId, const std::string& data,
@@ -20093,6 +20321,39 @@ void MPServer::stopAdminHttpServer()
     mAdminHttpServer.reset();
 }
 
+void MPServer::drainPendingAdminMutations()
+{
+    mAdminMutationQueue.drain([this](AdminMutationQueue::Type type,
+                                  const std::string& cellId) {
+        AdminHttpServer::Response response;
+        if (type == AdminMutationQueue::Type::ResetCell)
+        {
+            const WorldResetResult result = resetCellStatesForTesting({ cellId }, false);
+            if (!result.success)
+            {
+                response.status = 500;
+                response.body = "{\"ok\":false,\"error\":\"reset_cell_failed\"}";
+            }
+            else
+                response.body = "{\"ok\":true,\"status\":\"reset\",\"cell\":\""
+                    + cellId + "\"}";
+            return response;
+        }
+
+        const std::vector<std::string> cellIds = collectResettableCellIds();
+        const WorldResetResult result = resetCellStatesForTesting(cellIds, true);
+        if (!result.success)
+        {
+            response.status = 500;
+            response.body = "{\"ok\":false,\"error\":\"reset_all_cells_failed\"}";
+        }
+        else
+            response.body = "{\"ok\":true,\"status\":\"reset\",\"cells\":"
+                + std::to_string(result.cells.size()) + "}";
+        return response;
+    });
+}
+
 AdminHttpServer::Response MPServer::handleAdminHttpRequest(
     std::string_view action, const std::map<std::string, std::string>& query)
 {
@@ -20126,24 +20387,30 @@ AdminHttpServer::Response MPServer::handleAdminHttpRequest(
         }
 
         const std::string cellId = makeCellKey(*parsedCell);
-        if (!resetCellStateForTesting(cellId))
+        const auto request = mAdminMutationQueue.enqueue(
+            AdminMutationQueue::Type::ResetCell, cellId);
+        if (!request)
         {
-            response.status = 500;
-            response.body = makeJsonErrorBody("reset_cell_failed");
+            response.status = 503;
+            response.body = makeJsonErrorBody("server_shutting_down");
             return response;
         }
-
-        Log(Debug::Info) << "[Server] Admin HTTP reset cell requested cell=" << cellId;
-        response.body = "{\"ok\":true,\"status\":\"reset\",\"cell\":\"" + cellId + "\"}";
-        return response;
+        return mAdminMutationQueue.wait(
+            request, std::chrono::milliseconds(mAdminResetTimeoutMs));
     }
 
     if (action == "reset_all_cells")
     {
-        const std::size_t resetCells = resetAllCellStatesForTesting();
-        Log(Debug::Info) << "[Server] Admin HTTP reset all cells requested cells=" << resetCells;
-        response.body = "{\"ok\":true,\"status\":\"reset\",\"cells\":" + std::to_string(resetCells) + "}";
-        return response;
+        const auto request = mAdminMutationQueue.enqueue(
+            AdminMutationQueue::Type::ResetAllCells);
+        if (!request)
+        {
+            response.status = 503;
+            response.body = makeJsonErrorBody("server_shutting_down");
+            return response;
+        }
+        return mAdminMutationQueue.wait(
+            request, std::chrono::milliseconds(mAdminResetTimeoutMs));
     }
 
     if (!mLua.isLoaded() || !mLua.isRunning())
@@ -20292,8 +20559,9 @@ EResult MPServer::sendPacketOnConfiguredLane(HSteamNetConnection conn,
     // separate SteamNetworkingSockets lanes.
     const bool characterBootstrapPacket = hasHeader
         && (type == PacketType::CharacterData || type == PacketType::PlayerBounty);
+    const bool containerOrderedPacket = hasHeader && type == PacketType::Container;
 
-    if (!actorPacket && !characterBootstrapPacket)
+    if (!actorPacket && !characterBootstrapPacket && !containerOrderedPacket)
     {
         return mInterface->SendMessageToConnection(
             conn, data.data(), static_cast<uint32_t>(data.size()), flags, nullptr);
@@ -20319,7 +20587,8 @@ EResult MPServer::sendPacketOnConfiguredLane(HSteamNetConnection conn,
         || type == PacketType::ActorCombatRequest
         || type == PacketType::ActorPositionV2
         || type == PacketType::ActorPresentationV2
-        || type == PacketType::ActorAttackV2;
+        || type == PacketType::ActorAttackV2
+        || type == PacketType::Container;
     message->m_idxLane = realtimeActorPacket ? 1 : 2;
 
     int64 result = 0;

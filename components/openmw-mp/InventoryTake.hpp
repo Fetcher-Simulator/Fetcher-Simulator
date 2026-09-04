@@ -15,7 +15,7 @@
 
 namespace mwmp
 {
-    inline constexpr std::uint16_t InventoryTakeProtocolVersion = 4;
+    inline constexpr std::uint16_t InventoryTakeProtocolVersion = 5;
     inline constexpr std::size_t MaximumInventoryTakeStringLength = 255;
     inline constexpr std::size_t MaximumInventoryTakeRequestIdLength = 128;
     inline constexpr std::int32_t MaximumInventoryTakeCount = 1000000;
@@ -38,6 +38,7 @@ namespace mwmp
         std::uint32_t mpNum = 0;
         ActorInstanceId actorInstanceId = 0;
         std::uint32_t migrationGeneration = 0;
+        std::uint32_t authorityGeneration = 0;
 
         bool operator==(const InventorySourceIdentity&) const = default;
     };

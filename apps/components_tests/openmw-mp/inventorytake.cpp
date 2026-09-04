@@ -182,6 +182,7 @@ TEST(InventoryTakeProtocol, ContainerBootstrapIsStrictAndCanonical)
     outgoing.container.cellId = "Balmora";
     outgoing.container.refId = "crate_01";
     outgoing.container.refNum = 42;
+    outgoing.authorityGeneration = 17;
     outgoing.container.items.push_back(
         { "daedric dagger", 1, 314, 123456, 87.25f, "golden saint" });
     outgoing.container.items.push_back(
@@ -193,6 +194,7 @@ TEST(InventoryTakeProtocol, ContainerBootstrapIsStrictAndCanonical)
     EXPECT_EQ(incoming.container.cellId, outgoing.container.cellId);
     EXPECT_EQ(incoming.container.items, outgoing.container.items);
     EXPECT_EQ(incoming.mAction, outgoing.mAction);
+    EXPECT_EQ(incoming.authorityGeneration, 17u);
 
     auto trailing = encoded;
     trailing.push_back(0);
@@ -458,4 +460,49 @@ TEST(InventoryAuthority, FiniteAndRestockingRowsCannotBeAggregatedByOneTake)
 
     EXPECT_FALSE(mwmp::takeAuthoritativeContainerItems(source, "sw_medkit", -1, -1.f, "", 3));
     EXPECT_EQ(source, original);
+}
+
+TEST(InventoryTakeProtocol, ContainerResetCarriesAuthorityGenerationAndRejectsPayloadItems)
+{
+    mwmp::PacketContainer outgoing;
+    outgoing.container.cellId = "Balmora";
+    outgoing.container.refId.clear();
+    outgoing.container.refNum = 0;
+    outgoing.authorityGeneration = 17;
+    outgoing.mAction = static_cast<std::uint8_t>(mwmp::ContainerAction::Reset);
+
+    mwmp::PacketContainer incoming;
+    ASSERT_TRUE(incoming.decode(outgoing.encode()));
+    EXPECT_EQ(incoming.authorityGeneration, 17u);
+    EXPECT_EQ(incoming.mAction, static_cast<std::uint8_t>(mwmp::ContainerAction::Reset));
+    EXPECT_TRUE(incoming.container.items.empty());
+    EXPECT_TRUE(incoming.container.refId.empty());
+    EXPECT_EQ(incoming.container.refNum, 0u);
+
+    outgoing.mAction = static_cast<std::uint8_t>(mwmp::ContainerAction::Set);
+    EXPECT_FALSE(incoming.decode(outgoing.encode()));
+    outgoing.mAction = static_cast<std::uint8_t>(mwmp::ContainerAction::Reset);
+
+    outgoing.container.refId = "crate_01";
+    EXPECT_FALSE(incoming.decode(outgoing.encode()));
+    outgoing.container.refId.clear();
+
+    outgoing.container.items.push_back({ "gold_001", 1 });
+    EXPECT_FALSE(incoming.decode(outgoing.encode()));
+}
+
+TEST(InventoryTakeProtocol, CanonicalRequestBindsAuthorityGeneration)
+{
+    auto first = request();
+    first.source.authorityGeneration = 7;
+    auto second = first;
+    second.source.authorityGeneration = 8;
+    EXPECT_NE(mwmp::canonicalInventoryTakeRequest(first),
+        mwmp::canonicalInventoryTakeRequest(second));
+
+    mwmp::PacketInventoryTakeRequest outgoing;
+    outgoing.request = first;
+    mwmp::PacketInventoryTakeRequest incoming;
+    ASSERT_TRUE(incoming.decode(outgoing.encode()));
+    EXPECT_EQ(incoming.request.source.authorityGeneration, 7u);
 }

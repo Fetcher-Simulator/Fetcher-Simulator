@@ -59,6 +59,8 @@ namespace mwmp
             std::string refId;
             std::uint32_t refNum = 0;
             osg::Vec3f position;
+            bool baseLocked = false;
+            int baseLockLevel = 0;
         };
 
         explicit ServerCollisionWorld(ServerContentRegistry& content);

@@ -16,6 +16,12 @@
 #include <components/openmw-mp/Barter.hpp>
 #include "../../mwworld/ptr.hpp"
 
+namespace MWWorld
+{
+    class CellStore;
+    class ContainerStore;
+}
+
 namespace mwmp
 {
     class NetworkClient;
@@ -37,6 +43,7 @@ namespace mwmp
     public:
         explicit WorldObjectSync(NetworkClient& client);
         void resetSessionState();
+        void prepareCellForInsertion(MWWorld::CellStore& cell);
 
         // --- called from Main.cpp frame loop ---
         void update(float dt);
@@ -76,7 +83,14 @@ namespace mwmp
         static bool requiresAuthoritativeWorldItemTake(bool sourceOwnerEmpty, bool itemInCell,
             bool destinationIsLocalPlayer, bool barterOpen, bool detachedFromLocalPlayer);
         static bool requiresContainerBootstrapOnOpen(bool isActorContainer,
-            bool hasActorAuthority, bool hasCellAuthority);
+            bool hasActorAuthority, bool hasCellAuthority, bool hasAuthoritativeRevision = false);
+        static bool shouldDeferContainerResolutionOnOpen(bool connected, bool isActorContainer);
+        static void resolveContainerForAuthoritativeSnapshot(MWWorld::ContainerStore& store);
+        bool shouldDeferContainerResolutionOnOpen(const MWWorld::Ptr& container) const;
+        static bool shouldAcceptContainerAuthorityGeneration(
+            std::uint32_t currentGeneration, std::uint32_t incomingGeneration, bool reset);
+        static bool shouldAcceptObjectPlaceAuthorityGeneration(std::uint32_t currentGeneration,
+            std::uint32_t resetGenerationFloor, std::uint32_t incomingGeneration);
         static bool requiresProjectileStoredActorBootstrap(
             bool hasAuthoritativeRevision, bool bootstrapAlreadyQueued);
 
@@ -141,7 +155,7 @@ namespace mwmp
         // --- inbound: packets from server ---
         void onServerObjectPlace (uint32_t mpNum, const std::string& refId,
                                   int count, const Position& pos,
-                                  const std::string& cellId);
+                                  const std::string& cellId, std::uint32_t authorityGeneration);
 
         void onServerObjectDelete(const PlacedObjectIdentity& identity);
         void onServerObjectCount(const PlacedObjectIdentity& identity, std::int32_t count);
@@ -153,7 +167,7 @@ namespace mwmp
         void onServerObjectMove  (uint32_t mpNum, const std::string& cellId,
                                   const Position& pos);
 
-        void onServerContainer   (const ContainerRecord& record, ContainerAction action);
+        void onServerContainer(const ContainerRecord& record, ContainerAction action, std::uint32_t authorityGeneration);
         void onDynamicRecordsChanged() { update(RETRY_RATE); }
 
         // --- lookup ---
@@ -171,6 +185,8 @@ namespace mwmp
         bool tryApplyObjectCount(const PlacedObjectIdentity& identity, std::int32_t count);
         bool tryMoveObject  (uint32_t mpNum, const Position& pos);
         bool tryApplyContainer(const ContainerRecord& record, ContainerAction action);
+        void invalidateContainerCellForReset(const std::string& cellId);
+        void applyContainerCellReset(MWWorld::CellStore& cell, const std::string& cellId);
         void sendLocalContainerSnapshot(const ContainerRecord& record, const MWWorld::Ptr& target);
         MWWorld::Ptr findContainerTarget(const ContainerRecord& record) const;
         void processPendingHarvest(const ContainerRecord& record);
@@ -240,6 +256,8 @@ namespace mwmp
         std::unordered_map<std::string, MWWorld::Ptr> mOpenContainerTargets;
         std::unordered_map<std::string, std::uint64_t> mContainerRevisions;
         std::unordered_set<std::string> mPendingContainerBootstrapSets;
+        std::unordered_set<std::string> mContainerResetCellsPending;
+        std::unordered_map<std::string, std::uint32_t> mCellResetGenerationFloors;
         std::uint64_t mNextContainerRevision = 1;
         bool mSuppressLocalDelete = false;
         bool mSuppressPickpocketFinish = false;

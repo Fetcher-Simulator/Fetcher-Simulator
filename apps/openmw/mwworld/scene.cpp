@@ -54,6 +54,7 @@
 
 #ifdef BUILD_MULTIPLAYER
 #include "../mwmp/Main.hpp"
+#include "../mwmp/sync/WorldObjectSync.hpp"
 #include "../mwmp/sync/ActorSync.hpp"
 #endif
 
@@ -504,7 +505,11 @@ namespace MWWorld
         // A retained authoritative corpse tombstone must reach a leveled
         // spawner after respawn, but before insertion can roll/place its child.
         if (mwmp::Main::isConnected())
-            mwmp::Main::get().getActorSync().prepareCellForInsertion(cell);
+        {
+            mwmp::Main& multiplayer = mwmp::Main::get();
+            multiplayer.getActorSync().prepareCellForInsertion(cell);
+            multiplayer.getWorldObjectSync().prepareCellForInsertion(cell);
+        }
 #endif
 
         insertCell(cell, loadingListener, navigatorUpdateGuard);

@@ -391,7 +391,8 @@ void mwmp::ServerCollisionWorld::loadCell(const CellSpec& spec, CellCollisionSta
         if (ptr.getClass().isDoor())
         {
             state.doors.push_back({ ptr.getCellRef().getRefId().toString(),
-                ptr.getCellRef().getRefNum().mIndex, ptr.getRefData().getPosition().asVec3() });
+                ptr.getCellRef().getRefNum().mIndex, ptr.getRefData().getPosition().asVec3(),
+                ptr.getCellRef().isLocked(), ptr.getCellRef().getLockLevel() });
         }
         if (!isStaticLosBlocker(ptr)
             || Misc::ResourceHelpers::isHiddenMarker(ptr.getCellRef().getRefId()))

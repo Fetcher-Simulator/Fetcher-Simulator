@@ -180,8 +180,9 @@ namespace mwmp
                     && header.type <= static_cast<uint16_t>(PacketType::ActorAttackV2))
                 || packetType == PacketType::MechanicsSnapshot);
         const bool combatResultPacket = hasHeader && packetType == PacketType::ActorCombatResult;
+        const bool containerPacket = hasHeader && packetType == PacketType::Container;
 
-        if (!actorPacket && !combatResultPacket)
+        if (!actorPacket && !combatResultPacket && !containerPacket)
         {
             return mInterface->SendMessageToConnection(
                 mConnection, data.data(), static_cast<uint32_t>(data.size()), flags, nullptr);
@@ -207,7 +208,8 @@ namespace mwmp
             || type == PacketType::ActorPositionV2
             || type == PacketType::ActorPresentationV2
             || type == PacketType::ActorAttackV2
-            || type == PacketType::MechanicsSnapshot;
+            || type == PacketType::MechanicsSnapshot
+            || type == PacketType::Container;
         message->m_idxLane = realtimeActorPacket ? 1 : 2;
 
         int64 result = 0;

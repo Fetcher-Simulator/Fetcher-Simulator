@@ -16,6 +16,7 @@ namespace mwmp
         stream.write(source.mpNum);
         stream.write(source.actorInstanceId);
         stream.write(source.migrationGeneration);
+        stream.write(source.authorityGeneration);
     }
 
     inline void unpackInventorySource(ReadStream& stream, InventorySourceIdentity& source)
@@ -26,6 +27,7 @@ namespace mwmp
         stream.read(source.mpNum);
         stream.read(source.actorInstanceId);
         stream.read(source.migrationGeneration);
+        stream.read(source.authorityGeneration);
     }
 
     class PacketInventoryTakeRequest final : public BasePacket

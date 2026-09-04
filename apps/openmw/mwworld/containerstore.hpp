@@ -434,6 +434,10 @@ namespace MWWorld
 
         void commitResolved();
         ///< Promote the current concrete contents to permanent state without clearing them.
+
+        void resetToBaseState(bool resolveContents = true);
+        ///< Discard externally-authoritative contents and rebuild the original container inventory.
+        /// When \a resolveContents is false, leveled entries remain unresolved for a later authority bootstrap.
         /// Used after reconciling externally authoritative state while temporary resolution handles are alive.
 
         float getWeight() const;

@@ -10,7 +10,7 @@
 
 namespace mwmp
 {
-    inline constexpr std::uint16_t InventoryPutProtocolVersion = 1;
+    inline constexpr std::uint16_t InventoryPutProtocolVersion = 2;
     inline constexpr std::size_t MaximumInventoryPutStringLength = 255;
     inline constexpr std::size_t MaximumInventoryPutRequestIdLength = 128;
     inline constexpr std::int32_t MaximumInventoryPutCount = 1000000;
