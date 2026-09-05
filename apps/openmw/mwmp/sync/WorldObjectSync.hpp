@@ -20,6 +20,7 @@ namespace MWWorld
 {
     class CellStore;
     class ContainerStore;
+    class ESMStore;
 }
 
 namespace mwmp
@@ -86,6 +87,10 @@ namespace mwmp
             bool hasActorAuthority, bool hasCellAuthority, bool hasAuthoritativeRevision = false);
         static bool shouldDeferContainerResolutionOnOpen(bool connected, bool isActorContainer);
         static void resolveContainerForAuthoritativeSnapshot(MWWorld::ContainerStore& store);
+        static bool bindContainerSnapshotIdentities(const std::vector<ContainerItem>& snapshot,
+            const std::vector<MWWorld::Ptr>& handles, const std::vector<ContainerItem>& accepted);
+        static bool reconcileContainerStoreInPlace(MWWorld::ContainerStore& store,
+            const std::vector<ContainerItem>& expected, const MWWorld::ESMStore& esmStore);
         bool shouldDeferContainerResolutionOnOpen(const MWWorld::Ptr& container) const;
         static bool shouldAcceptContainerAuthorityGeneration(
             std::uint32_t currentGeneration, std::uint32_t incomingGeneration, bool reset);
@@ -93,6 +98,10 @@ namespace mwmp
             std::uint32_t resetGenerationFloor, std::uint32_t incomingGeneration);
         static bool requiresProjectileStoredActorBootstrap(
             bool hasAuthoritativeRevision, bool bootstrapAlreadyQueued);
+        static bool inventoryTakeSourceMatchesContainer(
+            const InventorySourceIdentity& source, const ContainerRecord& record);
+        static bool shouldDeferInventoryTakeContainerRemove(
+            std::size_t pendingSameSource, bool hasDeferredBatch);
 
         // Called when the local player clicks the vanilla Dispose of Corpse button
         // for a dead actor corpse. Sends a dedicated CorpseDispose packet.
@@ -128,6 +137,15 @@ namespace mwmp
         // instead of waiting for the corpse/container UI to be opened.
         void onLocalProjectileStoredInActor(const MWWorld::Ptr& actor, const MWWorld::Ptr& projectile);
         using InventoryTakeCallback = std::function<void(const InventoryTakeResult&)>;
+        struct InventoryTakeBatchInput
+        {
+            MWWorld::Ptr item;
+            int count = 0;
+        };
+        using InventoryTakeBatchCallback = std::function<void(const InventoryTakeBatchResult&)>;
+        bool requestInventoryTakeBatch(const MWWorld::Ptr& source,
+            const std::vector<InventoryTakeBatchInput>& items, InventoryTakeKind kind,
+            InventoryTransferSoundDirection soundDirection, InventoryTakeBatchCallback callback = {});
         bool requestInventoryTake(const MWWorld::Ptr& source, const MWWorld::Ptr& item,
             int count, InventoryTakeKind kind, InventoryTakeCallback callback = {});
         bool requestInventoryTake(const MWWorld::Ptr& source, const MWWorld::Ptr& item,
@@ -161,13 +179,15 @@ namespace mwmp
         void onServerObjectCount(const PlacedObjectIdentity& identity, std::int32_t count);
         void onServerWorldItemTakeResult(const WorldItemTakeResult& result);
         void onServerInventoryTakeResult(const InventoryTakeResult& result);
+        void onServerInventoryTakeBatchResult(const InventoryTakeBatchResult& result);
         void onServerInventoryPutResult(const InventoryPutResult& result);
         void onServerBarterResult(const BarterResult& result);
 
         void onServerObjectMove  (uint32_t mpNum, const std::string& cellId,
                                   const Position& pos);
 
-        void onServerContainer(const ContainerRecord& record, ContainerAction action, std::uint32_t authorityGeneration);
+        void onServerContainer(const ContainerRecord& record, ContainerAction action, std::uint32_t authorityGeneration,
+            std::uint64_t bootstrapSequence = 0);
         void onDynamicRecordsChanged() { update(RETRY_RATE); }
 
         // --- lookup ---
@@ -191,6 +211,9 @@ namespace mwmp
         MWWorld::Ptr findContainerTarget(const ContainerRecord& record) const;
         void processPendingHarvest(const ContainerRecord& record);
         void sendInventoryTakeRequest(const InventoryTakeRequest& request);
+        void sendInventoryTakeBatchRequest(const InventoryTakeBatchRequest& request);
+        void refreshInventoryTakeBatchItems(InventoryTakeBatchRequest& request) const;
+        void flushDeferredInventoryTakeContainerRemove(const InventorySourceIdentity& source);
         void sendInventoryPutRequest(const InventoryPutRequest& request);
         void sendBarterRequest(const BarterRequest& request);
         void registerObject(uint32_t mpNum, const MWWorld::Ptr& ptr);
@@ -222,8 +245,27 @@ namespace mwmp
         std::vector<PendingCount>     mPendingCount;
         std::vector<PendingMove>      mPendingMove;
         std::vector<PendingContainer> mPendingContainer;
+        struct ContainerIdentitySnapshot
+        {
+            ContainerRecord record;
+            std::vector<MWWorld::Ptr> handles;
+            std::uint32_t authorityGeneration = 0;
+        };
+        std::unordered_map<std::uint64_t, ContainerIdentitySnapshot> mContainerIdentitySnapshots;
+        std::uint64_t mNextContainerIdentitySnapshot = 1;
         std::vector<PendingHarvest> mPendingHarvests;
         std::vector<InventoryTakeRequest> mPendingInventoryTakes;
+        std::vector<InventoryTakeBatchRequest> mPendingInventoryTakeBatches;
+        std::unordered_map<std::string, MWWorld::Ptr> mInventoryTakeBatchSources;
+        std::unordered_map<std::string, std::vector<MWWorld::Ptr>> mInventoryTakeBatchItems;
+        std::unordered_set<std::string> mInventoryTakeBatchesAwaitingSource;
+        std::unordered_map<std::string, InventoryTakeBatchCallback> mInventoryTakeBatchCallbacks;
+        struct DeferredInventoryTakeContainerRemove
+        {
+            ContainerRecord record;
+            std::uint32_t authorityGeneration = 0;
+        };
+        std::unordered_map<std::string, DeferredInventoryTakeContainerRemove> mDeferredInventoryTakeContainerRemoves;
         // Retain the exact UI-bound source Ptr while an authoritative take is unresolved.
         // Actor canonical identity can outlive or differ from scene/runtime discovery,
         // especially for reconciled/migrated NPCs, but bootstrap must mutate the object

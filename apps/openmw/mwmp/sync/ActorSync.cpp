@@ -5557,6 +5557,12 @@ namespace mwmp
             && (!wasDead || baselineAlreadyQueuedRealtimeDeath || pendingRealtimeDeathReplay);
     }
 
+    bool ActorSync::shouldResolveCellAuthorityActor(
+        bool hasActorAuthority, bool hasPrimaryRuntime, uint32_t mpNum)
+    {
+        return hasActorAuthority && !hasPrimaryRuntime && mpNum != 0;
+    }
+
     bool ActorSync::matchesDisposedVanillaReference(uint32_t disposedRefNum,
         std::string_view disposedRefId, uint32_t candidateCanonicalRefNum,
         std::string_view candidateRefId, bool candidateIsLeveledSpawner)
@@ -7368,7 +7374,12 @@ namespace mwmp
 
         for (auto& [actorKey, actor] : cell.actors)
         {
-            if (!hasAuthorityForActor(actor.actorNetId, cell.outboundCellId))
+            // The primary runtime owns presentation for this Ptr. Resolving a
+            // shadow here can hide a newly dead spawned actor for bootstrap,
+            // but the post-viewer reveal deliberately skips primary-owned shadows.
+            if (!shouldResolveCellAuthorityActor(
+                    hasAuthorityForActor(actor.actorNetId, cell.outboundCellId),
+                    actor.actorNetId != 0 && mActorsByNetId.contains(actor.actorNetId), actor.state.mpNum))
                 continue;
             if (actor.state.mpNum != 0)
             {

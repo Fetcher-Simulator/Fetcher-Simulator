@@ -145,8 +145,8 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
 
     const auto& package = *packageIt;
     EXPECT_EQ(package.packageId, "fetcher.inventoryextender-fix");
-    EXPECT_EQ(package.packageVersion, 20u);
-    EXPECT_EQ(package.requiredMultiplayerLuaApi, 9u);
+    EXPECT_EQ(package.packageVersion, 21u);
+    EXPECT_EQ(package.requiredMultiplayerLuaApi, 10u);
     EXPECT_LE(package.requiredMultiplayerLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion);
 
     const auto findSource = [&](std::string_view path) -> const std::string* {
@@ -176,7 +176,8 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
     EXPECT_NE(global->find("AUTHORITATIVE_CURSOR_RESOLVE_ATTEMPTS = 8"), std::string::npos);
     EXPECT_NE(global->find("local function resolveAuthoritativeCursor"), std::string::npos);
     EXPECT_EQ(countOccurrences(*global, "resolveAuthoritativeCursor({"), 3u);
-    EXPECT_EQ(countOccurrences(*global, "requestWithSound"), 3u);
+    EXPECT_EQ(countOccurrences(*global, "requestWithSound"), 2u);
+    EXPECT_EQ(countOccurrences(*global, "requestBatch"), 1u);
     EXPECT_NE(global->find("local detachedSelfDrag = false"), std::string::npos);
     EXPECT_NE(global->find("cursor-drag detached-self-split"), std::string::npos);
     EXPECT_NE(global->find("cursor-drag direct-self-full-stack"), std::string::npos);

@@ -44,6 +44,7 @@
 #include "../../mwworld/worldimp.hpp"
 #include "../../mwworld/inventorystore.hpp"
 #include "../../mwworld/containerstore.hpp"
+#include "../../mwworld/worldmodel.hpp"
 #include "../../mwmechanics/creaturestats.hpp"
 #include "../../mwrender/animation.hpp"
 #include "../../mwrender/npcanimation.hpp"
@@ -59,8 +60,15 @@ namespace mwmp
 
 void WorldObjectSync::resetSessionState()
 {
+    mContainerIdentitySnapshots.clear();
     mPendingHarvests.clear();
     mPendingInventoryTakes.clear();
+    mPendingInventoryTakeBatches.clear();
+    mInventoryTakeBatchSources.clear();
+    mInventoryTakeBatchItems.clear();
+    mInventoryTakeBatchesAwaitingSource.clear();
+    mInventoryTakeBatchCallbacks.clear();
+    mDeferredInventoryTakeContainerRemoves.clear();
     mInventoryTakeSources.clear();
     mInventoryTakesAwaitingSource.clear();
     mInventoryTakeCallbacks.clear();
@@ -318,7 +326,7 @@ namespace
         return true;
     }
 
-    bool reconcileContainerStoreInPlace(MWWorld::ContainerStore& store,
+    bool reconcileContainerStoreInPlaceImpl(MWWorld::ContainerStore& store,
         const std::vector<ContainerItem>& expected, const MWWorld::ESMStore& esmStore)
     {
         struct DesiredItem
@@ -339,8 +347,9 @@ namespace
         {
             if (item.refId.empty() || item.count <= 0)
                 continue;
-            const Identity identity { lowerAscii(item.refId), item.charge,
-                item.enchantmentCharge, item.soul, item.restocking, item.instanceId };
+            const Identity identity { lowerAscii(item.refId), item.instanceId ? 0 : item.charge,
+                item.instanceId ? 0.f : item.enchantmentCharge,
+                item.instanceId ? std::string() : item.soul, item.restocking, item.instanceId };
             auto& entry = desired[identity];
             if (entry.refId.empty())
             {
@@ -367,10 +376,11 @@ namespace
                 continue;
             const int currentCount = std::abs(rawCount);
 
+            const auto id = inventoryInstanceId(ptr.getCellRef().getRefNum());
             const Identity identity { lowerAscii(ptr.getCellRef().getRefId().toString()),
-                static_cast<int>(ptr.getCellRef().getCharge()),
-                ptr.getCellRef().getEnchantmentCharge(), ptr.getCellRef().getSoul().serializeText(),
-                rawCount < 0, inventoryInstanceId(ptr.getCellRef().getRefNum()) };
+                id ? 0 : static_cast<int>(ptr.getCellRef().getCharge()),
+                id ? 0.f : ptr.getCellRef().getEnchantmentCharge(),
+                id ? std::string() : ptr.getCellRef().getSoul().serializeText(), rawCount < 0, id };
             auto desiredIt = desired.find(identity);
             const int keep = desiredIt == desired.end()
                 ? 0 : std::min(currentCount, desiredIt->second.remaining);
@@ -379,6 +389,13 @@ namespace
                 desiredIt->second.remaining -= keep;
                 if (keep > 0 && desiredIt->second.existingStack.isEmpty())
                     desiredIt->second.existingStack = ptr;
+                if (keep > 0)
+                {
+                    const auto& state = desiredIt->second;
+                    ptr.getCellRef().setCharge(state.charge);
+                    ptr.getCellRef().setEnchantmentCharge(state.enchantmentCharge);
+                    ptr.getCellRef().setSoul(ESM::RefId::deserializeText(state.soul));
+                }
             }
 
             const int removeCount = currentCount - keep;
@@ -457,6 +474,40 @@ namespace
         if (!tooltip.empty())
             MWBase::Environment::get().getWindowManager()->messageBox(tooltip);
     }
+}
+
+bool WorldObjectSync::bindContainerSnapshotIdentities(const std::vector<ContainerItem>& snapshot,
+    const std::vector<MWWorld::Ptr>& handles, const std::vector<ContainerItem>& accepted)
+{
+    if (snapshot.size() != accepted.size() || handles.size() != accepted.size())
+        return false;
+    for (std::size_t i = 0; i < accepted.size(); ++i)
+    {
+        if (accepted[i].instanceId == 0 || handles[i].isEmpty()
+            || !handles[i].getCellRef().getRefNum().isSet()
+            || snapshot[i].count != accepted[i].count
+            || !sameAuthoritativeContainerIdentity(snapshot[i], accepted[i]))
+            return false;
+    }
+    for (std::size_t i = 0; i < accepted.size(); ++i)
+    {
+        // Preserve the WorldModel/Lua object ID while binding the server row ID.
+        // Match the captured snapshot, never the now-recharging live metadata.
+        setInventoryInstanceAlias(handles[i].getCellRef().getRefNum(), accepted[i].instanceId);
+        Log(Debug::Info) << "[MP] Container bootstrap bound item ptr=" << handles[i].getBase()
+            << " refNum=" << handles[i].getCellRef().getRefNum().mIndex
+            << " contentFile=" << handles[i].getCellRef().getRefNum().mContentFile
+            << " instanceId=" << inventoryInstanceId(handles[i].getCellRef().getRefNum())
+            << " refId=" << accepted[i].refId << " enchant=" << handles[i].getCellRef().getEnchantmentCharge()
+            << " authoritativeEnchant=" << accepted[i].enchantmentCharge;
+    }
+    return true;
+}
+
+bool WorldObjectSync::reconcileContainerStoreInPlace(MWWorld::ContainerStore& store,
+    const std::vector<ContainerItem>& expected, const MWWorld::ESMStore& esmStore)
+{
+    return reconcileContainerStoreInPlaceImpl(store, expected, esmStore);
 }
 
 WorldObjectSync::WorldObjectSync(NetworkClient& client)
@@ -599,7 +650,6 @@ bool WorldObjectSync::requestLocalObjectTake(const MWWorld::Ptr& worldObject,
     request.expectedInventoryRevision
         = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
     request.soundDirection = soundDirection;
-
     const std::uint32_t mpNum = getMpNumForObject(worldObject);
     if (mpNum != 0)
     {
@@ -684,6 +734,23 @@ bool WorldObjectSync::requiresProjectileStoredActorBootstrap(
     bool hasAuthoritativeRevision, bool bootstrapAlreadyQueued)
 {
     return !hasAuthoritativeRevision && !bootstrapAlreadyQueued;
+}
+
+bool WorldObjectSync::inventoryTakeSourceMatchesContainer(
+    const InventorySourceIdentity& source, const ContainerRecord& record)
+{
+    if (source.cellId != record.cellId || source.refId != record.refId)
+        return false;
+    if (source.actorInstanceId == 0)
+        return source.refNum == record.refNum && source.mpNum == record.mpNum;
+    return (source.mpNum == 0 || source.mpNum == record.mpNum)
+        && (source.refNum == 0 || source.refNum == record.refNum);
+}
+
+bool WorldObjectSync::shouldDeferInventoryTakeContainerRemove(
+    std::size_t pendingSameSource, bool hasDeferredBatch)
+{
+    return pendingSameSource > 1 || hasDeferredBatch;
 }
 
 bool WorldObjectSync::shouldAcceptContainerAuthorityGeneration(
@@ -954,6 +1021,9 @@ void WorldObjectSync::sendLocalContainerSnapshot(const ContainerRecord& record, 
     pkt.container.mpNum = record.mpNum;
     pkt.authorityGeneration = currentCellAuthorityGeneration(record.cellId);
     pkt.mAction = static_cast<uint8_t>(ContainerAction::Set);
+    pkt.bootstrapSequence = mNextContainerIdentitySnapshot++;
+    ContainerIdentitySnapshot identitySnapshot;
+    identitySnapshot.authorityGeneration = pkt.authorityGeneration;
 
     auto& cstore = target.getClass().getContainerStore(target);
     // Authority bootstrap must snapshot concrete container contents. Organic/leveled
@@ -963,6 +1033,7 @@ void WorldObjectSync::sendLocalContainerSnapshot(const ContainerRecord& record, 
     resolveContainerForAuthoritativeSnapshot(cstore);
     for (auto it = cstore.begin(); it != cstore.end(); ++it)
     {
+        MWBase::Environment::get().getWorldModel()->registerPtr(*it);
         ContainerItem ci;
         ci.refId = it->getCellRef().getRefId().toString();
         const int rawCount = it->getCellRef().getCount(false);
@@ -972,9 +1043,18 @@ void WorldObjectSync::sendLocalContainerSnapshot(const ContainerRecord& record, 
         ci.instanceId = inventoryInstanceId(it->getCellRef().getRefNum());
         ci.enchantmentCharge = it->getCellRef().getEnchantmentCharge();
         ci.soul = it->getCellRef().getSoul().serializeText();
-        appendOrMerge(pkt.container.items, ci);
+        pkt.container.items.push_back(ci);
+        identitySnapshot.handles.push_back(*it);
+        Log(Debug::Info) << "[MP] Container(Set) snapshot identity source=" << record.refId
+            << " mpNum=" << record.mpNum << " sequence=" << pkt.bootstrapSequence
+            << " ptr=" << it->getBase() << " refNum=" << it->getCellRef().getRefNum().mIndex
+            << " contentFile=" << it->getCellRef().getRefNum().mContentFile
+            << " instanceId=" << ci.instanceId << " refId=" << ci.refId
+            << " count=" << ci.count << " charge=" << ci.charge << " enchant=" << ci.enchantmentCharge
+            << " soul=" << ci.soul << " restocking=" << ci.restocking;
     }
-
+    identitySnapshot.record = pkt.container;
+    mContainerIdentitySnapshots.emplace(pkt.bootstrapSequence, std::move(identitySnapshot));
     mClient.sendReliable(pkt.encode());
     Log(Debug::Verbose) << "[MP] WorldObjectSync: sent Container(Set) refId=" << record.refId
                         << " items=" << pkt.container.items.size();
@@ -1139,6 +1219,80 @@ void WorldObjectSync::onServerObjectCount(const PlacedObjectIdentity& identity, 
     }
 }
 
+bool WorldObjectSync::requestInventoryTakeBatch(const MWWorld::Ptr& source,
+    const std::vector<InventoryTakeBatchInput>& items, InventoryTakeKind kind,
+    InventoryTransferSoundDirection soundDirection, InventoryTakeBatchCallback callback)
+{
+    if (!Main::isInitialised() || source.isEmpty() || items.empty()
+        || items.size() > MaximumInventoryTakeBatchLines || isRemotePlayerInventorySource(source))
+        return false;
+
+    InventoryTakeBatchRequest request;
+    request.requestId = mTakeRequestPrefix + "-inventory-batch-"
+        + std::to_string(mNextInventoryTakeRequestId++);
+    request.kind = kind;
+    request.source.cellId = makeCellId(source);
+    request.source.authorityGeneration = currentCellAuthorityGeneration(request.source.cellId);
+    request.source.refId = source.getCellRef().getRefId().serializeText();
+    request.source.refNum = source.getCellRef().getRefNum().mIndex;
+    request.source.mpNum = getMpNumForObject(source);
+    if (source.getClass().isActor())
+    {
+        ActorSync& actorSync = Main::get().getActorSync();
+        request.source.actorInstanceId = actorSync.actorNetIdForPtr(request.source.cellId, source);
+        request.source.migrationGeneration
+            = actorSync.actorMigrationGenerationForPtr(request.source.cellId, source);
+        request.source.mpNum = actorSync.getActorMpNum(source);
+        request.source.refNum = request.source.mpNum == 0
+            ? actorSync.getActorCanonicalRefNum(source) : 0;
+    }
+    request.expectedInventoryRevision
+        = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
+    request.soundDirection = soundDirection;
+
+    std::vector<MWWorld::Ptr> handles;
+    handles.reserve(items.size());
+    request.items.reserve(items.size());
+    for (const InventoryTakeBatchInput& input : items)
+    {
+        if (input.item.isEmpty() || input.count <= 0)
+            return false;
+        InventoryTakeBatchLine line;
+        line.itemRefId = input.item.getCellRef().getRefId().serializeText();
+        line.itemInstanceId = inventoryInstanceId(input.item.getCellRef().getRefNum());
+        line.itemCharge = static_cast<std::int32_t>(input.item.getCellRef().getCharge());
+        line.itemEnchantmentCharge = input.item.getCellRef().getEnchantmentCharge();
+        line.itemSoul = input.item.getCellRef().getSoul().serializeText();
+        line.requestedCount = input.count;
+        Log(Debug::Info) << "[MP] InventoryTakeBatch request identity request=" << request.requestId
+                         << " ptr=" << input.item.getBase()
+                         << " refNum=" << input.item.getCellRef().getRefNum().mIndex
+                         << " contentFile=" << input.item.getCellRef().getRefNum().mContentFile
+                         << " itemInstanceId=" << line.itemInstanceId
+                         << " refId=" << line.itemRefId << " count=" << line.requestedCount
+                         << " charge=" << line.itemCharge << " enchant=" << line.itemEnchantmentCharge
+                         << " soul=" << line.itemSoul << " source=" << request.source.refId
+                         << " sourceMpNum=" << request.source.mpNum
+                         << " actorInstanceId=" << request.source.actorInstanceId;
+        request.items.push_back(std::move(line));
+        handles.push_back(input.item);
+    }
+    if (validateInventoryTakeBatchRequest(request) != InventoryTakeError::None)
+    {
+        Log(Debug::Warning) << "[MP] Cannot build canonical inventory take batch source="
+                            << request.source.refId << " lines=" << request.items.size();
+        return false;
+    }
+
+    if (callback)
+        mInventoryTakeBatchCallbacks.emplace(request.requestId, std::move(callback));
+    mInventoryTakeBatchSources[request.requestId] = source;
+    mInventoryTakeBatchItems[request.requestId] = std::move(handles);
+    mPendingInventoryTakeBatches.push_back(request);
+    sendInventoryTakeBatchRequest(request);
+    return true;
+}
+
 bool WorldObjectSync::requestInventoryTake(const MWWorld::Ptr& source, const MWWorld::Ptr& item,
     int count, InventoryTakeKind kind, InventoryTakeCallback callback)
 {
@@ -1178,12 +1332,23 @@ bool WorldObjectSync::requestInventoryTake(const MWWorld::Ptr& source, const MWW
             ? actorSync.getActorCanonicalRefNum(source) : 0;
     }
     request.itemRefId = item.getCellRef().getRefId().serializeText();
+    request.itemInstanceId = inventoryInstanceId(item.getCellRef().getRefNum());
     request.itemCharge = static_cast<std::int32_t>(item.getCellRef().getCharge());
     request.itemEnchantmentCharge = item.getCellRef().getEnchantmentCharge();
     request.itemSoul = item.getCellRef().getSoul().serializeText();
     request.requestedCount = count;
     request.expectedInventoryRevision = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
     request.soundDirection = soundDirection;
+    Log(Debug::Info) << "[MP] InventoryTake request identity request=" << request.requestId
+                     << " ptr=" << item.getBase()
+                     << " refNum=" << item.getCellRef().getRefNum().mIndex
+                     << " contentFile=" << item.getCellRef().getRefNum().mContentFile
+                     << " itemInstanceId=" << request.itemInstanceId
+                     << " refId=" << request.itemRefId << " count=" << count
+                     << " charge=" << request.itemCharge << " enchant=" << request.itemEnchantmentCharge
+                     << " soul=" << request.itemSoul << " source=" << request.source.refId
+                     << " sourceMpNum=" << request.source.mpNum
+                     << " actorInstanceId=" << request.source.actorInstanceId;
     if (validateInventoryTakeRequest(request) != InventoryTakeError::None)
     {
         Log(Debug::Warning) << "[MP] Cannot build canonical inventory take request source="
@@ -1238,6 +1403,7 @@ bool WorldObjectSync::requestBarterTake(const MWWorld::Ptr& merchant, const MWWo
         ? actorSync.getActorCanonicalRefNum(merchant) : 0;
 
     request.itemRefId = item.getCellRef().getRefId().serializeText();
+    request.itemInstanceId = inventoryInstanceId(item.getCellRef().getRefNum());
     request.itemCharge = static_cast<std::int32_t>(item.getCellRef().getCharge());
     request.itemEnchantmentCharge = item.getCellRef().getEnchantmentCharge();
     request.itemSoul = item.getCellRef().getSoul().serializeText();
@@ -1534,6 +1700,72 @@ void WorldObjectSync::sendInventoryTakeRequest(const InventoryTakeRequest& reque
     mClient.sendReliable(packet.encode());
 }
 
+void WorldObjectSync::sendInventoryTakeBatchRequest(const InventoryTakeBatchRequest& request)
+{
+    PacketInventoryTakeBatchRequest packet;
+    packet.request = request;
+    mClient.sendReliable(packet.encode());
+}
+
+void WorldObjectSync::refreshInventoryTakeBatchItems(InventoryTakeBatchRequest& request) const
+{
+    const auto handlesIt = mInventoryTakeBatchItems.find(request.requestId);
+    if (handlesIt == mInventoryTakeBatchItems.end() || handlesIt->second.size() != request.items.size())
+        return;
+    for (std::size_t i = 0; i < request.items.size(); ++i)
+    {
+        const MWWorld::Ptr& item = handlesIt->second[i];
+        if (item.isEmpty())
+            continue;
+        InventoryTakeBatchLine& line = request.items[i];
+        line.itemRefId = item.getCellRef().getRefId().serializeText();
+        line.itemInstanceId = inventoryInstanceId(item.getCellRef().getRefNum());
+        line.itemCharge = static_cast<std::int32_t>(item.getCellRef().getCharge());
+        line.itemEnchantmentCharge = item.getCellRef().getEnchantmentCharge();
+        line.itemSoul = item.getCellRef().getSoul().serializeText();
+    }
+}
+
+void WorldObjectSync::flushDeferredInventoryTakeContainerRemove(const InventorySourceIdentity& source)
+{
+    ContainerRecord sourceRecord;
+    sourceRecord.cellId = source.cellId;
+    sourceRecord.refId = source.refId;
+    sourceRecord.refNum = source.refNum;
+    sourceRecord.mpNum = source.mpNum;
+    if (std::any_of(mPendingInventoryTakes.begin(), mPendingInventoryTakes.end(),
+            [&](const InventoryTakeRequest& request) {
+                return inventoryTakeSourceMatchesContainer(request.source, sourceRecord);
+            }))
+        return;
+
+    auto deferred = std::find_if(mDeferredInventoryTakeContainerRemoves.begin(),
+        mDeferredInventoryTakeContainerRemoves.end(), [&](const auto& entry) {
+            return inventoryTakeSourceMatchesContainer(source, entry.second.record);
+        });
+    if (deferred == mDeferredInventoryTakeContainerRemoves.end())
+        return;
+
+    DeferredInventoryTakeContainerRemove batch = std::move(deferred->second);
+    mDeferredInventoryTakeContainerRemoves.erase(deferred);
+    const std::uint32_t currentGeneration = currentCellAuthorityGeneration(batch.record.cellId);
+    if (!shouldAcceptContainerAuthorityGeneration(
+            currentGeneration, batch.authorityGeneration, false))
+    {
+        Log(Debug::Warning) << "[MP] WorldObjectSync: dropped deferred inventory-take Container(Remove)"
+                            << " after authority generation changed refId=" << batch.record.refId
+                            << " generation=" << batch.authorityGeneration
+                            << " currentGeneration=" << currentGeneration;
+        return;
+    }
+
+    Log(Debug::Info) << "[MP] WorldObjectSync: flushing deferred inventory-take Container(Remove)"
+                     << " refId=" << batch.record.refId
+                     << " removeRows=" << batch.record.items.size();
+    if (!tryApplyContainer(batch.record, ContainerAction::Remove))
+        mPendingContainer.push_back({ batch.record, ContainerAction::Remove, 0.f });
+}
+
 void WorldObjectSync::sendInventoryPutRequest(const InventoryPutRequest& request)
 {
     PacketInventoryPutRequest packet;
@@ -1599,6 +1831,7 @@ void WorldObjectSync::onServerInventoryTakeResult(const InventoryTakeResult& res
         std::erase_if(mPendingInventoryTakes,
             [&](const InventoryTakeRequest& request) { return request.requestId == result.requestId; });
         mInventoryTakeSources.erase(result.requestId);
+        flushDeferredInventoryTakeContainerRemove(result.source);
     }
     else if (result.error == InventoryTakeError::StaleInventoryRevision)
     {
@@ -1632,6 +1865,62 @@ void WorldObjectSync::onServerInventoryTakeResult(const InventoryTakeResult& res
             catch (const std::exception& e)
             {
                 Log(Debug::Error) << "[MP] Inventory take callback failed request=" << result.requestId
+                                  << " error=" << e.what();
+            }
+        }
+    }
+}
+
+void WorldObjectSync::onServerInventoryTakeBatchResult(const InventoryTakeBatchResult& result)
+{
+    Log(result.accepted ? Debug::Info : Debug::Warning)
+        << "[MP] Authoritative inventory take batch result request=" << result.requestId
+        << " accepted=" << result.accepted << " replayed=" << result.replayed
+        << " error=" << getInventoryTakeErrorCode(result.error)
+        << " kind=" << static_cast<unsigned>(result.kind)
+        << " lines=" << result.lineCount << " count=" << result.itemCount
+        << " theft=" << result.theft << " revision=" << result.inventoryRevision;
+
+    const bool terminal = result.error != InventoryTakeError::SourceUnavailable
+        && result.error != InventoryTakeError::StaleInventoryRevision;
+    if (result.error == InventoryTakeError::SourceUnavailable)
+        mInventoryTakeBatchesAwaitingSource.insert(result.requestId);
+    else
+        mInventoryTakeBatchesAwaitingSource.erase(result.requestId);
+
+    if (terminal)
+    {
+        std::erase_if(mPendingInventoryTakeBatches,
+            [&](const InventoryTakeBatchRequest& request) { return request.requestId == result.requestId; });
+        mInventoryTakeBatchSources.erase(result.requestId);
+        mInventoryTakeBatchItems.erase(result.requestId);
+    }
+    else if (result.error == InventoryTakeError::StaleInventoryRevision)
+    {
+        const auto pending = std::find_if(mPendingInventoryTakeBatches.begin(), mPendingInventoryTakeBatches.end(),
+            [&](const InventoryTakeBatchRequest& request) { return request.requestId == result.requestId; });
+        if (pending != mPendingInventoryTakeBatches.end())
+        {
+            pending->expectedInventoryRevision = result.inventoryRevision;
+            refreshInventoryTakeBatchItems(*pending);
+            sendInventoryTakeBatchRequest(*pending);
+        }
+    }
+
+    if (terminal)
+    {
+        const auto callback = mInventoryTakeBatchCallbacks.find(result.requestId);
+        if (callback != mInventoryTakeBatchCallbacks.end())
+        {
+            InventoryTakeBatchCallback fn = std::move(callback->second);
+            mInventoryTakeBatchCallbacks.erase(callback);
+            try
+            {
+                fn(result);
+            }
+            catch (const std::exception& e)
+            {
+                Log(Debug::Error) << "[MP] Inventory take batch callback failed request=" << result.requestId
                                   << " error=" << e.what();
             }
         }
@@ -1779,6 +2068,8 @@ void WorldObjectSync::onServerObjectMove(uint32_t mpNum, const std::string& /*ce
 // ---------------------------------------------------------------------------
 void WorldObjectSync::invalidateContainerCellForReset(const std::string& cellId)
 {
+    std::erase_if(mContainerIdentitySnapshots,
+        [&](const auto& entry) { return entry.second.record.cellId == cellId; });
     if (cellId.empty())
         return;
 
@@ -1824,6 +2115,8 @@ void WorldObjectSync::invalidateContainerCellForReset(const std::string& cellId)
     std::erase_if(mPendingMove, [&](const PendingMove& pending) { return resetMpNums.contains(pending.mpNum); });
     const std::string prefix = cellId + '\0';
     std::erase_if(mPendingContainer, [&](const PendingContainer& pending) { return pending.record.cellId == cellId; });
+    std::erase_if(mDeferredInventoryTakeContainerRemoves,
+        [&](const auto& entry) { return entry.second.record.cellId == cellId; });
     std::erase_if(mPendingHarvests, [&](const PendingHarvest& pending) { return pending.source.cellId == cellId; });
 
     for (auto it = mPendingInventoryTakes.begin(); it != mPendingInventoryTakes.end();)
@@ -1837,6 +2130,19 @@ void WorldObjectSync::invalidateContainerCellForReset(const std::string& cellId)
         mInventoryTakeSources.erase(it->requestId);
         mInventoryTakesAwaitingSource.erase(it->requestId);
         it = mPendingInventoryTakes.erase(it);
+    }
+    for (auto it = mPendingInventoryTakeBatches.begin(); it != mPendingInventoryTakeBatches.end();)
+    {
+        if (it->source.cellId != cellId || it->source.actorInstanceId != 0)
+        {
+            ++it;
+            continue;
+        }
+        mInventoryTakeBatchCallbacks.erase(it->requestId);
+        mInventoryTakeBatchSources.erase(it->requestId);
+        mInventoryTakeBatchItems.erase(it->requestId);
+        mInventoryTakeBatchesAwaitingSource.erase(it->requestId);
+        it = mPendingInventoryTakeBatches.erase(it);
     }
     for (auto it = mPendingInventoryPuts.begin(); it != mPendingInventoryPuts.end();)
     {
@@ -1899,7 +2205,8 @@ void WorldObjectSync::applyContainerCellReset(MWWorld::CellStore& cell, const st
                      << " containers=" << resetCount;
 }
 
-void WorldObjectSync::onServerContainer(const ContainerRecord& record, ContainerAction action, std::uint32_t authorityGeneration)
+void WorldObjectSync::onServerContainer(const ContainerRecord& record, ContainerAction action,
+    std::uint32_t authorityGeneration, std::uint64_t bootstrapSequence)
 {
     const std::uint32_t currentGeneration = currentCellAuthorityGeneration(record.cellId);
     const bool reset = action == ContainerAction::Reset;
@@ -1934,6 +2241,73 @@ void WorldObjectSync::onServerContainer(const ContainerRecord& record, Container
         onLocalContainerOpened(record.cellId, record.refId, record.refNum, record.mpNum);
         return;
     }
+    if (action == ContainerAction::Set)
+    {
+        const auto snapshot = mContainerIdentitySnapshots.find(bootstrapSequence);
+        if (bootstrapSequence != 0 && snapshot != mContainerIdentitySnapshots.end()
+            && snapshot->second.authorityGeneration == authorityGeneration
+            && snapshot->second.record.cellId == record.cellId
+            && snapshot->second.record.refId == record.refId
+            && snapshot->second.record.mpNum == record.mpNum
+            && snapshot->second.record.refNum == record.refNum)
+        {
+            const bool bound = bindContainerSnapshotIdentities(
+                snapshot->second.record.items, snapshot->second.handles, record.items);
+            Log(Debug::Info) << "[MP] Container(Set) bootstrap identities source=" << record.refId
+                << " mpNum=" << record.mpNum << " sequence=" << bootstrapSequence << " bound=" << bound;
+        }
+        std::erase_if(mContainerIdentitySnapshots, [&](const auto& entry) {
+            return entry.second.record.cellId == record.cellId && entry.second.record.refId == record.refId
+                && entry.second.record.mpNum == record.mpNum && entry.second.record.refNum == record.refNum;
+        });
+        for (const auto& item : record.items)
+            Log(Debug::Info) << "[MP] Container(Set) received identity source=" << record.refId
+                << " mpNum=" << record.mpNum << " instanceId=" << item.instanceId
+                << " refId=" << item.refId << " count=" << item.count << " charge=" << item.charge
+                << " enchant=" << item.enchantmentCharge << " soul=" << item.soul;
+    }
+    if (action == ContainerAction::Remove)
+    {
+        const std::string key = makeContainerRevisionKey(
+            record.cellId, record.refId, record.refNum, record.mpNum);
+        const std::size_t pendingSameSource = static_cast<std::size_t>(std::count_if(
+            mPendingInventoryTakes.begin(), mPendingInventoryTakes.end(),
+            [&](const InventoryTakeRequest& request) {
+                return inventoryTakeSourceMatchesContainer(request.source, record);
+            }));
+        auto deferred = mDeferredInventoryTakeContainerRemoves.find(key);
+        if (deferred != mDeferredInventoryTakeContainerRemoves.end()
+            && deferred->second.authorityGeneration != authorityGeneration)
+        {
+            Log(Debug::Warning) << "[MP] WorldObjectSync: discarded deferred inventory-take Container(Remove)"
+                                << " after authority generation changed refId=" << record.refId
+                                << " oldGeneration=" << deferred->second.authorityGeneration
+                                << " newGeneration=" << authorityGeneration;
+            mDeferredInventoryTakeContainerRemoves.erase(deferred);
+            deferred = mDeferredInventoryTakeContainerRemoves.end();
+        }
+        if (shouldDeferInventoryTakeContainerRemove(
+                pendingSameSource, deferred != mDeferredInventoryTakeContainerRemoves.end()))
+        {
+            if (deferred == mDeferredInventoryTakeContainerRemoves.end())
+            {
+                DeferredInventoryTakeContainerRemove batch;
+                batch.record = record;
+                batch.authorityGeneration = authorityGeneration;
+                mDeferredInventoryTakeContainerRemoves.emplace(key, std::move(batch));
+            }
+            else
+            {
+                deferred->second.record.items.insert(
+                    deferred->second.record.items.end(), record.items.begin(), record.items.end());
+            }
+            Log(Debug::Info) << "[MP] WorldObjectSync: deferred inventory-take Container(Remove)"
+                             << " refId=" << record.refId
+                             << " pendingSameSource=" << pendingSameSource
+                             << " removeRows=" << record.items.size();
+            return;
+        }
+    }
     const bool applied = tryApplyContainer(record, action);
     if (!applied)
     {
@@ -1959,6 +2333,17 @@ void WorldObjectSync::onServerContainer(const ContainerRecord& record, Container
                 request.expectedInventoryRevision
                     = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
                 sendInventoryTakeRequest(request);
+            }
+        }
+        for (InventoryTakeBatchRequest& request : mPendingInventoryTakeBatches)
+        {
+            if (inventoryTakeSourceMatchesContainer(request.source, record)
+                && mInventoryTakeBatchesAwaitingSource.erase(request.requestId) != 0)
+            {
+                request.expectedInventoryRevision
+                    = Main::get().getPlayerSync().localPlayer().inventoryChanges.revision;
+                refreshInventoryTakeBatchItems(request);
+                sendInventoryTakeBatchRequest(request);
             }
         }
         for (InventoryPutRequest& request : mPendingInventoryPuts)
@@ -2604,10 +2989,11 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
             for (auto it = cstore.begin(); it != cstore.end(); ++it)
             {
                 if (lowerAscii(it->getCellRef().getRefId().serializeText()) == lowerAscii(ci.refId)
-                    && (ci.instanceId == 0 || inventoryInstanceId(it->getCellRef().getRefNum()) == ci.instanceId)
-                    && static_cast<int>(it->getCellRef().getCharge()) == ci.charge
-                    && std::abs(it->getCellRef().getEnchantmentCharge() - ci.enchantmentCharge) < 0.001f
-                    && it->getCellRef().getSoul().serializeText() == ci.soul)
+                    && (ci.instanceId != 0
+                        ? inventoryInstanceId(it->getCellRef().getRefNum()) == ci.instanceId
+                        : (static_cast<int>(it->getCellRef().getCharge()) == ci.charge
+                            && std::abs(it->getCellRef().getEnchantmentCharge() - ci.enchantmentCharge) < 0.001f
+                            && it->getCellRef().getSoul().serializeText() == ci.soul)))
                     matches.push_back(*it);
             }
             for (const MWWorld::Ptr& match : matches)

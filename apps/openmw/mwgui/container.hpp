@@ -90,7 +90,6 @@ namespace MWGui
         bool usesAuthoritativeInventoryTransfer() const;
         void requestAuthoritativeTake(const ItemStack& item, std::size_t count, bool startDrag);
         void requestAuthoritativeTakeAll(bool disposeAfter);
-        void continueAuthoritativeTakeAll();
         void requestAuthoritativePut(const ItemStack& item, std::size_t count);
         void disposeCorpseNow(const MWWorld::Ptr& ptr);
         void onCloseButtonClicked(MyGUI::Widget* sender);

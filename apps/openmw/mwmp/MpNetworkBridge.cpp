@@ -458,6 +458,61 @@ namespace mwmp
                 bool pickpocket, bool downSound, sol::main_protected_function callback) mutable {
                 requestInventoryTake(source, item, count, pickpocket, downSound, std::move(callback));
             });
+        inventoryTakeApi.set_function("requestBatch",
+            [lua](const MWLua::GObject& source, const sol::table& items, bool downSound,
+                sol::main_protected_function callback) {
+                if (!Main::isInitialised() || !Main::isConnected())
+                    throw std::runtime_error("mp.inventoryTake.requestBatch requires an active multiplayer connection");
+                const MWWorld::Ptr sourcePtr = source.ptrOrEmpty();
+                if (sourcePtr.isEmpty())
+                    throw std::runtime_error("mp.inventoryTake.requestBatch requires a valid source");
+
+                InventoryTakeKind kind = InventoryTakeKind::Container;
+                if (sourcePtr.getClass().isActor())
+                    kind = sourcePtr.getClass().getCreatureStats(sourcePtr).isDead()
+                        ? InventoryTakeKind::Corpse : InventoryTakeKind::ActorInventory;
+
+                std::vector<WorldObjectSync::InventoryTakeBatchInput> inputs;
+                for (const auto& [key, value] : items)
+                {
+                    (void)key;
+                    if (!value.is<sol::table>())
+                        throw std::runtime_error("mp.inventoryTake.requestBatch entry must be a table");
+                    const sol::table entry = value.as<sol::table>();
+                    const sol::object itemValue = entry["item"];
+                    if (!itemValue.is<MWLua::GObject>())
+                        throw std::runtime_error("mp.inventoryTake.requestBatch entry requires an item object");
+                    WorldObjectSync::InventoryTakeBatchInput input;
+                    input.item = itemValue.as<MWLua::GObject>().ptrOrEmpty();
+                    input.count = entry.get_or("count", 0);
+                    if (input.item.isEmpty() || input.count <= 0)
+                        throw std::runtime_error("mp.inventoryTake.requestBatch entry requires a positive item count");
+                    inputs.push_back(std::move(input));
+                }
+                if (inputs.empty())
+                    throw std::runtime_error("mp.inventoryTake.requestBatch requires at least one item");
+
+                const auto soundDirection = downSound ? InventoryTransferSoundDirection::Down
+                                                      : InventoryTransferSoundDirection::Up;
+                const bool queued = Main::get().getWorldObjectSync().requestInventoryTakeBatch(
+                    sourcePtr, inputs, kind, soundDirection,
+                    [lua, callback = std::move(callback)](const InventoryTakeBatchResult& result) mutable {
+                        sol::table value(lua, sol::create);
+                        value["requestId"] = result.requestId;
+                        value["accepted"] = result.accepted;
+                        value["replayed"] = result.replayed;
+                        value["error"] = std::string(getInventoryTakeErrorCode(result.error));
+                        value["kind"] = static_cast<unsigned>(result.kind);
+                        value["lineCount"] = result.lineCount;
+                        value["itemCount"] = result.itemCount;
+                        value["inventoryRevision"] = result.inventoryRevision;
+                        value["theft"] = result.theft;
+                        value["crimeValue"] = result.crimeValue;
+                        LuaUtil::call(callback, value);
+                    });
+                if (!queued)
+                    throw std::runtime_error("mp.inventoryTake.requestBatch could not build a canonical request");
+            });
         mp["inventoryTake"] = LuaUtil::makeReadOnly(inventoryTakeApi);
 
         sol::table barterApi(lua, sol::create);

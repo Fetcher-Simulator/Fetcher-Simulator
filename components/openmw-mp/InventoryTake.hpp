@@ -15,10 +15,11 @@
 
 namespace mwmp
 {
-    inline constexpr std::uint16_t InventoryTakeProtocolVersion = 5;
+    inline constexpr std::uint16_t InventoryTakeProtocolVersion = 6;
     inline constexpr std::size_t MaximumInventoryTakeStringLength = 255;
     inline constexpr std::size_t MaximumInventoryTakeRequestIdLength = 128;
     inline constexpr std::int32_t MaximumInventoryTakeCount = 1000000;
+    inline constexpr std::size_t MaximumInventoryTakeBatchLines = 256;
 
     enum class InventoryTakeKind : std::uint8_t
     {
@@ -72,6 +73,10 @@ namespace mwmp
         // source is the merchant itself or a container owned by this actor.
         InventorySourceIdentity merchant;
         std::string itemRefId;
+        // Stable inventory-row identity when the local item has one. This
+        // selects the exact authoritative backing row even when live metadata
+        // (notably passive enchantment recharge) changes after the container snapshot.
+        std::uint32_t itemInstanceId = 0;
         std::int32_t itemCharge = -1;
         float itemEnchantmentCharge = -1.f;
         std::string itemSoul;
@@ -83,6 +88,49 @@ namespace mwmp
         InventoryTransferSoundDirection soundDirection = InventoryTransferSoundDirection::Up;
 
         bool operator==(const InventoryTakeRequest&) const = default;
+    };
+
+    struct InventoryTakeBatchLine
+    {
+        std::string itemRefId;
+        std::uint32_t itemInstanceId = 0;
+        std::int32_t itemCharge = -1;
+        float itemEnchantmentCharge = -1.f;
+        std::string itemSoul;
+        std::int32_t requestedCount = 0;
+
+        bool operator==(const InventoryTakeBatchLine&) const = default;
+    };
+
+    struct InventoryTakeBatchRequest
+    {
+        std::uint16_t protocolVersion = InventoryTakeProtocolVersion;
+        std::string requestId;
+        InventoryTakeKind kind = InventoryTakeKind::Container;
+        InventorySourceIdentity source;
+        std::vector<InventoryTakeBatchLine> items;
+        std::uint64_t expectedInventoryRevision = 0;
+        InventoryTransferSoundDirection soundDirection = InventoryTransferSoundDirection::Down;
+
+        bool operator==(const InventoryTakeBatchRequest&) const = default;
+    };
+
+    struct InventoryTakeBatchResult
+    {
+        std::uint16_t protocolVersion = InventoryTakeProtocolVersion;
+        std::string requestId;
+        bool accepted = false;
+        bool replayed = false;
+        InventoryTakeError error = InventoryTakeError::None;
+        InventoryTakeKind kind = InventoryTakeKind::Container;
+        InventorySourceIdentity source;
+        std::uint32_t lineCount = 0;
+        std::int64_t itemCount = 0;
+        std::uint64_t inventoryRevision = 0;
+        bool theft = false;
+        std::int64_t crimeValue = 0;
+
+        bool operator==(const InventoryTakeBatchResult&) const = default;
     };
 
     struct InventoryTakeResult
@@ -143,25 +191,35 @@ namespace mwmp
         std::vector<ContainerItem> backingRows;
     };
 
-    using AuthoritativeContainerIdentityPredicate
+    using AuthoritativeContainerStackPredicate
         = std::function<bool(const ContainerItem&, const ContainerItem&)>;
     using AuthoritativeInventoryDestinationPredicate = std::function<bool(const Item&)>;
 
     InventoryTakeError validateInventoryTakeRequest(const InventoryTakeRequest& request);
     std::string canonicalInventoryTakeRequest(const InventoryTakeRequest& request);
+    InventoryTakeError validateInventoryTakeBatchRequest(const InventoryTakeBatchRequest& request);
+    std::string canonicalInventoryTakeBatchRequest(const InventoryTakeBatchRequest& request);
     std::string_view getInventoryTakeErrorCode(InventoryTakeError error);
     PickpocketDetectionResult evaluatePickpocketDetection(const PickpocketDetectionInput& input);
     bool sameAuthoritativeItemIdentity(const Item& left, const Item& right);
     bool sameAuthoritativeContainerIdentity(const ContainerItem& left, const ContainerItem& right);
+    bool assignAuthoritativeContainerIdentities(std::vector<ContainerItem>& items,
+        const std::function<std::optional<std::uint32_t>()>& allocate);
+    bool reconcileAuthoritativeContainerEquipment(std::vector<ContainerItem>& items,
+        const std::vector<EquipmentItem>& previous, const std::vector<EquipmentItem>& incoming);
     bool hasCompatibleAuthoritativeContainerStack(
         const std::vector<ContainerItem>& items, const ContainerItem& incoming);
     AuthoritativeStackMutation mergeAuthoritativeInventoryItem(std::vector<Item>& items, Item& incoming,
         bool allowStacking = true, const AuthoritativeInventoryDestinationPredicate& destinationPredicate = {});
     AuthoritativeStackMutation mergeAuthoritativeContainerItem(
         std::vector<ContainerItem>& items, ContainerItem& incoming, bool allowStacking = true);
+    // Select an exact metadata anchor first. The predicate controls additional
+    // rows and equivalent native stack representations, never exact-row removal.
+    // Content-aware callers must supply native rules for non-stackable items.
     std::optional<ContainerAggregateTake> takeAuthoritativeContainerItems(std::vector<ContainerItem>& items,
         std::string_view refId, std::int32_t charge, float enchantmentCharge, std::string_view soul,
-        std::int32_t count, const AuthoritativeContainerIdentityPredicate& identityPredicate = {});
+        std::int32_t count, const AuthoritativeContainerStackPredicate& stackPredicate = {},
+        std::uint32_t instanceId = 0);
 }
 
 #endif

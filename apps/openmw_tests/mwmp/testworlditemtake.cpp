@@ -139,6 +139,19 @@ TEST(ContainerProjectileRecoveryPolicy, BootstrapsOnlyBeforeFirstAuthoritativeSn
     EXPECT_FALSE(mwmp::WorldObjectSync::requiresProjectileStoredActorBootstrap(false, true));
 }
 
+TEST(ActorDeathClientPolicy, SpawnedCorpseShadowCannotOwnUnrevealedBootstrap)
+{
+    constexpr uint32_t spawnedMpNum = 7646;
+    // An authority scan retains a shadow of the persistent spawned actor after
+    // its death. Only the primary runtime participates in the reveal pass.
+    EXPECT_FALSE(mwmp::ActorSync::shouldResolveCellAuthorityActor(true, true, spawnedMpNum));
+    // A fallback received via ActorCellChange still needs scene insertion and
+    // death bootstrap until ActorIdentity promotes it to the primary map.
+    EXPECT_TRUE(mwmp::ActorSync::shouldResolveCellAuthorityActor(true, false, spawnedMpNum));
+    EXPECT_FALSE(mwmp::ActorSync::shouldResolveCellAuthorityActor(false, false, spawnedMpNum));
+    EXPECT_FALSE(mwmp::ActorSync::shouldResolveCellAuthorityActor(true, false, 0));
+}
+
 TEST(ActorDeathClientPolicy, RealtimeDeathBindingDoesNotReapplyBootstrapFinalPose)
 {
     EXPECT_TRUE(mwmp::ActorSync::requiresBootstrapDeathPresentation(false, false));
@@ -408,6 +421,40 @@ TEST(ContainerResetClientPolicy, NormalContainerTrafficRequiresExactCurrentGener
     EXPECT_FALSE(mwmp::WorldObjectSync::shouldAcceptContainerAuthorityGeneration(8, 7, false));
     EXPECT_FALSE(mwmp::WorldObjectSync::shouldAcceptContainerAuthorityGeneration(8, 9, false));
     EXPECT_FALSE(mwmp::WorldObjectSync::shouldAcceptContainerAuthorityGeneration(8, 0, false));
+}
+
+TEST(InventoryTakeContainerRemoveClientPolicy, CoalescesOnlyConcurrentOrExistingBatches)
+{
+    EXPECT_FALSE(mwmp::WorldObjectSync::shouldDeferInventoryTakeContainerRemove(0, false));
+    EXPECT_FALSE(mwmp::WorldObjectSync::shouldDeferInventoryTakeContainerRemove(1, false));
+    EXPECT_TRUE(mwmp::WorldObjectSync::shouldDeferInventoryTakeContainerRemove(2, false));
+    EXPECT_TRUE(mwmp::WorldObjectSync::shouldDeferInventoryTakeContainerRemove(1, true));
+    EXPECT_TRUE(mwmp::WorldObjectSync::shouldDeferInventoryTakeContainerRemove(0, true));
+}
+
+TEST(InventoryTakeContainerRemoveClientPolicy, MatchesStaticAndActorSourcesCanonically)
+{
+    mwmp::ContainerRecord record;
+    record.cellId = "Balmora";
+    record.refId = "corpse";
+    record.refNum = 42;
+
+    mwmp::InventorySourceIdentity source;
+    source.cellId = record.cellId;
+    source.refId = record.refId;
+    source.refNum = record.refNum;
+    EXPECT_TRUE(mwmp::WorldObjectSync::inventoryTakeSourceMatchesContainer(source, record));
+    source.refNum = 41;
+    EXPECT_FALSE(mwmp::WorldObjectSync::inventoryTakeSourceMatchesContainer(source, record));
+
+    source.refNum = 0;
+    source.mpNum = 99;
+    source.actorInstanceId = 1;
+    record.refNum = 777;
+    record.mpNum = 99;
+    EXPECT_TRUE(mwmp::WorldObjectSync::inventoryTakeSourceMatchesContainer(source, record));
+    record.mpNum = 100;
+    EXPECT_FALSE(mwmp::WorldObjectSync::inventoryTakeSourceMatchesContainer(source, record));
 }
 
 TEST(ObjectPlaceResetClientPolicy, StartupCatchupAllowsGenerationBeforeLocalAuthority)

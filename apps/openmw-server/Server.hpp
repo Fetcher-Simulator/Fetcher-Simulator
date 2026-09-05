@@ -372,6 +372,7 @@ private:
     void handleObjectPlace      (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size);
+    void handleInventoryTakeBatchRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleBarterRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleCrimeInteractionRequest(ConnectedClient& c, const uint8_t* data, size_t size);
@@ -903,6 +904,7 @@ private:
     static constexpr float       MAX_MOVE_SPEED = 600.f;
     void loadPersistentWorldState();
     bool repairContainerRestockingMetadata(ContainerRecord& record, int playerLevel);
+    bool ensureContainerItemIdentities(ContainerRecord& record);
     bool isCurrentStaticContainerAuthorityGeneration(const InventorySourceIdentity& identity) const;
     std::uint32_t currentActorAuthorityGenerationForCell(std::string_view cellId) const;
     void sendCellStateToClient(HSteamNetConnection conn, const std::string& cellId);

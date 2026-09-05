@@ -2179,6 +2179,18 @@ void Main::registerProtocolHandlers()
             mWorldObjectSync->onServerInventoryTakeResult(packet.result);
         });
 
+    proto.registerHandler(PacketType::InventoryTakeBatchResult,
+        [this](const uint8_t* data, size_t size)
+        {
+            PacketInventoryTakeBatchResult packet;
+            if (!packet.decode(data, size))
+            {
+                disconnect("Malformed authoritative inventory take batch result");
+                return;
+            }
+            mWorldObjectSync->onServerInventoryTakeBatchResult(packet.result);
+        });
+
     proto.registerHandler(PacketType::InventoryPutResult,
         [this](const uint8_t* data, size_t size)
         {
@@ -2233,7 +2245,7 @@ void Main::registerProtocolHandlers()
             if (!pkt.decode(data, size)) return;
             mWorldObjectSync->onServerContainer(
                 pkt.container,
-                static_cast<ContainerAction>(pkt.mAction), pkt.authorityGeneration);
+                static_cast<ContainerAction>(pkt.mAction), pkt.authorityGeneration, pkt.bootstrapSequence);
         });
 
     // --- Remote player animation flags ---

@@ -109,6 +109,8 @@ namespace mwmp
             bool revealPending, bool waitingForFreshCellBootstrap, bool hasBinding);
         static bool shouldPresentActorDeathAsRealtime(bool isDead, bool isInstantDeath,
             bool wasDead, bool baselineAlreadyQueuedRealtimeDeath, bool pendingRealtimeDeathReplay);
+        static bool shouldResolveCellAuthorityActor(
+            bool hasActorAuthority, bool hasPrimaryRuntime, uint32_t mpNum);
         static bool matchesDisposedVanillaReference(uint32_t disposedRefNum, std::string_view disposedRefId,
             uint32_t candidateCanonicalRefNum, std::string_view candidateRefId, bool candidateIsLeveledSpawner);
         static bool isCompleteActorIdentitySnapshot(bool completeCellSnapshot);

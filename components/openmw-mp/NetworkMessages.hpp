@@ -168,6 +168,8 @@ namespace mwmp
         BarterResult = 163, // Durable terminal multi-line barter result
         ObjectCount = 164, // Server-authoritative remaining count for a placed world item
         InventoryTransferSound = 165, // Server-authored accepted inventory transfer audio cue
+        InventoryTakeBatchRequest = 166, // Atomic multi-row container/corpse take-all request
+        InventoryTakeBatchResult = 167, // Durable terminal take-all result
 
         // --- Lua bridge (7C+) ---
         // IDs 150-199 reserved; exact assignments TBD in Phase 7C/7D.

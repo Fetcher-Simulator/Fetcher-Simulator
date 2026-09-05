@@ -6239,6 +6239,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::ObjectPlace:      handleObjectPlace(client, data, size);        break;
         case PacketType::WorldItemTakeRequest: handleWorldItemTakeRequest(client, data, size); break;
         case PacketType::InventoryTakeRequest: handleInventoryTakeRequest(client, data, size); break;
+        case PacketType::InventoryTakeBatchRequest: handleInventoryTakeBatchRequest(client, data, size); break;
         case PacketType::InventoryPutRequest: handleInventoryPutRequest(client, data, size); break;
         case PacketType::BarterRequest: handleBarterRequest(client, data, size); break;
         case PacketType::CrimeInteractionRequest: handleCrimeInteractionRequest(client, data, size); break;
@@ -13612,7 +13613,24 @@ void MPServer::handleActorEquipment(ConnectedClient& c, const uint8_t* data, siz
         stored->actor.refNum = actor.refNum;
         stored->actor.mpNum = actor.mpNum;
         stored->actor.cellId = incoming.cellId;
+        const std::vector<EquipmentItem> previousEquipment = stored->actor.equipment;
         stored->actor.equipment = actor.equipment;
+
+        const std::string containerKey = makeContainerKey(
+            incoming.cellId, stored->actor.refId, stored->actor.refNum, stored->actor.mpNum);
+        auto containerIt = mWorld.containers.find(containerKey);
+        if (containerIt != mWorld.containers.end() && containerIt->second.hasAuthority
+            && reconcileAuthoritativeContainerEquipment(
+                containerIt->second.items, previousEquipment, actor.equipment))
+        {
+            if (mPlayerDb)
+                mPlayerDb->upsertContainerRecord(containerIt->second);
+            Log(Debug::Verbose) << "[Server] Reconciled actor equipment metadata into authoritative container"
+                                << " refId=" << stored->actor.refId
+                                << " refNum=" << stored->actor.refNum
+                                << " mpNum=" << stored->actor.mpNum
+                                << " cell=" << incoming.cellId;
+        }
         stored->lastSnapshotTime = incoming.serverTimestamp;
         persistSpawnedActorIfNeeded(*stored);
         markLuaActorDirty(*stored, incoming.cellId);
@@ -15276,11 +15294,13 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
     std::optional<ContainerAggregateTake> aggregateTake;
     if (!finish)
     {
+        // The helper selects the exact source row independently of this predicate;
+        // native stacking only permits aggregation/equivalent stack representation.
         aggregateTake = takeAuthoritativeContainerItems(resultingSource.items, request.itemRefId,
             request.itemCharge, request.itemEnchantmentCharge, request.itemSoul, request.requestedCount,
             [&](const ContainerItem& left, const ContainerItem& right) {
                 return authoritativeContainerItemsStackNatively(mContentRegistry->store(), left, right);
-            });
+            }, request.itemInstanceId);
     }
     if (!finish && !aggregateTake)
     {
@@ -15291,13 +15311,19 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
             if (!first)
                 available << ',';
             first = false;
-            available << item.refId << "[count=" << item.count << ",charge=" << item.charge << ']';
+            available << item.refId << "[instanceId=" << item.instanceId
+                      << ",count=" << item.count << ",charge=" << item.charge
+                      << ",enchant=" << item.enchantmentCharge << ",soul=" << item.soul
+                      << ",restocking=" << item.restocking << ']';
         }
         Log(Debug::Warning) << "[InventoryTake] item unavailable request=" << request.requestId
                             << " source=" << request.source.refId
                             << " requested=" << request.itemRefId
+                            << " itemInstanceId=" << request.itemInstanceId
                             << " count=" << request.requestedCount
                             << " charge=" << request.itemCharge
+                            << " enchant=" << request.itemEnchantmentCharge
+                            << " soul=" << request.itemSoul
                             << " available=" << available.str();
         reject(InventoryTakeError::ItemUnavailable);
         return;
@@ -15508,6 +15534,11 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
     if (!detected && !finish)
     {
         normalizeContainerItems(resultingSource.items);
+        // Exact removal of a non-stackable row is valid, but the acquired item
+        // must still receive its own player-inventory identity. Use two native
+        // representatives of the actual source metadata to test stackability.
+        const bool allowTakeStack = authoritativeContainerItemsStackNatively(
+            mContentRegistry->store(), removedSourceItem, removedSourceItem);
         // Match OpenMW InventoryStore::addImp(): newly acquired items do not
         // stack into a currently equipped stack. They may still merge into a
         // compatible unequipped stack, and unequipping later lets OpenMW's
@@ -15521,7 +15552,7 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
                         && equipped.item.instanceId == candidate.instanceId;
                 });
         };
-        const bool compatibleStack = std::any_of(inventory.begin(), inventory.end(),
+        const bool compatibleStack = allowTakeStack && std::any_of(inventory.begin(), inventory.end(),
             [&](const Item& item) {
                 return sameAuthoritativeItemIdentity(item, added) && canStackIntoPlayerItem(item);
             });
@@ -15536,7 +15567,7 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
             added.instanceId = *instance;
         }
         const AuthoritativeStackMutation takeMutation
-            = mergeAuthoritativeInventoryItem(inventory, added, true, canStackIntoPlayerItem);
+            = mergeAuthoritativeInventoryItem(inventory, added, allowTakeStack, canStackIntoPlayerItem);
         if (takeMutation == AuthoritativeStackMutation::Invalid
             || takeMutation == AuthoritativeStackMutation::Overflow)
         {
@@ -15747,6 +15778,555 @@ void MPServer::handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* dat
                      << (request.kind == InventoryTakeKind::Barter ? std::to_string(request.barterPrice) : "")
                      << " count=" << result.itemCount << " detected=" << result.detected
                      << " roll=" << result.detectionRoll << " theft=" << result.theft
+                     << " replayed=" << result.replayed;
+    sendResult();
+}
+
+// ---------------------------------------------------------------------------
+void MPServer::handleInventoryTakeBatchRequest(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    PacketInventoryTakeBatchRequest packet;
+    if (!packet.decode(data, size))
+        return;
+
+    const InventoryTakeBatchRequest& request = packet.request;
+    InventoryTakeBatchResult result;
+    result.requestId = request.requestId;
+    result.kind = request.kind;
+    result.source = request.source;
+    result.lineCount = static_cast<std::uint32_t>(request.items.size());
+    for (const InventoryTakeBatchLine& line : request.items)
+        result.itemCount += line.requestedCount;
+
+    auto sendResult = [&] {
+        PacketInventoryTakeBatchResult response;
+        response.result = result;
+        sendTo(c.conn, response.encode());
+    };
+    auto reject = [&](InventoryTakeError error) {
+        result.accepted = false;
+        result.error = error;
+        result.inventoryRevision = c.inventoryRevision;
+        sendResult();
+    };
+
+    const InventoryTakeError validation = validateInventoryTakeBatchRequest(request);
+    if (validation != InventoryTakeError::None || !mPlayerDb || !mContentRegistry
+        || c.dbAccountId <= 0 || c.dbCharacterId <= 0)
+    {
+        reject(validation != InventoryTakeError::None ? validation : InventoryTakeError::PersistenceFailure);
+        return;
+    }
+    if (!isCurrentStaticContainerAuthorityGeneration(request.source))
+    {
+        reject(InventoryTakeError::StaleSource);
+        return;
+    }
+    if (request.source.refId.starts_with("mp_remote_"))
+    {
+        reject(InventoryTakeError::InvalidRequest);
+        return;
+    }
+
+    const std::string requestHash = crypto::sha256hex(canonicalInventoryTakeBatchRequest(request));
+    if (const auto stored = mPlayerDb->loadInventoryTake(c.dbAccountId, c.dbCharacterId, request.requestId))
+    {
+        if (stored->requestHash != requestHash)
+        {
+            reject(InventoryTakeError::DuplicateConflict);
+            return;
+        }
+        result.accepted = true;
+        result.replayed = true;
+        result.error = InventoryTakeError::None;
+        result.inventoryRevision = stored->result.inventoryRevision;
+        result.theft = stored->result.theft;
+        result.crimeValue = stored->result.crimeValue;
+        const std::string sourceKey = makeContainerKey(request.source.cellId, request.source.refId,
+            request.source.refNum, request.source.mpNum);
+        const auto sourceIt = mWorld.containers.find(sourceKey);
+        if (sourceIt != mWorld.containers.end() && sourceIt->second.hasAuthority)
+        {
+            PacketContainer correction;
+            correction.container = sourceIt->second;
+            correction.authorityGeneration = currentActorAuthorityGenerationForCell(sourceIt->second.cellId);
+            correction.mAction = static_cast<std::uint8_t>(ContainerAction::Set);
+            sendTo(c.conn, correction.encode());
+        }
+        sendAuthoritativeInventory(c);
+        sendResult();
+        return;
+    }
+
+    const std::string canonicalPlayerCell = makeCellKey(c.player.cell);
+    if (request.source.cellId != canonicalPlayerCell)
+    {
+        reject(InventoryTakeError::WrongCell);
+        return;
+    }
+    constexpr std::uint64_t MaximumSnapshotAgeMs = 1000;
+    const std::uint64_t nowMs = currentServerTimeMs();
+    const AcceptedMechanicsSnapshot* acceptedPlayer = mMechanicsSnapshots.findFresh(
+        { MechanicsSubjectKind::Player, c.guid, 0 }, nowMs, MaximumSnapshotAgeMs);
+    if (!acceptedPlayer || acceptedPlayer->snapshot.cellId != canonicalPlayerCell
+        || acceptedPlayer->snapshot.migrationGeneration != 1
+        || acceptedPlayer->snapshot.authorityGeneration != c.guid)
+    {
+        reject(InventoryTakeError::PlayerSnapshotUnavailable);
+        return;
+    }
+    if (request.expectedInventoryRevision != c.inventoryRevision)
+    {
+        sendAuthoritativeInventory(c);
+        reject(InventoryTakeError::StaleInventoryRevision);
+        return;
+    }
+
+    const bool actorSource = request.source.actorInstanceId != 0;
+    ActorRegistryRecord* actorRecord = nullptr;
+    std::string sourceKey;
+    Position sourcePosition;
+    std::string ownerId;
+    std::string factionId;
+    int factionRank = -1;
+    bool ownershipGlobalAllowsUse = false;
+    std::uint32_t bootstrapAuthority = 0;
+    if (actorSource)
+    {
+        const auto keyIt = mWorld.actorKeysByNetId.find(request.source.actorInstanceId);
+        const auto locationIt = keyIt == mWorld.actorKeysByNetId.end()
+            ? mWorld.actorLocations.end() : mWorld.actorLocations.find(keyIt->second);
+        auto cellIt = locationIt == mWorld.actorLocations.end()
+            ? mWorld.actorCells.end() : mWorld.actorCells.find(locationIt->second);
+        auto actorIt = cellIt == mWorld.actorCells.end() || keyIt == mWorld.actorKeysByNetId.end()
+            ? std::unordered_map<std::string, ActorRegistryRecord>::iterator{}
+            : cellIt->second.actors.find(keyIt->second);
+        if (cellIt == mWorld.actorCells.end() || keyIt == mWorld.actorKeysByNetId.end()
+            || actorIt == cellIt->second.actors.end())
+        {
+            reject(InventoryTakeError::StaleSource);
+            return;
+        }
+        actorRecord = &actorIt->second;
+        const bool deadKind = request.kind == InventoryTakeKind::Corpse;
+        if (locationIt->second != canonicalPlayerCell
+            || actorRecord->actorNetId != request.source.actorInstanceId
+            || actorRecord->migrationGeneration != request.source.migrationGeneration
+            || actorRecord->actor.refId != request.source.refId
+            || actorRecord->actor.refNum != request.source.refNum
+            || actorRecord->actor.mpNum != request.source.mpNum
+            || actorRecord->actor.isDead != deadKind
+            || request.kind == InventoryTakeKind::Container)
+        {
+            reject(InventoryTakeError::StaleSource);
+            return;
+        }
+        if (actorRecord->actor.mpNum == 0 && actorRecord->actor.refNum == 0)
+        {
+            reject(InventoryTakeError::StaleSource);
+            return;
+        }
+        sourcePosition = actorRecord->actor.position;
+        bootstrapAuthority = isActorAuthorityLeaseValid(*actorRecord, canonicalPlayerCell, nowMs)
+            ? actorRecord->actorAuthorityGuid : cellIt->second.authorityGuid;
+        sourceKey = makeContainerKey(canonicalPlayerCell, actorRecord->actor.refId,
+            actorRecord->actor.refNum, actorRecord->actor.mpNum);
+    }
+    else
+    {
+        if (request.kind != InventoryTakeKind::Container || request.source.mpNum != 0)
+        {
+            reject(InventoryTakeError::StaleSource);
+            return;
+        }
+        const auto found = mContentRegistry->findContainerReference(
+            request.source.cellId, request.source.refId, request.source.refNum);
+        if (!found || !found->enabled)
+        {
+            reject(InventoryTakeError::StaleSource);
+            return;
+        }
+        sourcePosition = found->position;
+        ownerId = found->ownerId;
+        factionId = found->factionId;
+        factionRank = found->factionRank;
+        ownershipGlobalAllowsUse = found->ownershipGlobalAllowsUse;
+        const auto cellIt = mWorld.actorCells.find(canonicalPlayerCell);
+        bootstrapAuthority = cellIt == mWorld.actorCells.end() ? 0 : cellIt->second.authorityGuid;
+        sourceKey = makeContainerKey(request.source.cellId, request.source.refId,
+            request.source.refNum, request.source.mpNum);
+    }
+
+    auto sourceIt = mWorld.containers.find(sourceKey);
+    if (sourceIt == mWorld.containers.end() || !sourceIt->second.hasAuthority)
+    {
+        if (bootstrapAuthority != 0)
+        {
+            const auto authority = std::find_if(mClients.begin(), mClients.end(),
+                [&](const auto& entry) { return entry.second.guid == bootstrapAuthority; });
+            if (authority != mClients.end())
+            {
+                PacketContainer bootstrap;
+                bootstrap.container.cellId = request.source.cellId;
+                bootstrap.container.refId = request.source.refId;
+                bootstrap.container.refNum = request.source.refNum;
+                bootstrap.container.mpNum = request.source.mpNum;
+                bootstrap.authorityGeneration = currentActorAuthorityGenerationForCell(request.source.cellId);
+                bootstrap.mAction = static_cast<std::uint8_t>(ContainerAction::BootstrapRequest);
+                sendTo(authority->second.conn, bootstrap.encode());
+            }
+        }
+        reject(InventoryTakeError::SourceUnavailable);
+        return;
+    }
+    if (!ensureContainerItemIdentities(sourceIt->second))
+    {
+        reject(InventoryTakeError::PersistenceFailure);
+        return;
+    }
+
+    const float dx = acceptedPlayer->snapshot.position.pos[0] - sourcePosition.pos[0];
+    const float dy = acceptedPlayer->snapshot.position.pos[1] - sourcePosition.pos[1];
+    const float dz = acceptedPlayer->snapshot.position.pos[2] - sourcePosition.pos[2];
+    const float distanceSquared = dx * dx + dy * dy + dz * dz;
+    if (!std::isfinite(distanceSquared)
+        || distanceSquared > mDoorInteractionRadius * mDoorInteractionRadius)
+    {
+        reject(InventoryTakeError::OutOfRange);
+        return;
+    }
+
+    const AcceptedMechanicsSnapshot* acceptedVictim = nullptr;
+    if (actorSource && request.kind == InventoryTakeKind::ActorInventory)
+    {
+        acceptedVictim = mMechanicsSnapshots.findFresh(
+            { MechanicsSubjectKind::Npc, 0, request.source.actorInstanceId }, nowMs, MaximumSnapshotAgeMs);
+        if (!acceptedVictim
+            || acceptedVictim->snapshot.migrationGeneration != request.source.migrationGeneration
+            || acceptedVictim->snapshot.cellId != canonicalPlayerCell)
+        {
+            reject(InventoryTakeError::PlayerSnapshotUnavailable);
+            return;
+        }
+    }
+
+    bool factionAllowsUse = factionId.empty();
+    if (!factionId.empty())
+    {
+        const std::string wanted = lowerAscii(factionId);
+        const auto membership = std::find_if(c.player.factionState.factions.begin(),
+            c.player.factionState.factions.end(), [&](const PlayerFactionEntry& entry) {
+                return lowerAscii(entry.factionId) == wanted;
+            });
+        factionAllowsUse = membership != c.player.factionState.factions.end()
+            && !membership->expelled && membership->rank >= factionRank;
+    }
+    const bool ownerAllowsUse = ownerId.empty() || lowerAscii(ownerId) == "player";
+    bool actorAllowsUse = false;
+    if (acceptedVictim)
+    {
+        const std::uint8_t flags = acceptedVictim->snapshot.witnessStateFlags;
+        if ((flags & MechanicsWitnessRelationshipKnown) == 0)
+        {
+            reject(InventoryTakeError::PlayerSnapshotUnavailable);
+            return;
+        }
+        actorAllowsUse = (flags & MechanicsWitnessPlayerFollower) != 0;
+    }
+    const bool theft = request.kind != InventoryTakeKind::Corpse
+        && ((actorSource && !actorAllowsUse)
+            || (!actorSource && !ownershipGlobalAllowsUse && (!ownerAllowsUse || !factionAllowsUse)));
+
+    ContainerRecord expectedSource = sourceIt->second;
+    normalizeContainerItems(expectedSource.items);
+    ContainerRecord resultingSource = expectedSource;
+    std::vector<Item> inventory = c.player.inventoryChanges.items;
+    std::vector<ContainerItem> removedSourceItems;
+    std::vector<StolenItemMutation> stolenItemMutations;
+    std::int64_t crimeValue = 0;
+    Item soundItem;
+    bool haveSoundItem = false;
+
+    const auto canStackIntoPlayerItem = [&](const Item& candidate) {
+        if (candidate.instanceId == 0)
+            return true;
+        return std::none_of(c.player.equipment.begin(), c.player.equipment.end(),
+            [&](const EquipmentItem& equipped) {
+                return equipped.item.instanceId != 0
+                    && equipped.item.instanceId == candidate.instanceId;
+            });
+    };
+
+    for (const InventoryTakeBatchLine& line : request.items)
+    {
+        auto aggregateTake = takeAuthoritativeContainerItems(resultingSource.items, line.itemRefId,
+            line.itemCharge, line.itemEnchantmentCharge, line.itemSoul, line.requestedCount,
+            [&](const ContainerItem& left, const ContainerItem& right) {
+                return authoritativeContainerItemsStackNatively(mContentRegistry->store(), left, right);
+            }, line.itemInstanceId);
+        if (!aggregateTake)
+        {
+            Log(Debug::Warning) << "[InventoryTakeBatch] item unavailable request=" << request.requestId
+                                << " source=" << request.source.refId
+                                << " item=" << line.itemRefId
+                                << " instanceId=" << line.itemInstanceId
+                                << " charge=" << line.itemCharge
+                                << " enchant=" << line.itemEnchantmentCharge;
+            reject(InventoryTakeError::ItemUnavailable);
+            return;
+        }
+
+        const ContainerItem removedSourceItem = aggregateTake->taken;
+        Log(Debug::Info) << "[InventoryTakeBatch] selected request=" << request.requestId
+                         << " source=" << request.source.refId
+                         << " requestedRefId=" << line.itemRefId
+                         << " requestedInstanceId=" << line.itemInstanceId
+                         << " authoritativeRefId=" << removedSourceItem.refId
+                         << " authoritativeInstanceId=" << removedSourceItem.instanceId
+                         << " count=" << line.requestedCount
+                         << " charge=" << removedSourceItem.charge
+                         << " enchant=" << removedSourceItem.enchantmentCharge
+                         << " soul=" << removedSourceItem.soul;
+        removedSourceItems.insert(removedSourceItems.end(),
+            aggregateTake->backingRows.begin(), aggregateTake->backingRows.end());
+
+        int itemValue = 0;
+        bool gold = false;
+        Item added;
+        try
+        {
+            ESM::RefId contentId = ESM::RefId::deserializeText(line.itemRefId);
+            if (contentId.empty())
+                contentId = ESM::RefId::stringRefId(line.itemRefId);
+            MWWorld::ManualRef contentRef(mContentRegistry->store(), contentId, line.requestedCount);
+            MWWorld::Ptr ptr = contentRef.getPtr();
+            itemValue = ptr.getClass().getValue(ptr);
+            gold = ptr.getClass().isGold(ptr);
+            added.refId = gold ? "gold_001" : line.itemRefId;
+            added.count = line.requestedCount;
+            added.charge = removedSourceItem.charge;
+            added.enchantmentCharge = removedSourceItem.enchantmentCharge;
+            added.soul = removedSourceItem.soul;
+        }
+        catch (const std::exception&)
+        {
+            reject(InventoryTakeError::ItemUnavailable);
+            return;
+        }
+
+        const bool allowTakeStack = authoritativeContainerItemsStackNatively(
+            mContentRegistry->store(), removedSourceItem, removedSourceItem);
+        const bool compatibleStack = allowTakeStack && std::any_of(inventory.begin(), inventory.end(),
+            [&](const Item& item) {
+                return sameAuthoritativeItemIdentity(item, added) && canStackIntoPlayerItem(item);
+            });
+        if (!compatibleStack)
+        {
+            const auto instance = reserveWorldMpNum();
+            if (!instance)
+            {
+                reject(InventoryTakeError::PersistenceFailure);
+                return;
+            }
+            added.instanceId = *instance;
+        }
+        const AuthoritativeStackMutation mutation
+            = mergeAuthoritativeInventoryItem(inventory, added, allowTakeStack, canStackIntoPlayerItem);
+        if (mutation == AuthoritativeStackMutation::Invalid
+            || mutation == AuthoritativeStackMutation::Overflow)
+        {
+            reject(mutation == AuthoritativeStackMutation::Overflow
+                ? InventoryTakeError::InvalidCount : InventoryTakeError::PersistenceFailure);
+            return;
+        }
+
+        if (!haveSoundItem)
+        {
+            soundItem = added;
+            haveSoundItem = true;
+        }
+        if (theft)
+        {
+            crimeValue += gold ? static_cast<std::int64_t>(line.requestedCount)
+                               : static_cast<std::int64_t>(line.requestedCount) * itemValue;
+            if (!gold)
+            {
+                if (actorSource)
+                    stolenItemMutations.push_back({ added.refId, actorRecord->actor.refId, false, line.requestedCount });
+                else if (!ownerId.empty())
+                    stolenItemMutations.push_back({ added.refId, ownerId, false, line.requestedCount });
+                else if (!factionId.empty())
+                    stolenItemMutations.push_back({ added.refId, factionId, true, line.requestedCount });
+            }
+        }
+    }
+    normalizeContainerItems(resultingSource.items);
+    normalizeContainerItems(removedSourceItems);
+
+    result.accepted = true;
+    result.error = InventoryTakeError::None;
+    result.inventoryRevision = request.expectedInventoryRevision + 1;
+    result.theft = theft;
+    result.crimeValue = crimeValue;
+
+    std::optional<CrimeSemanticService::Outcome> preparedCrime;
+    if (theft && mObservationService)
+    {
+        CrimeWitnessBuildRequest witnessRequest;
+        witnessRequest.eventCell = c.player.cell;
+        witnessRequest.offender = makeLiveObservationSnapshot(*acceptedPlayer, playerBootWeight(c));
+        witnessRequest.offenderCharacterId = c.dbCharacterId;
+        witnessRequest.victim = actorSource
+            ? std::optional<ObservationActorIdentity>({ ObservationActorKind::Npc, 0,
+                  request.source.actorInstanceId }) : std::nullopt;
+        witnessRequest.alarmRadius = mObservationAlarmRadius;
+        witnessRequest.observedAtMs = nowMs;
+        witnessRequest.maximumSnapshotAgeMs = MaximumSnapshotAgeMs;
+        CrimeWitnessBuildResult witnesses = buildLiveCrimeWitnesses(witnessRequest);
+
+        CrimeIntent intent;
+        intent.eventId = "inventory-take-batch:" + std::to_string(c.dbAccountId) + ":"
+            + std::to_string(c.dbCharacterId) + ":" + request.requestId;
+        intent.source = "authoritative_container_take_batch";
+        intent.type = CrimeType::Theft;
+        intent.cellId = canonicalPlayerCell;
+        intent.offender = witnessRequest.offender;
+        intent.victim = witnessRequest.victim;
+        intent.value = crimeValue;
+        intent.observedAtMs = nowMs;
+        intent.maximumSnapshotAgeMs = MaximumSnapshotAgeMs;
+        for (const std::string& cellId : witnesses.candidateCellIds)
+        {
+            const std::uint64_t generation = mCollisionWorld ? mCollisionWorld->cellGeneration(cellId) : 0;
+            if (generation != 0)
+                intent.collisionGenerations.push_back({ cellId, generation });
+        }
+        const CrimePolicy policy = makeCrimePolicy(mContentRegistry->store(), mObservationAlarmRadius);
+        CrimeService crimeService(*mPlayerDb);
+        CrimeSemanticService semantics(*mPlayerDb, crimeService, *mObservationService, policy);
+        CrimeSemanticService::Context context { c.dbAccountId, c.dbCharacterId, c.guid };
+        context.deferCommit = true;
+        preparedCrime = semantics.evaluate(intent, std::move(witnesses.witnesses), context);
+        if (!preparedCrime->result.accepted || (!preparedCrime->replayed && !preparedCrime->pendingCommit))
+        {
+            reject(InventoryTakeError::PersistenceFailure);
+            return;
+        }
+    }
+
+    InventoryTakeResult persistedResult;
+    persistedResult.requestId = request.requestId;
+    persistedResult.accepted = true;
+    persistedResult.error = InventoryTakeError::None;
+    persistedResult.kind = request.kind;
+    persistedResult.source = request.source;
+    persistedResult.itemRefId = "__inventory_take_batch__";
+    persistedResult.itemCount = static_cast<std::int32_t>(request.items.size());
+    persistedResult.inventoryRevision = result.inventoryRevision;
+    persistedResult.theft = theft;
+    persistedResult.crimeValue = crimeValue;
+
+    InventoryTakeCommit commit;
+    commit.accountId = c.dbAccountId;
+    commit.characterId = c.dbCharacterId;
+    commit.requestId = request.requestId;
+    commit.requestHash = requestHash;
+    commit.result = persistedResult;
+    commit.expectedInventoryRevision = request.expectedInventoryRevision;
+    commit.resultingInventoryRevision = result.inventoryRevision;
+    commit.inventory = inventory;
+    commit.expectedSource = expectedSource;
+    commit.resultingSource = resultingSource;
+    commit.stolenItemMutations = std::move(stolenItemMutations);
+    if (preparedCrime && preparedCrime->pendingCommit)
+        commit.crimeMutation = *preparedCrime->pendingCommit;
+
+    InventoryTakeCommitResult committed;
+    try
+    {
+        committed = mPlayerDb->commitInventoryTake(commit);
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[InventoryTakeBatch] persistence failure request=" << request.requestId
+                          << " player=" << c.name << " error=" << e.what();
+        reject(InventoryTakeError::PersistenceFailure);
+        return;
+    }
+    if (committed.status == InventoryTakeCommitStatus::DuplicateRequestConflict)
+    {
+        reject(InventoryTakeError::DuplicateConflict);
+        return;
+    }
+    if (committed.status == InventoryTakeCommitStatus::StaleInventoryRevision)
+    {
+        sendAuthoritativeInventory(c);
+        reject(InventoryTakeError::StaleInventoryRevision);
+        return;
+    }
+    if (committed.status == InventoryTakeCommitStatus::StaleSource)
+    {
+        reject(InventoryTakeError::StaleSource);
+        return;
+    }
+    if (committed.status == InventoryTakeCommitStatus::CrimeDuplicateConflict)
+    {
+        reject(InventoryTakeError::DuplicateConflict);
+        return;
+    }
+    if (committed.status == InventoryTakeCommitStatus::StaleCrimeRevision)
+    {
+        reject(InventoryTakeError::PersistenceFailure);
+        return;
+    }
+
+    result.replayed = committed.status == InventoryTakeCommitStatus::DuplicateRequest;
+    if (!result.replayed)
+    {
+        sourceIt->second = resultingSource;
+        c.player.inventoryChanges.action = BasePlayer::InventoryChanges::Action::Set;
+        c.player.inventoryChanges.items = std::move(inventory);
+        c.inventoryRevision = result.inventoryRevision;
+        c.player.inventoryChanges.revision = result.inventoryRevision;
+        c.restoredInventorySnapshot = c.player.inventoryChanges.items;
+        c.hasRestoredInventorySnapshot = true;
+
+        PacketContainer sourcePacket;
+        sourcePacket.container.cellId = sourceIt->second.cellId;
+        sourcePacket.container.refId = sourceIt->second.refId;
+        sourcePacket.container.refNum = sourceIt->second.refNum;
+        sourcePacket.container.mpNum = sourceIt->second.mpNum;
+        sourcePacket.container.hasAuthority = true;
+        sourcePacket.container.items = std::move(removedSourceItems);
+        sourcePacket.authorityGeneration = currentActorAuthorityGenerationForCell(sourceIt->second.cellId);
+        sourcePacket.mAction = static_cast<std::uint8_t>(ContainerAction::Remove);
+        broadcastToCell(canonicalPlayerCell, sourcePacket.encode());
+        scheduleGeneratedDynamicRecordGc("inventory_take_batch");
+        if (haveSoundItem)
+        {
+            broadcastInventoryTransferSound(c,
+                "inventory-take-batch:" + std::to_string(c.guid) + ":" + request.requestId,
+                soundItem.refId, soundItem.instanceId, static_cast<std::int32_t>(result.itemCount),
+                result.inventoryRevision, InventoryTransferMutation::Added, request.soundDirection);
+        }
+        syncLuaPlayerSnapshot();
+    }
+    sendAuthoritativeInventory(c);
+
+    if (preparedCrime)
+    {
+        c.player.crimeState = mPlayerDb->loadPlayerCrimeState(c.dbCharacterId);
+        c.player.bounty = c.player.crimeState.bounty;
+        sendAuthoritativeCrimeState(c);
+        if (!result.replayed)
+            dispatchCrimeReactions(c, preparedCrime->result);
+    }
+
+    Log(Debug::Info) << "[InventoryTakeBatch] accepted request=" << request.requestId
+                     << " source=" << request.source.refId
+                     << " lines=" << result.lineCount
+                     << " count=" << result.itemCount
+                     << " theft=" << result.theft
                      << " replayed=" << result.replayed;
     sendResult();
 }
@@ -17939,6 +18519,20 @@ void MPServer::handleObjectMove(ConnectedClient& c, const uint8_t* data, size_t 
 }
 
 // ---------------------------------------------------------------------------
+bool MPServer::ensureContainerItemIdentities(ContainerRecord& record)
+{
+    if (std::none_of(record.items.begin(), record.items.end(),
+            [](const ContainerItem& item) { return item.count > 0 && item.instanceId == 0; }))
+        return true;
+    ContainerRecord assigned = record;
+    if (!assignAuthoritativeContainerIdentities(assigned.items, [this] { return reserveWorldMpNum(); }))
+        return false;
+    if (mPlayerDb)
+        mPlayerDb->upsertContainerRecord(assigned);
+    record = std::move(assigned);
+    return true;
+}
+
 void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t size)
 {
     PacketContainer pkt;
@@ -17993,6 +18587,8 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
         const auto currentIt = mWorld.containers.find(key);
         if (currentIt != mWorld.containers.end() && currentIt->second.hasAuthority)
         {
+            if (!ensureContainerItemIdentities(currentIt->second))
+                return;
             PacketContainer current;
             current.container = currentIt->second;
                 current.authorityGeneration = currentAuthorityGeneration;
@@ -18075,6 +18671,7 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
                 current.container = currentIt->second;
                 current.authorityGeneration = currentAuthorityGeneration;
                 current.mAction = static_cast<std::uint8_t>(ContainerAction::Set);
+                current.bootstrapSequence = pkt.bootstrapSequence;
                 sendTo(c.conn, current.encode());
             }
         }
@@ -18097,10 +18694,10 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
 
     if (action == ContainerAction::Set)
     {
-        normalizeContainerItems(pkt.container.items);
-
         if (authoritative.hasAuthority)
         {
+            if (!ensureContainerItemIdentities(authoritative))
+                return;
             if (repairContainerRestockingMetadata(authoritative, std::max(1, c.player.level)))
             {
                 if (mPlayerDb)
@@ -18111,8 +18708,9 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
             }
             PacketContainer current;
             current.container = authoritative;
-                current.authorityGeneration = currentAuthorityGeneration;
+            current.authorityGeneration = currentAuthorityGeneration;
             current.mAction = static_cast<uint8_t>(ContainerAction::Set);
+            current.bootstrapSequence = pkt.bootstrapSequence;
             sendTo(c.conn, current.encode());
             Log(Debug::Info) << "[Server] Container(Set replay): player=" << c.name
                              << " refId=" << authoritative.refId
@@ -18122,8 +18720,15 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
             return;
         }
 
-        authoritative = pkt.container;
-        authoritative.hasAuthority = true;
+        ContainerRecord initial = pkt.container;
+        initial.hasAuthority = true;
+        // Initial client rows have local RefNums, not server-issued item IDs.
+        // Allocate before normalization so separate scripted/damaged rows survive.
+        for (auto& item : initial.items)
+            item.instanceId = 0;
+        if (!ensureContainerItemIdentities(initial))
+            return;
+        authoritative = std::move(initial);
         if (repairContainerRestockingMetadata(authoritative, std::max(1, c.player.level)))
             Log(Debug::Info) << "[Server] Repaired restocking metadata on initial Container(Set)"
                              << " refId=" << authoritative.refId
@@ -18137,13 +18742,21 @@ void MPServer::handleContainer(ConnectedClient& c, const uint8_t* data, size_t s
         accepted.container = authoritative;
         accepted.authorityGeneration = currentAuthorityGeneration;
         accepted.mAction = static_cast<uint8_t>(ContainerAction::Set);
+        accepted.bootstrapSequence = pkt.bootstrapSequence;
         sendTo(c.conn, accepted.encode());
+        accepted.bootstrapSequence = 0;
         broadcastToCell(authoritative.cellId, accepted.encode(), c.conn);
         Log(Debug::Info) << "[Server] Container(Set accepted): player=" << c.name
                          << " refId=" << authoritative.refId
                          << " refNum=" << authoritative.refNum
                          << " mpNum=" << authoritative.mpNum
                          << " items=" << authoritative.items.size();
+        for (const auto& item : authoritative.items)
+            Log(Debug::Info) << "[InventoryTake] Container(Set) identity source=" << authoritative.refId
+                << " mpNum=" << authoritative.mpNum << " refId=" << item.refId
+                << " instanceId=" << item.instanceId << " count=" << item.count
+                << " charge=" << item.charge << " enchant=" << item.enchantmentCharge
+                << " soul=" << item.soul << " restocking=" << item.restocking;
         return;
     }
 

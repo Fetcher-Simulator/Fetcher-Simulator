@@ -330,14 +330,6 @@ namespace MWGui
                 if (mItemView)
                     mItemView->update();
 
-                if (mAuthoritativeTakeAllPending)
-                {
-                    mAuthoritativeTransferPending = false;
-                    MWBase::Environment::get().getWindowManager()->playSound(sound);
-                    continueAuthoritativeTakeAll();
-                    return;
-                }
-
                 if (!startDrag)
                 {
                     mAuthoritativeTransferPending = false;
@@ -416,56 +408,95 @@ namespace MWGui
         if (mAuthoritativeTransferPending || mAuthoritativeTakeAllPending || mModel == nullptr || mPtr.isEmpty())
             return;
 
-        // Preserve vanilla corpse presentation while the server moves each stack
-        // atomically. Unequip once before the first authoritative removal so
-        // InventoryStore bookkeeping cannot re-equip items between acknowledgements.
-        if (mPtr.getClass().hasInventoryStore(mPtr))
+        mModel->update();
+        std::vector<mwmp::WorldObjectSync::InventoryTakeBatchInput> items;
+        items.reserve(mModel->getItemCount());
+        ESM::RefId sound;
+        for (std::size_t i = 0; i < mModel->getItemCount(); ++i)
         {
-            MWWorld::InventoryStore& invStore = mPtr.getClass().getInventoryStore(mPtr);
-            mModel->update();
-            for (std::size_t i = 0; i < mModel->getItemCount(); ++i)
-            {
-                const ItemStack item = mModel->getItem(static_cast<ItemModel::ModelIndex>(i));
-                if (invStore.isEquipped(item.mBase))
-                    invStore.unequipItem(item.mBase);
-            }
+            const ItemStack item = mModel->getItem(static_cast<ItemModel::ModelIndex>(i));
+            if (item.mBase.isEmpty() || item.mCount == 0)
+                continue;
+            if (items.empty())
+                sound = item.mBase.getClass().getDownSoundId(item.mBase);
+            items.push_back({ item.mBase, static_cast<int>(item.mCount) });
         }
 
+        if (items.empty())
+        {
+            const MWWorld::Ptr ptr = mPtr;
+            if (disposeAfter)
+                disposeCorpseNow(ptr);
+            else
+                MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_Container);
+            return;
+        }
+
+        const mwmp::InventoryTakeKind kind = mPtr.getClass().isActor()
+            ? (mPtr.getClass().getCreatureStats(mPtr).isDead()
+                ? mwmp::InventoryTakeKind::Corpse : mwmp::InventoryTakeKind::ActorInventory)
+            : mwmp::InventoryTakeKind::Container;
+        const std::uint64_t serial = ++mAuthoritativeTransferSerial;
+        const MWWorld::Ptr source = mPtr;
+        mAuthoritativeTransferPending = true;
         mAuthoritativeTakeAllPending = true;
         mDisposeAfterAuthoritativeTakeAll = disposeAfter;
-        continueAuthoritativeTakeAll();
-    }
 
-    void ContainerWindow::continueAuthoritativeTakeAll()
-    {
-        if (!mAuthoritativeTakeAllPending || mAuthoritativeTransferPending)
-            return;
-        if (mModel == nullptr || mPtr.isEmpty())
+        const bool queued = mwmp::Main::get().getWorldObjectSync().requestInventoryTakeBatch(
+            source, items, kind, mwmp::InventoryTransferSoundDirection::Down,
+            [this, source, sound, serial](const mwmp::InventoryTakeBatchResult& result) {
+                InventoryWindow* inventoryWindow
+                    = MWBase::Environment::get().getWindowManager()->getInventoryWindow();
+                inventoryWindow->getModel()->update();
+                inventoryWindow->updateItemView();
+
+                if (serial != mAuthoritativeTransferSerial)
+                    return;
+
+                const bool disposeAfter = mDisposeAfterAuthoritativeTakeAll;
+                mAuthoritativeTransferPending = false;
+                mAuthoritativeTakeAllPending = false;
+                mDisposeAfterAuthoritativeTakeAll = false;
+
+                if (!result.accepted)
+                {
+                    Log(Debug::Warning) << "[MP] ContainerWindow: authoritative take-all rejected"
+                                        << " error=" << mwmp::getInventoryTakeErrorCode(result.error)
+                                        << " lines=" << result.lineCount;
+                    if (mModel)
+                        mModel->update();
+                    if (mItemView)
+                        mItemView->update();
+                    return;
+                }
+
+                if (!sound.empty())
+                    MWBase::Environment::get().getWindowManager()->playSound(sound);
+                if (mModel)
+                    mModel->update();
+                if (mItemView)
+                    mItemView->update();
+
+                if (mModel && mModel->getItemCount() != 0)
+                {
+                    Log(Debug::Warning) << "[MP] ContainerWindow: authoritative take-all accepted"
+                                        << " but source still has " << mModel->getItemCount() << " visible rows";
+                    return;
+                }
+
+                if (disposeAfter)
+                    disposeCorpseNow(source);
+                else
+                    MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_Container);
+            });
+
+        if (!queued)
         {
+            mAuthoritativeTransferPending = false;
             mAuthoritativeTakeAllPending = false;
             mDisposeAfterAuthoritativeTakeAll = false;
-            return;
+            Log(Debug::Warning) << "[MP] ContainerWindow: could not queue authoritative take-all";
         }
-
-        mModel->update();
-        if (mItemView)
-            mItemView->update();
-
-        if (mModel->getItemCount() != 0)
-        {
-            const ItemStack item = mModel->getItem(0);
-            requestAuthoritativeTake(item, item.mCount, false);
-            return;
-        }
-
-        const bool disposeAfter = mDisposeAfterAuthoritativeTakeAll;
-        const MWWorld::Ptr ptr = mPtr;
-        mAuthoritativeTakeAllPending = false;
-        mDisposeAfterAuthoritativeTakeAll = false;
-        if (disposeAfter)
-            disposeCorpseNow(ptr);
-        else
-            MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_Container);
     }
 
     void ContainerWindow::requestAuthoritativePut(const ItemStack& item, std::size_t count)
