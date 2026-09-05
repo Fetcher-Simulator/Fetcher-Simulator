@@ -89,6 +89,7 @@ namespace mwmp
         static void resolveContainerForAuthoritativeSnapshot(MWWorld::ContainerStore& store);
         static bool bindContainerSnapshotIdentities(const std::vector<ContainerItem>& snapshot,
             const std::vector<MWWorld::Ptr>& handles, const std::vector<ContainerItem>& accepted);
+        static void applyContainerRemove(MWWorld::ContainerStore& store, const std::vector<ContainerItem>& items);
         static bool reconcileContainerStoreInPlace(MWWorld::ContainerStore& store,
             const std::vector<ContainerItem>& expected, const MWWorld::ESMStore& esmStore);
         bool shouldDeferContainerResolutionOnOpen(const MWWorld::Ptr& container) const;

@@ -6,6 +6,7 @@
 #include "apps/openmw/mwgui/containeritemmodel.hpp"
 #include "apps/openmw/mwmp/sync/WorldObjectSync.hpp"
 #include "apps/openmw/mwworld/containerstore.hpp"
+#include "apps/openmw/mwworld/inventorystore.hpp"
 #include "apps/openmw/mwworld/esmstore.hpp"
 #include "apps/openmw/mwworld/livecellref.hpp"
 #include "apps/openmw/mwworld/manualref.hpp"
@@ -327,6 +328,71 @@ namespace MWWorld
             EXPECT_EQ(mwmp::inventoryInstanceId(source.getCellRef().getRefNum()), 9001u);
             EXPECT_FLOAT_EQ(source.getCellRef().getEnchantmentCharge(), 180.725f);
 
+            mwmp::clearInventoryInstanceAliases();
+        }
+
+        TEST(ContainerStoreAuthority, PlayerRebuildPreservesOpenGoldAliasForRepeatedPartialRemoves)
+        {
+            ContainerAuthorityFixture fixture;
+            mwmp::clearInventoryInstanceAliases();
+            struct PlayerStore : InventoryStore
+            {
+                using ContainerStore::addNewStack;
+            } player;
+            // Exercise the production delta matcher with a headless removal sink;
+            // ContainerStore::remove's GUI notification requires a running game.
+            struct HeadlessStore : ExposedContainerStore
+            {
+                int removals = 0;
+                int remove(const Ptr& item, int count, bool, bool) override
+                {
+                    ++removals;
+                    item.getCellRef().setCount(item.getCellRef().getCount() - count);
+                    return count;
+                }
+            } corpse;
+            ESM::Miscellaneous gold;
+            gold.blank();
+            gold.mId = ESM::RefId::stringRefId("gold_001");
+            ESM::CellRef goldRef;
+            goldRef.blank();
+            goldRef.mRefID = gold.mId;
+            goldRef.mRefNum = { .mIndex = 100, .mContentFile = -1 };
+            LiveCellRef<ESM::Miscellaneous> liveGold(goldRef, &gold);
+            const Ptr corpseGold = *corpse.addNewStack(Ptr(&liveGold), 97);
+            const ESM::RefNum corpseRefNum = corpseGold.getCellRef().getRefNum();
+            mwmp::ContainerItem snapshot{ "gold_001", 97, -1 };
+            auto accepted = snapshot;
+            accepted.instanceId = 7763;
+            ASSERT_TRUE(mwmp::WorldObjectSync::bindContainerSnapshotIdentities(
+                { snapshot }, { corpseGold }, { accepted }));
+
+            for (int remaining = 96; remaining >= 92; --remaining)
+            {
+                liveGold.mRef.setRefNum({ .mIndex = static_cast<unsigned>(200 + remaining), .mContentFile = -1 });
+                const auto oldPlayerRow = player.addNewStack(Ptr(&liveGold), 1);
+                const auto playerRefNum = oldPlayerRow->getCellRef().getRefNum();
+                mwmp::setInventoryInstanceAlias(playerRefNum, 8000 + remaining);
+                player.setSelectedEnchantItem(oldPlayerRow);
+                mwmp::clearInventoryForAuthoritativeRebuild(player);
+                EXPECT_EQ(player.getSelectedEnchantItem(), player.end());
+                EXPECT_EQ(mwmp::inventoryInstanceId(playerRefNum), 0u);
+                player.addNewStack(Ptr(&liveGold), 98 - remaining);
+                EXPECT_EQ(mwmp::inventoryInstanceId(corpseRefNum), 7763u);
+                auto delta = accepted;
+                delta.count = 1;
+                mwmp::WorldObjectSync::applyContainerRemove(corpse, { delta });
+                EXPECT_EQ(corpseGold.getCellRef().getCount(), remaining);
+            }
+            EXPECT_EQ(corpse.removals, 5);
+            auto wrongIdentity = accepted;
+            wrongIdentity.instanceId = 7764;
+            wrongIdentity.count = 1;
+            mwmp::WorldObjectSync::applyContainerRemove(corpse, { wrongIdentity });
+            EXPECT_EQ(corpseGold.getCellRef().getCount(), 92);
+            accepted.count = 92;
+            mwmp::WorldObjectSync::applyContainerRemove(corpse, { accepted });
+            EXPECT_EQ(corpseGold.getCellRef().getCount(), 0);
             mwmp::clearInventoryInstanceAliases();
         }
 

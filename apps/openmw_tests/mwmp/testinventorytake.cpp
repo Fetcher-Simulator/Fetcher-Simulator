@@ -677,3 +677,81 @@ TEST(InventoryPutPersistence, PlayerAndContainerCommitAtomicallyAndReplayAcrossR
     ASSERT_TRUE(reopened.loadInventoryTake(account, character, putCommit.requestId));
     EXPECT_EQ(reopened.loadContainerRecords().front().items, putCommit.resultingSource->items);
 }
+
+TEST(InventoryPutPersistence, FungibleGoldPartialAndFullPutMergeAtomicallyAndReplay)
+{
+    for (const int count : { 1, 10 })
+    {
+        TemporaryDatabase temporary;
+        mwmp::PlayerDatabase database(temporary.path.string());
+        const auto account = database.createAccount("gold-put-account");
+        const auto character = database.createCharacter(account, "Gold Put Tester").characterId;
+        mwmp::Item gold;
+        gold.refId = "gold_001";
+        gold.count = 10;
+        database.saveCharacterInventory(character, { gold }, false, 0);
+        mwmp::ContainerRecord corpse;
+        corpse.cellId = "Balmora";
+        corpse.refId = "boba_fett";
+        corpse.mpNum = 7753;
+        corpse.hasAuthority = true;
+        corpse.items = { { "gold_001", 92, -1, 7763 } };
+        database.upsertContainerRecord(corpse);
+
+        mwmp::InventoryPutRequest request;
+        request.requestId = "gold-put-1";
+        request.destination.cellId = corpse.cellId;
+        request.destination.refId = corpse.refId;
+        request.destination.mpNum = corpse.mpNum;
+        request.destination.actorInstanceId = mwmp::packActorInstanceKey(
+            { mwmp::ActorKeyKind::SpawnedMpNum, corpse.mpNum });
+        request.destination.migrationGeneration = 1;
+        request.itemRefId = "gold_001";
+        request.requestedCount = count;
+        ASSERT_EQ(mwmp::validateInventoryPutRequest(request), mwmp::InventoryPutError::None);
+        ASSERT_TRUE(mwmp::matchesInventoryPutSource(gold, request));
+
+        mwmp::InventoryTakeCommit commit;
+        commit.accountId = account;
+        commit.characterId = character;
+        commit.requestId = request.requestId;
+        commit.requestHash = mwmp::crypto::sha256hex(mwmp::canonicalInventoryPutRequest(request));
+        commit.expectedInventoryRevision = 0;
+        commit.resultingInventoryRevision = 1;
+        gold.count -= count;
+        if (gold.count > 0) commit.inventory = { gold };
+        commit.expectedSource = corpse;
+        commit.resultingSource = corpse;
+        mwmp::ContainerItem incoming{ "gold_001", count, -1 };
+        ASSERT_EQ(mwmp::mergeAuthoritativeContainerItem(commit.resultingSource->items, incoming, true),
+            mwmp::AuthoritativeStackMutation::Merged);
+        EXPECT_EQ(incoming.instanceId, 7763u);
+        commit.result.requestId = request.requestId;
+        commit.result.accepted = true;
+        commit.result.kind = mwmp::InventoryTakeKind::Corpse;
+        commit.result.source = request.destination;
+        commit.result.itemRefId = request.itemRefId;
+        commit.result.itemCount = count;
+        commit.result.inventoryRevision = 1;
+        ASSERT_EQ(database.commitInventoryTake(commit).status, mwmp::InventoryTakeCommitStatus::Committed);
+        EXPECT_EQ(database.commitInventoryTake(commit).status, mwmp::InventoryTakeCommitStatus::DuplicateRequest);
+        ++request.requestedCount;
+        auto conflict = commit;
+        conflict.requestHash = mwmp::crypto::sha256hex(mwmp::canonicalInventoryPutRequest(request));
+        EXPECT_EQ(database.commitInventoryTake(conflict).status,
+            mwmp::InventoryTakeCommitStatus::DuplicateRequestConflict);
+        const auto inventory = database.loadCharacterInventory(character);
+        if (count == 10) EXPECT_TRUE(inventory.empty());
+        else
+        {
+            ASSERT_EQ(inventory.size(), 1u);
+            EXPECT_EQ(inventory.front().count, 10 - count);
+        }
+        const auto containers = database.loadContainerRecords();
+        ASSERT_EQ(containers.size(), 1u);
+        ASSERT_EQ(containers.front().items.size(), 1u);
+        EXPECT_EQ(containers.front().items.front().count, 92 + count);
+        EXPECT_EQ(containers.front().items.front().instanceId, 7763u);
+        EXPECT_EQ(database.loadInventoryRevision(character), 1u);
+    }
+}

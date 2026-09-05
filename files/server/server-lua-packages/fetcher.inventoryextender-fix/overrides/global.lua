@@ -582,50 +582,33 @@ local function moveInto(props)
         end
     end
 
-    local detachedSelfDrag = false
-    local multiplayerSelfDrag = mp.isConnected() and props.dragStart and props.source == props.destination
-    if multiplayerSelfDrag and moveCount == obj.count then
-        -- Full-stack cursor drags already have a stable inventory object. Gold is
-        -- special-cased by OpenMW and splitting a complete gold stack can rewrite
-        -- gold_001 into gold_100, which makes the cursor operate on a different
-        -- record than the row the player clicked. Mirror the normal non-gold path:
-        -- keep the original object in place and attach that exact handle.
-        resultingObj = obj
-        traceInventory('cursor-drag direct-self-full-stack recordId=%s objectId=%s count=%s',
-            tostring(recordId), tostring(obj.id), tostring(moveCount))
-    elseif moveCount ~= obj.count or helpers.isGold(obj) then
+    if mp.isConnected() and props.dragStart and props.source == props.destination then
+        -- The cursor holds a count, not a local split. A split detaches the item
+        -- from the player (and may turn gold into gold_100), so InventoryPut can
+        -- no longer build a request from the authoritative player row.
+        props.player:sendEvent('IE_SetDraggingObject', {
+            obj = obj,
+            target = destination,
+            preserveObject = true,
+        })
+        props.player:sendEvent('IE_Update')
+        return obj
+    end
+
+    if moveCount ~= obj.count or helpers.isGold(obj) then
         obj = obj:split(moveCount)
         if props.source ~= props.destination then
             resultingObj = obj
-        elseif multiplayerSelfDrag then
-            -- A multiplayer partial cursor split is already detached from the local
-            -- player's inventory by object:split(). Reinserting it into the same
-            -- inventory before attaching the cursor exposes remove -> add churn and
-            -- can merge/invalidate the cursor handle. Keep it detached until drop.
-            resultingObj = obj
-            detachedSelfDrag = true
-            traceInventory('cursor-drag detached-self-split recordId=%s objectId=%s count=%s',
-                tostring(recordId), tostring(obj.id), tostring(moveCount))
         end
     end
+    obj:moveInto(destination)
 
-    if not detachedSelfDrag then
-        obj:moveInto(destination)
-    end
-
-    if props.dragStart and helpers.isGold(obj) and not detachedSelfDrag then
+    if props.dragStart and helpers.isGold(obj) then
         local foundGold = destinationInv:find('gold_001')
-        if foundGold then
-            resultingObj = foundGold
-        end
+        if foundGold then resultingObj = foundGold end
     end
-
     if props.dragStart then
-        props.player:sendEvent('IE_SetDraggingObject', {
-            obj = resultingObj,
-            target = destination,
-            preserveObject = detachedSelfDrag,
-        })
+        props.player:sendEvent('IE_SetDraggingObject', { obj = resultingObj, target = destination })
     end
 
     if props.autoEquip then

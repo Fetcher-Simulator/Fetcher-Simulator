@@ -1,6 +1,7 @@
 #include "InventoryPut.hpp"
 
 #include <bit>
+#include <components/misc/strings/algorithm.hpp>
 
 namespace
 {
@@ -47,7 +48,7 @@ mwmp::InventoryPutError mwmp::validateInventoryPutRequest(const InventoryPutRequ
     const bool hasRefNum = request.destination.refNum != 0;
     const bool hasMpNum = request.destination.mpNum != 0;
     const bool actorDestination = request.destination.actorInstanceId != 0;
-    if (hasRefNum == hasMpNum || request.itemInstanceId == 0
+    if (hasRefNum == hasMpNum || (request.itemInstanceId == 0 && request.itemRefId != "gold_001")
         || (actorDestination && request.destination.migrationGeneration == 0)
         || (!actorDestination && request.destination.migrationGeneration != 0))
         return InventoryPutError::InvalidRequest;
@@ -61,6 +62,17 @@ mwmp::InventoryPutError mwmp::validateInventoryPutRequest(const InventoryPutRequ
     if (request.requestedCount <= 0 || request.requestedCount > MaximumInventoryPutCount)
         return InventoryPutError::InvalidCount;
     return InventoryPutError::None;
+}
+
+bool mwmp::matchesInventoryPutSource(const Item& item, const InventoryPutRequest& request)
+{
+    if (request.requestedCount <= 0 || item.count < request.requestedCount
+        || !Misc::StringUtils::ciEqual(item.refId, request.itemRefId))
+        return false;
+    if (request.itemRefId == "gold_001")
+        return true;
+    return request.itemInstanceId != 0 && item.instanceId == request.itemInstanceId
+        && item.charge == request.itemCharge;
 }
 
 std::string mwmp::canonicalInventoryPutRequest(const InventoryPutRequest& request)

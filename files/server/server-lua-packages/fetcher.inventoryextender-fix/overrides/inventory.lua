@@ -1599,9 +1599,12 @@ function Inventory:create(windowType, ctx)
     self.itemTable.layout.events.mouseRelease = async:callback(function(e)
         if e.button == 1 then
             if ctx.dragAndDrop.draggingObject then
+                local target = I.InventoryExtender.resolveInventoryDropTarget(self.type, self.target, e.position)
+                if not target then return end
                 local restoreY = self.itemTable.layout.userData.getViewportRowYAtOffset(e.offset.y)
                 self.itemTable.layout.userData.getState().lastUsedRowPos = restoreY and v2(0, restoreY) or nil
-                ctx.dragAndDrop:stopDrag(self.target)
+                traceInventory('cursor-drop window=%s destinationId=%s', self.type, tostring(target.id))
+                ctx.dragAndDrop:stopDrag(target)
             end
         end
     end)

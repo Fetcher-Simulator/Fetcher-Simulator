@@ -6,6 +6,7 @@
 #include <unordered_map>
 
 #include <components/esm3/refnum.hpp>
+#include "../../mwworld/containerstore.hpp"
 
 namespace mwmp
 {
@@ -42,6 +43,16 @@ namespace mwmp
     inline void clearInventoryInstanceAliases()
     {
         inventoryInstanceAliases().clear();
+    }
+
+    inline void clearInventoryForAuthoritativeRebuild(MWWorld::ContainerStore& store)
+    {
+        // Only this store is being replaced. Open containers (especially gold)
+        // still need their aliases to match subsequent authoritative deltas.
+        for (auto it = store.begin(); it != store.end(); ++it)
+            forgetInventoryInstanceAlias(it->getCellRef().getRefNum());
+        store.setSelectedEnchantItem(store.end());
+        store.clear();
     }
 
     inline uint32_t inventoryInstanceId(ESM::RefNum refNum)
