@@ -75,6 +75,9 @@ Config.RESOLVED_CONTENT_FINGERPRINT = ""
 -- Generic client proposals are default-deny. Keys are exact synchronized Lua
 -- script paths; values are the only record types that script may propose.
 Config.RUNTIME_RECORD_CAPABILITIES = {
+    -- SetBonus builds deterministic custom spell records at runtime. The key is
+    -- the exact synchronized Lua script path, so all other scripts remain denied.
+    ["scripts/setbonus/global.lua"] = { "spell" },
     -- ["scripts/example.lua"] = { "potion" },
 }
 

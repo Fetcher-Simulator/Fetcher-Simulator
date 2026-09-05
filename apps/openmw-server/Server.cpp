@@ -2190,7 +2190,7 @@ void MPServer::run()
                 ? mLoopDiagnostics.playerPositionRelayTotalMs
                     / static_cast<double>(mLoopDiagnostics.playerPositionRelays)
                 : 0.0;
-            Log(Debug::Info) << "[MPDIAG] Server loop"
+            Log(Debug::Verbose) << "[MPDIAG] Server loop"
                              << " loopsHz=" << (mLoopDiagnostics.loops / diagnosticWindowSeconds)
                              << " loopAvgMs=" << loopAverageMs
                              << " loopMaxMs=" << mLoopDiagnostics.loopMaxMs
