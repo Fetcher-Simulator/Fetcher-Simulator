@@ -664,22 +664,29 @@ local function moveAll(props)
         and types.Player.objectIsInstance(props.destination)
         and (types.Container.objectIsInstance(props.source) or types.Actor.objectIsInstance(props.source))
         and mp.inventoryTake and mp.inventoryTake.isAvailable() then
+        local batch = {}
+        local stolenItems = {}
         for _, item in ipairs(items) do
             if types.Item.isCarriable(item) then
-                local recordId = item.recordId
-                local count = item.count
-                local isGold = helpers.isGold(item)
-                mp.inventoryTake.requestWithSound(props.source, item, count, false, true, function(result)
-                    if result.accepted and result.theft and victimInfo and not isGold then
+                batch[#batch + 1] = { item = item, count = item.count }
+                if not helpers.isGold(item) then
+                    stolenItems[#stolenItems + 1] = { recordId = item.recordId, count = item.count }
+                end
+            end
+        end
+        if #batch > 0 then
+            mp.inventoryTake.requestBatch(props.source, batch, true, function(result)
+                if result.accepted and result.theft and victimInfo then
+                    for _, stolen in ipairs(stolenItems) do
                         props.player:sendEvent('IE_StoleItem', {
-                            recordId = recordId,
-                            count = count,
+                            recordId = stolen.recordId,
+                            count = stolen.count,
                             victim = victimInfo,
                         })
                     end
-                    props.player:sendEvent('IE_Update')
-                end)
-            end
+                end
+                props.player:sendEvent('IE_Update')
+            end)
         end
         return
     end

@@ -105,7 +105,7 @@ mwmp::InventoryTakeError mwmp::validateInventoryTakeRequest(const InventoryTakeR
         return InventoryTakeError::InvalidRequest;
 
     const bool finish = request.kind == InventoryTakeKind::PickpocketFinish;
-    if (finish && (!request.itemRefId.empty() || request.itemCharge != -1
+    if (finish && (!request.itemRefId.empty() || request.itemInstanceId != 0 || request.itemCharge != -1
             || request.itemEnchantmentCharge != -1.f || !request.itemSoul.empty()
             || request.requestedCount != 0))
         return InventoryTakeError::InvalidRequest;
@@ -139,6 +139,7 @@ std::string mwmp::canonicalInventoryTakeRequest(const InventoryTakeRequest& requ
     appendU32(bytes, request.merchant.migrationGeneration);
     appendU32(bytes, request.merchant.authorityGeneration);
     appendString(bytes, request.itemRefId);
+    appendU32(bytes, request.itemInstanceId);
     appendU32(bytes, std::bit_cast<std::uint32_t>(request.itemCharge));
     appendU32(bytes, std::bit_cast<std::uint32_t>(request.itemEnchantmentCharge));
     appendString(bytes, request.itemSoul);
@@ -146,6 +147,63 @@ std::string mwmp::canonicalInventoryTakeRequest(const InventoryTakeRequest& requ
     appendU32(bytes, std::bit_cast<std::uint32_t>(request.barterPrice));
     appendU64(bytes, request.expectedInventoryRevision);
     bytes.push_back(static_cast<char>(request.soundDirection));
+    return bytes;
+}
+
+mwmp::InventoryTakeError mwmp::validateInventoryTakeBatchRequest(const InventoryTakeBatchRequest& request)
+{
+    if (request.protocolVersion != InventoryTakeProtocolVersion)
+        return InventoryTakeError::UnsupportedVersion;
+    if (request.items.empty() || request.items.size() > MaximumInventoryTakeBatchLines)
+        return InventoryTakeError::InvalidCount;
+    if (request.kind != InventoryTakeKind::Container && request.kind != InventoryTakeKind::Corpse
+        && request.kind != InventoryTakeKind::ActorInventory)
+        return InventoryTakeError::InvalidRequest;
+
+    for (const InventoryTakeBatchLine& line : request.items)
+    {
+        InventoryTakeRequest single;
+        single.protocolVersion = request.protocolVersion;
+        single.requestId = request.requestId;
+        single.kind = request.kind;
+        single.source = request.source;
+        single.itemRefId = line.itemRefId;
+        single.itemInstanceId = line.itemInstanceId;
+        single.itemCharge = line.itemCharge;
+        single.itemEnchantmentCharge = line.itemEnchantmentCharge;
+        single.itemSoul = line.itemSoul;
+        single.requestedCount = line.requestedCount;
+        single.expectedInventoryRevision = request.expectedInventoryRevision;
+        single.soundDirection = request.soundDirection;
+        const InventoryTakeError error = validateInventoryTakeRequest(single);
+        if (error != InventoryTakeError::None)
+            return error;
+    }
+    return InventoryTakeError::None;
+}
+
+std::string mwmp::canonicalInventoryTakeBatchRequest(const InventoryTakeBatchRequest& request)
+{
+    std::string bytes("OMTB", 4);
+    appendU32(bytes, static_cast<std::uint32_t>(request.items.size()));
+    for (const InventoryTakeBatchLine& line : request.items)
+    {
+        InventoryTakeRequest single;
+        single.protocolVersion = request.protocolVersion;
+        single.requestId = request.requestId;
+        single.kind = request.kind;
+        single.source = request.source;
+        single.itemRefId = line.itemRefId;
+        single.itemInstanceId = line.itemInstanceId;
+        single.itemCharge = line.itemCharge;
+        single.itemEnchantmentCharge = line.itemEnchantmentCharge;
+        single.itemSoul = line.itemSoul;
+        single.requestedCount = line.requestedCount;
+        single.expectedInventoryRevision = request.expectedInventoryRevision;
+        single.soundDirection = request.soundDirection;
+        const std::string canonical = canonicalInventoryTakeRequest(single);
+        appendString(bytes, canonical);
+    }
     return bytes;
 }
 
@@ -212,6 +270,69 @@ bool mwmp::sameAuthoritativeContainerIdentity(const ContainerItem& left, const C
         && std::abs(left.enchantmentCharge - right.enchantmentCharge) < 0.001f && left.soul == right.soul;
 }
 
+bool mwmp::assignAuthoritativeContainerIdentities(std::vector<ContainerItem>& items,
+    const std::function<std::optional<std::uint32_t>()>& allocate)
+{
+    auto assigned = items;
+    std::vector<std::uint32_t> used;
+    for (auto& item : assigned)
+    {
+        if (item.count <= 0)
+            continue;
+        if (item.instanceId == 0)
+        {
+            const auto id = allocate();
+            if (!id || *id == 0)
+                return false;
+            item.instanceId = *id;
+        }
+        if (std::find(used.begin(), used.end(), item.instanceId) != used.end())
+            return false;
+        used.push_back(item.instanceId);
+    }
+    items = std::move(assigned);
+    return true;
+}
+
+bool mwmp::reconcileAuthoritativeContainerEquipment(std::vector<ContainerItem>& items,
+    const std::vector<EquipmentItem>& previous, const std::vector<EquipmentItem>& incoming)
+{
+    bool changed = false;
+    for (const EquipmentItem& next : incoming)
+    {
+        if (next.slot < 0 || next.item.refId.empty() || next.item.count <= 0)
+            continue;
+
+        const auto before = std::find_if(previous.begin(), previous.end(), [&](const EquipmentItem& entry) {
+            return entry.slot == next.slot;
+        });
+        if (before == previous.end() || before->item.refId.empty() || before->item.count <= 0
+            || before->item.count != next.item.count
+            || !equalAsciiCaseInsensitive(before->item.refId, next.item.refId)
+            || sameAuthoritativeItemIdentity(before->item, next.item))
+            continue;
+
+        ContainerItem previousState;
+        previousState.refId = before->item.refId;
+        previousState.charge = before->item.charge;
+        previousState.enchantmentCharge = before->item.enchantmentCharge;
+        previousState.soul = before->item.soul;
+
+        const auto row = std::find_if(items.begin(), items.end(), [&](const ContainerItem& item) {
+            return item.count == before->item.count
+                && sameAuthoritativeContainerIdentity(item, previousState);
+        });
+        if (row == items.end())
+            continue;
+
+        row->charge = next.item.charge;
+        row->enchantmentCharge = next.item.enchantmentCharge;
+        row->soul = next.item.soul;
+        changed = true;
+    }
+    return changed;
+}
+
 bool mwmp::hasCompatibleAuthoritativeContainerStack(
     const std::vector<ContainerItem>& items, const ContainerItem& incoming)
 {
@@ -271,7 +392,7 @@ mwmp::AuthoritativeStackMutation mwmp::mergeAuthoritativeContainerItem(
 
 std::optional<mwmp::ContainerAggregateTake> mwmp::takeAuthoritativeContainerItems(std::vector<ContainerItem>& items,
     std::string_view refId, std::int32_t charge, float enchantmentCharge, std::string_view soul, std::int32_t count,
-    const AuthoritativeContainerIdentityPredicate& identityPredicate)
+    const AuthoritativeContainerStackPredicate& stackPredicate, std::uint32_t instanceId)
 {
     if (refId.empty() || count <= 0)
         return std::nullopt;
@@ -281,22 +402,53 @@ std::optional<mwmp::ContainerAggregateTake> mwmp::takeAuthoritativeContainerItem
     requested.charge = charge;
     requested.enchantmentCharge = enchantmentCharge;
     requested.soul = soul;
-    const auto sameIdentity = [&](const ContainerItem& left, const ContainerItem& right) {
-        return identityPredicate ? identityPredicate(left, right) : sameAuthoritativeContainerIdentity(left, right);
+    const auto canAggregate = [&](const ContainerItem& left, const ContainerItem& right) {
+        return stackPredicate ? stackPredicate(left, right) : sameAuthoritativeContainerIdentity(left, right);
     };
-    const auto anchor = std::find_if(items.begin(), items.end(),
-        [&](const ContainerItem& item) { return sameIdentity(item, requested); });
+    // Prefer the stable inventory-row identity when the client has one. Live
+    // item metadata can legitimately drift after the authoritative container
+    // snapshot (for example, passive enchantment recharge), while instanceId
+    // continues to identify the same physical row.
+    auto anchor = instanceId != 0
+        ? std::find_if(items.begin(), items.end(), [&](const ContainerItem& item) {
+              return item.count > 0 && item.instanceId == instanceId
+                  && equalAsciiCaseInsensitive(item.refId, requested.refId);
+          })
+        : items.end();
+    // Zero-instance rows retain the exact metadata identity path used by older
+    // and synthetic inventory rows.
+    if (anchor == items.end() && instanceId == 0)
+        anchor = std::find_if(items.begin(), items.end(), [&](const ContainerItem& item) {
+            return item.count > 0 && sameAuthoritativeContainerIdentity(item, requested);
+        });
+    // A client stack can represent equivalent raw states, e.g. pristine health
+    // stored as -1 versus explicit maximum health. Only zero-instance requests
+    // may fall back to a native-compatible representative; a stale nonzero
+    // instanceId must never select a different physical item.
+    if (anchor == items.end() && instanceId == 0 && stackPredicate)
+        anchor = std::find_if(items.begin(), items.end(), [&](const ContainerItem& item) {
+            return item.count > 0 && canAggregate(item, requested);
+        });
     if (anchor == items.end())
         return std::nullopt;
 
     const bool restocking = anchor->restocking;
-    std::int64_t available = 0;
-    for (const ContainerItem& item : items)
+    std::vector<std::pair<std::size_t, int>> removals;
+    const std::size_t anchorIndex = static_cast<std::size_t>(anchor - items.begin());
+    const int fromAnchor = std::min(count, anchor->count);
+    removals.emplace_back(anchorIndex, fromAnchor);
+    int remaining = count - fromAnchor;
+    for (std::size_t i = 0; i < items.size() && remaining > 0; ++i)
     {
-        if (item.restocking == restocking && sameIdentity(item, requested) && item.count > 0)
-            available += item.count;
+        const ContainerItem& item = items[i];
+        if (i == anchorIndex || item.restocking != restocking || item.count <= 0
+            || !canAggregate(item, *anchor))
+            continue;
+        const int removed = std::min(remaining, item.count);
+        removals.emplace_back(i, removed);
+        remaining -= removed;
     }
-    if (available < count)
+    if (remaining > 0)
         return std::nullopt;
 
     ContainerAggregateTake result;
@@ -307,25 +459,18 @@ std::optional<mwmp::ContainerAggregateTake> mwmp::takeAuthoritativeContainerItem
     if (restocking)
         return result;
 
-    int remaining = count;
-    for (auto item = items.begin(); item != items.end() && remaining > 0;)
+    // Commit only after the entire take has been validated. Keep the anchor
+    // first in the replay rows, even if compatible rows precede it in storage.
+    for (const auto& [index, removed] : removals)
     {
-        if (item->restocking != restocking || !sameIdentity(*item, requested) || item->count <= 0)
-        {
-            ++item;
-            continue;
-        }
-
-        const int removed = std::min(remaining, item->count);
-        ContainerItem backing = *item;
+        ContainerItem backing = items[index];
         backing.count = removed;
         result.backingRows.push_back(std::move(backing));
-        item->count -= removed;
-        remaining -= removed;
-        if (item->count == 0)
-            item = items.erase(item);
-        else
-            ++item;
+        items[index].count -= removed;
     }
+    std::sort(removals.begin(), removals.end(), std::greater<>());
+    for (const auto& [index, removed] : removals)
+        if (items[index].count == 0)
+            items.erase(items.begin() + index);
     return result;
 }

@@ -20,6 +20,7 @@ namespace
             = mwmp::packActorInstanceKey({ mwmp::ActorKeyKind::VanillaRefNum, 7 });
         value.source.migrationGeneration = 3;
         value.itemRefId = "gold_001";
+        value.itemInstanceId = 4242;
         value.itemCharge = -1;
         value.itemEnchantmentCharge = 42.5f;
         value.itemSoul = "golden saint";
@@ -55,6 +56,83 @@ TEST(InventoryTakeProtocol, RequestRoundTripsCanonically)
     downSound.soundDirection = mwmp::InventoryTransferSoundDirection::Down;
     EXPECT_NE(mwmp::canonicalInventoryTakeRequest(downSound),
         mwmp::canonicalInventoryTakeRequest(request()));
+
+    auto differentInstance = request();
+    differentInstance.itemInstanceId++;
+    EXPECT_NE(mwmp::canonicalInventoryTakeRequest(differentInstance),
+        mwmp::canonicalInventoryTakeRequest(request()));
+}
+
+TEST(InventoryTakeProtocol, BatchRequestRoundTripsWithStableRowIdentities)
+{
+    mwmp::InventoryTakeBatchRequest value;
+    value.requestId = "inventory-take-batch-1";
+    value.kind = mwmp::InventoryTakeKind::Corpse;
+    value.source.cellId = "Balmora";
+    value.source.refId = "boba_fett";
+    value.source.mpNum = 6687;
+    value.source.actorInstanceId
+        = mwmp::packActorInstanceKey({ mwmp::ActorKeyKind::SpawnedMpNum, value.source.mpNum });
+    value.source.migrationGeneration = 1;
+    value.source.authorityGeneration = 12;
+    value.expectedInventoryRevision = 44;
+    value.soundDirection = mwmp::InventoryTransferSoundDirection::Down;
+    value.items = {
+        { "mandalore_cuirass", 8001, 412, -1.f, "", 1 },
+        { "dwemer jinksword", 8002, 998, 180.392f, "", 1 },
+        { "gold_001", 8003, -1, -1.f, "", 100 },
+    };
+
+    ASSERT_EQ(mwmp::validateInventoryTakeBatchRequest(value), mwmp::InventoryTakeError::None);
+    mwmp::PacketInventoryTakeBatchRequest outgoing;
+    outgoing.request = value;
+    const auto bytes = outgoing.encode();
+    EXPECT_EQ(bytes, outgoing.encode());
+
+    mwmp::PacketInventoryTakeBatchRequest incoming;
+    ASSERT_TRUE(incoming.decode(bytes));
+    EXPECT_EQ(incoming.request, value);
+    EXPECT_EQ(mwmp::canonicalInventoryTakeBatchRequest(incoming.request),
+        mwmp::canonicalInventoryTakeBatchRequest(value));
+
+    auto drifted = value;
+    drifted.items[1].itemEnchantmentCharge = 180.725f;
+    EXPECT_NE(mwmp::canonicalInventoryTakeBatchRequest(drifted),
+        mwmp::canonicalInventoryTakeBatchRequest(value));
+    auto differentInstance = value;
+    differentInstance.items[1].itemInstanceId++;
+    EXPECT_NE(mwmp::canonicalInventoryTakeBatchRequest(differentInstance),
+        mwmp::canonicalInventoryTakeBatchRequest(value));
+
+    auto empty = value;
+    empty.items.clear();
+    EXPECT_EQ(mwmp::validateInventoryTakeBatchRequest(empty), mwmp::InventoryTakeError::InvalidCount);
+    auto pickpocket = value;
+    pickpocket.kind = mwmp::InventoryTakeKind::Pickpocket;
+    EXPECT_EQ(mwmp::validateInventoryTakeBatchRequest(pickpocket), mwmp::InventoryTakeError::InvalidRequest);
+}
+
+TEST(InventoryTakeProtocol, BatchResultRoundTripsAtomically)
+{
+    mwmp::InventoryTakeBatchResult value;
+    value.requestId = "inventory-take-batch-1";
+    value.accepted = true;
+    value.kind = mwmp::InventoryTakeKind::Corpse;
+    value.source.cellId = "Balmora";
+    value.source.refId = "boba_fett";
+    value.source.mpNum = 6687;
+    value.source.actorInstanceId
+        = mwmp::packActorInstanceKey({ mwmp::ActorKeyKind::SpawnedMpNum, value.source.mpNum });
+    value.source.migrationGeneration = 1;
+    value.lineCount = 12;
+    value.itemCount = 111;
+    value.inventoryRevision = 45;
+
+    mwmp::PacketInventoryTakeBatchResult outgoing;
+    outgoing.result = value;
+    mwmp::PacketInventoryTakeBatchResult incoming;
+    ASSERT_TRUE(incoming.decode(outgoing.encode()));
+    EXPECT_EQ(incoming.result, value);
 }
 
 TEST(InventoryTakeProtocol, BarterRequestCarriesStrictMerchantIdentity)
@@ -183,6 +261,7 @@ TEST(InventoryTakeProtocol, ContainerBootstrapIsStrictAndCanonical)
     outgoing.container.refId = "crate_01";
     outgoing.container.refNum = 42;
     outgoing.authorityGeneration = 17;
+    outgoing.bootstrapSequence = 0x123456789abcdef0ULL;
     outgoing.container.items.push_back(
         { "daedric dagger", 1, 314, 123456, 87.25f, "golden saint" });
     outgoing.container.items.push_back(
@@ -195,6 +274,7 @@ TEST(InventoryTakeProtocol, ContainerBootstrapIsStrictAndCanonical)
     EXPECT_EQ(incoming.container.items, outgoing.container.items);
     EXPECT_EQ(incoming.mAction, outgoing.mAction);
     EXPECT_EQ(incoming.authorityGeneration, 17u);
+    EXPECT_EQ(incoming.bootstrapSequence, outgoing.bootstrapSequence);
 
     auto trailing = encoded;
     trailing.push_back(0);
@@ -229,6 +309,86 @@ namespace
         item.instanceId = instanceId;
         return item;
     }
+}
+
+TEST(InventoryAuthority, EquipmentMetadataReconcileUpdatesExactAuthoritativeRow)
+{
+    mwmp::ContainerItem sword;
+    sword.refId = "dwemer jinksword";
+    sword.count = 1;
+    sword.charge = 997;
+    sword.enchantmentCharge = 120.f;
+    sword.instanceId = 7001;
+    std::vector<mwmp::ContainerItem> source{ sword };
+
+    mwmp::EquipmentItem before;
+    before.slot = 16;
+    before.item.refId = sword.refId;
+    before.item.count = 1;
+    before.item.charge = 997;
+    before.item.enchantmentCharge = 120.f;
+    mwmp::EquipmentItem after = before;
+    after.item.enchantmentCharge = 90.f;
+
+    EXPECT_TRUE(mwmp::reconcileAuthoritativeContainerEquipment(source, { before }, { after }));
+    ASSERT_EQ(source.size(), 1u);
+    EXPECT_EQ(source.front().instanceId, 7001u);
+    EXPECT_EQ(source.front().charge, 997);
+    EXPECT_FLOAT_EQ(source.front().enchantmentCharge, 90.f);
+}
+
+TEST(InventoryAuthority, EquipmentMetadataReconcileOnlyUpdatesPreviousConditionRow)
+{
+    mwmp::ContainerItem worn;
+    worn.refId = "iron_cuirass";
+    worn.count = 1;
+    worn.charge = 100;
+    worn.instanceId = 7101;
+    mwmp::ContainerItem other = worn;
+    other.charge = 50;
+    other.instanceId = 7102;
+    std::vector<mwmp::ContainerItem> source{ worn, other };
+
+    mwmp::EquipmentItem before;
+    before.slot = 1;
+    before.item.refId = worn.refId;
+    before.item.count = 1;
+    before.item.charge = 100;
+    mwmp::EquipmentItem after = before;
+    after.item.charge = 80;
+
+    EXPECT_TRUE(mwmp::reconcileAuthoritativeContainerEquipment(source, { before }, { after }));
+    ASSERT_EQ(source.size(), 2u);
+    EXPECT_EQ(source[0].instanceId, 7101u);
+    EXPECT_EQ(source[0].charge, 80);
+    EXPECT_EQ(source[1].instanceId, 7102u);
+    EXPECT_EQ(source[1].charge, 50);
+}
+
+TEST(InventoryAuthority, EquipmentMetadataReconcileDoesNotRewriteEquipmentSwap)
+{
+    mwmp::ContainerItem sword;
+    sword.refId = "dwemer jinksword";
+    sword.count = 1;
+    sword.charge = 997;
+    sword.enchantmentCharge = 120.f;
+    sword.instanceId = 7201;
+    const std::vector<mwmp::ContainerItem> original{ sword };
+    auto source = original;
+
+    mwmp::EquipmentItem before;
+    before.slot = 16;
+    before.item.refId = sword.refId;
+    before.item.count = 1;
+    before.item.charge = 997;
+    before.item.enchantmentCharge = 120.f;
+    mwmp::EquipmentItem after = before;
+    after.item.refId = "iron longsword";
+    after.item.charge = 400;
+    after.item.enchantmentCharge = -1.f;
+
+    EXPECT_FALSE(mwmp::reconcileAuthoritativeContainerEquipment(source, { before }, { after }));
+    EXPECT_EQ(source, original);
 }
 
 TEST(InventoryAuthority, WorldPickupMergesIntoExistingCanonicalPlayerStack)
@@ -431,6 +591,8 @@ TEST(InventoryAuthority, AggregateTakeRejectsIncompatibleMetadataWithoutMutation
 
 TEST(InventoryAuthority, AggregateTakeCanUseNativeStackCompatibilityAcrossRawCharge)
 {
+    // A miscellaneous item has no item health: raw charge is irrelevant to
+    // native stacking. This does not permit damaged armor/weapon aggregation.
     std::vector<mwmp::ContainerItem> source{
         medkit(3, 6337, false, -1), medkit(1, 6338, false, 0)
     };
@@ -460,6 +622,111 @@ TEST(InventoryAuthority, FiniteAndRestockingRowsCannotBeAggregatedByOneTake)
 
     EXPECT_FALSE(mwmp::takeAuthoritativeContainerItems(source, "sw_medkit", -1, -1.f, "", 3));
     EXPECT_EQ(source, original);
+}
+
+TEST(InventoryAuthority, InstanceIdSelectsExactRowAcrossEnchantRechargeDrift)
+{
+    mwmp::ContainerItem first;
+    first.refId = "dwemer jinksword";
+    first.count = 1;
+    first.charge = 998;
+    first.enchantmentCharge = 180.297f;
+    first.instanceId = 9001;
+    mwmp::ContainerItem second = first;
+    second.enchantmentCharge = 75.f;
+    second.instanceId = 9002;
+    std::vector<mwmp::ContainerItem> source{ first, second };
+
+    auto taken = mwmp::takeAuthoritativeContainerItems(source, "dwemer jinksword", 998, 180.509f, "", 1,
+        [](const auto&, const auto&) { return false; }, 9001);
+    ASSERT_TRUE(taken);
+    EXPECT_EQ(taken->taken.instanceId, 9001u);
+    EXPECT_FLOAT_EQ(taken->taken.enchantmentCharge, 180.297f);
+    ASSERT_EQ(source.size(), 1u);
+    EXPECT_EQ(source.front().instanceId, 9002u);
+}
+
+TEST(InventoryAuthority, StaleNonzeroInstanceIdNeverFallsBackToAnotherRow)
+{
+    mwmp::ContainerItem sword;
+    sword.refId = "dwemer jinksword";
+    sword.count = 1;
+    sword.charge = 998;
+    sword.enchantmentCharge = 180.297f;
+    sword.instanceId = 9001;
+    std::vector<mwmp::ContainerItem> source{ sword };
+    const auto original = source;
+
+    EXPECT_FALSE(mwmp::takeAuthoritativeContainerItems(source, "dwemer jinksword", 998, 180.297f, "", 1,
+        [](const auto&, const auto&) { return true; }, 9999));
+    EXPECT_EQ(source, original);
+}
+
+TEST(InventoryAuthority, ExactTakeDoesNotConsultStackCompatibility)
+{
+    std::vector<mwmp::ContainerItem> source{ { "iron_cuirass", 1, 130, 10 } };
+    auto taken = mwmp::takeAuthoritativeContainerItems(source, "IRON_CUIRASS", 130, -1.f, "", 1,
+        [](const auto&, const auto&) -> bool {
+            ADD_FAILURE() << "Exact-row removal must not require stack compatibility";
+            return false;
+        });
+    ASSERT_TRUE(taken);
+    EXPECT_TRUE(source.empty());
+    EXPECT_EQ(taken->taken.instanceId, 10u);
+    EXPECT_EQ(taken->taken.charge, 130);
+}
+
+TEST(InventoryAuthority, ExactAnchorPrecedesEarlierNativeCompatibleRow)
+{
+    std::vector<mwmp::ContainerItem> source{ medkit(2, 1, false, 0), medkit(2, 2) };
+    auto taken = mwmp::takeAuthoritativeContainerItems(source, "sw_medkit", -1, -1.f, "", 3,
+        [](const auto&, const auto&) { return true; });
+    ASSERT_TRUE(taken);
+    ASSERT_EQ(taken->backingRows.size(), 2u);
+    EXPECT_EQ(taken->backingRows[0].instanceId, 2u);
+    EXPECT_EQ(taken->backingRows[0].count, 2);
+    EXPECT_EQ(taken->backingRows[1].instanceId, 1u);
+    ASSERT_EQ(source.size(), 1u);
+    EXPECT_EQ(source[0], medkit(1, 1, false, 0));
+}
+
+TEST(InventoryAuthority, NonStackableRowsCannotSatisfyAggregateTake)
+{
+    std::vector<mwmp::ContainerItem> source{ { "sword", 1, 999, 1 }, { "sword", 1, 999, 2 } };
+    const auto original = source;
+    const auto neverStacks = [](const auto&, const auto&) { return false; };
+    EXPECT_FALSE(mwmp::takeAuthoritativeContainerItems(source, "sword", 999, -1.f, "", 2, neverStacks));
+    EXPECT_EQ(source, original);
+    for (uint32_t id : { 1u, 2u })
+    {
+        auto taken = mwmp::takeAuthoritativeContainerItems(source, "sword", 999, -1.f, "", 1, neverStacks);
+        ASSERT_TRUE(taken);
+        EXPECT_EQ(taken->taken.instanceId, id);
+    }
+    EXPECT_TRUE(source.empty());
+}
+
+TEST(InventoryAuthority, ExactRestockingNonStackableTakePreservesTemplate)
+{
+    std::vector<mwmp::ContainerItem> source{ medkit(2, 0, true, 130) };
+    const auto original = source;
+    const auto neverStacks = [](const auto&, const auto&) { return false; };
+    auto taken = mwmp::takeAuthoritativeContainerItems(source, "sw_medkit", 130, -1.f, "", 2, neverStacks);
+    ASSERT_TRUE(taken);
+    EXPECT_TRUE(taken->backingRows.empty());
+    EXPECT_EQ(source, original);
+    EXPECT_FALSE(mwmp::takeAuthoritativeContainerItems(source, "sw_medkit", 130, -1.f, "", 3, neverStacks));
+    EXPECT_EQ(source, original);
+}
+
+TEST(InventoryAuthority, EmptyExactRowDoesNotMaskAvailableAnchor)
+{
+    std::vector<mwmp::ContainerItem> source{ medkit(0, 1, true), medkit(1, 2) };
+    auto taken = mwmp::takeAuthoritativeContainerItems(source, "sw_medkit", -1, -1.f, "", 1);
+    ASSERT_TRUE(taken);
+    EXPECT_EQ(taken->taken.instanceId, 2u);
+    ASSERT_EQ(source.size(), 1u);
+    EXPECT_EQ(source[0], medkit(0, 1, true));
 }
 
 TEST(InventoryTakeProtocol, ContainerResetCarriesAuthorityGenerationAndRejectsPayloadItems)

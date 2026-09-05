@@ -9,7 +9,7 @@
 
 namespace mwmp
 {
-    inline constexpr std::uint16_t ContainerWireVersion = 2;
+    inline constexpr std::uint16_t ContainerWireVersion = 3;
     // -----------------------------------------------------------------------
     // PacketContainer — shared container (chest/barrel/crate) sync.
     //
@@ -63,6 +63,7 @@ namespace mwmp
         {
             ws.write(ContainerWireVersion);
             ws.write(authorityGeneration);
+            ws.write(bootstrapSequence);
             ws.writeString(container.cellId);
             ws.writeString(container.refId);
             ws.write(container.refNum);
@@ -81,6 +82,7 @@ namespace mwmp
             if (wireVersion != ContainerWireVersion)
                 throw std::runtime_error("PacketContainer: unsupported wire version");
             rs.read(authorityGeneration);
+            rs.read(bootstrapSequence);
             container.cellId = rs.readString();
             container.refId  = rs.readString();
             rs.read(container.refNum);
@@ -109,6 +111,9 @@ namespace mwmp
         }
 
     public:
+        // Echoed only to the authority whose initial snapshot established the
+        // rows. Correlates stable IDs with the original live item handles.
+        std::uint64_t bootstrapSequence = 0;
         // Explicit action field — set by caller before encode(), read after decode().
         uint8_t mAction = static_cast<uint8_t>(ContainerAction::Set);
     };
