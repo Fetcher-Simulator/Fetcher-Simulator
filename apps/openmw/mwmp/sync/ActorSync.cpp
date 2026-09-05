@@ -2117,7 +2117,7 @@ namespace mwmp
 
         if (revealed != 0)
         {
-            Log(Debug::Info) << "[MP] ActorSync: revealed bootstrap corpse visuals before render"
+            Log(Debug::Verbose) << "[MP] ActorSync: revealed bootstrap corpse visuals before render"
                              << " count=" << revealed
                              << " update=" << mUpdateSerial;
         }

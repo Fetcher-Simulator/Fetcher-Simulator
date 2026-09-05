@@ -2097,7 +2097,7 @@ void LuaServerContext::luaTickLoop()
             && tickEnd - diagnosticsWindowStart >= std::chrono::seconds(mDiagnosticsIntervalSeconds))
         {
             const double avgMs = windowTicks > 0 ? windowTotalMs / static_cast<double>(windowTicks) : 0.0;
-            Log(Debug::Info) << "[LuaServerContext] Tick diagnostics: ticks=" << windowTicks
+            Log(Debug::Verbose) << "[LuaServerContext] Tick diagnostics: ticks=" << windowTicks
                              << " avg=" << avgMs << " ms"
                              << " max=" << windowMaxMs << " ms"
                              << " events=" << windowEvents

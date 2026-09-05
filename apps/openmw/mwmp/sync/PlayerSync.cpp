@@ -3223,7 +3223,7 @@ bool PlayerSync::inventoryChanged() const
             return;
 
         sLastDiagnosticUs = nowUs;
-        Log(Debug::Info) << "[MPDIAG] PlayerInventory delta"
+        Log(Debug::Verbose) << "[MPDIAG] PlayerInventory delta"
                          << " reason=" << reason
                          << " changesSinceLastLog=" << sChangesSinceDiagnostic
                          << " liveStacks=" << mLocal.inventoryChanges.items.size()

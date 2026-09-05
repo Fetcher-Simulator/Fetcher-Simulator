@@ -247,7 +247,7 @@ namespace MWRender
             {
                 if (mBlinkPlayerGuid > 0)
                 {
-                    Log(Debug::Info) << "[MPWATCH] Player deterministic blink"
+                    Log(Debug::Verbose) << "[MPWATCH] Player deterministic blink"
                                      << " guid=" << mBlinkPlayerGuid
                                      << " phase=" << phase
                                      << " duration=" << duration
