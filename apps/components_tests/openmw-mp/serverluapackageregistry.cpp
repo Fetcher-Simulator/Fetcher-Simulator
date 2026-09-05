@@ -145,7 +145,7 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
 
     const auto& package = *packageIt;
     EXPECT_EQ(package.packageId, "fetcher.inventoryextender-fix");
-    EXPECT_EQ(package.packageVersion, 21u);
+    EXPECT_EQ(package.packageVersion, 22u);
     EXPECT_EQ(package.requiredMultiplayerLuaApi, 10u);
     EXPECT_LE(package.requiredMultiplayerLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion);
 
@@ -168,6 +168,8 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
     ASSERT_NE(global, nullptr);
     ASSERT_NE(api, nullptr);
     ASSERT_NE(inventory, nullptr);
+    ASSERT_NE(findSource("overrides/droptarget.lua"), nullptr);
+    EXPECT_NE(api->find("scripts.multiplayer.fetcher.inventoryextender-fix.overrides.droptarget"), std::string::npos);
     EXPECT_NE(global->find("requestBarterSources"), std::string::npos);
     EXPECT_NE(global->find("IE_BarterAuthorityReady"), std::string::npos);
     EXPECT_NE(global->find("types.Actor.objectIsInstance(props.destination) and types.Actor.isDead(props.destination)"), std::string::npos);
@@ -178,11 +180,7 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
     EXPECT_EQ(countOccurrences(*global, "resolveAuthoritativeCursor({"), 3u);
     EXPECT_EQ(countOccurrences(*global, "requestWithSound"), 2u);
     EXPECT_EQ(countOccurrences(*global, "requestBatch"), 1u);
-    EXPECT_NE(global->find("local detachedSelfDrag = false"), std::string::npos);
-    EXPECT_NE(global->find("cursor-drag detached-self-split"), std::string::npos);
-    EXPECT_NE(global->find("cursor-drag direct-self-full-stack"), std::string::npos);
     EXPECT_NE(global->find("Do not refresh the inventory UI before cursor attachment"), std::string::npos);
-    EXPECT_NE(global->find("preserveObject = detachedSelfDrag"), std::string::npos);
     EXPECT_NE(api->find("helpers.isGold(props.obj) and not props.preserveObject"), std::string::npos);
     EXPECT_NE(global->find("[MPINVTRACE] InventoryExtender global"), std::string::npos);
     const auto preShowGate = api->find("if windowName == 'Trade'");

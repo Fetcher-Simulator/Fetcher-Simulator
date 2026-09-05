@@ -4073,19 +4073,13 @@ void PlayerSync::applyPendingAuthoritativeState(const MWWorld::Ptr& player)
             selectedEnchantItemBeforeRestore = std::move(selected);
         }
 
-        // A full authoritative rebuild invalidates every session-local inventory
-        // RefNum, so discard their network identity aliases before replacing the
-        // store. Restored rows below use their stable reserved RefNums directly.
-        clearInventoryInstanceAliases();
-
         // ContainerStore::clear() only zeroes stack counts. It does not reset
         // mSelectedEnchantItem, so retaining that iterator across the rebuild
         // leaves scripts and the UI pointing at an obsolete zero-count stack.
         // A later selection/equip action can revive it as an untagged duplicate,
         // feeding another server identity correction and full rebuild.
-        containerStore.setSelectedEnchantItem(containerStore.end());
         mLastPendingInventoryMissingRefId.clear();
-        invStore.clear();
+        clearInventoryForAuthoritativeRebuild(invStore);
         for (const Item& item : mAuthoritativeInventory.items)
         {
             if (item.refId.empty() || item.count <= 0)

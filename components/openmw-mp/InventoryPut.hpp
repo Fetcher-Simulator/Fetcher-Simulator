@@ -64,6 +64,8 @@ namespace mwmp
     };
 
     InventoryPutError validateInventoryPutRequest(const InventoryPutRequest& request);
+    // Canonical gold is fungible; every other row requires exact stable identity.
+    bool matchesInventoryPutSource(const Item& item, const InventoryPutRequest& request);
     std::string canonicalInventoryPutRequest(const InventoryPutRequest& request);
     std::string_view getInventoryPutErrorCode(InventoryPutError error);
 }

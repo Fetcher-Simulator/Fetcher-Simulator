@@ -100,3 +100,65 @@ TEST(InventoryPutProtocol, AcceptsCanonicalVanillaAndSpawnedActorDestinations)
         = mwmp::packActorInstanceKey({ mwmp::ActorKeyKind::SpawnedMpNum, spawned.destination.mpNum + 1 });
     EXPECT_EQ(mwmp::validateInventoryPutRequest(mismatch), mwmp::InventoryPutError::InvalidRequest);
 }
+
+TEST(InventoryPutProtocol, ZeroIdentityCanonicalGoldRoundTrips)
+{
+    mwmp::PacketInventoryPutRequest packet;
+    packet.request = request();
+    packet.request.itemRefId = "gold_001";
+    packet.request.itemInstanceId = 0;
+    packet.request.itemCharge = -1;
+    EXPECT_EQ(mwmp::validateInventoryPutRequest(packet.request), mwmp::InventoryPutError::None);
+    mwmp::PacketInventoryPutRequest decoded;
+    ASSERT_TRUE(decoded.decode(packet.encode()));
+    EXPECT_EQ(decoded.request, packet.request);
+    for (const auto* nonCanonical : { "gold_100", "GOLD_001", "gold_001 ", "iron_cuirass" })
+    {
+        packet.request.itemRefId = nonCanonical;
+        EXPECT_EQ(mwmp::validateInventoryPutRequest(packet.request), mwmp::InventoryPutError::InvalidRequest);
+    }
+}
+
+TEST(InventoryPutSource, GoldUsesAuthoritativeCountRegardlessOfIdentityOrCharge)
+{
+    auto value = request();
+    value.itemRefId = "gold_001";
+    value.itemInstanceId = 0;
+    mwmp::Item gold;
+    gold.refId = "gold_001";
+    gold.count = 10;
+    for (const auto id : { 0u, 901u })
+    {
+        gold.instanceId = id;
+        for (const auto count : { 1, 10 })
+        {
+            value.requestedCount = count;
+            EXPECT_TRUE(mwmp::matchesInventoryPutSource(gold, value));
+        }
+        value.requestedCount = 11;
+        EXPECT_FALSE(mwmp::matchesInventoryPutSource(gold, value));
+        value.requestedCount = 0;
+        EXPECT_FALSE(mwmp::matchesInventoryPutSource(gold, value));
+    }
+    value.requestedCount = 1;
+    gold.refId = "gold_100";
+    EXPECT_FALSE(mwmp::matchesInventoryPutSource(gold, value));
+}
+
+TEST(InventoryPutSource, NormalRowsStillRequireExactNonzeroIdentityAndCharge)
+{
+    auto value = request();
+    mwmp::Item armor;
+    armor.refId = value.itemRefId;
+    armor.instanceId = value.itemInstanceId;
+    armor.charge = value.itemCharge;
+    armor.count = 1;
+    EXPECT_TRUE(mwmp::matchesInventoryPutSource(armor, value));
+    --armor.charge;
+    EXPECT_FALSE(mwmp::matchesInventoryPutSource(armor, value));
+    armor.charge = value.itemCharge;
+    ++armor.instanceId;
+    EXPECT_FALSE(mwmp::matchesInventoryPutSource(armor, value));
+    armor.instanceId = value.itemInstanceId = 0;
+    EXPECT_FALSE(mwmp::matchesInventoryPutSource(armor, value));
+}

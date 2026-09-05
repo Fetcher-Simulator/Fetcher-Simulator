@@ -16531,9 +16531,7 @@ void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data
 
     std::vector<Item> inventory = c.player.inventoryChanges.items;
     auto sourceItem = std::find_if(inventory.begin(), inventory.end(), [&](const Item& item) {
-        return item.instanceId == request.itemInstanceId
-            && lowerAscii(item.refId) == lowerAscii(request.itemRefId)
-            && item.charge == request.itemCharge && item.count >= request.requestedCount;
+        return matchesInventoryPutSource(item, request);
     });
     if (sourceItem == inventory.end() || !isAuthoritativeRecordReference(sourceItem->refId))
     {
@@ -16579,7 +16577,7 @@ void MPServer::handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data
         && hasCompatibleAuthoritativeContainerStack(resultingDestination.items, destinationItem);
     if (!compatibleDestination)
     {
-        if (request.requestedCount == sourceItem->count)
+        if (request.requestedCount == sourceItem->count && sourceItem->instanceId != 0)
             destinationItem.instanceId = sourceItem->instanceId;
         else
         {

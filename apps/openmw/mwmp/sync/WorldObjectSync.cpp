@@ -60,6 +60,7 @@ namespace mwmp
 
 void WorldObjectSync::resetSessionState()
 {
+    clearInventoryInstanceAliases();
     mContainerIdentitySnapshots.clear();
     mPendingHarvests.clear();
     mPendingInventoryTakes.clear();
@@ -426,7 +427,8 @@ namespace
             ptr.getCellRef().setRefNum(inventoryInstanceRefNum(item.instanceId));
             ptr.getCellRef().setEnchantmentCharge(item.enchantmentCharge);
             ptr.getCellRef().setSoul(item.soul.empty() ? ESM::RefId() : ESM::RefId::deserializeText(item.soul));
-            store.add(ptr, signedCount, false, false, true);
+            const auto added = store.add(ptr, signedCount, false, false, true);
+            setInventoryInstanceAlias(added->getCellRef().getRefNum(), item.instanceId);
         }
 
         return containerStoreMatchesRecord(store, expected);
@@ -2881,6 +2883,34 @@ void WorldObjectSync::processPendingHarvest(const ContainerRecord& record)
 }
 
 // ---------------------------------------------------------------------------
+void WorldObjectSync::applyContainerRemove(
+    MWWorld::ContainerStore& cstore, const std::vector<ContainerItem>& items)
+{
+    for (const auto& ci : items)
+    {
+        int remaining = ci.count;
+        std::vector<MWWorld::Ptr> matches;
+        for (auto it = cstore.begin(); it != cstore.end(); ++it)
+        {
+            if (lowerAscii(it->getCellRef().getRefId().serializeText()) == lowerAscii(ci.refId)
+                && (ci.instanceId != 0
+                    ? inventoryInstanceId(it->getCellRef().getRefNum()) == ci.instanceId
+                    : (static_cast<int>(it->getCellRef().getCharge()) == ci.charge
+                        && std::abs(it->getCellRef().getEnchantmentCharge() - ci.enchantmentCharge) < 0.001f
+                        && it->getCellRef().getSoul().serializeText() == ci.soul)))
+                matches.push_back(*it);
+        }
+        for (const MWWorld::Ptr& match : matches)
+        {
+            if (remaining <= 0)
+                break;
+            const int removeCount = std::min(remaining, match.getCellRef().getCount());
+            cstore.remove(match, removeCount, false, false);
+            remaining -= removeCount;
+        }
+    }
+}
+
 bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, ContainerAction action)
 {
     MWBase::World* world = MWBase::Environment::get().getWorld();
@@ -2943,7 +2973,8 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
                         ptr.getCellRef().setEnchantmentCharge(ci.enchantmentCharge);
                         ptr.getCellRef().setSoul(ci.soul.empty() ? ESM::RefId()
                             : ESM::RefId::deserializeText(ci.soul));
-                        cstore.add(ptr, signedCount, true, false, true);
+                        const auto added = cstore.add(ptr, signedCount, true, false, true);
+                        setInventoryInstanceAlias(added->getCellRef().getRefNum(), ci.instanceId);
                     }
                 }
             }
@@ -2976,35 +3007,14 @@ bool WorldObjectSync::tryApplyContainer(const ContainerRecord& record, Container
                 ptr.getCellRef().setEnchantmentCharge(ci.enchantmentCharge);
                 ptr.getCellRef().setSoul(ci.soul.empty() ? ESM::RefId()
                     : ESM::RefId::deserializeText(ci.soul));
-                cstore.add(ptr, signedCount);
+                const auto added = cstore.add(ptr, signedCount);
+                setInventoryInstanceAlias(added->getCellRef().getRefNum(), ci.instanceId);
             }
         }
     }
     else if (action == ContainerAction::Remove)
     {
-        for (const auto& ci : record.items)
-        {
-            int remaining = ci.count;
-            std::vector<MWWorld::Ptr> matches;
-            for (auto it = cstore.begin(); it != cstore.end(); ++it)
-            {
-                if (lowerAscii(it->getCellRef().getRefId().serializeText()) == lowerAscii(ci.refId)
-                    && (ci.instanceId != 0
-                        ? inventoryInstanceId(it->getCellRef().getRefNum()) == ci.instanceId
-                        : (static_cast<int>(it->getCellRef().getCharge()) == ci.charge
-                            && std::abs(it->getCellRef().getEnchantmentCharge() - ci.enchantmentCharge) < 0.001f
-                            && it->getCellRef().getSoul().serializeText() == ci.soul)))
-                    matches.push_back(*it);
-            }
-            for (const MWWorld::Ptr& match : matches)
-            {
-                if (remaining <= 0)
-                    break;
-                const int removeCount = std::min(remaining, match.getCellRef().getCount());
-                cstore.remove(match, removeCount, false, false);
-                remaining -= removeCount;
-            }
-        }
+        applyContainerRemove(cstore, record.items);
         if (containerStoreEmpty(cstore))
             clearDeadActorEquipmentVisuals(*world, target);
     }
