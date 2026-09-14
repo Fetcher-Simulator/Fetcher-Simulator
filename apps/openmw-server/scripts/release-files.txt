@@ -8,6 +8,7 @@ README.md
 admin_ui_service.lua
 bardcraft_content_overrides.lua
 bardcraft_generated_bards.lua
+bardcraft_hosted_midi.lua
 bardcraft_network_policy.lua
 bardcraft_persistence.lua
 command_registry.lua

@@ -2,6 +2,7 @@ local mp = require("mp")
 local networkPolicy = require("bardcraft_network_policy")
 local contentOverrides = require("bardcraft_content_overrides")
 local generatedBards = require("bardcraft_generated_bards")
+local hostedMidi = require("bardcraft_hosted_midi")
 local config = require("config")
 
 local M = {}
@@ -3718,7 +3719,7 @@ local function makeHostedMidiManifest()
         return payload
     end
 
-    local files = mp.listBardcraftHostedMidiFiles() or {}
+    local files = hostedMidi.catalog()
     for _, entry in ipairs(files) do
         local fileName = type(entry) == "table" and entry.name or nil
         local size = type(entry) == "table" and tonumber(entry.size) or 0
@@ -4695,7 +4696,11 @@ local function persistSubmittedState(guid, characterId, data)
 end
 
 M.eventHandlers = {
+    OnServerTick = function(_)
+        hostedMidi.tick(bardcraftNetworkPolicy.allowServerHostedMidiDownloads)
+    end,
     OnServerInit = function(_)
+        hostedMidi.reset()
         networkPolicy.reset()
         contentOverrides.initialize()
         generatedBards.initialize()
@@ -4729,6 +4734,7 @@ M.eventHandlers = {
 
     OnPlayerDisconnect = function(data)
         local guid = tonumber(data and data.guid)
+        if guid then hostedMidi.cancel(guid) end
         stopActivePerformanceSessionsForGuid(guid, "source-disconnect")
         if guid then
             sheathedInstrumentByGuid[guid] = nil
@@ -4901,7 +4907,12 @@ M.eventHandlers = {
             return
         end
 
-        sendHostedMidiFiles(guid, data and data.names or {})
+        if data and tonumber(data.chunkBytes) and tonumber(data.chunkBytes) > 0 then
+            hostedMidi.request(guid, data)
+        else
+            -- Keep the existing response format for clients on older patches.
+            sendHostedMidiFiles(guid, data and data.names or {})
+        end
     end,
 
     BC_RequestBardcraftCustomSongRecords = function(data)
