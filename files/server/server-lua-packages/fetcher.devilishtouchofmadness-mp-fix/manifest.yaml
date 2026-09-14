@@ -1,0 +1,14 @@
+﻿manifestVersion: 3
+packageId: fetcher.devilishtouchofmadness-mp-fix
+packageVersion: 1
+requiredOpenMWLuaApi: 141
+requiredMultiplayerLuaApi: 7
+dependencies: []
+files:
+  - overrides/devilish_cliffracer_global.lua
+overrides:
+  - target: scripts/devilish_cliffracer_global.lua
+    source: overrides/devilish_cliffracer_global.lua
+    targetPolicy: if-present
+    acceptedBaseHashes:
+      - a4c60fe3b4f338ac2f6b9ef35e737c1c7e25bfc2e4de0883dc90daeb30592f85
