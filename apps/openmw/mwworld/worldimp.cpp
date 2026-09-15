@@ -2463,7 +2463,7 @@ namespace MWWorld
                 door.getCellRef().getRefId().toString(),
                 door.getCellRef().getRefNum().mIndex,
                 state == MWWorld::DoorState::Opening,
-                /*locked=*/false, /*lockLevel=*/0);
+                door.getCellRef().isLocked(), door.getCellRef().getLockLevel());
         }
 #endif
     }

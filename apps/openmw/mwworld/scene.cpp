@@ -55,6 +55,7 @@
 #ifdef BUILD_MULTIPLAYER
 #include "../mwmp/Main.hpp"
 #include "../mwmp/sync/WorldObjectSync.hpp"
+#include "../mwmp/sync/ObjectSync.hpp"
 #include "../mwmp/sync/ActorSync.hpp"
 #endif
 
@@ -509,6 +510,7 @@ namespace MWWorld
             mwmp::Main& multiplayer = mwmp::Main::get();
             multiplayer.getActorSync().prepareCellForInsertion(cell);
             multiplayer.getWorldObjectSync().prepareCellForInsertion(cell);
+            multiplayer.getObjectSync().prepareCellForInsertion(cell);
         }
 #endif
 
