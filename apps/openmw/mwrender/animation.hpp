@@ -425,6 +425,9 @@ namespace MWRender
         bool getInfo(std::string_view groupname, float* complete = nullptr, float* speedmult = nullptr,
             uint32_t* loopcount = nullptr) const;
 
+        /// Seek an already active animation to a normalized completion point without replaying it.
+        bool setCompletion(std::string_view groupname, float completion);
+
         /// Returns the group name of the animation currently active on that bone group.
         std::string_view getActiveGroup(BoneGroup boneGroup) const;
 

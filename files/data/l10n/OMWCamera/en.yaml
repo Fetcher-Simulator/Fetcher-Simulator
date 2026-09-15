@@ -37,6 +37,10 @@ previewIfStandStill: "Preview if Stand Still"
 previewIfStandStillDescription: >
     Prevents the player character from turning towards the camera direction while they're idle and have their weapon sheathed.
 
+idleVanityMode: "Idle Vanity Camera"
+idleVanityModeDescription: >
+    Automatically enters the rotating vanity camera after the player has been idle for the configured vanity delay.
+
 deferredPreviewRotation: "Deferred Preview Rotation"
 deferredPreviewRotationDescription: |
     If enabled then the character smoothly rotates to the view direction after exiting preview or vanity mode.
