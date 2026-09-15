@@ -1,5 +1,6 @@
 #include "ServerBindings.hpp"
 
+#include <components/files/conversion.hpp>
 #include <components/lua/serialization.hpp>
 #include <components/lua/storage.hpp>
 #include <components/lua/luastate.hpp>
@@ -92,7 +93,7 @@ namespace
         if (!isSafeBardcraftMidiName(fileName))
             return std::nullopt;
 
-        const std::filesystem::path path = bardcraftHostedMidiDir() / fileName;
+        const std::filesystem::path path = bardcraftHostedMidiDir() / Files::pathFromUnicodeString(fileName);
         std::error_code ec;
         if (!std::filesystem::is_regular_file(path, ec))
             return std::nullopt;
@@ -401,7 +402,7 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
                 continue;
             }
 
-            const std::string fileName = entry.path().filename().string();
+            const std::string fileName = Files::pathToUnicodeString(entry.path().filename());
             if (!isSafeBardcraftMidiName(fileName))
             {
                 ++skippedUnsafe;
