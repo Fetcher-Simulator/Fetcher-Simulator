@@ -1393,6 +1393,21 @@ namespace MWRender
         return true;
     }
 
+    bool Animation::setCompletion(std::string_view groupname, float completion)
+    {
+        AnimStateMap::iterator iter = mStates.find(groupname);
+        if (iter == mStates.end())
+            return false;
+
+        AnimState& state = iter->second;
+        if (!(state.mStopTime > state.mStartTime))
+            return false;
+
+        const float clampedCompletion = std::clamp(completion, 0.f, 1.f);
+        state.setTime(state.mStartTime + (state.mStopTime - state.mStartTime) * clampedCompletion);
+        return true;
+    }
+
     std::string_view Animation::getActiveGroup(BoneGroup boneGroup) const
     {
         if (auto timePtr = mAnimationTimePtr[boneGroup]->getTimePtr())

@@ -39,12 +39,14 @@ local move360 = require('scripts.omw.camera.move360')
 local MODE = camera.MODE
 
 local previewIfStandStill = false
+local idleVanityMode = false
 local showCrosshairInThirdPerson = false
 local slowViewChange = false
 local maxDistance = settings:get('maxDistance')
 
 local function updateSettings()
     previewIfStandStill = settings:get('previewIfStandStill')
+    idleVanityMode = settings:get('idleVanityMode') == true
     showCrosshairInThirdPerson = settings:get('viewOverShoulder')
     camera.allowCharacterDeferredRotation(settings:get('deferredPreviewRotation'))
     local collisionType = util.bitAnd(nearby.COLLISION_TYPE.Default, util.bitNot(nearby.COLLISION_TYPE.Actor))
@@ -114,6 +116,13 @@ local idleTimer = 0
 local vanityDelay = core.getGMST('fVanityDelay')
 
 local function updateVanity(dt)
+    if not idleVanityMode then
+        if camera.getMode() == MODE.Vanity then
+            camera.setMode(primaryMode)
+        end
+        return
+    end
+
     local vanityAllowed = Player.getControlSwitch(self, Player.CONTROL_SWITCH.VanityMode)
     if vanityAllowed and idleTimer > vanityDelay and camera.getMode() ~= MODE.Vanity then
         camera.setMode(MODE.Vanity)

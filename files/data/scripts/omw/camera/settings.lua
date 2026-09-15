@@ -47,6 +47,7 @@ I.Settings.registerGroup({
         boolSetting('', 'autoSwitchShoulder', false),
         floatSetting('', 'zoomOutWhenMoveCoef', 20),
         boolSetting('', 'previewIfStandStill', false),
+        boolSetting('', 'idleVanityMode', false),
         boolSetting('', 'deferredPreviewRotation', false),
         boolSetting('', 'ignoreNC', false),
         boolSetting('', 'move360', false),

@@ -4225,6 +4225,27 @@ namespace mwmp
                         && nodeSyncedIdleRevision > 0.0;
                 }
             }
+            if (incomingSpecialIdle
+                && previousIsSpecialIdle
+                && previousGroup == snapshot.currentAnimGroup
+                && nodeHasSyncedIdleEvent
+                && !runtime.boundActor.isEmpty())
+            {
+                MWBase::World* world = MWBase::Environment::get().getWorld();
+                MWRender::Animation* animObj = world ? world->getAnimation(runtime.boundActor) : nullptr;
+                float localCompletion = -1.f;
+                if (animObj && animObj->getInfo(snapshot.currentAnimGroup, &localCompletion))
+                {
+                    const float rawDelta = std::abs(
+                        std::clamp(localCompletion, 0.f, 1.f)
+                        - std::clamp(snapshot.currentAnimCompletion, 0.f, 1.f));
+                    const float wrappedDelta = std::min(rawDelta, 1.f - rawDelta);
+                    static constexpr float kSpecialIdlePhaseSeekThreshold = 0.03f;
+                    if (wrappedDelta >= kSpecialIdlePhaseSeekThreshold)
+                        animObj->setCompletion(snapshot.currentAnimGroup, snapshot.currentAnimCompletion);
+                }
+            }
+
             const bool acceptIncomingSpecialIdle = incomingSpecialIdle
                 && (firstPresentationForRuntime
                     || !previousIsSpecialIdle
@@ -4350,10 +4371,11 @@ namespace mwmp
             else if (isReliablePresentationAnimGroup(snapshot.currentAnimGroup))
             {
                 if (!incomingIsSpecialIdle || acceptIncomingSpecialIdle)
-                {
                     runtime.state.animFlags.currentAnimGroup = snapshot.currentAnimGroup;
+
+                if (!incomingIsSpecialIdle || acceptIncomingSpecialIdle
+                    || previousGroup == snapshot.currentAnimGroup)
                     runtime.state.animFlags.currentAnimCompletion = snapshot.currentAnimCompletion;
-                }
             }
             else if (!previousIsSpecialIdle || incomingIdleClear)
             {
