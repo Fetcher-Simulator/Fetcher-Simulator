@@ -36,8 +36,20 @@ mwmp::DoorStateProposalError mwmp::validateDoorStateProposal(
     const int currentLockLevel = context.current ? context.current->lockLevel : context.reference->baseLockLevel;
     if (proposed.isOpen == currentOpen)
         return DoorStateProposalError::InvalidTransition;
-    if (proposed.isLocked != currentLocked || proposed.lockLevel != currentLockLevel)
-        return DoorStateProposalError::LockStateMutation;
+
+    const bool lockStateChanged = proposed.isLocked != currentLocked || proposed.lockLevel != currentLockLevel;
+    if (lockStateChanged)
+    {
+        // The client may legitimately unlock a nearby door through normal gameplay
+        // (key, lockpick, spell, or script) immediately before opening it. CellRef::unlock()
+        // preserves the original difficulty by negating the lock level. Accept only
+        // that exact one-way transition while opening; arbitrary lock mutations and
+        // client-driven relocking remain forbidden.
+        const bool validUnlock = currentLocked && !currentOpen && proposed.isOpen && !proposed.isLocked
+            && proposed.lockLevel == -currentLockLevel;
+        if (!validUnlock)
+            return DoorStateProposalError::LockStateMutation;
+    }
 
     if (!std::isfinite(context.maximumDistance) || context.maximumDistance <= 0.f)
         return DoorStateProposalError::InvalidDistance;

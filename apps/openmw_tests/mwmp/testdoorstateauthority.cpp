@@ -104,3 +104,45 @@ TEST(DoorStateAuthorityTest, BaseLockedDoorRemainsLockedWithoutPersistedOverride
     EXPECT_EQ(mwmp::validateDoorStateProposal(proposed, contextValue),
         mwmp::DoorStateProposalError::LockStateMutation);
 }
+
+TEST(DoorStateAuthorityTest, AcceptsExactUnlockWhileOpeningNearbyStaticDoor)
+{
+    auto contextValue = context();
+    contextValue.reference->baseLocked = true;
+    contextValue.reference->baseLockLevel = 75;
+
+    auto proposed = proposal();
+    proposed.isLocked = false;
+    proposed.lockLevel = -75;
+
+    EXPECT_EQ(mwmp::validateDoorStateProposal(proposed, contextValue),
+        mwmp::DoorStateProposalError::None);
+}
+
+TEST(DoorStateAuthorityTest, RejectsMalformedUnlockAndClientRelock)
+{
+    auto contextValue = context();
+    contextValue.reference->baseLocked = true;
+    contextValue.reference->baseLockLevel = 75;
+
+    auto malformedUnlock = proposal();
+    malformedUnlock.isLocked = false;
+    malformedUnlock.lockLevel = 0;
+    EXPECT_EQ(mwmp::validateDoorStateProposal(malformedUnlock, contextValue),
+        mwmp::DoorStateProposalError::LockStateMutation);
+
+    auto unlockedCurrent = proposal();
+    unlockedCurrent.isOpen = true;
+    unlockedCurrent.isLocked = false;
+    unlockedCurrent.lockLevel = -75;
+    unlockedCurrent.revision = 4;
+    contextValue.current = unlockedCurrent;
+
+    auto relock = unlockedCurrent;
+    relock.isOpen = false;
+    relock.isLocked = true;
+    relock.lockLevel = 75;
+    relock.revision = 5;
+    EXPECT_EQ(mwmp::validateDoorStateProposal(relock, contextValue),
+        mwmp::DoorStateProposalError::LockStateMutation);
+}

@@ -1952,8 +1952,8 @@ void Main::registerProtocolHandlers()
             PacketDoorState pkt;
             if (!pkt.decode(data, size)) return;
             for (const auto& d : pkt.doors)
-                mObjectSync->onServerDoorState(
-                    d.cellId, d.refId, d.refNum, d.isOpen, d.isLocked, d.lockLevel, d.revision);
+                mObjectSync->onServerDoorState(d.cellId, d.refId, d.refNum, d.isOpen,
+                    d.isLocked, d.lockLevel, d.revision, pkt.authorGuid == 0);
         });
 
     proto.registerHandler(PacketType::RecordDynamic,

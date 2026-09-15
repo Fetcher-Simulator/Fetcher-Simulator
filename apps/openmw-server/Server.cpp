@@ -6780,15 +6780,20 @@ void MPServer::sendCellObjectStateToClient(HSteamNetConnection conn, const std::
         }
     }
 
-    auto doorsIt = mWorld.doorStates.find(cellId);
-    if (doorsIt != mWorld.doorStates.end() && !doorsIt->second.empty())
-    {
-        PacketDoorState pkt;
-        pkt.authorGuid = 0;
-        pkt.cellId = cellId;
-        pkt.doors = doorsIt->second;
-        sendTo(conn, pkt.encode());
-    }
+    sendDoorStateToClient(conn, cellId);
+}
+
+void MPServer::sendDoorStateToClient(HSteamNetConnection conn, const std::string& cellId)
+{
+    const auto doorsIt = mWorld.doorStates.find(cellId);
+    if (doorsIt == mWorld.doorStates.end() || doorsIt->second.empty())
+        return;
+
+    PacketDoorState pkt;
+    pkt.authorGuid = 0;
+    pkt.cellId = cellId;
+    pkt.doors = doorsIt->second;
+    sendTo(conn, pkt.encode());
 }
 
 // ---------------------------------------------------------------------------
@@ -8082,7 +8087,8 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
     if (!cdPkt.spawnCell.empty())
     {
         sendActorStateToClient(c.conn, cdPkt.spawnCell);
-        Log(Debug::Verbose) << "[Server] Sent pre-world actor bootstrap"
+        sendDoorStateToClient(c.conn, cdPkt.spawnCell);
+        Log(Debug::Verbose) << "[Server] Sent pre-world actor/door bootstrap"
                             << " to=" << sel.charName
                             << " cell=" << cdPkt.spawnCell;
     }
@@ -18925,16 +18931,6 @@ void MPServer::handleDoorState(ConnectedClient& c, const uint8_t* data, size_t s
     }
 
     accepted.mpNum = 0;
-    if (context.current)
-    {
-        accepted.isLocked = context.current->isLocked;
-        accepted.lockLevel = context.current->lockLevel;
-    }
-    else
-    {
-        accepted.isLocked = context.reference->baseLocked;
-        accepted.lockLevel = context.reference->baseLockLevel;
-    }
 
     try
     {
@@ -21171,8 +21167,9 @@ EResult MPServer::sendPacketOnConfiguredLane(HSteamNetConnection conn,
     const bool characterBootstrapPacket = hasHeader
         && (type == PacketType::CharacterData || type == PacketType::PlayerBounty);
     const bool containerOrderedPacket = hasHeader && type == PacketType::Container;
+    const bool doorOrderedPacket = hasHeader && type == PacketType::DoorState;
 
-    if (!actorPacket && !characterBootstrapPacket && !containerOrderedPacket)
+    if (!actorPacket && !characterBootstrapPacket && !containerOrderedPacket && !doorOrderedPacket)
     {
         return mInterface->SendMessageToConnection(
             conn, data.data(), static_cast<uint32_t>(data.size()), flags, nullptr);
@@ -21199,7 +21196,8 @@ EResult MPServer::sendPacketOnConfiguredLane(HSteamNetConnection conn,
         || type == PacketType::ActorPositionV2
         || type == PacketType::ActorPresentationV2
         || type == PacketType::ActorAttackV2
-        || type == PacketType::Container;
+        || type == PacketType::Container
+        || type == PacketType::DoorState;
     message->m_idxLane = realtimeActorPacket ? 1 : 2;
 
     int64 result = 0;
