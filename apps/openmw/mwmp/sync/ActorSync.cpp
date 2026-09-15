@@ -624,12 +624,11 @@ namespace
             return false;
 
         return actor.refId == "heddvild" || actor.mpNum == 2601
-            || actor.refId == "breton dancer girl"
-            || actor.refId == "nord dancer girl"
-            || actor.refId == "redguard dancer girl"
             || actor.refId == "snorri"
             || actor.refId == "khinjarsi"
             || actorNetId == mwmp::packActorInstanceKey({ mwmp::ActorKeyKind::SpawnedMpNum, 2601 })
+            || (isIdleAnimGroup(actor.animFlags.currentAnimGroup)
+                && !isBaseIdleAnimGroup(actor.animFlags.currentAnimGroup))
             || isWatchedBorderActor(actor, actor.cellId);
     }
 
@@ -10410,12 +10409,14 @@ namespace mwmp
                 && isIdleAnimGroup(syncedIdleGroup)
                 && !isBaseIdleAnimGroup(syncedIdleGroup);
         }
-        const bool isDancerActor = actor.state.refId == "breton dancer girl"
-            || actor.state.refId == "nord dancer girl"
-            || actor.state.refId == "redguard dancer girl";
-        const bool suppressVisualLocomotionFallback = isDancerActor
-            && (currentGroupIsSpecialIdle || nodeHasSyncedSpecialIdle);
-        const bool hasVisualLocomotion = !suppressVisualLocomotionFallback && visualPlanarSpeed > 8.f;
+        // A synchronized special idle owns lower-body presentation. Root motion
+        // from that animation is already represented by the authority's position
+        // stream, so neither rendered displacement nor stale axes should turn it
+        // back into locomotion on observers.
+        const bool suppressSyncedSpecialIdleLocomotion
+            = currentGroupIsSpecialIdle || nodeHasSyncedSpecialIdle;
+        const bool hasVisualLocomotion
+            = !suppressSyncedSpecialIdleLocomotion && visualPlanarSpeed > 8.f;
         float drivenSide = actor.state.animFlags.animSide;
         float drivenFwd = actor.state.animFlags.animFwd;
         // Drive the animation from the displacement actually rendered on this
@@ -10448,6 +10449,7 @@ namespace mwmp
         }
         const bool shouldDriveLocomotion = !actor.state.isDead
             && !suppressAttackLocomotion
+            && !suppressSyncedSpecialIdleLocomotion
             && (actor.state.isMoving || hasVisualLocomotion)
             && (std::abs(drivenFwd) > 0.1f || std::abs(drivenSide) > 0.1f);
         movement.mPosition[0] = shouldDriveLocomotion ? drivenSide : 0.f;

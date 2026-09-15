@@ -3267,16 +3267,24 @@ namespace MWMechanics
                 }
             }
 
-            // test without this block, this turned out to not be the issue if im remembering right.
 #ifdef BUILD_MULTIPLAYER
-            // Remote player NPCs are kinematic network puppets. Their movement
-            // settings above still select and advance the vanilla locomotion
-            // animation, but RemotePlayer owns world translation through its
-            // interpolated authoritative position. Letting CharacterController
-            // also queue physical motion double-drives the proxy; rough collision
-            // (notably Sandriver) then alternately blocks and releases it, producing
-            // the visible quarter-second stop/start "flipbook" effect.
-            if (isNetworkPlayerPuppet)
+            // Network puppets already receive authoritative world translation.
+            // The same is true for remote actors while an authority-synchronized
+            // special idle is active: any root motion extracted by runAnimation()
+            // is already present in ActorSync's position stream. Queueing it again
+            // locally double-drives the observer and feeds false locomotion back
+            // into presentation selection.
+            bool suppressRemoteSyncedIdleRootMotion = false;
+            if (const auto* baseNode = mPtr.getRefData().getBaseNode())
+            {
+                bool isRemoteActor = false;
+                std::string syncedIdleGroup;
+                baseNode->getUserValue("mp_remote_actor", isRemoteActor);
+                suppressRemoteSyncedIdleRootMotion = isRemoteActor
+                    && baseNode->getUserValue("mp_synced_idle_group", syncedIdleGroup)
+                    && isMpSpecialIdleGroup(syncedIdleGroup);
+            }
+            if (isNetworkPlayerPuppet || suppressRemoteSyncedIdleRootMotion)
                 movement = osg::Vec3f();
 #endif
 
