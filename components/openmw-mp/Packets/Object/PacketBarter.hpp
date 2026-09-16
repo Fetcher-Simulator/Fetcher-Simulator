@@ -47,7 +47,7 @@ namespace mwmp
             unpackInventorySource(stream, request.merchant);
             std::uint16_t lineCount = 0;
             stream.read(lineCount);
-            if (lineCount == 0 || lineCount > MaximumBarterLines)
+            if (lineCount > MaximumBarterLines)
                 throw std::runtime_error("PacketBarterRequest: invalid line count");
             request.lines.clear();
             request.lines.reserve(lineCount);

@@ -166,7 +166,11 @@ namespace MWGui
         SpellCreationDialog();
 
         void onOpen() override;
-        void clear() override { resetReference(); }
+        void clear() override
+        {
+            ++mSessionToken;
+            resetReference();
+        }
 
         void onFrame(float dt) override { checkReferenceAvailable(); }
 
@@ -193,6 +197,11 @@ namespace MWGui
         MyGUI::TextBox* mPlayerGold;
 
         ESM::Spell mSpell;
+        std::uint64_t mSessionToken = 0;
+        bool mPurchasePending = false;
+#ifdef BUILD_MULTIPLAYER
+        void startMultiplayerSpellmaking();
+#endif
     };
 
 }

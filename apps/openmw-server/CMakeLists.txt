@@ -8,6 +8,7 @@ set(OPENMW_SERVER_SOURCES
     DynamicRecordService.cpp
     AlchemyService.cpp
     EnchantingService.cpp
+    SpellmakingService.cpp
     CrimeService.cpp
     CrimeAggression.cpp
     CrimeSemanticService.cpp
@@ -40,6 +41,7 @@ set(OPENMW_SERVER_HEADERS
     DynamicRecordService.hpp
     AlchemyService.hpp
     EnchantingService.hpp
+    SpellmakingService.hpp
     CrimeService.hpp
     CrimeAggression.hpp
     CrimeSemanticService.hpp

@@ -1,17 +1,21 @@
 #include "Server.hpp"
 #include "ActorRegistryInvariant.hpp"
 #include "AlchemyService.hpp"
-#include "CrimeService.hpp"
-#include "CrimeSemanticService.hpp"
 #include "ConfiguredCell.hpp"
-#include "FactionService.hpp"
-#include "JailSentenceService.hpp"
+#include "CrimeSemanticService.hpp"
+#include "CrimeService.hpp"
+#include "DoorStateAuthority.hpp"
 #include "DynamicRecordService.hpp"
 #include "EnchantingService.hpp"
-#include "DoorStateAuthority.hpp"
+#include "FactionService.hpp"
+#include "JailSentenceService.hpp"
 #include "MasterServerClient.hpp"
 #include "ServerCollisionWorld.hpp"
 #include "ServerLuaRecordParser.hpp"
+#include "SpellmakingService.hpp"
+#include <components/openmw-mp/Packets/Records/PacketSpellmakingRequest.hpp>
+#include <components/openmw-mp/Packets/Records/PacketSpellmakingResult.hpp>
+#include <components/openmw-mp/Records/EsmDynamicRecordConversion.hpp>
 #include <extern/bcrypt/bcrypt.h>
 
 // GNS C++ crypto API - CECSigningPublicKey::VerifySignature for challenge-response auth.
@@ -6229,6 +6233,9 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::RecordCreateRequest: handleRecordCreateRequest(client, data, size); break;
         case PacketType::AlchemyRequest:   handleAlchemyRequest(client, data, size);     break;
         case PacketType::EnchantingRequest: handleEnchantingRequest(client, data, size); break;
+        case PacketType::SpellmakingRequest:
+            handleSpellmakingRequest(client, data, size);
+            break;
         case PacketType::PlayerJournal:    handlePlayerJournal(client, data, size);      break;
         case PacketType::PlayerStatsDynamic: handlePlayerStatsDynamic(client, data, size); break;
         case PacketType::PlayerDeath:      handlePlayerDeath(client, data, size);        break;
@@ -9988,6 +9995,241 @@ void MPServer::handleAlchemyRequest(ConnectedClient& c, const uint8_t* data, siz
 }
 
 // ---------------------------------------------------------------------------
+
+void MPServer::handleSpellmakingRequest(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    PacketSpellmakingRequest packet;
+    const auto sendError = [&](records::SpellmakingError error) {
+        PacketSpellmakingResult reply;
+        reply.result.requestId = packet.request.requestId;
+        reply.result.error = error;
+        reply.result.inventoryRevision = c.inventoryRevision;
+        reply.result.spellbookRevision = c.spellbookRevision;
+        sendTo(c.conn, reply.encode());
+    };
+    if (!packet.decode(data, size))
+    {
+        Log(Debug::Warning) << "[Spellmaking] malformed request player=" << c.name;
+        if (!packet.request.requestId.empty() && packet.request.requestId.size() <= 128)
+            sendError(records::SpellmakingError::InvalidRequest);
+        return;
+    }
+    if (!mPlayerDb || !mContentRegistry || c.dbAccountId <= 0 || c.dbCharacterId <= 0)
+    {
+        sendError(records::SpellmakingError::ServerError);
+        return;
+    }
+    const auto canonical = packet.encode();
+    const std::string requestHash
+        = crypto::sha256hex(std::string_view(reinterpret_cast<const char*>(canonical.data()), canonical.size()));
+    SpellmakingService::Context context;
+    context.accountId = c.dbAccountId;
+    context.characterId = c.dbCharacterId;
+    context.inventoryRevision = c.inventoryRevision;
+    context.player = &c.player;
+    context.store = &mContentRegistry->store();
+    context.creationSource = "spellmaking";
+    context.recordScope = "generated";
+    context.persistent = true;
+    context.validationVersion = 1;
+    context.spellbookRevision = c.spellbookRevision;
+
+    bool isReplay = false;
+    try
+    {
+        isReplay = mPlayerDb->loadCraftRequest(c.dbAccountId, c.dbCharacterId, packet.request.requestId).has_value();
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[Server] Spellmaking journal lookup failed: " << e.what();
+        sendError(records::SpellmakingError::ServerError);
+        return;
+    }
+    if (!isReplay)
+    {
+        const uint64_t now = currentServerTimeMs();
+        if (c.runtimeRecordRateWindowStartMs == 0 || now - c.runtimeRecordRateWindowStartMs >= 60000)
+        {
+            c.runtimeRecordRateWindowStartMs = now;
+            c.runtimeRecordRequestsInWindow = 0;
+        }
+        if (mRuntimeRecordRequestsPerMinute == 0 || c.runtimeRecordRequestsInWindow >= mRuntimeRecordRequestsPerMinute)
+            context.admissionError = records::CreateError::RateLimited;
+        else
+            ++c.runtimeRecordRequestsInWindow;
+    }
+
+    try
+    {
+        const std::vector<DynamicRecordCatalogEntry> catalog = mPlayerDb->loadDynamicRecordCatalog();
+        const std::size_t owned = static_cast<std::size_t>(std::count_if(catalog.begin(), catalog.end(),
+            [&](const DynamicRecordCatalogEntry& entry) { return entry.creatorCharacterId == c.dbCharacterId; }));
+        context.maximumNewRecords = owned >= mRuntimeRecordMaxPerCharacter ? 0 : mRuntimeRecordMaxPerCharacter - owned;
+        context.isAssetAllowed
+            = [&](std::string_view asset) { return mContentRegistry->hasAsset(normalizeRuntimeAsset(asset)); };
+        context.isModelAllowed
+            = [&](std::string_view asset) { return mContentRegistry->hasModel(normalizeRuntimeAsset(asset)); };
+        context.isIconAllowed
+            = [&](std::string_view asset) { return mContentRegistry->hasIcon(normalizeRuntimeAsset(asset)); };
+        context.isContentIdAllowed = [&](std::string_view id) {
+            const std::string normalized = lowerAscii(id);
+            if (mContentRegistry->hasContentId(normalized))
+                return true;
+            if (!normalized.starts_with(lowerAscii(mGeneratedRecordIdPrefix) + "_"))
+                return false;
+            return std::any_of(catalog.begin(), catalog.end(),
+                [&](const DynamicRecordCatalogEntry& entry) { return lowerAscii(entry.recordId) == normalized; });
+        };
+        context.findEquivalent
+            = [&](records::RecordType type,
+                  std::string_view fingerprint) -> std::optional<DynamicRecordService::CatalogRecord> {
+            const std::string typeName(records::getRecordTypeName(type));
+            for (const DynamicRecordCatalogEntry& catalogEntry : catalog)
+            {
+                if (catalogEntry.recordType != typeName || catalogEntry.definitionFingerprint != fingerprint)
+                    continue;
+                auto stored = mWorld.dynamicRecords.find(makeDynamicRecordKey(typeName, catalogEntry.recordId));
+                if (stored == mWorld.dynamicRecords.end())
+                    continue;
+                return DynamicRecordService::CatalogRecord{ typeName, catalogEntry.recordId,
+                    catalogEntry.definitionFingerprint, stored->second.data };
+            }
+            return std::nullopt;
+        };
+        context.allocateId = [&](records::RecordType type) {
+            return mLua.generateDynamicRecordId(std::string(records::getRecordTypeName(type)));
+        };
+        context.nextCommitSequence = [&]() { return mWorld.nextDynamicRecordSequence++; };
+        context.lookupSpell = [&](const std::string& id) -> std::optional<ESM::Spell> {
+            if (const auto* spell = mContentRegistry->store().get<ESM::Spell>().search(ESM::RefId::stringRefId(id)))
+                return *spell;
+            const auto record = mWorld.dynamicRecords.find(makeDynamicRecordKey("spell", id));
+            if (record == mWorld.dynamicRecords.end() || !record->second.persistent)
+                return std::nullopt;
+            return std::get<ESM::Spell>(records::toEsmRecord(records::decodeDefinition(record->second.data)));
+        };
+        context.resolveActor = [&](std::uint64_t id) -> std::optional<SpellmakingService::ServiceActor> {
+            const std::string playerCell = makeCellKey(c.player.cell);
+            const auto key = mWorld.actorKeysByNetId.find(id);
+            if (key == mWorld.actorKeysByNetId.end())
+                return std::nullopt;
+            const auto location = mWorld.actorLocations.find(key->second);
+            if (location == mWorld.actorLocations.end() || location->second != playerCell)
+                return std::nullopt;
+            const auto cell = mWorld.actorCells.find(playerCell);
+            if (cell == mWorld.actorCells.end())
+                return std::nullopt;
+            const auto found = cell->second.actors.find(key->second);
+            if (found == cell->second.actors.end() || found->second.actor.isDead)
+                return std::nullopt;
+            const auto& actor = found->second.actor;
+            const auto* snapshot = mMechanicsSnapshots.findFresh(
+                { MechanicsSubjectKind::Player, c.guid, 0 }, currentServerTimeMs(), 1000);
+            if (!snapshot || snapshot->snapshot.cellId != playerCell || snapshot->snapshot.migrationGeneration != 1
+                || snapshot->snapshot.authorityGeneration != c.guid)
+                return std::nullopt;
+            float distance = 0;
+            for (int i = 0; i < 3; ++i)
+            {
+                const float delta = actor.position.pos[i] - snapshot->snapshot.position.pos[i];
+                distance += delta * delta;
+            }
+            if (!std::isfinite(distance) || distance > mDoorInteractionRadius * mDoorInteractionRadius)
+                return std::nullopt;
+            const auto& store = mContentRegistry->store();
+            const auto ref = ESM::RefId::stringRefId(actor.refId);
+            const auto* npc = store.get<ESM::NPC>().search(ref);
+            const auto* creature = store.get<ESM::Creature>().search(ref);
+            if (!npc && !creature)
+                return std::nullopt;
+            const int baseGold = std::max(0, npc ? npc->mNpdt.mGold : creature->mData.mGold);
+            const double hours
+                = (static_cast<double>(mWorld.year) * 12 * 30 + static_cast<double>(mWorld.month) * 30 + mWorld.day - 1)
+                    * 24
+                + mWorld.gameHour;
+            const double reset
+                = std::max(0.f, store.get<ESM::GameSetting>().find("fBarterGoldResetDelay")->mValue.getFloat());
+            const auto saved = mPlayerDb->loadMerchantGold(id);
+            std::optional<BarterMerchantGoldState> state;
+            if (saved)
+                state = BarterMerchantGoldState{ saved->gold, saved->lastRestockTime };
+            const auto gold = resolveBarterMerchantGold(baseGold, state, hours, reset);
+            SpellmakingService::ServiceActor result;
+            result.refId = actor.refId;
+            result.dynamicStats = actor.dynamicStats;
+            result.available = true;
+            result.gold = MerchantGoldMutation{ id, actor.refId, gold.expectedGold, gold.authoritativeGold,
+                gold.expectedRestockTime, gold.resultingRestockTime };
+            return result;
+        };
+        SpellmakingService service(*mPlayerDb);
+        auto outcome = service.execute(packet.request, requestHash, context);
+        if (outcome.committed)
+        {
+            c.player.inventoryChanges.items = std::move(outcome.inventory);
+            c.player.inventoryChanges.action = BasePlayer::InventoryChanges::Action::Set;
+            c.inventoryRevision = outcome.result.inventoryRevision;
+            c.player.inventoryChanges.revision = c.inventoryRevision;
+            c.restoredInventorySnapshot = c.player.inventoryChanges.items;
+            c.hasRestoredInventorySnapshot = true;
+            c.acceptedPlayerInventoryThisSession = true;
+            c.player.spellbookChanges.spellIds = std::move(outcome.spellbook);
+            c.spellbookRevision = outcome.result.spellbookRevision;
+            c.player.spellbookChanges.revision = c.spellbookRevision;
+            c.restoredSpellbookSnapshot = c.player.spellbookChanges.spellIds;
+            c.hasRestoredSpellbookSnapshot = true;
+            c.acceptedPlayerSpellbookThisSession = true;
+            c.playerSpellbookRestoreGuardUntilMs = 0;
+            for (const auto& created : outcome.newRecords)
+            {
+                WorldState::StoredDynamicRecord record;
+                record.recordType = created.recordType;
+                record.recordId = created.recordId;
+                record.data = created.definition;
+                record.recordScope = "generated";
+                record.persistent = true;
+                record.sequence = outcome.result.commitSequence;
+                record.dependencyRecordIds = created.dependencyRecordIds;
+                mWorld.dynamicRecords[makeDynamicRecordKey("spell", record.recordId)] = std::move(record);
+                PacketRecordDynamic definition;
+                definition.action = DynamicRecordAction::Upsert;
+                definition.recordType = "spell";
+                definition.entries.push_back({ created.recordId, created.definition });
+                broadcastToAll(definition.encode());
+            }
+            syncLuaPlayerSnapshot();
+        }
+        // Definitions precede learned IDs, also on idempotent retry. Always reconcile
+        // current state, never roll a client back to the journal's historical snapshot.
+        if (outcome.result.accepted)
+        {
+            const auto record = mWorld.dynamicRecords.find(makeDynamicRecordKey("spell", outcome.result.recordId));
+            if (record != mWorld.dynamicRecords.end())
+            {
+                PacketRecordDynamic definition;
+                definition.action = DynamicRecordAction::Upsert;
+                definition.recordType = "spell";
+                definition.entries.push_back({ record->second.recordId, record->second.data });
+                sendTo(c.conn, definition.encode());
+            }
+        }
+        sendAuthoritativeInventory(c);
+        sendAuthoritativeSpellbook(c);
+        sendTo(c.conn, outcome.encodedResult);
+        Log(Debug::Info) << "[Spellmaking] player=" << c.name << " requestId=" << packet.request.requestId
+                         << " accepted=" << outcome.result.accepted << " replayed=" << outcome.replayed
+                         << " error=" << static_cast<int>(outcome.result.error) << " spell=" << outcome.result.recordId
+                         << " price=" << outcome.result.price;
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[Spellmaking] request=" << packet.request.requestId << " error=" << e.what();
+        // A transaction may already have committed before publication failed.
+        // Ask the client to retry its original id; never invite a second purchase.
+        sendError(records::SpellmakingError::RequestPending);
+    }
+}
+
 void MPServer::handleEnchantingRequest(ConnectedClient& c, const uint8_t* data, size_t size)
 {
     PacketEnchantingRequest packet;
@@ -16892,6 +17134,18 @@ void MPServer::handleBarterRequest(ConnectedClient& c, const uint8_t* data, size
         baseMerchantGold, storedGoldState, currentGameHours, barterGoldResetDelay);
     const std::int32_t authoritativeMerchantGold = merchantGoldState.authoritativeGold;
     result.merchantGold = authoritativeMerchantGold;
+
+    // Read-only merchant-gold sync used when opening the multiplayer barter UI.
+    // Merchant identity, distance, service availability and player snapshot have
+    // already been validated above; no inventory or database mutation occurs.
+    if (request.lines.empty())
+    {
+        result.accepted = true;
+        result.error = BarterError::None;
+        result.inventoryRevision = c.inventoryRevision;
+        sendResult();
+        return;
+    }
 
     const std::uint32_t merchantBootstrapAuthority
         = isActorAuthorityLeaseValid(merchantRecord, canonicalPlayerCell, nowMs)

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -204,6 +205,32 @@ namespace Crafting
         return input.gemCharge / count;
     }
 
+    int serviceBarterOffer(int basePrice, const EnchantingBarterInput& barter)
+    {
+        // Native MechanicsManager::getBarterOffer with the caller-resolved
+        // disposition and statistics. The special cases (zero base price and
+        // creature merchants) return the base price unchanged.
+        int offer = basePrice;
+        if (basePrice != 0 && !barter.creatureMerchant)
+        {
+            const float a = std::min(barter.playerMercantile, 100.f);
+            const float b = std::min(0.1f * barter.playerLuck, 10.f);
+            const float c = std::min(0.2f * barter.playerPersonality, 10.f);
+            const float d = std::min(barter.enchanterMercantile, 100.f);
+            const float e = std::min(0.1f * barter.enchanterLuck, 10.f);
+            const float f = std::min(0.2f * barter.enchanterPersonality, 10.f);
+            const float pcTerm = (barter.disposition - 50 + a + b + c) * barter.playerFatigueTerm;
+            const float npcTerm = (d + e + f) * barter.enchanterFatigueTerm;
+            const float buyTerm = 0.01f * (100 - 0.5f * (pcTerm - npcTerm));
+            const float adjusted = basePrice * buyTerm;
+            if (!std::isfinite(adjusted) || adjusted >= static_cast<float>(std::numeric_limits<int>::max()))
+                throw std::runtime_error("Service price is out of range");
+            offer = adjusted < 1.f ? 1 : static_cast<int>(adjusted);
+        }
+
+        return offer;
+    }
+
     int EnchantingMechanics::enchantPrice(const EnchantingMechanicsInput& input, int count)
     {
         if (!input.barter)
@@ -216,24 +243,7 @@ namespace Crafting
 
         const int basePrice = static_cast<int>(finalEffectCost * requireGmst(input, "fEnchantmentValueMult"));
 
-        // Native MechanicsManager::getBarterOffer with the caller-resolved
-        // disposition and statistics. The special cases (zero base price and
-        // creature merchants) return the base price unchanged.
-        int offer = basePrice;
-        const EnchantingBarterInput& barter = *input.barter;
-        if (basePrice != 0 && !barter.creatureMerchant)
-        {
-            const float a = std::min(barter.playerMercantile, 100.f);
-            const float b = std::min(0.1f * barter.playerLuck, 10.f);
-            const float c = std::min(0.2f * barter.playerPersonality, 10.f);
-            const float d = std::min(barter.enchanterMercantile, 100.f);
-            const float e = std::min(0.1f * barter.enchanterLuck, 10.f);
-            const float f = std::min(0.2f * barter.enchanterPersonality, 10.f);
-            const float pcTerm = (barter.disposition - 50 + a + b + c) * barter.playerFatigueTerm;
-            const float npcTerm = (d + e + f) * barter.enchanterFatigueTerm;
-            const float buyTerm = 0.01f * (100 - 0.5f * (pcTerm - npcTerm));
-            offer = std::max(1, static_cast<int>(basePrice * buyTerm));
-        }
+        const int offer = serviceBarterOffer(basePrice, *input.barter);
 
         const int price = static_cast<int>(offer * static_cast<int>(count * typeMultiplier(input)));
         return std::max(1, price);

@@ -91,6 +91,7 @@ namespace MWGui
 
         bool mUpdateNextFrame;
         bool mAwaitingAuthoritativeBarterSources = false;
+        bool mAwaitingAuthoritativeMerchantGold = false;
         std::vector<std::pair<MWWorld::Ptr, std::uint64_t>> mAuthoritativeBarterSources;
 
         void rebuildItemModel();

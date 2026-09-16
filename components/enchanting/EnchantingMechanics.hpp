@@ -32,6 +32,9 @@ namespace Crafting
         bool creatureMerchant = false; // native special case: no barter adjustment
     };
 
+    /// Native buy-side barter offer, shared by paid crafting services.
+    int serviceBarterOffer(int basePrice, const EnchantingBarterInput& barter);
+
     /// Fully resolved input for the shared enchanting calculation. Callers
     /// (single-player client and authoritative server) resolve content
     /// records, character statistics, and GMSTs into this structure; the

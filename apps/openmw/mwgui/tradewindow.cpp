@@ -240,9 +240,11 @@ namespace MWGui
 
     bool TradeWindow::authoritativeBarterBootstrapReady() const
     {
-        if (!mAwaitingAuthoritativeBarterSources)
-            return true;
         if (!mwmp::Main::isInitialised() || !mwmp::Main::isConnected())
+            return true;
+        if (mAwaitingAuthoritativeMerchantGold)
+            return false;
+        if (!mAwaitingAuthoritativeBarterSources)
             return true;
 
         const auto& sync = mwmp::Main::get().getWorldObjectSync();
@@ -260,8 +262,26 @@ namespace MWGui
         mCurrentMerchantOffer = 0;
 
         beginAuthoritativeBarterBootstrap();
+        mAwaitingAuthoritativeMerchantGold = false;
+        if (mwmp::Main::isInitialised() && mwmp::Main::isConnected())
+        {
+            const MWWorld::Ptr merchant = mPtr;
+            mAwaitingAuthoritativeMerchantGold = true;
+            const bool queued = mwmp::Main::get().getWorldObjectSync().requestBarterTransaction(
+                merchant, {}, 0, getMerchantGold(),
+                [this, merchant](const mwmp::BarterResult& result) {
+                    if (merchant.isEmpty() || mPtr.isEmpty() || mPtr != merchant)
+                        return;
+                    if (result.accepted)
+                        merchant.getClass().getCreatureStats(merchant).setGoldPool(result.merchantGold);
+                    mAwaitingAuthoritativeMerchantGold = false;
+                    updateLabels();
+                });
+            if (!queued)
+                mAwaitingAuthoritativeMerchantGold = false;
+        }
         rebuildItemModel();
-        mItemView->setVisible(!mAwaitingAuthoritativeBarterSources);
+        mItemView->setVisible(!mAwaitingAuthoritativeBarterSources && !mAwaitingAuthoritativeMerchantGold);
 
         updateLabels();
 
@@ -279,7 +299,8 @@ namespace MWGui
     {
         checkReferenceAvailable();
 
-        if (mAwaitingAuthoritativeBarterSources && authoritativeBarterBootstrapReady())
+        if ((mAwaitingAuthoritativeBarterSources || mAwaitingAuthoritativeMerchantGold)
+            && authoritativeBarterBootstrapReady())
         {
             mAwaitingAuthoritativeBarterSources = false;
             mAuthoritativeBarterSources.clear();
@@ -812,6 +833,7 @@ namespace MWGui
         mTradeModel = nullptr;
         mSortModel = nullptr;
         mAwaitingAuthoritativeBarterSources = false;
+        mAwaitingAuthoritativeMerchantGold = false;
         mAuthoritativeBarterSources.clear();
     }
 

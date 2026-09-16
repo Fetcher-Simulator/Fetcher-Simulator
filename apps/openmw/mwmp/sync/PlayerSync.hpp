@@ -69,6 +69,9 @@ namespace mwmp
         void queueAuthoritativeEquipment(const BasePlayer& authoritative);
         void queueAuthoritativeInventory(const BasePlayer& authoritative);
         void queueAuthoritativeSpellbook(const BasePlayer& authoritative);
+        std::uint64_t spellbookRevision() const { return mAuthoritativeSpellbook.revision; }
+        bool inventoryReady() const { return !mPendingInventoryRestore; }
+        bool spellbookReady() const { return mSpellbookInitialized && !mPendingSpellbookRestore; }
         void queueAuthoritativeStats(const BasePlayer& authoritative);
         void applyAuthoritativeStatsToPlayer();
         void onDynamicRecordsChanged();
