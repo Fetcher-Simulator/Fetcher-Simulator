@@ -235,6 +235,27 @@ TEST(ActorIdentityProtocol, AuthorityHandoffBaselineReconcilesBeforeGrant)
         true, true, false));
 }
 
+TEST(ActorPositionV2ClientPolicy, StationaryHandoffEchoRequiresBufferedSnapshot)
+{
+    constexpr uint32_t spawnedMpNum = 9632;
+
+    // Authority revocation clears the buffered snapshots while the prior cell
+    // handoff marker can remain populated. Never inspect deque::back() until a
+    // fresh authoritative snapshot has actually been buffered.
+    EXPECT_FALSE(mwmp::ActorSync::shouldInspectStationaryDestinationAuthorityEcho(
+        spawnedMpNum, true, 0));
+    EXPECT_TRUE(mwmp::ActorSync::shouldInspectStationaryDestinationAuthorityEcho(
+        spawnedMpNum, true, 1));
+    EXPECT_TRUE(mwmp::ActorSync::shouldInspectStationaryDestinationAuthorityEcho(
+        spawnedMpNum, true, 2));
+    EXPECT_FALSE(mwmp::ActorSync::shouldInspectStationaryDestinationAuthorityEcho(
+        spawnedMpNum, true, 3));
+    EXPECT_FALSE(mwmp::ActorSync::shouldInspectStationaryDestinationAuthorityEcho(
+        spawnedMpNum, false, 1));
+    EXPECT_FALSE(mwmp::ActorSync::shouldInspectStationaryDestinationAuthorityEcho(
+        0, true, 1));
+}
+
 TEST(ActorDeathClientPolicy, KnownDeadIdentityRefreshPreservesCorpsePresentation)
 {
     EXPECT_TRUE(mwmp::ActorSync::shouldPreserveDeadIdentityRefresh(

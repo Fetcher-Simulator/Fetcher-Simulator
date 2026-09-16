@@ -3829,9 +3829,8 @@ namespace mwmp
             // producing the visible stop/snap. Ignore only this exact stationary
             // echo; a changed position, non-zero velocity, or established second
             // snapshot is handled normally.
-            if (runtime.state.mpNum != 0
-                && !runtime.previousCellChangeCellId.empty()
-                && runtime.snapshots.size() <= 2)
+            if (shouldInspectStationaryDestinationAuthorityEcho(
+                    runtime.state.mpNum, !runtime.previousCellChangeCellId.empty(), runtime.snapshots.size()))
             {
                 // A continuity anchor may precede the commit after an ordinary
                 // exterior handoff, so the commit is the newest queued sample.
@@ -5613,6 +5612,12 @@ namespace mwmp
     {
         return authoritativeTransform
             && (!hasLocalActorAuthority || canonicalHandoffBaseline);
+    }
+
+    bool ActorSync::shouldInspectStationaryDestinationAuthorityEcho(
+        uint32_t mpNum, bool hasPendingCellHandoff, std::size_t snapshotCount)
+    {
+        return mpNum != 0 && hasPendingCellHandoff && snapshotCount > 0 && snapshotCount <= 2;
     }
 
     bool ActorSync::hasAuthority(const std::string& cellId) const
