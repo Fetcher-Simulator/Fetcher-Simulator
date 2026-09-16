@@ -224,6 +224,17 @@ namespace mwmp
         DuplicateRequest,
         DuplicateRequestConflict,
         StaleInventoryRevision,
+        StaleSpellbookRevision,
+    };
+
+    struct MerchantGoldMutation
+    {
+        ActorInstanceId actorInstanceId = 0;
+        std::string actorRefId;
+        std::int32_t expectedGold = 0;
+        std::int32_t resultingGold = 0;
+        double expectedRestockTime = 0.0;
+        double resultingRestockTime = 0.0;
     };
 
     struct DynamicRecordCommit
@@ -243,6 +254,10 @@ namespace mwmp
         /// server-authoritative crafting so skill progression commits
         /// atomically with the rest of the request.
         std::optional<BasePlayer> characterStats;
+        std::optional<std::vector<std::string>> spellbook;
+        std::uint64_t expectedSpellbookRevision = 0;
+        std::uint64_t resultingSpellbookRevision = 0;
+        std::optional<MerchantGoldMutation> merchantGoldMutation;
         /// Non-empty for trusted server-side requests that have no player
         /// account or inventory revision. These use a separate durable journal.
         std::string serverSource;
@@ -304,16 +319,6 @@ namespace mwmp
         PlacedObjectIdentity object;
         std::int32_t expectedWorldCount = 0;
         std::int32_t resultingWorldCount = 0;
-    };
-
-    struct MerchantGoldMutation
-    {
-        ActorInstanceId actorInstanceId = 0;
-        std::string actorRefId;
-        std::int32_t expectedGold = 0;
-        std::int32_t resultingGold = 0;
-        double expectedRestockTime = 0.0;
-        double resultingRestockTime = 0.0;
     };
 
     struct InventoryTakeCommit
@@ -877,6 +882,9 @@ namespace mwmp
         /// skills, level) without beginning or committing a transaction.
         /// Callers own the surrounding transaction.
         void writeCharacterStatsRows(int64_t characterId, const BasePlayer& player);
+
+        void writeCharacterSpellbookRows(int64_t characterId, const std::vector<std::string>& spellIds,
+            bool touchLastSeen, std::optional<uint64_t> spellbookRevision);
 
         void exec(const char* sql);
         sqlite3_stmt* prepare(const char* sql);

@@ -1439,7 +1439,7 @@ bool WorldObjectSync::requestBarterTransaction(const MWWorld::Ptr& merchant,
     const std::vector<BarterLineInput>& lines, int balance, int merchantGold, BarterCallback callback)
 {
     if (!Main::isInitialised() || merchant.isEmpty() || !merchant.getClass().isActor()
-        || lines.empty() || lines.size() > MaximumBarterLines || merchantGold < 0)
+        || lines.size() > MaximumBarterLines || merchantGold < 0)
         return false;
 
     BarterRequest request;

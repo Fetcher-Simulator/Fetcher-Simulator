@@ -38,7 +38,8 @@ namespace mwmp
     // Protocol 20 adds stable server-issued inventory-row identity to authoritative
     // takes. Protocol 21 correlates Container(Set) bootstrap rows back to the
     // exact live client handles and adds one atomic multi-row Take All request.
-    inline constexpr int MultiplayerProtocolVersion = 21;
+    // Protocol 22 adds atomic server-authoritative NPC spellmaking.
+    inline constexpr int MultiplayerProtocolVersion = 22;
     inline constexpr std::string_view MultiplayerBuildVersion = "0.1.0";
     inline constexpr std::string_view DefaultMasterServerUrl = "https://master.fetchers.org";
 

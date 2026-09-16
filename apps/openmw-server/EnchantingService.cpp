@@ -1,4 +1,5 @@
 #include "EnchantingService.hpp"
+#include <components/openmw-mp/ServicePricing.hpp>
 
 #include <algorithm>
 #include <array>
@@ -160,55 +161,13 @@ namespace
             || left.level != right.level || left.levelProgress != right.levelProgress;
     }
 
-    /// The subset of the native derived-disposition formula that the
-    /// multiplayer state model can express: base disposition from the NPC
-    /// record plus the race, personality, and crime (bounty) modifiers. The
-    /// faction-reaction, disease, weapon-drawn, and charm terms are not
-    /// representable in the authoritative sync model (documented deviation;
-    /// prices stay deterministic and content-derived).
-    int derivedDisposition(const ESM::NPC& npc, const mwmp::BasePlayer& player, const MWWorld::ESMStore& store)
-    {
-        const auto gmst = [&](std::string_view id) -> float {
-            const ESM::GameSetting* setting = store.get<ESM::GameSetting>().search(ESM::RefId::stringRefId(id));
-            if (setting == nullptr)
-                throw std::runtime_error(
-                    std::string("enchanting disposition GMST is missing: ") + std::string(id));
-            return setting->mValue.getFloat();
-        };
-
-        float x = static_cast<float>(npc.mNpdt.mDisposition);
-
-        if (!player.race.empty() && npc.mRace == ESM::RefId::stringRefId(player.race))
-            x += gmst("fDispRaceMod");
-
-        const int personalityIndex = ESM::Attribute::refIdToIndex(ESM::Attribute::Personality);
-        const mwmp::Attribute& personality = player.attributes[personalityIndex];
-        x += gmst("fDispPersonalityMult")
-            * (modifiedValue(static_cast<float>(personality.base), personality.damage, personality.mod)
-                - gmst("fDispPersonalityBase"));
-
-        x -= gmst("fDispCrimeMod") * static_cast<float>(player.bounty);
-
-        return std::clamp(static_cast<int>(x), 0, 100);
-    }
-
-    /// Native CreatureStats::getFatigueTerm over the synced dynamic stats.
     float fatigueTerm(const mwmp::DynamicStats& stats, const MWWorld::ESMStore& store)
     {
-        const float max = stats.fatigue.base + stats.fatigue.mod;
-        const float current = stats.fatigue.current;
-
-        const float normalised = std::floor(max) == 0 ? 1 : std::max(0.0f, current / max);
-
-        const ESM::GameSetting* fFatigueBase
-            = store.get<ESM::GameSetting>().search(ESM::RefId::stringRefId("fFatigueBase"));
-        const ESM::GameSetting* fFatigueMult
-            = store.get<ESM::GameSetting>().search(ESM::RefId::stringRefId("fFatigueMult"));
-        if (fFatigueBase == nullptr || fFatigueMult == nullptr)
-            throw std::runtime_error("fatigue GMST is missing from authoritative content");
-
-        return fFatigueBase->mValue.getFloat() - fFatigueMult->mValue.getFloat() * (1 - normalised);
+        return mwmp::serviceFatigueTerm(stats, [&](std::string_view id) {
+            return store.get<ESM::GameSetting>().find(id)->mValue.getFloat();
+        });
     }
+
 }
 
 namespace mwmp
@@ -549,19 +508,13 @@ namespace mwmp
             // sync model does not carry per-actor skill/attribute state).
             if (npcRecord != nullptr)
             {
-                const int mercantileIndex = ESM::Skill::refIdToIndex(ESM::Skill::Mercantile);
-                const int personalityIndex = ESM::Attribute::refIdToIndex(ESM::Attribute::Personality);
-
                 Skill npcEnchant;
                 npcEnchant.base = static_cast<float>(npcRecord->mNpdt.mSkills[enchantIndex]);
                 Attribute npcIntelligence;
                 npcIntelligence.base = npcRecord->mNpdt.mAttributes[intelligenceIndex];
                 Attribute npcLuck;
                 npcLuck.base = npcRecord->mNpdt.mAttributes[luckIndex];
-                Skill npcMercantile;
-                npcMercantile.base = static_cast<float>(npcRecord->mNpdt.mSkills[mercantileIndex]);
-                Attribute npcPersonality;
-                npcPersonality.base = npcRecord->mNpdt.mAttributes[personalityIndex];
+
 
                 mechanics.enchantSkill = npcEnchant.base;
                 mechanics.intelligence = static_cast<float>(npcIntelligence.base);
@@ -570,27 +523,9 @@ namespace mwmp
                     enchanterFatigueTerm = fatigueTerm(*enchanter->dynamicStats, store);
                 mechanics.fatigueTerm = enchanterFatigueTerm;
 
-                Crafting::EnchantingBarterInput barter;
-                const int mercantilePlayerIndex = ESM::Skill::refIdToIndex(ESM::Skill::Mercantile);
-                const int personalityPlayerIndex = ESM::Attribute::refIdToIndex(ESM::Attribute::Personality);
-                const int luckPlayerIndex = ESM::Attribute::refIdToIndex(ESM::Attribute::Luck);
-                barter.playerMercantile
-                    = modifiedValue(context.player->skills[mercantilePlayerIndex].base,
-                        context.player->skills[mercantilePlayerIndex].damage,
-                        context.player->skills[mercantilePlayerIndex].mod);
-                barter.playerLuck = modifiedValue(static_cast<float>(context.player->attributes[luckPlayerIndex].base),
-                    context.player->attributes[luckPlayerIndex].damage, context.player->attributes[luckPlayerIndex].mod);
-                barter.playerPersonality
-                    = modifiedValue(static_cast<float>(context.player->attributes[personalityPlayerIndex].base),
-                        context.player->attributes[personalityPlayerIndex].damage,
-                        context.player->attributes[personalityPlayerIndex].mod);
-                barter.playerFatigueTerm = fatigueTerm(context.player->dynamicStats, store);
-                barter.enchanterMercantile = npcMercantile.base;
-                barter.enchanterLuck = static_cast<float>(npcLuck.base);
-                barter.enchanterPersonality = static_cast<float>(npcPersonality.base);
-                barter.enchanterFatigueTerm = enchanterFatigueTerm;
-                barter.disposition = derivedDisposition(*npcRecord, *context.player, store);
-                mechanics.barter = std::move(barter);
+                mechanics.barter = serviceBarterInput(npcRecord, *context.player,
+                    enchanter->dynamicStats ? &*enchanter->dynamicStats : nullptr,
+                    [&](std::string_view id) { return store.get<ESM::GameSetting>().find(id)->mValue.getFloat(); });
             }
             else
             {
@@ -601,18 +536,8 @@ namespace mwmp
                 mechanics.intelligence = 100.f;
                 mechanics.luck = 50.f;
                 mechanics.fatigueTerm = enchanterFatigueTerm;
-                Crafting::EnchantingBarterInput barter;
-                barter.playerMercantile = modifiedValue(
-                    context.player->skills[ESM::Skill::refIdToIndex(ESM::Skill::Mercantile)].base,
-                    context.player->skills[ESM::Skill::refIdToIndex(ESM::Skill::Mercantile)].damage,
-                    context.player->skills[ESM::Skill::refIdToIndex(ESM::Skill::Mercantile)].mod);
-                barter.playerLuck = modifiedValue(
-                    static_cast<float>(context.player->attributes[ESM::Attribute::refIdToIndex(ESM::Attribute::Luck)].base),
-                    context.player->attributes[ESM::Attribute::refIdToIndex(ESM::Attribute::Luck)].damage,
-                    context.player->attributes[ESM::Attribute::refIdToIndex(ESM::Attribute::Luck)].mod);
-                barter.playerFatigueTerm = fatigueTerm(context.player->dynamicStats, store);
-                barter.creatureMerchant = true;
-                mechanics.barter = std::move(barter);
+                mechanics.barter = serviceBarterInput(nullptr, *context.player, nullptr,
+                    [&](std::string_view id) { return store.get<ESM::GameSetting>().find(id)->mValue.getFloat(); });
             }
         }
         else

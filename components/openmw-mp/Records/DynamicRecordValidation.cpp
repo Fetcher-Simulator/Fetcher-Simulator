@@ -302,7 +302,7 @@ namespace mwmp::records
                 item.weight = 0.f;
         }
 
-        void normalizeEffects(std::vector<MagicEffect>& effects)
+        void normalizeEffects(std::vector<MagicEffect>& effects, bool preserveOrder = false)
         {
             for (MagicEffect& effect : effects)
             {
@@ -310,6 +310,9 @@ namespace mwmp::records
                 effect.skillId = lowerAscii(std::move(effect.skillId));
                 effect.attributeId = lowerAscii(std::move(effect.attributeId));
             }
+            // Spell effect order affects native casting; it is part of a spell definition.
+            if (preserveOrder)
+                return;
             std::sort(effects.begin(), effects.end(), [](const MagicEffect& lhs, const MagicEffect& rhs) {
                 return std::tie(lhs.effectId, lhs.skillId, lhs.attributeId, lhs.range, lhs.area, lhs.duration,
                            lhs.magnitudeMin, lhs.magnitudeMax)
@@ -503,7 +506,7 @@ namespace mwmp::records
                     normalizeItem(record.item);
                 if constexpr (std::is_same_v<Record, Potion> || std::is_same_v<Record, Enchantment>
                     || std::is_same_v<Record, Spell>)
-                    normalizeEffects(record.effects);
+                    normalizeEffects(record.effects, std::is_same_v<Record, Spell>);
                 if constexpr (std::is_same_v<Record, Weapon> || std::is_same_v<Record, Armor>
                     || std::is_same_v<Record, Clothing> || std::is_same_v<Record, Book>)
                     normalizeReference(record.enchantment);

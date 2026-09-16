@@ -109,8 +109,13 @@ mwmp::BarterError mwmp::validateBarterRequest(const BarterRequest& request)
         || !validString(request.merchant.refId, MaximumBarterStringLength)
         || !validIdentityShape(request.merchant, true))
         return BarterError::InvalidRequest;
-    if (request.lines.empty() || request.lines.size() > MaximumBarterLines || request.merchantGold < 0)
+    if (request.lines.size() > MaximumBarterLines || request.merchantGold < 0)
         return BarterError::InvalidRequest;
+    // Empty, zero-balance requests are read-only merchant-gold syncs. They
+    // reuse the normal merchant identity/range validation without performing
+    // any inventory or persistence mutation.
+    if (request.lines.empty())
+        return request.balance == 0 ? BarterError::None : BarterError::InvalidRequest;
 
     bool hasBuy = false;
     bool hasSell = false;
@@ -231,11 +236,14 @@ mwmp::BarterMerchantGoldResolution mwmp::resolveBarterMerchantGold(std::int32_t 
     result.resultingRestockTime = stored->lastRestockTime;
 
     const double delay = std::max(0.0, resetDelayHours);
-    // The dedicated server's authoritative world clock is currently session-local.
-    // If it moved backwards across a server restart, treat that as a restock boundary
-    // instead of pinning a merchant to a future timestamp indefinitely.
-    if (currentGameHours < stored->lastRestockTime
-        || currentGameHours >= stored->lastRestockTime + delay)
+    // The dedicated server's world clock can move backwards across a restart.
+    // Preserve the durable merchant balance in that case and rebase only the
+    // restock timestamp; restarting the server must not grant an early restock.
+    if (currentGameHours < stored->lastRestockTime)
+    {
+        result.resultingRestockTime = currentGameHours;
+    }
+    else if (currentGameHours >= stored->lastRestockTime + delay)
     {
         result.authoritativeGold = std::max<std::int32_t>(0, baseGold);
         result.resultingRestockTime = currentGameHours;

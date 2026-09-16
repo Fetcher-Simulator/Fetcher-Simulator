@@ -94,6 +94,26 @@ TEST(BarterProtocol, MultiLineRequestRoundTripsAllLineKinds)
     EXPECT_EQ(incoming.request, value);
 }
 
+TEST(BarterProtocol, MerchantGoldSyncAllowsEmptyZeroBalanceRequest)
+{
+    mwmp::BarterRequest value;
+    value.requestId = "barter-gold-sync-1";
+    value.merchant = actor("SW_TarisLowerVendor1", 100);
+    value.balance = 0;
+    value.merchantGold = 300;
+    value.expectedInventoryRevision = 9;
+
+    ASSERT_EQ(mwmp::validateBarterRequest(value), mwmp::BarterError::None);
+    mwmp::PacketBarterRequest outgoing;
+    outgoing.request = value;
+    mwmp::PacketBarterRequest incoming;
+    ASSERT_TRUE(incoming.decode(outgoing.encode()));
+    EXPECT_EQ(incoming.request, value);
+
+    value.balance = 1;
+    EXPECT_EQ(mwmp::validateBarterRequest(value), mwmp::BarterError::InvalidRequest);
+}
+
 TEST(BarterProtocol, CanonicalHashInputIncludesLineOrderAndEveryIdentity)
 {
     const auto value = request();
@@ -251,10 +271,21 @@ TEST(BarterMerchantGold, RestocksAtVanillaDelayAndCarriesExpectedStateForCas)
     EXPECT_TRUE(firstVisit.resetApplied);
 
     const auto afterServerClockRollback = mwmp::resolveBarterMerchantGold(1000, stored, 8.0, 24.0);
-    EXPECT_EQ(afterServerClockRollback.authoritativeGold, 1000);
+    EXPECT_EQ(afterServerClockRollback.authoritativeGold, 125);
+    EXPECT_EQ(afterServerClockRollback.expectedGold, 125);
     EXPECT_DOUBLE_EQ(afterServerClockRollback.expectedRestockTime, 100.0);
     EXPECT_DOUBLE_EQ(afterServerClockRollback.resultingRestockTime, 8.0);
-    EXPECT_TRUE(afterServerClockRollback.resetApplied);
+    EXPECT_TRUE(afterServerClockRollback.hadStoredState);
+    EXPECT_FALSE(afterServerClockRollback.resetApplied);
+
+    const mwmp::BarterMerchantGoldState rebased { afterServerClockRollback.authoritativeGold,
+        afterServerClockRollback.resultingRestockTime };
+    const auto beforeRebasedReset = mwmp::resolveBarterMerchantGold(1000, rebased, 31.99, 24.0);
+    EXPECT_EQ(beforeRebasedReset.authoritativeGold, 125);
+    EXPECT_FALSE(beforeRebasedReset.resetApplied);
+    const auto atRebasedReset = mwmp::resolveBarterMerchantGold(1000, rebased, 32.0, 24.0);
+    EXPECT_EQ(atRebasedReset.authoritativeGold, 1000);
+    EXPECT_TRUE(atRebasedReset.resetApplied);
 }
 
 TEST(BarterProtocol, ObjectCountPacketRoundTripsPartialPlacedStack)

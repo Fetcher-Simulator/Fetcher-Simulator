@@ -3315,22 +3315,19 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
         return revision;
     }
 
-    void PlayerDatabase::saveCharacterSpellbook(int64_t characterId,
-        const std::vector<std::string>& spellIds, bool touchLastSeen,
-        std::optional<uint64_t> spellbookRevision)
+    void PlayerDatabase::writeCharacterSpellbookRows(int64_t characterId, const std::vector<std::string>& spellIds,
+        bool touchLastSeen, std::optional<uint64_t> spellbookRevision)
     {
         const std::vector<std::string> canonical = mwmp::canonicalizeSpellIds(spellIds);
+        sqlite3_stmt* clear = prepare("DELETE FROM character_spellbook WHERE character_id=?1");
+        sqlite3_bind_int64(clear, 1, characterId);
+        checkSqlite(sqlite3_step(clear), mDb, "clearCharacterSpellbook");
+        sqlite3_finalize(clear);
 
-        exec("BEGIN");
+        sqlite3_stmt* insert
+            = prepare("INSERT OR IGNORE INTO character_spellbook(character_id, spell_id) VALUES(?1, ?2)");
         try
         {
-            sqlite3_stmt* clear = prepare("DELETE FROM character_spellbook WHERE character_id=?1");
-            sqlite3_bind_int64(clear, 1, characterId);
-            checkSqlite(sqlite3_step(clear), mDb, "clearCharacterSpellbook");
-            sqlite3_finalize(clear);
-
-            sqlite3_stmt* insert = prepare(
-                "INSERT OR IGNORE INTO character_spellbook(character_id, spell_id) VALUES(?1, ?2)");
             for (const std::string& spellId : canonical)
             {
                 if (spellId.empty())
@@ -3341,63 +3338,74 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                 sqlite3_reset(insert);
                 sqlite3_clear_bindings(insert);
             }
+        }
+        catch (...)
+        {
             sqlite3_finalize(insert);
+            throw;
+        }
+        sqlite3_finalize(insert);
 
-            // Rebuild dynamic-record GC links so a learned dynamic spell stays
-            // alive while the character knows it. Links are keyed by character
-            // (owner_a) and rebuilt wholesale on every persisted mutation.
-            const std::string characterKey = std::to_string(characterId);
-            sqlite3_stmt* clearLinks = prepare(
-                "DELETE FROM world_dynamic_record_links"
-                " WHERE link_kind=?1 AND owner_a=?2 AND owner_b=?3 AND owner_c=?4");
-            clearDynamicRecordLinksForOwner(mDb, clearLinks, "spellbook_spell", characterKey, "", "");
-            sqlite3_finalize(clearLinks);
+        // Rebuild dynamic-record GC links so a learned dynamic spell stays
+        // alive while the character knows it. Links are keyed by character
+        // (owner_a) and rebuilt wholesale on every persisted mutation.
+        const std::string characterKey = std::to_string(characterId);
+        sqlite3_stmt* clearLinks = prepare(
+            "DELETE FROM world_dynamic_record_links"
+            " WHERE link_kind=?1 AND owner_a=?2 AND owner_b=?3 AND owner_c=?4");
+        clearDynamicRecordLinksForOwner(mDb, clearLinks, "spellbook_spell", characterKey, "", "");
+        sqlite3_finalize(clearLinks);
 
-            sqlite3_stmt* insertLink = prepare(
-                "INSERT OR REPLACE INTO world_dynamic_record_links(record_id, link_kind, owner_a, owner_b, owner_c, "
-                "owner_index)"
-                " VALUES(?1, ?2, ?3, ?4, ?5, ?6)");
-            for (std::size_t i = 0; i < canonical.size(); ++i)
-                insertDynamicRecordLink(
-                    mDb, insertLink, canonical[i], "spellbook_spell", characterKey, "", "",
-                    static_cast<int64_t>(i));
-            sqlite3_finalize(insertLink);
+        sqlite3_stmt* insertLink = prepare(
+            "INSERT OR REPLACE INTO world_dynamic_record_links(record_id, link_kind, owner_a, owner_b, owner_c, "
+            "owner_index)"
+            " VALUES(?1, ?2, ?3, ?4, ?5, ?6)");
+        for (std::size_t i = 0; i < canonical.size(); ++i)
+            insertDynamicRecordLink(
+                mDb, insertLink, canonical[i], "spellbook_spell", characterKey, "", "", static_cast<int64_t>(i));
+        sqlite3_finalize(insertLink);
 
-            sqlite3_stmt* mark = prepare(
-                touchLastSeen
-                    ? (spellbookRevision
-                        ? "UPDATE characters SET spellbook_saved=1, spellbook_revision=?1, last_seen=?2 WHERE id=?3"
-                        : "UPDATE characters SET spellbook_saved=1, last_seen=?1 WHERE id=?2")
-                    : (spellbookRevision
-                        ? "UPDATE characters SET spellbook_saved=1, spellbook_revision=?1 WHERE id=?2"
-                        : "UPDATE characters SET spellbook_saved=1 WHERE id=?1"));
-            if (touchLastSeen)
+        sqlite3_stmt* mark = prepare(touchLastSeen
+                ? (spellbookRevision
+                          ? "UPDATE characters SET spellbook_saved=1, spellbook_revision=?1, last_seen=?2 WHERE id=?3"
+                          : "UPDATE characters SET spellbook_saved=1, last_seen=?1 WHERE id=?2")
+                : (spellbookRevision ? "UPDATE characters SET spellbook_saved=1, spellbook_revision=?1 WHERE id=?2"
+                                     : "UPDATE characters SET spellbook_saved=1 WHERE id=?1"));
+        if (touchLastSeen)
+        {
+            if (spellbookRevision)
             {
-                if (spellbookRevision)
-                {
-                    sqlite3_bind_int64(mark, 1, static_cast<sqlite3_int64>(*spellbookRevision));
-                    sqlite3_bind_int64(mark, 2, static_cast<int64_t>(std::time(nullptr)));
-                    sqlite3_bind_int64(mark, 3, characterId);
-                }
-                else
-                {
-                    sqlite3_bind_int64(mark, 1, static_cast<int64_t>(std::time(nullptr)));
-                    sqlite3_bind_int64(mark, 2, characterId);
-                }
+                sqlite3_bind_int64(mark, 1, static_cast<sqlite3_int64>(*spellbookRevision));
+                sqlite3_bind_int64(mark, 2, static_cast<int64_t>(std::time(nullptr)));
+                sqlite3_bind_int64(mark, 3, characterId);
             }
             else
             {
-                if (spellbookRevision)
-                {
-                    sqlite3_bind_int64(mark, 1, static_cast<sqlite3_int64>(*spellbookRevision));
-                    sqlite3_bind_int64(mark, 2, characterId);
-                }
-                else
-                    sqlite3_bind_int64(mark, 1, characterId);
+                sqlite3_bind_int64(mark, 1, static_cast<int64_t>(std::time(nullptr)));
+                sqlite3_bind_int64(mark, 2, characterId);
             }
-            checkSqlite(sqlite3_step(mark), mDb, "markCharacterSpellbookSaved");
-            sqlite3_finalize(mark);
+        }
+        else
+        {
+            if (spellbookRevision)
+            {
+                sqlite3_bind_int64(mark, 1, static_cast<sqlite3_int64>(*spellbookRevision));
+                sqlite3_bind_int64(mark, 2, characterId);
+            }
+            else
+                sqlite3_bind_int64(mark, 1, characterId);
+        }
+        checkSqlite(sqlite3_step(mark), mDb, "markCharacterSpellbookSaved");
+        sqlite3_finalize(mark);
+    }
 
+    void PlayerDatabase::saveCharacterSpellbook(int64_t characterId, const std::vector<std::string>& spellIds,
+        bool touchLastSeen, std::optional<uint64_t> spellbookRevision)
+    {
+        exec("BEGIN");
+        try
+        {
+            writeCharacterSpellbookRows(characterId, spellIds, touchLastSeen, spellbookRevision);
             exec("COMMIT");
         }
         catch (...)
@@ -5710,6 +5718,12 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                 }
             }
 
+            if (commit.spellbook && loadSpellbookRevision(commit.characterId) != commit.expectedSpellbookRevision)
+            {
+                exec("ROLLBACK");
+                return DynamicRecordCommitStatus::StaleSpellbookRevision;
+            }
+
             const int64_t now = static_cast<int64_t>(std::time(nullptr));
             sqlite3_stmt* persisted = prepare(
                 "INSERT INTO world_dynamic_records(record_type, record_id, record_scope, record_data, created_at,"
@@ -5864,6 +5878,34 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                 if (sqlite3_changes(mDb) != 1)
                     throw std::runtime_error("[PlayerDB] inventory revision changed during dynamic record commit");
                 sqlite3_finalize(updateRevision);
+            }
+
+            if (commit.spellbook)
+                writeCharacterSpellbookRows(
+                    commit.characterId, *commit.spellbook, true, commit.resultingSpellbookRevision);
+
+            if (commit.merchantGoldMutation)
+            {
+                const MerchantGoldMutation& gold = *commit.merchantGoldMutation;
+                sqlite3_stmt* updateGold = prepare(
+                    "INSERT INTO merchant_barter_state(actor_instance_id, actor_ref_id, gold, last_restock_time, "
+                    "updated_at)"
+                    " VALUES(?1, ?2, ?3, ?4, ?5)"
+                    " ON CONFLICT(actor_instance_id) DO UPDATE SET actor_ref_id=excluded.actor_ref_id,"
+                    " gold=excluded.gold, last_restock_time=excluded.last_restock_time, updated_at=excluded.updated_at"
+                    " WHERE merchant_barter_state.actor_ref_id=?2 AND merchant_barter_state.gold=?6"
+                    " AND merchant_barter_state.last_restock_time=?7");
+                sqlite3_bind_int64(updateGold, 1, static_cast<sqlite3_int64>(gold.actorInstanceId));
+                sqlite3_bind_text(updateGold, 2, gold.actorRefId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int(updateGold, 3, gold.resultingGold);
+                sqlite3_bind_double(updateGold, 4, gold.resultingRestockTime);
+                sqlite3_bind_int64(updateGold, 5, static_cast<sqlite3_int64>(std::time(nullptr)));
+                sqlite3_bind_int(updateGold, 6, gold.expectedGold);
+                sqlite3_bind_double(updateGold, 7, gold.expectedRestockTime);
+                checkSqlite(sqlite3_step(updateGold), mDb, "commitDynamicRecordRequest(updateMerchantGold)");
+                if (sqlite3_changes(mDb) != 1)
+                    throw std::runtime_error("merchant gold changed during barter");
+                sqlite3_finalize(updateGold);
             }
 
             if (commit.characterStats)

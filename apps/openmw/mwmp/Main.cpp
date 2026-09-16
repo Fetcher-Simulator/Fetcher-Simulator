@@ -6,9 +6,11 @@
 #include "records/RecordCreationManager.hpp"
 #include "records/ResolvedContentFingerprint.hpp"
 #include "sha256.hpp"
+#include "spellmaking/SpellmakingManager.hpp"
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <components/openmw-mp/Packets/Records/PacketSpellmakingResult.hpp>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -592,6 +594,7 @@ Main::Main()
     mWorldStateSync= std::make_unique<WorldStateSync>(*mClient);
     mRecordCreationManager = std::make_unique<RecordCreationManager>(*mClient);
     mAlchemyCreationManager = std::make_unique<AlchemyCreationManager>(*mClient, *mRecordCreationManager);
+    mSpellmakingManager = std::make_unique<SpellmakingManager>(*mClient, *mRecordCreationManager, *mPlayerSync);
     mEnchantingCreationManager
         = std::make_unique<EnchantingCreationManager>(*mClient, *mRecordCreationManager);
     mWorldStateSync->setDynamicRecordChangeCallback(
@@ -659,6 +662,7 @@ void Main::frame(float dt)
     mRecordCreationManager->update();
     mAlchemyCreationManager->update();
     mEnchantingCreationManager->update();
+    mSpellmakingManager->update();
     const auto worldSyncFinished = std::chrono::steady_clock::now();
 
     mChatWindow->update(dt);
@@ -979,6 +983,8 @@ void Main::onDisconnected()
         mRecordCreationManager->cancelAll();
     if (mAlchemyCreationManager)
         mAlchemyCreationManager->cancelAll();
+    if (mSpellmakingManager)
+        mSpellmakingManager->cancelAll();
     if (mEnchantingCreationManager)
         mEnchantingCreationManager->cancelAll();
     // If we were already in-world, request a main-menu return on the next frame.
@@ -2094,6 +2100,11 @@ void Main::registerProtocolHandlers()
             mAlchemyCreationManager->onResult(std::move(packet.result));
         });
 
+    proto.registerHandler(PacketType::SpellmakingResult, [this](const uint8_t* data, size_t size) {
+        PacketSpellmakingResult packet;
+        if (packet.decode(data, size))
+            mSpellmakingManager->onResult(std::move(packet.result));
+    });
     proto.registerHandler(PacketType::EnchantingResult,
         [this](const uint8_t* data, size_t size)
         {

@@ -169,6 +169,9 @@ namespace mwmp
         InventoryTakeBatchRequest = 166, // Atomic multi-row container/corpse take-all request
         InventoryTakeBatchResult = 167, // Durable terminal take-all result
 
+        SpellmakingRequest = 168, // Server-authoritative NPC spellmaking
+        SpellmakingResult = 169,
+
         // --- Lua bridge (7C+) ---
         // IDs 150-199 reserved; exact assignments TBD in Phase 7C/7D.
         PacketLuaEvent      = 150, // Bidirectional: named event with BinaryData payload

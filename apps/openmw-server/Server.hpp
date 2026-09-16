@@ -356,6 +356,7 @@ private:
     void handlePlayerTopic      (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleAlchemyRequest   (ConnectedClient& c, const uint8_t* data, size_t size);
+    void handleSpellmakingRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleEnchantingRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerJournal    (ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerStatsDynamic(ConnectedClient& c, const uint8_t* data, size_t size);

@@ -1,6 +1,15 @@
 #include "spellcreationdialog.hpp"
 
+#include <components/openmw-mp/SpellmakingCost.hpp>
 #include <format>
+#ifdef BUILD_MULTIPLAYER
+#include "../mwbase/world.hpp"
+#include "../mwmp/Main.hpp"
+#include "../mwmp/sync/PlayerSync.hpp"
+#include <components/openmw-mp/ServicePricing.hpp>
+#include "../mwmp/spellmaking/SpellmakingManager.hpp"
+#include "../mwmp/sync/ActorSync.hpp"
+#endif
 
 #include <MyGUI_Button.h>
 #include <MyGUI_Gui.h>
@@ -607,6 +616,12 @@ namespace MWGui
         if (actor.isEmpty() || !actor.getClass().isActor())
             throw std::runtime_error("Invalid argument in SpellCreationDialog::setPtr");
 
+        ++mSessionToken;
+        mPurchasePending = false;
+        mBuyButton->setEnabled(true);
+        mNameEdit->setEnabled(true);
+        mAvailableEffectsList->setEnabled(true);
+        mUsedEffectsView->setEnabled(true);
         mPtr = actor;
         mNameEdit->setCaption({});
 
@@ -619,11 +634,14 @@ namespace MWGui
 
     void SpellCreationDialog::onCancelButtonClicked(MyGUI::Widget* /*sender*/)
     {
+        ++mSessionToken;
         MWBase::Environment::get().getWindowManager()->removeGuiMode(MWGui::GM_SpellCreation);
     }
 
     void SpellCreationDialog::onBuyButtonClicked(MyGUI::Widget* /*sender*/)
     {
+        if (mPurchasePending)
+            return;
         if (mEffects.size() <= 0)
         {
             MWBase::Environment::get().getWindowManager()->messageBox("#{sNotifyMessage30}");
@@ -652,6 +670,14 @@ namespace MWGui
             return;
         }
 
+#ifdef BUILD_MULTIPLAYER
+        if (mwmp::Main::isConnected())
+        {
+            startMultiplayerSpellmaking();
+            return;
+        }
+#endif
+
         mSpell.mName = mNameEdit->getCaption();
 
         player.getClass().getContainerStore(player).remove(MWWorld::ContainerStore::sGoldId, price);
@@ -671,6 +697,107 @@ namespace MWGui
         MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_SpellCreation);
     }
 
+#ifdef BUILD_MULTIPLAYER
+    void SpellCreationDialog::startMultiplayerSpellmaking()
+    {
+        MWBase::WindowManager* windows = MWBase::Environment::get().getWindowManager();
+        auto& manager = mwmp::Main::get().getSpellmakingManager();
+        mwmp::records::SpellmakingRequest request;
+        request.actorNetId = mwmp::Main::get().getActorSync().actorNetIdForPtr(
+            std::string(MWBase::Environment::get().getWorld()->getCellName()), mPtr);
+        if (!request.actorNetId)
+        {
+            windows->messageBox("The spellmaker is still synchronizing. Please try again shortly.");
+            return;
+        }
+        request.name = mNameEdit->getCaption();
+        request.maximumPrice = MyGUI::utility::parseInt(mPriceLabel->getCaption());
+        for (const auto& effect : mEffects)
+        {
+            mwmp::records::MagicEffect choice;
+            choice.effectId = effect.mEffectID.serializeText();
+            choice.skillId = effect.mSkill.empty() ? "" : effect.mSkill.serializeText();
+            choice.attributeId = effect.mAttribute.empty() ? "" : effect.mAttribute.serializeText();
+            choice.range = effect.mRange;
+            choice.area = effect.mArea;
+            choice.duration = effect.mDuration;
+            choice.magnitudeMin = effect.mMagnMin;
+            choice.magnitudeMax = effect.mMagnMax;
+            request.effects.push_back(std::move(choice));
+        }
+        std::string error;
+        const auto token = mSessionToken;
+        if (!manager.request(
+                std::move(request),
+                [this, token](const mwmp::records::SpellmakingResult& result) {
+                    if (mSessionToken != token)
+                        return;
+                    mPurchasePending = false;
+                    mBuyButton->setEnabled(true);
+                    mNameEdit->setEnabled(true);
+                    mAvailableEffectsList->setEnabled(true);
+                    mUsedEffectsView->setEnabled(true);
+                    MWBase::WindowManager* windows = MWBase::Environment::get().getWindowManager();
+                    if (result.accepted)
+                    {
+                        windows->playSound(ESM::RefId::stringRefId("Mysticism Hit"));
+                        windows->removeGuiMode(GM_SpellCreation);
+                        return;
+                    }
+                    using Error = mwmp::records::SpellmakingError;
+                    switch (result.error)
+                    {
+                        case Error::PriceChanged:
+                            mPriceLabel->setCaption(std::to_string(result.price));
+                            windows->messageBox(
+                                "The spellmaker's price has changed. Review the updated price and buy again.");
+                            break;
+                        case Error::InsufficientGold:
+                            windows->messageBox("#{sNotifyMessage18}");
+                            break;
+                        case Error::UnknownEffect:
+                            windows->messageBox("You must know a spell with each selected effect.");
+                            break;
+                        case Error::InvalidService:
+                            windows->messageBox("The spellmaker is unavailable. Stay nearby and try again.");
+                            break;
+                        case Error::AlreadyKnown:
+                            windows->messageBox("You already know this spell.");
+                            break;
+                        case Error::RateLimited:
+                            windows->messageBox("Please wait a moment before making another spell.");
+                            break;
+                        case Error::QuotaExceeded:
+                        case Error::TooManySpells:
+                            windows->messageBox("You have reached the server's spell limit.");
+                            break;
+                        case Error::StaleInventoryRevision:
+                        case Error::StaleSpellbookRevision:
+                            windows->messageBox("Your character has updated. Please try again.");
+                            break;
+                        case Error::InvalidEffect:
+                        case Error::InvalidRequest:
+                            windows->messageBox("The spell could not be made. Check its name and effects.");
+                            break;
+                        default:
+                            windows->messageBox(
+                                "Spellmaking was interrupted. Reconnect to check your spellbook before trying again.");
+                            break;
+                    }
+                },
+                error))
+        {
+            windows->messageBox(error);
+            return;
+        }
+        mPurchasePending = true;
+        mBuyButton->setEnabled(false);
+        mNameEdit->setEnabled(false);
+        mAvailableEffectsList->setEnabled(false);
+        mUsedEffectsView->setEnabled(false);
+    }
+#endif
+
     void SpellCreationDialog::onAccept(MyGUI::EditBox* sender)
     {
         onBuyButtonClicked(sender);
@@ -687,6 +814,7 @@ namespace MWGui
 
     void SpellCreationDialog::onReferenceUnavailable()
     {
+        ++mSessionToken;
         MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_Dialogue);
         MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_SpellCreation);
     }
@@ -701,18 +829,11 @@ namespace MWGui
             return;
         }
 
-        float y = 0;
-
         const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
-
-        for (const ESM::ENAMstruct& effect : mEffects)
-        {
-            y += std::max(
-                1.f, MWMechanics::calcEffectCost(effect, nullptr, MWMechanics::EffectCostMethod::PlayerSpell));
-
-            if (effect.mRange == ESM::RT_Target)
-                y *= 1.5;
-        }
+        const float y = mwmp::spellmakingCost(
+            mEffects,
+            [&](const ESM::RefId& id) -> const ESM::MagicEffect& { return *store.get<ESM::MagicEffect>().find(id); },
+            store.get<ESM::GameSetting>().find("fEffectCostMult")->mValue.getFloat());
 
         mSpell.mEffects.populate(mEffects);
         mSpell.mData.mCost = int(y);
@@ -724,7 +845,23 @@ namespace MWGui
         float fSpellMakingValueMult = store.get<ESM::GameSetting>().find("fSpellMakingValueMult")->mValue.getFloat();
 
         int price = std::max(1, static_cast<int>(y * fSpellMakingValueMult));
-        price = MWBase::Environment::get().getMechanicsManager()->getBarterOffer(mPtr, price, true);
+#ifdef BUILD_MULTIPLAYER
+        if (mwmp::Main::isConnected())
+        {
+            const auto* npc = store.get<ESM::NPC>().search(mPtr.getCellRef().getRefId());
+            const auto& fatigue = mPtr.getClass().getCreatureStats(mPtr).getFatigue();
+            mwmp::DynamicStats actorStats;
+            actorStats.fatigue.base = fatigue.getBase();
+            actorStats.fatigue.mod = fatigue.getModifier();
+            actorStats.fatigue.current = fatigue.getCurrent();
+            const auto barter = mwmp::serviceBarterInput(npc,
+                mwmp::Main::get().getPlayerSync().localPlayer(), &actorStats,
+                [&](std::string_view id) { return store.get<ESM::GameSetting>().find(id)->mValue.getFloat(); });
+            price = mwmp::spellmakingPrice(y, fSpellMakingValueMult, barter);
+        }
+        else
+#endif
+            price = MWBase::Environment::get().getMechanicsManager()->getBarterOffer(mPtr, price, true);
 
         mPriceLabel->setCaption(MyGUI::utility::toString(int(price)));
 

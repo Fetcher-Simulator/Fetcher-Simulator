@@ -23,6 +23,36 @@ local function queueDelayedJob(func, frameDelay)
     table.insert(delayedJobs, { func = func, frameDelay = frameDelay })
 end
 
+-- NPC.setBarterGold is applied as a deferred engine action. Wait until the
+-- actor actually exposes the authoritative value before rebuilding barter UI;
+-- otherwise Inventory Extender can render the old base gold for one session.
+local function applyAuthoritativeBarterGold(merchant, gold, callback)
+    if not merchant or not types.NPC.objectIsInstance(merchant) then
+        callback(false)
+        return
+    end
+
+    types.NPC.setBarterGold(merchant, gold)
+    local attempts = 8
+    local function waitForAppliedGold()
+        local ok, current = pcall(types.NPC.getBarterGold, merchant)
+        if ok and current == gold then
+            callback(true)
+            return
+        end
+
+        attempts = attempts - 1
+        if attempts <= 0 then
+            print(('[Fetcher InventoryExtender] merchant gold apply timed out expected=%s actual=%s')
+                :format(tostring(gold), tostring(ok and current or 'unavailable')))
+            callback(false)
+            return
+        end
+        queueDelayedJob(waitForAppliedGold, 1)
+    end
+    queueDelayedJob(waitForAppliedGold, 1)
+end
+
 local function isStealing(actor, ownerInfo)
     if not ownerInfo then
         return false
@@ -739,7 +769,7 @@ local function refreshChangedOpenContainers()
     end
 
     for actorId, entry in pairs(barterAuthorityRefresh) do
-        local allReady = true
+        local allReady = entry.goldReady ~= false
         for index, source in ipairs(entry.sources) do
             local ok, revision = pcall(mp.containerUpdates.revision, source)
             if not ok then
@@ -845,26 +875,61 @@ local function onUiModeChanged(data)
         barterAuthorityRefresh[data.actor.id] = nil
     end
     if data.newMode == 'Barter' then
+        local entry = {
+            actor = data.actor,
+            sources = {},
+            initialRevisions = {},
+            goldReady = true,
+        }
+
         if mp.isConnected() and mp.containerUpdates and mp.containerUpdates.requestBarterSources then
             local ok, sources = pcall(mp.containerUpdates.requestBarterSources, data.arg)
-            if ok and type(sources) == 'table' and #sources > 0 then
-                local entry = {
-                    actor = data.actor,
-                    sources = sources,
-                    initialRevisions = {},
-                }
+            if ok and type(sources) == 'table' then
+                entry.sources = sources
                 for index, source in ipairs(sources) do
                     local revisionOk, revision = pcall(mp.containerUpdates.revision, source)
                     entry.initialRevisions[index] = revisionOk and revision or nil
                 end
-                barterAuthorityRefresh[data.actor.id] = entry
-            else
-                -- Fail open only when no canonical source could be requested.
-                -- The server still validates every transaction authoritatively.
-                data.actor:sendEvent('IE_BarterAuthorityReady')
             end
-        else
-            data.actor:sendEvent('IE_BarterAuthorityReady')
+        end
+
+        if mp.isConnected() and mp.barter and mp.barter.isAvailable and mp.barter.isAvailable()
+            and mp.barter.transaction and types.NPC.objectIsInstance(data.arg) then
+            entry.goldReady = false
+        end
+
+        barterAuthorityRefresh[data.actor.id] = entry
+
+        if entry.goldReady == false then
+            local queued, queueError = pcall(function()
+                mp.barter.transaction(data.arg, {}, 0, types.NPC.getBarterGold(data.arg), function(result)
+                    local current = barterAuthorityRefresh[data.actor.id]
+                    if not current then
+                        return
+                    end
+                    if result.accepted and types.NPC.objectIsInstance(data.arg) then
+                        applyAuthoritativeBarterGold(data.arg, result.merchantGold, function(applied)
+                            local active = barterAuthorityRefresh[data.actor.id]
+                            if not active then
+                                return
+                            end
+                            if not applied then
+                                print('[Fetcher InventoryExtender] merchant gold sync apply failed')
+                            end
+                            active.goldReady = true
+                        end)
+                    else
+                        if not result.accepted then
+                            print('[Fetcher InventoryExtender] merchant gold sync failed: ' .. tostring(result.error))
+                        end
+                        current.goldReady = true
+                    end
+                end)
+            end)
+            if not queued then
+                print('[Fetcher InventoryExtender] merchant gold sync queue failed: ' .. tostring(queueError))
+                entry.goldReady = true
+            end
         end
     end
 
