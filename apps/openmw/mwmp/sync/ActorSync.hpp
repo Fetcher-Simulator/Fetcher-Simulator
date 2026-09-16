@@ -118,6 +118,8 @@ namespace mwmp
             bool authoritativeActorPresent, bool authoritativeActorMigrated);
         static bool shouldReplaceLocalLeveledRoll(bool authoritativeTransform,
             bool hasLocalActorAuthority, bool canonicalHandoffBaseline);
+        static bool shouldInspectStationaryDestinationAuthorityEcho(
+            uint32_t mpNum, bool hasPendingCellHandoff, std::size_t snapshotCount);
 
     private:
         struct BufferedSnapshot
