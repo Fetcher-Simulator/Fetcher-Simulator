@@ -107,6 +107,8 @@ namespace mwmp
         MWWorld::WorldModel& worldModel() const;
         bool hasContentId(std::string_view id) const;
         bool hasStaticNpcRecord(std::string_view id) const;
+        bool hasStaticActorRecord(std::string_view id) const;
+        static bool isStaticActorRecord(const MWWorld::ESMStore& store, std::string_view id);
         bool hasAsset(std::string_view path) const;
         bool hasModel(std::string_view path) const;
         bool hasIcon(std::string_view path) const;

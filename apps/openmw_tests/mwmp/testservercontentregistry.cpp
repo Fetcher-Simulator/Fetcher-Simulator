@@ -171,6 +171,31 @@ TEST(ServerContentRegistry, stringRefIdCasingDoesNotChangeResolvedFingerprint)
     EXPECT_EQ(MWMP::resolvedContentFingerprint(first), MWMP::resolvedContentFingerprint(second));
 }
 
+TEST(ServerContentRegistry, staticActorValidationAcceptsOnlyNpcOrCreature)
+{
+    MWWorld::ESMStore store;
+
+    ESM::NPC npc;
+    npc.blank();
+    npc.mId = ESM::RefId::stringRefId("spawn_npc");
+    npc.mName = "Spawn NPC";
+    store.insertStatic(npc);
+
+    ESM::Creature creature;
+    creature.blank();
+    creature.mId = ESM::RefId::stringRefId("spawn_creature");
+    creature.mName = "Spawn creature";
+    store.insertStatic(creature);
+
+    store.insertStatic(makePotion("not_an_actor", 1.f));
+
+    EXPECT_TRUE(mwmp::ServerContentRegistry::isStaticActorRecord(store, "spawn_npc"));
+    EXPECT_TRUE(mwmp::ServerContentRegistry::isStaticActorRecord(store, "SPAWN_CREATURE"));
+    EXPECT_FALSE(mwmp::ServerContentRegistry::isStaticActorRecord(store, "not_an_actor"));
+    EXPECT_FALSE(mwmp::ServerContentRegistry::isStaticActorRecord(store, "missing_actor"));
+    EXPECT_FALSE(mwmp::ServerContentRegistry::isStaticActorRecord(store, ""));
+}
+
 TEST(ServerContentRegistry, orderedPluginManifestDetectsOrderChanges)
 {
     using Entry = mwmp::ServerContentRegistry::ManifestEntry;

@@ -389,6 +389,29 @@ bool mwmp::ServerContentRegistry::hasStaticNpcRecord(std::string_view id) const
     }
 }
 
+bool mwmp::ServerContentRegistry::hasStaticActorRecord(std::string_view id) const
+{
+    return isStaticActorRecord(store(), id);
+}
+
+bool mwmp::ServerContentRegistry::isStaticActorRecord(const MWWorld::ESMStore& content, std::string_view id)
+{
+    if (id.empty())
+        return false;
+    try
+    {
+        ESM::RefId refId = ESM::RefId::deserializeText(id);
+        if (refId.empty())
+            refId = ESM::RefId::stringRefId(id);
+        return content.get<ESM::NPC>().searchStatic(refId) != nullptr
+            || content.get<ESM::Creature>().searchStatic(refId) != nullptr;
+    }
+    catch (const std::exception&)
+    {
+        return false;
+    }
+}
+
 bool mwmp::ServerContentRegistry::hasStaticRecord(std::uint8_t recordType, std::string_view id) const
 {
     ESM::RefId refId = ESM::RefId::deserializeText(id);
