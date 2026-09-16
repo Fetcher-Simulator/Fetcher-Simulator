@@ -18817,6 +18817,12 @@ bool MPServer::spawnActor(
                                 << record.recordType << " id=" << refId;
             return false;
         }
+
+        if (!mContentRegistry || !mContentRegistry->hasStaticActorRecord(refId))
+        {
+            Log(Debug::Warning) << "[Server] Rejecting Script ActorSpawn for unknown static actor id=" << refId;
+            return false;
+        }
     }
 
     uint32_t assignedMpNum = mpNum;
