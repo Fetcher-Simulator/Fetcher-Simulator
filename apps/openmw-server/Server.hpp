@@ -32,6 +32,8 @@
 #include <components/openmw-mp/Records/DynamicRecordTypes.hpp>
 
 #include "LuaServerContext.hpp"
+#include "InventoryReconciliation.hpp"
+#include "InventoryProfile.hpp"
 #include "AdminHttpServer.hpp"
 #include "AdminMutationQueue.hpp"
 #include "MasterServerClient.hpp"
@@ -120,15 +122,10 @@ struct ConnectedClient
     uint64_t            playerEquipmentRestoreGuardUntilMs = 0;
     uint64_t            lastPlayerInventoryRestoreCorrectionLogMs = 0;
     uint64_t            lastPlayerInventoryInstanceCorrectionLogMs = 0;
+    InventoryProfile    inventoryProfile;
     uint64_t            lastPlayerEquipmentRestoreCorrectionLogMs = 0;
     uint64_t            lastPlayerEquipmentInstanceCorrectionLogMs = 0;
-    struct PendingInventoryTransfer
-    {
-        uint32_t instanceId = 0;
-        std::string refId;
-        int count = 0;
-        uint64_t expiresAtMs = 0;
-    };
+    using PendingInventoryTransfer = mwmp::PendingInventoryTransfer;
     std::vector<PendingInventoryTransfer> pendingInventoryTransfers;
     bool                pendingScriptedTeleportAck = false;
     Position            scriptedTeleportTarget;

@@ -300,6 +300,45 @@ namespace MWWorld
             Ptr containerPtr() { return Ptr(&*liveContainer); }
         };
 
+        TEST(ContainerStoreAuthority, SplitGetsNewIdentityWithoutInvalidatingOriginalAlias)
+        {
+            ContainerAuthorityFixture fixture;
+            mwmp::clearInventoryInstanceAliases();
+            ManualRef source(fixture.store, fixture.finiteItem.mId, 4);
+            // unstack's removal notification normally requires a live GUI.
+            // Keep that boundary headless while exercising native split/RefNum registration.
+            struct HeadlessSplitStore : ExposedContainerStore
+            {
+                int remove(const Ptr& item, int count, bool, bool) override
+                {
+                    item.getCellRef().setCount(item.getCellRef().getCount() - count);
+                    return count;
+                }
+            } inventory;
+            const auto original = inventory.addNewStack(source.getPtr(), 4);
+            fixture.worldModel.registerPtr(*original);
+            const ESM::RefNum originalRefNum = original->getCellRef().getRefNum();
+            mwmp::setInventoryInstanceAlias(originalRefNum, 42);
+
+            const auto split = inventory.unstack(*original, 1);
+            ASSERT_NE(split, inventory.end());
+            const ESM::RefNum splitRefNum = split->getCellRef().getRefNum();
+            EXPECT_NE(splitRefNum, originalRefNum);
+            EXPECT_EQ(original->getCellRef().getRefNum(), originalRefNum);
+            EXPECT_EQ(original->getCellRef().getCount(), 1);
+            EXPECT_EQ(split->getCellRef().getCount(), 3);
+            EXPECT_EQ(mwmp::inventoryInstanceId(originalRefNum), 42u);
+            EXPECT_EQ(mwmp::inventoryInstanceId(splitRefNum), 0u);
+
+            // The server's subsequent identity assignment must go through the
+            // alias, leaving both live references (and their Lua handles) intact.
+            mwmp::setInventoryInstanceAlias(splitRefNum, 43);
+            EXPECT_EQ(split->getCellRef().getRefNum(), splitRefNum);
+            EXPECT_EQ(mwmp::inventoryInstanceId(splitRefNum), 43u);
+            EXPECT_EQ(mwmp::inventoryInstanceId(originalRefNum), 42u);
+            mwmp::clearInventoryInstanceAliases();
+        }
+
         TEST(ContainerStoreAuthority, BootstrapBindsAuthoritativeInstanceAcrossLiveMetadataDrift)
         {
             ContainerAuthorityFixture fixture;

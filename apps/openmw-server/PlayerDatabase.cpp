@@ -10,6 +10,8 @@
 #include <ctime>
 #include <limits>
 #include <map>
+#include <memory>
+#include <cmath>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
@@ -1497,55 +1499,114 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
         return result;
     }
 
+    bool PlayerDatabase::updateInventoryEnchantmentCharges(int64_t characterId, const std::vector<Item>& items)
+    {
+        // Read persisted rows under the same transaction as the revision write.
+        // Compare every structural field and the actual row index, not merely a
+        // client-provided ID or a cached previous snapshot. Splits, merges,
+        // reordered stacks, ID repairs and dynamic-record changes all fall back.
+        using Statement = std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)>;
+        Statement previous(prepare(
+            "SELECT item_index, ref_id, item_count, charge, enchantment_charge, soul, instance_id"
+            " FROM character_inventory WHERE character_id=?1 ORDER BY item_index"), sqlite3_finalize);
+        sqlite3_bind_int64(previous.get(), 1, characterId);
+        std::vector<std::size_t> changed;
+        std::size_t index = 0;
+        int status;
+        while ((status = sqlite3_step(previous.get())) == SQLITE_ROW)
+        {
+            if (index >= items.size() || sqlite3_column_int64(previous.get(), 0) != static_cast<int64_t>(index))
+                return false;
+            const Item& item = items[index];
+            const auto text = [&](int column) -> std::string_view {
+                const char* value = reinterpret_cast<const char*>(sqlite3_column_text(previous.get(), column));
+                return value ? std::string_view(value, sqlite3_column_bytes(previous.get(), column)) : std::string_view{};
+            };
+            if (text(1) != item.refId || sqlite3_column_int(previous.get(), 2) != item.count
+                || sqlite3_column_int(previous.get(), 3) != item.charge || text(5) != item.soul
+                || sqlite3_column_int64(previous.get(), 6) != item.instanceId
+                || !std::isfinite(item.enchantmentCharge))
+                return false;
+            if (sqlite3_column_double(previous.get(), 4) != static_cast<double>(item.enchantmentCharge))
+                changed.push_back(index);
+            ++index;
+        }
+        checkSqlite(status, mDb, "readInventoryChargeChanges");
+        if (index != items.size())
+            return false;
+        previous.reset();
+
+        if (changed.empty())
+            return true;
+        Statement update(prepare(
+            "UPDATE character_inventory SET enchantment_charge=?1 WHERE character_id=?2 AND item_index=?3"),
+            sqlite3_finalize);
+        for (const std::size_t i : changed)
+        {
+            sqlite3_bind_double(update.get(), 1, items[i].enchantmentCharge);
+            sqlite3_bind_int64(update.get(), 2, characterId);
+            sqlite3_bind_int64(update.get(), 3, static_cast<int64_t>(i));
+            checkSqlite(sqlite3_step(update.get()), mDb, "updateInventoryEnchantmentCharge");
+            sqlite3_reset(update.get());
+            sqlite3_clear_bindings(update.get());
+        }
+        // RefIds/instance IDs/order did not change, so dynamic-record ownership
+        // links remain valid. Avoid deleting and reinserting them on recharge.
+        return true;
+    }
+
     void PlayerDatabase::saveCharacterInventory(int64_t characterId, const std::vector<Item>& items,
         bool touchLastSeen, std::optional<uint64_t> inventoryRevision)
     {
         exec("BEGIN");
         try
         {
-            const std::string characterKey = std::to_string(characterId);
-            sqlite3_stmt* clear = prepare("DELETE FROM character_inventory WHERE character_id=?1");
-            sqlite3_bind_int64(clear, 1, characterId);
-            checkSqlite(sqlite3_step(clear), mDb, "clearCharacterInventory");
-            sqlite3_finalize(clear);
-
-            sqlite3_stmt* insert = prepare(
-                "INSERT INTO character_inventory(character_id, item_index, ref_id, item_count, charge, "
-                "enchantment_charge, soul, instance_id)"
-                " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)");
-
-            for (std::size_t i = 0; i < items.size(); ++i)
+            if (!updateInventoryEnchantmentCharges(characterId, items))
             {
-                const Item& item = items[i];
-                sqlite3_bind_int64(insert, 1, characterId);
-                sqlite3_bind_int(insert, 2, static_cast<int>(i));
-                sqlite3_bind_text(insert, 3, item.refId.c_str(), static_cast<int>(item.refId.size()), SQLITE_TRANSIENT);
-                sqlite3_bind_int(insert, 4, item.count);
-                sqlite3_bind_int(insert, 5, item.charge);
-                sqlite3_bind_double(insert, 6, item.enchantmentCharge);
-                sqlite3_bind_text(insert, 7, item.soul.c_str(), static_cast<int>(item.soul.size()), SQLITE_TRANSIENT);
-                sqlite3_bind_int64(insert, 8, item.instanceId);
-                checkSqlite(sqlite3_step(insert), mDb, "insertCharacterInventory");
-                sqlite3_reset(insert);
-                sqlite3_clear_bindings(insert);
+                const std::string characterKey = std::to_string(characterId);
+                sqlite3_stmt* clear = prepare("DELETE FROM character_inventory WHERE character_id=?1");
+                sqlite3_bind_int64(clear, 1, characterId);
+                checkSqlite(sqlite3_step(clear), mDb, "clearCharacterInventory");
+                sqlite3_finalize(clear);
+
+                sqlite3_stmt* insert = prepare(
+                    "INSERT INTO character_inventory(character_id, item_index, ref_id, item_count, charge, "
+                    "enchantment_charge, soul, instance_id)"
+                    " VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)");
+
+                for (std::size_t i = 0; i < items.size(); ++i)
+                {
+                    const Item& item = items[i];
+                    sqlite3_bind_int64(insert, 1, characterId);
+                    sqlite3_bind_int(insert, 2, static_cast<int>(i));
+                    sqlite3_bind_text(insert, 3, item.refId.c_str(), static_cast<int>(item.refId.size()), SQLITE_TRANSIENT);
+                    sqlite3_bind_int(insert, 4, item.count);
+                    sqlite3_bind_int(insert, 5, item.charge);
+                    sqlite3_bind_double(insert, 6, item.enchantmentCharge);
+                    sqlite3_bind_text(insert, 7, item.soul.c_str(), static_cast<int>(item.soul.size()), SQLITE_TRANSIENT);
+                    sqlite3_bind_int64(insert, 8, item.instanceId);
+                    checkSqlite(sqlite3_step(insert), mDb, "insertCharacterInventory");
+                    sqlite3_reset(insert);
+                    sqlite3_clear_bindings(insert);
+                }
+                sqlite3_finalize(insert);
+
+                sqlite3_stmt* clearLinks = prepare(
+                    "DELETE FROM world_dynamic_record_links"
+                    " WHERE link_kind=?1 AND owner_a=?2 AND owner_b=?3 AND owner_c=?4");
+                clearDynamicRecordLinksForOwner(mDb, clearLinks, "inventory_item", characterKey, "", "");
+                sqlite3_finalize(clearLinks);
+
+                sqlite3_stmt* insertLink = prepare(
+                    "INSERT OR REPLACE INTO world_dynamic_record_links(record_id, link_kind, owner_a, owner_b, owner_c, "
+                    "owner_index)"
+                    " VALUES(?1, ?2, ?3, ?4, ?5, ?6)");
+                for (std::size_t i = 0; i < items.size(); ++i)
+                    insertDynamicRecordLink(
+                        mDb, insertLink, items[i].refId, "inventory_item", characterKey, "", "",
+                        items[i].instanceId != 0 ? items[i].instanceId : static_cast<int64_t>(i));
+                sqlite3_finalize(insertLink);
             }
-            sqlite3_finalize(insert);
-
-            sqlite3_stmt* clearLinks = prepare(
-                "DELETE FROM world_dynamic_record_links"
-                " WHERE link_kind=?1 AND owner_a=?2 AND owner_b=?3 AND owner_c=?4");
-            clearDynamicRecordLinksForOwner(mDb, clearLinks, "inventory_item", characterKey, "", "");
-            sqlite3_finalize(clearLinks);
-
-            sqlite3_stmt* insertLink = prepare(
-                "INSERT OR REPLACE INTO world_dynamic_record_links(record_id, link_kind, owner_a, owner_b, owner_c, "
-                "owner_index)"
-                " VALUES(?1, ?2, ?3, ?4, ?5, ?6)");
-            for (std::size_t i = 0; i < items.size(); ++i)
-                insertDynamicRecordLink(
-                    mDb, insertLink, items[i].refId, "inventory_item", characterKey, "", "",
-                    items[i].instanceId != 0 ? items[i].instanceId : static_cast<int64_t>(i));
-            sqlite3_finalize(insertLink);
 
             sqlite3_stmt* mark = prepare(
                 touchLastSeen
@@ -1555,6 +1616,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                     : (inventoryRevision
                         ? "UPDATE characters SET inventory_saved=1, inventory_revision=?1 WHERE id=?2"
                         : "UPDATE characters SET inventory_saved=1 WHERE id=?1"));
+            const std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)> markOwner(mark, sqlite3_finalize);
             if (touchLastSeen)
             {
                 if (inventoryRevision)
@@ -1580,7 +1642,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                     sqlite3_bind_int64(mark, 1, characterId);
             }
             checkSqlite(sqlite3_step(mark), mDb, "markCharacterInventorySaved");
-            sqlite3_finalize(mark);
+            // markOwner also finalizes the statement on a failed revision write.
 
             exec("COMMIT");
         }

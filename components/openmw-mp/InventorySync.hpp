@@ -16,6 +16,30 @@ namespace mwmp
         return item.refId != "gold_001";
     }
 
+    // Classify an entire Set, not just the first changed stack. Gold may lose
+    // its identity on capture; every other identity and structural field must
+    // match before this can be called charge-only traffic.
+    inline bool isOnlyInventoryEnchantmentChargeChange(
+        const std::vector<Item>& incoming, const std::vector<Item>& previous)
+    {
+        if (incoming.size() != previous.size())
+            return false;
+        bool changed = false;
+        for (std::size_t i = 0; i < incoming.size(); ++i)
+        {
+            const Item& live = incoming[i];
+            const Item& old = previous[i];
+            if (live.refId != old.refId || live.count != old.count || live.charge != old.charge
+                || live.soul != old.soul || !std::isfinite(live.enchantmentCharge)
+                || !std::isfinite(old.enchantmentCharge)
+                || (live.instanceId != old.instanceId
+                    && (requiresStableInventoryInstanceId(live) || live.instanceId != 0)))
+                return false;
+            changed = changed || live.enchantmentCharge != old.enchantmentCharge;
+        }
+        return changed;
+    }
+
     inline bool isOnlySmallEnchantmentChargeChange(
         const Item& live, const Item& previous, float immediateDelta)
     {
