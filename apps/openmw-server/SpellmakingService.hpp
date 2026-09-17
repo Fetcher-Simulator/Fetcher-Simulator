@@ -18,6 +18,7 @@ namespace mwmp
             DynamicStats dynamicStats;
             bool available = false; // living, in the player's cell and within interaction range
             MerchantGoldMutation gold;
+            std::optional<int> baseDisposition;
         };
         struct Context : DynamicRecordService::Context
         {

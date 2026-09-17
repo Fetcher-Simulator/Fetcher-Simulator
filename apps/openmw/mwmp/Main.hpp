@@ -41,6 +41,7 @@ namespace mwmp
     class RecordCreationManager;
     class AlchemyCreationManager;
     class EnchantingCreationManager;
+    class RelationshipManager;
     class SpellmakingManager;
 
     // -----------------------------------------------------------------------
@@ -93,6 +94,7 @@ namespace mwmp
         MpNetworkBridge& getNetworkBridge() { return *mNetworkBridge; }
         RecordCreationManager& getRecordCreationManager() { return *mRecordCreationManager; }
         AlchemyCreationManager& getAlchemyCreationManager() { return *mAlchemyCreationManager; }
+        RelationshipManager& getRelationshipManager() { return *mRelationshipManager; }
         SpellmakingManager& getSpellmakingManager() { return *mSpellmakingManager; }
         EnchantingCreationManager& getEnchantingCreationManager() { return *mEnchantingCreationManager; }
         bool hasChatWindow() const { return mChatWindow != nullptr; }
@@ -200,6 +202,7 @@ namespace mwmp
         std::unique_ptr<AlchemyCreationManager> mAlchemyCreationManager;
         std::unique_ptr<EnchantingCreationManager> mEnchantingCreationManager;
         std::unique_ptr<SpellmakingManager> mSpellmakingManager;
+        std::unique_ptr<RelationshipManager> mRelationshipManager;
 
         std::string mPlayerName;
         std::string mResolvedContentFingerprint;

@@ -1,3 +1,4 @@
+#include <components/openmw-mp/PersuasionMechanics.hpp>
 #include "mechanicsmanagerimp.hpp"
 
 #include <cassert>
@@ -47,37 +48,6 @@
 
 namespace
 {
-
-    void getPersuasionRatings(
-        const MWMechanics::NpcStats& stats, float& rating1, float& rating2, float& rating3, bool player)
-    {
-        const MWWorld::Store<ESM::GameSetting>& gmst
-            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
-
-        float persTerm = stats.getAttribute(ESM::Attribute::Personality).getModified()
-            / gmst.find("fPersonalityMod")->mValue.getFloat();
-        float luckTerm
-            = stats.getAttribute(ESM::Attribute::Luck).getModified() / gmst.find("fLuckMod")->mValue.getFloat();
-        float repTerm = stats.getReputation() * gmst.find("fReputationMod")->mValue.getFloat();
-        float fatigueTerm = stats.getFatigueTerm();
-        float levelTerm = stats.getLevel() * gmst.find("fLevelMod")->mValue.getFloat();
-
-        rating1 = (repTerm + luckTerm + persTerm + stats.getSkill(ESM::Skill::Speechcraft).getModified()) * fatigueTerm;
-
-        if (player)
-        {
-            rating2 = rating1 + levelTerm;
-            rating3 = (stats.getSkill(ESM::Skill::Mercantile).getModified() + luckTerm + persTerm) * fatigueTerm;
-        }
-        else
-        {
-            rating2
-                = (levelTerm + repTerm + luckTerm + persTerm + stats.getSkill(ESM::Skill::Speechcraft).getModified())
-                * fatigueTerm;
-            rating3
-                = (stats.getSkill(ESM::Skill::Mercantile).getModified() + repTerm + luckTerm + persTerm) * fatigueTerm;
-        }
-    }
 
     bool isOwned(const MWWorld::Ptr& ptr, const MWWorld::Ptr& target, MWWorld::Ptr& victim)
     {
@@ -610,142 +580,22 @@ namespace MWMechanics
         MWWorld::Ptr playerPtr = getPlayer();
         const MWMechanics::NpcStats& playerStats = playerPtr.getClass().getNpcStats(playerPtr);
 
-        float npcRating1, npcRating2, npcRating3;
-        getPersuasionRatings(npcStats, npcRating1, npcRating2, npcRating3, false);
-
-        float playerRating1, playerRating2, playerRating3;
-        getPersuasionRatings(playerStats, playerRating1, playerRating2, playerRating3, true);
-
-        const int currentDisposition = getDerivedDisposition(npc);
-
-        float d = 1 - 0.02f * abs(currentDisposition - 50);
-        float target1 = d * (playerRating1 - npcRating1 + 50);
-        float target2 = d * (playerRating2 - npcRating2 + 50);
-
-        float bribeMod;
-        if (type == PT_Bribe10)
-            bribeMod = gmst.find("fBribe10Mod")->mValue.getFloat();
-        else if (type == PT_Bribe100)
-            bribeMod = gmst.find("fBribe100Mod")->mValue.getFloat();
-        else
-            bribeMod = gmst.find("fBribe1000Mod")->mValue.getFloat();
-
-        float target3 = d * (playerRating3 - npcRating3 + 50) + bribeMod;
-
-        const float iPerMinChance = gmst.find("iPerMinChance")->mValue.getFloat();
-        const float iPerMinChange = gmst.find("iPerMinChange")->mValue.getFloat();
-        const float fPerDieRollMult = gmst.find("fPerDieRollMult")->mValue.getFloat();
-        const float fPerTempMult = gmst.find("fPerTempMult")->mValue.getFloat();
-
-        float x = 0;
-        float y = 0;
-
-        auto& prng = MWBase::Environment::get().getWorld()->getPrng();
-        int roll = Misc::Rng::roll0to99(prng);
-
-        if (type == PT_Admire)
-        {
-            target1 = std::max(iPerMinChance, target1);
-            success = (roll <= target1);
-            float c = floor(fPerDieRollMult * (target1 - roll));
-            x = success ? std::max(iPerMinChange, c) : c;
-        }
-        else if (type == PT_Intimidate)
-        {
-            target2 = std::max(iPerMinChance, target2);
-
-            success = (roll <= target2);
-
-            float r;
-            if (roll != target2)
-                r = floor(target2 - roll);
-            else
-                r = 1;
-
-            if (roll <= target2)
-            {
-                float s = floor(r * fPerDieRollMult * fPerTempMult);
-
-                const int flee = npcStats.getAiSetting(MWMechanics::AiSetting::Flee).getBase();
-                const int fight = npcStats.getAiSetting(MWMechanics::AiSetting::Fight).getBase();
-                npcStats.setAiSetting(
-                    MWMechanics::AiSetting::Flee, std::clamp(flee + int(std::max(iPerMinChange, s)), 0, 100));
-                npcStats.setAiSetting(
-                    MWMechanics::AiSetting::Fight, std::clamp(fight + int(std::min(-iPerMinChange, -s)), 0, 100));
-            }
-
-            float c = -std::abs(floor(r * fPerDieRollMult));
-            if (success)
-            {
-                if (std::abs(c) < iPerMinChange)
-                {
-                    // Deviating from Morrowind here: it doesn't increase disposition on marginal wins,
-                    // which seems to be a bug (MCP fixes it too).
-                    // Original logic: x = 0, y = -iPerMinChange
-                    x = iPerMinChange;
-                    y = x; // This goes unused.
-                }
-                else
-                {
-                    x = -floor(c * fPerTempMult);
-                    y = c;
-                }
-            }
-            else
-            {
-                x = floor(c * fPerTempMult);
-                y = c;
-            }
-        }
-        else if (type == PT_Taunt)
-        {
-            target1 = std::max(iPerMinChance, target1);
-            success = (roll <= target1);
-
-            float c = std::abs(floor(target1 - roll));
-
-            if (success)
-            {
-                float s = c * fPerDieRollMult * fPerTempMult;
-                const int flee = npcStats.getAiSetting(AiSetting::Flee).getBase();
-                const int fight = npcStats.getAiSetting(AiSetting::Fight).getBase();
-                npcStats.setAiSetting(
-                    AiSetting::Flee, std::clamp(flee + std::min(-int(iPerMinChange), int(-s)), 0, 100));
-                npcStats.setAiSetting(
-                    AiSetting::Fight, std::clamp(fight + std::max(int(iPerMinChange), int(s)), 0, 100));
-            }
-            x = floor(-c * fPerDieRollMult);
-
-            if (success && std::abs(x) < iPerMinChange)
-                x = -iPerMinChange;
-        }
-        else // Bribe
-        {
-            target3 = std::max(iPerMinChance, target3);
-            success = (roll <= target3);
-            float c = floor((target3 - roll) * fPerDieRollMult);
-
-            x = success ? std::max(iPerMinChange, c) : c;
-        }
-
-        if (type == PT_Intimidate)
-        {
-            tempChange = int(x);
-            if (currentDisposition + tempChange > 100)
-                tempChange = 100 - currentDisposition;
-            else if (currentDisposition + tempChange < 0)
-                tempChange = -currentDisposition;
-            permChange = success ? -int(tempChange / fPerTempMult) : int(y);
-        }
-        else
-        {
-            tempChange = int(x * fPerTempMult);
-            if (currentDisposition + tempChange > 100)
-                tempChange = 100 - currentDisposition;
-            else if (currentDisposition + tempChange < 0)
-                tempChange = -currentDisposition;
-            permChange = int(tempChange / fPerTempMult);
-        }
+        const auto stats = [](const NpcStats& value) {
+            return mwmp::PersuasionStats{value.getAttribute(ESM::Attribute::Personality).getModified(),
+                value.getAttribute(ESM::Attribute::Luck).getModified(), static_cast<float>(value.getReputation()),
+                value.getFatigueTerm(), static_cast<float>(value.getLevel()),
+                value.getSkill(ESM::Skill::Speechcraft).getModified(), value.getSkill(ESM::Skill::Mercantile).getModified()};
+        };
+        mwmp::PersuasionInput input{stats(playerStats), stats(npcStats), getDerivedDisposition(npc),
+            npcStats.getAiSetting(AiSetting::Fight).getBase(), npcStats.getAiSetting(AiSetting::Flee).getBase()};
+        const auto outcome = mwmp::resolvePersuasion(input, static_cast<mwmp::PersuasionType>(type),
+            Misc::Rng::roll0to99(MWBase::Environment::get().getWorld()->getPrng()),
+            [&](std::string_view id) { return gmst.find(id)->mValue.getFloat(); });
+        success = outcome.success;
+        tempChange = outcome.temporary;
+        permChange = outcome.permanent;
+        npcStats.setAiSetting(AiSetting::Fight, outcome.fight);
+        npcStats.setAiSetting(AiSetting::Flee, outcome.flee);
     }
 
     void MechanicsManager::forceStateUpdate(const MWWorld::Ptr& ptr)

@@ -62,6 +62,7 @@ struct ConnectedClient
     std::string         slotName;  ///< permanent character slot name (DB key) — never changes
     std::string         nickname;  ///< cosmetic override; empty = use slotName
     BasePlayer          player;
+    std::unordered_map<ActorInstanceId, int> dialogueDisposition;
     bool                handshakeComplete    = false; ///< auth passed, CharacterList sent
     bool                charSelectComplete   = false; ///< player chose a character, in-world
     bool                dbChargenCompletePending = false; ///< clear DB is_new after first world sync
@@ -360,6 +361,9 @@ private:
     void handlePlayerTopic      (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleRecordCreateRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleAlchemyRequest   (ConnectedClient& c, const uint8_t* data, size_t size);
+    int relationshipBase(ConnectedClient&, ActorInstanceId, int contentBase);
+    void sendRelationships(ConnectedClient&);
+    void handlePersuasionRequest(ConnectedClient&, const uint8_t*, size_t);
     void handleSpellmakingRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleEnchantingRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handlePlayerJournal    (ConnectedClient& c, const uint8_t* data, size_t size);

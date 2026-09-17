@@ -525,7 +525,7 @@ namespace mwmp
 
                 mechanics.barter = serviceBarterInput(npcRecord, *context.player,
                     enchanter->dynamicStats ? &*enchanter->dynamicStats : nullptr,
-                    [&](std::string_view id) { return store.get<ESM::GameSetting>().find(id)->mValue.getFloat(); });
+                    [&](std::string_view id) { return store.get<ESM::GameSetting>().find(id)->mValue.getFloat(); }, enchanter->baseDisposition);
             }
             else
             {

@@ -389,13 +389,26 @@ TEST_F(Spellmaking, MultiplayerPreviewAndChargeAgreeForAuthoritativePricingState
         auto setting = *store.get<ESM::GameSetting>().find(id);
         setting.mValue.setFloat(value); store.overrideRecord(setting);
     }
+    const auto originalResolveActor = context.resolveActor;
+    context.resolveActor = [&](std::uint64_t id) {
+        auto actor = originalResolveActor(id);
+        if (actor)
+            actor->baseDisposition = 70;
+        return actor;
+    };
     const auto actor = context.resolveActor(request.actorNetId);
+    ASSERT_TRUE(actor);
     const auto previewInputs = mwmp::serviceBarterInput(&npc, player, &actor->dynamicStats,
-        [&](std::string_view id) { return store.get<ESM::GameSetting>().find(id)->mValue.getFloat(); });
-    // Native client-only Charm/faction/dialogue modifiers never enter this MP resolver.
-    EXPECT_EQ(previewInputs.disposition, 61);
+        [&](std::string_view id) { return store.get<ESM::GameSetting>().find(id)->mValue.getFloat(); },
+        actor->baseDisposition);
+    // Native client-only Charm/faction/weapon-drawn modifiers never enter this MP resolver,
+    // but the per-character persisted persuasion base disposition does.
+    EXPECT_EQ(previewInputs.disposition, 81);
     const int displayedPrice = mwmp::spellmakingPrice(23.f, 10.f, previewInputs);
-    EXPECT_EQ(displayedPrice, 227);
+    const int contentDispositionPrice = mwmp::spellmakingPrice(23.f, 10.f,
+        mwmp::serviceBarterInput(&npc, player, &actor->dynamicStats,
+            [&](std::string_view id) { return store.get<ESM::GameSetting>().find(id)->mValue.getFloat(); }));
+    EXPECT_NE(displayedPrice, contentDispositionPrice);
     request.maximumPrice = displayedPrice;
     const auto out = execute(); ASSERT_TRUE(out.committed);
     EXPECT_EQ(out.result.price, displayedPrice);

@@ -675,6 +675,31 @@ TEST(EnchantingService, PaidEnchantAlwaysSucceedsAndDeductsGold)
     EXPECT_EQ(findItem(outcome.resultingInventory, 102).count, 0);
 }
 
+TEST(EnchantingService, PaidEnchantUsesPerCharacterRelationshipDisposition)
+{
+    auto remainingGold = [](std::optional<int> baseDisposition) {
+        Fixture fixture;
+        mwmp::EnchantingService service(fixture.database);
+        mwmp::BasePlayer player = makePlayer();
+        std::vector<mwmp::Item> inventory = makeInventory();
+        auto request = fixture.request(baseDisposition ? "paid-relationship" : "paid-content");
+        request.selfEnchanting = false;
+        request.enchanterNetId = 7;
+        auto context = fixture.context(player, inventory, 0, [&](std::uint64_t) {
+            auto info = fixture.enchanter("enchanter_npc");
+            info.baseDisposition = baseDisposition;
+            return std::optional(info);
+        });
+        const auto outcome = service.execute(request, fixture.hashOf(request), context);
+        EXPECT_TRUE(outcome.result.accepted) << "error=" << static_cast<int>(outcome.result.error);
+        return totalCount(outcome.resultingInventory, "gold_001");
+    };
+
+    const int contentDispositionGold = remainingGold(std::nullopt);
+    const int persuadedDispositionGold = remainingGold(90);
+    EXPECT_GT(persuadedDispositionGold, contentDispositionGold);
+}
+
 TEST(EnchantingService, PaidEnchantInsufficientGoldRejects)
 {
     Fixture fixture;

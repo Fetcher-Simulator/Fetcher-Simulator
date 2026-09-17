@@ -7,6 +7,8 @@
 #include "records/ResolvedContentFingerprint.hpp"
 #include "sha256.hpp"
 #include "spellmaking/SpellmakingManager.hpp"
+#include "spellmaking/RelationshipManager.hpp"
+#include <components/openmw-mp/Packets/Player/PacketPersuasion.hpp>
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -595,6 +597,7 @@ Main::Main()
     mWorldStateSync= std::make_unique<WorldStateSync>(*mClient);
     mRecordCreationManager = std::make_unique<RecordCreationManager>(*mClient);
     mAlchemyCreationManager = std::make_unique<AlchemyCreationManager>(*mClient, *mRecordCreationManager);
+    mRelationshipManager = std::make_unique<RelationshipManager>();
     mSpellmakingManager = std::make_unique<SpellmakingManager>(*mClient, *mRecordCreationManager, *mPlayerSync);
     mEnchantingCreationManager
         = std::make_unique<EnchantingCreationManager>(*mClient, *mRecordCreationManager);
@@ -669,6 +672,7 @@ void Main::frame(float dt)
     mAlchemyCreationManager->update();
     mEnchantingCreationManager->update();
     mSpellmakingManager->update();
+    mRelationshipManager->update();
     const auto worldSyncFinished = std::chrono::steady_clock::now();
 
     mChatWindow->update(dt);
@@ -1002,6 +1006,7 @@ void Main::onDisconnected()
         mRecordCreationManager->cancelAll();
     if (mAlchemyCreationManager)
         mAlchemyCreationManager->cancelAll();
+    if (mRelationshipManager) mRelationshipManager->clear();
     if (mSpellmakingManager)
         mSpellmakingManager->cancelAll();
     if (mEnchantingCreationManager)
@@ -2119,6 +2124,10 @@ void Main::registerProtocolHandlers()
             mAlchemyCreationManager->onResult(std::move(packet.result));
         });
 
+    proto.registerHandler(PacketType::PersuasionResult, [this](const uint8_t* data, size_t size) {
+        PacketPersuasionResult packet;
+        if (packet.decode(data,size)) mRelationshipManager->onResult(packet.result);
+    });
     proto.registerHandler(PacketType::SpellmakingResult, [this](const uint8_t* data, size_t size) {
         PacketSpellmakingResult packet;
         if (packet.decode(data, size))

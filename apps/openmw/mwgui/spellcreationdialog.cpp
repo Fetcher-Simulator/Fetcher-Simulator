@@ -7,6 +7,7 @@
 #include "../mwmp/Main.hpp"
 #include "../mwmp/sync/PlayerSync.hpp"
 #include <components/openmw-mp/ServicePricing.hpp>
+#include "../mwmp/spellmaking/RelationshipManager.hpp"
 #include "../mwmp/spellmaking/SpellmakingManager.hpp"
 #include "../mwmp/sync/ActorSync.hpp"
 #endif
@@ -854,9 +855,7 @@ namespace MWGui
             actorStats.fatigue.base = fatigue.getBase();
             actorStats.fatigue.mod = fatigue.getModifier();
             actorStats.fatigue.current = fatigue.getCurrent();
-            const auto barter = mwmp::serviceBarterInput(npc,
-                mwmp::Main::get().getPlayerSync().localPlayer(), &actorStats,
-                [&](std::string_view id) { return store.get<ESM::GameSetting>().find(id)->mValue.getFloat(); });
+            const auto barter = mwmp::Main::get().getRelationshipManager().pricing(mPtr);
             price = mwmp::spellmakingPrice(y, fSpellMakingValueMult, barter);
         }
         else

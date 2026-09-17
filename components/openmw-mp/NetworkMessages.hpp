@@ -173,6 +173,8 @@ namespace mwmp
 
         SpellmakingRequest = 168, // Server-authoritative NPC spellmaking
         SpellmakingResult = 169,
+        PersuasionRequest = 170,
+        PersuasionResult = 171,
 
         // --- Lua bridge (7C+) ---
         // IDs 150-199 reserved; exact assignments TBD in Phase 7C/7D.

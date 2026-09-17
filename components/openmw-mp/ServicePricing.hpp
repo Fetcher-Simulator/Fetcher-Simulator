@@ -1,6 +1,7 @@
 #pragma once
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <components/enchanting/EnchantingMechanics.hpp>
 #include <components/esm/attr.hpp>
 #include <components/esm3/loadnpc.hpp>
@@ -19,12 +20,12 @@ namespace mwmp
 
     // Supported authoritative service model: content NPC attributes/disposition,
     // synced player attributes, bounty and both actors' fatigue. Runtime Charm,
-    // faction/disease/weapon-drawn disposition and local dialogue persuasion are
+    // faction/disease/weapon-drawn disposition are
     // deliberately excluded. MP previews and server validation must use this same
     // resolver; single-player continues to resolve full native actor state.
     template <class Gmst>
     Crafting::EnchantingBarterInput serviceBarterInput(
-        const ESM::NPC* npc, const BasePlayer& player, const DynamicStats* actorStats, const Gmst& gmst)
+        const ESM::NPC* npc, const BasePlayer& player, const DynamicStats* actorStats, const Gmst& gmst, std::optional<int> baseDisposition = std::nullopt)
     {
         Crafting::EnchantingBarterInput result;
         result.creatureMerchant = npc == nullptr;
@@ -43,7 +44,7 @@ namespace mwmp
         if (actorStats) result.enchanterFatigueTerm = serviceFatigueTerm(*actorStats, gmst);
         if (npc)
         {
-            float disposition = npc->mNpdt.mDisposition;
+            float disposition = baseDisposition.value_or(npc->mNpdt.mDisposition);
             if (!player.race.empty() && npc->mRace == ESM::RefId::stringRefId(player.race))
                 disposition += gmst("fDispRaceMod");
             disposition += gmst("fDispPersonalityMult") * (result.playerPersonality - gmst("fDispPersonalityBase"));

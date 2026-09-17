@@ -130,7 +130,7 @@ if (BUILD_MULTIPLAYER)
         AlchemyCreationManager
     )
     add_openmw_dir (mwmp/spellmaking
-        SpellmakingManager
+        SpellmakingManager RelationshipManager
     )
     add_openmw_dir (mwmp/enchanting
         EnchantingCreationManager

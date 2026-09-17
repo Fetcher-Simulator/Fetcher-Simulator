@@ -40,6 +40,7 @@
 #ifdef BUILD_MULTIPLAYER
 #include "../mwgui/mode.hpp"
 #include "../mwmp/Main.hpp"
+#include "../mwmp/spellmaking/RelationshipManager.hpp"
 #include "../mwmp/sync/PlayerSync.hpp"
 #endif
 
@@ -202,6 +203,15 @@ namespace MWDialogue
         mChoices.clear();
 
         mActor = actor;
+
+#ifdef BUILD_MULTIPLAYER
+        if (mwmp::Main::isInitialised() && mwmp::Main::isConnected() && actor.getClass().isNpc())
+        {
+            auto& relationships = mwmp::Main::get().getRelationshipManager();
+            actor.getClass().getNpcStats(actor).setBaseDisposition(relationships.baseDisposition(actor, false));
+            relationships.begin(actor);
+        }
+#endif
 
         MWMechanics::CreatureStats& creatureStats = actor.getClass().getCreatureStats(actor);
         mTalkedTo = creatureStats.hasTalkedToPlayer();
@@ -486,6 +496,18 @@ namespace MWDialogue
 
     void DialogueManager::goodbyeSelected()
     {
+#ifdef BUILD_MULTIPLAYER
+        if (mwmp::Main::isInitialised() && mwmp::Main::isConnected() && !mActor.isEmpty() && mActor.getClass().isNpc())
+        {
+            auto& relationships = mwmp::Main::get().getRelationshipManager();
+            mActor.getClass().getNpcStats(mActor).setBaseDisposition(relationships.baseDisposition(mActor, false));
+            relationships.close();
+            mPermanentDispositionChange = 0;
+            mOriginalDisposition = 0;
+            mCurrentDisposition = 0;
+            return;
+        }
+#endif
         // Apply disposition change to NPC's base disposition if we **think** we need to change something
         if ((mPermanentDispositionChange || mOriginalDisposition != mCurrentDisposition) && mActor.getClass().isNpc())
         {
@@ -623,6 +645,42 @@ namespace MWDialogue
 
     void DialogueManager::persuade(int type, ResponseCallback* callback)
     {
+#ifdef BUILD_MULTIPLAYER
+        if (mwmp::Main::isInitialised() && mwmp::Main::isConnected() && !mActor.isEmpty() && mActor.getClass().isNpc())
+        {
+            const MWWorld::Ptr actor = mActor;
+            const bool queued = mwmp::Main::get().getRelationshipManager().persuade(
+                actor, type, [this, actor, type, callback](const mwmp::PersuasionResult& result) {
+                    if (mActor != actor || result.error != mwmp::PersuasionError::None)
+                        return;
+
+                    MWMechanics::NpcStats& npcStats = actor.getClass().getNpcStats(actor);
+                    npcStats.setBaseDisposition(result.currentDisposition);
+                    npcStats.setAiSetting(MWMechanics::AiSetting::Fight, result.fight);
+                    npcStats.setAiSetting(MWMechanics::AiSetting::Flee, result.flee);
+                    mCurrentDisposition = result.currentDisposition;
+
+                    MWWorld::Ptr player = MWMechanics::getPlayer();
+                    player.getClass().skillUsageSucceeded(player, ESM::Skill::Speechcraft,
+                        result.success ? ESM::Skill::Speechcraft_Success : ESM::Skill::Speechcraft_Fail);
+
+                    std::string text;
+                    if (type == MWBase::MechanicsManager::PT_Admire)
+                        text = "Admire";
+                    else if (type == MWBase::MechanicsManager::PT_Taunt)
+                        text = "Taunt";
+                    else if (type == MWBase::MechanicsManager::PT_Intimidate)
+                        text = "Intimidate";
+                    else
+                        text = "Bribe";
+                    executeTopic(ESM::RefId::stringRefId(text + (result.success ? " Success" : " Fail")), callback);
+                });
+            if (!queued)
+                MWBase::Environment::get().getWindowManager()->messageBox("Persuasion is still synchronizing. Try again shortly.");
+            return;
+        }
+#endif
+
         bool success;
         int temp, perm;
         MWBase::Environment::get().getMechanicsManager()->getPersuasionDispositionChange(
@@ -664,9 +722,7 @@ namespace MWDialogue
         else if (type == MWBase::MechanicsManager::PT_Intimidate)
             text = "Intimidate";
         else
-        {
             text = "Bribe";
-        }
 
         executeTopic(ESM::RefId::stringRefId(text + (success ? " Success" : " Fail")), callback);
     }

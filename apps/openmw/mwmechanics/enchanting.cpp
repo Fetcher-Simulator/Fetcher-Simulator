@@ -21,6 +21,7 @@
 
 #ifdef BUILD_MULTIPLAYER
 #include "../mwmp/Main.hpp"
+#include "../mwmp/spellmaking/RelationshipManager.hpp"
 #include "../mwmp/sync/ActorSync.hpp"
 #include "../mwmp/sync/InventoryIdentity.hpp"
 #include <components/openmw-mp/Records/EnchantingProtocol.hpp>
@@ -290,30 +291,35 @@ namespace MWMechanics
 
         if (!mSelfEnchanting && !mEnchanter.isEmpty())
         {
-            // Paid service pricing. NPCs use the barter formula with the full
-            // client-side disposition and statistics; creature merchants keep
-            // the native base-price special case.
-            const CreatureStats& playerStats = player.getClass().getCreatureStats(player);
-            const CreatureStats& paidEnchanterStats = mEnchanter.getClass().getCreatureStats(mEnchanter);
-            Crafting::EnchantingBarterInput barter;
-            barter.playerMercantile = player.getClass().getSkill(player, ESM::Skill::Mercantile);
-            barter.playerLuck = playerStats.getAttribute(ESM::Attribute::Luck).getModified();
-            barter.playerPersonality = playerStats.getAttribute(ESM::Attribute::Personality).getModified();
-            barter.playerFatigueTerm = playerStats.getFatigueTerm();
-            if (mEnchanter.getClass().isNpc())
-            {
-                barter.enchanterMercantile = mEnchanter.getClass().getSkill(mEnchanter, ESM::Skill::Mercantile);
-                barter.enchanterLuck = paidEnchanterStats.getAttribute(ESM::Attribute::Luck).getModified();
-                barter.enchanterPersonality = paidEnchanterStats.getAttribute(ESM::Attribute::Personality).getModified();
-                barter.enchanterFatigueTerm = paidEnchanterStats.getFatigueTerm();
-                barter.disposition
-                    = MWBase::Environment::get().getMechanicsManager()->getDerivedDisposition(mEnchanter);
-            }
+#ifdef BUILD_MULTIPLAYER
+            if (mwmp::Main::isInitialised() && mwmp::Main::isConnected())
+                input.barter = mwmp::Main::get().getRelationshipManager().pricing(mEnchanter);
             else
+#endif
             {
-                barter.creatureMerchant = true;
+                // Paid service pricing. NPCs use the barter formula with the full
+                // client-side disposition and statistics; creature merchants keep
+                // the native base-price special case.
+                const CreatureStats& playerStats = player.getClass().getCreatureStats(player);
+                const CreatureStats& paidEnchanterStats = mEnchanter.getClass().getCreatureStats(mEnchanter);
+                Crafting::EnchantingBarterInput barter;
+                barter.playerMercantile = player.getClass().getSkill(player, ESM::Skill::Mercantile);
+                barter.playerLuck = playerStats.getAttribute(ESM::Attribute::Luck).getModified();
+                barter.playerPersonality = playerStats.getAttribute(ESM::Attribute::Personality).getModified();
+                barter.playerFatigueTerm = playerStats.getFatigueTerm();
+                if (mEnchanter.getClass().isNpc())
+                {
+                    barter.enchanterMercantile = mEnchanter.getClass().getSkill(mEnchanter, ESM::Skill::Mercantile);
+                    barter.enchanterLuck = paidEnchanterStats.getAttribute(ESM::Attribute::Luck).getModified();
+                    barter.enchanterPersonality = paidEnchanterStats.getAttribute(ESM::Attribute::Personality).getModified();
+                    barter.enchanterFatigueTerm = paidEnchanterStats.getFatigueTerm();
+                    barter.disposition
+                        = MWBase::Environment::get().getMechanicsManager()->getDerivedDisposition(mEnchanter);
+                }
+                else
+                    barter.creatureMerchant = true;
+                input.barter = std::move(barter);
             }
-            input.barter = std::move(barter);
         }
 
         const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();

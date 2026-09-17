@@ -13,6 +13,10 @@
 #include "ServerCollisionWorld.hpp"
 #include "ServerLuaRecordParser.hpp"
 #include "SpellmakingService.hpp"
+#include "PersuasionService.hpp"
+#include <components/openmw-mp/ServicePricing.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPersuasion.hpp>
+#include <random>
 #include <components/openmw-mp/Packets/Records/PacketSpellmakingRequest.hpp>
 #include <components/openmw-mp/Packets/Records/PacketSpellmakingResult.hpp>
 #include <components/openmw-mp/Records/EsmDynamicRecordConversion.hpp>
@@ -6233,6 +6237,7 @@ void MPServer::onClientMessage(ConnectedClient& client,
         case PacketType::RecordCreateRequest: handleRecordCreateRequest(client, data, size); break;
         case PacketType::AlchemyRequest:   handleAlchemyRequest(client, data, size);     break;
         case PacketType::EnchantingRequest: handleEnchantingRequest(client, data, size); break;
+        case PacketType::PersuasionRequest: handlePersuasionRequest(client,data,size); break;
         case PacketType::SpellmakingRequest:
             handleSpellmakingRequest(client, data, size);
             break;
@@ -8110,6 +8115,8 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
     sendAuthoritativeCrimeState(c);
     sendAuthoritativeFactionState(c);
     sendAuthoritativeTopicState(c);
+    c.dialogueDisposition.clear();
+    sendRelationships(c);
     sendTo(c.conn, cdPkt.encode());
     c.charSelectComplete = true;
 
@@ -9996,6 +10003,217 @@ void MPServer::handleAlchemyRequest(ConnectedClient& c, const uint8_t* data, siz
 
 // ---------------------------------------------------------------------------
 
+int MPServer::relationshipBase(ConnectedClient& c, ActorInstanceId actorId, int contentBase)
+{
+    if (const auto temporary = c.dialogueDisposition.find(actorId); temporary != c.dialogueDisposition.end())
+        return temporary->second;
+    if (!mPlayerDb || c.dbCharacterId <= 0)
+        return contentBase;
+    if (const auto saved = mPlayerDb->loadRelationship(c.dbCharacterId, actorId))
+        return saved->baseDisposition;
+    return contentBase;
+}
+
+void MPServer::sendRelationships(ConnectedClient& c)
+{
+    if (!mPlayerDb || c.dbCharacterId <= 0)
+        return;
+    for (const NpcRelationship& relationship : mPlayerDb->loadRelationships(c.dbCharacterId))
+    {
+        PacketPersuasionResult packet;
+        packet.result.requestId = "relationship-bootstrap-" + std::to_string(relationship.actorId);
+        packet.result.actorId = relationship.actorId;
+        packet.result.inventoryRevision = c.inventoryRevision;
+        packet.result.relationshipRevision = relationship.revision;
+        packet.result.error = PersuasionError::None;
+        packet.result.baseDisposition = relationship.baseDisposition;
+        packet.result.currentDisposition = relationship.baseDisposition;
+        sendTo(c.conn, packet.encode());
+    }
+}
+
+void MPServer::handlePersuasionRequest(ConnectedClient& c, const uint8_t* data, size_t size)
+{
+    PacketPersuasionRequest packet;
+    if (!packet.decode(data, size) || !mPlayerDb || !mContentRegistry || c.dbAccountId <= 0 || c.dbCharacterId <= 0)
+        return;
+
+    const PersuasionRequest& request = packet.request;
+    auto sendSimple = [&](PersuasionError error, int baseDisposition, std::uint64_t relationshipRevision) {
+        PacketPersuasionResult result;
+        result.result.requestId = request.requestId;
+        result.result.actorId = request.actorId;
+        result.result.inventoryRevision = c.inventoryRevision;
+        result.result.relationshipRevision = relationshipRevision;
+        result.result.error = error;
+        result.result.baseDisposition = baseDisposition;
+        result.result.currentDisposition = baseDisposition;
+        sendTo(c.conn, result.encode());
+    };
+
+    const std::string playerCell = makeCellKey(c.player.cell);
+    const auto key = mWorld.actorKeysByNetId.find(request.actorId);
+    if (key == mWorld.actorKeysByNetId.end())
+    {
+        sendSimple(PersuasionError::Unavailable, 0, 0);
+        return;
+    }
+    const auto location = mWorld.actorLocations.find(key->second);
+    const auto cell = location == mWorld.actorLocations.end() ? mWorld.actorCells.end() : mWorld.actorCells.find(location->second);
+    if (location == mWorld.actorLocations.end() || location->second != playerCell || cell == mWorld.actorCells.end())
+    {
+        sendSimple(PersuasionError::Unavailable, 0, 0);
+        return;
+    }
+    auto found = cell->second.actors.find(key->second);
+    if (found == cell->second.actors.end() || found->second.actor.isDead)
+    {
+        sendSimple(PersuasionError::Unavailable, 0, 0);
+        return;
+    }
+
+    const BaseActor& actor = found->second.actor;
+    if (request.generation != actor.migrationGeneration)
+    {
+        sendSimple(PersuasionError::Unavailable, 0, 0);
+        return;
+    }
+    const auto& store = mContentRegistry->store();
+    const auto* npc = store.get<ESM::NPC>().search(ESM::RefId::stringRefId(actor.refId));
+    if (!npc)
+    {
+        sendSimple(PersuasionError::Unavailable, 0, 0);
+        return;
+    }
+
+    const auto* playerSnapshot = mMechanicsSnapshots.findFresh(
+        { MechanicsSubjectKind::Player, c.guid, 0 }, currentServerTimeMs(), 1000);
+    if (!playerSnapshot || playerSnapshot->snapshot.cellId != playerCell)
+    {
+        sendSimple(PersuasionError::Unavailable, 0, 0);
+        return;
+    }
+    float distanceSquared = 0.f;
+    for (int i = 0; i < 3; ++i)
+    {
+        const float delta = actor.position.pos[i] - playerSnapshot->snapshot.position.pos[i];
+        distanceSquared += delta * delta;
+    }
+    if (!std::isfinite(distanceSquared) || distanceSquared > mDoorInteractionRadius * mDoorInteractionRadius)
+    {
+        sendSimple(PersuasionError::Unavailable, 0, 0);
+        return;
+    }
+
+    NpcRelationship relationship{ request.actorId, npc->mNpdt.mDisposition, 0 };
+    if (const auto saved = mPlayerDb->loadRelationship(c.dbCharacterId, request.actorId))
+        relationship = *saved;
+
+    if (request.action == PersuasionAction::Read)
+    {
+        c.dialogueDisposition[request.actorId] = relationship.baseDisposition;
+        sendSimple(PersuasionError::None, relationship.baseDisposition, relationship.revision);
+        return;
+    }
+    if (request.action == PersuasionAction::Close)
+    {
+        c.dialogueDisposition.erase(request.actorId);
+        sendSimple(PersuasionError::None, relationship.baseDisposition, relationship.revision);
+        return;
+    }
+
+    PacketPersuasionRequest canonicalPacket;
+    canonicalPacket.request = request;
+    const std::vector<std::uint8_t> canonical = canonicalPacket.encode();
+    const std::string requestHash = crypto::sha256hex(
+        std::string_view(reinterpret_cast<const char*>(canonical.data()), canonical.size()));
+
+    const int currentBase = relationshipBase(c, request.actorId, npc->mNpdt.mDisposition);
+    auto gmst = [&](std::string_view id) { return store.get<ESM::GameSetting>().find(id)->mValue.getFloat(); };
+    const int personality = ESM::Attribute::refIdToIndex(ESM::Attribute::Personality);
+    const int luck = ESM::Attribute::refIdToIndex(ESM::Attribute::Luck);
+    const int speechcraft = ESM::Skill::refIdToIndex(ESM::Skill::Speechcraft);
+    const int mercantile = ESM::Skill::refIdToIndex(ESM::Skill::Mercantile);
+    const auto playerAttribute = [&](int index) {
+        const auto& value = c.player.attributes[index];
+        return std::max(0.f, static_cast<float>(value.base) - value.damage + value.mod);
+    };
+    const auto playerSkill = [&](int index) {
+        const auto& value = c.player.skills[index];
+        return std::max(0.f, value.base - value.damage + value.mod);
+    };
+
+    PersuasionService::Context context;
+    context.accountId = c.dbAccountId;
+    context.characterId = c.dbCharacterId;
+    context.inventoryRevision = c.inventoryRevision;
+    context.player = &c.player;
+    context.actorAvailable = true;
+    context.generation = actor.migrationGeneration;
+    context.relationship = relationship;
+    context.currentBase = currentBase;
+    const auto barter = serviceBarterInput(npc, c.player, &actor.dynamicStats, gmst, currentBase);
+    context.derivedOffset = barter.disposition - currentBase;
+    context.mechanics.disposition = barter.disposition;
+    context.mechanics.player = { playerAttribute(personality), playerAttribute(luck),
+        static_cast<float>(c.player.reputation), serviceFatigueTerm(c.player.dynamicStats, gmst),
+        static_cast<float>(c.player.level), playerSkill(speechcraft), playerSkill(mercantile) };
+    context.mechanics.npc = { static_cast<float>(npc->mNpdt.mAttributes[personality]),
+        static_cast<float>(npc->mNpdt.mAttributes[luck]), static_cast<float>(npc->mNpdt.mReputation),
+        serviceFatigueTerm(actor.dynamicStats, gmst), static_cast<float>(npc->mNpdt.mLevel),
+        static_cast<float>(npc->mNpdt.mSkills[speechcraft]), static_cast<float>(npc->mNpdt.mSkills[mercantile]) };
+    context.mechanics.fight = npc->mAiData.mFight;
+    context.mechanics.flee = npc->mAiData.mFlee;
+    if (const auto* actorSnapshot = mMechanicsSnapshots.findFresh(
+            { MechanicsSubjectKind::Npc, 0, request.actorId }, currentServerTimeMs(), 1000))
+        context.mechanics.fight = actorSnapshot->snapshot.effectiveFight;
+
+    const std::string containerKey = makeContainerKey(playerCell, actor.refId, actor.refNum, actor.mpNum);
+    if (const auto container = mWorld.containers.find(containerKey);
+        container != mWorld.containers.end() && container->second.hasAuthority)
+        context.container = container->second;
+    context.gmst = gmst;
+    context.roll = [] {
+        static thread_local std::mt19937 generator(std::random_device{}());
+        return std::uniform_int_distribution<int>(0, 99)(generator);
+    };
+
+    PersuasionService service(*mPlayerDb);
+    PersuasionService::Outcome outcome;
+    try
+    {
+        outcome = service.execute(request, requestHash, context);
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "[Persuasion] request failed: " << e.what();
+        sendSimple(PersuasionError::Invalid, relationship.baseDisposition, relationship.revision);
+        return;
+    }
+
+    if (outcome.result.error == PersuasionError::None)
+        c.dialogueDisposition[request.actorId] = outcome.result.currentDisposition;
+    if (outcome.committed)
+    {
+        if (outcome.result.chargedGold)
+        {
+            c.player.inventoryChanges.items = outcome.inventory;
+            c.player.inventoryChanges.action = BasePlayer::InventoryChanges::Action::Set;
+            c.inventoryRevision = outcome.result.inventoryRevision;
+            c.player.inventoryChanges.revision = c.inventoryRevision;
+            c.restoredInventorySnapshot = c.player.inventoryChanges.items;
+            c.hasRestoredInventorySnapshot = true;
+            c.acceptedPlayerInventoryThisSession = true;
+            sendAuthoritativeInventory(c);
+        }
+        if (outcome.container)
+            mWorld.containers[containerKey] = *outcome.container;
+    }
+    sendTo(c.conn, outcome.encoded);
+}
+
+// ---------------------------------------------------------------------------
+
 void MPServer::handleSpellmakingRequest(ConnectedClient& c, const uint8_t* data, size_t size)
 {
     PacketSpellmakingRequest packet;
@@ -10157,6 +10375,7 @@ void MPServer::handleSpellmakingRequest(ConnectedClient& c, const uint8_t* data,
             SpellmakingService::ServiceActor result;
             result.refId = actor.refId;
             result.dynamicStats = actor.dynamicStats;
+            if (npc) result.baseDisposition = relationshipBase(c,id,npc->mNpdt.mDisposition);
             result.available = true;
             result.gold = MerchantGoldMutation{ id, actor.refId, gold.expectedGold, gold.authoritativeGold,
                 gold.expectedRestockTime, gold.resultingRestockTime };
@@ -10372,6 +10591,8 @@ void MPServer::handleEnchantingRequest(ConnectedClient& c, const uint8_t* data, 
                     EnchantingService::Context::EnchanterInfo info;
                     info.refId = record.actor.refId;
                     info.dynamicStats = record.actor.dynamicStats;
+                    if (const auto* npc = mContentRegistry->store().get<ESM::NPC>().search(ESM::RefId::stringRefId(info.refId)))
+                        info.baseDisposition = relationshipBase(c,actorNetId,npc->mNpdt.mDisposition);
                     info.cellLoaded = clientHasActorCellLoaded(c, cellId);
                     return info;
                 }

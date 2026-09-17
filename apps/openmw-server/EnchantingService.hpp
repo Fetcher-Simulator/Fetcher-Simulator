@@ -62,6 +62,7 @@ namespace mwmp
                 std::string refId;
                 std::optional<DynamicStats> dynamicStats;
                 bool cellLoaded = false;
+                std::optional<int> baseDisposition;
             };
             std::function<std::optional<EnchanterInfo>(std::uint64_t actorNetId)> resolveEnchanter;
 
