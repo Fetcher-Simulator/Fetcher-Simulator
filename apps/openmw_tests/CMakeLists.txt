@@ -32,6 +32,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwmp/testtypeddynamicrecordinstaller.cpp
     mwmp/testalchemyservice.cpp
     mwmp/testenchantingservice.cpp
+    mwmp/testpersuasionservice.cpp
     mwmp/testspellmakingservice.cpp
     mwmp/testplayerspellbook.cpp
     mwmp/testcrimeservice.cpp
@@ -77,6 +78,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         ../openmw-server/DynamicRecordService.cpp
         ../openmw-server/AlchemyService.cpp
         ../openmw-server/EnchantingService.cpp
+        ../openmw-server/PersuasionService.cpp
         ../openmw-server/SpellmakingService.cpp
         ../openmw-server/CrimeService.cpp
         ../openmw-server/CrimeAggression.cpp

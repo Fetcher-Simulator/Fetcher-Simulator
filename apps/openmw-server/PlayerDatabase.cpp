@@ -679,6 +679,10 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
         "ALTER TABLE world_dynamic_record_catalog ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE world_dynamic_record_catalog ADD COLUMN validation_version INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE world_doors ADD COLUMN revision INTEGER NOT NULL DEFAULT 1",
+        "CREATE TABLE IF NOT EXISTS character_npc_relationships ("
+        " character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,"
+        " actor_id INTEGER NOT NULL, base_disposition INTEGER NOT NULL, revision INTEGER NOT NULL,"
+        " PRIMARY KEY(character_id, actor_id))",
         "CREATE TABLE IF NOT EXISTS craft_requests ("
         "  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,"
         "  character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,"
@@ -2175,6 +2179,9 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                     }
                 }
             }
+
+            if (commit.relationship)
+                writeRelationship(commit.characterId, *commit.relationship);
 
             if (commit.merchantGoldMutation)
             {
@@ -4378,11 +4385,50 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
         return records;
     }
 
-    void PlayerDatabase::upsertContainerRecord(const ContainerRecord& record)
+    std::vector<NpcRelationship> PlayerDatabase::loadRelationships(std::int64_t characterId)
     {
-        exec("BEGIN");
-        try
-        {
+        auto* stmt = prepare("SELECT actor_id,base_disposition,revision FROM character_npc_relationships WHERE character_id=?1");
+        sqlite3_bind_int64(stmt,1,characterId);
+        std::vector<NpcRelationship> result;
+        int rc;
+        while ((rc=sqlite3_step(stmt)) == SQLITE_ROW)
+            result.push_back({static_cast<ActorInstanceId>(sqlite3_column_int64(stmt,0)),sqlite3_column_int(stmt,1),
+                static_cast<std::uint64_t>(sqlite3_column_int64(stmt,2))});
+        sqlite3_finalize(stmt);
+        checkSqlite(rc,mDb,"loadRelationships");
+        return result;
+    }
+    std::optional<NpcRelationship> PlayerDatabase::loadRelationship(std::int64_t characterId, ActorInstanceId actorId)
+    {
+        auto* stmt = prepare("SELECT base_disposition,revision FROM character_npc_relationships WHERE character_id=?1 AND actor_id=?2");
+        sqlite3_bind_int64(stmt,1,characterId);
+        sqlite3_bind_int64(stmt,2,static_cast<sqlite3_int64>(actorId));
+        const int rc=sqlite3_step(stmt);
+        std::optional<NpcRelationship> result;
+        if (rc==SQLITE_ROW) result=NpcRelationship{actorId,sqlite3_column_int(stmt,0),static_cast<std::uint64_t>(sqlite3_column_int64(stmt,1))};
+        sqlite3_finalize(stmt);
+        checkSqlite(rc,mDb,"loadRelationship");
+        return result;
+    }
+    void PlayerDatabase::writeRelationship(std::int64_t characterId, const RelationshipMutation& mutation)
+    {
+        const auto existing=loadRelationship(characterId,mutation.resulting.actorId);
+        if ((existing ? existing->revision : 0) != mutation.expectedRevision)
+            throw std::runtime_error("NPC relationship revision changed");
+        auto* stmt=prepare("INSERT INTO character_npc_relationships(character_id,actor_id,base_disposition,revision)"
+            " VALUES(?1,?2,?3,?4) ON CONFLICT(character_id,actor_id) DO UPDATE SET"
+            " base_disposition=excluded.base_disposition,revision=excluded.revision");
+        sqlite3_bind_int64(stmt,1,characterId);
+        sqlite3_bind_int64(stmt,2,static_cast<sqlite3_int64>(mutation.resulting.actorId));
+        sqlite3_bind_int(stmt,3,mutation.resulting.baseDisposition);
+        sqlite3_bind_int64(stmt,4,mutation.resulting.revision);
+        const int rc=sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        checkSqlite(rc,mDb,"writeRelationship");
+    }
+
+    void PlayerDatabase::writeContainerRows(const ContainerRecord& record)
+    {
             const std::string ownerC = makeContainerDynamicRecordOwnerKey(record.refNum, record.mpNum);
 
             sqlite3_stmt* parent = prepare(
@@ -4450,6 +4496,15 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                 insertDynamicRecordLink(mDb, insertLink, record.items[i].refId, "container_item", record.cellId,
                     record.refId, ownerC, static_cast<int64_t>(i));
             sqlite3_finalize(insertLink);
+
+    }
+
+    void PlayerDatabase::upsertContainerRecord(const ContainerRecord& record)
+    {
+        exec("BEGIN");
+        try
+        {
+            writeContainerRows(record);
 
             exec("COMMIT");
         }
@@ -5907,6 +5962,11 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                     throw std::runtime_error("merchant gold changed during barter");
                 sqlite3_finalize(updateGold);
             }
+
+            if (commit.relationship)
+                writeRelationship(commit.characterId, *commit.relationship);
+            if (commit.bribeContainer)
+                writeContainerRows(*commit.bribeContainer);
 
             if (commit.characterStats)
             {

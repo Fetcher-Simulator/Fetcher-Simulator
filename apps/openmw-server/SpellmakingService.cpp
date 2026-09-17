@@ -159,7 +159,7 @@ namespace mwmp
             gmst("fEffectCostMult"));
         spell.mData.mCost = static_cast<int>(rawCost);
         spell.mEffects.populate(effects);
-        const auto barter = serviceBarterInput(npc, *context.player, &actor->dynamicStats, gmst);
+        const auto barter = serviceBarterInput(npc, *context.player, &actor->dynamicStats, gmst, actor->baseDisposition);
         out.result.price = spellmakingPrice(rawCost, gmst("fSpellMakingValueMult"), barter);
         if (out.result.price > request.maximumPrice)
             return reject(Error::PriceChanged);

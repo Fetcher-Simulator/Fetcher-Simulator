@@ -8,6 +8,8 @@ set(OPENMW_SERVER_SOURCES
     DynamicRecordService.cpp
     AlchemyService.cpp
     EnchantingService.cpp
+    PersuasionService.cpp
+    PersuasionService.hpp
     SpellmakingService.cpp
     CrimeService.cpp
     CrimeAggression.cpp

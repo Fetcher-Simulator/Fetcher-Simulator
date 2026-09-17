@@ -237,6 +237,18 @@ namespace mwmp
         double resultingRestockTime = 0.0;
     };
 
+    struct NpcRelationship
+    {
+        ActorInstanceId actorId = 0;
+        int baseDisposition = 0;
+        std::uint64_t revision = 0;
+    };
+    struct RelationshipMutation
+    {
+        NpcRelationship resulting;
+        std::uint64_t expectedRevision = 0;
+    };
+
     struct DynamicRecordCommit
     {
         int64_t accountId = 0;
@@ -254,9 +266,11 @@ namespace mwmp
         /// server-authoritative crafting so skill progression commits
         /// atomically with the rest of the request.
         std::optional<BasePlayer> characterStats;
+        std::optional<ContainerRecord> bribeContainer;
         std::optional<std::vector<std::string>> spellbook;
         std::uint64_t expectedSpellbookRevision = 0;
         std::uint64_t resultingSpellbookRevision = 0;
+        std::optional<RelationshipMutation> relationship;
         std::optional<MerchantGoldMutation> merchantGoldMutation;
         /// Non-empty for trusted server-side requests that have no player
         /// account or inventory revision. These use a separate durable journal.
@@ -339,6 +353,7 @@ namespace mwmp
         // single-source fields above.
         std::vector<ContainerMutation> containerMutations;
         std::vector<WorldItemMutation> worldItemMutations;
+        std::optional<RelationshipMutation> relationship;
         std::optional<MerchantGoldMutation> merchantGoldMutation;
         std::optional<CrimeMutationCommit> crimeMutation;
         std::vector<StolenItemMutation> stolenItemMutations;
@@ -664,6 +679,8 @@ namespace mwmp
         std::size_t deleteDeadVanillaActorsForCell(std::string_view cellId);
 
         /// Load server-authoritative container inventories.
+        std::optional<NpcRelationship> loadRelationship(std::int64_t characterId, ActorInstanceId actorId);
+        std::vector<NpcRelationship> loadRelationships(std::int64_t characterId);
         std::vector<ContainerRecord> loadContainerRecords();
 
         /// Insert or update one server-authoritative container inventory.
@@ -874,6 +891,8 @@ namespace mwmp
         void removeKeypair(std::string_view publicKey);
 
     private:
+        void writeContainerRows(const ContainerRecord& record);
+        void writeRelationship(std::int64_t characterId, const RelationshipMutation& mutation);
         CrimeCommitResult commitPlayerCrimeMutationInTransaction(const CrimeMutationCommit& commit);
         void applyStolenItemMutationsInTransaction(
             int64_t characterId, const std::vector<StolenItemMutation>& mutations);
