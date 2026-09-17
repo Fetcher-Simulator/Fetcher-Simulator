@@ -908,6 +908,10 @@ namespace mwmp
         void exec(const char* sql);
         sqlite3_stmt* prepare(const char* sql);
 
+        // Inside the caller's transaction; false means a structural change
+        // requires the ordinary full snapshot/link replacement.
+        bool updateInventoryEnchantmentCharges(int64_t characterId, const std::vector<Item>& items);
+
         sqlite3* mDb = nullptr;
     };
 

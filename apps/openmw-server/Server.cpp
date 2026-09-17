@@ -8882,100 +8882,12 @@ bool MPServer::reconcileInventoryInstanceIds(ConnectedClient& c, std::vector<Ite
         c.pendingInventoryTransfers.end());
 
     const std::vector<Item>& previous = c.player.inventoryChanges.items;
-    std::unordered_set<uint32_t> used;
-    bool changed = false;
-    std::size_t invalidSuppliedIds = 0;
-    std::size_t recoveredPreviousIds = 0;
-    std::size_t recoveredTransferIds = 0;
-    std::size_t allocatedIds = 0;
-    std::string firstCorrectedRefId;
-    uint32_t firstRequestedId = 0;
-    uint32_t firstAssignedId = 0;
+    const auto result = reconcileInventoryIdentities(previous, items, c.pendingInventoryTransfers,
+        [this] { return reserveWorldMpNum(); });
+    if (result.allocationFailures != 0)
+        Log(Debug::Warning) << "[Server] Inventory instance ID space exhausted for " << c.name;
 
-    for (Item& item : items)
-    {
-        if (item.refId.empty() || item.count <= 0)
-            continue;
-
-        const uint32_t requestedId = item.instanceId;
-        bool itemIdentityChanged = false;
-        auto previousById = std::find_if(previous.begin(), previous.end(), [&](const Item& old) {
-            return item.instanceId != 0 && old.instanceId == item.instanceId && old.refId == item.refId;
-        });
-        auto transferById = std::find_if(c.pendingInventoryTransfers.begin(), c.pendingInventoryTransfers.end(),
-            [&](const ConnectedClient::PendingInventoryTransfer& transfer) {
-                return item.instanceId != 0 && transfer.instanceId == item.instanceId
-                    && transfer.refId == item.refId;
-            });
-        const bool suppliedIdIsValid = item.instanceId != 0 && used.count(item.instanceId) == 0
-            && (previousById != previous.end() || transferById != c.pendingInventoryTransfers.end());
-        if (!suppliedIdIsValid && item.instanceId != 0)
-        {
-            item.instanceId = 0;
-            changed = true;
-            itemIdentityChanged = true;
-            ++invalidSuppliedIds;
-        }
-
-        if (item.instanceId == 0)
-        {
-            const auto previousMatch = std::find_if(previous.begin(), previous.end(), [&](const Item& old) {
-                return old.instanceId != 0 && used.count(old.instanceId) == 0 && sameItemIdentity(old, item);
-            });
-            if (previousMatch != previous.end())
-            {
-                item.instanceId = previousMatch->instanceId;
-                itemIdentityChanged = true;
-                ++recoveredPreviousIds;
-            }
-        }
-
-        if (item.instanceId == 0)
-        {
-            const auto transfer = std::find_if(c.pendingInventoryTransfers.begin(), c.pendingInventoryTransfers.end(),
-                [&](const ConnectedClient::PendingInventoryTransfer& pending) {
-                    return pending.instanceId != 0 && used.count(pending.instanceId) == 0
-                        && pending.refId == item.refId;
-                });
-            if (transfer != c.pendingInventoryTransfers.end())
-            {
-                item.instanceId = transfer->instanceId;
-                transferById = transfer;
-                changed = true;
-                itemIdentityChanged = true;
-                ++recoveredTransferIds;
-            }
-        }
-
-        if (item.instanceId == 0)
-        {
-            const std::optional<uint32_t> allocated = reserveWorldMpNum();
-            if (!allocated)
-            {
-                Log(Debug::Warning) << "[Server] Inventory instance ID space exhausted for " << c.name;
-                continue;
-            }
-            item.instanceId = *allocated;
-            changed = true;
-            itemIdentityChanged = true;
-            ++allocatedIds;
-        }
-
-        if (itemIdentityChanged && firstCorrectedRefId.empty())
-        {
-            firstCorrectedRefId = item.refId;
-            firstRequestedId = requestedId;
-            firstAssignedId = item.instanceId;
-        }
-
-        used.insert(item.instanceId);
-        if (transferById != c.pendingInventoryTransfers.end())
-            c.pendingInventoryTransfers.erase(transferById);
-    }
-
-    const bool reconciledAnyIdentity
-        = invalidSuppliedIds != 0 || recoveredPreviousIds != 0 || recoveredTransferIds != 0 || allocatedIds != 0;
-    if (reconciledAnyIdentity
+    if (result.actionable()
         && (c.lastPlayerInventoryInstanceCorrectionLogMs == 0
             || nowMs - c.lastPlayerInventoryInstanceCorrectionLogMs >= 1000))
     {
@@ -8984,17 +8896,17 @@ bool MPServer::reconcileInventoryInstanceIds(ConnectedClient& c, std::vector<Ite
                          << " player=" << c.slotName
                          << " incomingStacks=" << items.size()
                          << " previousStacks=" << previous.size()
-                         << " invalidSupplied=" << invalidSuppliedIds
-                         << " recoveredPrevious=" << recoveredPreviousIds
-                         << " recoveredTransfer=" << recoveredTransferIds
-                         << " allocated=" << allocatedIds
-                         << " echoRequired=" << changed
-                         << " firstRef=" << firstCorrectedRefId
-                         << " firstRequested=" << firstRequestedId
-                         << " firstAssigned=" << firstAssignedId;
+                         << " invalidSupplied=" << result.invalidSuppliedIds
+                         << " recoveredPrevious=" << result.recoveredPreviousIds
+                         << " recoveredTransfer=" << result.recoveredTransferIds
+                         << " allocated=" << result.allocatedIds
+                         << " echoRequired=" << result.echoRequired
+                         << " firstRef=" << result.firstCorrectedRefId
+                         << " firstRequested=" << result.firstRequestedId
+                         << " firstAssigned=" << result.firstAssignedId;
     }
 
-    return changed;
+    return result.echoRequired;
 }
 
 bool MPServer::reconcileEquipmentInstanceIds(ConnectedClient& c)
@@ -9031,11 +8943,13 @@ bool MPServer::reconcileEquipmentInstanceIds(ConnectedClient& c)
 // ---------------------------------------------------------------------------
 void MPServer::handlePlayerInventory(ConnectedClient& c, const uint8_t* data, size_t size)
 {
+    InventoryProfileSample profile(c.inventoryProfile, c.slotName, size);
     BasePlayer incoming = c.player;
     PacketPlayerInventory pkt;
     pkt.setPlayer(&incoming);
     if (!pkt.decode(data, size)) return;
 
+    profile.stage(InventoryProfile::Validation);
     if (incoming.inventoryChanges.revision != c.inventoryRevision)
     {
         Log(Debug::Info) << "[Server] Rejected stale PlayerInventory from=" << c.name
@@ -9056,6 +8970,7 @@ void MPServer::handlePlayerInventory(ConnectedClient& c, const uint8_t* data, si
         }
     }
 
+    profile.stage(InventoryProfile::Apply);
     using InventoryAction = BasePlayer::InventoryChanges::Action;
     auto sameStack = [](const Item& left, const Item& right) {
         return left.refId == right.refId
@@ -9127,7 +9042,11 @@ void MPServer::handlePlayerInventory(ConnectedClient& c, const uint8_t* data, si
         }
     }
 
+    const bool chargeOnly = profile.active() && incoming.inventoryChanges.action == InventoryAction::Set
+        && isOnlyInventoryEnchantmentChargeChange(nextItems, c.player.inventoryChanges.items);
+    profile.stage(InventoryProfile::Reconciliation);
     reconcileInventoryInstanceIds(c, nextItems);
+    profile.stage(InventoryProfile::Apply);
     c.player.inventoryChanges.action = InventoryAction::Set;
     c.player.inventoryChanges.items = std::move(nextItems);
     ++c.inventoryRevision;
@@ -9138,6 +9057,8 @@ void MPServer::handlePlayerInventory(ConnectedClient& c, const uint8_t* data, si
     c.hasRestoredInventorySnapshot = true;
     c.playerInventoryRestoreGuardUntilMs = 0;
 
+    profile.accepted(c.player.inventoryChanges.items.size(), chargeOnly);
+    profile.stage(InventoryProfile::Persistence);
     if (mPlayerDb && c.dbCharacterId != 0)
     {
         try
@@ -9151,11 +9072,15 @@ void MPServer::handlePlayerInventory(ConnectedClient& c, const uint8_t* data, si
         }
     }
 
+    profile.stage(InventoryProfile::Lua);
     syncLuaPlayerSnapshot();
+    profile.stage(InventoryProfile::Gc);
     scheduleGeneratedDynamicRecordGc("player_inventory");
+    profile.stage(InventoryProfile::Encode);
     PacketPlayerInventory authoritative;
     authoritative.setPlayer(&c.player);
     const std::vector<uint8_t> encoded = authoritative.encode();
+    profile.stage(InventoryProfile::Send);
     // Ordinary client inventory changes already describe the sender's live
     // inventory. Echoing the full Set snapshot makes the client rebuild every
     // stack for routine mutations such as consuming one arrow. Only return a
