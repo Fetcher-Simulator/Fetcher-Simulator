@@ -200,6 +200,42 @@ return {
         EXPECT_EQ(mLua.readBaseSource(VFS::Path::Normalized(counterPath)), baseCounterSource);
     }
 
+    TEST_F(LuaStateTest, SessionOverrideDecoratesOriginalInAnIsolatedSandbox)
+    {
+        const VFS::Path::Normalized path(testsPath);
+        LuaUtil::LuaState::SourceOverlay overlay;
+        overlay.emplace(path, R"(
+            local original = loadOriginalScript({ math = { sin = function() return 123 end } })
+            local secondLoad = pcall(loadOriginalScript)
+            return { original = original, secondLoad = secondLoad, normalSin = math.sin(0) }
+        )");
+        mLua.setSourceOverlay(std::move(overlay));
+        const sol::table decorated = mLua.runInNewSandbox(path);
+        const sol::table original = decorated["original"];
+        EXPECT_EQ(LuaUtil::call(original["requireMathSin"], 0).get<int>(), 123);
+        EXPECT_EQ(decorated["normalSin"].get<int>(), 0);
+        EXPECT_FALSE(decorated["secondLoad"].get<bool>());
+        EXPECT_EQ(LuaUtil::call(original["useCounter"]).get<int>(), 43);
+        const sol::table second = mLua.runInNewSandbox(path);
+        EXPECT_EQ(LuaUtil::call(second["original"]["useCounter"]).get<int>(), 43);
+        mLua.clearSourceOverlay();
+        const sol::table restored = mLua.runInNewSandbox(path);
+        EXPECT_EQ(LuaUtil::call(restored["requireMathSin"], 0).get<int>(), 0);
+    }
+
+    TEST_F(LuaStateTest, OriginalLoaderIsAbsentForNonOverridesAndPackageOnlyScripts)
+    {
+        const VFS::Path::Normalized path("scripts/multiplayer/test/main.lua");
+        LuaUtil::LuaState::SourceOverlay overlay;
+        overlay.emplace(path, "return { present = loadOriginalScript ~= nil }");
+        mLua.setSourceOverlay(std::move(overlay));
+        const sol::table script = mLua.runInNewSandbox(path);
+        EXPECT_FALSE(script["present"].get<bool>());
+        mLua.clearSourceOverlay();
+        const sol::table base = mLua.runInNewSandbox(VFS::Path::Normalized(counterPath));
+        EXPECT_EQ(LuaUtil::call(base["get"]).get<int>(), 42);
+    }
+
     TEST_F(LuaStateTest, ReadOnly)
     {
         const VFS::Path::Normalized path("bbb/tests.lua");

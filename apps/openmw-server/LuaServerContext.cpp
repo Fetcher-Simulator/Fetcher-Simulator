@@ -921,9 +921,14 @@ float LuaServerContext::getWorldHour() const
 
 std::optional<LuaActorSnapshot> LuaServerContext::getActor(uint32_t mpNum) const
 {
+    return getActorByInstanceId(packActorInstanceKey({ ActorKeyKind::SpawnedMpNum, mpNum }));
+}
+
+std::optional<LuaActorSnapshot> LuaServerContext::getActorByInstanceId(ActorInstanceId actorId) const
+{
     std::lock_guard<std::mutex> lock(mActorsMutex);
-    auto it = mActorsByMpNum.find(mpNum);
-    if (it == mActorsByMpNum.end())
+    auto it = mActorsByInstanceId.find(actorId);
+    if (it == mActorsByInstanceId.end())
         return std::nullopt;
     return it->second;
 }
@@ -1710,38 +1715,39 @@ void LuaServerContext::clearPlayerData(uint32_t guid)
 void LuaServerContext::syncActors(std::vector<LuaActorSnapshot> actors)
 {
     std::lock_guard<std::mutex> lock(mActorsMutex);
-    mActorsByMpNum.clear();
+    mActorsByInstanceId.clear();
     for (auto& actor : actors)
     {
-        if (actor.actor.mpNum == 0)
+        const auto actorId = actorInstanceIdFromActor(actor.actor);
+        if (actorId == 0)
             continue;
-        mActorsByMpNum[actor.actor.mpNum] = std::move(actor);
+        mActorsByInstanceId[actorId] = std::move(actor);
     }
 }
 
 void LuaServerContext::upsertActor(LuaActorSnapshot actor)
 {
-    const uint32_t mpNum = actor.actor.mpNum;
-    if (mpNum == 0)
+    const auto actorId = actorInstanceIdFromActor(actor.actor);
+    if (actorId == 0)
         return;
 
     std::lock_guard<std::mutex> lock(mActorsMutex);
-    mActorsByMpNum.insert_or_assign(mpNum, std::move(actor));
+    mActorsByInstanceId.insert_or_assign(actorId, std::move(actor));
 }
 
-void LuaServerContext::removeActor(uint32_t mpNum)
+void LuaServerContext::removeActorByInstanceId(ActorInstanceId actorId)
 {
-    if (mpNum == 0)
+    if (actorId == 0)
         return;
 
     std::lock_guard<std::mutex> lock(mActorsMutex);
-    mActorsByMpNum.erase(mpNum);
+    mActorsByInstanceId.erase(actorId);
 }
 
 void LuaServerContext::clearActors()
 {
     std::lock_guard<std::mutex> lock(mActorsMutex);
-    mActorsByMpNum.clear();
+    mActorsByInstanceId.clear();
 }
 
 void LuaServerContext::syncPlacedObjects(std::vector<PlacedObject> objects)

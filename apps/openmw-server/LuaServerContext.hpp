@@ -15,6 +15,7 @@
 
 #include <components/openmw-mp/Base/BaseObject.hpp>
 #include <components/openmw-mp/Base/BaseActor.hpp>
+#include <components/openmw-mp/Base/ActorSyncProtocol.hpp>
 #include <components/openmw-mp/Base/SurfPhysicsSettings.hpp>
 #include <components/lua/configuration.hpp>
 #include <components/lua/luastate.hpp>
@@ -61,6 +62,8 @@ struct LuaActorSnapshot
 {
     BaseActor actor;
     bool persistent = false;
+    uint32_t authorityGuid = 0;
+    bool isNpc = false;
 };
 
 struct ContentFileRule
@@ -141,6 +144,7 @@ public:
     double getUptime() const;
     float getWorldHour() const;
     std::optional<LuaActorSnapshot> getActor(uint32_t mpNum) const;
+    std::optional<LuaActorSnapshot> getActorByInstanceId(ActorInstanceId actorId) const;
     std::optional<PlacedObject> getPlacedObject(uint32_t mpNum) const;
     SurfPhysicsSettings getGlobalSurfPhysicsSettings() const;
     SurfPhysicsSettings getCellSurfPhysicsSettings(const std::string& cellId) const;
@@ -235,7 +239,7 @@ public:
     void clearPlayerData(uint32_t guid);
     void syncActors(std::vector<LuaActorSnapshot> actors);
     void upsertActor(LuaActorSnapshot actor);
-    void removeActor(uint32_t mpNum);
+    void removeActorByInstanceId(ActorInstanceId actorId);
     void clearActors();
     void syncPlacedObjects(std::vector<PlacedObject> objects);
     void upsertPlacedObject(PlacedObject object);
@@ -345,7 +349,7 @@ private:
     mutable std::mutex                         mPlacedObjectsMutex;
     std::unordered_map<uint32_t, PlacedObject> mPlacedObjectsByMpNum;
     mutable std::mutex                         mActorsMutex;
-    std::unordered_map<uint32_t, LuaActorSnapshot> mActorsByMpNum;
+    std::unordered_map<ActorInstanceId, LuaActorSnapshot> mActorsByInstanceId;
     mutable std::mutex                         mGeneratedRecordIdMutex;
     std::string                                mGeneratedRecordIdPrefix = "$custom";
     std::unordered_map<std::string, uint64_t>  mNextGeneratedRecordNumByType;

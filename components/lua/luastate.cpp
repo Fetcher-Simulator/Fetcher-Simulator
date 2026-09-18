@@ -245,6 +245,26 @@ namespace LuaUtil
                     end
                 end
 
+                -- A session override can decorate its installed base script without
+                -- copying it. Dependencies use an isolated require cache, and only
+                -- explicitly supplied module proxies differ from the normal API.
+                function originalScriptGen(env, loaded, loader)
+                    local used = false
+                    return function(proxies)
+                        if used then error('Original script already loaded', 2) end
+                        used = true
+                        local baseEnv = setmetatable({}, {__index = env, __metatable = false})
+                        baseEnv._G = baseEnv
+                        baseEnv.loadOriginalScript = false
+                        local baseLoaded = {}
+                        for k, v in pairs(loaded) do baseLoaded[k] = v end
+                        for k, v in pairs(proxies or {}) do baseLoaded[k] = v end
+                        baseEnv.require = requireGen(baseEnv, baseLoaded, loadFromVFS)
+                        setEnvironment(baseEnv, loader)
+                        return loader()
+                    end
+                end
+
                 function createStrictIndexFn(tbl)
                     return function(_, key)
                         local res = tbl[key]
@@ -373,6 +393,16 @@ namespace LuaUtil
         for (const auto& [key, value] : packages)
             loaded[key] = maybeRunLoader(value);
         env["require"] = mSol["requireGen"](env, loaded, mSol["loadFromVFS"]);
+
+        // Only the exact overridden entry point can load its own installed base.
+        // No arbitrary path, source text, filesystem access, or extra API privileges.
+        if (mSourceOverlay.contains(path) && baseSourceExists(path))
+        {
+            sol::load_result base = mSol.load(readBaseSource(path), path.value() + " (original)", sol::load_mode::text);
+            if (!base.valid())
+                throw std::runtime_error(std::string("Lua error: ") + base.get<sol::error>().what());
+            env["loadOriginalScript"] = mSol["originalScriptGen"](env, loaded, base.get<sol::function>());
+        }
 
         sol::set_environment(env, script);
         return call(scriptId, script);

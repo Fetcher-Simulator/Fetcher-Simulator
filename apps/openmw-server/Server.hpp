@@ -469,7 +469,7 @@ private:
     void syncLuaPlayerSnapshot();
     void rebuildLuaActorSnapshot();
     void markLuaActorDirty(const ActorRegistryRecord& record, const std::string& cellId);
-    void markLuaActorRemoved(uint32_t mpNum);
+    void markLuaActorRemoved(ActorInstanceId actorId);
     void flushLuaActorChanges();
     void syncLuaAuthorityState();
     void sendAuthoritativeInventory(ConnectedClient& c);
@@ -831,8 +831,8 @@ private:
 
     // ── Scripting ─────────────────────────────────────────────────────────
     LuaServerContext mLua { this };
-    std::unordered_map<uint32_t, LuaActorLocation> mLuaDirtyActors;
-    std::unordered_set<uint32_t> mLuaRemovedActors;
+    std::unordered_map<ActorInstanceId, LuaActorLocation> mLuaDirtyActors;
+    std::unordered_set<ActorInstanceId> mLuaRemovedActors;
 
     // ── Master server ──────────────────────────────────────────────────────
     // Populated from server.cfg / command-line before run() is called.

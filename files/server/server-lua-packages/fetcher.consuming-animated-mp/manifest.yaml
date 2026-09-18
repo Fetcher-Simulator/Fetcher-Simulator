@@ -1,0 +1,29 @@
+manifestVersion: 3
+packageId: fetcher.consuming-animated-mp
+packageVersion: 5
+requiredOpenMWLuaApi: 141
+requiredMultiplayerLuaApi: 12
+dependencies: []
+files:
+  - client/resources.lua
+  - client/source.lua
+  - client/global.lua
+  - client/receiver.lua
+  - overrides/player.lua
+  - overrides/watcher.lua
+scripts:
+  - path: client/global.lua
+    flags: [global]
+  - path: client/receiver.lua
+    flags: [custom]
+overrides:
+  - target: scripts/potionanim_player.lua
+    source: overrides/player.lua
+    targetPolicy: if-present
+    acceptedBaseHashes:
+      - 76db398e14cf306c27bdea867968f9399333739a125f1e2823b2e4327f6da364
+  - target: scripts/potionanim_watcher.lua
+    source: overrides/watcher.lua
+    targetPolicy: if-present
+    acceptedBaseHashes:
+      - ef9675e9b7c87eac5d87ec0a198f21365ae3c8768e294d080c7e8e22872744a5
