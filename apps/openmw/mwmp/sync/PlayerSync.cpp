@@ -38,6 +38,7 @@
 #include "../network/Client.hpp"
 #include "../network/Protocol.hpp"
 #include "../Main.hpp"
+#include "RemotePlayer.hpp"
 
 // OpenMW world/player access
 #include "../../mwbase/environment.hpp"

@@ -2089,7 +2089,6 @@ void WorldObjectSync::invalidateContainerCellForReset(const std::string& cellId)
     for (const std::uint32_t mpNum : resetMpNums)
     {
         unregisterObject(mpNum);
-        mLastKnownObjectPositions.erase(mpNum);
     }
 
     std::vector<MWWorld::Ptr> resetPendingLocalObjects;
