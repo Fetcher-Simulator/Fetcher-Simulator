@@ -1,6 +1,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <components/debug/debuglog.hpp>
 #include <components/files/fixedpath.hpp>
 #include <components/l10n/manager.hpp>
 #include <components/lua/l10n.hpp>
@@ -112,6 +113,18 @@ unnamed_string:
 
     struct LuaL10nTest : Test
     {
+        void SetUp() override
+        {
+            mPreviousLogLevel = Log::sMinDebugLevel;
+            Log::sMinDebugLevel = Debug::Verbose;
+        }
+
+        void TearDown() override
+        {
+            Log::sMinDebugLevel = mPreviousLogLevel;
+        }
+
+        Debug::Level mPreviousLogLevel = Debug::Info;
         std::unique_ptr<VFS::Manager> mVFS = createTestVFS({
             { test1EnPath, &test1En },
             { test1EnUsPath, &test1EnUS },
