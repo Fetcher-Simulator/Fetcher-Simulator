@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include <components/debug/debuglog.hpp>
+#include <components/esm3/loadmgef.hpp>
 #include <components/openmw-mp/Packets/Lua/PacketLuaEvent.hpp>
 #include <components/openmw-mp/Packets/Lua/PacketLuaStorage.hpp>
 #include <components/openmw-mp/Records/EsmDynamicRecordConversion.hpp>
@@ -15,11 +16,13 @@
 #include "../mwbase/luamanager.hpp"
 #include "../mwbase/world.hpp"
 #include "../mwlua/context.hpp"
+#include "../mwlua/luamanagerimp.hpp"
 #include "../mwlua/object.hpp"
 #include "../mwlua/magictypebindings.hpp"
 #include "../mwlua/types/types.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwmechanics/creaturestats.hpp"
+#include "../mwmechanics/spellcasting.hpp"
 #include "Main.hpp"
 #include "network/Client.hpp"
 #include "records/RecordCreationManager.hpp"
@@ -45,6 +48,40 @@ namespace mwmp
                 return sol::nullopt;
 
             return mpNum;
+        }
+
+        template <class ObjectT>
+        bool playMagicEffectPresentation(const MWLua::Context& context, const ObjectT& object, std::string_view effectId)
+        {
+            if (!Main::isInitialised() || !Main::isConnected() || effectId.empty() || !context.mLuaManager)
+                return false;
+
+            const MWWorld::Ptr& ptr = object.ptrOrEmpty();
+            if (ptr.isEmpty() || !ptr.getClass().isActor())
+                return false;
+
+            const ESM::RefId effectRefId = ESM::RefId::stringRefId(effectId);
+            const auto store = MWBase::Environment::get().getESMStore();
+            if (!store->get<ESM::MagicEffect>().search(effectRefId))
+                return false;
+
+            // Keep scene-graph mutations on the same deferred action path used by
+            // openmw.animation.addVfx/removeVfx. Calling playEffects directly from
+            // a Lua event can invalidate an actor's OSG children before cull traversal.
+            context.mLuaManager->addAction(
+                [object = MWLua::Object(object), effectRefId] {
+                    if (!Main::isInitialised() || !Main::isConnected())
+                        return;
+                    const MWWorld::Ptr& livePtr = object.ptrOrEmpty();
+                    if (livePtr.isEmpty() || !livePtr.getClass().isActor())
+                        return;
+                    const auto liveStore = MWBase::Environment::get().getESMStore();
+                    const ESM::MagicEffect* effect = liveStore->get<ESM::MagicEffect>().search(effectRefId);
+                    if (effect)
+                        MWMechanics::playEffects(livePtr, *effect);
+                },
+                "mp.playMagicEffectPresentation");
+            return true;
         }
 
         records::CreateOperation parseCreateOperation(std::string_view value)
@@ -713,6 +750,32 @@ namespace mwmp
             [](const MWLua::GObject& object) -> sol::optional<uint32_t> {
                 return getObjectMpNum(object);
             }));
+
+        // Presentation-only: replay the engine's native magic hit VFX/sound on
+        // an already-resolved actor without applying any gameplay effect.
+        mp.set_function("playMagicEffectPresentation", sol::overload(
+            [context](const MWLua::LObject& object, std::string_view effectId) {
+                return playMagicEffectPresentation(context, object, effectId);
+            },
+            [context](const MWLua::GObject& object, std::string_view effectId) {
+                return playMagicEffectPresentation(context, object, effectId);
+            }));
+
+        // ActorSync's canonical key covers both placed content references and
+        // server-spawned actors. Its 33-bit value is exact in Lua numbers.
+        const auto actorInstanceId = [](const auto& object) -> sol::optional<uint64_t> {
+            if (!Main::isInitialised() || !Main::isConnected())
+                return sol::nullopt;
+            const MWWorld::Ptr& ptr = object.ptrOrEmpty();
+            if (ptr.isEmpty())
+                return sol::nullopt;
+            const auto& sync = Main::get().getActorSync();
+            const auto id = sync.actorNetIdForPtr(sync.getActorAuthorityCellId(ptr), ptr);
+            return id != 0 ? sol::optional<uint64_t>(id) : sol::nullopt;
+        };
+        mp.set_function("getActorInstanceId", sol::overload(
+            [actorInstanceId](const MWLua::LObject& object) { return actorInstanceId(object); },
+            [actorInstanceId](const MWLua::GObject& object) { return actorInstanceId(object); }));
 
         return LuaUtil::makeReadOnly(mp);
         }));

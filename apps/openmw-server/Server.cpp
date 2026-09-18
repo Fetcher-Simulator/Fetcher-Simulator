@@ -4247,6 +4247,8 @@ bool MPServer::refreshActorAuthorityForCell(
     if (authorityChanged)
     {
         cellState.authorityGuid = newAuthorityGuid;
+        for (const auto& [key, record] : cellState.actors)
+            markLuaActorDirty(record, cellId);
         ++cellState.authorityGeneration;
         cellState.authorityStickyUntilMs = newAuthorityGuid != 0
             ? now + static_cast<uint64_t>(mActorAuthorityStickyMs) : 0;
@@ -4283,7 +4285,7 @@ bool MPServer::refreshActorAuthorityForCell(
             broadcastActorIdentityRemovalForCell(cellId, cellState, removedRecords);
             for (const ActorRegistryRecord& record : removedRecords)
             {
-                markLuaActorRemoved(record.actor.mpNum);
+                markLuaActorRemoved(actorInstanceIdFromActor(record.actor));
                 forgetActorNetId(record.actorNetId, record.actor);
             }
             if (mPlayerDb)
@@ -5073,6 +5075,7 @@ void MPServer::updateActorAuthorityLeaseFromAi(const std::string& cellId,
 void MPServer::broadcastActorAuthorityLease(
     const std::string& cellId, const ActorRegistryRecord& record)
 {
+    markLuaActorDirty(record, cellId);
     ActorList authority;
     authority.cellId = cellId;
     authority.isAuthority = record.actorAuthorityGuid != 0;
@@ -11728,8 +11731,8 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
 
     for (const ActorRegistryRecord& previousRecord : previousCellRecords)
     {
-        const uint32_t mpNum = previousRecord.actor.mpNum;
-        if (mpNum == 0)
+        const ActorInstanceId actorId = actorInstanceIdFromActor(previousRecord.actor);
+        if (actorId == 0)
             continue;
 
         const std::string actorKey = makeActorKey(previousRecord.actor);
@@ -11739,20 +11742,20 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
         const auto locationIt = mWorld.actorLocations.find(actorKey);
         if (locationIt == mWorld.actorLocations.end())
         {
-            markLuaActorRemoved(mpNum);
+            markLuaActorRemoved(actorId);
             continue;
         }
 
         const auto trackedCellIt = mWorld.actorCells.find(locationIt->second);
         if (trackedCellIt == mWorld.actorCells.end())
         {
-            markLuaActorRemoved(mpNum);
+            markLuaActorRemoved(actorId);
             continue;
         }
 
         const auto trackedActorIt = trackedCellIt->second.actors.find(actorKey);
         if (trackedActorIt == trackedCellIt->second.actors.end())
-            markLuaActorRemoved(mpNum);
+            markLuaActorRemoved(actorId);
         else
             markLuaActorDirty(trackedActorIt->second, trackedCellIt->first);
     }
@@ -14696,7 +14699,7 @@ bool MPServer::disposeCorpseAuthoritative(
     if (mPlayerDb)
         mPlayerDb->deleteContainerRecord(canonicalCellId, actor.refId, actor.refNum, actor.mpNum);
 
-    markLuaActorRemoved(actor.mpNum);
+    markLuaActorRemoved(actorInstanceIdFromActor(actor));
 
     // Broadcast removal with CorpseDisposed reason.
     broadcastActorIdentityRemovalForCell(canonicalCellId, cellIt != mWorld.actorCells.end()
@@ -19534,6 +19537,8 @@ void MPServer::handleLuaEvent(ConnectedClient& c, const uint8_t* data, size_t si
                             << "; falling back to queued Lua event";
     }
 
+    // Publish lease/cell changes before Lua validates an incoming actor request.
+    flushLuaActorChanges();
     mLua.onLuaEvent(c.guid, c.dbCharacterId, pkt.eventName, pkt.eventData);
 }
 
@@ -20012,7 +20017,7 @@ bool MPServer::removeActor(uint32_t mpNum, const std::string& cellId)
     if (!removed)
         return false;
 
-    markLuaActorRemoved(mpNum);
+    markLuaActorRemoved(packActorInstanceKey({ ActorKeyKind::SpawnedMpNum, mpNum }));
     broadcastActorIdentityRemovalForCell(resolvedCellId, cellIt->second, removedRecords);
 
     for (const ActorRegistryRecord& record : removedRecords)
@@ -20276,8 +20281,7 @@ MPServer::WorldResetResult MPServer::resetCellStatesForTesting(
                 cellId, cellState, plan.removedActors, ActorRemovalReason::CellReset);
         for (const ActorRegistryRecord& record : plan.removedActors)
         {
-            if (record.actor.mpNum != 0)
-                markLuaActorRemoved(record.actor.mpNum);
+            markLuaActorRemoved(actorInstanceIdFromActor(record.actor));
         }
 
         ActorList emptyActors;
@@ -20860,7 +20864,7 @@ void MPServer::rebuildLuaActorSnapshot()
     {
         for (const auto& [actorKey, record] : cellState.actors)
         {
-            if (record.actor.mpNum == 0)
+            if (actorInstanceIdFromActor(record.actor) == 0)
                 continue;
 
             LuaActorSnapshot snapshot;
@@ -20868,6 +20872,10 @@ void MPServer::rebuildLuaActorSnapshot()
             if (snapshot.actor.cellId.empty())
                 snapshot.actor.cellId = cellId;
             snapshot.persistent = record.persistent;
+            snapshot.authorityGuid = isActorAuthorityLeaseValid(record, cellId)
+                ? record.actorAuthorityGuid : cellState.authorityGuid;
+            snapshot.isNpc = mContentRegistry && mContentRegistry->store().get<ESM::NPC>().search(
+                ESM::RefId::stringRefId(record.actor.refId)) != nullptr;
             actors.push_back(std::move(snapshot));
         }
     }
@@ -20879,22 +20887,22 @@ void MPServer::rebuildLuaActorSnapshot()
 // ---------------------------------------------------------------------------
 void MPServer::markLuaActorDirty(const ActorRegistryRecord& record, const std::string& cellId)
 {
-    const uint32_t mpNum = record.actor.mpNum;
-    if (mpNum == 0)
+    const ActorInstanceId actorId = actorInstanceIdFromActor(record.actor);
+    if (actorId == 0)
         return;
 
-    mLuaRemovedActors.erase(mpNum);
-    mLuaDirtyActors.insert_or_assign(mpNum, LuaActorLocation { cellId, makeActorKey(record.actor) });
+    mLuaRemovedActors.erase(actorId);
+    mLuaDirtyActors.insert_or_assign(actorId, LuaActorLocation { cellId, makeActorKey(record.actor) });
 }
 
 // ---------------------------------------------------------------------------
-void MPServer::markLuaActorRemoved(uint32_t mpNum)
+void MPServer::markLuaActorRemoved(ActorInstanceId actorId)
 {
-    if (mpNum == 0)
+    if (actorId == 0)
         return;
 
-    mLuaDirtyActors.erase(mpNum);
-    mLuaRemovedActors.insert(mpNum);
+    mLuaDirtyActors.erase(actorId);
+    mLuaRemovedActors.insert(actorId);
 }
 
 // ---------------------------------------------------------------------------
@@ -20907,22 +20915,22 @@ void MPServer::flushLuaActorChanges()
         return;
     }
 
-    for (uint32_t mpNum : mLuaRemovedActors)
-        mLua.removeActor(mpNum);
+    for (ActorInstanceId actorId : mLuaRemovedActors)
+        mLua.removeActorByInstanceId(actorId);
 
-    for (const auto& [mpNum, location] : mLuaDirtyActors)
+    for (const auto& [actorId, location] : mLuaDirtyActors)
     {
         const auto cellIt = mWorld.actorCells.find(location.cellId);
         if (cellIt == mWorld.actorCells.end())
         {
-            mLua.removeActor(mpNum);
+            mLua.removeActorByInstanceId(actorId);
             continue;
         }
 
         const auto actorIt = cellIt->second.actors.find(location.actorKey);
-        if (actorIt == cellIt->second.actors.end() || actorIt->second.actor.mpNum != mpNum)
+        if (actorIt == cellIt->second.actors.end() || actorInstanceIdFromActor(actorIt->second.actor) != actorId)
         {
-            mLua.removeActor(mpNum);
+            mLua.removeActorByInstanceId(actorId);
             continue;
         }
 
@@ -20931,6 +20939,10 @@ void MPServer::flushLuaActorChanges()
         if (snapshot.actor.cellId.empty())
             snapshot.actor.cellId = location.cellId;
         snapshot.persistent = actorIt->second.persistent;
+        snapshot.authorityGuid = isActorAuthorityLeaseValid(actorIt->second, location.cellId)
+            ? actorIt->second.actorAuthorityGuid : cellIt->second.authorityGuid;
+        snapshot.isNpc = mContentRegistry && mContentRegistry->store().get<ESM::NPC>().search(
+            ESM::RefId::stringRefId(snapshot.actor.refId)) != nullptr;
         mLua.upsertActor(std::move(snapshot));
     }
 

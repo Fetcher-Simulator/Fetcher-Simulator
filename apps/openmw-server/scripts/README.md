@@ -492,6 +492,32 @@ Use a Lua 5.1/LuaJIT-compatible parser for the closest match to this runtime. A 
 
 ## Source files for deeper technical details
 
+### Actor presentation authority snapshots (multiplayer Lua API 11)
+
+`mp.getActorByMpNum(mpNum)` returns `nil` for an unknown actor. Its read-only
+snapshot now includes `authorityGuid` (effective valid per-actor lease owner,
+otherwise cell authority, or zero) and `isNpc` (resolved against server NPC
+content; false when unavailable). Existing `cell` and `isDead` fields still apply.
+The server publishes snapshots under the actor mutex; Lua reads copies without
+accessing live world state from its worker thread. Cell authority changes and
+lease broadcasts mark affected snapshots dirty, and pending changes are flushed
+before inbound Lua events are queued. Adapters must compare the authenticated
+`data.pid`, expected cell, actor type/death and player cell relevance on every
+operation. A snapshot is a validation view, not a grant of mutation permission.
+
+The consuming presentation adapter is documented in
+`files/server/server-lua-packages/fetcher.consuming-animated-mp/README.md`.
+
+### Canonical actor instance lookup (multiplayer Lua API 12)
+
+Client Lua can call `mp.getActorInstanceId(actor)` to obtain ActorSync's canonical
+identity for either a placed content actor (`refNum`) or a server-spawned actor
+(`mpNum`) without collapsing the two namespaces. Server Lua can resolve the same
+identity with `mp.getActorByInstanceId(id)`. The returned snapshot includes the
+API 11 authority/type fields described above. `mp.getActorByMpNum(mpNum)` remains
+available for callers that explicitly address spawned actors. Actor instance IDs
+currently fit in 33 bits and are therefore exact Lua numbers.
+
 The implementation is the final source of truth:
 
 - `apps/openmw-server/LuaServerContext.cpp` — script discovery, manifests, packages, storage, event queues, Lua thread, ticks, immediate intents, and outbound actions.
