@@ -47,6 +47,7 @@ jobs:
       if: ${{ inputs.image != 'macos-15-intel' }}
 
     - name: Install Building Dependencies
+      timeout-minutes: 60
       run: CI/before_install.macos.sh
 
     - name: Prime ccache
