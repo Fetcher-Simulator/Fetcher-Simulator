@@ -150,6 +150,12 @@ namespace mwmp
     constexpr uint8_t ActorPresentationIdleMask
         = ActorPresentationIdleSingleCycle | ActorPresentationIdleEventParity;
 
+    inline bool hasActorIdlePlaybackChange(const AnimFlags& current, uint8_t incomingFlags)
+    {
+        return current.idleSingleCycle != ((incomingFlags & ActorPresentationIdleSingleCycle) != 0)
+            || current.idleEventParity != ((incomingFlags & ActorPresentationIdleEventParity) != 0);
+    }
+
     inline void applyActorIdlePresentationFlags(BaseActor& actor, uint8_t flags)
     {
         actor.animFlags.idleSingleCycle = (flags & ActorPresentationIdleSingleCycle) != 0;

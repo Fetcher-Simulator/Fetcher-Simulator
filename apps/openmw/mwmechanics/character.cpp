@@ -3076,6 +3076,9 @@ namespace MWMechanics
                 vec.y() *= std::sqrt(1.0f - swimUpwardCoef * swimUpwardCoef);
             }
 
+#ifdef BUILD_MULTIPLAYER
+            bool retainedTurnAnimation = false;
+#endif
             if (isBiped)
             {
                 if (mTurnAnimationThreshold > 0)
@@ -3089,6 +3092,9 @@ namespace MWMechanics
                 else if (movestate == CharState_None && isTurning() && mTurnAnimationThreshold > 0)
                 {
                     movestate = mMovementState;
+#ifdef BUILD_MULTIPLAYER
+                    retainedTurnAnimation = true;
+#endif
                 }
             }
 
@@ -3139,8 +3145,47 @@ namespace MWMechanics
             }
 #endif
 
+#ifdef BUILD_MULTIPLAYER
+            // AiWander waits for linear speed to reach zero before choosing an idle,
+            // but the controller may still be holding the previous turn animation for
+            // up to 50 ms. Do not let that visual-only hold immediately cancel a new
+            // finite idle. Genuine turn input selects a turn state before this hold
+            // branch and still clears the animation queue normally.
+            if (retainedTurnAnimation && !mAnimQueue.empty() && !mAnimQueue.front().mScripted
+                && isMpSpecialIdleGroup(mAnimQueue.front().mGroup))
+            {
+                if (watchMpIdle(mPtr))
+                    Log(Debug::Info) << "[MPWATCH] CharacterController: idle survives retained turn"
+                                     << " refId=" << mPtr.getCellRef().getRefId()
+                                     << " group='" << mAnimQueue.front().mGroup << "'"
+                                     << " movementState=" << static_cast<int>(mMovementState)
+                                     << " turnHold=" << mTurnAnimationThreshold;
+                resetCurrentMovementState();
+                mTurnAnimationThreshold = 0.f;
+                movestate = CharState_None;
+            }
+#endif
+
             if (movestate != CharState_None)
             {
+#ifdef BUILD_MULTIPLAYER
+                if (!mAnimQueue.empty() && !mAnimQueue.front().mScripted
+                    && isMpSpecialIdleGroup(mAnimQueue.front().mGroup) && watchMpIdle(mPtr))
+                {
+                    // Capture the decision that cancels the queue; mMovementState
+                    // still describes the previous frame inside clearAnimQueue().
+                    Log(Debug::Info) << "[MPWATCH] CharacterController: idle movement interrupt"
+                                     << " refId=" << mPtr.getCellRef().getRefId()
+                                     << " group='" << mAnimQueue.front().mGroup << "'"
+                                     << " previousMovementState=" << static_cast<int>(mMovementState)
+                                     << " nextMovementState=" << static_cast<int>(movestate)
+                                     << " inputRotation=" << rot.z()
+                                     << " effectiveRotation=" << effectiveRotation
+                                     << " turnHold=" << mTurnAnimationThreshold
+                                     << " speed=" << speed
+                                     << " fwd=" << vec.y() << " side=" << vec.x();
+                }
+#endif
                 clearAnimQueue();
                 jumpstate = JumpState_None;
             }

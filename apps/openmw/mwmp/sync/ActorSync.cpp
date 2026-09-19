@@ -4214,6 +4214,7 @@ namespace mwmp
                 || snapshot.currentAnimGroup.empty()
                 || isBaseIdleAnimGroup(snapshot.currentAnimGroup);
             const bool firstPresentationForRuntime = runtime.lastPresentationServerTimestamp == 0;
+            const bool locallyAuthoritative = hasAuthorityForActor(runtime.actorNetId, runtime.state.cellId);
             bool nodeHasSyncedIdleEvent = false;
             if (!runtime.boundActor.isEmpty())
             {
@@ -4232,11 +4233,11 @@ namespace mwmp
             // may choose its authoritative start point.
 
             const bool acceptIncomingSpecialIdle = incomingSpecialIdle
+                && !locallyAuthoritative
                 && (firstPresentationForRuntime
                     || !previousIsSpecialIdle
                     || previousGroup != snapshot.currentAnimGroup
-                    || runtime.state.animFlags.idleEventParity
-                        != ((snapshot.presentationFlags & ActorPresentationIdleEventParity) != 0)
+                    || hasActorIdlePlaybackChange(runtime.state.animFlags, snapshot.presentationFlags)
                     || !nodeHasSyncedIdleEvent);
 
             applyActorIdlePresentationFlags(runtime.state, snapshot.presentationFlags);
@@ -4255,7 +4256,11 @@ namespace mwmp
                     : runtime.syncedIdleRevision + 1;
             }
 
-            if (!runtime.boundActor.isEmpty())
+            // Bootstrap/echo presentations can arrive after local AI has started
+            // an idle. Only observers may write or clear the controller's idle
+            // node; otherwise an old base-idle sample erases the new play's metadata.
+            // Keep processing the runtime baseline and canonical death state below.
+            if (!runtime.boundActor.isEmpty() && !locallyAuthoritative)
             {
                 if (auto* baseNode = runtime.boundActor.getRefData().getBaseNode())
                 {
@@ -4418,6 +4423,8 @@ namespace mwmp
                                     << " snapshotCompletion=" << snapshot.currentAnimCompletion
                                     << " previousGroup='" << previousGroup << "'"
                                     << " flags=" << static_cast<unsigned>(snapshot.presentationFlags)
+                                    << " localAuthority=" << locallyAuthoritative
+                                    << " idleEventAccepted=" << acceptIncomingSpecialIdle
                                     << " latestPositionTs=" << runtime.lastServerTimestamp
                                     << " ts=" << list.serverTimestamp;
             }

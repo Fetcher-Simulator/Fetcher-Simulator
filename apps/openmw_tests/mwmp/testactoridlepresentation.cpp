@@ -114,3 +114,29 @@ TEST(ActorIdlePresentation, OneShotDoesNotWrapAtAnEarlierLoopStop)
     EXPECT_FALSE(oneShot.shouldLoop());
     EXPECT_FLOAT_EQ(oneShot.getCompletion(), 1.f);
 }
+
+TEST(ActorIdlePresentation, PlaybackModeChangeRecoversWithoutAParityEdge)
+{
+    // Reproduce startup: the observer first received an unmarked idle, then
+    // received a single-cycle play whose parity also happened to be false.
+    mwmp::BaseActor observer;
+    const auto incoming = mwmp::ActorPresentationIdleSingleCycle;
+    EXPECT_TRUE(mwmp::hasActorIdlePlaybackChange(observer.animFlags, incoming));
+    mwmp::applyActorIdlePresentationFlags(observer, incoming);
+    EXPECT_FALSE(mwmp::hasActorIdlePlaybackChange(observer.animFlags, incoming));
+    EXPECT_TRUE(mwmp::hasActorIdlePlaybackChange(observer.animFlags, 0));
+    EXPECT_TRUE(mwmp::hasActorIdlePlaybackChange(observer.animFlags,
+        incoming | mwmp::ActorPresentationIdleEventParity));
+}
+
+TEST(ActorIdlePresentation, PeriodicRefreshAndOtherFlagsDoNotRestartAnIdle)
+{
+    mwmp::BaseActor observer;
+    for (uint8_t idleFlags : { uint8_t(0), uint8_t(mwmp::ActorPresentationIdleSingleCycle),
+             uint8_t(mwmp::ActorPresentationIdleEventParity), uint8_t(mwmp::ActorPresentationIdleMask) })
+    {
+        mwmp::applyActorIdlePresentationFlags(observer, idleFlags);
+        for (uint8_t otherFlags = 0; otherFlags < mwmp::ActorPresentationIdleSingleCycle; ++otherFlags)
+            EXPECT_FALSE(mwmp::hasActorIdlePlaybackChange(observer.animFlags, idleFlags | otherFlags));
+    }
+}
