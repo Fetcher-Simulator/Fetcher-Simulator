@@ -2,6 +2,8 @@
 #include <gtest/gtest.h>
 
 #include <components/lua/luastate.hpp>
+#include <components/openmw-mp/ServerLuaPackage.hpp>
+#include <components/openmw-mp/Sha256.hpp>
 #include <components/testing/expecterror.hpp>
 #include <components/testing/util.hpp>
 
@@ -162,6 +164,33 @@ return {
         EXPECT_EQ(LuaUtil::call(script["useCounter"]).get<int>(), 45);
 
         EXPECT_ERROR(LuaUtil::call(script["incorrectRequire"]), "module not found: counter");
+    }
+
+    TEST_F(LuaStateTest, CompatibilityOverrideRejectsBaseSourceLoadedBeforeMultiplayerStaging)
+    {
+        const VFS::Path::Normalized path(counterPath);
+        const std::string baseSource = mLua.readBaseSource(path);
+        mwmp::serverlua::CompatibilityOverride override;
+        override.target = path.value();
+        override.source = "replacement.lua";
+        override.acceptedBaseHashes = { mwmp::crypto::sha256hex(baseSource) };
+
+        const auto beforeLoad = mwmp::serverlua::validateOverrideBase(
+            override, baseSource, mLua.hasCompiledSource(path));
+        ASSERT_TRUE(beforeLoad);
+        EXPECT_FALSE(beforeLoad.skipped);
+
+        // MENU scripts run before multiplayer package bootstrap. Reproduce that
+        // lifecycle boundary by executing the installed base source first.
+        EXPECT_NO_THROW(mLua.runInNewSandbox(path));
+        ASSERT_TRUE(mLua.hasCompiledSource(path));
+
+        const auto afterLoad = mwmp::serverlua::validateOverrideBase(
+            override, baseSource, mLua.hasCompiledSource(path));
+        ASSERT_FALSE(afterLoad);
+        ASSERT_TRUE(afterLoad.error.has_value());
+        EXPECT_EQ(afterLoad.error->code, "override_target_already_loaded");
+        EXPECT_EQ(afterLoad.baseHash, override.acceptedBaseHashes.front());
     }
 
     TEST_F(LuaStateTest, SessionSourceOverlayIsInvisibleUntilInstalledAndClearsWithoutChangingBaseVfs)

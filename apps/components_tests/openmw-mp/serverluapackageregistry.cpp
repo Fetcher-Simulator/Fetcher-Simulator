@@ -145,7 +145,7 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
 
     const auto& package = *packageIt;
     EXPECT_EQ(package.packageId, "fetcher.inventoryextender-fix");
-    EXPECT_EQ(package.packageVersion, 22u);
+    EXPECT_EQ(package.packageVersion, 24u);
     EXPECT_EQ(package.requiredMultiplayerLuaApi, 10u);
     EXPECT_LE(package.requiredMultiplayerLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion);
 
@@ -162,13 +162,21 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
         return count;
     };
 
+    const std::string* player = findSource("overrides/player.lua");
     const std::string* global = findSource("overrides/global.lua");
     const std::string* api = findSource("overrides/api.lua");
     const std::string* inventory = findSource("overrides/inventory.lua");
+    ASSERT_NE(player, nullptr);
     ASSERT_NE(global, nullptr);
     ASSERT_NE(api, nullptr);
     ASSERT_NE(inventory, nullptr);
     ASSERT_NE(findSource("overrides/droptarget.lua"), nullptr);
+    EXPECT_NE(player->find("I.Settings.registerGroup"), std::string::npos);
+    EXPECT_NE(player->find("key = 'SettingsInventoryExtender_fetcher'"), std::string::npos);
+    EXPECT_NE(player->find("key = 'enabled'"), std::string::npos);
+    EXPECT_NE(player->find("default = false"), std::string::npos);
+    EXPECT_NE(player->find("fetcherSettings:get('enabled') == true"), std::string::npos);
+    EXPECT_NE(player->find("configPlayer.window.b_EnableMod == true"), std::string::npos);
     EXPECT_NE(api->find("scripts.multiplayer.fetcher.inventoryextender-fix.overrides.droptarget"), std::string::npos);
     EXPECT_NE(global->find("requestBarterSources"), std::string::npos);
     EXPECT_NE(global->find("IE_BarterAuthorityReady"), std::string::npos);
@@ -204,6 +212,39 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
     EXPECT_NE(inventory->find("ctx.dragAndDrop:startDrag("), std::string::npos);
     EXPECT_NE(inventory->find("ctx.dragAndDrop:transferInto("), std::string::npos);
     EXPECT_NE(inventory->find("[MPINVTRACE] InventoryExtender UI"), std::string::npos);
+}
+
+TEST(ServerLuaPackageRegistry, ShippedInventoryCameraDefaultsDisabled)
+{
+    const auto root = std::filesystem::path{ OPENMW_PROJECT_SOURCE_DIR }
+        / "files" / "server" / "server-lua-packages";
+    mwmp::ServerLuaPackageRegistry registry(root, 141);
+    const auto packageIt = std::find_if(registry.packageSet().packages.begin(), registry.packageSet().packages.end(),
+        [](const auto& package) { return package.packageId == "fetcher.inventorycamera-defaults"; });
+    ASSERT_NE(packageIt, registry.packageSet().packages.end());
+
+    const auto& package = *packageIt;
+    EXPECT_EQ(package.packageVersion, 2u);
+    EXPECT_LE(package.requiredMultiplayerLuaApi, mwmp::serverlua::MultiplayerLuaApiVersion);
+    ASSERT_EQ(package.overrides.size(), 1u);
+    EXPECT_EQ(package.overrides.front().target, "scripts/inventorycamera/player.lua");
+
+    const auto findSource = [&](std::string_view path) -> const std::string* {
+        const auto it = std::find_if(package.files.begin(), package.files.end(), [&](const auto& file) {
+            return file.path == path;
+        });
+        return it == package.files.end() ? nullptr : &it->source;
+    };
+
+    const std::string* player = findSource("overrides/player.lua");
+    ASSERT_NE(player, nullptr);
+    EXPECT_NE(player->find("I.Settings.registerGroup"), std::string::npos);
+    EXPECT_NE(player->find("key = 'SettingsInventoryCamera_fetcher'"), std::string::npos);
+    EXPECT_NE(player->find("key = 'enabled'"), std::string::npos);
+    EXPECT_NE(player->find("default = false"), std::string::npos);
+    EXPECT_NE(player->find("local function isEnabled()"), std::string::npos);
+    EXPECT_NE(player->find("fetcherSettings:get('enabled') == true"), std::string::npos);
+    EXPECT_NE(player->find("if not isEnabled() then"), std::string::npos);
 }
 
 TEST(ServerLuaPackageRegistry, ShippedArrowStickUsesAuthoritativeProjectileRecovery)

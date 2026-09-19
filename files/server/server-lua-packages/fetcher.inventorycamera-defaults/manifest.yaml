@@ -1,0 +1,14 @@
+manifestVersion: 3
+packageId: fetcher.inventorycamera-defaults
+packageVersion: 2
+requiredOpenMWLuaApi: 141
+requiredMultiplayerLuaApi: 1
+dependencies: []
+files:
+  - overrides/player.lua
+overrides:
+  - target: scripts/inventorycamera/player.lua
+    source: overrides/player.lua
+    targetPolicy: if-present
+    acceptedBaseHashes:
+      - 8b8d28b1bf803fc4d676043910515ae03ee3e17f9065146a50a0dd6a037cb811
