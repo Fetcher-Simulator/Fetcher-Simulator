@@ -141,6 +141,9 @@ namespace mwmp
         // Normalized completion of currentAnimGroup for synced special idles.
         // Negative means unavailable.
         float currentAnimCompletion = -1.f;
+        // PresentationV2 metadata; position samples must not replace these.
+        bool idleSingleCycle = false;
+        bool idleEventParity = false;
 
         // movementFlags bit constants — must match the encode side in PlayerSync
         static constexpr uint32_t MF_RUN   = (1u << 0);

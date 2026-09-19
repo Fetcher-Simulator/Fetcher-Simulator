@@ -12650,16 +12650,18 @@ void MPServer::handleActorPresentationV2(ConnectedClient& c, const uint8_t* data
         actor.animFlags.movementFlags =
             (actor.animFlags.movementFlags & ~kReliablePresentationMovementFlags)
             | (snapshot.movementFlags & kReliablePresentationMovementFlags);
-        if (isReliablePresentationAnimGroup(snapshot.currentAnimGroup))
+        if (isReliablePresentationAnimGroup(snapshot.currentAnimGroup) || snapshot.currentAnimGroup == "idle")
         {
             actor.animFlags.currentAnimGroup = snapshot.currentAnimGroup;
             actor.animFlags.currentAnimCompletion = snapshot.currentAnimCompletion;
         }
-        else if (isReliablePresentationAnimGroup(actor.animFlags.currentAnimGroup))
+        else if (isReliablePresentationAnimGroup(actor.animFlags.currentAnimGroup)
+            || actor.animFlags.currentAnimGroup == "idle")
         {
             actor.animFlags.currentAnimGroup.clear();
             actor.animFlags.currentAnimCompletion = -1.f;
         }
+        applyActorIdlePresentationFlags(actor, snapshot.presentationFlags);
         if (snapshotIsDead)
         {
             actor.isMoving = false;

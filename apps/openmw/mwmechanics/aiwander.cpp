@@ -55,6 +55,22 @@ namespace MWMechanics
 
         constexpr std::size_t maxIdleSize = 8;
 
+#ifdef BUILD_MULTIPLAYER
+        void logWatchedIdleDecision(const MWWorld::Ptr& actor, const AiWanderStorage& storage,
+            unsigned distance, const char* reason)
+        {
+            const auto refId = actor.getCellRef().getRefId().serializeText();
+            if (refId != "tr_m3_bribanne erien" && refId != "tr_m3_valkreia krex"
+                && refId != "tr_m3_arquebald vene")
+                return;
+            Log(Debug::Info) << "[MPWATCH] AiWander: idle decision"
+                             << " refId=" << refId << " reason=" << reason
+                             << " idle=" << storage.mIdleAnimation << " distance=" << distance
+                             << " state=" << static_cast<int>(storage.mState)
+                             << " greeting=" << storage.mGreeting;
+        }
+#endif
+
         inline int getCountBeforeReset(const MWWorld::ConstPtr& actor)
         {
             if (actor.getClass().isPureWaterCreature(actor) || actor.getClass().isPureFlyingCreature(actor))
@@ -529,8 +545,12 @@ namespace MWMechanics
         {
             storage.mCheckIdlePositionTimer = 0; // restart timer
             static float distance = MWBase::Environment::get().getWorld()->getMaxActivationDistance() * 1.6f;
-            if (proximityToDoor(actor, distance) || !isNearAllowedPosition(actor, storage, distance))
+            const bool nearDoor = proximityToDoor(actor, distance);
+            if (nearDoor || !isNearAllowedPosition(actor, storage, distance))
             {
+#ifdef BUILD_MULTIPLAYER
+                logWatchedIdleDecision(actor, storage, mDistance, nearDoor ? "near-door" : "outside-wander-area");
+#endif
                 storage.setState(AiWanderStorage::Wander_MoveNow);
                 storage.mTrimCurrentPosition = false; // just in case
                 return;
@@ -540,6 +560,9 @@ namespace MWMechanics
         // Check if idle animation finished
         if (!checkIdle(actor, storage.mIdleAnimation))
         {
+#ifdef BUILD_MULTIPLAYER
+            logWatchedIdleDecision(actor, storage, mDistance, "animation-no-longer-playing");
+#endif
             if (mPathFinder.isPathConstructed())
                 storage.setState(AiWanderStorage::Wander_Walking, !mUsePathgrid);
             else
@@ -583,6 +606,9 @@ namespace MWMechanics
 
         unsigned short idleAnimation = getRandomIdle();
         storage.mIdleAnimation = idleAnimation;
+#ifdef BUILD_MULTIPLAYER
+        logWatchedIdleDecision(actor, storage, mDistance, "random-selection");
+#endif
 
         if (!idleAnimation && mDistance)
         {

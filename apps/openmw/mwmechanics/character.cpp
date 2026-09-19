@@ -86,7 +86,17 @@ namespace
     void setMpCurrentIdleGroup(const MWWorld::Ptr& ptr, const std::string& group)
     {
         if (auto* baseNode = ptr.getRefData().getBaseNode())
+        {
             baseNode->setUserValue("mp_current_idle_group", group);
+            baseNode->setUserValue("mp_current_idle_single_cycle", false);
+        }
+    }
+
+    bool watchMpIdle(const MWWorld::Ptr& ptr)
+    {
+        const auto refId = ptr.getCellRef().getRefId().serializeText();
+        return refId == "tr_m3_bribanne erien" || refId == "tr_m3_valkreia krex"
+            || refId == "tr_m3_arquebald vene";
     }
 
     bool getMpSyncedRemoteIdleGroup(
@@ -981,11 +991,32 @@ namespace MWMechanics
         // idle.  Otherwise every client can pick a different idle and phase.
         if (isMpRemoteActor && idle == CharState_SpecialIdle && !hasSyncedIdleGroup)
             idle = CharState_Idle;
+
+        bool syncedIdleSingleCycle = false;
+        double appliedIdleRevision = 0.0;
+        if (hasSyncedIdleGroup)
+        {
+            const auto* baseNode = mPtr.getRefData().getBaseNode();
+            baseNode->getUserValue("mp_synced_idle_single_cycle", syncedIdleSingleCycle);
+            baseNode->getUserValue("mp_synced_idle_applied_revision", appliedIdleRevision);
+            // Wander/greeting idles play once through start..stop on authority.
+            // Do not loop early at the asset's loop-stop key on the observer.
+            mAnimation->setLoopingEnabled(syncedIdleGroup, !syncedIdleSingleCycle);
+        }
+        const bool newSyncedIdleEvent = hasSyncedIdleGroup && syncedIdleRevision != 0
+            && static_cast<uint32_t>(std::min<double>(appliedIdleRevision, UINT32_MAX)) != syncedIdleRevision;
+        if (hasSyncedIdleGroup && !newSyncedIdleEvent && mCurrentIdle == syncedIdleGroup
+            && syncedIdleSingleCycle && mAnimation->getInfo(mCurrentIdle))
+        {
+            // Keep the completed pose until a new authoritative event or clear.
+            // Refresh samples never replay a finished one-shot from a stale phase.
+            return;
+        }
 #endif
 
         if (!force && idle == mIdleState && (mAnimation->isPlaying(mCurrentIdle) || !mAnimQueue.empty())
 #ifdef BUILD_MULTIPLAYER
-            && (!hasSyncedIdleGroup || mCurrentIdle == syncedIdleGroup)
+            && (!hasSyncedIdleGroup || (mCurrentIdle == syncedIdleGroup && !newSyncedIdleEvent))
 #endif
         )
         {
@@ -1047,7 +1078,7 @@ namespace MWMechanics
         {
             idleGroup = syncedIdleGroup;
             priority = getIdlePriority(CharState_SpecialIdle);
-            numLoops = std::numeric_limits<uint32_t>::max();
+            numLoops = syncedIdleSingleCycle ? 0 : std::numeric_limits<uint32_t>::max();
             mIdleState = CharState_SpecialIdle;
 
             if (!force && mCurrentIdle == idleGroup && (mAnimation->isPlaying(mCurrentIdle) || !mAnimQueue.empty()))
@@ -2460,6 +2491,18 @@ namespace MWMechanics
             if (shouldPlayOrRestart || !mAnimQueue.front().mScripted
                 || (mAnimQueue.front().mLoopCount == 0 && mAnimQueue.front().mLooping))
             {
+#ifdef BUILD_MULTIPLAYER
+                if (isMpSpecialIdleGroup(mAnimQueue.front().mGroup) && watchMpIdle(mPtr))
+                {
+                    float completion = -1.f;
+                    const bool present = mAnimation->getInfo(mAnimQueue.front().mGroup, &completion);
+                    Log(Debug::Info) << "[MPWATCH] CharacterController: idle finished"
+                                     << " refId=" << mPtr.getCellRef().getRefId()
+                                     << " group='" << mAnimQueue.front().mGroup << "'"
+                                     << " completion=" << (present ? completion : -1.f)
+                                     << " queued=" << mAnimQueue.size();
+                }
+#endif
                 mAnimation->setPlayScriptedOnly(false);
                 mAnimation->disable(mAnimQueue.front().mGroup);
                 mAnimQueue.pop_front();
@@ -2510,6 +2553,33 @@ namespace MWMechanics
                     mAnimQueue.front().mLooping);
 #ifdef BUILD_MULTIPLAYER
             setMpCurrentIdleGroup(mPtr, mAnimQueue.front().mGroup);
+            if (auto* baseNode = mPtr.getRefData().getBaseNode())
+            {
+                const auto& entry = mAnimQueue.front();
+                if (isMpSpecialIdleGroup(entry.mGroup))
+                {
+                    bool parity = false;
+                    baseNode->getUserValue("mp_current_idle_event_parity", parity);
+                    baseNode->setUserValue("mp_current_idle_event_parity", !parity);
+                    baseNode->setUserValue("mp_current_idle_single_cycle",
+                        entry.mLoopCount == 0 && !loopStart
+                            && entry.mStartKey == "start" && entry.mStopKey == "stop");
+                    if (watchMpIdle(mPtr))
+                        Log(Debug::Info) << "[MPWATCH] CharacterController: idle start"
+                                         << " refId=" << mPtr.getCellRef().getRefId()
+                                         << " group='" << entry.mGroup << "'"
+                                         << " scripted=" << entry.mScripted
+                                         << " loops=" << entry.mLoopCount
+                                         << " startKey='" << entry.mStartKey << "'"
+                                         << " loopStart=" << loopStart
+                                         << " startPoint=" << entry.mTime
+                                         << " eventParity=" << !parity
+                                         << " startTime=" << mAnimation->getTextKeyTime(entry.mGroup + ": start")
+                                         << " stopTime=" << mAnimation->getTextKeyTime(entry.mGroup + ": stop")
+                                         << " loopStartTime=" << mAnimation->getTextKeyTime(entry.mGroup + ": loop start")
+                                         << " loopStopTime=" << mAnimation->getTextKeyTime(entry.mGroup + ": loop stop");
+                }
+            }
 #endif
         }
     }
@@ -3194,6 +3264,20 @@ namespace MWMechanics
             }
 
             movement = vec;
+#ifdef BUILD_MULTIPLAYER
+            if (auto* baseNode = mPtr.getRefData().getBaseNode())
+            {
+                // ActorSync samples after these inputs are consumed/reset. Keep
+                // the controller's actual movement decision, including smooth
+                // starts/stops and blocked walking, instead of sampling zeros.
+                const bool locomotion = mMovementState != CharState_None && !isTurning()
+                    && (vec.x() != 0.f || vec.y() != 0.f) && speed > 0.f;
+                const float planarLength = std::sqrt(vec.x() * vec.x() + vec.y() * vec.y());
+                baseNode->setUserValue("mp_current_locomotion", locomotion);
+                baseNode->setUserValue("mp_current_locomotion_fwd", locomotion ? vec.y() / planarLength : 0.f);
+                baseNode->setUserValue("mp_current_locomotion_side", locomotion ? vec.x() / planarLength : 0.f);
+            }
+#endif
             movementSettings.mPosition[0] = movementSettings.mPosition[1] = 0;
 
             // Can't reset jump state (mPosition[2]) here in full; we don't know for sure whether the PhysicsSystem will
@@ -3554,6 +3638,23 @@ namespace MWMechanics
 
     void CharacterController::clearAnimQueue(bool clearScriptedAnims)
     {
+#ifdef BUILD_MULTIPLAYER
+        if (!mAnimQueue.empty() && isMpSpecialIdleGroup(mAnimQueue.front().mGroup) && watchMpIdle(mPtr)
+            && (clearScriptedAnims || !mAnimQueue.front().mScripted))
+        {
+            float completion = -1.f;
+            if (mAnimation)
+                mAnimation->getInfo(mAnimQueue.front().mGroup, &completion);
+            const auto& movement = mPtr.getClass().getMovementSettings(mPtr);
+            Log(Debug::Info) << "[MPWATCH] CharacterController: idle interrupted"
+                             << " refId=" << mPtr.getCellRef().getRefId()
+                             << " group='" << mAnimQueue.front().mGroup << "'"
+                             << " completion=" << completion
+                             << " clearScripted=" << clearScriptedAnims
+                             << " movementState=" << static_cast<int>(mMovementState)
+                             << " fwd=" << movement.mPosition[1] << " side=" << movement.mPosition[0];
+        }
+#endif
         // Do not interrupt scripted animations, if we want to keep them
         if (mAnimation && (!isScriptedAnimPlaying() || clearScriptedAnims) && !mAnimQueue.empty())
             mAnimation->disable(mAnimQueue.front().mGroup);

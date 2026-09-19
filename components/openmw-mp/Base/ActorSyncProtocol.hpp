@@ -143,7 +143,18 @@ namespace mwmp
         ActorPresentationAttackingOrCasting = 1u << 3,
         ActorPresentationTeleporting = 1u << 4,
         ActorPresentationDead = 1u << 5,
+        ActorPresentationIdleSingleCycle = 1u << 6,
+        ActorPresentationIdleEventParity = 1u << 7,
     };
+
+    constexpr uint8_t ActorPresentationIdleMask
+        = ActorPresentationIdleSingleCycle | ActorPresentationIdleEventParity;
+
+    inline void applyActorIdlePresentationFlags(BaseActor& actor, uint8_t flags)
+    {
+        actor.animFlags.idleSingleCycle = (flags & ActorPresentationIdleSingleCycle) != 0;
+        actor.animFlags.idleEventParity = (flags & ActorPresentationIdleEventParity) != 0;
+    }
 
     inline uint8_t makeActorPresentationFlags(const BaseActor& actor)
     {
@@ -160,6 +171,10 @@ namespace mwmp
             flags |= ActorPresentationTeleporting;
         if (actor.isDead)
             flags |= ActorPresentationDead;
+        if (actor.animFlags.idleSingleCycle)
+            flags |= ActorPresentationIdleSingleCycle;
+        if (actor.animFlags.idleEventParity)
+            flags |= ActorPresentationIdleEventParity;
         return flags;
     }
 
@@ -344,7 +359,7 @@ namespace mwmp
         snapshot.movementFlags = static_cast<uint16_t>(actor.animFlags.movementFlags);
         snapshot.animFwd = hasLocomotionInput ? quantizeActorAxis(animFwd) : 0;
         snapshot.animSide = hasLocomotionInput ? quantizeActorAxis(animSide) : 0;
-        snapshot.presentationFlags = makeActorPresentationFlags(presentationActor);
+        snapshot.presentationFlags = makeActorPresentationFlags(presentationActor) & ~ActorPresentationIdleMask;
         return snapshot;
     }
 
