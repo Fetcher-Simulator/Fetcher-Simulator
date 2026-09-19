@@ -14,7 +14,7 @@ if [[ "${MACOS_AMD64}" ]]; then
     VCPKG_FILE="vcpkg-x64-osx-dynamic"
     command -v /usr/local/bin/brew || arch -x86_64 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-    arch -x86_64 bash -c "command -v qmake >/dev/null 2>&1 && qmake -v | grep -F 'Using Qt version 6.' >/dev/null || /usr/local/bin/brew install qt@6"
+    arch -x86_64 bash -c "command -v qmake >/dev/null 2>&1 && qmake -v | grep -F 'Using Qt version 6.' >/dev/null || /usr/local/bin/brew install qtbase qtsvg qttools"
 else
     VCPKG_FILE="vcpkg-arm64-osx-dynamic"
 
