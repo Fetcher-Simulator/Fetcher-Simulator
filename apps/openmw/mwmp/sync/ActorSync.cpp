@@ -11119,9 +11119,24 @@ namespace mwmp
                 world->enableActorCollision(actor.boundActor, false);
             stats.setAttackingOrSpell(false);
             stats.setDrawState(MWMechanics::DrawState::Nothing);
-            // Remove persistent spell VFX (Shield bubble, etc.) on death.
+            // Remote creature attacks can leave an older random attack group active
+            // underneath the authoritative death animation. The controller only
+            // tracks one current weapon group, so explicitly retire every random
+            // creature attack variant here; otherwise stale text keys can keep
+            // firing roar/swoosh sounds after the actor is already dead.
             if (MWRender::Animation* anim = world->getAnimation(actor.boundActor))
+            {
                 anim->removeEffects();
+                for (const char* group : { "attack1", "attack2", "attack3",
+                         "swimattack1", "swimattack2", "swimattack3" })
+                    anim->disable(group);
+            }
+            if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
+            {
+                baseNode->setUserValue("mp_attack_group", std::string());
+                baseNode->setUserValue("mp_attack_type", std::string());
+                baseNode->setUserValue("mp_attack_controller_started", false);
+            }
             actor.lastAppliedAnimGroup.clear();
             actor.lastAppliedHitFlags = 0;
             actor.lastAttackPressed = false;
