@@ -10582,11 +10582,9 @@ namespace mwmp
             = !suppressSyncedSpecialIdleLocomotion && !authoritativeBaseIdle && visualPlanarSpeed > 8.f;
         float drivenSide = actor.state.animFlags.animSide;
         float drivenFwd = actor.state.animFlags.animFwd;
-        // Drive the animation from the displacement actually rendered on this
-        // client. Authority AI axes can lag a turn or survive an AI transition,
-        // producing strafing/backpedal animations while the proxy moves forward.
-        // Retain authored axes only for the first/near-stationary frame where no
-        // reliable visual direction exists yet.
+        // Combat axes already describe body-relative locomotion. Keep them when
+        // present: rendered displacement and yaw can belong to different points
+        // in a turn, so their projection is only a fallback for missing axes.
         if (hasVisualLocomotion)
         {
             // Vanilla non-combat AI turns before advancing and does not strafe or
@@ -10599,7 +10597,7 @@ namespace mwmp
                 drivenFwd = 1.f;
                 drivenSide = 0.f;
             }
-            else
+            else if (fwdMag <= 0.1f && sideMag <= 0.1f)
             {
                 const float yaw = actor.boundActor.getRefData().getPosition().rot[2];
                 const float invLen = 1.f / std::max(
