@@ -5674,17 +5674,12 @@ MPServer::ActorRegistryRecord* MPServer::findActorByNetId(
     if (primaryIt != mWorld.actorsByNetId.end() && primaryIt->second)
     {
         const auto& primary = primaryIt->second;
-        const auto cellIt = mWorld.actorCells.find(primary->actor.cellId);
-        if (cellIt != mWorld.actorCells.end())
-        {
-            const auto indexed = cellIt->second.actors.find(makeActorKey(primary->actor));
-            if (indexed != cellIt->second.actors.end() && indexed->second == primary)
-            {
-                if (cellId)
-                    *cellId = primary->actor.cellId;
-                return primary.get();
-            }
-        }
+        // The actor registry is the source of truth. A spatial index can lag
+        // during an ActorList refresh or exterior move without ending the
+        // canonical actor's lifetime.
+        if (cellId)
+            *cellId = primary->actor.cellId;
+        return primary.get();
     }
     const auto keyIt = mWorld.actorKeysByNetId.find(actorNetId);
     if (keyIt != mWorld.actorKeysByNetId.end())
