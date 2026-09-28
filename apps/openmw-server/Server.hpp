@@ -1,6 +1,8 @@
 #ifndef OPENMW_SERVER_SERVER_HPP
 #define OPENMW_SERVER_SERVER_HPP
 
+#include <components/openmw-mp/Base/ActorAttackHandoff.hpp>
+#include <components/openmw-mp/Base/ActorAuthorityTransfer.hpp>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -152,6 +154,7 @@ struct ConnectedClient
     std::unordered_map<ActorInstanceId, std::string> actorAuthorityLeaseStateSent;
     std::unordered_map<ActorInstanceId, uint64_t> actorV2LastSentMs;
     std::unordered_map<ActorInstanceId, std::size_t> actorV2MissingIdentityByNetIdWindow;
+    uint64_t actorV2NextOnDemandIdentityMs = 0;
     uint64_t actorV2DiagnosticsLastLogMs = 0;
     std::size_t actorV2IdentitySentWindow = 0;
     std::size_t actorV2IdentityAckedWindow = 0;
@@ -393,6 +396,7 @@ private:
         std::uint64_t observedAtMs);
     void handleActorPresentationV2(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorIdentityAck (ConnectedClient& c, const uint8_t* data, size_t size);
+    void handleActorAuthorityTransfer(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorAnimFlags   (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorAnimPlay    (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleActorAttack      (ConnectedClient& c, const uint8_t* data, size_t size);
@@ -596,6 +600,12 @@ private:
     bool validateActorUpdate(const ConnectedClient& c, const ActorList& actorList, const char* packetName);
     bool isActorAuthorityLeaseValid(
         const ActorRegistryRecord& record, const std::string& cellId, uint64_t now = 0);
+    bool shouldPreserveCombatTargetAcrossHorizon(
+        const ConnectedClient& sender, const BaseActor& canonical, const BaseActor& incoming);
+    void prepareActorAuthorityTransfersForTarget(uint32_t targetGuid);
+    void prepareActorAuthorityTransferAfterDisconnect(
+        const std::string& cellId, ActorRegistryRecord& record);
+    void cancelActorAuthorityTransfer(ActorRegistryRecord& record);
     bool isAllowedActorSender(
         const ConnectedClient& sender, const ActorRegistryRecord& record, const std::string& cellId);
     void updateActorAuthorityLeaseFromAi(const std::string& cellId, ActorRegistryRecord& record,
@@ -641,6 +651,8 @@ private:
         bool pendingPersist = false;
         std::string previousCellId;
         uint32_t previousCellAuthorityGuid = 0;
+        mwmp::ActorAttackHandoff attackHandoff;
+        mwmp::ActorAttackReplayGuard attackReplay;
         // Timestamp of the last accepted canonical cell migration. Position,
         // presentation, and stats snapshots must not refresh this value: the
         // reverse-handoff guard ages from a commit, not general actor traffic.
@@ -651,6 +663,10 @@ private:
         std::string actorAuthorityReason;
         uint32_t actorAuthorityTargetGuid = 0;
         uint64_t actorAuthorityLeaseUntilMs = 0;
+        std::optional<ActorAuthorityTransfer> pendingAuthorityTransfer;
+        uint64_t pendingAuthorityTransferStartedMs = 0;
+        std::optional<ActorAuthorityTransfer> awaitingAuthorityTransferAck;
+        uint64_t awaitingAuthorityTransferAckStartedMs = 0;
         // Server-owned durable-in-session crime enforcement identity. Network GUIDs
         // are intentionally not stored here because an offender can relog and receive
         // a new GUID while retaining the same authoritative character crime state.
@@ -673,7 +689,8 @@ private:
         uint64_t authorityStickyUntilMs = 0;
         uint32_t nextSnapshotSequence = 1;
         bool hasCompleteAuthoritySnapshot = false;
-        std::unordered_map<std::string, ActorRegistryRecord> actors;
+        // Spatial membership only. The record is owned by WorldState::actorsByNetId.
+        std::unordered_map<std::string, std::shared_ptr<ActorRegistryRecord>> actors;
         std::unordered_set<std::string> resetSuppressedVanillaDeaths;
         std::unordered_map<std::string, uint64_t> staleLiveVanillaDeathResendMs;
     };
@@ -689,7 +706,8 @@ private:
         const BaseActor& actor,
         ConnectedClient& sender,
         const char* packetName);
-    std::optional<ActorRegistryRecord> removeActorFromOtherCells(
+    ActorRegistryRecord* findActorByNetId(ActorInstanceId actorNetId, std::string* cellId = nullptr);
+    std::shared_ptr<ActorRegistryRecord> removeActorFromOtherCells(
         const BaseActor& actor,
         const std::string& destinationCellId,
         std::unordered_set<std::string>& changedCellIds);
@@ -749,6 +767,8 @@ private:
     std::unordered_map<HSteamNetConnection, ConnectedClient> mClients;
     std::unordered_map<uint32_t, ActiveVehicleRecord> mActiveVehiclesByDriver;
     uint32_t    mNextGuid  = 1;
+    uint64_t    mNextActorAuthorityTransferId = 1;
+    uint64_t    mNextActorAuthorityTransferSweepMs = 0;
     uint16_t    mPort;
     std::atomic<bool> mRunning { false };
     std::chrono::steady_clock::time_point mStartTime;
@@ -826,7 +846,13 @@ private:
         std::unordered_map<std::string, mwmp::ContainerRecord> containers;
         std::unordered_map<std::string, StoredDynamicRecord> dynamicRecords;
         std::unordered_map<std::string, CellActorState> actorCells;
+        // Stable in-session owner. Exterior cell changes move only the spatial
+        // index entry, never the actor's AI, combat, lease, or persistence state.
+        std::unordered_map<ActorInstanceId, std::shared_ptr<ActorRegistryRecord>> actorsByNetId;
         std::unordered_map<std::string, std::string> actorLocations;
+        // An ActorList can omit and later recreate a vanilla actor. Keep its
+        // highest lease generation so a new record cannot send an older lease.
+        std::unordered_map<ActorInstanceId, uint32_t> actorAuthorityGenerationHighWater;
         std::unordered_map<std::string, ActorInstanceId> actorNetIdsByKey;
         std::unordered_map<ActorInstanceId, std::string> actorKeysByNetId;
         std::unordered_map<std::string, std::unordered_map<std::string, ActorRegistryRecord>> deadVanillaActorCells;

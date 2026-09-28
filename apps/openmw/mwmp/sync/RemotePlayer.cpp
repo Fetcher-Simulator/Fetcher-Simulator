@@ -12,6 +12,7 @@
 
 #include <components/debug/debuglog.hpp>
 #include <components/esm/refid.hpp>
+#include <components/esm/util.hpp>
 #include <components/fallback/fallback.hpp>
 #include <components/misc/constants.hpp>
 #include <components/misc/convert.hpp>
@@ -611,6 +612,17 @@ namespace mwmp
 
         if (!isVehiclePassenger())
             updateInterpolation(dt);
+        if (mIsSpawned && !mNpcPtr.isEmpty())
+        {
+            if (mNpcPtr.getRefData().getBaseNode())
+                mMissingBaseNodeTimer = 0.f;
+            else if ((mMissingBaseNodeTimer += safeDt) >= 0.5f)
+            {
+                Log(Debug::Warning) << "[MP] RemotePlayer " << mName
+                                    << ": proxy has no scene node after spawn; retrying in current cell";
+                despawnFromWorld();
+            }
+        }
         if (mHasVehicleEntryHoldPosition && mHasInterpolatedVehicleRigidBodyPose
             && !mVehicleEntryBlendActive)
         {
@@ -1433,6 +1445,51 @@ namespace mwmp
         if (!mIsSpawned || mNpcPtr.isEmpty() || mIsDead)
             return;
 
+        // The packet carries the player's attributes and skills as well as the
+        // three dynamic stats. Combat against this proxy uses these values for
+        // evasion, blocking, and other hit calculations. Leaving the proxy's
+        // template attributes in place lets an NPC hit a high-agility player on
+        // the authority client when the same attack would miss locally.
+        if (mState.hasSavedStats)
+        {
+            MWMechanics::NpcStats& npcStats = mNpcPtr.getClass().getNpcStats(mNpcPtr);
+            for (std::size_t i = 0; i < mState.attributes.size(); ++i)
+            {
+                const Attribute& saved = mState.attributes[i];
+                MWMechanics::AttributeValue value;
+                value.setBase(static_cast<float>(saved.base), true);
+                value.setModifier(saved.mod);
+                if (saved.damage > 0.f)
+                    value.damage(saved.damage);
+                npcStats.setAttribute(ESM::Attribute::indexToRefId(static_cast<int>(i)), value);
+            }
+            for (std::size_t i = 0; i < mState.skills.size(); ++i)
+            {
+                const Skill& saved = mState.skills[i];
+                MWMechanics::SkillValue value;
+                value.setBase(saved.base, true);
+                value.setModifier(saved.mod);
+                if (saved.damage > 0.f)
+                    value.damage(saved.damage);
+                value.setProgress(saved.progress);
+                npcStats.setSkill(ESM::Skill::indexToRefId(static_cast<int>(i)), value);
+            }
+            npcStats.setLevel(std::max(1, mState.level));
+
+            const int agilityIndex = ESM::Attribute::refIdToIndex(ESM::Attribute::Agility);
+            const float syncedAgility = npcStats.getAttribute(ESM::Attribute::Agility).getModified();
+            if (syncedAgility > 100.f && syncedAgility != mLastLoggedCombatAgility)
+            {
+                Log(Debug::Info) << "[MP] RemotePlayer: applied combat agility to proxy"
+                                 << " name=" << mName
+                                 << " guid=" << mGuid
+                                 << " packetBase=" << mState.attributes[agilityIndex].base
+                                 << " packetModifier=" << mState.attributes[agilityIndex].mod
+                                 << " proxyModified=" << syncedAgility;
+            }
+            mLastLoggedCombatAgility = syncedAgility;
+        }
+
         const DynamicStats& dyn = mState.dynamicStats;
         const bool hasSyncedDynamicStats
             = dyn.health.base != 0.f || dyn.health.current != 0.f || dyn.health.mod != 0.f
@@ -1512,6 +1569,18 @@ namespace mwmp
         {
             Log(Debug::Warning) << "[MP] trySpawn(" << mName << "): target CellStore not active";
             return;
+        }
+
+        // A cell-change packet can precede the position packet carrying the first
+        // coordinates inside that cell. placeObject() selects an exterior CellStore
+        // from the coordinates, even when given a different active CellStore. Never
+        // create a proxy in the previous (possibly unloaded) cell.
+        if (mState.cell.isExterior)
+        {
+            const auto positionCell = ESM::positionToExteriorCellLocation(
+                mState.position.pos[0], mState.position.pos[1], cell->getCell()->getWorldSpace());
+            if (positionCell.mX != mState.cell.gridX || positionCell.mY != mState.cell.gridY)
+                return;
         }
 
         Log(Debug::Info) << "[MP] trySpawn(" << mName << "): attempting spawn at (" << mState.position.pos[0] << ", "
@@ -1633,6 +1702,7 @@ namespace mwmp
             world->setActorCollisionMode(mNpcPtr, false, true);
 
             mIsSpawned = true;
+            mMissingBaseNodeTimer = 0.f;
             mMechanicsRegistered = false;
             applyDynamicStatsToActor();
 
@@ -1698,6 +1768,7 @@ namespace mwmp
 
         mNpcPtr = MWWorld::Ptr();
         mIsSpawned = false;
+        mMissingBaseNodeTimer = 0.f;
         mHasAppliedInterpPos = false;
         mMechanicsRegistered = false;
         mAppliedHitFlags = 0;
@@ -2297,6 +2368,10 @@ namespace mwmp
     void RemotePlayer::onStatsDynamicUpdate(const BasePlayer& state)
     {
         mState.dynamicStats = state.dynamicStats;
+        mState.attributes = state.attributes;
+        mState.skills = state.skills;
+        mState.level = state.level;
+        mState.hasSavedStats = state.hasSavedStats;
         applyDynamicStatsToActor();
     }
 
@@ -2341,8 +2416,16 @@ namespace mwmp
 
         if (preserveLocomotion)
         {
+            // With no world proxy there is no visual continuity to preserve.
+            // Seed the next spawn from the cell-change position instead of a
+            // position sample that may still be across the previous border.
+            if (actuallyChanged && !mIsSpawned)
+                mState.position = state.position;
+            const uint32_t proxyRefNum = mIsSpawned && !mNpcPtr.isEmpty()
+                ? mNpcPtr.getCellRef().getRefNum().mIndex : 0;
             Log(Debug::Info) << "[MPDIAG] RemotePlayer cell continuity"
                              << " name=" << mName
+                             << " proxyRefNum=" << proxyRefNum
                              << " oldGrid=" << oldCellState.gridX << "," << oldCellState.gridY
                              << " newGrid=" << state.cell.gridX << "," << state.cell.gridY
                              << " velocity=" << mState.velocity.linear[0] << ","

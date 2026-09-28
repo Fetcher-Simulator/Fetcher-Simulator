@@ -135,6 +135,7 @@ namespace mwmp
         // --- world NPC ---
         MWWorld::Ptr mNpcPtr;
         bool         mIsSpawned = false;
+        float        mLastLoggedCombatAgility = -1.f;
         bool         mMechanicsRegistered = false;
         bool         mEquipmentSoundReady = false;
         bool         mInventorySoundReady = false;
@@ -172,6 +173,7 @@ namespace mwmp
 
         // --- trySpawn cooldown ---
         float mSpawnRetryTimer = 0.f;
+        float mMissingBaseNodeTimer = 0.f;
         static constexpr float SPAWN_RETRY_RATE = 0.05f;
 
         // --- interpolation state ---

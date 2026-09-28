@@ -69,6 +69,15 @@ namespace MWWorld
 
         Ptr getPtr(ESM::RefNum refNum) const { return mPtrRegistry.getOrEmpty(refNum); }
 
+        /// Refresh a cached cell binding without substituting a different live object.
+        Ptr getCurrentPtr(const Ptr& ptr) const
+        {
+            if (ptr.isEmpty() || !ptr.isInCell())
+                return ptr;
+            const Ptr current = getPtr(ptr.getCellRef().getRefNum());
+            return current == ptr && current.isInCell() ? current : ptr;
+        }
+
         PtrRegistryView getPtrRegistryView() const { return PtrRegistryView(mPtrRegistry); }
 
         ESM::RefNum getLastGeneratedRefNum() const { return mPtrRegistry.getLastGenerated(); }

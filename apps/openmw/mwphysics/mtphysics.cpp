@@ -296,6 +296,7 @@ namespace
                     // change
                     if (actor->getOnGround() == frameData.mWasOnGround)
                         actor->setOnGround(frameData.mIsOnGround);
+                    actor->setActorSupported(frameData.mActorSupported);
                     actor->setOnSlope(frameData.mIsOnSlope);
                     actor->setWalkingOnWater(frameData.mWalkingOnWater);
                     actor->setInertialForce(frameData.mInertia);

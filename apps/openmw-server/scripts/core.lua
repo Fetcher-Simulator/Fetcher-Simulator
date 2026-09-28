@@ -191,6 +191,23 @@ local function normalizeCellId(cellId)
     return cellId
 end
 
+local function exteriorCellsAreAdjacent(left, right)
+    left = normalizeCellId(left)
+    right = normalizeCellId(right)
+    if not left or not right then
+        return false
+    end
+
+    local leftX, leftY = left:match("^EXT:(-?%d+),(-?%d+)$")
+    local rightX, rightY = right:match("^EXT:(-?%d+),(-?%d+)$")
+    if not leftX or not rightX then
+        return false
+    end
+
+    return math.abs(tonumber(leftX) - tonumber(rightX)) <= 1
+        and math.abs(tonumber(leftY) - tonumber(rightY)) <= 1
+end
+
 local function makeLuaTestPayload(kind, player, extra)
     local payload = {
         seq = nextLuaTestSeq(),
@@ -481,6 +498,23 @@ local function resolveVerifiedTarget(object)
         return nil
     end
 
+    local actor = mp.getActorByMpNum and mp.getActorByMpNum(mpNum) or nil
+    if actor then
+        return {
+            action = "actor",
+            source = "server-spawned-actor",
+            object = {
+                id = object.id,
+                mpNum = actor.mpNum,
+                recordId = actor.refId,
+                type = object.type,
+                typeName = object.typeName,
+                cell = actor.cell,
+                position = plainPosition(actor.position),
+            },
+        }
+    end
+
     local placed = mp.getObjectByMpNum(mpNum)
     if not placed then
         return nil
@@ -648,7 +682,10 @@ local function buildActivateIntentContext(data)
     end
     local maxDistance = Config.ACTIVATION_MAX_DISTANCE or 250
     local distance = distance3(playerPosition(player), object.position)
-    local sameCell = not object.cell or object.cell == "" or object.cell == player.cell
+    local verifiedAdjacentActor = verifiedTarget ~= nil
+        and verifiedTarget.action == "actor"
+        and exteriorCellsAreAdjacent(player.cell, object.cell)
+    local sameCell = not object.cell or object.cell == "" or object.cell == player.cell or verifiedAdjacentActor
     local accepted = distance ~= nil and distance <= maxDistance and sameCell
     local reason = "accepted"
     if distance == nil then

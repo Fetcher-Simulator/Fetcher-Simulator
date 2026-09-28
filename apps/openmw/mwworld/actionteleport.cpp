@@ -2,6 +2,7 @@
 
 #include <components/esm3/loadcell.hpp>
 #include <components/esm3/loadmgef.hpp>
+#include <components/debug/debuglog.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
@@ -16,6 +17,9 @@
 #include "../mwworld/worldmodel.hpp"
 
 #include "player.hpp"
+#ifdef BUILD_MULTIPLAYER
+#include "../mwmp/Main.hpp"
+#endif
 
 namespace MWWorld
 {
@@ -55,6 +59,14 @@ namespace MWWorld
         Ptr teleported;
         if (actor == world->getPlayerPtr())
         {
+#ifdef BUILD_MULTIPLAYER
+            if (mwmp::Main::isConnected())
+                Log(Debug::Info) << "[MPDIAG] Native player action teleport from="
+                                 << (actor.isInCell() ? actor.getCell()->getCell()->getDescription() : "<none>")
+                                 << " to=" << worldModel->getCell(mCellId).getCell()->getDescription()
+                                 << " pos=(" << mPosition.pos[0] << "," << mPosition.pos[1] << ","
+                                 << mPosition.pos[2] << ")";
+#endif
             world->getPlayer().setTeleported(true);
             world->changeToCell(mCellId, mPosition, true);
             teleported = world->getPlayerPtr();

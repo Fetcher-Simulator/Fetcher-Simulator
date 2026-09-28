@@ -28,6 +28,7 @@ file(GLOB UNITTEST_SRC_FILES
     mwmp/testservercontentregistry.cpp
     mwmp/testnetworkclient.cpp
     mwmp/testactoridlepresentation.cpp
+    mwmp/testactorborderpresentation.cpp
     mwmp/testconfiguredcell.cpp
     mwmp/testserverluarecordparser.cpp
     mwmp/testtypeddynamicrecordinstaller.cpp

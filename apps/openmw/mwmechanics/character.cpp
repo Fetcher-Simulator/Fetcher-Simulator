@@ -1794,6 +1794,29 @@ namespace MWMechanics
             }
         }
 
+#ifdef BUILD_MULTIPLAYER
+        bool preserveNetworkWeaponHandoff = false;
+        if (auto* baseNode = mPtr.getRefData().getBaseNode())
+        {
+            baseNode->getUserValue("mp_preserve_weapon_handoff", preserveNetworkWeaponHandoff);
+            if (preserveNetworkWeaponHandoff)
+                baseNode->setUserValue("mp_preserve_weapon_handoff", false);
+        }
+        if (preserveNetworkWeaponHandoff
+            && stats.getDrawState() == DrawState::Weapon
+            && weaptype != ESM::Weapon::None)
+        {
+            mWeaponType = weaptype;
+            mCurrentWeapon = getWeaponAnimation(weaptype);
+            const bool useRelativeDuration
+                = getWeaponType(weaptype)->mWeaponClass == ESM::WeaponType::Ranged;
+            mAnimation->setWeaponGroup(mCurrentWeapon, useRelativeDuration);
+            mUpperBodyState = UpperBodyState::WeaponEquipped;
+            mAnimation->showWeapons(true);
+            mAnimation->showCarriedLeft(updateCarriedLeftVisible(weaptype));
+        }
+#endif
+
         MWRender::Animation::AnimPriority priorityWeapon(Priority_Default);
         if (cls.isBipedal(mPtr))
         {
@@ -2895,6 +2918,13 @@ namespace MWMechanics
                 }
             }
 
+            const bool actorSupportedVisual = !isPlayer && !isNetworkPlayerPuppet && cls.isNpc()
+                && !onground && !inwater && !flying && solid && world->isActorSupported(mPtr)
+                && movementSettings.mPosition[2] <= 0.f
+                && !stats.getMovementFlag(CreatureStats::Flag_ForceJump)
+                && !stats.getMovementFlag(CreatureStats::Flag_ForceMoveJump);
+            const bool wasActorSupported = mActorSupportedLastFrame;
+            mActorSupportedLastFrame = actorSupportedVisual;
             bool wasInJump = mInJump;
             mInJump = false;
             const float jumpHeight = cls.getJump(mPtr);
@@ -2958,9 +2988,16 @@ namespace MWMechanics
                 }
             }
 
-            if (!mInJump)
+            // Keep physical airborne bookkeeping and landing damage untouched; only
+            // choose grounded locomotion while resting on another actor.
+            if (actorSupportedVisual)
             {
-                if (mJumpState == JumpState_InAir && !flying && solid && wasInJump)
+                jumpstate = JumpState_None;
+                jumpVisualThisFrame = false;
+            }
+            if (!mInJump || actorSupportedVisual)
+            {
+                if (!mInJump && (mJumpState == JumpState_InAir || wasActorSupported) && !flying && solid && wasInJump)
                 {
                     float height = cls.getCreatureStats(mPtr).land(isPlayer);
                     float healthLost = 0.f;
@@ -3012,7 +3049,7 @@ namespace MWMechanics
                     }
                 }
 
-                if (mAnimation->isPlaying(mCurrentJump))
+                if (!actorSupportedVisual && mAnimation->isPlaying(mCurrentJump))
                     jumpstate = JumpState_Landing;
 
                 vec.z() = 0.0f;

@@ -104,6 +104,7 @@ namespace mwmp
         ActorCombatRequest  = 65,  // Non-authority client → server → authority: NPC hit event
         CorpseDispose       = 71,  // Client → server: request corpse disposal
         MechanicsSnapshot   = 72,  // Atomic player/actor-authority observation mechanics state
+        ActorAuthorityTransfer = 73, // Prepare/ready/commit exchange for a per-actor lease
 
         // --- Object ---
         ObjectActivate      = 90,

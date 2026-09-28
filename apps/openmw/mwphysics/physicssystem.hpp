@@ -88,6 +88,7 @@ namespace MWPhysics
         osg::Vec3f mInertia;
         const btCollisionObject* mStandingOn;
         bool mIsOnGround;
+        bool mActorSupported = false;
         bool mIsOnSlope;
         bool mWalkingOnWater;
         bool mSuppressFallHeightAccumulation;

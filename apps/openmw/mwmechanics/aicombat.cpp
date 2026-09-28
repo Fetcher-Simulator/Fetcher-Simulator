@@ -621,7 +621,10 @@ namespace MWMechanics
             osg::Vec3f halfExtents = MWBase::Environment::get().getWorld()->getHalfExtents(actor);
             osg::Vec3f pos = actor.getRefData().getPosition().asVec3();
             osg::Vec3f source = pos + osg::Vec3f(0, 0, 0.75f * halfExtents.z());
-            osg::Vec3f fallbackDirection = actor.getRefData().getBaseNode()->getAttitude() * osg::Vec3f(0, -1, 0);
+            const auto* baseNode = actor.getRefData().getBaseNode();
+            if (baseNode == nullptr)
+                return;
+            osg::Vec3f fallbackDirection = baseNode->getAttitude() * osg::Vec3f(0, -1, 0);
             osg::Vec3f destination = source + fallbackDirection * (halfExtents.y() + 16);
 
             const auto* rayCasting = MWBase::Environment::get().getWorld()->getRayCasting();

@@ -12,6 +12,7 @@
 #include <osg/Vec3f>
 #include <components/esm3/aisequence.hpp>
 #include <components/openmw-mp/Base/ActorSyncProtocol.hpp>
+#include <components/openmw-mp/Base/ActorAuthorityTransfer.hpp>
 #include <components/openmw-mp/Base/BaseActor.hpp>
 #include <components/openmw-mp/CrimeReaction.hpp>
 
@@ -55,8 +56,11 @@ namespace mwmp
         // tracking so stale Ptr references from the previous game session are
         // never dereferenced after the world has been torn down.
         void resetSessionState();
+        void onRemotePlayerDisconnected(uint32_t guid, const MWWorld::Ptr& player);
 
         void onAuthorityUpdate(const ActorList& list);
+        void onActorAuthorityTransfer(const ActorAuthorityTransfer& transfer);
+        void applyCommittedAuthorityTransfer(ActorInstanceId actorNetId);
 
         void onActorIdentityUpdate(const ActorIdentityList& list);
         void onActorListUpdate(const ActorList& list);
@@ -222,7 +226,6 @@ namespace mwmp
             // Non-authority side: remember the last synced attack press state so we
             // can mirror both press and release without replaying the wind-up every frame.
             bool lastAttackPressed = false;
-            uint32_t nextAttackEventId = 1;
             uint32_t lastReceivedAttackEventId = 0;
             uint32_t lastReceivedSpeechEventId = 0;
             std::string pendingSpeechSound;
@@ -327,6 +330,14 @@ namespace mwmp
             uint64_t cellChangeCommitClientTimeMs = 0;
             bool cellChangeFirstSnapshotLogged = false;
             bool cellChangeHandoffPredictionLogged = false;
+            // Newly promoted authority can be tens of units behind the source
+            // commit because it was rendering an interpolation-delayed puppet.
+            // Keep the gameplay Ptr visually continuous, but bridge outgoing
+            // network position from the committed transform so the previous
+            // authority never sees a backward rollback at the seam.
+            osg::Vec3f authorityHandoffWireOffset { 0.f, 0.f, 0.f };
+            float authorityHandoffWireOffsetTimer = 0.f;
+            float authorityHandoffWireOffsetDuration = 0.f;
         };
 
         struct CellRuntime
@@ -368,6 +379,7 @@ namespace mwmp
         void rememberActorNetId(ActorInstanceId actorNetId, const BaseActor& actor);
         void indexActorNetId(ActorInstanceId actorNetId, const std::string& oldCellId, const std::string& newCellId);
         ActorRuntime* findPrimaryActorRuntime(const BaseActor& actor);
+        void pruneObserverActorShadows();
         bool hasAuthorityForActor(ActorInstanceId actorNetId, const std::string& cellId) const;
         ActorRuntime& runtimeForPacketActor(const std::string& cellId, CellRuntime& cell, const BaseActor& actor);
         MWWorld::Ptr resolvePacketActorBinding(const std::string& packetCellId, CellRuntime& cell,
@@ -418,9 +430,18 @@ namespace mwmp
         std::unordered_map<std::string, std::unordered_map<ActorInstanceId, BaseActor>>
             mDisposedVanillaActorsByCell;
         std::unordered_map<ActorInstanceId, ActorRuntime>   mActorsByNetId;
+        struct PendingAuthorityTransfer
+        {
+            ActorAuthorityTransfer prepare;
+            bool readySent = false;
+            bool commitReceived = false;
+            bool snapshotApplied = false;
+        };
+        std::unordered_map<ActorInstanceId, PendingAuthorityTransfer> mPendingAuthorityTransfers;
         std::unordered_map<ActorInstanceId, uint32_t>       mActorAuthorityGuids;
         std::unordered_map<ActorInstanceId, uint32_t>       mActorAuthorityGenerations;
         std::unordered_map<ActorInstanceId, uint32_t>       mMechanicsSnapshotSequences;
+        std::unordered_map<ActorInstanceId, uint32_t>       mNextAttackEventIds;
         std::unordered_map<ActorInstanceId, uint32_t>       mNextSpeechEventIds;
         std::unordered_map<ActorInstanceId, std::uint64_t>  mLastAppliedCombatEventIds;
         std::unordered_set<std::string> mAppliedCrimeReactionKeys;

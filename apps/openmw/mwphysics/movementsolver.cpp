@@ -1,4 +1,5 @@
 #include "movementsolver.hpp"
+#include "../mwmechanics/actorsupport.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -566,6 +567,7 @@ namespace MWPhysics
     void MovementSolver::move(
         ActorFrameData& actor, float time, const btCollisionWorld* collisionWorld, const WorldFrameData& worldData)
     {
+        actor.mActorSupported = false;
         const auto surfSettings = getSurfPhysicsSettings();
         if (actor.mIsPlayer && surfSettings.enabled)
         {
@@ -859,6 +861,11 @@ namespace MWPhysics
                     if (!actor.mFlying && isWalkableSlope(tracer.mPlaneNormal)
                         && tracer.mEndPos.z() + sGroundOffset <= newPosition.z())
                         newPosition.z() = tracer.mEndPos.z() + sGroundOffset;
+
+                    // Presentation only: do not change inertia, jump eligibility or fall damage.
+                    actor.mActorSupported = MWMechanics::hasStableActorSupport(
+                        isWalkableSlope(tracer.mPlaneNormal), actor.mFlying, actor.mMovement.z(),
+                        actor.mInertia.z(), newPosition.z() - actor.mPosition.z(), time);
 
                     isOnGround = false;
                 }

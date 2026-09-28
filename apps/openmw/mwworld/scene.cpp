@@ -51,6 +51,7 @@
 #include "localscripts.hpp"
 #include "player.hpp"
 #include "worldimp.hpp"
+#include "worldmodel.hpp"
 
 #ifdef BUILD_MULTIPLAYER
 #include "../mwmp/Main.hpp"
@@ -373,9 +374,33 @@ namespace MWWorld
             return;
         Log(Debug::Info) << "Unloading cell " << cell->getCell()->getDescription();
 
+#ifdef BUILD_MULTIPLAYER
+        std::vector<Ptr> movedActors;
+        if (mwmp::Main::isConnected())
+        {
+            for (const auto& [refNum, ptr] : MWBase::Environment::get().getWorldModel()->getPtrRegistryView())
+            {
+                if (ptr.isInCell() && ptr.getCell() != cell && ptr.getClass().isActor()
+                    && isCellActive(*ptr.getCell()) && ptr.getCell()->getOriginCell(ptr) == cell)
+                    movedActors.push_back(ptr);
+            }
+        }
+#endif
+
         ListAndResetObjectsVisitor visitor;
 
-        cell->forEach(visitor, true); // Include objects being teleported by Lua
+        cell->forEach([&](const Ptr& ptr) {
+#ifdef BUILD_MULTIPLAYER
+            const Ptr current = MWBase::Environment::get().getWorldModel()->getCurrentPtr(ptr);
+            if (current.isInCell() && current.getCell() != cell && ptr.getClass().isActor())
+            {
+                Log(Debug::Warning) << "[MPDIAG] Actor unload cell mismatch ref=" << ptr.toString()
+                                    << " unloading=" << cell->getCell()->getDescription()
+                                    << " registered=" << current.getCell()->getCell()->getDescription();
+            }
+#endif
+            return visitor(ptr);
+        }, true); // Include objects being teleported by Lua
         for (const auto& ptr : visitor.mObjects)
         {
             if (const auto object = mPhysics->getObject(ptr))
@@ -425,6 +450,17 @@ namespace MWWorld
 
         MWBase::Environment::get().getSoundManager()->stopSound(cell);
         mActiveCells.erase(cell);
+#ifdef BUILD_MULTIPLAYER
+        for (const Ptr& ptr : movedActors)
+        {
+            Log(Debug::Info) << "[MPDIAG] Moved actor origin unloaded ref=" << ptr.toString()
+                             << " origin=" << cell->getCell()->getDescription()
+                             << " current=" << ptr.getCell()->getCell()->getDescription()
+                             << " sceneNode=" << (ptr.getRefData().getBaseNode() != nullptr)
+                             << " physics=" << (mPhysics->getActor(ptr) != nullptr)
+                             << " animation=" << (mRendering.getAnimation(ptr) != nullptr);
+        }
+#endif
         // Clean up any effects that may have been spawned while unloading all cells
         if (mActiveCells.empty())
             mRendering.notifyWorldSpaceChanged();

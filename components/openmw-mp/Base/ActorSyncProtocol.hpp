@@ -22,7 +22,8 @@ namespace mwmp
     // RefNum.mIndex to OpenMW's content-qualified FormId32. This prevents placed
     // actors from different content files that reuse the same local index from
     // collapsing to the same deterministic ActorInstanceId.
-    static constexpr uint32_t ActorSyncProtocolVersionV2 = 13;
+    // Version 14 includes death event identity in authority-transfer snapshots.
+    static constexpr uint32_t ActorSyncProtocolVersionV2 = 14;
 
     using ActorInstanceId = uint64_t;
 

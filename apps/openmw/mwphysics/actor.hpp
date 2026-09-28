@@ -123,6 +123,8 @@ namespace MWPhysics
         void setOnGround(bool grounded);
 
         bool getOnGround() const { return mOnGround; }
+        void setActorSupported(bool value) { mActorSupported = value; }
+        bool getActorSupported() const { return mActorSupported; }
 
         void setOnSlope(bool slope);
 
@@ -202,6 +204,7 @@ namespace MWPhysics
 
         osg::Vec3f mForce;
         bool mOnGround;
+        bool mActorSupported = false;
         bool mOnSlope;
         bool mInternalCollisionMode;
         bool mExternalCollisionMode;

@@ -21,6 +21,8 @@
 #include <components/misc/constants.hpp>
 #include <components/misc/rng.hpp>
 #include <components/misc/resourcehelpers.hpp>
+#include <components/openmw-mp/Base/ActorCellHandoff.hpp>
+#include <components/openmw-mp/Base/ActorAuthorityEligibility.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorList.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAI.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorPositionV2.hpp>
@@ -30,6 +32,7 @@
 #include <components/openmw-mp/Packets/Actor/PacketActorCellChange.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorDeath.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorIdentity.hpp>
+#include <components/openmw-mp/Packets/Actor/PacketActorAuthorityTransfer.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorStatsDynamic.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketMechanicsSnapshot.hpp>
 #include <components/sceneutil/positionattitudetransform.hpp>
@@ -64,6 +67,7 @@
 #include "../../mwworld/refdata.hpp"
 #include "../../mwworld/scene.hpp"
 #include "../../mwworld/worldimp.hpp"
+#include "../../mwworld/worldmodel.hpp"
 
 #include "../Main.hpp"
 #include "../network/Client.hpp"
@@ -71,6 +75,7 @@
 #include "RemotePlayer.hpp"
 #include "MechanicsSnapshotBuilder.hpp"
 #include <components/openmw-mp/Packets/Actor/PacketActorAttackV2.hpp>
+#include <components/openmw-mp/Base/ActorGuardPresentation.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorSpeech.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorEquipment.hpp>
 #include "../../mwworld/inventorystore.hpp"
@@ -273,6 +278,7 @@ namespace
         if (stats.isDead())
             return false;
 
+        const bool packetRequestsCombat = actor.ai.type == mwmp::BaseActor::AIAction::Type::Combat;
         bool wasRemotePuppet = false;
         bool hadSavedAi = false;
         bool preservedSyncedIdleHandoff = false;
@@ -288,7 +294,7 @@ namespace
                 && baseNode->getUserValue("mp_synced_idle_start_point", syncedIdleStartPoint)
                 && syncedIdleStartPoint >= 0.f;
 
-            if (!wasRemotePuppet && !hadSavedAi)
+            if (!mwmp::shouldRestoreCanonicalCombat(wasRemotePuppet, hadSavedAi, packetRequestsCombat))
                 return false;
 
             baseNode->setUserValue("mp_remote_actor", false);
@@ -315,6 +321,16 @@ namespace
                 clearSyncedIdleAuthorityHandoffNode(cellId, ptr, actor, "authority-restore");
             }
 
+            if ((wasRemotePuppet || hadSavedAi)
+                && actor.hasWeaponDrawn && !actor.isAttackingOrCasting)
+            {
+                baseNode->setUserValue("mp_preserve_weapon_handoff", true);
+                Log(Debug::Info) << "[MPDIAG] Authority weapon handoff preserved"
+                                 << " cell=" << cellId << " refId=" << actor.refId
+                                 << " refNum=" << actor.refNum << " mpNum=" << actor.mpNum
+                                 << " wasRemote=" << wasRemotePuppet << " savedAi=" << hadSavedAi;
+            }
+
             if (hadSavedAi)
             {
                 int fight = stats.getAiSetting(MWMechanics::AiSetting::Fight).getBase();
@@ -333,11 +349,10 @@ namespace
             }
         }
 
-        if (!wasRemotePuppet && !hadSavedAi)
+        if (!mwmp::shouldRestoreCanonicalCombat(wasRemotePuppet, hadSavedAi, packetRequestsCombat))
             return false;
 
         MWMechanics::AiSequence& aiSequence = stats.getAiSequence();
-        const bool packetRequestsCombat = actor.ai.type == mwmp::BaseActor::AIAction::Type::Combat;
         if (packetRequestsCombat && !aiSequence.isInCombat())
         {
             MWWorld::Ptr combatTarget;
@@ -389,6 +404,11 @@ namespace
                                     << " cell=" << cellId
                                     << " refId=" << actor.refId
                                     << " actorTarget=" << targetId;
+                // Canonical state still requires Combat. Do not fall through to
+                // saved/authored wander while waiting for the explicit target to
+                // become locally resolvable; retry this restore on the next frame.
+                aiSequence.clear();
+                return preservedSyncedIdleHandoff;
             }
 
             if (!combatTarget.isEmpty())
@@ -624,14 +644,15 @@ namespace
             return false;
 
         return actor.refId == "heddvild" || actor.mpNum == 2601
+            || actorNetId == 335636026u
+            || actorNetId == 335636036u
+            || actorNetId == 335636040u
             || actor.refId == "snorri"
             || actor.refId == "khinjarsi"
             || actor.refId == "tr_m3_bribanne erien"
             || actor.refId == "tr_m3_valkreia krex"
             || actor.refId == "tr_m3_arquebald vene"
             || actorNetId == mwmp::packActorInstanceKey({ mwmp::ActorKeyKind::SpawnedMpNum, 2601 })
-            || (isIdleAnimGroup(actor.animFlags.currentAnimGroup)
-                && !isBaseIdleAnimGroup(actor.animFlags.currentAnimGroup))
             || isWatchedBorderActor(actor, actor.cellId);
     }
 
@@ -1040,6 +1061,7 @@ namespace mwmp
         mPendingCrimeReactions.clear();
         mPendingRealtimeDeathActorNetIds.clear();
         mNextCombatResultSequence = 1;
+        mNextAttackEventIds.clear();
         mNextSpeechEventIds.clear();
         mNextSpeechSequence = 1;
         mMpNumsByLocalActor.clear();
@@ -1051,6 +1073,7 @@ namespace mwmp
         mCellResetLeveledRollPending.clear();
         mDisposedVanillaActorsByCell.clear();
         mActorsByNetId.clear();
+        mPendingAuthorityTransfers.clear();
         mCellActorIds.clear();
         mActorNetIdsByKey.clear();
         mActorV2DiagnosticsLastLogMs = 0;
@@ -1229,6 +1252,23 @@ namespace mwmp
             return nullptr;
 
         return &runtimeIt->second;
+    }
+
+    void ActorSync::pruneObserverActorShadows()
+    {
+        for (auto& [cellId, cell] : mCells)
+        {
+            for (auto it = cell.actors.begin(); it != cell.actors.end();)
+            {
+                const ActorInstanceId actorNetId = it->second.actorNetId != 0
+                    ? it->second.actorNetId : actorNetIdForActorState(it->second.state);
+                if (actorNetId != 0 && mActorsByNetId.contains(actorNetId)
+                    && !hasAuthorityForActor(actorNetId, cellId))
+                    it = cell.actors.erase(it);
+                else
+                    ++it;
+            }
+        }
     }
 
     ActorSync::ActorRuntime& ActorSync::runtimeForPacketActor(
@@ -1774,6 +1814,57 @@ namespace mwmp
         applyDisposedVanillaActorTombstones();
         sendPendingActorSpeechEvents();
 
+        const uint32_t transferLocalGuid = mwmp::Main::get().getPlayerSync().localPlayer().guid;
+        for (auto& [actorNetId, pending] : mPendingAuthorityTransfers)
+        {
+            if (pending.readySent || pending.prepare.newOwnerGuid != transferLocalGuid)
+                continue;
+            const auto runtimeIt = mActorsByNetId.find(actorNetId);
+            if (runtimeIt == mActorsByNetId.end()
+                || runtimeIt->second.boundActor.isEmpty()
+                || runtimeIt->second.state.cellId != pending.prepare.cellId
+                || runtimeIt->second.migrationGeneration != pending.prepare.migrationGeneration)
+                continue;
+
+            if (pending.prepare.actor.ai.type == BaseActor::AIAction::Type::Combat)
+            {
+                const auto targetGuid = remotePlayerGuidFromActorTarget(pending.prepare.actor.ai.targetId);
+                if (!targetGuid)
+                    continue;
+                MWWorld::Ptr target;
+                if (*targetGuid == transferLocalGuid)
+                {
+                    if (MWBase::World* world = MWBase::Environment::get().getWorld())
+                        target = world->getPlayerPtr();
+                }
+                else if (auto* remote = mwmp::Main::get().getPlayerList().getPlayer(*targetGuid))
+                    target = remote->getNpcPtr();
+                if (target.isEmpty())
+                    continue;
+            }
+
+            ActorAuthorityTransfer ready = pending.prepare;
+            ready.phase = ActorAuthorityTransferPhase::Ready;
+            PacketActorAuthorityTransfer packet;
+            packet.setTransfer(&ready);
+            mClient.sendReliable(packet.encode());
+            pending.readySent = true;
+            Log(Debug::Info) << "[MP] ActorSync: authority transfer ready"
+                             << " actorNetId=" << actorNetId
+                             << " cell=" << ready.cellId
+                             << " generation=" << ready.authorityGeneration
+                             << " transferId=" << ready.transferId;
+        }
+
+        std::vector<ActorInstanceId> committedTransfers;
+        for (const auto& [actorNetId, pending] : mPendingAuthorityTransfers)
+        {
+            if (pending.commitReceived)
+                committedTransfers.push_back(actorNetId);
+        }
+        for (ActorInstanceId actorNetId : committedTransfers)
+            applyCommittedAuthorityTransfer(actorNetId);
+
         if (!mPendingCrimeReactions.empty())
         {
             MWBase::World* world = MWBase::Environment::get().getWorld();
@@ -1863,6 +1954,22 @@ namespace mwmp
                 // only restores AI on the stale source-cell Ptr and the actor
                 // remains invisible until authority changes again.
                 bool authorityCellRebindHeldByBorderHysteresis = false;
+                bool authorityCellRebindHeldByLivePosition = false;
+                if (!actor.boundActor.isEmpty() && isExteriorActorCellId(actor.state.cellId))
+                {
+                    bool locallySimulated = false;
+                    if (auto* node = actor.boundActor.getRefData().getBaseNode())
+                        node->getUserValue("mp_authoritative_actor", locallySimulated);
+                    if (locallySimulated)
+                    {
+                        const ESM::Position& livePosition = actor.boundActor.getRefData().getPosition();
+                        Position liveActorPosition = actor.state.position;
+                        for (int i = 0; i < 3; ++i)
+                            liveActorPosition.pos[i] = livePosition.pos[i];
+                        authorityCellRebindHeldByLivePosition
+                            = exteriorCellIdForPosition(liveActorPosition) != actor.state.cellId;
+                    }
+                }
                 if (!actor.boundActor.isEmpty() && actor.state.mpNum == 0
                     && actor.hasAuthoritativeTransform
                     && actor.previousCellChangeCellId.empty()
@@ -1881,7 +1988,8 @@ namespace mwmp
                     && boundCellId != actor.state.cellId
                     && actor.hasAuthoritativeTransform
                     && (actor.state.mpNum != 0 || actor.actorNetId != 0)
-                    && !authorityCellRebindHeldByBorderHysteresis;
+                    && !authorityCellRebindHeldByBorderHysteresis
+                    && !authorityCellRebindHeldByLivePosition;
                 const bool needsAuthorityDeathApply = actor.state.isDead
                     && !actor.boundActor.isEmpty()
                     && (!actor.deathAlreadyApplied || actor.deathFromRealtimePacket);
@@ -1903,6 +2011,8 @@ namespace mwmp
                 }
                 if (!actor.boundActor.isEmpty())
                 {
+                    restoreAuthorityActorAiIfNeeded(actor.state.cellId, actor.boundActor,
+                        actor.state, actor.savedPuppetAiSequence.get());
                     if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
                     {
                         bool wasAuthoritativeActor = false;
@@ -1920,8 +2030,6 @@ namespace mwmp
                                              << " boundCell=" << cellIdForPtr(actor.boundActor);
                         }
                     }
-                    restoreAuthorityActorAiIfNeeded(actor.state.cellId, actor.boundActor,
-                        actor.state, actor.savedPuppetAiSequence.get());
                 }
                 continue;
             }
@@ -2182,6 +2290,125 @@ namespace mwmp
         return true;
     }
 
+    void ActorSync::onActorAuthorityTransfer(const ActorAuthorityTransfer& transfer)
+    {
+        const uint32_t localGuid = mwmp::Main::get().getPlayerSync().localPlayer().guid;
+        if (transfer.phase == ActorAuthorityTransferPhase::Cancel)
+        {
+            const auto pendingIt = mPendingAuthorityTransfers.find(transfer.actorNetId);
+            if (pendingIt != mPendingAuthorityTransfers.end()
+                && matchesActorAuthorityTransferCancel(pendingIt->second.prepare, transfer))
+                mPendingAuthorityTransfers.erase(pendingIt);
+            return;
+        }
+        if ((transfer.phase != ActorAuthorityTransferPhase::Prepare
+                && transfer.phase != ActorAuthorityTransferPhase::Commit)
+            || transfer.actorNetId == 0 || transfer.transferId == 0
+            || transfer.newOwnerGuid != localGuid
+            || actorInstanceIdFromActor(transfer.actor) != transfer.actorNetId
+            || transfer.actor.cellId != transfer.cellId)
+            return;
+
+        if (transfer.phase == ActorAuthorityTransferPhase::Commit)
+        {
+            const auto pendingIt = mPendingAuthorityTransfers.find(transfer.actorNetId);
+            if (pendingIt == mPendingAuthorityTransfers.end()
+                || !pendingIt->second.readySent
+                || !matchesActorAuthorityTransferCommit(pendingIt->second.prepare, transfer))
+                return;
+            pendingIt->second.prepare.actor = transfer.actor;
+            pendingIt->second.commitReceived = true;
+            applyCommittedAuthorityTransfer(transfer.actorNetId);
+            return;
+        }
+
+        const auto pendingIt = mPendingAuthorityTransfers.find(transfer.actorNetId);
+        const auto knownGenerationIt = mActorAuthorityGenerations.find(transfer.actorNetId);
+        const auto knownOwnerIt = mActorAuthorityGuids.find(transfer.actorNetId);
+        if ((pendingIt != mPendingAuthorityTransfers.end() && pendingIt->second.commitReceived)
+            || !shouldAcceptActorAuthorityTransferPrepare(transfer,
+                pendingIt == mPendingAuthorityTransfers.end() ? nullptr : &pendingIt->second.prepare,
+                knownGenerationIt != mActorAuthorityGenerations.end(),
+                knownGenerationIt == mActorAuthorityGenerations.end() ? 0 : knownGenerationIt->second,
+                knownOwnerIt == mActorAuthorityGuids.end() ? 0 : knownOwnerIt->second))
+            return;
+
+        auto& pending = mPendingAuthorityTransfers[transfer.actorNetId];
+        const bool alreadyReady = pending.prepare.transferId == transfer.transferId
+            && pending.readySent;
+        pending.prepare = transfer;
+        pending.readySent = alreadyReady;
+        pending.commitReceived = false;
+        pending.snapshotApplied = false;
+        Log(Debug::Info) << "[MP] ActorSync: received authority transfer prepare"
+                         << " actorNetId=" << transfer.actorNetId
+                         << " cell=" << transfer.cellId
+                         << " oldOwner=" << transfer.oldOwnerGuid
+                         << " newOwner=" << transfer.newOwnerGuid
+                         << " generation=" << transfer.authorityGeneration
+                         << " transferId=" << transfer.transferId;
+    }
+
+    void ActorSync::applyCommittedAuthorityTransfer(ActorInstanceId actorNetId)
+    {
+        const auto pendingIt = mPendingAuthorityTransfers.find(actorNetId);
+        if (pendingIt == mPendingAuthorityTransfers.end()
+            || !pendingIt->second.readySent || !pendingIt->second.commitReceived)
+            return;
+        const auto ownerIt = mActorAuthorityGuids.find(actorNetId);
+        const auto generationIt = mActorAuthorityGenerations.find(actorNetId);
+        const uint32_t localGuid = mwmp::Main::get().getPlayerSync().localPlayer().guid;
+        if (ownerIt == mActorAuthorityGuids.end() || ownerIt->second != localGuid
+            || generationIt == mActorAuthorityGenerations.end()
+            || generationIt->second != pendingIt->second.prepare.authorityGeneration)
+            return;
+        const auto runtimeIt = mActorsByNetId.find(actorNetId);
+        if (runtimeIt == mActorsByNetId.end() || runtimeIt->second.boundActor.isEmpty()
+            || runtimeIt->second.state.cellId != pendingIt->second.prepare.cellId
+            || runtimeIt->second.migrationGeneration != pendingIt->second.prepare.migrationGeneration)
+            return;
+
+        ActorRuntime& runtime = runtimeIt->second;
+        if (runtime.waitingForFreshCellBootstrap || runtime.bootstrapDeathRevealPending
+            || !MWBase::Environment::get().getWorld())
+            return;
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        runtime.state = pendingIt->second.prepare.actor;
+        runtime.migrationGeneration = pendingIt->second.prepare.migrationGeneration;
+        runtime.actorNetId = actorNetId;
+        // The observer's live Ptr is moved by presentation interpolation. A
+        // promoted simulator must start at the committed gameplay transform,
+        // not at that delayed visual position or a buffered old-owner sample.
+        const Position& canonicalPosition = runtime.state.position;
+        runtime.boundActor = world->moveObject(runtime.boundActor,
+            osg::Vec3f(canonicalPosition.pos[0], canonicalPosition.pos[1], canonicalPosition.pos[2]));
+        if (runtime.boundActor.isEmpty())
+            return;
+        world->rotateObject(runtime.boundActor,
+            osg::Vec3f(canonicalPosition.rot[0], canonicalPosition.rot[1], canonicalPosition.rot[2]));
+        runtime.smoothedPosition = canonicalPosition;
+        runtime.hasSmoothedPosition = true;
+        runtime.snapshots.clear();
+        runtime.hasInterpolationRenderTimestamp = false;
+        runtime.hasStationaryHoldPosition = false;
+        runtime.stationaryReleaseTimer = 0.f;
+        runtime.deferCellStoreRebind = false;
+        pendingIt->second.snapshotApplied = true;
+        applyBoundActorState(runtime);
+        ActorAuthorityTransfer applied = pendingIt->second.prepare;
+        applied.phase = ActorAuthorityTransferPhase::Applied;
+        PacketActorAuthorityTransfer packet;
+        packet.setTransfer(&applied);
+        mClient.sendReliable(packet.encode());
+        Log(Debug::Info) << "[MP] ActorSync: authority transfer committed from canonical snapshot"
+                         << " actorNetId=" << actorNetId
+                         << " cell=" << pendingIt->second.prepare.cellId
+                         << " generation=" << generationIt->second
+                         << " transferId=" << applied.transferId
+                         << " appliedAck=sent";
+        mPendingAuthorityTransfers.erase(pendingIt);
+    }
+
     void ActorSync::onAuthorityUpdate(const ActorList& list)
     {
         // Actor-bearing authority packets are per-actor lease updates. They do
@@ -2193,15 +2420,35 @@ namespace mwmp
                 const ActorInstanceId actorNetId = actorNetIdForActorState(actor);
                 if (actorNetId == 0)
                     continue;
+                const uint32_t localGuid = mwmp::Main::get().getPlayerSync().localPlayer().guid;
+                const auto knownGeneration = mActorAuthorityGenerations.find(actorNetId);
+                const auto knownOwner = mActorAuthorityGuids.find(actorNetId);
+                if (!shouldAcceptActorAuthorityLease(
+                        knownGeneration != mActorAuthorityGenerations.end(),
+                        knownGeneration == mActorAuthorityGenerations.end() ? 0 : knownGeneration->second,
+                        knownOwner == mActorAuthorityGuids.end() ? 0 : knownOwner->second,
+                        list.authorityGeneration, list.authorityGuid))
+                    continue;
+                const bool wasOwner = hasAuthorityForActor(actorNetId, list.cellId);
                 if (list.authorityGuid == 0)
-                {
                     mActorAuthorityGuids.erase(actorNetId);
-                    mActorAuthorityGenerations.erase(actorNetId);
-                }
                 else
-                {
                     mActorAuthorityGuids[actorNetId] = list.authorityGuid;
-                    mActorAuthorityGenerations[actorNetId] = list.authorityGeneration;
+                // Keep the generation even when the lease is revoked so an
+                // in-flight older grant cannot resurrect the old owner.
+                mActorAuthorityGenerations[actorNetId] = list.authorityGeneration;
+                auto runtimeIt = mActorsByNetId.find(actorNetId);
+                if (list.authorityGuid == localGuid)
+                    applyCommittedAuthorityTransfer(actorNetId);
+                else if (wasOwner && list.authorityGuid != localGuid
+                    && runtimeIt != mActorsByNetId.end())
+                    applyBoundActorState(runtimeIt->second);
+                if (list.authorityGuid != localGuid)
+                {
+                    const auto pendingIt = mPendingAuthorityTransfers.find(actorNetId);
+                    if (pendingIt != mPendingAuthorityTransfers.end()
+                        && list.authorityGeneration >= pendingIt->second.prepare.authorityGeneration)
+                        mPendingAuthorityTransfers.erase(pendingIt);
                 }
                 Log(Debug::Verbose) << "[MP] ActorSync: actor authority lease"
                                  << " actorNetId=" << actorNetId
@@ -2416,6 +2663,25 @@ namespace mwmp
 
             if (actorState.cellId.empty())
                 actorState.cellId = list.cellId;
+            const auto canonicalIt = mActorsByNetId.find(record.actorNetId);
+            if (canonicalIt != mActorsByNetId.end()
+                && shouldRejectActorIdentityRefresh(canonicalIt->second.migrationGeneration,
+                    record.migrationGeneration, canonicalIt->second.state.cellId,
+                    actorState.cellId, record.baselineReset || record.teleport))
+            {
+                // Reject the entire stale record before moving the runtime or
+                // updating identity mappings. Keeping only the newer generation
+                // while accepting the old cell silently restores the old owner.
+                ackedActorNetIds.push_back(record.actorNetId);
+                Log(Debug::Info) << "[MPDIAG] Actor identity stale cell refresh rejected"
+                                 << " actorNetId=" << record.actorNetId
+                                 << " canonicalCell=" << canonicalIt->second.state.cellId
+                                 << " incomingCell=" << actorState.cellId
+                                 << " canonicalGen=" << canonicalIt->second.migrationGeneration
+                                 << " incomingGen=" << record.migrationGeneration
+                                 << " ts=" << list.serverTimestamp;
+                continue;
+            }
             if (record.teleport)
                 actorState.position.isTeleporting = true;
             if (!record.removed)
@@ -2682,10 +2948,15 @@ namespace mwmp
 
             if (hadRuntime && !explicitTransformReset && !deathBaseline)
             {
+                const bool mergeCanonicalAi = shouldMergeCanonicalAiOnIdentityMigration(
+                    hadRuntime, explicitTransformReset, deathBaseline,
+                    !oldCellId.empty() && oldCellId != actorState.cellId);
                 runtime.state.refId = actorState.refId;
                 runtime.state.refNum = actorState.refNum;
                 runtime.state.mpNum = actorState.mpNum;
                 runtime.state.cellId = actorState.cellId;
+                if (mergeCanonicalAi)
+                    runtime.state.ai = actorState.ai;
                 if (hasAnyEquipmentItem(actorState.equipment))
                 {
                     runtime.state.equipment = actorState.equipment;
@@ -2742,9 +3013,55 @@ namespace mwmp
             // Bind the canonical runtime immediately while the target cell is
             // active. Late interaction paths (notably corpse inventory bootstrap)
             // must be able to resolve actorNetId/refNum back to the live object.
+            //
+            // A cross-cell identity refresh intentionally preserves an existing
+            // observer transform above. If that transform still belongs to the
+            // source exterior cell, forcing the canonical binding here teleports
+            // the Ptr across the border before its visual timeline arrives. Keep
+            // the loaded source binding and let applyBoundActorState finish the
+            // rebind once interpolation actually crosses into the destination.
             if (actorState.mpNum == 0
                 && (runtime.boundActor.isEmpty() || completeIdentitySnapshot))
-                resolveActorBinding(actorState.cellId, runtime, true, completeIdentitySnapshot);
+            {
+                const bool exteriorIdentityMigration = hadRuntime
+                    && !explicitTransformReset
+                    && !deathBaseline
+                    && oldCellId != actorState.cellId
+                    && isExteriorActorCellId(oldCellId)
+                    && isExteriorActorCellId(actorState.cellId)
+                    && runtime.hasAuthoritativeTransform;
+                const std::string preservedPositionCell = exteriorIdentityMigration
+                    ? exteriorCellIdForPosition(runtime.state.position) : std::string();
+                const std::string boundCell = !runtime.boundActor.isEmpty()
+                    ? cellIdForPtr(runtime.boundActor) : std::string();
+                const bool destinationAuthority
+                    = hasAuthorityForActor(record.actorNetId, actorState.cellId);
+                const bool deferIdentityCellStoreRebind = shouldDeferObserverCellStoreRebind(
+                    exteriorIdentityMigration, destinationAuthority,
+                    boundCell == oldCellId, preservedPositionCell == actorState.cellId);
+
+                if (deferIdentityCellStoreRebind)
+                {
+                    runtime.deferCellStoreRebind = true;
+                    Log(Debug::Info) << "[MPDIAG] Actor identity deferred CellStore rebind"
+                                     << " actorNetId=" << record.actorNetId
+                                     << " refId=" << actorState.refId
+                                     << " from=" << oldCellId
+                                     << " to=" << actorState.cellId
+                                     << " positionCell=" << preservedPositionCell
+                                     << " boundCell=" << boundCell;
+                }
+                else
+                {
+                    // A same-cell identity refresh can arrive while a walking
+                    // puppet has already crossed the physical seam. Only a real
+                    // baseline/reset may force placement; normal refreshes must
+                    // obey the resolver's visual-position continuity checks.
+                    resolveActorBinding(actorState.cellId, runtime,
+                        shouldForceActorIdentityBinding(hadRuntime, explicitTransformReset, deathBaseline),
+                        completeIdentitySnapshot);
+                }
+            }
 
             rememberServerSpawnedActorTimestamp(actorState.mpNum, list.serverTimestamp);
             if (runtime.state.isDead)
@@ -2782,6 +3099,8 @@ namespace mwmp
                 }
             }
         }
+
+        pruneObserverActorShadows();
 
         // A complete identity broadcast is the authority's full set of enabled
         // actors in the cell. A placed leveled-list spawner absent from that set
@@ -3151,6 +3470,7 @@ namespace mwmp
         }
 
         cell.actors = std::move(updatedActors);
+        pruneObserverActorShadows();
 
         auto cellIndexIt = mCellActorIds.find(list.cellId);
         if (cellIndexIt != mCellActorIds.end())
@@ -3220,12 +3540,13 @@ namespace mwmp
                                         << " runtimeGen=" << primaryRuntime->migrationGeneration;
                     continue;
                 }
-                if (primaryRuntime->migrationGeneration == actorState.migrationGeneration
-                    && actorState.migrationGeneration != 0)
+                if (shouldIgnoreDuplicateActorCellChange(primaryRuntime->migrationGeneration,
+                        actorState.migrationGeneration, primaryRuntime->state.cellId, destCellId))
                 {
                     Log(Debug::Verbose) << "[MP] ActorSync: duplicate ActorCellChange ignored"
                                         << " actorNetId=" << primaryRuntime->actorNetId
-                                        << " gen=" << actorState.migrationGeneration;
+                                        << " gen=" << actorState.migrationGeneration
+                                        << " cell=" << destCellId;
                     continue;
                 }
 
@@ -3306,7 +3627,10 @@ namespace mwmp
                 bool hasPreCommitVisualPosition = primaryRuntime->hasSmoothedPosition;
                 const std::string boundCellAtCommit = !primaryRuntime->boundActor.isEmpty()
                     ? cellIdForPtr(primaryRuntime->boundActor) : std::string();
-                if (retainedAuthority && !primaryRuntime->boundActor.isEmpty())
+                // Authority simulation does not advance the observer timeline.
+                // On demotion that cache can be several seconds old; the live
+                // Ptr is the visual baseline for both retained and lost authority.
+                if (sourceAuthority && !primaryRuntime->boundActor.isEmpty())
                 {
                     const auto& localPosition
                         = primaryRuntime->boundActor.getRefData().getPosition();
@@ -3316,6 +3640,7 @@ namespace mwmp
                         preCommitVisualPosition.rot[i] = localPosition.rot[i];
                     }
                     hasPreCommitVisualPosition = true;
+                    cellMovePosition = preCommitVisualPosition;
                 }
                 const float handoffDeltaX
                     = actorState.position.pos[0] - preCommitVisualPosition.pos[0];
@@ -3336,26 +3661,46 @@ namespace mwmp
                     && hasPreCommitVisualPosition
                     && (preCommitVisualCell == oldCellId || preCommitVisualCell == destCellId)
                     && commitPositionCell == destCellId
-                    && handoffDistanceSq <= kMaxSeamlessCellHandoffDistanceSq
-                    && (!destinationAuthority || retainedAuthority);
+                    && handoffDistanceSq <= kMaxSeamlessCellHandoffDistanceSq;
                 const bool pinToCanonicalCell = preserveBufferedTimeline
                     && !destinationAuthority
                     && preCommitVisualCell != destCellId;
-                constexpr float kDeferredCellStoreRebindDistance = 64.f;
-                const bool deferObserverCellStoreRebind = preserveBufferedTimeline
-                    && !destinationAuthority
-                    && boundCellAtCommit == oldCellId
-                    && exteriorCellBorderDistance(preCommitVisualPosition)
-                        <= kDeferredCellStoreRebindDistance;
+                // If the observer is still rendering the actor in the source exterior cell,
+                // keep the Ptr in that loaded CellStore until interpolation actually crosses
+                // into the committed destination. Rebinding early with a source-cell visual
+                // transform produces the border teleports seen when crowded combat actors
+                // hand off repeatedly.
+                const bool deferObserverCellStoreRebind = shouldDeferObserverCellStoreRebind(
+                    preserveBufferedTimeline, destinationAuthority,
+                    boundCellAtCommit == oldCellId, preCommitVisualCell == destCellId);
                 const uint64_t bufferedLatestTimestamp = primaryRuntime->snapshots.empty()
                     ? 0 : primaryRuntime->snapshots.back().serverTimestamp;
                 const bool commitBehindBufferedTimeline = preserveBufferedTimeline
+                    && !sourceAuthority
                     && list.serverTimestamp != 0
                     && bufferedLatestTimestamp != 0
                     && list.serverTimestamp < bufferedLatestTimestamp;
 
+                primaryRuntime->authorityHandoffWireOffset.set(0.f, 0.f, 0.f);
+                primaryRuntime->authorityHandoffWireOffsetTimer = 0.f;
+                primaryRuntime->authorityHandoffWireOffsetDuration = 0.f;
+                const float wireBridgeDuration = destinationAuthority && !retainedAuthority
+                    && preserveBufferedTimeline
+                    ? authorityHandoffWireBridgeDuration(std::sqrt(handoffDistanceSq), actorState.isMoving)
+                    : 0.f;
+                if (wireBridgeDuration > 0.f)
+                {
+                    primaryRuntime->authorityHandoffWireOffset.set(
+                        actorState.position.pos[0] - preCommitVisualPosition.pos[0],
+                        actorState.position.pos[1] - preCommitVisualPosition.pos[1],
+                        actorState.position.pos[2] - preCommitVisualPosition.pos[2]);
+                    primaryRuntime->authorityHandoffWireOffsetTimer = wireBridgeDuration;
+                    primaryRuntime->authorityHandoffWireOffsetDuration = wireBridgeDuration;
+                }
+
                 primaryRuntime->state.cellId = destCellId;
                 mergeActorState(*primaryRuntime, actorState, true);
+                primaryRuntime->state.ai = actorState.ai;
                 // Teleports and discontinuous migrations still rebase. A normal
                 // adjacent exterior crossing keeps its buffered timeline: the
                 // Ptr is moved to the canonical destination CellStore below,
@@ -3363,6 +3708,15 @@ namespace mwmp
                 // smoothed render transform has crossed the border too.
                 primaryRuntime->rebaseOnNextAuthoritativeSnapshot = !preserveBufferedTimeline;
                 BaseActor handoffState = actorState;
+                const bool seedFromLiveAuthority = preserveBufferedTimeline && sourceAuthority;
+                if (seedFromLiveAuthority)
+                {
+                    // Rebase the observer clock at the current local transform,
+                    // not at the last frame rendered before authority promotion.
+                    // queueSnapshot clears obsolete history and stationary holds.
+                    handoffState.position = preCommitVisualPosition;
+                    primaryRuntime->rebaseOnNextAuthoritativeSnapshot = true;
+                }
                 if (!destinationAuthority && handoffState.isMoving)
                 {
                     const float velocityX = handoffState.velocity.linear[0];
@@ -3430,11 +3784,13 @@ namespace mwmp
                                      << " sourceAuthority=" << sourceAuthority
                                      << " destinationAuthority=" << destinationAuthority
                                      << " retainedAuthority=" << retainedAuthority
+                                     << " seededFromLiveAuthority=" << seedFromLiveAuthority
                                      << " pinned=" << pinToCanonicalCell
                                      << " skippedOlderCommit=" << commitBehindBufferedTimeline
                                      << " commitTs=" << list.serverTimestamp
                                      << " bufferedLatestTs=" << bufferedLatestTimestamp
                                      << " handoffDistance=" << std::sqrt(handoffDistanceSq)
+                                     << " wireBridgeMs=" << (wireBridgeDuration * 1000.f)
                                      << " velocity=(" << handoffState.velocity.linear[0] << ","
                                      << handoffState.velocity.linear[1] << ","
                                      << handoffState.velocity.linear[2] << ")"
@@ -3504,6 +3860,8 @@ namespace mwmp
                     // border. This mirrors TES3MP's LocalActor handoff.
                     if (destinationAuthority
                         && !retainedAuthority
+                        && !preserveBufferedTimeline
+                        && !deferObserverCellStoreRebind
                         && !primaryRuntime->state.isDead)
                     {
                         MWBase::World* world = MWBase::Environment::get().getWorld();
@@ -3523,7 +3881,7 @@ namespace mwmp
 
                     if (destinationAuthority && !primaryRuntime->state.isDead)
                     {
-                        primaryRuntime->rebaseOnNextAuthoritativeSnapshot = true;
+                        primaryRuntime->rebaseOnNextAuthoritativeSnapshot = !preserveBufferedTimeline;
                         MWBase::World* world = MWBase::Environment::get().getWorld();
                         if (world && !primaryRuntime->boundActor.isEmpty())
                         {
@@ -3561,28 +3919,6 @@ namespace mwmp
                     // not yet crossed the border.
                     if (hasAuthorityForActor(primaryRuntime->actorNetId, destCellId))
                         applyBoundActorState(*primaryRuntime);
-                }
-
-                // Replay sorted pending snapshots for the committed generation.
-                for (const BufferedSnapshot& pending : sortedPending)
-                {
-                    BaseActor pendingState = primaryRuntime->state;
-                    pendingState.position = pending.position;
-                    pendingState.velocity = pending.velocity;
-                    pendingState.isMoving = pending.isMoving;
-                    pendingState.isAttackingOrCasting = pending.isAttackingOrCasting;
-                    pendingState.hasWeaponDrawn = pending.hasWeaponDrawn;
-                    pendingState.hasSpellReadied = pending.hasSpellReadied;
-                    pendingState.animFlags.movementFlags = pending.movementFlags;
-                    pendingState.animFlags.animFwd = pending.animFwd;
-                    pendingState.animFlags.animSide = pending.animSide;
-                    pendingState.migrationGeneration = primaryRuntime->migrationGeneration;
-
-                    ActorList synthetic;
-                    synthetic.cellId = destCellId;
-                    synthetic.snapshotSequence = pending.sequence;
-                    synthetic.serverTimestamp = pending.serverTimestamp;
-                    queueSnapshot(*primaryRuntime, pendingState, synthetic);
                 }
 
                 // PositionV2 can overtake the reliable cell commit. Replay the
@@ -3973,22 +4309,26 @@ namespace mwmp
             queueSnapshot(runtime, actorState, synthetic);
             completeFreshCellBootstrap(runtime, "ActorPositionV2", list.serverTimestamp);
             rememberServerSpawnedActorTimestamp(actorState.mpNum, list.serverTimestamp);
-            if (isWatchedBorderActor(runtime.state, runtime.state.cellId))
+            if (isWatchedPresentationActor(runtime.state, snapshot.actorNetId))
             {
-                Log(Debug::Verbose) << "[MP] ActorSync border watch: ActorPositionV2"
-                                    << " source=primary"
-                                    << " actorNetId=" << snapshot.actorNetId
-                                    << " refId=" << runtime.state.refId
-                                    << " refNum=" << runtime.state.refNum
-                                    << " mpNum=" << runtime.state.mpNum
-                                    << " runtimeCell=" << runtime.state.cellId
-                                    << " boundCell=" << cellIdForPtr(runtime.boundActor)
-                                    << " latestPositionTs=" << runtime.lastServerTimestamp
-                                    << " latestPresentationTs=" << runtime.lastPresentationServerTimestamp
-                                    << " pos=(" << runtime.state.position.pos[0]
-                                    << "," << runtime.state.position.pos[1]
-                                    << "," << runtime.state.position.pos[2] << ")"
-                                    << " seq=" << list.sequence;
+                Log(Debug::Info) << "[MPWATCH] ActorPositionV2 receive"
+                                 << " actorNetId=" << snapshot.actorNetId
+                                 << " refId=" << runtime.state.refId
+                                 << " runtimeCell=" << runtime.state.cellId
+                                 << " boundCell=" << cellIdForPtr(runtime.boundActor)
+                                 << " moving=" << actorState.isMoving
+                                 << " fwd=" << actorState.animFlags.animFwd
+                                 << " side=" << actorState.animFlags.animSide
+                                 << " velocity=(" << actorState.velocity.linear[0] << ","
+                                 << actorState.velocity.linear[1] << ","
+                                 << actorState.velocity.linear[2] << ")"
+                                 << " pos=(" << actorState.position.pos[0] << ","
+                                 << actorState.position.pos[1] << ","
+                                 << actorState.position.pos[2] << ")"
+                                 << " latestPositionTs=" << runtime.lastServerTimestamp
+                                 << " latestPresentationTs=" << runtime.lastPresentationServerTimestamp
+                                 << " seq=" << list.sequence
+                                 << " gen=" << snapshot.migrationGeneration;
             }
             ++accepted;
         }
@@ -4879,6 +5219,83 @@ namespace mwmp
         }
     }
 
+    void ActorSync::onRemotePlayerDisconnected(uint32_t guid, const MWWorld::Ptr& player)
+    {
+        const std::string targetId = "mp_remote_" + std::to_string(guid);
+        std::size_t stopped = 0;
+        auto clearTarget = [&](ActorRuntime& runtime)
+        {
+            if (runtime.state.ai.targetId != targetId
+                || (runtime.state.ai.type != BaseActor::AIAction::Type::Combat
+                    && runtime.state.ai.type != BaseActor::AIAction::Type::Pursue))
+                return;
+
+            const bool wasPursuing = runtime.state.ai.type == BaseActor::AIAction::Type::Pursue;
+            runtime.state.ai = {};
+            if (runtime.savedPuppetAiSequence)
+            {
+                auto& packages = runtime.savedPuppetAiSequence->mPackages;
+                packages.erase(std::remove_if(packages.begin(), packages.end(),
+                    [](const ESM::AiSequence::AiPackageContainer& package)
+                    {
+                        return package.mType == ESM::AiSequence::Ai_Combat
+                            || package.mType == ESM::AiSequence::Ai_Pursue;
+                    }), packages.end());
+            }
+            if (!runtime.boundActor.isEmpty() && runtime.boundActor.getClass().isActor())
+            {
+                MWMechanics::CreatureStats& stats
+                    = runtime.boundActor.getClass().getCreatureStats(runtime.boundActor);
+                MWMechanics::AiSequence& ai = stats.getAiSequence();
+                if (wasPursuing)
+                    ai.stopPursuit();
+                if (player.isEmpty())
+                    ai.stopCombat();
+                else
+                    ai.stopCombat({ player });
+                stats.setAttacked(false);
+            }
+            ++stopped;
+            Log(Debug::Info) << "[MP] ActorSync: cleared disconnected player AI target"
+                             << " cell=" << runtime.state.cellId << " refId=" << runtime.state.refId
+                             << " actorNetId=" << runtime.actorNetId
+                             << " targetGuid=" << guid;
+        };
+        for (auto& [actorNetId, runtime] : mActorsByNetId)
+        {
+            (void)actorNetId;
+            clearTarget(runtime);
+        }
+        for (auto& [cellId, cell] : mCells)
+        {
+            (void)cellId;
+            for (BaseActor& actor : cell.latest.actors)
+            {
+                if (actor.ai.targetId == targetId
+                    && (actor.ai.type == BaseActor::AIAction::Type::Combat
+                        || actor.ai.type == BaseActor::AIAction::Type::Pursue))
+                    actor.ai = {};
+            }
+            for (auto& [key, runtime] : cell.actors)
+            {
+                (void)key;
+                clearTarget(runtime);
+            }
+        }
+        for (auto& [actorNetId, pending] : mPendingAuthorityTransfers)
+        {
+            (void)actorNetId;
+            BaseActor& actor = pending.prepare.actor;
+            if (actor.ai.targetId == targetId
+                && (actor.ai.type == BaseActor::AIAction::Type::Combat
+                    || actor.ai.type == BaseActor::AIAction::Type::Pursue))
+                actor.ai = {};
+        }
+        if (stopped != 0)
+            Log(Debug::Info) << "[MP] ActorSync: disconnected player AI targets cleared=" << stopped
+                             << " guid=" << guid;
+    }
+
     void ActorSync::onActorAI(const ActorList& list)
     {
         auto& cell = mCells[list.cellId];
@@ -5633,6 +6050,18 @@ namespace mwmp
 
     bool ActorSync::hasAuthorityForActor(ActorInstanceId actorNetId, const std::string& cellId) const
     {
+        const auto pendingIt = mPendingAuthorityTransfers.find(actorNetId);
+        if (pendingIt != mPendingAuthorityTransfers.end())
+        {
+            const auto ownerIt = mActorAuthorityGuids.find(actorNetId);
+            const auto generationIt = mActorAuthorityGenerations.find(actorNetId);
+            const uint32_t localGuid = mwmp::Main::get().getPlayerSync().localPlayer().guid;
+            if (!pendingIt->second.snapshotApplied
+                || ownerIt == mActorAuthorityGuids.end() || ownerIt->second != localGuid
+                || generationIt == mActorAuthorityGenerations.end()
+                || generationIt->second != pendingIt->second.prepare.authorityGeneration)
+                return false;
+        }
         const auto leaseIt = mActorAuthorityGuids.find(actorNetId);
         if (leaseIt == mActorAuthorityGuids.end())
             return hasAuthority(cellId);
@@ -5896,12 +6325,22 @@ namespace mwmp
         if (npcAttacker.getCell() == nullptr)
             return;
 
-        const MWWorld::Cell* cell = npcAttacker.getCell()->getCell();
-        if (!cell) return;
+        const std::string physicalCellId = cellIdForPtr(npcAttacker);
+        std::string cellId = getActorAuthorityCellId(npcAttacker);
+        if (cellId.empty())
+            cellId = physicalCellId;
 
-        const std::string cellId = cell->isExterior()
-            ? (std::string("EXT:") + std::to_string(cell->getGridX()) + "," + std::to_string(cell->getGridY()))
-            : std::string(cell->getNameId());
+        const ActorInstanceId attackerNetId = actorNetIdForPtr(physicalCellId, npcAttacker);
+        if (attackerNetId == 0 || !hasAuthorityForActor(attackerNetId, cellId))
+        {
+            Log(Debug::Info) << "[MPDIAG] sendNpcPlayerDamage skipped without actor authority"
+                             << " victimGuid=" << victimGuid
+                             << " actorNetId=" << attackerNetId
+                             << " refId=" << npcAttacker.getCellRef().getRefId().serializeText()
+                             << " canonicalCell=" << cellId
+                             << " physicalCell=" << physicalCellId;
+            return;
+        }
 
         ActorList request;
         request.cellId = cellId;
@@ -5910,21 +6349,21 @@ namespace mwmp
 
         BaseActor npcActor;
         npcActor.refId = npcAttacker.getCellRef().getRefId().serializeText();
-        npcActor.refNum = canonicalVanillaRefNum(npcAttacker);
         npcActor.cellId = cellId;
-        const uint32_t mappedMpNum = mappedMpNumForPtr(cellId, npcAttacker);
-        if (mappedMpNum != 0)
+        const ActorInstanceKey attackerKey = unpackActorInstanceId(attackerNetId);
+        if (attackerKey.kind == ActorKeyKind::SpawnedMpNum)
         {
-            npcActor.mpNum = mappedMpNum;
+            npcActor.mpNum = attackerKey.id;
             npcActor.refNum = 0;
-            rememberServerSpawnedActor(cellId, npcAttacker, mappedMpNum);
+            rememberServerSpawnedActor(cellId, npcAttacker, npcActor.mpNum);
+        }
+        else if (attackerKey.kind == ActorKeyKind::VanillaRefNum)
+        {
+            npcActor.refNum = attackerKey.id;
         }
         else
         {
-            const ActorInstanceKey attackerKey
-                = unpackActorInstanceId(actorNetIdForPtr(cellId, npcAttacker));
-            if (attackerKey.kind == ActorKeyKind::VanillaRefNum)
-                npcActor.refNum = attackerKey.id;
+            npcActor.refNum = canonicalVanillaRefNum(npcAttacker);
         }
 
         float victimDistanceSq = -1.f;
@@ -6168,7 +6607,7 @@ namespace mwmp
                 && !state.isAttackingOrCasting
                 && !state.hasWeaponDrawn
                 && !state.hasSpellReadied
-                && state.animFlags.movementFlags == 0)
+                && (state.animFlags.movementFlags & ~AnimFlags::MF_GUARD_HOSTILE) == 0)
             {
                 actor.state.isMoving = false;
                 actor.state.velocity = Velocity {};
@@ -6494,12 +6933,16 @@ namespace mwmp
 
             const bool snapshotHasMovementAxes = std::abs(snapshot.animFwd) > 0.1f
                 || std::abs(snapshot.animSide) > 0.1f;
-            const bool snapshotHasLocomotion = snapshot.isMoving && snapshotHasMovementAxes;
+            const bool staleRemoteLocomotion = shouldExpireRemoteLocomotion(
+                actor.latestSnapshotAge, snapshot.isMoving, snapshotHasMovementAxes);
+            const bool snapshotMoving = snapshot.isMoving && !staleRemoteLocomotion;
+            const bool snapshotHasLocomotion = snapshotMoving && snapshotHasMovementAxes;
             const bool previousHasMovementAxes = std::abs(actor.state.animFlags.animFwd) > 0.1f
                 || std::abs(actor.state.animFlags.animSide) > 0.1f;
             const uint32_t immediateStopFlags =
                 AnimFlags::MF_KNOCKED_DOWN | AnimFlags::MF_KNOCKED_OUT | AnimFlags::MF_RECOVERY;
-            const bool immediateLocomotionStop = snapshot.isAttackingOrCasting
+            const bool immediateLocomotionStop = staleRemoteLocomotion
+                || snapshot.isAttackingOrCasting
                 || (snapshot.movementFlags & immediateStopFlags) != 0
                 || (isIdleAnimGroup(snapshot.currentAnimGroup)
                     && !isBaseIdleAnimGroup(snapshot.currentAnimGroup));
@@ -6523,7 +6966,7 @@ namespace mwmp
                 && !snapshot.isAttackingOrCasting
                 && !snapshot.hasWeaponDrawn
                 && !snapshot.hasSpellReadied
-                && snapshot.movementFlags == 0)
+                && (snapshot.movementFlags & ~AnimFlags::MF_GUARD_HOSTILE) == 0)
             {
                 actor.state.isMoving = false;
                 actor.state.velocity = Velocity {};
@@ -6532,9 +6975,11 @@ namespace mwmp
                 return;
             }
 
-            actor.state.isMoving = snapshot.isMoving;
-            actor.state.animFlags.animFwd = snapshot.isMoving ? snapshot.animFwd : 0.f;
-            actor.state.animFlags.animSide = snapshot.isMoving ? snapshot.animSide : 0.f;
+            actor.state.isMoving = snapshotMoving;
+            actor.state.animFlags.animFwd = snapshotMoving ? snapshot.animFwd : 0.f;
+            actor.state.animFlags.animSide = snapshotMoving ? snapshot.animSide : 0.f;
+            if (staleRemoteLocomotion)
+                actor.state.velocity = Velocity {};
 
             // PresentationV2 is the reliable owner of animation group/phase. Position snapshots
             // may remain buffered across a presentation change, so applying their cached
@@ -7414,6 +7859,7 @@ namespace mwmp
         };
         std::vector<DuplicateServerSpawnedActor> duplicateServerSpawnedActors;
         std::unordered_map<uint32_t, SentServerSpawnedActor> sentServerSpawnedActors;
+        std::unordered_map<ActorInstanceId, std::size_t> authorityOutgoingIndexByNetId;
 
         for (auto& [actorKey, actor] : cell.actors)
         {
@@ -7563,6 +8009,19 @@ namespace mwmp
 
             const uint32_t mappedMpNum = mappedMpNumForPtr(cell.outboundCellId, ptr);
             const ActorInstanceId canonicalActorNetId = actorNetIdForActorState(actor);
+            const ActorInstanceId collectionActorNetId = mappedMpNum != 0
+                ? packActorInstanceKey({ ActorKeyKind::SpawnedMpNum, mappedMpNum }) : canonicalActorNetId;
+            const auto canonicalRuntime = mActorsByNetId.find(collectionActorNetId);
+            if (canonicalRuntime != mActorsByNetId.end()
+                && !shouldCollectActorInCanonicalCell(
+                    canonicalRuntime->second.state.cellId, cell.outboundCellId))
+            {
+                // CellStore enumeration is discovery, not an authority transfer.
+                // An interpolated vanilla Ptr can cross before the reliable
+                // commit, or remain in the source cell after it. Neither permits
+                // this cell collector to restore AI or publish a second owner.
+                return true;
+            }
             if (mappedMpNum == 0
                 && !hasAuthorityForActor(canonicalActorNetId, cell.outboundCellId))
                 return true;
@@ -7646,11 +8105,11 @@ namespace mwmp
 
             const std::string actorKey = makeActorKey(actor);
             const auto previousRuntime = cell.actors.find(actorKey);
+            const ActorRuntime* restoreRuntime = canonicalRuntime != mActorsByNetId.end()
+                ? &canonicalRuntime->second
+                : (previousRuntime != cell.actors.end() ? &previousRuntime->second : nullptr);
             const ESM::AiSequence::AiSequence* savedPuppetAiSequence
-                = previousRuntime != cell.actors.end() && previousRuntime->second.savedPuppetAiSequence
-                    && !previousRuntime->second.savedPuppetAiSequence->mPackages.empty()
-                ? previousRuntime->second.savedPuppetAiSequence.get()
-                : nullptr;
+                = restoreRuntime ? restoreRuntime->savedPuppetAiSequence.get() : nullptr;
 
             if (previousRuntime != cell.actors.end()
                 && previousRuntime->second.authoritySyncedIdleHandoffTimer > 0.f)
@@ -7662,7 +8121,8 @@ namespace mwmp
             }
 
             const bool preservedSyncedIdleHandoff
-                = restoreAuthorityActorAiIfNeeded(cell.outboundCellId, ptr, actor, savedPuppetAiSequence);
+                = restoreAuthorityActorAiIfNeeded(cell.outboundCellId, ptr,
+                    restoreRuntime ? restoreRuntime->state : actor, savedPuppetAiSequence);
             if (preservedSyncedIdleHandoff && previousRuntime != cell.actors.end())
             {
                 static constexpr float kAuthoritySyncedIdleHandoffGrace = 2.0f;
@@ -7764,6 +8224,26 @@ namespace mwmp
                         actor.ai.targetId = aiTarget.getCellRef().getRefId().serializeText();
                     actor.ai.targetMpNum = mappedMpNumForPtr(cellIdForPtr(aiTarget), aiTarget);
                 }
+            }
+            // Preserve the narrow vanilla guard predicate across authority boundaries.
+            // A combat package alone is insufficient: Fight is zeroed on puppets,
+            // and a follower may have Combat stacked above Follow/Escort.
+            if (!ptr.getClass().isNpc() && aiSequence.isInCombat())
+            {
+                bool follower = false;
+                for (const auto& package : aiSequence)
+                {
+                    if (package->sideWithTarget())
+                    {
+                        follower = true;
+                        break;
+                    }
+                    if (package->getTypeId() != MWMechanics::AiPackageTypeId::Combat)
+                        break;
+                }
+                if (isGuardHostileCreature(actor.isDead, aiSequence.isInCombat(),
+                        MWMechanics::isAggressionCapable(ptr), MWMechanics::getFightTerm(ptr, playerPtr), follower))
+                    actor.animFlags.movementFlags |= AnimFlags::MF_GUARD_HOSTILE;
             }
             // Match compact position/presentation locomotion classification.
             // Tiny transform drift while an idle group is active must not become
@@ -7904,7 +8384,7 @@ namespace mwmp
             const bool confirmedLocomotion = sampledLocomotion && actor.isMoving;
             const bool stationaryIdleContext = !actor.isDead && !actor.isAttackingOrCasting
                 && !actor.hasWeaponDrawn && !actor.hasSpellReadied
-                && actor.animFlags.movementFlags == 0;
+                && (actor.animFlags.movementFlags & ~AnimFlags::MF_GUARD_HOSTILE) == 0;
             const bool specialIdleLocomotionBlock = sampledSpecialIdle
                 || (stationaryIdleContext && !sampledLocomotion
                     && (previousSpecialIdle || rawLowerBodyGroup == "idle"));
@@ -8089,10 +8569,25 @@ namespace mwmp
             }
 
             const ActorInstanceId outgoingActorNetId = actorNetIdForActorState(actor);
-            if (const auto runtimeIt = mActorsByNetId.find(outgoingActorNetId);
+            ActorRuntime* outgoingPrimaryRuntime = nullptr;
+            float wireBridgeScale = 0.f;
+            if (auto runtimeIt = mActorsByNetId.find(outgoingActorNetId);
                 runtimeIt != mActorsByNetId.end())
             {
+                outgoingPrimaryRuntime = &runtimeIt->second;
                 actor.migrationGeneration = runtimeIt->second.migrationGeneration;
+                wireBridgeScale = authorityHandoffWireBridgeScale(
+                    runtimeIt->second.authorityHandoffWireOffsetTimer,
+                    runtimeIt->second.authorityHandoffWireOffsetDuration);
+                if (wireBridgeScale > 0.f)
+                {
+                    for (int i = 0; i < 3; ++i)
+                    {
+                        actor.position.pos[i] += runtimeIt->second.authorityHandoffWireOffset[i]
+                            * wireBridgeScale;
+                        actor.velocity.linear[i] = runtimeIt->second.state.velocity.linear[i];
+                    }
+                }
             }
             else if (previousRuntime != cell.actors.end())
             {
@@ -8112,6 +8607,38 @@ namespace mwmp
                                         << " localRefNum=" << ptr.getCellRef().getRefNum().mIndex;
                 }
                 return true;
+            }
+
+            if (outgoingPrimaryRuntime && wireBridgeScale > 0.f)
+            {
+                const bool firstBridgeSample = std::abs(
+                    outgoingPrimaryRuntime->authorityHandoffWireOffsetTimer
+                    - outgoingPrimaryRuntime->authorityHandoffWireOffsetDuration) < 0.0001f;
+                if (firstBridgeSample && isWatchedPresentationActor(actor, outgoingActorNetId))
+                {
+                    Log(Debug::Info) << "[MPDIAG] Authority handoff wire bridge started"
+                                     << " actorNetId=" << outgoingActorNetId
+                                     << " refId=" << actor.refId
+                                     << " durationMs="
+                                     << (outgoingPrimaryRuntime->authorityHandoffWireOffsetDuration * 1000.f)
+                                     << " offset=("
+                                     << outgoingPrimaryRuntime->authorityHandoffWireOffset.x() << ","
+                                     << outgoingPrimaryRuntime->authorityHandoffWireOffset.y() << ","
+                                     << outgoingPrimaryRuntime->authorityHandoffWireOffset.z() << ")";
+                }
+                outgoingPrimaryRuntime->authorityHandoffWireOffsetTimer = std::max(0.f,
+                    outgoingPrimaryRuntime->authorityHandoffWireOffsetTimer - std::max(0.f, dt));
+                if (outgoingPrimaryRuntime->authorityHandoffWireOffsetTimer <= 0.f)
+                {
+                    outgoingPrimaryRuntime->authorityHandoffWireOffset.set(0.f, 0.f, 0.f);
+                    outgoingPrimaryRuntime->authorityHandoffWireOffsetDuration = 0.f;
+                    if (isWatchedPresentationActor(actor, outgoingActorNetId))
+                    {
+                        Log(Debug::Info) << "[MPDIAG] Authority handoff wire bridge completed"
+                                         << " actorNetId=" << outgoingActorNetId
+                                         << " refId=" << actor.refId;
+                    }
+                }
             }
 
             if (mechanicsSnapshotDue)
@@ -8215,6 +8742,7 @@ namespace mwmp
                 }
             }
 
+            authorityOutgoingIndexByNetId[outgoingActorNetId] = outgoing.actors.size();
             outgoing.actors.push_back(std::move(actor));
             return true;
         };
@@ -8229,27 +8757,30 @@ namespace mwmp
             if (!hasAuthorityForActor(actorEntry.first, cell.outboundCellId))
                 continue;
             ActorRuntime& runtime = actorEntry.second;
-            if (runtime.state.mpNum == 0
-                || runtime.state.cellId != cell.outboundCellId
+            if (runtime.state.cellId != cell.outboundCellId
                 || runtime.boundActor.isEmpty()
                 || !runtime.boundActor.getRefData().isEnabled())
             {
                 continue;
             }
 
-            // The reliable cell commit can advance the canonical v2 runtime
-            // before World::moveObject transfers its Ptr out of the previous
-            // CellStore. targetCell->forEach() cannot see that actor, even
-            // though authority AI is already moving it in this cell. Always
-            // collect the canonical primary runtime so observers keep
-            // receiving position snapshots throughout repeated handoffs.
-            collectAuthorityActor(runtime.boundActor);
-
             const auto& position = runtime.boundActor.getRefData().getPosition();
             Position boundPosition;
             for (int i = 0; i < 3; ++i)
                 boundPosition.pos[i] = position.pos[i];
             const std::string positionCellId = exteriorCellIdForPosition(boundPosition);
+
+            // Once a live authority Ptr has crossed out of its canonical exterior
+            // cell, targetCell->forEach() can no longer see it. Capture one final
+            // authoritative sample directly from the primary runtime so both
+            // vanilla refNum and spawned mpNum actors can use the same reliable
+            // ActorCellChange transaction. Spawned actors retain the historical
+            // always-collect behavior because duplicate local spawned copies are
+            // resolved inside collectAuthorityActor().
+            if (shouldCollectPrimaryForExplicitCellChange(
+                    runtime.state.mpNum != 0, positionCellId != cell.outboundCellId,
+                    collectedAuthorityActorNetIds.count(actorEntry.first) != 0))
+                collectAuthorityActor(runtime.boundActor);
             constexpr float kCellChangeBorderHysteresis = 64.f;
             const float borderDistance = exteriorCellBorderDistance(boundPosition);
             if (positionCellId == cell.outboundCellId)
@@ -8294,11 +8825,11 @@ namespace mwmp
                 // the primary runtime's previous network state. Otherwise
                 // observers rebase to a stationary border sample until the
                 // destination authority's first position packet arrives.
-                const auto sentPrimaryIt = sentServerSpawnedActors.find(runtime.state.mpNum);
-                if (sentPrimaryIt != sentServerSpawnedActors.end()
-                    && sentPrimaryIt->second.outgoingIndex < outgoing.actors.size())
+                const auto sentPrimaryIt = authorityOutgoingIndexByNetId.find(actorEntry.first);
+                if (sentPrimaryIt != authorityOutgoingIndexByNetId.end()
+                    && sentPrimaryIt->second < outgoing.actors.size())
                 {
-                    movedActor = outgoing.actors[sentPrimaryIt->second.outgoingIndex];
+                    movedActor = outgoing.actors[sentPrimaryIt->second];
                 }
                 // Crossing the cell boundary can briefly clear the engine's
                 // movement settings even though the actor still has forward
@@ -8509,16 +9040,19 @@ namespace mwmp
             for (const BaseActor& actorState : outgoing.actors)
                 completeKeys.insert(makeActorKey(actorState));
 
+            std::size_t retainedCanonicalRuntimes = 0;
             for (const auto& [actorNetId, runtime] : mActorsByNetId)
             {
-                if (runtime.state.cellId != cell.outboundCellId
-                    || hasAuthorityForActor(actorNetId, cell.outboundCellId)
-                    || hasMissingActorInstanceIdentity(runtime.state))
+                if (!shouldRetainCanonicalRuntimeInCompleteActorList(runtime.state.cellId,
+                        cell.outboundCellId, hasMissingActorInstanceIdentity(runtime.state)))
                     continue;
 
                 const std::string actorKey = makeActorKey(runtime.state);
                 if (completeKeys.insert(actorKey).second)
+                {
                     completeList.actors.push_back(runtime.state);
+                    ++retainedCanonicalRuntimes;
+                }
             }
 
             const bool actorKeySetChanged = !cell.initialListSent
@@ -8539,6 +9073,7 @@ namespace mwmp
                                     << cell.outboundCellId
                                     << " actors=" << completeList.actors.size()
                                     << " locallyOwned=" << outgoing.actors.size()
+                                    << " retainedCanonical=" << retainedCanonicalRuntimes
                                     << " reason=" << (wasInitialList ? "initial" : "keyset");
             }
         }
@@ -8623,7 +9158,25 @@ namespace mwmp
                         continue;
                     }
 
-                    compact.snapshots.push_back(makeCompactActorSnapshot(actor, actorNetId));
+                    CompactActorSnapshot compactSnapshot = makeCompactActorSnapshot(actor, actorNetId);
+                    if (isWatchedPresentationActor(actor, actorNetId))
+                    {
+                        Log(Debug::Info) << "[MPWATCH] ActorPositionV2 send"
+                                         << " actorNetId=" << actorNetId
+                                         << " refId=" << actor.refId
+                                         << " cell=" << chunk.cellId
+                                         << " moving=" << ((compactSnapshot.presentationFlags & ActorPresentationMoving) != 0)
+                                         << " fwd=" << dequantizeActorAxis(compactSnapshot.animFwd)
+                                         << " side=" << dequantizeActorAxis(compactSnapshot.animSide)
+                                         << " velocity=(" << compactSnapshot.velocity.linear[0] << ","
+                                         << compactSnapshot.velocity.linear[1] << ","
+                                         << compactSnapshot.velocity.linear[2] << ")"
+                                         << " pos=(" << compactSnapshot.position.pos[0] << ","
+                                         << compactSnapshot.position.pos[1] << ","
+                                         << compactSnapshot.position.pos[2] << ")"
+                                         << " gen=" << compactSnapshot.migrationGeneration;
+                    }
+                    compact.snapshots.push_back(std::move(compactSnapshot));
                 }
 
                 if (compact.snapshots.empty())
@@ -9012,13 +9565,23 @@ namespace mwmp
                 {
                     ActorRuntime& runtime = cell.actors[key];
                     runtime.actorNetId = actorNetId;
+                    uint32_t& nextAttackEventId = mNextAttackEventIds[actorNetId];
+                    if (nextAttackEventId == 0)
+                        nextAttackEventId = 1;
                     ActorAttackV2Event event;
                     event.actorNetId = actorNetId;
-                    event.eventId = runtime.nextAttackEventId++;
-                    if (event.eventId == 0)
-                        event.eventId = runtime.nextAttackEventId++;
+                    event.eventId = nextAttackEventId++;
+                    if (nextAttackEventId == 0)
+                        nextAttackEventId = 1;
                     event.attack = atkActor.attack;
                     attackV2Update.events.push_back(event);
+                    Log(Debug::Info) << "[MPDIAG] ActorAttackV2 queued"
+                                     << " actorNetId=" << actorNetId
+                                     << " refId=" << actor.refId
+                                     << " eventId=" << event.eventId
+                                     << " cell=" << attackV2Update.cellId
+                                     << " authorityGuid=" << attackV2Update.authorityGuid
+                                     << " authorityGeneration=" << attackV2Update.authorityGeneration;
                 }
             }
 
@@ -9148,7 +9711,7 @@ namespace mwmp
                     && !reliableSnapshot.hasWeaponDrawn
                     && !reliableSnapshot.hasSpellReadied
                     && !reliableSnapshot.isDead
-                    && reliableSnapshot.movementFlags == 0;
+                    && (reliableSnapshot.movementFlags & ~AnimFlags::MF_GUARD_HOSTILE) == 0;
                 const bool debounceSpecialIdleChange = !sampleRequested
                     && prevIt != cell.actors.end()
                     && previousSentSpecialIdle
@@ -9217,7 +9780,7 @@ namespace mwmp
                     && !reliableSnapshot.hasWeaponDrawn
                     && !reliableSnapshot.hasSpellReadied
                     && !reliableSnapshot.isDead
-                    && reliableSnapshot.movementFlags == 0;
+                    && (reliableSnapshot.movementFlags & ~AnimFlags::MF_GUARD_HOSTILE) == 0;
                 const float presentationRefreshInterval = stableIdlePresentation ? 2.f : 1.f;
                 const bool refreshDue = prevIt != cell.actors.end()
                     && prevIt->second.presentationSendTimer >= presentationRefreshInterval
@@ -9426,6 +9989,10 @@ namespace mwmp
         if (!world)
             return false;
 
+        // A physical crossing can precede the reliable cell commit. Refresh the
+        // local binding before deciding whether to move it or rebuild its AI.
+        actor.boundActor = MWBase::Environment::get().getWorldModel()->getCurrentPtr(actor.boundActor);
+
         if (actor.actorNetId == 0)
             actor.actorNetId = actorNetIdForActorState(actor.state);
 
@@ -9434,6 +10001,12 @@ namespace mwmp
             && actor.state.mpNum == 0
             && actor.state.refNum != 0;
         const bool canMoveBoundActorAcrossCells = expectsServerSpawn || expectsV2VanillaCrossCellMove;
+        bool locallySimulatedAuthority = false;
+        if (!actor.boundActor.isEmpty() && hasAuthorityForActor(actor.actorNetId, cellId))
+        {
+            if (auto* node = actor.boundActor.getRefData().getBaseNode())
+                node->getUserValue("mp_authoritative_actor", locallySimulatedAuthority);
+        }
         const bool logTrackedActor = actor.state.refId == "fargoth"
             || (actor.state.mpNum != 0 && isGeneratedSpawnerRefId(actor.state.refId))
             || isWatchedBorderActor(actor.state, cellId);
@@ -9447,7 +10020,7 @@ namespace mwmp
         // actor while its canonical cell and authority still name the source.
         // Vanilla actors retain the coordinate fallback because they do not
         // always have a spawned-actor migration identity.
-        if (!forceCanonicalCell && !expectsServerSpawn
+        if (!forceCanonicalCell && !expectsServerSpawn && !locallySimulatedAuthority
             && actor.hasAuthoritativeTransform && isExteriorActorCellId(cellId))
         {
             const std::string positionCellId = exteriorCellIdForPosition(actor.state.position);
@@ -9514,6 +10087,47 @@ namespace mwmp
         MWWorld::CellStore* targetCell = findActiveCellById(worldImp, targetCellId);
         if (!targetCell)
         {
+            // A remote actor can cross into a CellStore this client no longer has
+            // active while its old scene/controller objects remain alive until the
+            // streaming teardown completes.  Dropping our Ptr without neutralizing
+            // the last network movement leaves CharacterController cycling the old
+            // run/walk group indefinitely at the final transform.
+            const bool localAuthority = actor.actorNetId != 0
+                && hasAuthorityForActor(actor.actorNetId, actor.state.cellId);
+            if (!localAuthority && !actor.boundActor.isEmpty())
+            {
+                MWMechanics::Movement& movement
+                    = actor.boundActor.getClass().getMovementSettings(actor.boundActor);
+                movement.mPosition[0] = 0.f;
+                movement.mPosition[1] = 0.f;
+                movement.mPosition[2] = 0.f;
+                movement.mRotation[0] = 0.f;
+                movement.mRotation[1] = 0.f;
+                movement.mRotation[2] = 0.f;
+                movement.mSpeedFactor = 0.f;
+                movement.mIsStrafing = false;
+                actor.state.isMoving = false;
+                actor.state.velocity = Velocity {};
+                actor.state.animFlags.animFwd = 0.f;
+                actor.state.animFlags.animSide = 0.f;
+                actor.remoteLocomotionStopTimer = 0.f;
+                if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
+                    baseNode->setUserValue("mp_interp_speed", 0.f);
+                setHiddenUntilFreshSnapshot(actor.boundActor, true);
+
+                if (logTrackedActor)
+                {
+                    Log(Debug::Info) << "[MPDIAG] Actor binding released outside active cells"
+                                     << " actorNetId=" << actor.actorNetId
+                                     << " refId=" << actor.state.refId
+                                     << " refNum=" << actor.state.refNum
+                                     << " mpNum=" << actor.state.mpNum
+                                     << " canonical=" << actor.state.cellId
+                                     << " target=" << targetCellId
+                                     << " bound=" << cellIdForPtr(actor.boundActor)
+                                     << " latestAgeMs=" << actor.latestSnapshotAge * 1000.f;
+                }
+            }
             actor.boundActor = MWWorld::Ptr();
             return false;
         }
@@ -9616,6 +10230,20 @@ namespace mwmp
             }
 
             const Position* movePos = &actor.state.position;
+            Position liveAuthorityMovePosition = actor.state.position;
+            bool movingAtLiveAuthorityPosition = false;
+            // A locally simulated actor can physically cross back over a seam
+            // before the next reliable cell commit. Routine binding repair must
+            // follow its live transform, never replay the older commit position.
+            // Reliable ActorCellChange still uses its commit pose below.
+            if (!forceCanonicalCell && locallySimulatedAuthority)
+            {
+                const ESM::Position& livePosition = actor.boundActor.getRefData().getPosition();
+                for (int i = 0; i < 3; ++i)
+                    liveAuthorityMovePosition.pos[i] = livePosition.pos[i];
+                movePos = &liveAuthorityMovePosition;
+                movingAtLiveAuthorityPosition = true;
+            }
             if (forceCanonicalCell)
             {
                 // ActorCellChange is a reliable canonical migration commit.  Do
@@ -9639,7 +10267,7 @@ namespace mwmp
                     }
                 }
             }
-            else if (actor.hasSmoothedPosition)
+            else if (actor.hasSmoothedPosition && !movingAtLiveAuthorityPosition)
             {
                 bool smoothedMatchesTarget = true;
                 bool stateMatchesTarget = true;
@@ -9691,7 +10319,8 @@ namespace mwmp
             {
                 if (logTrackedActor)
                 {
-                    Log(Debug::Info) << "[MP] ActorSync: deferred cross-cell move with mismatched position cell"
+                    Log(movingAtLiveAuthorityPosition ? Debug::Verbose : Debug::Info)
+                                     << "[MP] ActorSync: deferred cross-cell move with mismatched position cell"
                                      << " forceCanonicalCell=" << forceCanonicalCell
                                      << " targetCell=" << targetCellId
                                      << " positionCell=" << exteriorCellIdForPosition(*movePos)
@@ -9936,6 +10565,7 @@ namespace mwmp
                              << " from=" << currentBoundCellId
                              << " runtimeTs=" << actor.lastServerTimestamp
                              << " presentationTs=" << actor.lastPresentationServerTimestamp
+                             << " liveAuthorityPosition=" << movingAtLiveAuthorityPosition
                              << " pos=(" << movePos->pos[0] << "," << movePos->pos[1] << "," << movePos->pos[2] << ")";
             return true;
         };
@@ -10428,6 +11058,44 @@ namespace mwmp
 
         if (hasAuthorityForActor(actor.actorNetId, actor.state.cellId))
         {
+            if (actor.deferCellStoreRebind)
+            {
+                const std::string boundCellId = cellIdForPtr(actor.boundActor);
+                if (boundCellId == actor.state.cellId)
+                    actor.deferCellStoreRebind = false;
+                else if (isExteriorActorCellId(actor.state.cellId))
+                {
+                    const ESM::Position& livePosition = actor.boundActor.getRefData().getPosition();
+                    Position liveActorPosition;
+                    for (int i = 0; i < 3; ++i)
+                    {
+                        liveActorPosition.pos[i] = livePosition.pos[i];
+                        liveActorPosition.rot[i] = livePosition.rot[i];
+                    }
+                    const std::string livePositionCell = exteriorCellIdForPosition(liveActorPosition);
+                    if (livePositionCell == actor.state.cellId)
+                    {
+                        MWWorld::World& worldImp = static_cast<MWWorld::World&>(*world);
+                        if (MWWorld::CellStore* destinationCell
+                            = findActiveCellById(worldImp, actor.state.cellId))
+                        {
+                            const osg::Vec3f movePos(liveActorPosition.pos[0],
+                                liveActorPosition.pos[1], liveActorPosition.pos[2]);
+                            actor.boundActor = world->moveObject(actor.boundActor, destinationCell, movePos);
+                            actor.deferCellStoreRebind = false;
+                            Log(Debug::Info) << "[MPDIAG] Authority deferred CellStore rebind completed"
+                                             << " actorNetId=" << actor.actorNetId
+                                             << " refId=" << actor.state.refId
+                                             << " from=" << boundCellId
+                                             << " to=" << actor.state.cellId
+                                             << " positionCell=" << livePositionCell;
+                        }
+                    }
+                }
+            }
+
+            restoreAuthorityActorAiIfNeeded(actor.state.cellId, actor.boundActor,
+                actor.state, actor.savedPuppetAiSequence.get());
             if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
             {
                 baseNode->setUserValue("mp_authoritative_actor", true);
@@ -10435,8 +11103,6 @@ namespace mwmp
                 baseNode->setUserValue("mp_interp_speed", 0.f);
             }
 
-            restoreAuthorityActorAiIfNeeded(actor.state.cellId, actor.boundActor,
-                actor.state, actor.savedPuppetAiSequence.get());
             return;
         }
 
@@ -10664,6 +11330,10 @@ namespace mwmp
                 baseNode->setUserValue("mp_puppet_ai_saved", true);
             }
         }
+        if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
+            baseNode->setUserValue("mp_guard_hostile", !actor.state.isDead
+                && actor.state.ai.type == BaseActor::AIAction::Type::Combat
+                && (actor.state.animFlags.movementFlags & AnimFlags::MF_GUARD_HOSTILE) != 0);
         stats.setAiSetting(MWMechanics::AiSetting::Fight, 0);
         stats.setAiSetting(MWMechanics::AiSetting::Hello, 0);
         const bool shouldForceCombatPresentation = actor.state.ai.type == BaseActor::AIAction::Type::Combat;
@@ -11227,6 +11897,13 @@ namespace mwmp
                 actor.lastAppliedAnimGroup.clear();
             }
 
+            if (newGrp.empty() && isHitStateAnimGroup(actor.lastAppliedAnimGroup))
+            {
+                if (MWRender::Animation* animObj = world->getAnimation(actor.boundActor))
+                    animObj->disable(actor.lastAppliedAnimGroup);
+                actor.lastAppliedAnimGroup.clear();
+            }
+
             if (!newGrp.empty() && isIdleAnimGroup(newGrp) && !isBaseIdleAnimGroup(newGrp))
             {
                 if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
@@ -11298,7 +11975,7 @@ namespace mwmp
                             "start",
                             "stop",
                             startPoint,
-                            std::numeric_limits<uint32_t>::max(),
+                            newIsHitState ? 1u : std::numeric_limits<uint32_t>::max(),
                             true);
 
                         Log(Debug::Verbose) << "[MP] ActorSync: anim group -> '" << newGrp

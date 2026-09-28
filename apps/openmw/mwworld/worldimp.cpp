@@ -898,6 +898,18 @@ namespace MWWorld
     {
         const MWWorld::Cell* destinationCell = getWorldModel().getCell(cellId).getCell();
         bool exteriorCell = destinationCell->isExterior();
+#ifdef BUILD_MULTIPLAYER
+        if (mwmp::Main::isConnected())
+        {
+            const Ptr player = getPlayerPtr();
+            Log(Debug::Info) << "[MPDIAG] Player changeToCell from="
+                             << (player.isInCell() ? player.getCell()->getCell()->getDescription() : "<none>")
+                             << " to=" << destinationCell->getDescription()
+                             << " requestedPos=(" << position.pos[0] << "," << position.pos[1] << ","
+                             << position.pos[2] << ") adjust=" << adjustPlayerPos
+                             << " event=" << changeEvent;
+        }
+#endif
 
         mPhysics->clearQueuedMovement();
         mDiscardMovements = true;
@@ -1026,8 +1038,18 @@ namespace MWWorld
     }
 
     MWWorld::Ptr World::moveObject(
-        const Ptr& ptr, CellStore* newCell, const osg::Vec3f& position, bool movePhysics, bool keepActive)
+        const Ptr& cachedPtr, CellStore* newCell, const osg::Vec3f& position, bool movePhysics, bool keepActive)
     {
+        // Physics may already have crossed a cell while a network/script caller
+        // still holds the old Ptr. Repeating moveTo from that old cell corrupts
+        // the origin's moved-reference bookkeeping and lets its unload remove
+        // an actor that is now active elsewhere.
+        // The player is not a CellStore-owned reference. Scene::changePlayerCell
+        // updates Player::mCell before moving the player, while the registry can
+        // still hold its old exterior Ptr. Refreshing that Ptr would turn an
+        // interior door position into an exterior move near grid (0, 0).
+        const Ptr ptr = cachedPtr == mPlayer->getPlayer()
+            ? mPlayer->getPlayer() : mWorldModel.getCurrentPtr(cachedPtr);
         ESM::Position pos = ptr.getRefData().getPosition();
         std::memcpy(pos.pos, &position, sizeof(osg::Vec3f));
         ptr.getRefData().setPosition(pos);
@@ -1038,6 +1060,13 @@ namespace MWWorld
         bool isPlayer = ptr == mPlayer->getPlayer();
         bool haveToMove = isPlayer || (currCell && mWorldScene->isCellActive(*currCell));
         MWWorld::Ptr newPtr = ptr;
+#ifdef BUILD_MULTIPLAYER
+        if (isPlayer && currCell != newCell && mwmp::Main::isConnected())
+            Log(Debug::Info) << "[MPDIAG] Player moveObject cell transition from="
+                             << (currCell ? currCell->getCell()->getDescription() : "<none>")
+                             << " to=" << (newCell ? newCell->getCell()->getDescription() : "<none>")
+                             << " pos=(" << position.x() << "," << position.y() << "," << position.z() << ")";
+#endif
 
         if (!isPlayer && !currCell)
             throw std::runtime_error("Can not move actor " + ptr.getCellRef().getRefId().toDebugString()
@@ -1144,8 +1173,10 @@ namespace MWWorld
         return newPtr;
     }
 
-    MWWorld::Ptr World::moveObject(const Ptr& ptr, const osg::Vec3f& position, bool movePhysics, bool moveToActive)
+    MWWorld::Ptr World::moveObject(const Ptr& cachedPtr, const osg::Vec3f& position, bool movePhysics, bool moveToActive)
     {
+        const Ptr ptr = cachedPtr == mPlayer->getPlayer()
+            ? mPlayer->getPlayer() : mWorldModel.getCurrentPtr(cachedPtr);
         CellStore* cell = ptr.getCell();
         ESM::RefId worldspaceId
             = cell->isExterior() ? cell->getCell()->getWorldSpace() : ESM::Cell::sDefaultWorldspaceId;
@@ -2298,6 +2329,12 @@ namespace MWWorld
             return false; // not castable if too deep or if not enough room to move actor to surface
         else
             return true;
+    }
+
+    bool World::isActorSupported(const MWWorld::Ptr& ptr) const
+    {
+        const auto* actor = mPhysics->getActor(ptr);
+        return actor && actor->getCollisionMode() && actor->getActorSupported();
     }
 
     bool World::isOnGround(const MWWorld::Ptr& ptr) const

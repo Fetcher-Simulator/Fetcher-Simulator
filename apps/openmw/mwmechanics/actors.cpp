@@ -819,7 +819,20 @@ namespace MWMechanics
 
         // Make guards go aggressive with hostile creatures and werewolves that are in combat
         const auto world = MWBase::Environment::get().getWorld();
-        if (!aggressive && actor1.getClass().isClass(actor1, "Guard") && creatureStats2.getAiSequence().isInCombat())
+        bool remoteGuardHostile = false;
+#ifdef BUILD_MULTIPLAYER
+        if (!creatureStats2.isDead() && !actor2.getClass().isNpc())
+        {
+            if (auto* node = actor2.getRefData().getBaseNode())
+            {
+                bool remote = false;
+                if (node->getUserValue("mp_remote_actor", remote) && remote)
+                    node->getUserValue("mp_guard_hostile", remoteGuardHostile);
+            }
+        }
+#endif
+        if (!aggressive && actor1.getClass().isClass(actor1, "Guard")
+            && (creatureStats2.getAiSequence().isInCombat() || remoteGuardHostile))
         {
             // Check if the creature is too far
             static const float fAlarmRadius
@@ -837,7 +850,7 @@ namespace MWMechanics
 
             // Check if the target is a werewolf or aggressive creature
             bool targetIsCreature = !actor2.getClass().isNpc();
-            bool targetIsAggressiveCreature = targetIsCreature ? getFightTerm(actor2, player) >= 100
+            bool targetIsAggressiveCreature = targetIsCreature ? (remoteGuardHostile || getFightTerm(actor2, player) >= 100)
                                                                : actor2.getClass().getNpcStats(actor2).isWerewolf();
             if (targetIsAggressiveCreature)
             {
@@ -1352,13 +1365,16 @@ namespace MWMechanics
         if (ptr == player)
             return;
 
+        auto* baseNode = ptr.getRefData().getBaseNode();
+        if (baseNode == nullptr)
+            return;
+
         // Remote multiplayer players are managed by the MP system and must
         // remain visible across the full loaded cell grid regardless of
         // actorsProcessingRange. Skip culling for any actor tagged with
         // "mp_player_name" on its base node (set in RemotePlayer::trySpawn).
 #ifdef BUILD_MULTIPLAYER
         {
-            auto* baseNode = ptr.getRefData().getBaseNode();
             bool mpHiddenUntilFresh = false;
             if (baseNode
                 && baseNode->getUserValue("mp_hide_until_fresh_actor_snapshot", mpHiddenUntilFresh)
@@ -1380,11 +1396,11 @@ namespace MWMechanics
         const int actorsProcessingRange = Settings::game().mActorsProcessingRange;
         if (dist > actorsProcessingRange)
         {
-            ptr.getRefData().getBaseNode()->setNodeMask(0);
+            baseNode->setNodeMask(0);
             return;
         }
         else
-            ptr.getRefData().getBaseNode()->setNodeMask(MWRender::Mask_Actor);
+            baseNode->setNodeMask(MWRender::Mask_Actor);
 
         // Fade away actors on large distance (>90% of actor's processing distance)
         float visibilityRatio = 1.0;
@@ -1695,10 +1711,12 @@ namespace MWMechanics
                     = MWBase::Environment::get().getLuaManager()->getActorControls(actor.getPtr());
 
                 const float distSqr = (playerPos - actor.getPtr().getRefData().getPosition().asVec3()).length2();
+                const bool hasSceneNode = actor.getPtr().getRefData().getBaseNode() != nullptr;
                 bool isMpAuthoritativeActor = false;
 #ifdef BUILD_MULTIPLAYER
-                if (const auto* baseNode = actor.getPtr().getRefData().getBaseNode())
-                    baseNode->getUserValue("mp_authoritative_actor", isMpAuthoritativeActor);
+                if (hasSceneNode)
+                    actor.getPtr().getRefData().getBaseNode()->getUserValue(
+                        "mp_authoritative_actor", isMpAuthoritativeActor);
 #endif
                 // AI processing is only done within given distance to the player.
                 // A multiplayer authority must also simulate network actors in
@@ -1755,6 +1773,10 @@ namespace MWMechanics
                         && actor.getPtr().getClass().getCreatureStats(actor.getPtr()).getMovementFlag(
                             MWMechanics::CreatureStats::Flag_NetworkPlayerNpc);
 
+                    // Keep AI simulation independent of transient render-node
+                    // teardown. Scene-dependent AI helpers guard their own node
+                    // access, while movement/path state must continue across
+                    // exterior streaming and authority handoff.
                     if (aiActive && inProcessingRange && !isNetworkPlayerPuppet)
                     {
                         if (engageCombatTimerStatus == Misc::TimerStatus::Elapsed)
@@ -1831,9 +1853,10 @@ namespace MWMechanics
                 const float dist = (playerPos - actor.getPtr().getRefData().getPosition().asVec3()).length();
                 const bool isPlayer = actor.getPtr() == player;
                 CreatureStats& stats = actor.getPtr().getClass().getCreatureStats(actor.getPtr());
+                auto* baseNode = actor.getPtr().getRefData().getBaseNode();
                 bool isMpAuthoritativeActor = false;
 #ifdef BUILD_MULTIPLAYER
-                if (const auto* baseNode = actor.getPtr().getRefData().getBaseNode())
+                if (baseNode)
                     baseNode->getUserValue("mp_authoritative_actor", isMpAuthoritativeActor);
 #endif
                 // Actors with active AI should be able to move.
@@ -1854,13 +1877,16 @@ namespace MWMechanics
                 const int active = inRange ? activeFlag : 0;
 
                 CharacterController& ctrl = actor.getCharacterController();
+                // A mechanics actor can briefly outlive its rendered scene node
+                // during exterior streaming. Keep AI/physics/controller simulation
+                // alive through that window; only render-node operations below
+                // need to be skipped when baseNode is null.
                 ctrl.setActive(active);
 
                 if (!inRange)
                 {
 #ifdef BUILD_MULTIPLAYER
                     {
-                        auto* baseNode = actor.getPtr().getRefData().getBaseNode();
                         bool mpHiddenUntilFresh = false;
                         if (baseNode
                             && baseNode->getUserValue("mp_hide_until_fresh_actor_snapshot", mpHiddenUntilFresh)
@@ -1876,14 +1902,14 @@ namespace MWMechanics
                             goto mp_actor_continue; // remote MP player — skip culling
                     }
 #endif
-                    actor.getPtr().getRefData().getBaseNode()->setNodeMask(0);
+                    if (baseNode)
+                        baseNode->setNodeMask(0);
                     world->setActorActive(actor.getPtr(), false);
                     continue;
                 }
 #ifdef BUILD_MULTIPLAYER
                 mp_actor_continue:;
                 {
-                    auto* baseNode = actor.getPtr().getRefData().getBaseNode();
                     bool mpHiddenUntilFresh = false;
                     if (baseNode
                         && baseNode->getUserValue("mp_hide_until_fresh_actor_snapshot", mpHiddenUntilFresh)
@@ -1910,7 +1936,8 @@ namespace MWMechanics
                     continue;
                 }
 
-                actor.getPtr().getRefData().getBaseNode()->setNodeMask(MWRender::Mask_Actor);
+                if (baseNode)
+                    baseNode->setNodeMask(MWRender::Mask_Actor);
                 // Remote network-player NPCs have collision disabled at spawn and must not
                 // have it re-enabled here. This loop runs every frame for all non-player actors
                 // and would otherwise clobber the spawn-time setActorCollisionMode(false,true),

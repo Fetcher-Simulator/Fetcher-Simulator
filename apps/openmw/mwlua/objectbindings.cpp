@@ -113,6 +113,14 @@ namespace MWLua
             stats.setTeleported(true);
             world->getPlayer().setTeleported(true);
             bool differentCell = ptr.getCell() != destCell;
+#ifdef BUILD_MULTIPLAYER
+            if (mwmp::Main::isConnected())
+                Log(Debug::Info) << "[MPDIAG] Lua player teleport from="
+                                 << (ptr.isInCell() ? ptr.getCell()->getCell()->getDescription() : "<none>")
+                                 << " to=" << destCell->getCell()->getDescription()
+                                 << " pos=(" << pos.x() << "," << pos.y() << "," << pos.z() << ")"
+                                 << " differentCell=" << differentCell;
+#endif
             world->changeToCell(destCell->getCell()->getId(), toPos(pos, rot), false, differentCell);
             MWWorld::Ptr newPtr = world->getPlayerPtr();
             world->moveObject(newPtr, pos);

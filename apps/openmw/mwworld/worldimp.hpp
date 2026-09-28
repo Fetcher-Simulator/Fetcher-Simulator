@@ -465,6 +465,7 @@ namespace MWWorld
         bool isWading(const MWWorld::ConstPtr& object) const override;
         bool isWaterWalkingCastableOnTarget(const MWWorld::ConstPtr& target) const override;
         bool isOnGround(const MWWorld::Ptr& ptr) const override;
+        bool isActorSupported(const MWWorld::Ptr& ptr) const override;
 
         osg::Matrixf getActorHeadTransform(const MWWorld::ConstPtr& actor) const override;
 

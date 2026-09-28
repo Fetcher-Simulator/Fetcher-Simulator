@@ -79,6 +79,7 @@
 #include <components/openmw-mp/Packets/Actor/PacketActorSpeech.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketCrimeReaction.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorAuthority.hpp>
+#include <components/openmw-mp/Packets/Actor/PacketActorAuthorityTransfer.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCast.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCellChange.hpp>
 #include <components/openmw-mp/Packets/Actor/PacketActorCombatRequest.hpp>
@@ -1903,7 +1904,10 @@ void Main::registerProtocolHandlers()
         {
             PacketDisconnect pkt;
             if (!pkt.decode(data, size)) return;
-            if (mPlayerList->getPlayer(pkt.guid))
+            RemotePlayer* departing = mPlayerList->getPlayer(pkt.guid);
+            mActorSync->onRemotePlayerDisconnected(
+                pkt.guid, departing ? departing->getNpcPtr() : MWWorld::Ptr{});
+            if (departing)
             {
                 Log(Debug::Info) << "[MP] Player disconnected guid=" << pkt.guid;
                 mPlayerList->removePlayer(pkt.guid);
@@ -2485,6 +2489,16 @@ void Main::registerProtocolHandlers()
             pkt.setActorList(&tmp);
             if (!pkt.decode(data, size)) return;
             mActorSync->onAuthorityUpdate(tmp);
+        });
+
+    proto.registerHandler(PacketType::ActorAuthorityTransfer,
+        [this](const uint8_t* data, size_t size)
+        {
+            ActorAuthorityTransfer transfer;
+            PacketActorAuthorityTransfer pkt;
+            pkt.setTransfer(&transfer);
+            if (!pkt.decode(data, size)) return;
+            mActorSync->onActorAuthorityTransfer(transfer);
         });
 
     proto.registerHandler(PacketType::ActorList,

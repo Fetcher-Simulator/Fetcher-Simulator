@@ -163,6 +163,10 @@ namespace mwmp
         // blocked-contact frames, avoiding global sneak/walk footstep desync.
         static constexpr uint32_t MF_WALL_BLOCKED = (1u << 9);
 
+        // Actor-only semantic state, not a locomotion flag. Computed by the authority
+        // before puppet Fight/settings/packages are suppressed on observers.
+        static constexpr uint32_t MF_GUARD_HOSTILE = (1u << 10);
+
         // actionFlags bit constants
         static constexpr uint32_t AF_WEAPON_DRAWN = (1u << 0);
         static constexpr uint32_t AF_SPELL_READY  = (1u << 1);

@@ -101,6 +101,14 @@ namespace MWMechanics
 
     const MWWorld::Ptr getNearbyDoor(const MWWorld::Ptr& actor, float minDist)
     {
+        // Scene/cell teardown can temporarily leave a mechanics actor alive
+        // without a rendered BaseNode. Multiplayer authority can extend actor
+        // simulation across several exterior cells, making that lifecycle
+        // window easier to hit. Door proximity depends on the actor's rendered
+        // facing, so defer the query until the scene binding exists again.
+        if (!actor.isInCell() || actor.getRefData().getBaseNode() == nullptr)
+            return {};
+
         GetNearbyDoorVisitor visitor(actor, minDist);
         actor.getCell()->forEachType<ESM::Door>(visitor);
         return visitor.mResult;
