@@ -4410,7 +4410,7 @@ bool MPServer::refreshActorAuthorityForCell(
             for (const ActorRegistryRecord& record : removedRecords)
             {
                 markLuaActorRemoved(actorInstanceIdFromActor(record.actor));
-                forgetActorNetId(record.actorNetId, record.actor);
+                forgetActorNetId(record.actorNetId);
             }
             if (mPlayerDb)
                 scheduleGeneratedDynamicRecordGc("actor_cell_empty");
@@ -5681,73 +5681,7 @@ MPServer::ActorRegistryRecord* MPServer::findActorByNetId(
             *cellId = primary->actor.cellId;
         return primary.get();
     }
-    const auto keyIt = mWorld.actorKeysByNetId.find(actorNetId);
-    if (keyIt != mWorld.actorKeysByNetId.end())
-    {
-        const auto locationIt = mWorld.actorLocations.find(keyIt->second);
-        if (locationIt != mWorld.actorLocations.end())
-        {
-            const auto cellIt = mWorld.actorCells.find(locationIt->second);
-            if (cellIt != mWorld.actorCells.end())
-            {
-                const auto actorIt = cellIt->second.actors.find(keyIt->second);
-                if (actorIt != cellIt->second.actors.end() && actorIt->second
-                    && actorIt->second->actorNetId == actorNetId)
-                {
-                    mWorld.actorsByNetId[actorNetId] = actorIt->second;
-                    if (cellId)
-                        *cellId = locationIt->second;
-                    return actorIt->second.get();
-                }
-            }
-        }
-    }
-
-    // A cell refresh or migration can leave the secondary indexes behind the
-    // live record. Resolve a unique canonical record before rejecting a late
-    // transfer response or crime update, then repair those derived indexes.
-    ActorRegistryRecord* found = nullptr;
-    std::string foundCellId;
-    std::string foundKey;
-    for (auto& [candidateCellId, cellState] : mWorld.actorCells)
-    {
-        for (auto& [candidateKey, recordPtr] : cellState.actors)
-        {
-            auto& record = *recordPtr;
-            if (record.actorNetId != actorNetId)
-                continue;
-            if (found)
-            {
-                Log(Debug::Warning) << "[Server] Ambiguous actorNetId in live cell registry"
-                                    << " actorNetId=" << actorNetId
-                                    << " firstCell=" << foundCellId
-                                    << " secondCell=" << candidateCellId;
-                return nullptr;
-            }
-            found = &record;
-            foundCellId = candidateCellId;
-            foundKey = candidateKey;
-        }
-    }
-    if (!found)
-        return nullptr;
-
-    if (keyIt != mWorld.actorKeysByNetId.end() && keyIt->second != foundKey)
-    {
-        const auto oldReverseIt = mWorld.actorNetIdsByKey.find(keyIt->second);
-        if (oldReverseIt != mWorld.actorNetIdsByKey.end() && oldReverseIt->second == actorNetId)
-            mWorld.actorNetIdsByKey.erase(oldReverseIt);
-    }
-    mWorld.actorKeysByNetId[actorNetId] = foundKey;
-    mWorld.actorNetIdsByKey[foundKey] = actorNetId;
-    mWorld.actorLocations[foundKey] = foundCellId;
-    mWorld.actorsByNetId[actorNetId] = mWorld.actorCells[foundCellId].actors[foundKey];
-    if (cellId)
-        *cellId = foundCellId;
-    Log(Debug::Warning) << "[Server] Repaired actorNetId location index"
-                        << " actorNetId=" << actorNetId
-                        << " cell=" << foundCellId;
-    return found;
+    return nullptr;
 }
 
 void MPServer::rememberActorLocation(const BaseActor& actor, const std::string& cellId)
@@ -6100,18 +6034,6 @@ std::size_t MPServer::mergeDeadVanillaActorsForCell(
     return merged;
 }
 
-ActorInstanceId MPServer::assignActorNetId(const BaseActor& actor)
-{
-    const ActorInstanceId actorNetId = actorInstanceIdFromActor(actor);
-    if (actorNetId == 0)
-        return 0;
-
-    const std::string actorKey = makeActorKey(actor);
-    mWorld.actorNetIdsByKey[actorKey] = actorNetId;
-    mWorld.actorKeysByNetId[actorNetId] = actorKey;
-    return actorNetId;
-}
-
 ActorInstanceId MPServer::ensureActorNetId(ActorRegistryRecord& record, const std::string& cellId)
 {
     if (!cellId.empty())
@@ -6125,21 +6047,34 @@ ActorInstanceId MPServer::ensureActorNetId(ActorRegistryRecord& record, const st
 
     if (record.actorNetId != 0 && record.actorNetId != expectedActorNetId)
     {
-        mWorld.actorsByNetId.erase(record.actorNetId);
-        mWorld.actorKeysByNetId.erase(record.actorNetId);
-        mWorld.actorNetIdsByKey.erase(makeActorKey(record.actor));
+        const auto previousIt = mWorld.actorsByNetId.find(record.actorNetId);
+        if (previousIt != mWorld.actorsByNetId.end() && previousIt->second.get() == &record)
+            mWorld.actorsByNetId.erase(previousIt);
         record.actorNetId = 0;
     }
 
     if (record.actorNetId == 0)
-        record.actorNetId = assignActorNetId(record.actor);
+        record.actorNetId = expectedActorNetId;
     if (!cellId.empty())
     {
         const auto cellIt = mWorld.actorCells.find(cellId);
         if (cellIt != mWorld.actorCells.end())
         {
-            const auto actorIt = cellIt->second.actors.find(makeActorKey(record.actor));
-            if (actorIt != cellIt->second.actors.end() && actorIt->second.get() == &record)
+            auto actorIt = cellIt->second.actors.find(makeActorKey(record.actor));
+            if (actorIt == cellIt->second.actors.end() || actorIt->second.get() != &record)
+            {
+                // A record's identity can be normalized while its cell map is
+                // being traversed. Keep the global registry complete even if
+                // that spatial key has not yet been rebuilt.
+                actorIt = std::find_if(cellIt->second.actors.begin(), cellIt->second.actors.end(),
+                    [&](const auto& entry) { return entry.second.get() == &record; });
+                if (actorIt != cellIt->second.actors.end())
+                    Log(Debug::Warning) << "[Server] Actor cell key differs from canonical identity"
+                                        << " actorNetId=" << record.actorNetId
+                                        << " cell=" << cellId
+                                        << " indexedKey=" << actorIt->first;
+            }
+            if (actorIt != cellIt->second.actors.end())
                 mWorld.actorsByNetId[record.actorNetId] = actorIt->second;
         }
     }
@@ -6157,7 +6092,7 @@ ActorInstanceId MPServer::ensureActorNetId(ActorRegistryRecord& record, const st
     return record.actorNetId;
 }
 
-void MPServer::forgetActorNetId(ActorInstanceId actorNetId, const BaseActor& actor)
+void MPServer::forgetActorNetId(ActorInstanceId actorNetId)
 {
     if (actorNetId == 0)
         return;
@@ -6170,17 +6105,6 @@ void MPServer::forgetActorNetId(ActorInstanceId actorNetId, const BaseActor& act
     {
         mObservationService->invalidateObserver({ ObservationActorKind::Npc, 0, actorNetId });
         mObservationService->invalidateObserver({ ObservationActorKind::Creature, 0, actorNetId });
-    }
-
-    const auto keyIt = mWorld.actorKeysByNetId.find(actorNetId);
-    if (keyIt != mWorld.actorKeysByNetId.end())
-    {
-        mWorld.actorNetIdsByKey.erase(keyIt->second);
-        mWorld.actorKeysByNetId.erase(keyIt);
-    }
-    else
-    {
-        mWorld.actorNetIdsByKey.erase(makeActorKey(actor));
     }
 
     for (auto& clientEntry : mClients)
@@ -12431,7 +12355,7 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
             }
         }
         if (!stillIndexed)
-            forgetActorNetId(actorNetId, removedRecord->actor);
+            forgetActorNetId(actorNetId);
     }
 
     for (const ActorRegistryRecord& previousRecord : previousCellRecords)
@@ -12688,7 +12612,6 @@ void MPServer::handleActorIdentityAck(ConnectedClient& c, const uint8_t* data, s
         bootstrap.sequence = ack.sequence;
         bootstrap.snapshots.reserve(newlyAckedActorNetIds.size());
 
-        std::size_t missingBootstrapIdentity = 0;
         std::size_t missingBootstrapActor = 0;
         std::size_t suppressedBootstrapCell = 0;
         std::unordered_map<uint32_t, ActorPresentationV2List> freshPhaseRequestsByAuthority;
@@ -12703,10 +12626,7 @@ void MPServer::handleActorIdentityAck(ConnectedClient& c, const uint8_t* data, s
             ActorRegistryRecord* actorRecord = findActorByNetId(actorNetId, &actorCellId);
             if (!actorRecord)
             {
-                if (mWorld.actorKeysByNetId.count(actorNetId) == 0)
-                    ++missingBootstrapIdentity;
-                else
-                    ++missingBootstrapActor;
+                ++missingBootstrapActor;
                 continue;
             }
 
@@ -12773,12 +12693,11 @@ void MPServer::handleActorIdentityAck(ConnectedClient& c, const uint8_t* data, s
                                 << " acked=" << newlyAcked
                                 << " seq=" << ack.sequence;
         }
-        else if (missingBootstrapIdentity != 0 || missingBootstrapActor != 0 || suppressedBootstrapCell != 0)
+        else if (missingBootstrapActor != 0 || suppressedBootstrapCell != 0)
         {
             Log(Debug::Verbose) << "[Server] ActorSync v2 presentation bootstrap skipped"
                                 << " receiver=" << c.guid
                                 << " cell=" << ack.cellId
-                                << " missingIdentity=" << missingBootstrapIdentity
                                 << " missingActor=" << missingBootstrapActor
                                 << " suppressedCell=" << suppressedBootstrapCell
                                 << " acked=" << newlyAcked
@@ -15499,7 +15418,7 @@ bool MPServer::disposeCorpseAuthoritative(
 
     // Forget identity mappings after constructing and broadcasting the removal.
     for (const ActorRegistryRecord& rec : removedRecords)
-        forgetActorNetId(rec.actorNetId, rec.actor);
+        forgetActorNetId(rec.actorNetId);
 
     Log(Debug::Info) << "[Server] Corpse disposed authoritatively"
                      << " actorNetId=" << removedRecord.actorNetId
@@ -19536,7 +19455,7 @@ void MPServer::handleObjectDelete(ConnectedClient& c, const uint8_t* data, size_
         }
 
         broadcastActorIdentityRemovalForCell(deadCellId, actorCell, { removedRecord });
-        forgetActorNetId(removedRecord.actorNetId, removedRecord.actor);
+        forgetActorNetId(removedRecord.actorNetId);
 
         Log(Debug::Info) << "[Server] Vanilla corpse dispose accepted: player=" << c.name
                          << " refId=" << removedRecord.actor.refId
@@ -20770,7 +20689,7 @@ bool MPServer::removeActor(uint32_t mpNum, const std::string& cellId)
     broadcastActorIdentityRemovalForCell(resolvedCellId, cellIt->second, removedRecords);
 
     for (const ActorRegistryRecord& record : removedRecords)
-        forgetActorNetId(record.actorNetId, record.actor);
+        forgetActorNetId(record.actorNetId);
 
     for (auto it = mWorld.containers.begin(); it != mWorld.containers.end();)
     {
@@ -21014,7 +20933,7 @@ MPServer::WorldResetResult MPServer::resetCellStatesForTesting(
         for (const ActorRegistryRecord& record : plan.removedActors)
         {
             forgetActorLocation(record.actor, cellId);
-            forgetActorNetId(record.actorNetId, record.actor);
+            forgetActorNetId(record.actorNetId);
         }
     }
     result.runtimeMs = std::chrono::duration<double, std::milli>(

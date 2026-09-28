@@ -689,7 +689,7 @@ private:
         uint64_t authorityStickyUntilMs = 0;
         uint32_t nextSnapshotSequence = 1;
         bool hasCompleteAuthoritySnapshot = false;
-        // Spatial membership only. The record is owned by WorldState::actorsByNetId.
+        // Spatial membership shares each live record with WorldState::actorsByNetId.
         std::unordered_map<std::string, std::shared_ptr<ActorRegistryRecord>> actors;
         std::unordered_set<std::string> resetSuppressedVanillaDeaths;
         std::unordered_map<std::string, uint64_t> staleLiveVanillaDeathResendMs;
@@ -712,9 +712,8 @@ private:
         const std::string& destinationCellId,
         std::unordered_set<std::string>& changedCellIds);
     void broadcastActorListForCell(const std::string& cellId, CellActorState& cellState);
-    ActorInstanceId assignActorNetId(const BaseActor& actor);
     ActorInstanceId ensureActorNetId(ActorRegistryRecord& record, const std::string& cellId);
-    void forgetActorNetId(ActorInstanceId actorNetId, const BaseActor& actor);
+    void forgetActorNetId(ActorInstanceId actorNetId);
     ActorIdentityList buildActorIdentityList(
         const std::string& cellId,
         CellActorState& cellState,
@@ -846,15 +845,13 @@ private:
         std::unordered_map<std::string, mwmp::ContainerRecord> containers;
         std::unordered_map<std::string, StoredDynamicRecord> dynamicRecords;
         std::unordered_map<std::string, CellActorState> actorCells;
-        // Stable in-session owner. Exterior cell changes move only the spatial
-        // index entry, never the actor's AI, combat, lease, or persistence state.
+        // Primary actor-ID lookup. Exterior cell changes move the spatial
+        // index entry without replacing the shared AI, combat, or lease record.
         std::unordered_map<ActorInstanceId, std::shared_ptr<ActorRegistryRecord>> actorsByNetId;
         std::unordered_map<std::string, std::string> actorLocations;
         // An ActorList can omit and later recreate a vanilla actor. Keep its
         // highest lease generation so a new record cannot send an older lease.
         std::unordered_map<ActorInstanceId, uint32_t> actorAuthorityGenerationHighWater;
-        std::unordered_map<std::string, ActorInstanceId> actorNetIdsByKey;
-        std::unordered_map<ActorInstanceId, std::string> actorKeysByNetId;
         std::unordered_map<std::string, std::unordered_map<std::string, ActorRegistryRecord>> deadVanillaActorCells;
         std::unordered_map<std::string, BaseActor> disposedVanillaActors;
         uint64_t nextObjectMpNum = 1;
