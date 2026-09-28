@@ -1074,7 +1074,6 @@ namespace mwmp
         mDisposedVanillaActorsByCell.clear();
         mActorsByNetId.clear();
         mPendingAuthorityTransfers.clear();
-        mCellActorIds.clear();
         mActorV2DiagnosticsLastLogMs = 0;
         mActorV2SnapshotsWindow = 0;
         mActorV2InvalidActorIdWindow = 0;
@@ -1208,26 +1207,6 @@ namespace mwmp
         return 0;
     }
 
-    void ActorSync::indexActorNetId(ActorInstanceId actorNetId, const std::string& oldCellId, const std::string& newCellId)
-    {
-        if (actorNetId == 0)
-            return;
-
-        if (!oldCellId.empty() && oldCellId != newCellId)
-        {
-            auto oldIt = mCellActorIds.find(oldCellId);
-            if (oldIt != mCellActorIds.end())
-            {
-                oldIt->second.erase(actorNetId);
-                if (oldIt->second.empty())
-                    mCellActorIds.erase(oldIt);
-            }
-        }
-
-        if (!newCellId.empty())
-            mCellActorIds[newCellId].insert(actorNetId);
-    }
-
     ActorSync::ActorRuntime* ActorSync::findPrimaryActorRuntime(const BaseActor& actor)
     {
         const ActorInstanceId actorNetId = actorNetIdForActorState(actor);
@@ -1266,8 +1245,6 @@ namespace mwmp
 
         ActorRuntime& runtime = cell.actors[makeActorKey(actor)];
         runtime.actorNetId = actorNetIdForActorState(actor);
-        if (runtime.actorNetId != 0)
-            indexActorNetId(runtime.actorNetId, runtime.state.cellId, cellId);
         return runtime;
     }
 
@@ -1321,12 +1298,7 @@ namespace mwmp
 
             const std::string resolvedCellId = cellIdForPtr(ptr);
             if (!resolvedCellId.empty() && resolvedCellId != runtime.state.cellId)
-            {
-                const std::string oldCellId = runtime.state.cellId;
                 runtime.state.cellId = resolvedCellId;
-                if (runtime.actorNetId != 0)
-                    indexActorNetId(runtime.actorNetId, oldCellId, resolvedCellId);
-            }
         };
 
         if (ActorRuntime* primaryRuntime = findPrimaryActorRuntime(actor))
@@ -1547,8 +1519,22 @@ namespace mwmp
             return;
 
         std::unordered_set<ActorInstanceId> actorNetIds;
-        if (const auto cellIndex = mCellActorIds.find(cellId); cellIndex != mCellActorIds.end())
-            actorNetIds.insert(cellIndex->second.begin(), cellIndex->second.end());
+        for (const auto& [indexedCellId, cell] : mCells)
+        {
+            for (const auto& [actorKey, runtime] : cell.actors)
+            {
+                (void)actorKey;
+                if (indexedCellId != cellId && runtime.state.cellId != cellId
+                    && (runtime.boundActor.isEmpty() || cellIdForPtr(runtime.boundActor) != cellId))
+                    continue;
+                const ActorInstanceId actorNetId = runtime.actorNetId != 0
+                    ? runtime.actorNetId : actorNetIdForActorState(runtime.state);
+                // A cell shadow can outlive a move of its primary runtime.
+                // Resetting this cell must not erase that actor in another cell.
+                if (actorNetId != 0 && !mActorsByNetId.contains(actorNetId))
+                    actorNetIds.insert(actorNetId);
+            }
+        }
         for (const auto& [actorNetId, runtime] : mActorsByNetId)
         {
             if (runtime.state.cellId == cellId
@@ -1597,7 +1583,6 @@ namespace mwmp
 
         mCells.erase(cellId);
         mAuthority.erase(cellId);
-        mCellActorIds.erase(cellId);
         mChanceNoneLeveledSpawnersByCell.erase(cellId);
         mDisposedVanillaActorsByCell.erase(cellId);
         mCellResetsPending.insert(cellId);
@@ -2756,7 +2741,6 @@ namespace mwmp
                         cellRuntime.actors.erase(packetKey);
                     }
 
-                    indexActorNetId(record.actorNetId, previousState.cellId, {});
                     mActorsByNetId.erase(runtimeIt);
                     ++removed;
                 }
@@ -3048,7 +3032,6 @@ namespace mwmp
             {
                 runtime.deathPacketSent = true;
             }
-            indexActorNetId(record.actorNetId, oldCellId, actorState.cellId);
             logWatchedBorderActor(!hadRuntime ? "identity-baseline"
                     : (oldCellId != actorState.cellId ? "identity-migrated" : "identity-reused"),
                 list.cellId, actorState, &runtime, runtime.boundActor, "identity");
@@ -3196,7 +3179,6 @@ namespace mwmp
                                     ++actorIt;
                             }
                         }
-                        indexActorNetId(actorNetId, list.cellId, {});
                         mActorAuthorityGuids.erase(actorNetId);
                         mActorAuthorityGenerations.erase(actorNetId);
 
@@ -3288,7 +3270,6 @@ namespace mwmp
         std::unordered_map<std::string, ActorRuntime> updatedActors;
         updatedActors.reserve(list.actors.size());
         std::unordered_set<uint32_t> incomingServerSpawnedMpNums;
-        std::unordered_set<ActorInstanceId> incomingActorNetIds;
         std::size_t unmanagedSpawnerDropped = 0;
 
         for (const auto& actorState : list.actors)
@@ -3311,8 +3292,6 @@ namespace mwmp
 
             const std::string actorKey = makeActorKey(actorState);
             const ActorInstanceId knownActorNetId = actorNetIdForActorState(actorState);
-            if (knownActorNetId != 0)
-                incomingActorNetIds.insert(knownActorNetId);
             ActorRuntime runtime;
             if (actorState.mpNum != 0)
                 incomingServerSpawnedMpNums.insert(actorState.mpNum);
@@ -3400,7 +3379,6 @@ namespace mwmp
                     completeFreshCellBootstrap(runtime, "ActorList", list.serverTimestamp);
                 }
                 rememberServerSpawnedActorTimestamp(actorState.mpNum, list.serverTimestamp);
-                indexActorNetId(actorNetId, oldCellId, list.cellId);
                 logWatchedBorderActor(hadPrimaryRuntime ? "ActorList-primary-reused" : "ActorList-primary-promoted",
                     list.cellId, actorState, &runtime, runtime.boundActor, "ActorList");
                 mActorsByNetId[actorNetId] = std::move(runtime);
@@ -3442,32 +3420,6 @@ namespace mwmp
 
         cell.actors = std::move(updatedActors);
         pruneObserverActorShadows();
-
-        auto cellIndexIt = mCellActorIds.find(list.cellId);
-        if (cellIndexIt != mCellActorIds.end())
-        {
-            for (auto actorIdIt = cellIndexIt->second.begin(); actorIdIt != cellIndexIt->second.end();)
-            {
-                if (incomingActorNetIds.count(*actorIdIt) != 0)
-                {
-                    ++actorIdIt;
-                    continue;
-                }
-
-                auto runtimeIt = mActorsByNetId.find(*actorIdIt);
-                if (runtimeIt != mActorsByNetId.end() && runtimeIt->second.state.cellId == list.cellId)
-                {
-                    // In v2, primary runtime lifetime is controlled by ActorIdentity (removed flag),
-                    // not by absence from a legacy ActorList. Skip the erase so we do not destroy
-                    // a live v2 primary runtime that simply wasn't included in this particular list.
-                    ++actorIdIt;
-                    continue;
-                }
-                actorIdIt = cellIndexIt->second.erase(actorIdIt);
-            }
-            if (cellIndexIt->second.empty())
-                mCellActorIds.erase(cellIndexIt);
-        }
 
         if (unmanagedSpawnerDropped != 0)
         {
@@ -3791,7 +3743,6 @@ namespace mwmp
                                      << " bufferedLatestTs=" << bufferedLatestTimestamp;
                 }
                 rememberServerSpawnedActorTimestamp(actorState.mpNum, list.serverTimestamp);
-                indexActorNetId(primaryRuntime->actorNetId, oldCellId, destCellId);
                 // ActorCellChange is the reliable canonical migration commit.
                 // Authorities rebind immediately. Observers keep an actor in
                 // the still-loaded source CellStore for the first 64 units past
@@ -5055,10 +5006,7 @@ namespace mwmp
             if (actorState.isDead)
             {
                 const std::string deathCellId = actorState.cellId.empty() ? list.cellId : actorState.cellId;
-                const std::string oldCellId = runtime.state.cellId;
                 runtime.state.cellId = deathCellId;
-                if (runtime.actorNetId != 0)
-                    indexActorNetId(runtime.actorNetId, oldCellId, deathCellId);
             }
             runtime.state.position = actorState.position;
             runtime.smoothedPosition = actorState.position;
@@ -9870,11 +9818,8 @@ namespace mwmp
                     currentServerSpawnedMpNums.insert(actorState.mpNum);
                 const bool firstSeenInCell = cell.actors.find(key) == cell.actors.end();
                 auto& runtime = cell.actors[key];
-                const std::string oldRuntimeCellId = runtime.state.cellId;
                 runtime.state = actorState;
                 runtime.actorNetId = actorNetIdForActorState(actorState);
-                if (runtime.actorNetId != 0)
-                    indexActorNetId(runtime.actorNetId, oldRuntimeCellId, actorState.cellId);
                 runtime.lastAttackingOrCasting = actorState.isAttackingOrCasting;
                 // Mark deathPacketSent if we sent a death packet for this actor
                 if (deathSentKeys.count(key) || (firstSeenInCell && actorState.isDead))

@@ -376,7 +376,6 @@ namespace mwmp
         bool shouldReplayDeadBaselineAsRealtime(const ActorRuntime& actor, const BaseActor& state) const;
         void markDeadBaselineState(ActorRuntime& actor, const BaseActor& state, bool replayRealtime);
         ActorInstanceId actorNetIdForActorState(const BaseActor& actor) const;
-        void indexActorNetId(ActorInstanceId actorNetId, const std::string& oldCellId, const std::string& newCellId);
         ActorRuntime* findPrimaryActorRuntime(const BaseActor& actor);
         void pruneObserverActorShadows();
         bool hasAuthorityForActor(ActorInstanceId actorNetId, const std::string& cellId) const;
@@ -466,7 +465,6 @@ namespace mwmp
         std::uint32_t mNextCombatResultSequence = 1;
         uint32_t mNextSpeechSequence = 1;
         std::unordered_set<ActorInstanceId> mPendingPresentationSampleRequests;
-        std::unordered_map<std::string, std::unordered_set<ActorInstanceId>> mCellActorIds;
         std::string mLastLocalCellId;
         bool mHaveLastLocalCellId = false;
         uint64_t mUpdateSerial = 0;
