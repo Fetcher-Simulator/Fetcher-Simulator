@@ -1075,7 +1075,6 @@ namespace mwmp
         mActorsByNetId.clear();
         mPendingAuthorityTransfers.clear();
         mCellActorIds.clear();
-        mActorNetIdsByKey.clear();
         mActorV2DiagnosticsLastLogMs = 0;
         mActorV2SnapshotsWindow = 0;
         mActorV2InvalidActorIdWindow = 0;
@@ -1106,10 +1105,6 @@ namespace mwmp
 
     ActorInstanceId ActorSync::actorNetIdForActorState(const BaseActor& actor) const
     {
-        const auto mappedIt = mActorNetIdsByKey.find(makeActorKey(actor));
-        if (mappedIt != mActorNetIdsByKey.end())
-            return mappedIt->second;
-
         return actorInstanceIdFromActor(actor);
     }
 
@@ -1211,14 +1206,6 @@ namespace mwmp
         }
 
         return 0;
-    }
-
-    void ActorSync::rememberActorNetId(ActorInstanceId actorNetId, const BaseActor& actor)
-    {
-        if (actorNetId == 0)
-            return;
-
-        mActorNetIdsByKey[makeActorKey(actor)] = actorNetId;
     }
 
     void ActorSync::indexActorNetId(ActorInstanceId actorNetId, const std::string& oldCellId, const std::string& newCellId)
@@ -1596,9 +1583,6 @@ namespace mwmp
             mReconciledVanillaActorsByNetId.erase(actorNetId);
         }
 
-        std::erase_if(mActorNetIdsByKey, [&](const auto& entry) {
-            return actorNetIds.contains(entry.second);
-        });
         std::erase_if(mMpNumsByLocalActor, [&](const auto& entry) {
             return mpNums.contains(entry.second);
         });
@@ -2686,7 +2670,6 @@ namespace mwmp
                 actorState.position.isTeleporting = true;
             if (!record.removed)
             {
-                rememberActorNetId(record.actorNetId, actorState);
                 if (actorState.mpNum == 0 && actorState.refNum != 0)
                 {
                     // A live vanilla actor can migrate away from the cell that
@@ -2774,15 +2757,12 @@ namespace mwmp
                     }
 
                     indexActorNetId(record.actorNetId, previousState.cellId, {});
-                    mActorNetIdsByKey.erase(previousKey);
-                    mActorNetIdsByKey.erase(packetKey);
                     mActorsByNetId.erase(runtimeIt);
                     ++removed;
                 }
                 else
                 {
                     const std::string packetKey = makeActorKey(actorState);
-                    mActorNetIdsByKey.erase(packetKey);
                     for (auto& cellEntry : mCells)
                         cellEntry.second.actors.erase(packetKey);
 
@@ -3217,14 +3197,6 @@ namespace mwmp
                             }
                         }
                         indexActorNetId(actorNetId, list.cellId, {});
-                        for (auto mappingIt = mActorNetIdsByKey.begin();
-                             mappingIt != mActorNetIdsByKey.end();)
-                        {
-                            if (mappingIt->second == actorNetId)
-                                mappingIt = mActorNetIdsByKey.erase(mappingIt);
-                            else
-                                ++mappingIt;
-                        }
                         mActorAuthorityGuids.erase(actorNetId);
                         mActorAuthorityGenerations.erase(actorNetId);
 
@@ -3428,7 +3400,6 @@ namespace mwmp
                     completeFreshCellBootstrap(runtime, "ActorList", list.serverTimestamp);
                 }
                 rememberServerSpawnedActorTimestamp(actorState.mpNum, list.serverTimestamp);
-                rememberActorNetId(actorNetId, runtime.state);
                 indexActorNetId(actorNetId, oldCellId, list.cellId);
                 logWatchedBorderActor(hadPrimaryRuntime ? "ActorList-primary-reused" : "ActorList-primary-promoted",
                     list.cellId, actorState, &runtime, runtime.boundActor, "ActorList");
@@ -6149,37 +6120,7 @@ namespace mwmp
         if (refNum == 0)
             return MWWorld::Ptr();
 
-        const ActorInstanceId actorNetId
-            = packActorInstanceKey({ ActorKeyKind::VanillaRefNum, refNum });
-
-        // Reconciled leveled-list children keep the placed spawner's canonical
-        // vanilla refNum even though their concrete local Ptr has a dynamic
-        // refNum. Resolve that binding before attempting direct runtime lookup.
-        const auto reconciledIt = mReconciledVanillaActorsByNetId.find(actorNetId);
-        if (reconciledIt != mReconciledVanillaActorsByNetId.end()
-            && !reconciledIt->second.isEmpty())
-            return reconciledIt->second;
-
-        const auto runtimeIt = mActorsByNetId.find(actorNetId);
-        if (runtimeIt != mActorsByNetId.end() && !runtimeIt->second.boundActor.isEmpty())
-            return runtimeIt->second.boundActor;
-
-        // During authority handoff an actor can legitimately exist only in a
-        // cell-owned shadow runtime. Keep canonical interaction lookups usable
-        // in the same way actorNetIdForPtr() and actorMigrationGenerationForPtr()
-        // already do for the reverse mapping.
-        for (const auto& [cellId, cell] : mCells)
-        {
-            (void)cellId;
-            for (const auto& [actorKey, runtime] : cell.actors)
-            {
-                (void)actorKey;
-                if (runtime.actorNetId == actorNetId && !runtime.boundActor.isEmpty())
-                    return runtime.boundActor;
-            }
-        }
-
-        return MWWorld::Ptr();
+        return getActorByNetId(packActorInstanceKey({ ActorKeyKind::VanillaRefNum, refNum }));
     }
 
     MWWorld::Ptr ActorSync::getActorByNetId(ActorInstanceId actorNetId) const
