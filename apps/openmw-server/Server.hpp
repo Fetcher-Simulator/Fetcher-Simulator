@@ -602,7 +602,9 @@ private:
         const ActorRegistryRecord& record, const std::string& cellId, uint64_t now = 0);
     bool shouldPreserveCombatTargetAcrossHorizon(
         const ConnectedClient& sender, const BaseActor& canonical, const BaseActor& incoming);
-    void prepareActorAuthorityTransfersForTarget(uint32_t targetGuid);
+    void reconcileActorAuthorityTransfersForPlayer(uint32_t playerGuid);
+    void prepareActorAuthorityTransferForActor(
+        const std::string& cellId, ActorRegistryRecord& record);
     void prepareActorAuthorityTransferAfterDisconnect(
         const std::string& cellId, ActorRegistryRecord& record);
     void cancelActorAuthorityTransfer(ActorRegistryRecord& record);
@@ -615,6 +617,8 @@ private:
     void broadcastActorAuthorityLeasesForCell(
         const std::string& cellId, CellActorState& cellState);
     bool clientEligibleForActorCell(const ConnectedClient& client, const std::string& cellId) const;
+    bool clientCanSimulateActorPosition(const ConnectedClient& client, const BaseActor& actor,
+        const std::string& cellId, float edgeMargin) const;
     bool clientHasActorCellLoaded(const ConnectedClient& client, const std::string& cellId) const;
     std::unordered_set<std::string> actorInterestCellsForClient(const ConnectedClient& client) const;
 

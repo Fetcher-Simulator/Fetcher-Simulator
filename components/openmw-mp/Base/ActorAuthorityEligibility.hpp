@@ -2,10 +2,13 @@
 #define OPENMW_MP_ACTORAUTHORITYELIGIBILITY_HPP
 
 #include <charconv>
+#include <cmath>
 #include <cstdlib>
 #include <cstdint>
 #include <optional>
 #include <string_view>
+
+#include <components/misc/constants.hpp>
 
 namespace mwmp
 {
@@ -14,6 +17,22 @@ namespace mwmp
     {
         return radius >= 0 && std::abs(ownerX - cellX) <= radius
             && std::abs(ownerY - cellY) <= radius;
+    }
+
+    // AiPackage::isNearInactiveCell stops path movement within 200 units of
+    // the edge of the 3x3 grid around the local player's cell. A new owner
+    // needs additional room for actor movement while Ready/Commit is in flight.
+    inline bool exteriorActorWithinAiBounds(
+        int playerCellX, int playerCellY, float actorX, float actorY, float edgeMargin)
+    {
+        if (!std::isfinite(actorX) || !std::isfinite(actorY) || edgeMargin < 200.f
+            || edgeMargin >= Constants::CellSizeInUnits)
+            return false;
+        const float localX = actorX - static_cast<float>(playerCellX) * Constants::CellSizeInUnits;
+        const float localY = actorY - static_cast<float>(playerCellY) * Constants::CellSizeInUnits;
+        const float min = -Constants::CellSizeInUnits + edgeMargin;
+        const float max = 2 * Constants::CellSizeInUnits - edgeMargin;
+        return localX >= min && localX <= max && localY >= min && localY <= max;
     }
 
     inline std::optional<std::uint32_t> remotePlayerGuidFromActorTarget(std::string_view targetId)
@@ -43,6 +62,16 @@ namespace mwmp
         bool targetAvailableToOwner)
     {
         return canonicalCombat && !incomingCombat && targetConnected && !targetAvailableToOwner;
+    }
+
+    // A capable actor simulator stays in place across cell and AI changes.
+    // Combat may move off the victim when another client can simulate both.
+    inline bool shouldRetainActorSimulator(
+        bool ownerCanSimulateActor, bool ownerCanSimulateCombatTarget,
+        bool ownerIsCombatVictim, bool independentCandidateAvailable)
+    {
+        return ownerCanSimulateActor && ownerCanSimulateCombatTarget
+            && (!ownerIsCombatVictim || !independentCandidateAvailable);
     }
 }
 

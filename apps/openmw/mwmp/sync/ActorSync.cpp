@@ -1785,7 +1785,19 @@ namespace mwmp
                 || runtimeIt->second.migrationGeneration != pending.prepare.migrationGeneration)
                 continue;
 
-            if (pending.prepare.actor.ai.type == BaseActor::AIAction::Type::Combat)
+            // A Ptr can exist in a neighbouring CellStore before its scene
+            // actor is active. Ready promises that this client can run the AI,
+            // not merely that it has received the actor's identity.
+            MWBase::World* transferWorld = MWBase::Environment::get().getWorld();
+            if (!transferWorld
+                || cellIdForPtr(runtimeIt->second.boundActor) != pending.prepare.cellId
+                || !findActiveCellById(static_cast<MWWorld::World&>(*transferWorld),
+                    pending.prepare.cellId)
+                || !runtimeIt->second.boundActor.getRefData().getBaseNode())
+                continue;
+
+            if (pending.prepare.actor.ai.type == BaseActor::AIAction::Type::Combat
+                || pending.prepare.actor.ai.type == BaseActor::AIAction::Type::Pursue)
             {
                 const auto targetGuid = remotePlayerGuidFromActorTarget(pending.prepare.actor.ai.targetId);
                 if (!targetGuid)
@@ -1798,7 +1810,10 @@ namespace mwmp
                 }
                 else if (auto* remote = mwmp::Main::get().getPlayerList().getPlayer(*targetGuid))
                     target = remote->getNpcPtr();
-                if (target.isEmpty())
+                // AiCombat terminates when the target lacks a scene node.
+                // Holding Prepare here lets the current simulator keep chasing
+                // until the candidate can actually execute that package.
+                if (target.isEmpty() || !target.getRefData().getBaseNode())
                     continue;
             }
 
@@ -1997,7 +2012,28 @@ namespace mwmp
                 continue;
 
             advanceSmoothing(actor, dt);
-            if ((actor.deferCellStoreRebind && !actor.boundActor.isEmpty())
+            // A spawned observer can cross the physical exterior seam before
+            // ActorCellChange updates its canonical cell. During that interval
+            // the resolver correctly refuses to move the Ptr back to the old
+            // cell, but returning false also used to skip puppet input. The
+            // CharacterController consumes that input each frame, so it fell
+            // to idle until the reliable commit arrived. Keep driving the
+            // existing, correctly bound Ptr while its visual cell is ahead.
+            bool visualBindingAheadOfCommit = false;
+            if (actor.state.mpNum != 0 && !actor.boundActor.isEmpty()
+                && !actor.waitingForFreshCellBootstrap
+                && !actor.state.position.isTeleporting
+                && isExteriorActorCellId(actor.state.cellId))
+            {
+                const std::string boundCellId = cellIdForPtr(actor.boundActor);
+                visualBindingAheadOfCommit = !boundCellId.empty()
+                    && boundCellId != actor.state.cellId
+                    && boundCellId == exteriorCellIdForPosition(actor.state.position)
+                    && matchesActor(actor.boundActor, actor.state)
+                    && mappedMpNumForPtr(actor.boundActor) == actor.state.mpNum;
+            }
+            if (visualBindingAheadOfCommit
+                || (actor.deferCellStoreRebind && !actor.boundActor.isEmpty())
                 || resolveActorBinding(actor.state.cellId, actor))
             {
                 if (actor.waitingForFreshCellBootstrap)
@@ -3590,16 +3626,29 @@ namespace mwmp
                 primaryRuntime->authorityHandoffWireOffset.set(0.f, 0.f, 0.f);
                 primaryRuntime->authorityHandoffWireOffsetTimer = 0.f;
                 primaryRuntime->authorityHandoffWireOffsetDuration = 0.f;
+                Position wireBridgeBaseline = preCommitVisualPosition;
+                if (destinationAuthority && actorState.mpNum != 0
+                    && !primaryRuntime->boundActor.isEmpty())
+                {
+                    // The canonical spawned Ptr can lag behind the smoothed pose
+                    // used for the local handoff. Outbound sampling reads that Ptr.
+                    const auto& livePosition = primaryRuntime->boundActor.getRefData().getPosition();
+                    for (int i = 0; i < 3; ++i)
+                        wireBridgeBaseline.pos[i] = livePosition.pos[i];
+                }
+                const float wireDeltaX = actorState.position.pos[0] - wireBridgeBaseline.pos[0];
+                const float wireDeltaY = actorState.position.pos[1] - wireBridgeBaseline.pos[1];
+                const float wireDeltaZ = actorState.position.pos[2] - wireBridgeBaseline.pos[2];
+                const float wireBridgeDistance = std::sqrt(
+                    wireDeltaX * wireDeltaX + wireDeltaY * wireDeltaY + wireDeltaZ * wireDeltaZ);
                 const float wireBridgeDuration = destinationAuthority && !retainedAuthority
                     && preserveBufferedTimeline
-                    ? authorityHandoffWireBridgeDuration(std::sqrt(handoffDistanceSq), actorState.isMoving)
+                    ? authorityHandoffWireBridgeDuration(wireBridgeDistance, actorState.isMoving)
                     : 0.f;
                 if (wireBridgeDuration > 0.f)
                 {
                     primaryRuntime->authorityHandoffWireOffset.set(
-                        actorState.position.pos[0] - preCommitVisualPosition.pos[0],
-                        actorState.position.pos[1] - preCommitVisualPosition.pos[1],
-                        actorState.position.pos[2] - preCommitVisualPosition.pos[2]);
+                        wireDeltaX, wireDeltaY, wireDeltaZ);
                     primaryRuntime->authorityHandoffWireOffsetTimer = wireBridgeDuration;
                     primaryRuntime->authorityHandoffWireOffsetDuration = wireBridgeDuration;
                 }
@@ -3623,20 +3672,9 @@ namespace mwmp
                     handoffState.position = preCommitVisualPosition;
                     primaryRuntime->rebaseOnNextAuthoritativeSnapshot = true;
                 }
-                if (!destinationAuthority && handoffState.isMoving)
-                {
-                    const float velocityX = handoffState.velocity.linear[0];
-                    const float velocityY = handoffState.velocity.linear[1];
-                    const float planarSpeed = std::sqrt(
-                        velocityX * velocityX + velocityY * velocityY);
-                    constexpr float kMaxHandoffPredictionSpeed = 200.f;
-                    if (planarSpeed > kMaxHandoffPredictionSpeed)
-                    {
-                        const float velocityScale = kMaxHandoffPredictionSpeed / planarSpeed;
-                        for (float& component : handoffState.velocity.linear)
-                            component *= velocityScale;
-                    }
-                }
+                // Keep the authoritative velocity in the observer's commit
+                // snapshot. A fixed 200-unit cap made fast combatants slow
+                // sharply at the seam, then catch up on the next position.
                 // Keep the active visual timeline generation-consistent. For a
                 // seamless adjacent crossing, the retained snapshots are local
                 // interpolation history, so retag them to the committed generation.
@@ -3696,6 +3734,12 @@ namespace mwmp
                                      << " commitTs=" << list.serverTimestamp
                                      << " bufferedLatestTs=" << bufferedLatestTimestamp
                                      << " handoffDistance=" << std::sqrt(handoffDistanceSq)
+                                     << " visualPos=(" << preCommitVisualPosition.pos[0]
+                                     << "," << preCommitVisualPosition.pos[1] << ")"
+                                     << " commitPos=(" << actorState.position.pos[0]
+                                     << "," << actorState.position.pos[1] << ")"
+                                     << " wireBaselinePos=(" << wireBridgeBaseline.pos[0]
+                                     << "," << wireBridgeBaseline.pos[1] << ")"
                                      << " wireBridgeMs=" << (wireBridgeDuration * 1000.f)
                                      << " velocity=(" << handoffState.velocity.linear[0] << ","
                                      << handoffState.velocity.linear[1] << ","
@@ -3783,7 +3827,6 @@ namespace mwmp
                             }
                         }
                     }
-
                     if (destinationAuthority && !primaryRuntime->state.isDead)
                     {
                         primaryRuntime->rebaseOnNextAuthoritativeSnapshot = !preserveBufferedTimeline;
@@ -4205,6 +4248,11 @@ namespace mwmp
                                          && list.serverTimestamp >= runtime.lastServerTimestamp
                                      ? list.serverTimestamp - runtime.lastServerTimestamp : 0)
                                  << " predictedCorrectionDistance=" << predictedCorrectionDistance
+                                 << " previousPos=("
+                                 << (runtime.snapshots.empty() ? 0.f : runtime.snapshots.back().position.pos[0])
+                                 << "," << (runtime.snapshots.empty() ? 0.f : runtime.snapshots.back().position.pos[1])
+                                 << ") incomingPos=(" << actorState.position.pos[0]
+                                 << "," << actorState.position.pos[1] << ")"
                                  << " positionCell=" << snapshotPositionCellId
                                  << " velocity=(" << actorState.velocity.linear[0] << ","
                                  << actorState.velocity.linear[1] << ","
@@ -6476,6 +6524,7 @@ namespace mwmp
             actor.state.animFlags.movementFlags = state.animFlags.movementFlags;
 
             if (holdingSyncedSpecialIdle && !incomingReliableNonIdleGroup
+                && !state.isMoving
                 && !state.isAttackingOrCasting
                 && !state.hasWeaponDrawn
                 && !state.hasSpellReadied
@@ -7070,19 +7119,13 @@ namespace mwmp
             const bool extrapolateMovement = latest.isMoving && movementInputActive;
             if (extrapolateMovement)
             {
-                Velocity predictionVelocity = latest.velocity;
+                double predictionMs = extrapolationMs;
                 if (predictExteriorCellHandoff)
                 {
                     const float planarSpeed = std::sqrt(
-                        predictionVelocity.linear[0] * predictionVelocity.linear[0]
-                        + predictionVelocity.linear[1] * predictionVelocity.linear[1]);
-                    constexpr float kMaxCellHandoffPredictionSpeed = 200.f;
-                    if (planarSpeed > kMaxCellHandoffPredictionSpeed)
-                    {
-                        const float scale = kMaxCellHandoffPredictionSpeed / planarSpeed;
-                        predictionVelocity.linear[0] *= scale;
-                        predictionVelocity.linear[1] *= scale;
-                    }
+                        latest.velocity.linear[0] * latest.velocity.linear[0]
+                        + latest.velocity.linear[1] * latest.velocity.linear[1]);
+                    predictionMs = cellHandoffPredictionTimeMs(extrapolationMs, planarSpeed);
                     if (!actor.cellChangeHandoffPredictionLogged
                         && extrapolationMs > kDefaultMaxExtrapolationMs)
                     {
@@ -7095,12 +7138,11 @@ namespace mwmp
                                          << " previous=" << actor.previousCellChangeCellId
                                          << " extrapolationMs=" << extrapolationMs
                                          << " planarSpeed=" << planarSpeed
-                                         << " cappedSpeed="
-                                         << std::min(planarSpeed, kMaxCellHandoffPredictionSpeed);
+                                         << " predictionMs=" << predictionMs;
                     }
                 }
                 target = extrapolatePosition(
-                    actor.snapshots.back().position, predictionVelocity, extrapolationMs);
+                    actor.snapshots.back().position, latest.velocity, predictionMs);
             }
             else
                 target = actor.snapshots.back().position;
@@ -7978,6 +8020,13 @@ namespace mwmp
                     actor.velocity.angular[i] = shortestAngleDelta(actor.position.rot[i], previousPosition.rot[i]) / dt;
                 }
             }
+            else if (restoreRuntime && restoreRuntime->state.isMoving && !restoreRuntime->state.isDead)
+            {
+                // The first destination-cell scan has no cell-owned history yet.
+                // Use the committed canonical velocity for that sample instead
+                // of advertising a zero-velocity pause at the border.
+                actor.velocity = restoreRuntime->state.velocity;
+            }
 
             MWMechanics::CreatureStats& stats = ptr.getClass().getCreatureStats(ptr);
             MWMechanics::Movement& movement = ptr.getClass().getMovementSettings(ptr);
@@ -8407,25 +8456,10 @@ namespace mwmp
             }
 
             const ActorInstanceId outgoingActorNetId = actorNetIdForActorState(actor);
-            ActorRuntime* outgoingPrimaryRuntime = nullptr;
-            float wireBridgeScale = 0.f;
             if (auto runtimeIt = mActorsByNetId.find(outgoingActorNetId);
                 runtimeIt != mActorsByNetId.end())
             {
-                outgoingPrimaryRuntime = &runtimeIt->second;
                 actor.migrationGeneration = runtimeIt->second.migrationGeneration;
-                wireBridgeScale = authorityHandoffWireBridgeScale(
-                    runtimeIt->second.authorityHandoffWireOffsetTimer,
-                    runtimeIt->second.authorityHandoffWireOffsetDuration);
-                if (wireBridgeScale > 0.f)
-                {
-                    for (int i = 0; i < 3; ++i)
-                    {
-                        actor.position.pos[i] += runtimeIt->second.authorityHandoffWireOffset[i]
-                            * wireBridgeScale;
-                        actor.velocity.linear[i] = runtimeIt->second.state.velocity.linear[i];
-                    }
-                }
             }
             else if (previousRuntime != cell.actors.end())
             {
@@ -8445,38 +8479,6 @@ namespace mwmp
                                         << " localRefNum=" << ptr.getCellRef().getRefNum().mIndex;
                 }
                 return true;
-            }
-
-            if (outgoingPrimaryRuntime && wireBridgeScale > 0.f)
-            {
-                const bool firstBridgeSample = std::abs(
-                    outgoingPrimaryRuntime->authorityHandoffWireOffsetTimer
-                    - outgoingPrimaryRuntime->authorityHandoffWireOffsetDuration) < 0.0001f;
-                if (firstBridgeSample && isWatchedPresentationActor(actor, outgoingActorNetId))
-                {
-                    Log(Debug::Info) << "[MPDIAG] Authority handoff wire bridge started"
-                                     << " actorNetId=" << outgoingActorNetId
-                                     << " refId=" << actor.refId
-                                     << " durationMs="
-                                     << (outgoingPrimaryRuntime->authorityHandoffWireOffsetDuration * 1000.f)
-                                     << " offset=("
-                                     << outgoingPrimaryRuntime->authorityHandoffWireOffset.x() << ","
-                                     << outgoingPrimaryRuntime->authorityHandoffWireOffset.y() << ","
-                                     << outgoingPrimaryRuntime->authorityHandoffWireOffset.z() << ")";
-                }
-                outgoingPrimaryRuntime->authorityHandoffWireOffsetTimer = std::max(0.f,
-                    outgoingPrimaryRuntime->authorityHandoffWireOffsetTimer - std::max(0.f, dt));
-                if (outgoingPrimaryRuntime->authorityHandoffWireOffsetTimer <= 0.f)
-                {
-                    outgoingPrimaryRuntime->authorityHandoffWireOffset.set(0.f, 0.f, 0.f);
-                    outgoingPrimaryRuntime->authorityHandoffWireOffsetDuration = 0.f;
-                    if (isWatchedPresentationActor(actor, outgoingActorNetId))
-                    {
-                        Log(Debug::Info) << "[MPDIAG] Authority handoff wire bridge completed"
-                                         << " actorNetId=" << outgoingActorNetId
-                                         << " refId=" << actor.refId;
-                    }
-                }
             }
 
             if (mechanicsSnapshotDue)
@@ -8821,6 +8823,61 @@ namespace mwmp
                              << " mpNum=" << duplicate.mpNum;
             forgetServerSpawnedActorPtrMappings(duplicate.ptr, duplicate.mpNum);
             world->deleteObject(duplicate.ptr);
+        }
+
+        // Spawned actors may be collected again through their canonical runtime,
+        // replacing an earlier sample. Apply the handoff bridge only after that
+        // selection so the final outbound position retains the correction.
+        for (BaseActor& actor : outgoing.actors)
+        {
+            const ActorInstanceId actorNetId = actorNetIdForActorState(actor);
+            auto runtimeIt = mActorsByNetId.find(actorNetId);
+            if (runtimeIt == mActorsByNetId.end())
+                continue;
+
+            ActorRuntime& runtime = runtimeIt->second;
+            const float bridgeScale = authorityHandoffWireBridgeScale(
+                runtime.authorityHandoffWireOffsetTimer,
+                runtime.authorityHandoffWireOffsetDuration);
+            if (bridgeScale <= 0.f)
+                continue;
+
+            for (int i = 0; i < 3; ++i)
+            {
+                actor.position.pos[i] += runtime.authorityHandoffWireOffset[i] * bridgeScale;
+                actor.velocity.linear[i] = runtime.state.velocity.linear[i];
+            }
+
+            const bool firstBridgeSample = std::abs(runtime.authorityHandoffWireOffsetTimer
+                - runtime.authorityHandoffWireOffsetDuration) < 0.0001f;
+            if (firstBridgeSample && (actor.mpNum != 0
+                || isWatchedPresentationActor(actor, actorNetId)))
+            {
+                Log(Debug::Info) << "[MPDIAG] Authority handoff wire bridge started"
+                                 << " actorNetId=" << actorNetId
+                                 << " refId=" << actor.refId
+                                 << " mpNum=" << actor.mpNum
+                                 << " durationMs=" << (runtime.authorityHandoffWireOffsetDuration * 1000.f)
+                                 << " outgoingPos=(" << actor.position.pos[0]
+                                 << "," << actor.position.pos[1] << ")"
+                                 << " offset=(" << runtime.authorityHandoffWireOffset.x() << ","
+                                 << runtime.authorityHandoffWireOffset.y() << ","
+                                 << runtime.authorityHandoffWireOffset.z() << ")";
+            }
+
+            runtime.authorityHandoffWireOffsetTimer = std::max(0.f,
+                runtime.authorityHandoffWireOffsetTimer - std::max(0.f, dt));
+            if (runtime.authorityHandoffWireOffsetTimer <= 0.f)
+            {
+                runtime.authorityHandoffWireOffset.set(0.f, 0.f, 0.f);
+                runtime.authorityHandoffWireOffsetDuration = 0.f;
+                if (isWatchedPresentationActor(actor, actorNetId))
+                {
+                    Log(Debug::Info) << "[MPDIAG] Authority handoff wire bridge completed"
+                                     << " actorNetId=" << actorNetId
+                                     << " refId=" << actor.refId;
+                }
+            }
         }
 
         if (invalidMechanicsSnapshots.count != 0)

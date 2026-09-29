@@ -92,6 +92,19 @@ namespace mwmp
         return snapshotMoving && hasMovementAxes && latestSnapshotAge >= staleLocomotionTimeout;
     }
 
+    inline double cellHandoffPredictionTimeMs(double elapsedMs, float planarSpeed)
+    {
+        // Use the actor's real velocity across a normal packet gap. If the
+        // stream stalls longer, taper prediction so a fast combatant cannot
+        // run hundreds of units beyond its last authoritative position.
+        constexpr double fullSpeedWindowMs = 150.0;
+        constexpr float staleSpeedLimit = 200.f;
+        if (elapsedMs <= fullSpeedWindowMs || planarSpeed <= staleSpeedLimit)
+            return elapsedMs;
+        return fullSpeedWindowMs
+            + (elapsedMs - fullSpeedWindowMs) * staleSpeedLimit / planarSpeed;
+    }
+
     inline bool shouldSuppressExteriorActorListCellMismatch(bool positionCellKnown,
         bool positionMatchesIncomingCell, float borderDistance, bool positionCellLoaded)
     {

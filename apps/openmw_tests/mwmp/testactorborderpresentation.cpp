@@ -39,6 +39,32 @@ TEST(ActorAuthorityEligibility, CrossingBeyondOwnerHorizonCannotClearCombat)
     EXPECT_FALSE(mwmp::remotePlayerGuidFromActorTarget("mp_remote_4junk"));
 }
 
+TEST(ActorAuthorityEligibility, ActorSimulatorRemainsStickyUntilCoverageOrIndependenceRequiresTransfer)
+{
+    // Two adjacent cells may have different cell owners. An NPC crossing
+    // between them does not need a new simulator while its owner covers both.
+    EXPECT_TRUE(mwmp::shouldRetainActorSimulator(true, true, false, true));
+    // Follow/Escort does not replace a capable owner with the followed player.
+    EXPECT_TRUE(mwmp::shouldRetainActorSimulator(true, true, false, false));
+    // An actor or live combat target leaving the owner's horizon needs a handoff.
+    EXPECT_FALSE(mwmp::shouldRetainActorSimulator(false, true, false, true));
+    EXPECT_FALSE(mwmp::shouldRetainActorSimulator(true, false, false, true));
+    // An independent simulator takes a hostile actor off its victim when possible.
+    EXPECT_FALSE(mwmp::shouldRetainActorSimulator(true, true, true, true));
+    EXPECT_TRUE(mwmp::shouldRetainActorSimulator(true, true, true, false));
+}
+
+TEST(ActorAuthorityEligibility, CandidateMustHaveRoomToPathBeforeAuthorityTransfer)
+{
+    // Mario is centered in -57. This actor has just entered -56, but is only
+    // 66 units from the outer edge of Mario's 3x3 grid. Sith, centered in -56,
+    // can still run its pathfinding.
+    EXPECT_FALSE(mwmp::exteriorActorWithinAiBounds(-120, -57, -982000.f, -450626.f, 512.f));
+    EXPECT_TRUE(mwmp::exteriorActorWithinAiBounds(-120, -56, -982000.f, -450626.f, 512.f));
+    EXPECT_TRUE(mwmp::exteriorActorWithinAiBounds(-120, -57, -982000.f, -451100.f, 512.f));
+    EXPECT_FALSE(mwmp::exteriorActorWithinAiBounds(-120, -57, -982000.f, -450626.f, 200.f));
+}
+
 TEST(ActorAuthorityTransfer, ReadyMustMatchTheExactPreparedActorAndGeneration)
 {
     mwmp::ActorAuthorityTransfer prepare;
@@ -317,6 +343,14 @@ TEST(ActorCellHandoff, RemoteLocomotionExpiresAfterMissingStream)
     EXPECT_TRUE(mwmp::shouldExpireRemoteLocomotion(10.f, true, true));
     EXPECT_FALSE(mwmp::shouldExpireRemoteLocomotion(10.f, false, true));
     EXPECT_FALSE(mwmp::shouldExpireRemoteLocomotion(10.f, true, false));
+}
+
+TEST(ActorCellHandoff, FastObserverKeepsRealSpeedAcrossNormalSeamGap)
+{
+    EXPECT_NEAR(mwmp::cellHandoffPredictionTimeMs(100.0, 750.f), 100.0, 0.001);
+    EXPECT_NEAR(mwmp::cellHandoffPredictionTimeMs(150.0, 750.f), 150.0, 0.001);
+    EXPECT_NEAR(mwmp::cellHandoffPredictionTimeMs(300.0, 750.f), 190.0, 0.001);
+    EXPECT_NEAR(mwmp::cellHandoffPredictionTimeMs(300.0, 200.f), 300.0, 0.001);
 }
 
 TEST(ActorCellHandoff, SuppressesExteriorActorListOnlyPastHysteresis)

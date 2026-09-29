@@ -43,6 +43,7 @@
 
 #ifdef BUILD_MULTIPLAYER
 #include "../mwmp/Main.hpp"
+#include "../mwmp/sync/ActorSync.hpp"
 #endif
 
 #include "../mwmechanics/aibreathe.hpp"
@@ -1717,6 +1718,9 @@ namespace MWMechanics
                 if (hasSceneNode)
                     actor.getPtr().getRefData().getBaseNode()->getUserValue(
                         "mp_authoritative_actor", isMpAuthoritativeActor);
+                else if (mwmp::Main::isInitialised())
+                    isMpAuthoritativeActor
+                        = mwmp::Main::get().getActorSync().hasAuthorityForObject(actor.getPtr());
 #endif
                 // AI processing is only done within given distance to the player.
                 // A multiplayer authority must also simulate network actors in
@@ -1858,6 +1862,9 @@ namespace MWMechanics
 #ifdef BUILD_MULTIPLAYER
                 if (baseNode)
                     baseNode->getUserValue("mp_authoritative_actor", isMpAuthoritativeActor);
+                else if (mwmp::Main::isInitialised())
+                    isMpAuthoritativeActor
+                        = mwmp::Main::get().getActorSync().hasAuthorityForObject(actor.getPtr());
 #endif
                 // Actors with active AI should be able to move.
                 bool alwaysActive = false;
