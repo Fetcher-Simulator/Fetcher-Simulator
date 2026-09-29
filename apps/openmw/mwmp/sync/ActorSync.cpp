@@ -466,12 +466,6 @@ namespace
         return "death" + std::to_string((seed % 5) + 1);
     }
 
-    std::string makeLocalActorKey(const std::string& cellId, const MWWorld::Ptr& ptr)
-    {
-        return cellId + "|" + ptr.getCellRef().getRefId().serializeText() + "|"
-            + std::to_string(canonicalVanillaRefNum(ptr));
-    }
-
     float lerpFloat(float current, float target, float alpha)
     {
         return current + ((target - current) * alpha);
@@ -1064,7 +1058,6 @@ namespace mwmp
         mNextAttackEventIds.clear();
         mNextSpeechEventIds.clear();
         mNextSpeechSequence = 1;
-        mMpNumsByLocalActor.clear();
         mServerSpawnedActorsByMpNum.clear();
         mServerSpawnedActorLastTimestamps.clear();
         mReconciledVanillaActorsByNetId.clear();
@@ -1119,7 +1112,7 @@ namespace mwmp
         if (ptr.isEmpty() || !ptr.getClass().isActor())
             return 0;
 
-        const uint32_t mappedMpNum = mappedMpNumForPtr(cellId, ptr);
+        const uint32_t mappedMpNum = mappedMpNumForPtr(ptr);
         if (mappedMpNum != 0)
             return packActorInstanceKey({ ActorKeyKind::SpawnedMpNum, mappedMpNum });
 
@@ -1272,7 +1265,7 @@ namespace mwmp
                 if (actor.mpNum != 0)
                 {
                     const uint32_t stampedMpNum = stampedServerSpawnedMpNum(ptr);
-                    const uint32_t mappedMpNum = mappedMpNumForPtr(packetCellId, ptr);
+                    const uint32_t mappedMpNum = mappedMpNumForPtr(ptr);
                     if (stampedMpNum == actor.mpNum || mappedMpNum == actor.mpNum)
                     {
                         found = ptr;
@@ -1569,9 +1562,6 @@ namespace mwmp
             mReconciledVanillaActorsByNetId.erase(actorNetId);
         }
 
-        std::erase_if(mMpNumsByLocalActor, [&](const auto& entry) {
-            return mpNums.contains(entry.second);
-        });
         for (const std::uint32_t mpNum : mpNums)
         {
             mServerSpawnedActorsByMpNum.erase(mpNum);
@@ -2582,13 +2572,6 @@ namespace mwmp
             if (mpNum == 0)
                 return;
 
-            for (auto it = mMpNumsByLocalActor.begin(); it != mMpNumsByLocalActor.end();)
-            {
-                if (it->second == mpNum)
-                    it = mMpNumsByLocalActor.erase(it);
-                else
-                    ++it;
-            }
             mServerSpawnedActorsByMpNum.erase(mpNum);
         };
 
@@ -6051,7 +6034,7 @@ namespace mwmp
         if (cellId.empty())
             return 0;
 
-        return mappedMpNumForPtr(cellId, ptr);
+        return mappedMpNumForPtr(ptr);
     }
 
     uint32_t ActorSync::getActorCanonicalRefNum(const MWWorld::Ptr& ptr) const
@@ -6147,7 +6130,7 @@ namespace mwmp
             return;
         }
 
-        const uint32_t victimMpNum = mappedMpNumForPtr(cellId, victim);
+        const uint32_t victimMpNum = mappedMpNumForPtr(victim);
         const ActorInstanceId victimActorNetId = actorNetIdForPtr(cellId, victim);
         const ActorInstanceKey victimActorKey = unpackActorInstanceId(victimActorNetId);
         const uint32_t victimRefNum = victimActorKey.kind == ActorKeyKind::VanillaRefNum
@@ -7233,7 +7216,6 @@ namespace mwmp
         if (mpNum == 0 || ptr.isEmpty())
             return;
 
-        mMpNumsByLocalActor[makeLocalActorKey(cellId, ptr)] = mpNum;
         mServerSpawnedActorsByMpNum[mpNum] = ptr;
         if (auto* baseNode = ptr.getRefData().getBaseNode())
             baseNode->setUserValue("mp_actor_mpnum", static_cast<int>(mpNum));
@@ -7243,8 +7225,6 @@ namespace mwmp
     {
         if (!ptr.isEmpty())
         {
-            mMpNumsByLocalActor.erase(makeLocalActorKey(cellId, ptr));
-
             const std::string currentCellId = cellIdForPtr(ptr);
             if (mpNum != 0 && !currentCellId.empty() && currentCellId != cellId)
             {
@@ -7280,13 +7260,6 @@ namespace mwmp
         if (ptr.isEmpty())
             return;
 
-        for (const auto& [knownCellId, cell] : mCells)
-            mMpNumsByLocalActor.erase(makeLocalActorKey(knownCellId, ptr));
-
-        const std::string currentCellId = cellIdForPtr(ptr);
-        if (!currentCellId.empty())
-            mMpNumsByLocalActor.erase(makeLocalActorKey(currentCellId, ptr));
-
         if (mpNum != 0)
         {
             auto mappedIt = mServerSpawnedActorsByMpNum.find(mpNum);
@@ -7305,14 +7278,10 @@ namespace mwmp
         }
     }
 
-    uint32_t ActorSync::mappedMpNumForPtr(const std::string& cellId, const MWWorld::Ptr& ptr) const
+    uint32_t ActorSync::mappedMpNumForPtr(const MWWorld::Ptr& ptr) const
     {
         if (ptr.isEmpty())
             return 0;
-
-        auto localIt = mMpNumsByLocalActor.find(makeLocalActorKey(cellId, ptr));
-        if (localIt != mMpNumsByLocalActor.end())
-            return localIt->second;
 
         if (const uint32_t stampedMpNum = stampedServerSpawnedMpNum(ptr))
             return stampedMpNum;
@@ -7323,28 +7292,8 @@ namespace mwmp
                 return mpNum;
         }
 
-
-        // A moved object can acquire a new Ptr wrapper before rememberServerSpawnedActor
-        // installs the destination-cell key.  Search existing keys without the cell prefix,
-        // but only accept an unambiguous mpNum.
-        const std::string localKeySuffix = std::string("|")
-            + ptr.getCellRef().getRefId().serializeText() + "|"
-            + std::to_string(canonicalVanillaRefNum(ptr));
-        uint32_t matchedMpNum = 0;
-        for (const auto& [localKey, candidateMpNum] : mMpNumsByLocalActor)
-        {
-            if (localKey.size() < localKeySuffix.size()
-                || localKey.compare(localKey.size() - localKeySuffix.size(), localKeySuffix.size(), localKeySuffix) != 0)
-                continue;
-            if (matchedMpNum != 0 && matchedMpNum != candidateMpNum)
-                return 0;
-            matchedMpNum = candidateMpNum;
-        }
-        if (matchedMpNum != 0)
-            return matchedMpNum;
-
-        // Cell changes can replace the local Ptr wrapper before the per-cell lookup tables are
-        // rebuilt.  Keep the stable network identity by consulting the canonical runtime binding;
+        // Cell changes can replace the local Ptr wrapper. Keep the stable
+        // network identity by consulting the canonical runtime binding;
         // otherwise Lua falls back to cell authority during the crossing and transfers AI control
         // to the observer even though the server-side actor lease is still valid.
         for (const auto& [actorNetId, runtime] : mActorsByNetId)
@@ -7896,7 +7845,7 @@ namespace mwmp
                 actor.position.rot[i] = pos.rot[i];
             }
 
-            const uint32_t mappedMpNum = mappedMpNumForPtr(cell.outboundCellId, ptr);
+            const uint32_t mappedMpNum = mappedMpNumForPtr(ptr);
             const ActorInstanceId canonicalActorNetId = actorNetIdForActorState(actor);
             const ActorInstanceId collectionActorNetId = mappedMpNum != 0
                 ? packActorInstanceKey({ ActorKeyKind::SpawnedMpNum, mappedMpNum }) : canonicalActorNetId;
@@ -8111,7 +8060,7 @@ namespace mwmp
                     }
                     else
                         actor.ai.targetId = aiTarget.getCellRef().getRefId().serializeText();
-                    actor.ai.targetMpNum = mappedMpNumForPtr(cellIdForPtr(aiTarget), aiTarget);
+                    actor.ai.targetMpNum = mappedMpNumForPtr(aiTarget);
                 }
             }
             // Preserve the narrow vanilla guard predicate across authority boundaries.
@@ -8805,8 +8754,7 @@ namespace mwmp
                             else
                                 movedActor.ai.targetId = combatTarget.getCellRef().getRefId().serializeText();
 
-                            const std::string targetCellId = cellIdForPtr(combatTarget);
-                            movedActor.ai.targetMpNum = mappedMpNumForPtr(targetCellId, combatTarget);
+                            movedActor.ai.targetMpNum = mappedMpNumForPtr(combatTarget);
                         }
                     }
                     else if (!moveStats.isDead() && moveAiSequence.isInCombat())
@@ -10486,7 +10434,7 @@ namespace mwmp
                     return moveBoundActorToTargetCell();
             }
 
-            if ((!expectsServerSpawn || mappedMpNumForPtr(targetCellId, actor.boundActor) == actor.state.mpNum)
+            if ((!expectsServerSpawn || mappedMpNumForPtr(actor.boundActor) == actor.state.mpNum)
                 && actor.boundActor.getCell() != nullptr)
             {
                 if (boundCellId == targetCellId)
@@ -10656,7 +10604,7 @@ namespace mwmp
             {
                 if (!matchesActor(ptr, actor.state))
                     return true;
-                if (expectsServerSpawn && mappedMpNumForPtr(targetCellId, ptr) != actor.state.mpNum)
+                if (expectsServerSpawn && mappedMpNumForPtr(ptr) != actor.state.mpNum)
                     return true;
 
                 found = ptr;
@@ -10733,7 +10681,7 @@ namespace mwmp
         }
 
         if (found.isEmpty() && !actor.boundActor.isEmpty()
-            && (!expectsServerSpawn || mappedMpNumForPtr(targetCellId, actor.boundActor) == actor.state.mpNum))
+            && (!expectsServerSpawn || mappedMpNumForPtr(actor.boundActor) == actor.state.mpNum))
         {
             const std::string boundCellId = cellIdForPtr(actor.boundActor);
             if (boundCellId.empty() || boundCellId == targetCellId)

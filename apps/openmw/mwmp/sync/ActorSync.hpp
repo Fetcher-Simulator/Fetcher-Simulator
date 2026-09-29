@@ -397,7 +397,7 @@ namespace mwmp
         void rememberServerSpawnedActor(const std::string& cellId, const MWWorld::Ptr& ptr, uint32_t mpNum);
         void forgetServerSpawnedActor(const std::string& cellId, const MWWorld::Ptr& ptr, uint32_t mpNum);
         void forgetServerSpawnedActorPtrMappings(const MWWorld::Ptr& ptr, uint32_t mpNum);
-        uint32_t mappedMpNumForPtr(const std::string& cellId, const MWWorld::Ptr& ptr) const;
+        uint32_t mappedMpNumForPtr(const MWWorld::Ptr& ptr) const;
         bool isStaleServerSpawnedActorUpdate(uint32_t mpNum, uint64_t serverTimestamp) const;
         void rememberServerSpawnedActorTimestamp(uint32_t mpNum, uint64_t serverTimestamp);
         bool takeServerSpawnedRuntimeFromOtherCell(const std::string& targetCellId, const BaseActor& actorState,
@@ -406,7 +406,6 @@ namespace mwmp
         NetworkClient& mClient;
         std::unordered_map<std::string, CellRuntime> mCells;
         std::unordered_map<std::string, bool>        mAuthority;
-        std::unordered_map<std::string, uint32_t>    mMpNumsByLocalActor;
         std::unordered_map<uint32_t, MWWorld::Ptr>   mServerSpawnedActorsByMpNum;
         std::unordered_map<uint32_t, uint64_t>       mServerSpawnedActorLastTimestamps;
         // A placed leveled-creature reference can resolve to a different base
