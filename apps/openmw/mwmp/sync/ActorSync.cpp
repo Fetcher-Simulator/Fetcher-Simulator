@@ -1612,8 +1612,6 @@ namespace mwmp
         applyDisposedVanillaActorTombstones(cell, cellId, true);
 
         const auto chanceNoneIt = mChanceNoneLeveledSpawnersByCell.find(cellId);
-        if (chanceNoneIt == mChanceNoneLeveledSpawnersByCell.end())
-            return;
 
         MWBase::World* world = MWBase::Environment::get().getWorld();
         cell.forEach([&](MWWorld::Ptr ptr) -> bool
@@ -1624,13 +1622,23 @@ namespace mwmp
             const uint32_t spawnerRefNum = canonicalVanillaRefNum(ptr);
             const ActorInstanceId actorNetId = packActorInstanceKey(
                 { ActorKeyKind::VanillaRefNum, spawnerRefNum });
-            if (chanceNoneIt->second.count(actorNetId) == 0)
+            const auto canonicalIt = mActorsByNetId.find(actorNetId);
+            const bool migratedCanonicalActor = canonicalIt != mActorsByNetId.end()
+                && canonicalIt->second.state.mpNum == 0
+                && canonicalIt->second.state.refNum == spawnerRefNum
+                && canonicalIt->second.state.cellId != cellId
+                && !canonicalIt->second.boundActor.isEmpty();
+            if ((chanceNoneIt == mChanceNoneLeveledSpawnersByCell.end()
+                    || chanceNoneIt->second.count(actorNetId) == 0)
+                && !migratedCanonicalActor)
                 return true;
 
             const auto& leveledClass
                 = static_cast<const MWClass::CreatureLevList&>(ptr.getClass());
             MWWorld::Ptr localRoll = leveledClass.getSpawnedActor(ptr);
-            if (world && !localRoll.isEmpty() && localRoll.getCellRef().getCount() > 0)
+            if (world && !localRoll.isEmpty() && localRoll.getCellRef().getCount() > 0
+                && (!migratedCanonicalActor
+                    || !sameLocalActorObject(localRoll, canonicalIt->second.boundActor)))
             {
                 ScopedLocalDeleteSuppression suppression(
                     mwmp::Main::get().getWorldObjectSync());
@@ -1640,7 +1648,8 @@ namespace mwmp
             // then observes mSpawn=false and cannot reroll a server-canonical
             // Chance None outcome while the cell is being inserted.
             leveledClass.setSpawnedActor(ptr, MWWorld::Ptr());
-            mReconciledVanillaActorsByNetId.erase(actorNetId);
+            if (!migratedCanonicalActor)
+                mReconciledVanillaActorsByNetId.erase(actorNetId);
             return true;
         });
     }
@@ -1733,7 +1742,7 @@ namespace mwmp
             {
                 targetCell.forEach([&](MWWorld::Ptr ptr) -> bool
                 {
-                    if (ptr.isEmpty() || !ptr.getClass().isActor()
+                    if (ptr.isEmpty() || ptr == world->getPlayerPtr() || !ptr.getClass().isActor()
                         || ptr.getCellRef().getCount() <= 0)
                         return true;
 
@@ -2576,6 +2585,121 @@ namespace mwmp
         }
     }
 
+    void ActorSync::retireUnregisteredLocalActors(
+        const std::string& cellId, const std::vector<BaseActor>& canonicalActors)
+    {
+        // A complete roster is the server population for this cell. A late
+        // observer can still have a locally rolled or materialized creature
+        // whose dynamic RefNum never entered the server registry. If this
+        // client later becomes cell authority, that orphan would attack under
+        // its local RefNum while remaining invisible to everyone else.
+        std::unordered_set<ActorInstanceId> canonicalPopulation;
+        for (const BaseActor& state : canonicalActors)
+        {
+            const ActorInstanceId actorNetId = actorNetIdForActorState(state);
+            if (isValidActorInstanceId(actorNetId))
+                canonicalPopulation.insert(actorNetId);
+        }
+        if (MWBase::World* world = MWBase::Environment::get().getWorld())
+        {
+            auto& worldImp = static_cast<MWWorld::World&>(*world);
+            if (MWWorld::CellStore* activeCell = findActiveCellById(worldImp, cellId))
+            {
+                std::vector<MWWorld::Ptr> orphanedActors;
+                activeCell->forEach([&](MWWorld::Ptr ptr) -> bool
+                {
+                    if (ptr.isEmpty() || !ptr.getClass().isActor()
+                        || ptr.getCellRef().getCount() <= 0 || !ptr.getRefData().isEnabled()
+                        || ptr.getCellRef().getRefNum().hasContentFile()
+                        || mappedMpNumForPtr(ptr) != 0 || isNetworkPlayerProxy(ptr))
+                        return true;
+
+                    const ActorInstanceId actorNetId = actorNetIdForPtr(cellId, ptr);
+                    if (canonicalPopulation.contains(actorNetId))
+                        return true;
+                    const auto primary = mActorsByNetId.find(actorNetId);
+                    if (primary != mActorsByNetId.end()
+                        && primary->second.state.cellId != cellId
+                        && !primary->second.boundActor.isEmpty()
+                        && (primary->second.boundActor == ptr
+                            || sameLocalActorReference(primary->second.boundActor, ptr)))
+                        return true;
+
+                    // A just-loaded leveled-list child may still carry only
+                    // its local RefNum, before resolveActorBinding has mapped
+                    // it to the placed spawner. Keep a child that matches the
+                    // server's roll for that exact spawner.
+                    bool canonicalSpawnerChild = false;
+                    for (MWWorld::CellStore* sourceCell : worldImp.getWorldScene().getActiveCells())
+                    {
+                        sourceCell->forEach([&](MWWorld::Ptr spawner) -> bool
+                        {
+                            if (spawner.isEmpty()
+                                || spawner.getType() != ESM::CreatureLevList::sRecordId)
+                                return true;
+                            const auto& leveledClass
+                                = static_cast<const MWClass::CreatureLevList&>(spawner.getClass());
+                            const MWWorld::Ptr child = leveledClass.getSpawnedActor(spawner);
+                            if (child.isEmpty() || !(child == ptr || sameLocalActorReference(child, ptr)))
+                                return true;
+                            const ActorInstanceId spawnerNetId = packActorInstanceKey(
+                                { ActorKeyKind::VanillaRefNum, canonicalVanillaRefNum(spawner) });
+                            if (canonicalPopulation.contains(spawnerNetId))
+                            {
+                                const auto matching = std::find_if(canonicalActors.begin(), canonicalActors.end(),
+                                    [&](const BaseActor& state) {
+                                        return actorNetIdForActorState(state) == spawnerNetId
+                                            && state.refId == ptr.getCellRef().getRefId().serializeText();
+                                    });
+                                const auto bound = mActorsByNetId.find(spawnerNetId);
+                                canonicalSpawnerChild = matching != canonicalActors.end()
+                                    && (bound == mActorsByNetId.end() || bound->second.boundActor.isEmpty()
+                                        || bound->second.boundActor == ptr
+                                        || sameLocalActorReference(bound->second.boundActor, ptr));
+                            }
+                            return false;
+                        });
+                        if (canonicalSpawnerChild)
+                            break;
+                    }
+                    if (canonicalSpawnerChild)
+                        return true;
+
+                    orphanedActors.push_back(ptr);
+                    return true;
+                });
+
+                for (const MWWorld::Ptr& orphan : orphanedActors)
+                {
+                    // A leveled-list spawner may still refer to the orphan.
+                    // Mark it empty so rendering or reload cannot roll it again.
+                    for (MWWorld::CellStore* sourceCell : worldImp.getWorldScene().getActiveCells())
+                    {
+                        sourceCell->forEach([&](MWWorld::Ptr ptr) -> bool
+                        {
+                            if (ptr.isEmpty() || ptr.getType() != ESM::CreatureLevList::sRecordId)
+                                return true;
+                            const auto& leveledClass
+                                = static_cast<const MWClass::CreatureLevList&>(ptr.getClass());
+                            const MWWorld::Ptr child = leveledClass.getSpawnedActor(ptr);
+                            if (!child.isEmpty() && (child == orphan
+                                    || sameLocalActorReference(child, orphan)))
+                                leveledClass.setSpawnedActor(ptr, MWWorld::Ptr());
+                            return true;
+                        });
+                    }
+                    Log(Debug::Info) << "[MP] ActorSync: retired unregistered local actor"
+                                     << " cell=" << cellId
+                                     << " refId=" << orphan.getCellRef().getRefId().serializeText()
+                                     << " localRefNum=" << orphan.getCellRef().getRefNum().mIndex
+                                     << " actorNetId=" << actorNetIdForPtr(cellId, orphan);
+                    ScopedLocalDeleteSuppression suppression(Main::get().getWorldObjectSync());
+                    world->deleteObject(orphan);
+                }
+            }
+        }
+    }
+
     void ActorSync::onActorIdentityUpdate(const ActorIdentityList& list)
     {
         if (list.protocolVersion != ActorSyncProtocolVersionV2)
@@ -3117,6 +3241,29 @@ namespace mwmp
                             && knownActorIt->second.state.cellId != list.cellId;
                         const bool authoritativeActorPresent
                             = authoritativeVanillaRefNums.count(spawnerRefNum) != 0;
+                        if (authoritativeActorMigrated
+                            && !knownActorIt->second.boundActor.isEmpty())
+                        {
+                            // This spawner's canonical child now lives in a
+                            // different cell. A late observer may have rolled
+                            // another child here before learning that identity.
+                            const auto& leveledClass
+                                = static_cast<const MWClass::CreatureLevList&>(ptr.getClass());
+                            MWWorld::Ptr localRoll = leveledClass.getSpawnedActor(ptr);
+                            if (!localRoll.isEmpty()
+                                && localRoll.getCellRef().getCount() > 0
+                                && !sameLocalActorObject(localRoll, knownActorIt->second.boundActor))
+                            {
+                                ScopedLocalDeleteSuppression suppression(
+                                    mwmp::Main::get().getWorldObjectSync());
+                                world->deleteObject(localRoll);
+                                Log(Debug::Info) << "[MP] ActorSync: retired migrated spawner duplicate"
+                                                 << " cell=" << list.cellId
+                                                 << " spawnerRefNum=" << spawnerRefNum
+                                                 << " actorNetId=" << actorNetId;
+                            }
+                            leveledClass.setSpawnedActor(ptr, MWWorld::Ptr());
+                        }
                         if (!shouldRetireLocalLeveledRoll(completeIdentitySnapshot,
                                 authoritativeActorPresent, authoritativeActorMigrated))
                         {
@@ -3221,6 +3368,22 @@ namespace mwmp
                     }
                 }
             }
+        }
+
+        if (completeIdentitySnapshot)
+        {
+            std::vector<BaseActor> canonicalActors;
+            canonicalActors.reserve(list.actors.size());
+            for (const ActorIdentityRecord& record : list.actors)
+            {
+                if (record.removed || !isValidActorInstanceId(record.actorNetId)
+                    || hasMissingActorInstanceIdentity(record.actor)
+                    || isUnmanagedSpawnerActor(record.actor)
+                    || !actorInstanceIdMatchesActor(record.actorNetId, record.actor))
+                    continue;
+                canonicalActors.push_back(record.actor);
+            }
+            retireUnregisteredLocalActors(list.cellId, canonicalActors);
         }
 
         // A CorpseDisposed identity may precede local cell insertion. Apply
@@ -3418,6 +3581,8 @@ namespace mwmp
             rememberServerSpawnedActorTimestamp(actorState.mpNum, list.serverTimestamp);
             updatedActors[actorKey] = std::move(runtime);
         }
+
+        retireUnregisteredLocalActors(list.cellId, list.actors);
 
         for (auto& [actorKey, runtime] : cell.actors)
         {
@@ -4976,9 +5141,12 @@ namespace mwmp
         {
             auto& runtime = runtimeForPacketActor(list.cellId, cell, actorState);
             mergeActorState(runtime, actorState, false);
-            runtime.state.cast = actorState.cast;
-            runtime.pendingCast = true;
-            Log(Debug::Info) << "[MP] ActorSync: pendingCast set for " << actorState.refId
+            // Release and the following cast-start can arrive in one frame.
+            // Preserve both events in wire order rather than replacing release.
+            if (runtime.pendingCasts.size() >= 8)
+                runtime.pendingCasts.pop_front();
+            runtime.pendingCasts.push_back(actorState.cast);
+            Log(Debug::Info) << "[MP] ActorSync: pendingCast queued for " << actorState.refId
                              << " spell='" << actorState.cast.spellId
                              << "' castAnim='" << actorState.cast.castAnimation
                              << "' target='" << actorState.cast.targetRefId
@@ -10737,6 +10905,103 @@ namespace mwmp
             }
         }
 
+        // A late observer may join after a leveled actor has migrated away
+        // from its placed spawner. Its local roll can differ from the server's,
+        // so neither a same-cell spawner nor a matching actor Ptr exists in the
+        // destination. Materialize the canonical actor there instead of leaving
+        // a known identity permanently unbound (and unable to accept authority).
+        if (found.isEmpty() && expectsV2VanillaCrossCellMove && leveledSpawner.isEmpty()
+            && actor.hasAuthoritativeTransform && !actor.waitingForFreshCellBootstrap
+            && (actor.nextBindingRetryTimeMs == 0
+                || currentClientTimeMs() >= actor.nextBindingRetryTimeMs)
+            && (!isExteriorActorCellId(targetCellId)
+                || !isZeroIdentityPosition(actor.state.position)
+                || actor.state.position.isTeleporting))
+        {
+            actor.nextBindingRetryTimeMs = currentClientTimeMs() + 250;
+            MWWorld::Ptr sourceSpawner;
+            for (MWWorld::CellStore* activeCell : worldImp.getWorldScene().getActiveCells())
+            {
+                if (activeCell == targetCell)
+                    continue;
+                activeCell->forEach([&](MWWorld::Ptr ptr) -> bool
+                {
+                    if (ptr.isEmpty() || ptr.getType() != ESM::CreatureLevList::sRecordId
+                        || canonicalVanillaRefNum(ptr) != actor.state.refNum)
+                        return true;
+                    sourceSpawner = ptr;
+                    return false;
+                });
+                if (!sourceSpawner.isEmpty())
+                    break;
+            }
+
+            MWWorld::Ptr sourceRoll;
+            if (!sourceSpawner.isEmpty())
+            {
+                const auto& leveledClass
+                    = static_cast<const MWClass::CreatureLevList&>(sourceSpawner.getClass());
+                sourceRoll = leveledClass.getSpawnedActor(sourceSpawner);
+                if (!sourceRoll.isEmpty()
+                    && sourceRoll.getCellRef().getCount() > 0
+                    && sourceRoll.getCellRef().getRefId().serializeText() == actor.state.refId)
+                {
+                    actor.boundActor = sourceRoll;
+                    prepareSyncedIdleForNewBinding();
+                    return moveBoundActorToTargetCell();
+                }
+            }
+
+            if (!sourceSpawner.isEmpty())
+            {
+                try
+                {
+                    MWWorld::ManualRef ref(world->getStore(), ESM::RefId::stringRefId(actor.state.refId), 1);
+                    MWWorld::Ptr actorTemplate = ref.getPtr();
+                    if (!actorTemplate.isEmpty() && actorTemplate.getClass().isActor())
+                    {
+                        ESM::Position esmPos;
+                        for (int i = 0; i < 3; ++i)
+                        {
+                            esmPos.pos[i] = actor.state.position.pos[i];
+                            esmPos.rot[i] = actor.state.position.rot[i];
+                        }
+                        found = world->placeObject(actorTemplate, targetCell, esmPos);
+                        if (!found.isEmpty())
+                            found = world->moveObject(found, targetCell,
+                                osg::Vec3f(actor.state.position.pos[0], actor.state.position.pos[1],
+                                    actor.state.position.pos[2]));
+                        if (!found.isEmpty())
+                        {
+                            if (!sourceRoll.isEmpty() && sourceRoll.getCellRef().getCount() > 0)
+                            {
+                                ScopedLocalDeleteSuppression suppression(
+                                    mwmp::Main::get().getWorldObjectSync());
+                                world->deleteObject(sourceRoll);
+                            }
+                            const auto& leveledClass
+                                = static_cast<const MWClass::CreatureLevList&>(sourceSpawner.getClass());
+                            leveledClass.setSpawnedActor(sourceSpawner, MWWorld::Ptr());
+                            mReconciledVanillaActorsByNetId[actor.actorNetId] = found;
+                            Log(Debug::Info) << "[MP] ActorSync: materialized migrated vanilla actor"
+                                             << " actorNetId=" << actor.actorNetId
+                                             << " refId=" << actor.state.refId
+                                             << " refNum=" << actor.state.refNum
+                                             << " cell=" << targetCellId;
+                        }
+                    }
+                }
+                catch (const std::exception& e)
+                {
+                    Log(Debug::Warning) << "[MP] ActorSync: failed to materialize migrated vanilla actor"
+                                        << " actorNetId=" << actor.actorNetId
+                                        << " refId=" << actor.state.refId
+                                        << " cell=" << targetCellId
+                                        << " error=" << e.what();
+                }
+            }
+        }
+
         if (found.isEmpty() && !actor.boundActor.isEmpty()
             && (!expectsServerSpawn || mappedMpNumForPtr(actor.boundActor) == actor.state.mpNum))
         {
@@ -11738,7 +12003,7 @@ namespace mwmp
             actor.pendingRealtimeDeathReplay = false;
         }
 
-        const bool suppressLowerBodyGroupSync = hitFlags != 0 || actor.animGroupHoldTimer > 0.f || actor.pendingAttack || actor.pendingCast;
+        const bool suppressLowerBodyGroupSync = hitFlags != 0 || actor.animGroupHoldTimer > 0.f || actor.pendingAttack || !actor.pendingCasts.empty();
 
         if (!actor.state.isDead && !suppressLowerBodyGroupSync)
         {
@@ -11993,15 +12258,15 @@ namespace mwmp
             }
         }
 
-        if (actor.pendingCast)
+        while (!actor.pendingCasts.empty())
         {
-            const CastSpell& cs = actor.state.cast;
+            CastSpell cs = std::move(actor.pendingCasts.front());
+            actor.pendingCasts.pop_front();
             if (!cs.release && !cs.castAnimation.empty())
             {
                 // Suppress lower-body anim group sync so the spellcast animation
                 // isn't overwritten by incoming position-packet idle/locomotion groups.
                 actor.animGroupHoldTimer = std::max(actor.animGroupHoldTimer, 1.0f);
-                actor.castStartReceived = true;
                 Log(Debug::Info) << "[MP] ActorSync: cast start playback actor=" << actor.state.refId
                                  << " spell='" << cs.spellId << "' castAnim='" << cs.castAnimation << "'";
                 if (MWRender::Animation* animation = world->getAnimation(actor.boundActor))
@@ -12038,28 +12303,9 @@ namespace mwmp
                 actor.animGroupHoldTimer = std::max(actor.animGroupHoldTimer, 0.8f);
                 Log(Debug::Info) << "[MP] ActorSync: cast release playback actor=" << actor.state.refId
                                  << " spell='" << cs.spellId << "' castAnim='" << cs.castAnimation
-                                 << "' target='" << cs.targetRefId << "'"
-                                 << " castStartReceived=" << actor.castStartReceived;
-                // Only replay the wind-up animation if we never received the cast-start
-                // packet (e.g. the client was loading or the packet was dropped).
-                // When the start packet was received the animation is already mid-play at
-                // the release point, so restarting it would look wrong and push the bolt
-                // timer forward by a full extra wind-up duration.
-                if (!cs.castAnimation.empty() && !actor.castStartReceived)
-                {
-                    if (MWRender::Animation* animation = world->getAnimation(actor.boundActor))
-                    {
-                        animation->play("spellcast",
-                            MWRender::AnimPriority(7),
-                            MWRender::BlendMask_UpperBody,
-                            true,
-                            1.f,
-                            cs.castAnimation + " start",
-                            cs.castAnimation + " stop",
-                            0.f,
-                            0u);
-                    }
-                }
+                                 << "' target='" << cs.targetRefId << "'";
+                // The release packet is the authority's launch moment. A lost
+                // start packet cannot be recovered by replaying the wind-up now.
 
                 auto resolved = resolveCastSource(cs.spellId);
                 // Use the effect list from whichever source resolved.
@@ -12197,26 +12443,16 @@ namespace mwmp
 
                     if (hasNonSelfEffect)
                     {
-                        // If the cast-start packet was received the animation is already
-                        // at the release point - the auth sends this packet from the
-                        // "release" text-key callback, which is the exact moment the bolt
-                        // launches there.  Fire on the next frame (0.0f, enabled by the
-                        // >= 0.f guard in the timer countdown).
-                        // If the start packet was missed, allow the full wind-up animation
-                        // to play before the bolt appears (~0.9s for Morrowind cast anims).
-                        actor.pendingBoltTimer = actor.castStartReceived ? 0.0f : 0.9f;
+                        // The authority sends release at the text key that launches
+                        // the bolt. Fire on the next frame even if its separate
+                        // wind-up event was missed; delaying the projectile makes
+                        // remote casts visibly lag the authority.
+                        actor.pendingBoltTimer = 0.0f;
                         actor.pendingBoltSpellId = cs.spellId;
                     }
                 }
             }
 
-            // Only clear castStartReceived when the sequence ends (release=true).
-            // Clearing it unconditionally here would reset the flag in the same
-            // pendingCast cycle it was just set, so the release handler would
-            // always see castStartReceived=false and use the wrong bolt timer.
-            if (cs.release)
-                actor.castStartReceived = false;
-            actor.pendingCast = false;
         }
     }
 } // namespace mwmp

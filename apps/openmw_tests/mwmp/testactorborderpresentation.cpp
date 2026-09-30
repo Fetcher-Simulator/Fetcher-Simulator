@@ -39,19 +39,14 @@ TEST(ActorAuthorityEligibility, CrossingBeyondOwnerHorizonCannotClearCombat)
     EXPECT_FALSE(mwmp::remotePlayerGuidFromActorTarget("mp_remote_4junk"));
 }
 
-TEST(ActorAuthorityEligibility, ActorSimulatorRemainsStickyUntilCoverageOrIndependenceRequiresTransfer)
+TEST(ActorAuthorityEligibility, ActorSimulatorNeedsActorAndTargetCoverage)
 {
-    // Two adjacent cells may have different cell owners. An NPC crossing
-    // between them does not need a new simulator while its owner covers both.
-    EXPECT_TRUE(mwmp::shouldRetainActorSimulator(true, true, false, true));
-    // Follow/Escort does not replace a capable owner with the followed player.
-    EXPECT_TRUE(mwmp::shouldRetainActorSimulator(true, true, false, false));
+    // Crossing a cell or switching combat targets does not itself require a
+    // transfer while the current owner covers both the actor and target.
+    EXPECT_TRUE(mwmp::shouldRetainActorSimulator(true, true));
     // An actor or live combat target leaving the owner's horizon needs a handoff.
-    EXPECT_FALSE(mwmp::shouldRetainActorSimulator(false, true, false, true));
-    EXPECT_FALSE(mwmp::shouldRetainActorSimulator(true, false, false, true));
-    // An independent simulator takes a hostile actor off its victim when possible.
-    EXPECT_FALSE(mwmp::shouldRetainActorSimulator(true, true, true, true));
-    EXPECT_TRUE(mwmp::shouldRetainActorSimulator(true, true, true, false));
+    EXPECT_FALSE(mwmp::shouldRetainActorSimulator(false, true));
+    EXPECT_FALSE(mwmp::shouldRetainActorSimulator(true, false));
 }
 
 TEST(ActorAuthorityEligibility, CandidateMustHaveRoomToPathBeforeAuthorityTransfer)

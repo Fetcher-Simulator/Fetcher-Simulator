@@ -163,11 +163,7 @@ namespace mwmp
             MWWorld::Ptr boundActor;
             bool pendingAnimPlay = false;
             bool pendingAttack = false;
-            bool pendingCast = false;
-            // Set to true when a cast-start (release=false) packet is consumed so
-            // the cast-release handler knows the wind-up animation is already playing
-            // and the bolt should fire immediately rather than after another countdown.
-            bool castStartReceived = false;
+            std::deque<CastSpell> pendingCasts;
             bool lastAttackingOrCasting = false;
             bool lastWeaponVisible = false;
             // Track whether death has already been applied to this actor so that
@@ -378,6 +374,8 @@ namespace mwmp
         ActorInstanceId actorNetIdForActorState(const BaseActor& actor) const;
         ActorRuntime* findPrimaryActorRuntime(const BaseActor& actor);
         void pruneObserverActorShadows();
+        void retireUnregisteredLocalActors(
+            const std::string& cellId, const std::vector<BaseActor>& canonicalActors);
         bool hasAuthorityForActor(ActorInstanceId actorNetId, const std::string& cellId) const;
         ActorRuntime& runtimeForPacketActor(const std::string& cellId, CellRuntime& cell, const BaseActor& actor);
         MWWorld::Ptr resolvePacketActorBinding(const std::string& packetCellId, CellRuntime& cell,

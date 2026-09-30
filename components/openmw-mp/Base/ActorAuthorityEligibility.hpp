@@ -64,14 +64,13 @@ namespace mwmp
         return canonicalCombat && !incomingCombat && targetConnected && !targetAvailableToOwner;
     }
 
-    // A capable actor simulator stays in place across cell and AI changes.
-    // Combat may move off the victim when another client can simulate both.
+    // A capable actor simulator stays in place across cell and AI changes,
+    // including a combat target switch. Candidate preference applies only
+    // after the owner loses actor or target coverage.
     inline bool shouldRetainActorSimulator(
-        bool ownerCanSimulateActor, bool ownerCanSimulateCombatTarget,
-        bool ownerIsCombatVictim, bool independentCandidateAvailable)
+        bool ownerCanSimulateActor, bool ownerCanSimulateCombatTarget)
     {
-        return ownerCanSimulateActor && ownerCanSimulateCombatTarget
-            && (!ownerIsCombatVictim || !independentCandidateAvailable);
+        return ownerCanSimulateActor && ownerCanSimulateCombatTarget;
     }
 }
 

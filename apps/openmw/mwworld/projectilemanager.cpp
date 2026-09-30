@@ -856,6 +856,16 @@ namespace MWWorld
                         const ESM::MagicEffect* me = effectStore.search(effectInfo.mData.mEffectID);
                         if (me)
                         {
+                            bool isRemoteActor = false;
+                            if (auto* baseNode = target.getRefData().getBaseNode())
+                                baseNode->getUserValue("mp_remote_actor", isRemoteActor);
+                            // A visual-only bolt follows local collision, which
+                            // can disagree with the authority. Do not attach a
+                            // looping status effect to a remote NPC from that
+                            // unverified hit. The one-shot impact still plays.
+                            if (isRemoteActor
+                                && (me->mData.mFlags & ESM::MagicEffect::ContinuousVfx) != 0)
+                                continue;
                             MWMechanics::playEffects(target, *me);
 #ifdef BUILD_MULTIPLAYER
                             if (isRemotePlayerProxy(target)

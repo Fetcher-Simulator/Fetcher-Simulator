@@ -5019,8 +5019,6 @@ void MPServer::prepareActorAuthorityTransferForActor(
         && clientCanSimulateActorPosition(*owner, record.actor, cellId, 200.f);
     const bool ownerCanSimulateTarget = !hasLiveTarget || (owner && owner->charSelectComplete
         && clientEligibleForActorCell(*owner, targetCellId));
-    const bool ownerIsVictim = hasLiveTarget && owner && owner->guid == *targetGuid;
-
     ConnectedClient* candidate = nullptr;
     for (auto& [conn, client] : mClients)
     {
@@ -5039,12 +5037,9 @@ void MPServer::prepareActorAuthorityTransferForActor(
             candidate = &client;
     }
 
-    // A capable owner is sticky. Only move a hostile actor off its victim
-    // when an independent simulator can run both the actor and target.
-    const bool independentCandidate = candidate && (!hasLiveTarget
-        || candidate->guid != *targetGuid);
-    if (shouldRetainActorSimulator(ownerCanSimulateActor, ownerCanSimulateTarget,
-            ownerIsVictim, independentCandidate))
+    // A capable owner is sticky even if combat changes its victim. Candidate
+    // preference applies only when a new simulator is actually needed.
+    if (shouldRetainActorSimulator(ownerCanSimulateActor, ownerCanSimulateTarget))
     {
         cancelActorAuthorityTransfer(record);
         return;
@@ -5330,6 +5325,8 @@ void MPServer::updateActorAuthorityLeaseFromAi(const std::string& cellId,
     if (cellIt == mWorld.actorCells.end() || cellIt->second.authorityGuid == 0)
         return;
 
+    // The cell authority is the only client known to have this newly published
+    // actor bound. Assign it first; later coverage loss uses Prepare/Ready/Commit.
     record.actorAuthorityGuid = cellIt->second.authorityGuid;
     record.actorAuthorityTargetGuid = 0;
     record.actorAuthorityReason = "actor-simulator";
@@ -9081,11 +9078,21 @@ void MPServer::handlePlayerLoadedCells(ConnectedClient& c, const uint8_t* data, 
         const bool authorityChanged = refreshActorAuthorityForCell(cellId, c.guid, !suppressPursuitReissue);
         if (cellId == currentCell)
             currentCellAuthorityChanged = authorityChanged;
-        // Loaded-cell actor interest is handled by the authority refresh above.
-        // Re-sending the full actor baseline here duplicates every adjacent-cell
-        // actor snapshot and can stall the client's network frame during startup.
-        // Adjacent cells still need their persisted objects, containers and doors
-        // so exterior interactions remain consistent before the border is crossed.
+        // Adjacent cells need the complete identity roster once their canonical
+        // population is known. On-demand identities cover existing actors but
+        // cannot identify Chance None leveled spawners, leaving local rolls
+        // visible until the player crosses into that cell. Send only identities
+        // here; a full actor-state baseline for every adjacent cell can stall
+        // the client's network frame during startup.
+        if (cellId != currentCell && !authorityChanged)
+        {
+            const auto actorCellIt = mWorld.actorCells.find(cellId);
+            if (actorCellIt != mWorld.actorCells.end()
+                && actorCellIt->second.hasCompleteAuthoritySnapshot)
+                sendActorIdentityToClient(c.conn, cellId, actorCellIt->second);
+        }
+        // Persisted objects, containers and doors also need their baselines
+        // before the border is crossed.
         sendCellObjectStateToClient(c.conn, cellId);
     }
     for (const std::string& cellId : removedCells)
@@ -12709,15 +12716,11 @@ void MPServer::handleActorAuthorityTransfer(ConnectedClient& c, const uint8_t* d
     const bool oldOwnerCanSimulateTarget = !hasLiveCombatTarget
         || (oldOwner && oldOwner->charSelectComplete
             && clientEligibleForActorCell(*oldOwner, makeCellKey(target->player.cell)));
-    const bool oldOwnerIsVictim = hasLiveCombatTarget && oldOwner
-        && oldOwner->guid == *targetGuid;
-    const bool independentCandidate = !hasLiveCombatTarget || c.guid != *targetGuid;
     if (!c.charSelectComplete
         || !clientCanSimulateActorPosition(c, record.actor, ready.cellId, 512.f)
         || (hasLiveCombatTarget
             && !clientEligibleForActorCell(c, makeCellKey(target->player.cell)))
-        || shouldRetainActorSimulator(oldOwnerCanSimulateActor, oldOwnerCanSimulateTarget,
-            oldOwnerIsVictim, independentCandidate))
+        || shouldRetainActorSimulator(oldOwnerCanSimulateActor, oldOwnerCanSimulateTarget))
     {
         cancelActorAuthorityTransfer(record);
         return;
