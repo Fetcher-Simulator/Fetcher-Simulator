@@ -441,6 +441,10 @@ namespace
                 aiSequence.clear();
                 restoreOtherPlayerCombatTargets(actor.ai, ptr, combatTarget, aiSequence);
                 aiSequence.stack(MWMechanics::AiCombat(combatTarget), ptr);
+                if (actor.ai.combatPlayerTargets.size() > 1
+                    && std::find(actor.ai.combatPlayerTargets.begin(), actor.ai.combatPlayerTargets.end(),
+                        actor.ai.targetId) != actor.ai.combatPlayerTargets.end())
+                    aiSequence.preferCombatTarget(combatTarget);
                 int fight = stats.getAiSetting(MWMechanics::AiSetting::Fight).getBase();
                 if (fight < 30)
                 {
@@ -1088,6 +1092,8 @@ namespace mwmp
         mServerSpawnedActorLastTimestamps.clear();
         mReconciledVanillaActorsByNetId.clear();
         mChanceNoneLeveledSpawnersByCell.clear();
+        mPendingCanonicalActorsByCell.clear();
+        mCellsNeedingPostMigrationCleanup.clear();
         mCellResetsPending.clear();
         mCellResetLeveledRollPending.clear();
         mDisposedVanillaActorsByCell.clear();
@@ -1600,6 +1606,7 @@ namespace mwmp
         mCells.erase(cellId);
         mAuthority.erase(cellId);
         mChanceNoneLeveledSpawnersByCell.erase(cellId);
+        mPendingCanonicalActorsByCell.erase(cellId);
         mDisposedVanillaActorsByCell.erase(cellId);
         mCellResetsPending.insert(cellId);
         mCellResetLeveledRollPending.insert(cellId);
@@ -1638,6 +1645,7 @@ namespace mwmp
         applyDisposedVanillaActorTombstones(cell, cellId, true);
 
         const auto chanceNoneIt = mChanceNoneLeveledSpawnersByCell.find(cellId);
+        const auto pendingRosterIt = mPendingCanonicalActorsByCell.find(cellId);
 
         MWBase::World* world = MWBase::Environment::get().getWorld();
         cell.forEach([&](MWWorld::Ptr ptr) -> bool
@@ -1654,16 +1662,28 @@ namespace mwmp
                 && canonicalIt->second.state.refNum == spawnerRefNum
                 && canonicalIt->second.state.cellId != cellId
                 && !canonicalIt->second.boundActor.isEmpty();
-            if ((chanceNoneIt == mChanceNoneLeveledSpawnersByCell.end()
-                    || chanceNoneIt->second.count(actorNetId) == 0)
-                && !migratedCanonicalActor)
-                return true;
-
+            const auto rosterActor = pendingRosterIt == mPendingCanonicalActorsByCell.end()
+                ? nullptr
+                : [&]() -> const BaseActor* {
+                    const auto match = std::find_if(pendingRosterIt->second.begin(), pendingRosterIt->second.end(),
+                        [&](const BaseActor& actor) { return actorNetIdForActorState(actor) == actorNetId; });
+                    return match == pendingRosterIt->second.end() ? nullptr : &*match;
+                }();
             const auto& leveledClass
                 = static_cast<const MWClass::CreatureLevList&>(ptr.getClass());
-            MWWorld::Ptr localRoll = leveledClass.getSpawnedActor(ptr);
+            const MWWorld::Ptr localRoll = leveledClass.getSpawnedActor(ptr);
+            const bool rosterMismatch = pendingRosterIt != mPendingCanonicalActorsByCell.end()
+                && !migratedCanonicalActor
+                && (!rosterActor || (!hasAuthorityForActor(actorNetId, cellId)
+                    && (localRoll.isEmpty()
+                        || localRoll.getCellRef().getRefId().serializeText() != rosterActor->refId)));
+            if ((chanceNoneIt == mChanceNoneLeveledSpawnersByCell.end()
+                    || chanceNoneIt->second.count(actorNetId) == 0)
+                && !migratedCanonicalActor && !rosterMismatch)
+                return true;
+
             if (world && !localRoll.isEmpty() && localRoll.getCellRef().getCount() > 0
-                && (!migratedCanonicalActor
+                && (rosterMismatch || !migratedCanonicalActor
                     || !sameLocalActorObject(localRoll, canonicalIt->second.boundActor)))
             {
                 ScopedLocalDeleteSuppression suppression(
@@ -1678,6 +1698,11 @@ namespace mwmp
                 mReconciledVanillaActorsByNetId.erase(actorNetId);
             return true;
         });
+
+        if (const auto pending = mPendingCanonicalActorsByCell.find(cellId);
+            pending != mPendingCanonicalActorsByCell.end()
+            && retireUnregisteredLocalActors(cellId, pending->second, &cell))
+            mPendingCanonicalActorsByCell.erase(pending);
     }
 
     void ActorSync::applyDisposedVanillaActorTombstones(
@@ -1807,6 +1832,35 @@ namespace mwmp
         updateLocalCellBootstrapState();
         applyDisposedVanillaActorTombstones();
         sendPendingActorSpeechEvents();
+
+        // A migrated leveled actor can be materialized after the destination
+        // cell's initial roster cleanup. Its old, unbound local roll may then
+        // be left in that cell with no spawner link. Reconcile once after the
+        // binding pass has finished, when the canonical Ptr is protected.
+        for (const std::string& cellId : mCellsNeedingPostMigrationCleanup)
+        {
+            std::vector<BaseActor> canonicalActors;
+            for (const auto& [actorNetId, runtime] : mActorsByNetId)
+            {
+                if (isValidActorInstanceId(actorNetId) && runtime.state.cellId == cellId)
+                    canonicalActors.push_back(runtime.state);
+            }
+            if (const auto cell = mCells.find(cellId); cell != mCells.end())
+            {
+                for (const auto& [actorKey, runtime] : cell->second.actors)
+                {
+                    (void)actorKey;
+                    if (runtime.state.cellId == cellId)
+                        canonicalActors.push_back(runtime.state);
+                }
+            }
+            if (const auto pending = mPendingCanonicalActorsByCell.find(cellId);
+                pending != mPendingCanonicalActorsByCell.end())
+                canonicalActors.insert(canonicalActors.end(), pending->second.begin(), pending->second.end());
+            if (!canonicalActors.empty())
+                retireUnregisteredLocalActors(cellId, canonicalActors);
+        }
+        mCellsNeedingPostMigrationCleanup.clear();
 
         const uint32_t transferLocalGuid = mwmp::Main::get().getPlayerSync().localPlayer().guid;
         for (auto& [actorNetId, pending] : mPendingAuthorityTransfers)
@@ -2611,8 +2665,8 @@ namespace mwmp
         }
     }
 
-    void ActorSync::retireUnregisteredLocalActors(
-        const std::string& cellId, const std::vector<BaseActor>& canonicalActors)
+    bool ActorSync::retireUnregisteredLocalActors(const std::string& cellId,
+        const std::vector<BaseActor>& canonicalActors, MWWorld::CellStore* insertionCell)
     {
         // A complete roster is the server population for this cell. A late
         // observer can still have a locally rolled or materialized creature
@@ -2626,13 +2680,22 @@ namespace mwmp
             if (isValidActorInstanceId(actorNetId))
                 canonicalPopulation.insert(actorNetId);
         }
-        if (MWBase::World* world = MWBase::Environment::get().getWorld())
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (!world)
+            return false;
+        auto& worldImp = static_cast<MWWorld::World&>(*world);
+        MWWorld::CellStore* targetCell = insertionCell ? insertionCell : findActiveCellById(worldImp, cellId);
+        if (!targetCell)
+            return false;
+        std::vector<MWWorld::CellStore*> sourceCells{ targetCell };
+        for (MWWorld::CellStore* activeCell : worldImp.getWorldScene().getActiveCells())
         {
-            auto& worldImp = static_cast<MWWorld::World&>(*world);
-            if (MWWorld::CellStore* activeCell = findActiveCellById(worldImp, cellId))
+            if (activeCell != targetCell)
+                sourceCells.push_back(activeCell);
+        }
             {
                 std::vector<MWWorld::Ptr> orphanedActors;
-                activeCell->forEach([&](MWWorld::Ptr ptr) -> bool
+                targetCell->forEach([&](MWWorld::Ptr ptr) -> bool
                 {
                     if (ptr.isEmpty() || !ptr.getClass().isActor()
                         || ptr.getCellRef().getCount() <= 0 || !ptr.getRefData().isEnabled()
@@ -2645,7 +2708,6 @@ namespace mwmp
                         return true;
                     const auto primary = mActorsByNetId.find(actorNetId);
                     if (primary != mActorsByNetId.end()
-                        && primary->second.state.cellId != cellId
                         && !primary->second.boundActor.isEmpty()
                         && (primary->second.boundActor == ptr
                             || sameLocalActorReference(primary->second.boundActor, ptr)))
@@ -2656,7 +2718,7 @@ namespace mwmp
                     // it to the placed spawner. Keep a child that matches the
                     // server's roll for that exact spawner.
                     bool canonicalSpawnerChild = false;
-                    for (MWWorld::CellStore* sourceCell : worldImp.getWorldScene().getActiveCells())
+                    for (MWWorld::CellStore* sourceCell : sourceCells)
                     {
                         sourceCell->forEach([&](MWWorld::Ptr spawner) -> bool
                         {
@@ -2699,7 +2761,7 @@ namespace mwmp
                 {
                     // A leveled-list spawner may still refer to the orphan.
                     // Mark it empty so rendering or reload cannot roll it again.
-                    for (MWWorld::CellStore* sourceCell : worldImp.getWorldScene().getActiveCells())
+                    for (MWWorld::CellStore* sourceCell : sourceCells)
                     {
                         sourceCell->forEach([&](MWWorld::Ptr ptr) -> bool
                         {
@@ -2722,8 +2784,8 @@ namespace mwmp
                     ScopedLocalDeleteSuppression suppression(Main::get().getWorldObjectSync());
                     world->deleteObject(orphan);
                 }
-            }
         }
+        return true;
     }
 
     void ActorSync::onActorIdentityUpdate(const ActorIdentityList& list)
@@ -3409,7 +3471,10 @@ namespace mwmp
                     continue;
                 canonicalActors.push_back(record.actor);
             }
-            retireUnregisteredLocalActors(list.cellId, canonicalActors);
+            if (retireUnregisteredLocalActors(list.cellId, canonicalActors))
+                mPendingCanonicalActorsByCell.erase(list.cellId);
+            else
+                mPendingCanonicalActorsByCell[list.cellId] = std::move(canonicalActors);
         }
 
         // A CorpseDisposed identity may precede local cell insertion. Apply
@@ -3608,7 +3673,10 @@ namespace mwmp
             updatedActors[actorKey] = std::move(runtime);
         }
 
-        retireUnregisteredLocalActors(list.cellId, list.actors);
+        if (retireUnregisteredLocalActors(list.cellId, list.actors))
+            mPendingCanonicalActorsByCell.erase(list.cellId);
+        else
+            mPendingCanonicalActorsByCell[list.cellId] = list.actors;
 
         for (auto& [actorKey, runtime] : cell.actors)
         {
@@ -10618,6 +10686,11 @@ namespace mwmp
                         restoreOtherPlayerCombatTargets(
                             actor.state.ai, actor.boundActor, combatTarget, postMoveAiSequence);
                         postMoveAiSequence.stack(MWMechanics::AiCombat(combatTarget), actor.boundActor);
+                        if (actor.state.ai.combatPlayerTargets.size() > 1
+                            && std::find(actor.state.ai.combatPlayerTargets.begin(),
+                                actor.state.ai.combatPlayerTargets.end(), actor.state.ai.targetId)
+                                != actor.state.ai.combatPlayerTargets.end())
+                            postMoveAiSequence.preferCombatTarget(combatTarget);
                         int rebuiltFight = postMoveStats.getAiSetting(MWMechanics::AiSetting::Fight).getBase();
                         if (rebuiltFight < 30)
                         {
@@ -10853,7 +10926,8 @@ namespace mwmp
                                              << " spawnerRefNum=" << actor.state.refNum
                                              << " localRefId=" << localRefId
                                              << " authoritativeRefId=" << actor.state.refId
-                                             << " actorNetId=" << actor.actorNetId;
+                                             << " actorNetId=" << actor.actorNetId
+                                             << " localRefNum=" << found.getCellRef().getRefNum().mIndex;
                         }
                     }
                 }
@@ -11029,10 +11103,12 @@ namespace mwmp
                                 = static_cast<const MWClass::CreatureLevList&>(sourceSpawner.getClass());
                             leveledClass.setSpawnedActor(sourceSpawner, MWWorld::Ptr());
                             mReconciledVanillaActorsByNetId[actor.actorNetId] = found;
+                            mCellsNeedingPostMigrationCleanup.insert(targetCellId);
                             Log(Debug::Info) << "[MP] ActorSync: materialized migrated vanilla actor"
                                              << " actorNetId=" << actor.actorNetId
                                              << " refId=" << actor.state.refId
                                              << " refNum=" << actor.state.refNum
+                                             << " localRefNum=" << found.getCellRef().getRefNum().mIndex
                                              << " cell=" << targetCellId;
                         }
                     }

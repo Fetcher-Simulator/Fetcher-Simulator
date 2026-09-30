@@ -10,6 +10,10 @@
 
 #include <components/esm3/loadnpc.hpp>
 
+#ifdef BUILD_MULTIPLAYER
+#include "../mwworld/ptr.hpp"
+#endif
+
 namespace MWWorld
 {
     class Ptr;
@@ -43,6 +47,11 @@ namespace MWMechanics
 
         int mNumCombatPackages{};
         int mNumPursuitPackages{};
+
+#ifdef BUILD_MULTIPLAYER
+        MWWorld::Ptr mProvokedCombatTarget;
+        float mProvokedCombatSeconds{};
+#endif
 
         /// Copy AiSequence
         void copy(const AiSequence& sequence);
@@ -132,6 +141,11 @@ namespace MWMechanics
 
         /// Are we in combat with this particular actor?
         bool isInCombat(const MWWorld::Ptr& actor) const;
+
+#ifdef BUILD_MULTIPLAYER
+        /// Keep a player who just hit this actor as its combat target long enough to draw it away.
+        void preferCombatTarget(const MWWorld::Ptr& target, float seconds = 15.f);
+#endif
 
         /// Removes all combat packages until first non-combat or stack empty.
         void stopCombat();

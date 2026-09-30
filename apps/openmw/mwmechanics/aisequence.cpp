@@ -36,6 +36,10 @@ namespace MWMechanics
 
         mNumCombatPackages = sequence.mNumCombatPackages;
         mNumPursuitPackages = sequence.mNumPursuitPackages;
+#ifdef BUILD_MULTIPLAYER
+        mProvokedCombatTarget = sequence.mProvokedCombatTarget;
+        mProvokedCombatSeconds = sequence.mProvokedCombatSeconds;
+#endif
     }
 
     AiSequence::AiSequence()
@@ -86,7 +90,13 @@ namespace MWMechanics
         {
             mNumCombatPackages--;
             if (mNumCombatPackages == 0)
+            {
                 mResetFriendlyHits = true;
+#ifdef BUILD_MULTIPLAYER
+                mProvokedCombatTarget = {};
+                mProvokedCombatSeconds = 0.f;
+#endif
+            }
         }
         else if (package.getTypeId() == AiPackageTypeId::Pursue)
             mNumPursuitPackages--;
@@ -192,6 +202,16 @@ namespace MWMechanics
         return false;
     }
 
+#ifdef BUILD_MULTIPLAYER
+    void AiSequence::preferCombatTarget(const MWWorld::Ptr& target, float seconds)
+    {
+        if (target.isEmpty() || !isInCombat(target))
+            return;
+        mProvokedCombatTarget = target;
+        mProvokedCombatSeconds = std::max(0.f, seconds);
+    }
+#endif
+
     void AiSequence::removePackagesById(AiPackageTypeId id)
     {
         for (auto it = mPackages.begin(); it != mPackages.end();)
@@ -251,6 +271,15 @@ namespace MWMechanics
             return;
         }
 
+#ifdef BUILD_MULTIPLAYER
+        if (mProvokedCombatSeconds > 0.f)
+        {
+            mProvokedCombatSeconds = std::max(0.f, mProvokedCombatSeconds - duration);
+            if (mProvokedCombatSeconds == 0.f)
+                mProvokedCombatTarget = {};
+        }
+#endif
+
         if (mResetFriendlyHits)
         {
             actor.getClass().getCreatureStats(actor).resetFriendlyHits();
@@ -275,6 +304,9 @@ namespace MWMechanics
         if (packageTypeId == AiPackageTypeId::Combat)
         {
             auto itActualCombat = mPackages.end();
+#ifdef BUILD_MULTIPLAYER
+            auto itProvokedCombat = mPackages.end();
+#endif
 
             float nearestDist = std::numeric_limits<float>::max();
             osg::Vec3f vActorPos = actor.getRefData().getPosition().asVec3();
@@ -321,12 +353,24 @@ namespace MWMechanics
                         nearestDist = distTo;
                         itActualCombat = it;
                     }
+#ifdef BUILD_MULTIPLAYER
+                    if (mProvokedCombatSeconds > 0.f && target == mProvokedCombatTarget
+                        && target.getRefData().isEnabled()
+                        && !target.getClass().getCreatureStats(target).isDead()
+                        && target.getRefData().getBaseNode() && canFight(actor, target))
+                        itProvokedCombat = it;
+#endif
                     ++it;
                 }
             }
 
             if (mPackages.empty())
                 return;
+
+#ifdef BUILD_MULTIPLAYER
+            if (itProvokedCombat != mPackages.end())
+                itActualCombat = itProvokedCombat;
+#endif
 
             if (nearestDist < std::numeric_limits<float>::max() && mPackages.begin() != itActualCombat)
             {
@@ -377,6 +421,10 @@ namespace MWMechanics
         mPackages.clear();
         mNumCombatPackages = 0;
         mNumPursuitPackages = 0;
+#ifdef BUILD_MULTIPLAYER
+        mProvokedCombatTarget = {};
+        mProvokedCombatSeconds = 0.f;
+#endif
     }
 
     void AiSequence::stack(const AiPackage& package, const MWWorld::Ptr& actor, bool cancelOther)

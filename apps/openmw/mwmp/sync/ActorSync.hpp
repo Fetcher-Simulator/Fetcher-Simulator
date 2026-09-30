@@ -374,8 +374,8 @@ namespace mwmp
         ActorInstanceId actorNetIdForActorState(const BaseActor& actor) const;
         ActorRuntime* findPrimaryActorRuntime(const BaseActor& actor);
         void pruneObserverActorShadows();
-        void retireUnregisteredLocalActors(
-            const std::string& cellId, const std::vector<BaseActor>& canonicalActors);
+        bool retireUnregisteredLocalActors(const std::string& cellId,
+            const std::vector<BaseActor>& canonicalActors, MWWorld::CellStore* insertionCell = nullptr);
         bool hasAuthorityForActor(ActorInstanceId actorNetId, const std::string& cellId) const;
         ActorRuntime& runtimeForPacketActor(const std::string& cellId, CellRuntime& cell, const BaseActor& actor);
         MWWorld::Ptr resolvePacketActorBinding(const std::string& packetCellId, CellRuntime& cell,
@@ -417,6 +417,10 @@ namespace mwmp
         // newly loaded local RNG roll cannot become a client-only actor.
         std::unordered_map<std::string, std::unordered_set<ActorInstanceId>>
             mChanceNoneLeveledSpawnersByCell;
+        // A complete roster can arrive before its cell is inserted into the
+        // scene. Reconcile local leveled rolls at insertion, before they render.
+        std::unordered_map<std::string, std::vector<BaseActor>> mPendingCanonicalActorsByCell;
+        std::unordered_set<std::string> mCellsNeedingPostMigrationCleanup;
         std::unordered_set<std::string> mCellResetsPending;
         std::unordered_set<std::string> mCellResetLeveledRollPending;
         // CorpseDisposed is an authoritative, persistent absence. Retain vanilla

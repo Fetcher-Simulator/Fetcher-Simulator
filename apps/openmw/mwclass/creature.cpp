@@ -12,6 +12,7 @@
 #include <components/settings/values.hpp>
 
 #include "../mwmechanics/actorutil.hpp"
+#include "../mwmechanics/aisequence.hpp"
 #include "../mwmechanics/aisetting.hpp"
 #include "../mwmechanics/combat.hpp"
 #include "../mwmechanics/creaturecustomdataresetter.hpp"
@@ -393,6 +394,14 @@ namespace MWClass
             else
                 setOnPcHitMe = MWBase::Environment::get().getMechanicsManager()->actorAttacked(ptr, attacker);
         }
+
+#ifdef BUILD_MULTIPLAYER
+        if (successful && !attacker.isEmpty() && attacker.getClass().isActor()
+            && (attacker == MWMechanics::getPlayer()
+                || attacker.getClass().getCreatureStats(attacker).getMovementFlag(
+                    MWMechanics::CreatureStats::Flag_NetworkPlayerNpc)))
+            stats.getAiSequence().preferCombatTarget(attacker);
+#endif
 
         // Attacker and target store each other as hitattemptactor if they have no one stored yet
         if (!attacker.isEmpty() && attacker.getClass().isActor())

@@ -41,6 +41,7 @@
 #include "../mwlua/localscripts.hpp"
 
 #include "../mwmechanics/actorutil.hpp"
+#include "../mwmechanics/aisequence.hpp"
 #include "../mwmechanics/aisetting.hpp"
 #include "../mwmechanics/autocalcspell.hpp"
 #include "../mwmechanics/combat.hpp"
@@ -773,6 +774,14 @@ namespace MWClass
             }
 #endif
         }
+
+#ifdef BUILD_MULTIPLAYER
+        if (successful && !targetIsGhost && !attacker.isEmpty() && attacker.getClass().isActor()
+            && (attacker == MWMechanics::getPlayer()
+                || attacker.getClass().getCreatureStats(attacker).getMovementFlag(
+                    MWMechanics::CreatureStats::Flag_NetworkPlayerNpc)))
+            stats.getAiSequence().preferCombatTarget(attacker);
+#endif
 
         // Attacker and target store each other as hitattemptactor if they have no one stored yet
         if (!attacker.isEmpty() && attacker.getClass().isActor())
