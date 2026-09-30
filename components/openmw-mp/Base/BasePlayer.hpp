@@ -79,6 +79,8 @@ namespace mwmp
         bool        isMale     = true;
         bool        isVampire  = false;
         bool        isWerewolf = false;
+        bool        hasCommonDisease = false;
+        bool        hasBlightDisease = false;
         float       scale      = 1.f;
 
         ESM::Class  charClass;

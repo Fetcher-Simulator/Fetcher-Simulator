@@ -806,10 +806,24 @@ namespace MWMechanics
             }
         }
 
-        // Do aggression check if actor2 is the player or a player follower or escorter
+        // Do aggression check if actor2 is a player or a player follower or escorter.
+        // The authority's remote-player NPCs are real potential combat targets;
+        // observer clients must leave this decision to the actor simulator.
+        bool againstNetworkPlayer = false;
+#ifdef BUILD_MULTIPLAYER
+        if (!againstPlayer && creatureStats2.getMovementFlag(CreatureStats::Flag_NetworkPlayerNpc)
+            && !actor1.getClass().isClass(actor1, "Guard") && mwmp::Main::isInitialised())
+        {
+            bool profileReady = false;
+            if (auto* baseNode = actor2.getRefData().getBaseNode())
+                baseNode->getUserValue("mp_player_aggro_profile_ready", profileReady);
+            againstNetworkPlayer = profileReady
+                && mwmp::Main::get().getActorSync().hasAuthorityForObject(actor1);
+        }
+#endif
         if (!aggressive)
         {
-            if (againstPlayer || playerAllies.find(actor2) != playerAllies.end())
+            if (againstPlayer || againstNetworkPlayer || playerAllies.find(actor2) != playerAllies.end())
             {
                 // Player followers and escorters with high fight should not initiate combat with the player or with
                 // other player followers or escorters

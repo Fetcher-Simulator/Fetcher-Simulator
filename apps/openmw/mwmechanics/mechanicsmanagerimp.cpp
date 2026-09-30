@@ -449,11 +449,17 @@ namespace MWMechanics
 
     int MechanicsManager::getDerivedDisposition(const MWWorld::Ptr& ptr, bool clamp)
     {
+        return getDerivedDispositionTowards(ptr, getPlayer(), clamp);
+    }
+
+    int MechanicsManager::getDerivedDispositionTowards(
+        const MWWorld::Ptr& ptr, const MWWorld::Ptr& target, bool clamp)
+    {
         const MWMechanics::NpcStats& npcStats = ptr.getClass().getNpcStats(ptr);
         float x = static_cast<float>(npcStats.getBaseDisposition() + npcStats.getCrimeDispositionModifier());
 
         MWWorld::LiveCellRef<ESM::NPC>* npc = ptr.get<ESM::NPC>();
-        MWWorld::Ptr playerPtr = getPlayer();
+        MWWorld::Ptr playerPtr = target;
         MWWorld::LiveCellRef<ESM::NPC>* player = playerPtr.get<ESM::NPC>();
         const MWMechanics::NpcStats& playerStats = playerPtr.getClass().getNpcStats(playerPtr);
 
@@ -517,7 +523,21 @@ namespace MWMechanics
         static const float fDispCrimeMod = gmst.find("fDispCrimeMod")->mValue.getFloat();
         static const float fDispDiseaseMod = gmst.find("fDispDiseaseMod")->mValue.getFloat();
         x -= fDispCrimeMod * playerStats.getBounty();
-        if (playerStats.hasCommonDisease() || playerStats.hasBlightDisease())
+        bool hasDisease = playerStats.hasCommonDisease() || playerStats.hasBlightDisease();
+#ifdef BUILD_MULTIPLAYER
+        if (playerStats.getMovementFlag(CreatureStats::Flag_NetworkPlayerNpc))
+        {
+            bool commonDisease = false;
+            bool blightDisease = false;
+            if (auto* baseNode = playerPtr.getRefData().getBaseNode())
+            {
+                baseNode->getUserValue("mp_player_common_disease", commonDisease);
+                baseNode->getUserValue("mp_player_blight_disease", blightDisease);
+            }
+            hasDisease = commonDisease || blightDisease;
+        }
+#endif
+        if (hasDisease)
             x += fDispDiseaseMod;
 
         static const float fDispWeaponDrawn = gmst.find("fDispWeaponDrawn")->mValue.getFloat();

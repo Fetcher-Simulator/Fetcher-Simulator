@@ -3274,7 +3274,12 @@ bool PlayerSync::dynamicStatsChanged() const
         || !sameDynamicStat(mLocal.dynamicStats.magicka, mLastStats.dynamicStats.magicka)
         || !sameDynamicStat(mLocal.dynamicStats.fatigue, mLastStats.dynamicStats.fatigue)
         || mLocal.level != mLastStats.level
-        || std::abs(mLocal.levelProgress - mLastStats.levelProgress) > 0.01f)
+        || std::abs(mLocal.levelProgress - mLastStats.levelProgress) > 0.01f
+        || mLocal.bounty != mLastStats.bounty
+        || mLocal.factionState != mLastStats.factionState
+        || mLocal.isWerewolf != mLastStats.isWerewolf
+        || mLocal.hasCommonDisease != mLastStats.hasCommonDisease
+        || mLocal.hasBlightDisease != mLastStats.hasBlightDisease)
         return true;
 
     for (std::size_t i = 0; i < mLocal.attributes.size(); ++i)
@@ -3330,6 +3335,11 @@ void PlayerSync::snapshotDynamicStats()
     mLastStats.skills = mLocal.skills;
     mLastStats.level = mLocal.level;
     mLastStats.levelProgress = mLocal.levelProgress;
+    mLastStats.bounty = mLocal.bounty;
+    mLastStats.factionState = mLocal.factionState;
+    mLastStats.isWerewolf = mLocal.isWerewolf;
+    mLastStats.hasCommonDisease = mLocal.hasCommonDisease;
+    mLastStats.hasBlightDisease = mLocal.hasBlightDisease;
 }
 
 void PlayerSync::queueAuthoritativeStats(const BasePlayer& authoritative)
@@ -3451,6 +3461,9 @@ void PlayerSync::capturePersistentStats(const MWWorld::Ptr& player)
         return;
 
     MWMechanics::NpcStats& stats = player.getClass().getNpcStats(player);
+    mLocal.isWerewolf = stats.isWerewolf();
+    mLocal.hasCommonDisease = stats.hasCommonDisease();
+    mLocal.hasBlightDisease = stats.hasBlightDisease();
     mLocal.level = stats.getLevel();
     mLocal.levelProgress = static_cast<float>(stats.getLevelProgress());
     mLocal.hasSavedStats = true;

@@ -64,7 +64,7 @@ namespace
 
 TEST(MechanicsSnapshotProtocol, MultiplayerProtocolIsTwentyThree)
 {
-    EXPECT_EQ(mwmp::MultiplayerProtocolVersion, 23);
+    EXPECT_EQ(mwmp::MultiplayerProtocolVersion, 24);
 }
 
 TEST(MechanicsSnapshotProtocol, CanonicalRoundTripIsDeterministic)

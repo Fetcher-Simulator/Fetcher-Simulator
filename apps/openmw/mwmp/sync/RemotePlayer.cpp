@@ -4,6 +4,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <map>
+#include <set>
 #include <unordered_map>
 #include <string_view>
 #include <vector>
@@ -614,8 +616,15 @@ namespace mwmp
             updateInterpolation(dt);
         if (mIsSpawned && !mNpcPtr.isEmpty())
         {
-            if (mNpcPtr.getRefData().getBaseNode())
+            if (auto* baseNode = mNpcPtr.getRefData().getBaseNode())
+            {
                 mMissingBaseNodeTimer = 0.f;
+                // The scene node can appear after the stats packet and proxy spawn.
+                // Keep the disposition inputs available when that happens.
+                baseNode->setUserValue("mp_player_aggro_profile_ready", mState.hasSavedStats);
+                baseNode->setUserValue("mp_player_common_disease", mState.hasCommonDisease);
+                baseNode->setUserValue("mp_player_blight_disease", mState.hasBlightDisease);
+            }
             else if ((mMissingBaseNodeTimer += safeDt) >= 0.5f)
             {
                 Log(Debug::Warning) << "[MP] RemotePlayer " << mName
@@ -1445,6 +1454,29 @@ namespace mwmp
         if (!mIsSpawned || mNpcPtr.isEmpty() || mIsDead)
             return;
 
+        MWMechanics::NpcStats& npcStats = mNpcPtr.getClass().getNpcStats(mNpcPtr);
+        npcStats.setBounty(mState.bounty);
+        npcStats.setWerewolf(mState.isWerewolf);
+        std::map<ESM::RefId, int> factionRanks;
+        std::map<ESM::RefId, int> factionReputations;
+        std::set<ESM::RefId> expelledFactions;
+        for (const PlayerFactionEntry& faction : mState.factionState.factions)
+        {
+            const ESM::RefId factionId = ESM::RefId::stringRefId(faction.factionId);
+            if (faction.rank >= 0)
+                factionRanks.emplace(factionId, faction.rank);
+            factionReputations.emplace(factionId, faction.reputation);
+            if (faction.expelled)
+                expelledFactions.insert(factionId);
+        }
+        npcStats.setFactionState(
+            std::move(factionRanks), std::move(factionReputations), std::move(expelledFactions));
+        if (auto* baseNode = mNpcPtr.getRefData().getBaseNode())
+        {
+            baseNode->setUserValue("mp_player_common_disease", mState.hasCommonDisease);
+            baseNode->setUserValue("mp_player_blight_disease", mState.hasBlightDisease);
+        }
+
         // The packet carries the player's attributes and skills as well as the
         // three dynamic stats. Combat against this proxy uses these values for
         // evasion, blocking, and other hit calculations. Leaving the proxy's
@@ -1452,7 +1484,6 @@ namespace mwmp
         // the authority client when the same attack would miss locally.
         if (mState.hasSavedStats)
         {
-            MWMechanics::NpcStats& npcStats = mNpcPtr.getClass().getNpcStats(mNpcPtr);
             for (std::size_t i = 0; i < mState.attributes.size(); ++i)
             {
                 const Attribute& saved = mState.attributes[i];
@@ -1489,6 +1520,8 @@ namespace mwmp
             }
             mLastLoggedCombatAgility = syncedAgility;
         }
+        if (auto* baseNode = mNpcPtr.getRefData().getBaseNode())
+            baseNode->setUserValue("mp_player_aggro_profile_ready", mState.hasSavedStats);
 
         const DynamicStats& dyn = mState.dynamicStats;
         const bool hasSyncedDynamicStats
@@ -2372,6 +2405,11 @@ namespace mwmp
         mState.skills = state.skills;
         mState.level = state.level;
         mState.hasSavedStats = state.hasSavedStats;
+        mState.bounty = state.bounty;
+        mState.factionState = state.factionState;
+        mState.isWerewolf = state.isWerewolf;
+        mState.hasCommonDisease = state.hasCommonDisease;
+        mState.hasBlightDisease = state.hasBlightDisease;
         applyDynamicStatsToActor();
     }
 

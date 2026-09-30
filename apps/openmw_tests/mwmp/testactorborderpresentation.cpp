@@ -75,6 +75,7 @@ TEST(ActorAuthorityTransfer, ReadyMustMatchTheExactPreparedActorAndGeneration)
     prepare.actor.cellId = prepare.cellId;
     prepare.actor.ai.type = mwmp::BaseActor::AIAction::Type::Combat;
     prepare.actor.ai.targetId = "mp_remote_4";
+    prepare.actor.ai.combatPlayerTargets = { "mp_remote_3", "mp_remote_4" };
     prepare.actor.deathEventId = 12;
     prepare.actor.deathCauseCombatEventId = 123456;
 
@@ -87,6 +88,7 @@ TEST(ActorAuthorityTransfer, ReadyMustMatchTheExactPreparedActorAndGeneration)
     EXPECT_EQ(received.actorNetId, prepare.actorNetId);
     EXPECT_EQ(received.actor.ai.type, prepare.actor.ai.type);
     EXPECT_EQ(received.actor.ai.targetId, prepare.actor.ai.targetId);
+    EXPECT_EQ(received.actor.ai.combatPlayerTargets, prepare.actor.ai.combatPlayerTargets);
     EXPECT_EQ(received.actor.deathEventId, prepare.actor.deathEventId);
     EXPECT_EQ(received.actor.deathCauseCombatEventId, prepare.actor.deathCauseCombatEventId);
 
@@ -123,6 +125,7 @@ TEST(ActorAuthorityTransfer, ReadyMustMatchTheExactPreparedActorAndGeneration)
     EXPECT_TRUE(mwmp::matchesActorAuthorityTransferCommit(received, receivedCommit));
     EXPECT_FLOAT_EQ(receivedCommit.actor.position.pos[0], 1234.f);
     EXPECT_EQ(receivedCommit.actor.ai.targetId, "mp_remote_4");
+    EXPECT_EQ(receivedCommit.actor.ai.combatPlayerTargets, prepare.actor.ai.combatPlayerTargets);
     ++receivedCommit.transferId;
     EXPECT_FALSE(mwmp::matchesActorAuthorityTransferCommit(received, receivedCommit));
 

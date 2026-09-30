@@ -2987,6 +2987,10 @@ void MPServer::dispatchCrimeReactions(ConnectedClient& offender, const CrimeSema
             {
                 record.actor.ai.targetId = offenderTargetId;
                 record.actor.ai.targetMpNum = 0;
+                if (record.actor.ai.type == BaseActor::AIAction::Type::Combat)
+                    record.actor.ai.combatPlayerTargets = { offenderTargetId };
+                else
+                    record.actor.ai.combatPlayerTargets.clear();
                 record.actor.ai.duration = 0.f;
                 record.actor.ai.reset = false;
                 record.lastSnapshotTime = nowMs;
@@ -3009,6 +3013,7 @@ void MPServer::dispatchCrimeReactions(ConnectedClient& offender, const CrimeSema
             record.actor.ai.type = BaseActor::AIAction::Type::Combat;
             record.actor.ai.targetId = offenderTargetId;
             record.actor.ai.targetMpNum = 0;
+            record.actor.ai.combatPlayerTargets = { offenderTargetId };
             record.actor.ai.duration = 0.f;
             record.actor.ai.reset = false;
             record.lastSnapshotTime = nowMs;
@@ -3166,6 +3171,10 @@ void MPServer::dispatchOutstandingCrimePursuitsForCell(
         }
         record.actor.ai.targetId = targetId;
         record.actor.ai.targetMpNum = 0;
+        if (record.actor.ai.type == BaseActor::AIAction::Type::Combat)
+            record.actor.ai.combatPlayerTargets = { targetId };
+        else
+            record.actor.ai.combatPlayerTargets.clear();
         record.actor.ai.duration = 0.f;
         record.actor.ai.reset = false;
         record.crimePursuitLastGuid = offender->guid;
@@ -3363,6 +3372,7 @@ void MPServer::suspendOutstandingCrimePursuitsForCharacterInCell(
             record.actor.ai.type = BaseActor::AIAction::Type::None;
             record.actor.ai.targetId.clear();
             record.actor.ai.targetMpNum = 0;
+            record.actor.ai.combatPlayerTargets.clear();
             record.actor.ai.duration = 0.f;
             record.actor.ai.reset = false;
             record.lastSnapshotTime = nowMs;
@@ -3460,6 +3470,7 @@ void MPServer::clearOutstandingCrimePursuitsForCharacter(ConnectedClient& offend
                 record.actor.ai.type = BaseActor::AIAction::Type::None;
                 record.actor.ai.targetId.clear();
                 record.actor.ai.targetMpNum = 0;
+                record.actor.ai.combatPlayerTargets.clear();
                 record.actor.ai.duration = 0.f;
                 record.actor.ai.reset = false;
                 record.lastSnapshotTime = nowMs;
@@ -3728,6 +3739,10 @@ void MPServer::evaluateGuardCrimeEnforcement(ConnectedClient& offender, std::uin
             ? BaseActor::AIAction::Type::Combat : BaseActor::AIAction::Type::Pursue;
         record.actor.ai.targetId = crimeReactionOffenderTargetId(offender.guid);
         record.actor.ai.targetMpNum = 0;
+        if (record.actor.ai.type == BaseActor::AIAction::Type::Combat)
+            record.actor.ai.combatPlayerTargets = { record.actor.ai.targetId };
+        else
+            record.actor.ai.combatPlayerTargets.clear();
         record.actor.ai.duration = 0.f;
         record.actor.ai.reset = false;
         record.lastSnapshotTime = nowMs;
@@ -4114,21 +4129,39 @@ void MPServer::onClientDisconnected(HSteamNetConnection conn, const std::string&
         for (auto& [actorKey, recordPtr] : cellState.actors)
         {
             auto& record = *recordPtr;
+            auto& playerTargets = record.actor.ai.combatPlayerTargets;
+            const auto beforeTargetCount = playerTargets.size();
+            std::erase_if(playerTargets, [disconnectedGuid](const std::string& id) {
+                const auto guid = remotePlayerGuidFromActorTarget(id);
+                return guid && *guid == disconnectedGuid;
+            });
             const auto targetGuid = remotePlayerGuidFromActorTarget(record.actor.ai.targetId);
             if (targetGuid && *targetGuid == disconnectedGuid
                 && (record.actor.ai.type == BaseActor::AIAction::Type::Combat
                     || record.actor.ai.type == BaseActor::AIAction::Type::Pursue))
             {
                 cancelActorAuthorityTransfer(record);
-                record.actor.ai = {};
+                if (record.actor.ai.type == BaseActor::AIAction::Type::Combat
+                    && !playerTargets.empty())
+                {
+                    record.actor.ai.targetId = playerTargets.front();
+                    record.actor.ai.targetMpNum = 0;
+                }
+                else
+                    record.actor.ai = {};
                 record.lastSnapshotTime = currentServerTimeMs();
                 markLuaActorDirty(record, cellId);
                 clearedActorAiByCell[cellId].push_back(record.actor);
-                Log(Debug::Info) << "[Server] Cleared actor AI target on player disconnect"
+                Log(Debug::Info) << "[Server] Updated actor AI target on player disconnect"
                                  << " actorNetId=" << record.actorNetId
                                  << " refId=" << record.actor.refId
                                  << " cell=" << cellId
                                  << " targetGuid=" << disconnectedGuid;
+            }
+            else if (beforeTargetCount != playerTargets.size())
+            {
+                markLuaActorDirty(record, cellId);
+                clearedActorAiByCell[cellId].push_back(record.actor);
             }
             if (record.actorAuthorityGuid != disconnectedGuid)
             {
@@ -8594,6 +8627,13 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
         equipment.setPlayer(&existingClient.player);
         sendTo(c.conn, equipment.encode());
 
+        if (existingClient.player.hasSavedStats)
+        {
+            PacketPlayerStatsDynamic stats;
+            stats.setPlayer(&existingClient.player);
+            sendTo(c.conn, stats.encode());
+        }
+
         PacketPlayerVehicleState vehicleState;
         vehicleState.setPlayer(&existingClient.player);
         sendTo(c.conn, vehicleState.encode());
@@ -8626,6 +8666,13 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
         PacketPlayerEquipment equipment;
         equipment.setPlayer(&c.player);
         sendTo(existingConn, equipment.encode());
+
+        if (c.player.hasSavedStats)
+        {
+            PacketPlayerStatsDynamic stats;
+            stats.setPlayer(&c.player);
+            sendTo(existingConn, stats.encode());
+        }
 
         PacketPlayerVehicleState vehicleState;
         vehicleState.setPlayer(&c.player);
@@ -11172,6 +11219,9 @@ void MPServer::handlePlayerStatsDynamic(ConnectedClient& c, const uint8_t* data,
     const bool hadPreviousStats = c.hasRestoredStatsSnapshot;
     const BasePlayer previousStats = c.restoredStatsSnapshot;
     copyPersistentPlayerStats(c.player, incoming);
+    c.player.isWerewolf = incoming.isWerewolf;
+    c.player.hasCommonDisease = incoming.hasCommonDisease;
+    c.player.hasBlightDisease = incoming.hasBlightDisease;
     c.player.hasSavedStats = true;
     c.acceptedPlayerStatsThisSession = true;
     c.restoredStatsSnapshot = c.player;
@@ -11205,7 +11255,12 @@ void MPServer::handlePlayerStatsDynamic(ConnectedClient& c, const uint8_t* data,
         }
     }
     syncLuaPlayerSnapshot();
-    broadcastToAll(std::vector<uint8_t>(data, data + size), c.conn);
+    // Faction and bounty in the incoming packet are hints only. Relay the
+    // authoritative values already held on the server, along with accepted
+    // combat stats, so observers evaluate this player's aggro consistently.
+    PacketPlayerStatsDynamic relay;
+    relay.setPlayer(&c.player);
+    broadcastToAll(relay.encode(), c.conn);
 }
 
 // ---------------------------------------------------------------------------
@@ -14760,6 +14815,21 @@ void MPServer::handleActorAI(ConnectedClient& c, const uint8_t* data, size_t siz
         if (rejectStaleAliveVanillaActor(actor, incoming.cellId, c, "ActorAI"))
             continue;
 
+        if (actor.ai.type != BaseActor::AIAction::Type::Combat)
+            actor.ai.combatPlayerTargets.clear();
+        else
+        {
+            std::erase_if(actor.ai.combatPlayerTargets, [this](const std::string& id) {
+                const auto guid = remotePlayerGuidFromActorTarget(id);
+                const ConnectedClient* player = guid ? findClientByGuid(*guid) : nullptr;
+                return !player || !player->charSelectComplete;
+            });
+            std::sort(actor.ai.combatPlayerTargets.begin(), actor.ai.combatPlayerTargets.end());
+            actor.ai.combatPlayerTargets.erase(
+                std::unique(actor.ai.combatPlayerTargets.begin(), actor.ai.combatPlayerTargets.end()),
+                actor.ai.combatPlayerTargets.end());
+        }
+
         if (actor.ai.type == BaseActor::AIAction::Type::Combat
             || actor.ai.type == BaseActor::AIAction::Type::Pursue)
         {
@@ -14772,7 +14842,14 @@ void MPServer::handleActorAI(ConnectedClient& c, const uint8_t* data, size_t siz
                                  << " cell=" << incoming.cellId
                                  << " sender=" << c.guid
                                  << " target=" << *targetGuid;
-                actor.ai = {};
+                if (actor.ai.type == BaseActor::AIAction::Type::Combat
+                    && !actor.ai.combatPlayerTargets.empty())
+                {
+                    actor.ai.targetId = actor.ai.combatPlayerTargets.front();
+                    actor.ai.targetMpNum = 0;
+                }
+                else
+                    actor.ai = {};
             }
         }
 
@@ -19269,6 +19346,7 @@ void MPServer::handleGuardArrest(ConnectedClient& c, const uint8_t* data, size_t
         guardRecord.actor.ai.type = BaseActor::AIAction::Type::Combat;
         guardRecord.actor.ai.targetId = std::string("mp_remote_") + std::to_string(c.guid);
         guardRecord.actor.ai.targetMpNum = 0;
+        guardRecord.actor.ai.combatPlayerTargets = { guardRecord.actor.ai.targetId };
         guardRecord.actor.ai.duration = 0.f;
         guardRecord.actor.ai.reset = false;
         guardRecord.lastSnapshotTime = nowMs;

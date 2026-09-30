@@ -98,6 +98,8 @@ namespace MWBase
         ///< NPC.
 
         virtual int getDerivedDisposition(const MWWorld::Ptr& ptr, bool clamp = true) = 0;
+        virtual int getDerivedDispositionTowards(
+            const MWWorld::Ptr& ptr, const MWWorld::Ptr& target, bool clamp = true) = 0;
         ///< Calculate the diposition of an NPC toward the player.
 
         virtual int countDeaths(const ESM::RefId& id) const = 0;

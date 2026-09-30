@@ -268,6 +268,31 @@ namespace
         }
     }
 
+    void restoreOtherPlayerCombatTargets(const mwmp::BaseActor::AIAction& ai,
+        const MWWorld::Ptr& actor, const MWWorld::Ptr& primaryTarget,
+        MWMechanics::AiSequence& sequence)
+    {
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        if (!world)
+            return;
+        const std::uint32_t localGuid = mwmp::Main::get().getPlayerSync().localPlayer().guid;
+        for (const std::string& targetId : ai.combatPlayerTargets)
+        {
+            if (targetId == ai.targetId)
+                continue;
+            const auto guid = mwmp::remotePlayerGuidFromActorTarget(targetId);
+            if (!guid)
+                continue;
+            MWWorld::Ptr target;
+            if (*guid == localGuid)
+                target = world->getPlayerPtr();
+            else if (auto* remote = mwmp::Main::get().getPlayerList().getPlayer(*guid))
+                target = remote->getNpcPtr();
+            if (!target.isEmpty() && target != primaryTarget && !sequence.isInCombat(target))
+                sequence.stack(MWMechanics::AiCombat(target), actor);
+        }
+    }
+
     bool restoreAuthorityActorAiIfNeeded(const std::string& cellId, const MWWorld::Ptr& ptr,
         const mwmp::BaseActor& actor, const ESM::AiSequence::AiSequence* savedPuppetAiSequence)
     {
@@ -414,6 +439,7 @@ namespace
             if (!combatTarget.isEmpty())
             {
                 aiSequence.clear();
+                restoreOtherPlayerCombatTargets(actor.ai, ptr, combatTarget, aiSequence);
                 aiSequence.stack(MWMechanics::AiCombat(combatTarget), ptr);
                 int fight = stats.getAiSetting(MWMechanics::AiSetting::Fight).getBase();
                 if (fight < 30)
@@ -8221,12 +8247,29 @@ namespace mwmp
             actor.ai.type = BaseActor::AIAction::Type::None;
             actor.ai.targetId.clear();
             actor.ai.targetMpNum = 0;
+            actor.ai.combatPlayerTargets.clear();
             actor.ai.duration = 0.f;
             actor.ai.reset = false;
             MWMechanics::AiSequence& aiSequence = stats.getAiSequence();
             MWWorld::Ptr aiTarget;
             if (!actor.isDead)
             {
+                std::vector<MWWorld::Ptr> combatTargets;
+                if (aiSequence.getCombatTargets(combatTargets))
+                {
+                    for (const MWWorld::Ptr& target : combatTargets)
+                    {
+                        const auto guid = networkPlayerGuid(target);
+                        if (!guid || actor.ai.combatPlayerTargets.size() >= 32)
+                            continue;
+                        const std::string targetId = "mp_remote_" + std::to_string(*guid);
+                        if (std::find(actor.ai.combatPlayerTargets.begin(),
+                                actor.ai.combatPlayerTargets.end(), targetId)
+                            == actor.ai.combatPlayerTargets.end())
+                            actor.ai.combatPlayerTargets.push_back(targetId);
+                    }
+                    std::sort(actor.ai.combatPlayerTargets.begin(), actor.ai.combatPlayerTargets.end());
+                }
                 switch (aiSequence.getTypeId())
                 {
                     case MWMechanics::AiPackageTypeId::Follow:
@@ -9476,6 +9519,7 @@ namespace mwmp
                 const bool aiChanged = previousAi.type != actor.ai.type
                     || previousAi.targetId != actor.ai.targetId
                     || previousAi.targetMpNum != actor.ai.targetMpNum
+                    || previousAi.combatPlayerTargets != actor.ai.combatPlayerTargets
                     || previousAi.reset != actor.ai.reset;
                 if (aiChanged)
                 {
@@ -10571,6 +10615,8 @@ namespace mwmp
                     if (!combatTarget.isEmpty())
                     {
                         postMoveAiSequence.clear();
+                        restoreOtherPlayerCombatTargets(
+                            actor.state.ai, actor.boundActor, combatTarget, postMoveAiSequence);
                         postMoveAiSequence.stack(MWMechanics::AiCombat(combatTarget), actor.boundActor);
                         int rebuiltFight = postMoveStats.getAiSetting(MWMechanics::AiSetting::Fight).getBase();
                         if (rebuiltFight < 30)

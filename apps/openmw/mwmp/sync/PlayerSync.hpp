@@ -262,6 +262,11 @@ namespace mwmp
             std::array<Skill, BasePlayer::NUM_SKILLS> skills;
             int level = 1;
             float levelProgress = 0.f;
+            int bounty = 0;
+            PlayerFactionState factionState;
+            bool isWerewolf = false;
+            bool hasCommonDisease = false;
+            bool hasBlightDisease = false;
         };
         StatsSnapshot mLastStats{};
 

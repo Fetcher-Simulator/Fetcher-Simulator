@@ -4,6 +4,8 @@
 #include <components/openmw-mp/Base/BaseActor.hpp>
 #include <components/openmw-mp/Packets/BasePacket.hpp>
 
+#include <stdexcept>
+
 namespace mwmp
 {
     class ActorPacket : public BasePacket
@@ -283,11 +285,16 @@ namespace mwmp
 
         void packAI(WriteStream& ws, const BaseActor::AIAction& ai) const
         {
+            if (ai.combatPlayerTargets.size() > 32)
+                throw std::runtime_error("Too many combat player targets");
             ws.write(static_cast<uint8_t>(ai.type));
             ws.writeString(ai.targetId);
             ws.write(ai.targetMpNum);
             ws.write(ai.duration);
             ws.write(ai.reset);
+            ws.write(static_cast<std::uint8_t>(ai.combatPlayerTargets.size()));
+            for (const std::string& target : ai.combatPlayerTargets)
+                ws.writeString(target);
         }
 
         void unpackAI(ReadStream& rs, BaseActor::AIAction& ai)
@@ -299,6 +306,19 @@ namespace mwmp
             rs.read(ai.targetMpNum);
             rs.read(ai.duration);
             rs.read(ai.reset);
+            std::uint8_t targetCount = 0;
+            rs.read(targetCount);
+            if (targetCount > 32)
+                throw std::runtime_error("Too many combat player targets");
+            ai.combatPlayerTargets.clear();
+            ai.combatPlayerTargets.reserve(targetCount);
+            for (std::uint8_t i = 0; i < targetCount; ++i)
+            {
+                std::string target = rs.readString();
+                if (target.size() > 64)
+                    throw std::runtime_error("Combat player target is too long");
+                ai.combatPlayerTargets.push_back(std::move(target));
+            }
         }
 
         ActorList* mActorList;

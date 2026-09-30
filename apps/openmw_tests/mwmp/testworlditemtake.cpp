@@ -185,7 +185,7 @@ TEST(ActorIdentityProtocol, ContentQualifiedVanillaRefNumsDoNotCollide)
     EXPECT_EQ(modActor.refNum, (37u << 24) | 1u);
     EXPECT_NE(baseActor.refNum, modActor.refNum);
     EXPECT_NE(mwmp::actorInstanceIdFromActor(baseActor), mwmp::actorInstanceIdFromActor(modActor));
-    EXPECT_EQ(mwmp::ActorSyncProtocolVersionV2, 14u);
+    EXPECT_EQ(mwmp::ActorSyncProtocolVersionV2, 15u);
 }
 
 TEST(ActorIdentityProtocol, EmptyCompleteSnapshotRemainsComplete)

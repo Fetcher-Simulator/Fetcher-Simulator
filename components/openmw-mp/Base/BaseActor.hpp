@@ -55,6 +55,8 @@ namespace mwmp
             Type        type       = Type::None;
             std::string targetId;
             uint32_t    targetMpNum = 0;
+            // All hostile player targets. targetId remains the active AI target.
+            std::vector<std::string> combatPlayerTargets;
             float       duration    = 0.f;
             bool        reset       = false;
         };

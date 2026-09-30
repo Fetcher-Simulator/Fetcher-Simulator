@@ -3,6 +3,8 @@
 
 #include "PlayerPacket.hpp"
 
+#include <stdexcept>
+
 namespace mwmp
 {
     class PacketPlayerStatsDynamic : public PlayerPacket
@@ -56,6 +58,8 @@ namespace mwmp
 
         void pack(WriteStream& ws) override
         {
+            if (mPlayer->factionState.factions.size() > MaximumPlayerFactions)
+                throw std::runtime_error("Too many player factions in stats packet");
             ws.write(mPlayer->guid);
             packStat(ws, mPlayer->dynamicStats.health);
             packStat(ws, mPlayer->dynamicStats.magicka);
@@ -66,6 +70,18 @@ namespace mwmp
                 packAttribute(ws, attribute);
             for (const auto& skill : mPlayer->skills)
                 packSkill(ws, skill);
+            ws.write(mPlayer->bounty);
+            ws.write(mPlayer->isWerewolf);
+            ws.write(mPlayer->hasCommonDisease);
+            ws.write(mPlayer->hasBlightDisease);
+            ws.write(static_cast<std::uint16_t>(mPlayer->factionState.factions.size()));
+            for (const PlayerFactionEntry& faction : mPlayer->factionState.factions)
+            {
+                ws.writeString(faction.factionId);
+                ws.write(faction.rank);
+                ws.write(faction.reputation);
+                ws.write(faction.expelled);
+            }
         }
 
         void unpack(ReadStream& rs) override
@@ -80,6 +96,24 @@ namespace mwmp
                 unpackAttribute(rs, attribute);
             for (auto& skill : mPlayer->skills)
                 unpackSkill(rs, skill);
+            rs.read(mPlayer->bounty);
+            rs.read(mPlayer->isWerewolf);
+            rs.read(mPlayer->hasCommonDisease);
+            rs.read(mPlayer->hasBlightDisease);
+            std::uint16_t factionCount = 0;
+            rs.read(factionCount);
+            if (factionCount > MaximumPlayerFactions)
+                throw std::runtime_error("Too many player factions in stats packet");
+            mPlayer->factionState.factions.resize(factionCount);
+            for (PlayerFactionEntry& faction : mPlayer->factionState.factions)
+            {
+                faction.factionId = rs.readString();
+                if (faction.factionId.size() > MaximumFactionIdLength)
+                    throw std::runtime_error("Player faction ID is too long");
+                rs.read(faction.rank);
+                rs.read(faction.reputation);
+                rs.read(faction.expelled);
+            }
             mPlayer->hasSavedStats = true;
         }
     };

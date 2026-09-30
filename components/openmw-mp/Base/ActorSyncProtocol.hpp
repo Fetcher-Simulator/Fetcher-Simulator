@@ -23,7 +23,8 @@ namespace mwmp
     // actors from different content files that reuse the same local index from
     // collapsing to the same deterministic ActorInstanceId.
     // Version 14 includes death event identity in authority-transfer snapshots.
-    static constexpr uint32_t ActorSyncProtocolVersionV2 = 14;
+    // Version 15 preserves all hostile player targets across authority handoff.
+    static constexpr uint32_t ActorSyncProtocolVersionV2 = 15;
 
     using ActorInstanceId = uint64_t;
 

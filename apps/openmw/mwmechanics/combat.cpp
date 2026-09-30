@@ -599,7 +599,19 @@ namespace MWMechanics
     int getFightTerm(const MWWorld::Ptr& actor, const MWWorld::Ptr& target)
     {
         const auto mechanicsManager = MWBase::Environment::get().getMechanicsManager();
-        int disposition = actor.getClass().isNpc() ? mechanicsManager->getDerivedDisposition(actor) : 50;
+        int disposition = 50;
+        if (actor.getClass().isNpc())
+        {
+            bool targetIsPlayer = target == getPlayer();
+#ifdef BUILD_MULTIPLAYER
+            if (!targetIsPlayer && target.getClass().isNpc())
+                targetIsPlayer = target.getClass().getCreatureStats(target).getMovementFlag(
+                    CreatureStats::Flag_NetworkPlayerNpc);
+#endif
+            disposition = targetIsPlayer
+                ? mechanicsManager->getDerivedDispositionTowards(actor, target)
+                : mechanicsManager->getDerivedDisposition(actor);
+        }
         int fight = actor.getClass().getCreatureStats(actor).getAiSetting(AiSetting::Fight).getModified()
             + static_cast<int>(
                 getFightDistanceBias(actor, target) + getFightDispositionBias(static_cast<float>(disposition)));

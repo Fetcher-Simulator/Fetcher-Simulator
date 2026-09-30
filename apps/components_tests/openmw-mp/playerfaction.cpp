@@ -2,6 +2,7 @@
 
 #include <components/openmw-mp/Base/BasePlayer.hpp>
 #include <components/openmw-mp/Packets/Player/PacketPlayerFaction.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerStatsDynamic.hpp>
 #include <components/openmw-mp/PlayerFactionState.hpp>
 #include <components/openmw-mp/SemanticService.hpp>
 
@@ -30,6 +31,29 @@ namespace
         result.source = "test:faction";
         return result;
     }
+}
+
+TEST(PlayerAggroStatsPacket, RoundTripsPerPlayerDispositionInputs)
+{
+    mwmp::BasePlayer source;
+    source.guid = 7;
+    source.bounty = 450;
+    source.isWerewolf = true;
+    source.hasCommonDisease = true;
+    source.factionState.factions = { entry("fighters guild", 2, 7), entry("mages guild", 1, -3, true) };
+
+    mwmp::PacketPlayerStatsDynamic encoder;
+    encoder.setPlayer(&source);
+    mwmp::BasePlayer decoded;
+    mwmp::PacketPlayerStatsDynamic decoder;
+    decoder.setPlayer(&decoded);
+    ASSERT_TRUE(decoder.decode(encoder.encode()));
+    EXPECT_EQ(decoded.guid, source.guid);
+    EXPECT_EQ(decoded.bounty, source.bounty);
+    EXPECT_TRUE(decoded.isWerewolf);
+    EXPECT_TRUE(decoded.hasCommonDisease);
+    EXPECT_FALSE(decoded.hasBlightDisease);
+    EXPECT_EQ(decoded.factionState.factions, source.factionState.factions);
 }
 
 TEST(PlayerFactionState, CanonicalizesIdsAndOrderingWithoutDiscardingTuples)
