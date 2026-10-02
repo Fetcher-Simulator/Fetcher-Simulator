@@ -2,6 +2,7 @@
 
 #include <array>
 #include <chrono>
+#include <limits>
 #include <optional>
 #include <unordered_map>
 
@@ -1802,14 +1803,26 @@ namespace MWMechanics
                             if (!isPlayer)
                                 adjustCommandedActor(actor.getPtr());
 
-                            for (const Actor& otherActor : mActors)
+                            bool mayOriginateCombat = true;
+#ifdef BUILD_MULTIPLAYER
+                            // A puppet keeps its real Fight value across scene
+                            // reloads, but only its simulator may initiate AI
+                            // combat. Check once per actor, not once per target.
+                            if (mwmp::Main::isInitialised())
+                                mayOriginateCombat
+                                    = mwmp::Main::get().getActorSync().hasAuthorityForObject(actor.getPtr());
+#endif
+                            if (mayOriginateCombat)
                             {
-                                if (otherActor.isInvalid())
-                                    continue;
-                                if (otherActor.getPtr() == actor.getPtr() || isPlayer) // player is not AI-controlled
-                                    continue;
-                                engageCombat(
-                                    actor.getPtr(), otherActor.getPtr(), cachedAllies, otherActor.getPtr() == player);
+                                for (const Actor& otherActor : mActors)
+                                {
+                                    if (otherActor.isInvalid())
+                                        continue;
+                                    if (otherActor.getPtr() == actor.getPtr() || isPlayer) // player is not AI-controlled
+                                        continue;
+                                    engageCombat(actor.getPtr(), otherActor.getPtr(), cachedAllies,
+                                        otherActor.getPtr() == player);
+                                }
                             }
                         }
                         if (mTimerUpdateHeadTrack == 0)
@@ -2579,7 +2592,14 @@ namespace MWMechanics
 
             const bool isFollower = followers.find(neighbor) != followers.end();
 
-            if (stats.getAiSequence().isInCombat(actor) || (MWMechanics::isAggressive(neighbor, actor) && !isFollower))
+            bool mayOriginateCombat = true;
+#ifdef BUILD_MULTIPLAYER
+            if (mwmp::Main::isInitialised())
+                mayOriginateCombat = mwmp::Main::get().getActorSync().hasAuthorityForObject(neighbor);
+#endif
+
+            if (stats.getAiSequence().isInCombat(actor)
+                || (mayOriginateCombat && MWMechanics::isAggressive(neighbor, actor) && !isFollower))
                 list.push_back(neighbor);
         }
         return list;

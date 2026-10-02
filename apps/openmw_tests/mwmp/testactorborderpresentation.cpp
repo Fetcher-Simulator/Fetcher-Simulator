@@ -161,6 +161,43 @@ TEST(ActorAuthorityTransfer, ReadyMustMatchTheExactPreparedActorAndGeneration)
     EXPECT_FALSE(mwmp::matchesActorAuthorityTransferCancel(received, receivedCancel));
 }
 
+TEST(ActorAuthorityTransfer, SceneAvailabilityReportRequiresTheCurrentOwnerAndGeneration)
+{
+    mwmp::ActorAuthorityTransfer unavailable;
+    unavailable.phase = mwmp::ActorAuthorityTransferPhase::Unavailable;
+    unavailable.actorNetId = 1778386253;
+    unavailable.oldOwnerGuid = 5;
+    unavailable.authorityGeneration = 14;
+    unavailable.migrationGeneration = 1;
+    unavailable.cellId = "EXT:-3,-2";
+
+    mwmp::PacketActorAuthorityTransfer encoder;
+    encoder.setTransfer(&unavailable);
+    mwmp::ActorAuthorityTransfer received;
+    mwmp::PacketActorAuthorityTransfer decoder;
+    decoder.setTransfer(&received);
+    ASSERT_TRUE(decoder.decode(encoder.encode()));
+    EXPECT_TRUE(mwmp::matchesActorAuthorityAvailability(
+        received, unavailable.actorNetId, 5, 14, 1, unavailable.cellId, 5));
+    EXPECT_FALSE(mwmp::matchesActorAuthorityAvailability(
+        received, unavailable.actorNetId, 5, 14, 1, unavailable.cellId, 6));
+    EXPECT_FALSE(mwmp::matchesActorAuthorityAvailability(
+        received, unavailable.actorNetId, 5, 15, 1, unavailable.cellId, 5));
+    EXPECT_FALSE(mwmp::matchesActorAuthorityAvailability(
+        received, unavailable.actorNetId, 5, 14, 2, unavailable.cellId, 5));
+    EXPECT_FALSE(mwmp::matchesActorAuthorityAvailability(
+        received, unavailable.actorNetId, 5, 14, 1, "EXT:-2,-2", 5));
+
+    unavailable.phase = mwmp::ActorAuthorityTransferPhase::Available;
+    encoder.setTransfer(&unavailable);
+    ASSERT_TRUE(decoder.decode(encoder.encode()));
+    EXPECT_TRUE(mwmp::matchesActorAuthorityAvailability(
+        received, unavailable.actorNetId, 5, 14, 1, unavailable.cellId, 5));
+    received.transferId = 1;
+    EXPECT_FALSE(mwmp::matchesActorAuthorityAvailability(
+        received, unavailable.actorNetId, 5, 14, 1, unavailable.cellId, 5));
+}
+
 TEST(ActorAuthorityTransfer, DelayedPrepareCannotReplaceCommittedOrNewerTransaction)
 {
     mwmp::ActorAuthorityTransfer prepare;

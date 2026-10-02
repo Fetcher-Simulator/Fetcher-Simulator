@@ -2490,16 +2490,25 @@ void MPServer::tick(float dt)
             {
                 auto& record = *recordPtr;
                 (void)actorKey;
+                if (record.actorAuthorityUnavailableGeneration
+                    == record.actorAuthorityGeneration)
+                    prepareActorAuthorityTransferForActor(cellId, record);
                 if (record.pendingAuthorityTransfer
                     && record.pendingAuthorityTransferStartedMs != 0
                     && nowMs >= record.pendingAuthorityTransferStartedMs
                     && nowMs - record.pendingAuthorityTransferStartedMs >= kActorAuthorityTransferTimeoutMs)
                 {
+                    const uint32_t timedOutCandidateGuid
+                        = record.pendingAuthorityTransfer->newOwnerGuid;
                     Log(Debug::Info) << "[Server] Actor authority transfer timed out"
                                      << " actorNetId=" << record.actorNetId
                                      << " cell=" << cellId
                                      << " transferId=" << record.pendingAuthorityTransfer->transferId;
                     cancelActorAuthorityTransfer(record);
+                    // A candidate that cannot bind the actor must not monopolize
+                    // ownerless recovery while another nearby client can run it.
+                    prepareActorAuthorityTransferForActor(
+                        cellId, record, timedOutCandidateGuid);
                 }
                 if (!record.awaitingAuthorityTransferAck
                     || record.awaitingAuthorityTransferAckStartedMs == 0
@@ -5023,7 +5032,7 @@ void MPServer::prepareActorAuthorityTransferAfterDisconnect(
 }
 
 void MPServer::prepareActorAuthorityTransferForActor(
-    const std::string& cellId, ActorRegistryRecord& record)
+    const std::string& cellId, ActorRegistryRecord& record, uint32_t excludedCandidateGuid)
 {
     if (!isPerActorAuthorityEligible(record.actor, record.actorNetId)
         || record.actorAuthorityReason == "script-owner"
@@ -5049,25 +5058,36 @@ void MPServer::prepareActorAuthorityTransferForActor(
         return;
     }
     const bool ownerCanSimulateActor = owner && owner->charSelectComplete
+        && record.actorAuthorityUnavailableGeneration != record.actorAuthorityGeneration
         && clientCanSimulateActorPosition(*owner, record.actor, cellId, 200.f);
     const bool ownerCanSimulateTarget = !hasLiveTarget || (owner && owner->charSelectComplete
         && clientEligibleForActorCell(*owner, targetCellId));
     ConnectedClient* candidate = nullptr;
+    float candidateDistanceSquared = std::numeric_limits<float>::max();
     for (auto& [conn, client] : mClients)
     {
         (void)conn;
         if (!client.charSelectComplete
             || client.actorSyncProtocolVersion < ActorSyncProtocolVersionV2
             || client.guid == record.actorAuthorityGuid
+            || client.guid == excludedCandidateGuid
             || !clientCanSimulateActorPosition(client, record.actor, cellId, 512.f)
             || (hasLiveTarget && !clientEligibleForActorCell(client, targetCellId)))
             continue;
         const bool clientIsVictim = hasLiveTarget && client.guid == *targetGuid;
         const bool candidateIsVictim = hasLiveTarget && candidate
             && candidate->guid == *targetGuid;
+        const float dx = client.player.position.pos[0] - record.actor.position.pos[0];
+        const float dy = client.player.position.pos[1] - record.actor.position.pos[1];
+        const float distanceSquared = dx * dx + dy * dy;
         if (!candidate || (candidateIsVictim && !clientIsVictim)
-            || (candidateIsVictim == clientIsVictim && client.guid < candidate->guid))
+            || (candidateIsVictim == clientIsVictim
+                && (distanceSquared < candidateDistanceSquared
+                    || (distanceSquared == candidateDistanceSquared && client.guid < candidate->guid))))
+        {
             candidate = &client;
+            candidateDistanceSquared = distanceSquared;
+        }
     }
 
     // A capable owner is sticky even if combat changes its victim. Candidate
@@ -5358,30 +5378,11 @@ void MPServer::updateActorAuthorityLeaseFromAi(const std::string& cellId,
     if (cellIt == mWorld.actorCells.end() || cellIt->second.authorityGuid == 0)
         return;
 
-    // The cell authority is the only client known to have this newly published
-    // actor bound. Assign it first; later coverage loss uses Prepare/Ready/Commit.
-    record.actorAuthorityGuid = cellIt->second.authorityGuid;
-    record.actorAuthorityTargetGuid = 0;
-    record.actorAuthorityReason = "actor-simulator";
-    record.actorAuthorityLeaseUntilMs = 0;
-    if (!isActorAuthorityLeaseValid(record, cellId, timestamp))
-    {
-        record.actorAuthorityGuid = 0;
-        record.actorAuthorityReason.clear();
-        return;
-    }
-    ++record.actorAuthorityGeneration;
-    if (record.actorAuthorityGeneration == 0)
-        ++record.actorAuthorityGeneration;
-    broadcastActorAuthorityLease(cellId, record);
-    Log(Debug::Verbose) << "[Server] Actor simulator lease assigned"
-                     << " source=" << (source ? source : "unknown")
-                     << " actorNetId=" << record.actorNetId
-                     << " refId=" << record.actor.refId
-                     << " mpNum=" << record.actor.mpNum
-                     << " cell=" << cellId
-                     << " owner=" << record.actorAuthorityGuid
-                     << " generation=" << record.actorAuthorityGeneration;
+    // Cell authority only proves that a client published the actor's identity.
+    // Its scene actor may still be absent (for example a late leveled-list
+    // insertion). Require Ready before granting the first per-actor lease.
+    (void)timestamp;
+    (void)source;
     prepareActorAuthorityTransferForActor(cellId, record);
 }
 
@@ -12720,7 +12721,9 @@ void MPServer::handleActorAuthorityTransfer(ConnectedClient& c, const uint8_t* d
     packet.setTransfer(&response);
     if (!packet.decode(data, size)
         || (response.phase != ActorAuthorityTransferPhase::Ready
-            && response.phase != ActorAuthorityTransferPhase::Applied))
+            && response.phase != ActorAuthorityTransferPhase::Applied
+            && response.phase != ActorAuthorityTransferPhase::Unavailable
+            && response.phase != ActorAuthorityTransferPhase::Available))
         return;
 
     ActorRegistryRecord* tracked = findActorByNetId(response.actorNetId);
@@ -12728,6 +12731,37 @@ void MPServer::handleActorAuthorityTransfer(ConnectedClient& c, const uint8_t* d
         return;
 
     ActorRegistryRecord& record = *tracked;
+    if (response.phase == ActorAuthorityTransferPhase::Unavailable
+        || response.phase == ActorAuthorityTransferPhase::Available)
+    {
+        if (!c.charSelectComplete || record.actorAuthorityReason != "actor-simulator"
+            || !matchesActorAuthorityAvailability(response, record.actorNetId,
+                record.actorAuthorityGuid, record.actorAuthorityGeneration,
+                record.migrationGeneration, record.actor.cellId, c.guid))
+            return;
+        if (response.phase == ActorAuthorityTransferPhase::Unavailable)
+        {
+            if (record.actorAuthorityUnavailableGeneration != record.actorAuthorityGeneration)
+                Log(Debug::Info) << "[Server] Actor simulator scene unavailable"
+                                 << " actorNetId=" << record.actorNetId
+                                 << " cell=" << response.cellId
+                                 << " owner=" << c.guid
+                                 << " generation=" << record.actorAuthorityGeneration;
+            record.actorAuthorityUnavailableGeneration = record.actorAuthorityGeneration;
+        }
+        else
+        {
+            if (record.actorAuthorityUnavailableGeneration == record.actorAuthorityGeneration)
+                Log(Debug::Info) << "[Server] Actor simulator scene restored"
+                                 << " actorNetId=" << record.actorNetId
+                                 << " cell=" << response.cellId
+                                 << " owner=" << c.guid
+                                 << " generation=" << record.actorAuthorityGeneration;
+            record.actorAuthorityUnavailableGeneration.reset();
+        }
+        prepareActorAuthorityTransferForActor(response.cellId, record);
+        return;
+    }
     if (response.phase == ActorAuthorityTransferPhase::Applied)
     {
         if (!record.awaitingAuthorityTransferAck
@@ -12767,6 +12801,7 @@ void MPServer::handleActorAuthorityTransfer(ConnectedClient& c, const uint8_t* d
     ConnectedClient* oldOwner = ready.oldOwnerGuid != 0
         ? findClientByGuid(ready.oldOwnerGuid) : nullptr;
     const bool oldOwnerCanSimulateActor = oldOwner && oldOwner->charSelectComplete
+        && record.actorAuthorityUnavailableGeneration != record.actorAuthorityGeneration
         && clientCanSimulateActorPosition(*oldOwner, record.actor, ready.cellId, 200.f);
     const bool oldOwnerCanSimulateTarget = !hasLiveCombatTarget
         || (oldOwner && oldOwner->charSelectComplete

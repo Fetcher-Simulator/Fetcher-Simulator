@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 #include "ActorSyncProtocol.hpp"
 
@@ -15,6 +16,8 @@ namespace mwmp
         Commit = 3,
         Cancel = 4,
         Applied = 5,
+        Unavailable = 6,
+        Available = 7,
     };
 
     struct ActorAuthorityTransfer
@@ -29,6 +32,20 @@ namespace mwmp
         std::string cellId;
         BaseActor actor;
     };
+
+    inline bool matchesActorAuthorityAvailability(const ActorAuthorityTransfer& report,
+        ActorInstanceId actorNetId, std::uint32_t ownerGuid, std::uint32_t authorityGeneration,
+        std::uint32_t migrationGeneration, std::string_view cellId, std::uint32_t senderGuid)
+    {
+        return (report.phase == ActorAuthorityTransferPhase::Unavailable
+                || report.phase == ActorAuthorityTransferPhase::Available)
+            && actorNetId != 0 && ownerGuid != 0 && senderGuid == ownerGuid
+            && report.actorNetId == actorNetId && report.transferId == 0
+            && report.oldOwnerGuid == ownerGuid && report.newOwnerGuid == 0
+            && report.authorityGeneration == authorityGeneration
+            && report.migrationGeneration == migrationGeneration
+            && report.cellId == cellId;
+    }
 
     inline bool matchesActorAuthorityTransferReady(
         const ActorAuthorityTransfer& prepare, const ActorAuthorityTransfer& ready,

@@ -1677,6 +1677,36 @@ namespace mwmp
                 && (!rosterActor || (!hasAuthorityForActor(actorNetId, cellId)
                     && (localRoll.isEmpty()
                         || localRoll.getCellRef().getRefId().serializeText() != rosterActor->refId)));
+            const bool canonicalChanceNone = chanceNoneIt != mChanceNoneLeveledSpawnersByCell.end()
+                && chanceNoneIt->second.count(actorNetId) != 0;
+            if (world && rosterActor && !migratedCanonicalActor && !canonicalChanceNone)
+            {
+                if (auto previous = mReconciledVanillaActorsByNetId.find(actorNetId);
+                    previous != mReconciledVanillaActorsByNetId.end())
+                {
+                    MWWorld::Ptr retained = MWBase::Environment::get().getWorldModel()->getCurrentPtr(
+                        previous->second);
+                    if (!retained.isEmpty() && retained.getCellRef().getCount() > 0
+                        && retained.getCellRef().getRefId().serializeText() == rosterActor->refId
+                        && cellIdForPtr(retained) == cellId)
+                    {
+                        if (!localRoll.isEmpty() && localRoll.getCellRef().getCount() > 0
+                            && !(localRoll == retained || sameLocalActorObject(localRoll, retained)))
+                        {
+                            ScopedLocalDeleteSuppression suppression(
+                                mwmp::Main::get().getWorldObjectSync());
+                            world->deleteObject(localRoll);
+                        }
+                        leveledClass.setSpawnedActor(ptr, retained);
+                        previous->second = retained;
+                        Log(Debug::Info) << "[MP] ActorSync: retained canonical leveled roll before cell insertion"
+                                         << " cell=" << cellId
+                                         << " actorNetId=" << actorNetId
+                                         << " localRefNum=" << retained.getCellRef().getRefNum().mIndex;
+                        return true;
+                    }
+                }
+            }
             if ((chanceNoneIt == mChanceNoneLeveledSpawnersByCell.end()
                     || chanceNoneIt->second.count(actorNetId) == 0)
                 && !migratedCanonicalActor && !rosterMismatch)
@@ -1845,15 +1875,10 @@ namespace mwmp
                 if (isValidActorInstanceId(actorNetId) && runtime.state.cellId == cellId)
                     canonicalActors.push_back(runtime.state);
             }
-            if (const auto cell = mCells.find(cellId); cell != mCells.end())
-            {
-                for (const auto& [actorKey, runtime] : cell->second.actors)
-                {
-                    (void)actorKey;
-                    if (runtime.state.cellId == cellId)
-                        canonicalActors.push_back(runtime.state);
-                }
-            }
+            // Cell shadows also contain outbound local rolls that the server
+            // never registered. Including them here would bless a migrated
+            // actor's orphaned local copy and let it attack as a client-only
+            // ghost after the canonical actor is materialized.
             if (const auto pending = mPendingCanonicalActorsByCell.find(cellId);
                 pending != mPendingCanonicalActorsByCell.end())
                 canonicalActors.insert(canonicalActors.end(), pending->second.begin(), pending->second.end());
@@ -1867,30 +1892,79 @@ namespace mwmp
         {
             if (pending.readySent || pending.prepare.newOwnerGuid != transferLocalGuid)
                 continue;
+            const auto blocked = [&](const char* reason, const ActorRuntime* runtime = nullptr)
+            {
+                if (pending.lastReadyBlockReason == reason)
+                    return;
+                pending.lastReadyBlockReason = reason;
+                Log(Debug::Info) << "[MPDIAG] ActorSync: authority transfer not ready"
+                                 << " actorNetId=" << actorNetId
+                                 << " transferId=" << pending.prepare.transferId
+                                 << " reason=" << reason
+                                 << " prepareCell=" << pending.prepare.cellId
+                                 << " prepareMigrationGen=" << pending.prepare.migrationGeneration
+                                 << " runtimeCell=" << (runtime ? runtime->state.cellId : "<none>")
+                                 << " runtimeMigrationGen=" << (runtime ? runtime->migrationGeneration : 0)
+                                 << " boundCell=" << (runtime && !runtime->boundActor.isEmpty()
+                                        ? cellIdForPtr(runtime->boundActor) : "<none>");
+            };
             const auto runtimeIt = mActorsByNetId.find(actorNetId);
-            if (runtimeIt == mActorsByNetId.end()
-                || runtimeIt->second.boundActor.isEmpty()
-                || runtimeIt->second.state.cellId != pending.prepare.cellId
-                || runtimeIt->second.migrationGeneration != pending.prepare.migrationGeneration)
+            if (runtimeIt == mActorsByNetId.end())
+            {
+                blocked("missing-runtime");
                 continue;
+            }
+            const ActorRuntime& runtime = runtimeIt->second;
+            if (runtime.boundActor.isEmpty())
+            {
+                blocked("unbound-actor", &runtime);
+                continue;
+            }
+            if (runtime.state.cellId != pending.prepare.cellId)
+            {
+                blocked("runtime-cell-mismatch", &runtime);
+                continue;
+            }
+            if (runtime.migrationGeneration != pending.prepare.migrationGeneration)
+            {
+                blocked("migration-generation-mismatch", &runtime);
+                continue;
+            }
 
             // A Ptr can exist in a neighbouring CellStore before its scene
             // actor is active. Ready promises that this client can run the AI,
             // not merely that it has received the actor's identity.
             MWBase::World* transferWorld = MWBase::Environment::get().getWorld();
-            if (!transferWorld
-                || cellIdForPtr(runtimeIt->second.boundActor) != pending.prepare.cellId
-                || !findActiveCellById(static_cast<MWWorld::World&>(*transferWorld),
-                    pending.prepare.cellId)
-                || !runtimeIt->second.boundActor.getRefData().getBaseNode())
+            if (!transferWorld)
+            {
+                blocked("missing-world", &runtime);
                 continue;
+            }
+            if (cellIdForPtr(runtime.boundActor) != pending.prepare.cellId)
+            {
+                blocked("bound-cell-mismatch", &runtime);
+                continue;
+            }
+            if (!findActiveCellById(static_cast<MWWorld::World&>(*transferWorld), pending.prepare.cellId))
+            {
+                blocked("inactive-cell", &runtime);
+                continue;
+            }
+            if (!runtime.boundActor.getRefData().getBaseNode())
+            {
+                blocked("missing-scene-node", &runtime);
+                continue;
+            }
 
             if (pending.prepare.actor.ai.type == BaseActor::AIAction::Type::Combat
                 || pending.prepare.actor.ai.type == BaseActor::AIAction::Type::Pursue)
             {
                 const auto targetGuid = remotePlayerGuidFromActorTarget(pending.prepare.actor.ai.targetId);
                 if (!targetGuid)
+                {
+                    blocked("invalid-target-guid", &runtime);
                     continue;
+                }
                 MWWorld::Ptr target;
                 if (*targetGuid == transferLocalGuid)
                 {
@@ -1903,7 +1977,10 @@ namespace mwmp
                 // Holding Prepare here lets the current simulator keep chasing
                 // until the candidate can actually execute that package.
                 if (target.isEmpty() || !target.getRefData().getBaseNode())
+                {
+                    blocked("target-not-active", &runtime);
                     continue;
+                }
             }
 
             ActorAuthorityTransfer ready = pending.prepare;
@@ -2094,9 +2171,98 @@ namespace mwmp
                         }
                     }
                 }
+                // A sticky lease can outlive the owner's scene actor even while
+                // the server still considers this cell in range. Tell the server
+                // when this Ptr cannot run AI so it can prepare another simulator.
+                const auto lease = mActorAuthorityGuids.find(actorNetId);
+                const auto generation = mActorAuthorityGenerations.find(actorNetId);
+                const bool hasLocalLease = lease != mActorAuthorityGuids.end()
+                    && lease->second == transferLocalGuid
+                    && generation != mActorAuthorityGenerations.end()
+                    && generation->second != 0 && !actor.state.isDead;
+                if (hasLocalLease)
+                {
+                    MWBase::World* sceneWorld = MWBase::Environment::get().getWorld();
+                    const bool heldInSourceCell = authorityCellRebindHeldByBorderHysteresis
+                        || authorityCellRebindHeldByLivePosition;
+                    const std::string& simulationCellId = heldInSourceCell
+                        ? boundCellId : actor.state.cellId;
+                    const bool sceneReady = sceneWorld && !actor.boundActor.isEmpty()
+                        && (boundCellId == actor.state.cellId || heldInSourceCell)
+                        && findActiveCellById(static_cast<MWWorld::World&>(*sceneWorld), simulationCellId)
+                        && actor.boundActor.getRefData().getBaseNode();
+                    actor.authorityAvailabilityReportSeconds += std::max(0.f, dt);
+                    if (sceneReady)
+                    {
+                        actor.authoritySceneMissingSeconds = 0.f;
+                        if (actor.authorityUnavailableReported)
+                        {
+                            ActorAuthorityTransfer report;
+                            report.phase = ActorAuthorityTransferPhase::Available;
+                            report.actorNetId = actorNetId;
+                            report.oldOwnerGuid = transferLocalGuid;
+                            report.authorityGeneration = generation->second;
+                            report.migrationGeneration = actor.migrationGeneration;
+                            report.cellId = actor.state.cellId;
+                            PacketActorAuthorityTransfer packet;
+                            packet.setTransfer(&report);
+                            mClient.sendReliable(packet.encode());
+                            Log(Debug::Info) << "[MP] ActorSync: simulator scene restored"
+                                             << " actorNetId=" << actorNetId
+                                             << " refId=" << actor.state.refId
+                                             << " localRefNum=" << actor.boundActor.getCellRef().getRefNum().mIndex
+                                             << " cell=" << actor.state.cellId
+                                             << " generation=" << generation->second;
+                            actor.authorityUnavailableReported = false;
+                            actor.authorityAvailabilityReportSeconds = 0.f;
+                        }
+                    }
+                    else
+                    {
+                        actor.authoritySceneMissingSeconds += std::max(0.f, dt);
+                        if (actor.authoritySceneMissingSeconds >= 0.5f
+                            && (!actor.authorityUnavailableReported
+                                || actor.authorityAvailabilityReportSeconds >= 2.f))
+                        {
+                            ActorAuthorityTransfer report;
+                            report.phase = ActorAuthorityTransferPhase::Unavailable;
+                            report.actorNetId = actorNetId;
+                            report.oldOwnerGuid = transferLocalGuid;
+                            report.authorityGeneration = generation->second;
+                            report.migrationGeneration = actor.migrationGeneration;
+                            report.cellId = actor.state.cellId;
+                            PacketActorAuthorityTransfer packet;
+                            packet.setTransfer(&report);
+                            mClient.sendReliable(packet.encode());
+                            if (!actor.authorityUnavailableReported)
+                                Log(Debug::Info) << "[MP] ActorSync: simulator scene unavailable"
+                                                 << " actorNetId=" << actorNetId
+                                                 << " refId=" << actor.state.refId
+                                                 << " localRefNum=" << (actor.boundActor.isEmpty() ? 0
+                                                        : actor.boundActor.getCellRef().getRefNum().mIndex)
+                                                 << " cell=" << actor.state.cellId
+                                                 << " generation=" << generation->second
+                                                 << " boundCell=" << (actor.boundActor.isEmpty()
+                                                        ? "<none>" : cellIdForPtr(actor.boundActor))
+                                                 << " sceneNode=" << (!actor.boundActor.isEmpty()
+                                                        && actor.boundActor.getRefData().getBaseNode() != nullptr);
+                            actor.authorityUnavailableReported = true;
+                            actor.authorityAvailabilityReportSeconds = 0.f;
+                        }
+                    }
+                }
+                else
+                {
+                    actor.authoritySceneMissingSeconds = 0.f;
+                    actor.authorityAvailabilityReportSeconds = 0.f;
+                    actor.authorityUnavailableReported = false;
+                }
                 continue;
             }
 
+            actor.authoritySceneMissingSeconds = 0.f;
+            actor.authorityAvailabilityReportSeconds = 0.f;
+            actor.authorityUnavailableReported = false;
             if (!actor.hasAuthoritativeTransform)
                 continue;
 
@@ -2424,6 +2590,32 @@ namespace mwmp
         pending.readySent = alreadyReady;
         pending.commitReceived = false;
         pending.snapshotApplied = false;
+        pending.lastReadyBlockReason.clear();
+        // The current cell authority can still hold a newly published actor
+        // in its cell shadow. Ready and Commit use the canonical runtime, so
+        // promote that same bound Ptr before checking whether it can simulate.
+        if (!mActorsByNetId.contains(transfer.actorNetId))
+        {
+            if (auto cellIt = mCells.find(transfer.cellId); cellIt != mCells.end())
+            {
+                auto& shadows = cellIt->second.actors;
+                for (auto shadowIt = shadows.begin(); shadowIt != shadows.end(); ++shadowIt)
+                {
+                    ActorRuntime& shadow = shadowIt->second;
+                    const ActorInstanceId shadowId = shadow.actorNetId != 0
+                        ? shadow.actorNetId : actorNetIdForActorState(shadow.state);
+                    if (shadowId != transfer.actorNetId || shadow.state.cellId != transfer.cellId)
+                        continue;
+                    mActorsByNetId.emplace(transfer.actorNetId, std::move(shadow));
+                    shadows.erase(shadowIt);
+                    Log(Debug::Info) << "[MP] ActorSync: promoted transfer candidate"
+                                     << " actorNetId=" << transfer.actorNetId
+                                     << " cell=" << transfer.cellId
+                                     << " transferId=" << transfer.transferId;
+                    break;
+                }
+            }
+        }
         Log(Debug::Info) << "[MP] ActorSync: received authority transfer prepare"
                          << " actorNetId=" << transfer.actorNetId
                          << " cell=" << transfer.cellId
@@ -10877,13 +11069,46 @@ namespace mwmp
             const auto& leveledClass
                 = static_cast<const MWClass::CreatureLevList&>(leveledSpawner.getClass());
             MWWorld::Ptr localRoll = leveledClass.getSpawnedActor(leveledSpawner);
-            if (!localRoll.isEmpty()
+            // Leaving an active cell releases the runtime binding, but the
+            // reconciled child can remain alive in its CellStore. On return the
+            // spawner may roll a different creature before the canonical roster
+            // is applied. Reuse the surviving canonical child instead of
+            // creating a second copy and orphaning the first one.
+            if (actor.actorNetId != 0)
+            {
+                if (auto previous = mReconciledVanillaActorsByNetId.find(actor.actorNetId);
+                    previous != mReconciledVanillaActorsByNetId.end())
+                {
+                    MWWorld::Ptr retained = MWBase::Environment::get().getWorldModel()->getCurrentPtr(
+                        previous->second);
+                    if (!retained.isEmpty() && retained.getCellRef().getCount() > 0
+                        && retained.getCellRef().getRefId().serializeText() == actor.state.refId
+                        && cellIdForPtr(retained) == targetCellId)
+                    {
+                        if (!localRoll.isEmpty() && localRoll.getCellRef().getCount() > 0
+                            && !(localRoll == retained || sameLocalActorObject(localRoll, retained)))
+                        {
+                            ScopedLocalDeleteSuppression suppression(
+                                mwmp::Main::get().getWorldObjectSync());
+                            world->deleteObject(localRoll);
+                        }
+                        leveledClass.setSpawnedActor(leveledSpawner, retained);
+                        previous->second = retained;
+                        found = retained;
+                        Log(Debug::Info) << "[MP] ActorSync: reused reconciled leveled spawner roll"
+                                         << " cell=" << targetCellId
+                                         << " actorNetId=" << actor.actorNetId
+                                         << " localRefNum=" << retained.getCellRef().getRefNum().mIndex;
+                    }
+                }
+            }
+            if (found.isEmpty() && !localRoll.isEmpty()
                 && localRoll.getCellRef().getRefId().serializeText() == actor.state.refId)
             {
                 found = localRoll;
                 mReconciledVanillaActorsByNetId[actor.actorNetId] = found;
             }
-            else if (shouldReplaceLocalLeveledRoll(actor.hasAuthoritativeTransform,
+            else if (found.isEmpty() && shouldReplaceLocalLeveledRoll(actor.hasAuthoritativeTransform,
                 hasAuthorityForActor(actor.actorNetId, targetCellId), canonicalHandoffBaseline))
             {
                 try
@@ -11584,8 +11809,10 @@ namespace mwmp
                 stats.setAttackingOrSpell(false);
         }
 
-        // Freeze all vanilla AI on non-authority clients.
-        // Fight=0 prevents spontaneous combat. Hello=0 prevents greeting/idle-walk packages.
+        // Freeze all vanilla AI on non-authority clients. Spontaneous combat is
+        // gated on actor authority in Actors::engageCombat; preserve Fight here
+        // so a scene-node replacement cannot turn a future authority passive.
+        // Hello=0 prevents greeting/idle-walk packages.
         // clear() removes all running AI packages (wander, greet, combat, pursue) every frame
         // so the NPC is a pure puppet driven only by the authority's network state.
         if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
@@ -11612,7 +11839,6 @@ namespace mwmp
             baseNode->setUserValue("mp_guard_hostile", !actor.state.isDead
                 && actor.state.ai.type == BaseActor::AIAction::Type::Combat
                 && (actor.state.animFlags.movementFlags & AnimFlags::MF_GUARD_HOSTILE) != 0);
-        stats.setAiSetting(MWMechanics::AiSetting::Fight, 0);
         stats.setAiSetting(MWMechanics::AiSetting::Hello, 0);
         const bool shouldForceCombatPresentation = actor.state.ai.type == BaseActor::AIAction::Type::Combat;
         stats.getAiSequence().clear();

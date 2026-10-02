@@ -604,7 +604,7 @@ private:
         const ConnectedClient& sender, const BaseActor& canonical, const BaseActor& incoming);
     void reconcileActorAuthorityTransfersForPlayer(uint32_t playerGuid);
     void prepareActorAuthorityTransferForActor(
-        const std::string& cellId, ActorRegistryRecord& record);
+        const std::string& cellId, ActorRegistryRecord& record, uint32_t excludedCandidateGuid = 0);
     void prepareActorAuthorityTransferAfterDisconnect(
         const std::string& cellId, ActorRegistryRecord& record);
     void cancelActorAuthorityTransfer(ActorRegistryRecord& record);
@@ -667,6 +667,9 @@ private:
         std::string actorAuthorityReason;
         uint32_t actorAuthorityTargetGuid = 0;
         uint64_t actorAuthorityLeaseUntilMs = 0;
+        // A lease can outlive the owner's scene actor. Keep the lease until a
+        // prepared replacement is Ready, but stop treating that owner as capable.
+        std::optional<uint32_t> actorAuthorityUnavailableGeneration;
         std::optional<ActorAuthorityTransfer> pendingAuthorityTransfer;
         uint64_t pendingAuthorityTransferStartedMs = 0;
         std::optional<ActorAuthorityTransfer> awaitingAuthorityTransferAck;

@@ -273,6 +273,9 @@ namespace mwmp
             // ActorPositionV2 packet. Dense-cell scheduling uses this to avoid
             // starving active actors behind a large high-priority set.
             float timeSinceLastPositionSend = 0.f;
+            float authoritySceneMissingSeconds = 0.f;
+            float authorityAvailabilityReportSeconds = 0.f;
+            bool authorityUnavailableReported = false;
             bool lastSentPresentationValid = false;
             bool lastSentIsMoving = false;
             bool lastSentAttackingOrCasting = false;
@@ -435,6 +438,7 @@ namespace mwmp
             bool readySent = false;
             bool commitReceived = false;
             bool snapshotApplied = false;
+            std::string lastReadyBlockReason;
         };
         std::unordered_map<ActorInstanceId, PendingAuthorityTransfer> mPendingAuthorityTransfers;
         std::unordered_map<ActorInstanceId, uint32_t>       mActorAuthorityGuids;
