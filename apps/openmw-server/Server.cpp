@@ -170,7 +170,9 @@ namespace
     // avatars are not registry actors and must never acquire these leases.
     bool isPerActorAuthorityEligible(const mwmp::BaseActor& actor, mwmp::ActorInstanceId actorNetId)
     {
-        return mwmp::isValidActorInstanceId(actorNetId) && !actor.refId.empty();
+        // Corpses have no AI to simulate. Preparing a lease for one can block
+        // the cell authority's complete ActorList during login.
+        return mwmp::isValidActorInstanceId(actorNetId) && !actor.refId.empty() && !actor.isDead;
     }
 
     mwmp::CrimePolicy makeCrimePolicy(const MWWorld::ESMStore& store, float alarmRadius)
@@ -2490,6 +2492,12 @@ void MPServer::tick(float dt)
             {
                 auto& record = *recordPtr;
                 (void)actorKey;
+                // A range-loss handoff may leave an actor ownerless while no
+                // client can cover both it and its combat target. Revisit it
+                // when a player returns, even if no owner remains to report a
+                // scene availability change.
+                if (record.actorAuthorityGuid == 0 && !record.pendingAuthorityTransfer)
+                    prepareActorAuthorityTransferForActor(cellId, record);
                 if (record.actorAuthorityUnavailableGeneration
                     == record.actorAuthorityGeneration)
                     prepareActorAuthorityTransferForActor(cellId, record);
@@ -2498,17 +2506,31 @@ void MPServer::tick(float dt)
                     && nowMs >= record.pendingAuthorityTransferStartedMs
                     && nowMs - record.pendingAuthorityTransferStartedMs >= kActorAuthorityTransferTimeoutMs)
                 {
-                    const uint32_t timedOutCandidateGuid
-                        = record.pendingAuthorityTransfer->newOwnerGuid;
-                    Log(Debug::Info) << "[Server] Actor authority transfer timed out"
+                    const uint32_t timedOutCandidateGuid = record.pendingAuthorityTransfer->newOwnerGuid;
+                    const uint32_t timedOutTransferId = record.pendingAuthorityTransfer->transferId;
+                    if (!record.pendingAuthorityTransferFallbackAttempted)
+                    {
+                        // Give another eligible simulator one chance. If none exists,
+                        // leave this Prepare in flight: the client will send Ready as
+                        // soon as the actor becomes available in its scene.
+                        prepareActorAuthorityTransferForActor(cellId, record, timedOutCandidateGuid);
+                        if (record.pendingAuthorityTransfer)
+                        {
+                            if (record.pendingAuthorityTransfer->transferId == timedOutTransferId)
+                                record.pendingAuthorityTransferStartedMs = 0;
+                            else
+                                record.pendingAuthorityTransferFallbackAttempted = true;
+                        }
+                    }
+                    else
+                        record.pendingAuthorityTransferStartedMs = 0;
+                    Log(Debug::Info) << "[Server] Actor authority transfer waiting for scene readiness"
                                      << " actorNetId=" << record.actorNetId
                                      << " cell=" << cellId
-                                     << " transferId=" << record.pendingAuthorityTransfer->transferId;
-                    cancelActorAuthorityTransfer(record);
-                    // A candidate that cannot bind the actor must not monopolize
-                    // ownerless recovery while another nearby client can run it.
-                    prepareActorAuthorityTransferForActor(
-                        cellId, record, timedOutCandidateGuid);
+                                     << " transferId=" << timedOutTransferId
+                                     << " candidate=" << timedOutCandidateGuid
+                                     << " fallback=" << (record.pendingAuthorityTransfer
+                                            && record.pendingAuthorityTransfer->transferId != timedOutTransferId);
                 }
                 if (!record.awaitingAuthorityTransferAck
                     || record.awaitingAuthorityTransferAckStartedMs == 0
@@ -5022,6 +5044,7 @@ void MPServer::cancelActorAuthorityTransfer(ActorRegistryRecord& record)
     }
     record.pendingAuthorityTransfer.reset();
     record.pendingAuthorityTransferStartedMs = 0;
+    record.pendingAuthorityTransferFallbackAttempted = false;
 }
 
 void MPServer::prepareActorAuthorityTransferAfterDisconnect(
@@ -5062,6 +5085,26 @@ void MPServer::prepareActorAuthorityTransferForActor(
         && clientCanSimulateActorPosition(*owner, record.actor, cellId, 200.f);
     const bool ownerCanSimulateTarget = !hasLiveTarget || (owner && owner->charSelectComplete
         && clientEligibleForActorCell(*owner, targetCellId));
+    const uint32_t oldOwnerGuid = owner && owner->charSelectComplete ? owner->guid : 0;
+    // Do not replace an eligible pending candidate merely because another
+    // player's distance changed. Its Ready will commit the latest snapshot.
+    if (record.pendingAuthorityTransfer && excludedCandidateGuid == 0)
+    {
+        const ActorAuthorityTransfer& pending = *record.pendingAuthorityTransfer;
+        ConnectedClient* pendingCandidate = findClientByGuid(pending.newOwnerGuid);
+        if (pending.oldOwnerGuid == oldOwnerGuid
+            && pending.migrationGeneration == record.migrationGeneration
+            && pending.cellId == cellId
+            && pendingCandidate && pendingCandidate->charSelectComplete
+            && clientCanSimulateActorPosition(*pendingCandidate, record.actor, cellId, 512.f)
+            && (!hasLiveTarget || clientEligibleForActorCell(*pendingCandidate, targetCellId)))
+        {
+            const bool ownerStillCapable = shouldRetainActorSimulator(
+                ownerCanSimulateActor, ownerCanSimulateTarget);
+            if (!ownerStillCapable)
+                return;
+        }
+    }
     ConnectedClient* candidate = nullptr;
     float candidateDistanceSquared = std::numeric_limits<float>::max();
     for (auto& [conn, client] : mClients)
@@ -5099,10 +5142,23 @@ void MPServer::prepareActorAuthorityTransferForActor(
     }
     if (!candidate)
     {
-        cancelActorAuthorityTransfer(record);
+        // An excluded candidate has already received Prepare. Keep it pending
+        // if no alternative is eligible, so a later Ready can still commit.
+        const ActorAuthorityTransfer* pending = record.pendingAuthorityTransfer
+            ? &*record.pendingAuthorityTransfer : nullptr;
+        ConnectedClient* pendingCandidate = pending
+            ? findClientByGuid(pending->newOwnerGuid) : nullptr;
+        if (!pending || excludedCandidateGuid == 0
+            || pending->newOwnerGuid != excludedCandidateGuid
+            || pending->oldOwnerGuid != oldOwnerGuid
+            || pending->migrationGeneration != record.migrationGeneration
+            || pending->cellId != cellId
+            || !pendingCandidate || !pendingCandidate->charSelectComplete
+            || !clientCanSimulateActorPosition(*pendingCandidate, record.actor, cellId, 512.f)
+            || (hasLiveTarget && !clientEligibleForActorCell(*pendingCandidate, targetCellId)))
+            cancelActorAuthorityTransfer(record);
         return;
     }
-    const uint32_t oldOwnerGuid = owner && owner->charSelectComplete ? owner->guid : 0;
     if (record.pendingAuthorityTransfer
         && record.pendingAuthorityTransfer->oldOwnerGuid == oldOwnerGuid
         && record.pendingAuthorityTransfer->newOwnerGuid == candidate->guid
@@ -5146,6 +5202,7 @@ void MPServer::reconcileActorAuthorityTransfersForPlayer(uint32_t playerGuid)
     // A player move can invalidate leases on actors even when that player is
     // not their combat target. Check both the owner's actor horizon and the
     // combat target horizon for affected actors.
+    ConnectedClient* movedPlayer = findClientByGuid(playerGuid);
     for (auto& [cellId, cellState] : mWorld.actorCells)
     {
         for (auto& [actorKey, recordPtr] : cellState.actors)
@@ -5153,6 +5210,27 @@ void MPServer::reconcileActorAuthorityTransfersForPlayer(uint32_t playerGuid)
             (void)actorKey;
             auto& record = *recordPtr;
             const auto combatTarget = remotePlayerGuidFromActorTarget(record.actor.ai.targetId);
+            // A newly arrived simulator can recover an ownerless actor. If an
+            // earlier candidate stalled without an alternate, try this player
+            // once without cancelling the existing Prepare when still alone.
+            if (record.actorAuthorityGuid == 0 && movedPlayer
+                && clientCanSimulateActorPosition(*movedPlayer, record.actor, cellId, 512.f))
+            {
+                if (!record.pendingAuthorityTransfer)
+                    prepareActorAuthorityTransferForActor(cellId, record);
+                else if (record.pendingAuthorityTransferStartedMs == 0
+                    && !record.pendingAuthorityTransferFallbackAttempted
+                    && record.pendingAuthorityTransfer->newOwnerGuid != playerGuid)
+                {
+                    const uint32_t currentCandidate = record.pendingAuthorityTransfer->newOwnerGuid;
+                    const uint32_t currentTransferId = record.pendingAuthorityTransfer->transferId;
+                    prepareActorAuthorityTransferForActor(cellId, record, currentCandidate);
+                    if (record.pendingAuthorityTransfer
+                        && record.pendingAuthorityTransfer->transferId != currentTransferId)
+                        record.pendingAuthorityTransferFallbackAttempted = true;
+                }
+                continue;
+            }
             if ((record.actorAuthorityGuid != 0
                     && (record.actorAuthorityGuid == playerGuid || combatTarget == playerGuid))
                 || (record.pendingAuthorityTransfer
@@ -5512,7 +5590,13 @@ bool MPServer::validateActorUpdate(const ConnectedClient& c, const ActorList& ac
 
     bool senderAllowed = false;
     uint32_t rejectedLeaseOwner = 0;
-    if (actorList.actors.empty())
+    // The cell authority publishes the complete roster even when individual
+    // actors have another simulator or a pending handoff. handleActorList
+    // preserves those actors' canonical state instead of accepting their
+    // contents from this sender.
+    if (std::strcmp(packetName, "ActorList") == 0 && cellAuthorityGuid == c.guid)
+        senderAllowed = true;
+    else if (actorList.actors.empty())
         senderAllowed = cellAuthorityGuid == c.guid;
     else if (cellIt != mWorld.actorCells.end())
     {
@@ -11651,6 +11735,13 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
         else if (record.actor.isDead)
             previousDeadVanillaActorRecords[key] = record;
     }
+    std::unordered_map<ActorInstanceId, const ActorRegistryRecord*> previousRecordsByNetId;
+    for (const ActorRegistryRecord& record : previousCellRecords)
+    {
+        const ActorInstanceId actorNetId = actorInstanceIdFromActor(record.actor);
+        if (actorNetId != 0)
+            previousRecordsByNetId.emplace(actorNetId, &record);
+    }
 
     std::unordered_set<uint32_t> currentSpawnedActorMpNums;
     std::unordered_set<std::string> migratedActorCells;
@@ -11664,6 +11755,7 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
     std::size_t duplicateIdentityDropped = 0;
     std::size_t unknownSpawnedDropped = 0;
     std::size_t deadSpawnedSuppressed = 0;
+    std::size_t protectedActorListUpdates = 0;
     std::size_t boundaryActorListSuppressed = 0;
     std::string firstBoundaryActorRefId;
     uint32_t firstBoundaryActorRefNum = 0;
@@ -11698,6 +11790,7 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
         return *record;
     };
     std::unordered_set<ActorInstanceId> incomingActorNetIds;
+    std::unordered_set<ActorInstanceId> protectedActorNetIds;
 
     auto cellContainsActorNetId = [&](ActorInstanceId actorNetId) {
         return actorNetId != 0
@@ -11772,6 +11865,18 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
         if (incomingActorNetId == 0 || !incomingActorNetIds.insert(incomingActorNetId).second)
         {
             ++duplicateIdentityDropped;
+            continue;
+        }
+        if (const auto previous = previousRecordsByNetId.find(incomingActorNetId);
+            previous != previousRecordsByNetId.end()
+            && (previous->second->actor.refId != actor.refId
+                || !isAllowedActorSender(c, *previous->second, incoming.cellId)))
+        {
+            // A full cell roster can include actors simulated by somebody
+            // else. Keep their canonical state and transfer transaction; the
+            // cell publisher only establishes which other actors are present.
+            protectedActorNetIds.insert(incomingActorNetId);
+            ++protectedActorListUpdates;
             continue;
         }
         if (const BaseActor* disposed = findDisposedVanillaActor(actor))
@@ -12068,6 +12173,14 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
                             << " firstMpNum=" << firstUnknownSpawnedMpNum;
     }
 
+    if (protectedActorListUpdates != 0)
+    {
+        Log(Debug::Info) << "[Server] ActorList preserved independently owned actors"
+                         << " from=" << c.name
+                         << " cell=" << incoming.cellId
+                         << " count=" << protectedActorListUpdates;
+    }
+
     if (deadSpawnedSuppressed != 0)
     {
         Log(Debug::Verbose) << "[Server] ActorList suppressed update(s) for dead spawned actor"
@@ -12207,6 +12320,26 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
         Log(Debug::Verbose) << "[Server] handleActorList retained omitted crime-pursuit vanilla actor(s)"
                             << " count=" << retainedCrimePursuitVanillaActors
                             << " cell=" << incoming.cellId;
+    }
+
+    // The cell publisher must not remove another simulator's actor by omitting
+    // it from a complete list. Also keep a canonical record when its placed
+    // RefNum was locally rerolled to a different RefId.
+    for (const ActorRegistryRecord& previousRecord : previousCellRecords)
+    {
+        const ActorInstanceId actorNetId = actorInstanceIdFromActor(previousRecord.actor);
+        if (!protectedActorNetIds.contains(actorNetId)
+            && isAllowedActorSender(c, previousRecord, incoming.cellId))
+            continue;
+        const std::string actorKey = makeActorKey(previousRecord.actor);
+        if (cellState.actors.find(actorKey) != cellState.actors.end()
+            || cellContainsActorNetId(actorNetId))
+            continue;
+        const auto locationIt = mWorld.actorLocations.find(actorKey);
+        if (locationIt != mWorld.actorLocations.end() && locationIt->second != incoming.cellId)
+            continue;
+        restoreActorNode(actorKey, {}) = previousRecord;
+        rememberActorLocation(previousRecord.actor, incoming.cellId);
     }
 
     // A full-cell refresh from an observer must not erase a live transfer
@@ -12377,7 +12510,16 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
 
     PacketActorList out;
     out.setActorList(&deduped);
+    const bool firstCompleteSnapshot = !cellState.hasCompleteAuthoritySnapshot;
     cellState.hasCompleteAuthoritySnapshot = true;
+    if (firstCompleteSnapshot)
+    {
+        Log(Debug::Info) << "[Server] ActorList established complete cell roster"
+                         << " from=" << c.name
+                         << " cell=" << incoming.cellId
+                         << " actors=" << deduped.actors.size()
+                         << " protected=" << protectedActorListUpdates;
+    }
     broadcastActorIdentityForCell(incoming.cellId, cellState);
     broadcastActorToCell(incoming.cellId, out.encode(), c.conn);
     broadcastActorAuthorityLeasesForCell(incoming.cellId, cellState);
@@ -12835,6 +12977,7 @@ void MPServer::handleActorAuthorityTransfer(ConnectedClient& c, const uint8_t* d
     record.awaitingAuthorityTransferAckStartedMs = currentServerTimeMs();
     record.pendingAuthorityTransfer.reset();
     record.pendingAuthorityTransferStartedMs = 0;
+    record.pendingAuthorityTransferFallbackAttempted = false;
     broadcastActorAuthorityLease(ready.cellId, record);
     Log(Debug::Info) << "[Server] Actor authority transfer committed"
                      << " actorNetId=" << record.actorNetId

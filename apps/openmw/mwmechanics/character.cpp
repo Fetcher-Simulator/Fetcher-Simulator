@@ -2401,6 +2401,22 @@ namespace MWMechanics
         if (!animPlaying)
             animPlaying = mAnimation->getInfo(mCurrentWeapon, &complete);
 
+#ifdef BUILD_MULTIPLAYER
+        // Creature attacks started by this controller are one-shot actions. A
+        // looping attack clip can remain in AttackEnd forever: the owner keeps
+        // animating but never produces another hit or ActorAttack event, so
+        // observers return to idle. Let the current cycle finish, then resume
+        // normal AI attack scheduling.
+        if (mUpperBodyState == UpperBodyState::AttackEnd
+            && isRandomAttackAnimation(mCurrentWeapon))
+        {
+            uint32_t loopsRemaining = 0;
+            if (mAnimation->getInfo(mCurrentWeapon, nullptr, nullptr, &loopsRemaining)
+                && loopsRemaining > 0)
+                mAnimation->setLoopingEnabled(mCurrentWeapon, false);
+        }
+#endif
+
         if (!animPlaying || complete >= 1.f)
         {
             if (mUpperBodyState == UpperBodyState::Equipping || mUpperBodyState == UpperBodyState::AttackEnd

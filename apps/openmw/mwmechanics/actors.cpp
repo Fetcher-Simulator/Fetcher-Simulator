@@ -1403,6 +1403,21 @@ namespace MWMechanics
             std::string mpName;
             if (baseNode && baseNode->getUserValue("mp_player_name", mpName))
                 return;
+
+            // ActorSync owns the presentation of bound server actors. Keep them
+            // visible across the loaded grid even when the local player is
+            // outside the vanilla AI processing range. The fresh-snapshot gate
+            // above must still hide actors whose server state is not ready.
+            bool serverManagedActor = false;
+            baseNode->getUserValue("mp_remote_actor", serverManagedActor);
+            if (!serverManagedActor)
+                baseNode->getUserValue("mp_authoritative_actor", serverManagedActor);
+            if (serverManagedActor)
+            {
+                baseNode->setNodeMask(MWRender::Mask_Actor);
+                ctrl.setVisibility(1.f);
+                return;
+            }
         }
 #endif
 
@@ -1886,9 +1901,13 @@ namespace MWMechanics
                 CreatureStats& stats = actor.getPtr().getClass().getCreatureStats(actor.getPtr());
                 auto* baseNode = actor.getPtr().getRefData().getBaseNode();
                 bool isMpAuthoritativeActor = false;
+                bool isMpRemoteActor = false;
 #ifdef BUILD_MULTIPLAYER
                 if (baseNode)
+                {
                     baseNode->getUserValue("mp_authoritative_actor", isMpAuthoritativeActor);
+                    baseNode->getUserValue("mp_remote_actor", isMpRemoteActor);
+                }
                 else if (mwmp::Main::isInitialised())
                     isMpAuthoritativeActor
                         = mwmp::Main::get().getActorSync().hasAuthorityForObject(actor.getPtr());
@@ -1904,8 +1923,8 @@ namespace MWMechanics
                 // active even when the local player is outside the normal actor
                 // processing range. The AI loop above can otherwise execute a
                 // Travel package while this loop suppresses all displacement.
-                const bool inRange
-                    = isPlayer || isMpAuthoritativeActor || dist <= actorsProcessingRange || alwaysActive;
+                const bool inRange = isPlayer || isMpAuthoritativeActor || isMpRemoteActor
+                    || dist <= actorsProcessingRange || alwaysActive;
                 const int activeFlag = isPlayer ? 2 : 1; // Can be changed back to '2' to keep updating bounding boxes
                                                          // off screen (more accurate, but slower)
                 const int active = inRange ? activeFlag : 0;

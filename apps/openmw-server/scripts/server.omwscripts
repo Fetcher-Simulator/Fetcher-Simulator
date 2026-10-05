@@ -1,3 +1,4 @@
 GLOBAL: core.lua
 GLOBAL: bardcraft_persistence.lua
 GLOBAL: consuming_animated_relay.lua
+GLOBAL: morezombies_content_overrides.lua

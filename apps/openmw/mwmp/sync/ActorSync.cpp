@@ -425,10 +425,19 @@ namespace
                 combatTarget = combatWorld->getPlayerPtr();
             else if (combatTarget.isEmpty() && !targetId.empty())
             {
-                Log(Debug::Warning) << "[MP] ActorSync: deferred authority combat restore; explicit target unavailable"
-                                    << " cell=" << cellId
-                                    << " refId=" << actor.refId
-                                    << " actorTarget=" << targetId;
+                if (auto* baseNode = ptr.getRefData().getBaseNode())
+                {
+                    std::string loggedTarget;
+                    baseNode->getUserValue("mp_unavailable_combat_target_logged", loggedTarget);
+                    if (loggedTarget != targetId)
+                    {
+                        Log(Debug::Warning) << "[MP] ActorSync: deferred authority combat restore; explicit target unavailable"
+                                            << " cell=" << cellId
+                                            << " refId=" << actor.refId
+                                            << " actorTarget=" << targetId;
+                        baseNode->setUserValue("mp_unavailable_combat_target_logged", targetId);
+                    }
+                }
                 // Canonical state still requires Combat. Do not fall through to
                 // saved/authored wander while waiting for the explicit target to
                 // become locally resolvable; retry this restore on the next frame.
@@ -438,6 +447,8 @@ namespace
 
             if (!combatTarget.isEmpty())
             {
+                if (auto* baseNode = ptr.getRefData().getBaseNode())
+                    baseNode->setUserValue("mp_unavailable_combat_target_logged", std::string());
                 aiSequence.clear();
                 restoreOtherPlayerCombatTargets(actor.ai, ptr, combatTarget, aiSequence);
                 aiSequence.stack(MWMechanics::AiCombat(combatTarget), ptr);
@@ -9397,6 +9408,7 @@ namespace mwmp
         // the cell authority must preserve actors currently simulated by a
         // different lease owner. Continuous position/presentation packets below
         // still use `outgoing`, which contains only actors owned by this client.
+        bool completeActorListSent = false;
         if (hasAuthority(cell.outboundCellId))
         {
             ActorList completeList = outgoing;
@@ -9431,6 +9443,7 @@ namespace mwmp
                 PacketActorList listPacket;
                 listPacket.setActorList(&completeList);
                 mClient.sendReliable(listPacket.encode());
+                completeActorListSent = true;
                 const bool wasInitialList = !cell.initialListSent;
                 cell.initialListSent = true;
                 cell.lastSentActorListKeys = std::move(completeKeys);
@@ -9775,24 +9788,66 @@ namespace mwmp
 
             if (prevIt != cell.actors.end())
             {
-                const BaseActor::AIAction& previousAi = prevIt->second.state.ai;
-                const bool aiChanged = previousAi.type != actor.ai.type
-                    || previousAi.targetId != actor.ai.targetId
-                    || previousAi.targetMpNum != actor.ai.targetMpNum
-                    || previousAi.combatPlayerTargets != actor.ai.combatPlayerTargets
-                    || previousAi.reset != actor.ai.reset;
-                if (aiChanged)
+                ActorRuntime& runtime = prevIt->second;
+                if (completeActorListSent || !runtime.hasLastSentAi)
+                {
+                    runtime.lastSentAi = completeActorListSent ? actor.ai : runtime.state.ai;
+                    runtime.hasLastSentAi = true;
+                    runtime.pendingCombatTargetId.clear();
+                    runtime.pendingCombatTargetMpNum = 0;
+                    runtime.pendingCombatTargetSeconds = 0.f;
+                }
+
+                const BaseActor::AIAction& sentAi = runtime.lastSentAi;
+                const bool targetChanged = sentAi.targetId != actor.ai.targetId
+                    || sentAi.targetMpNum != actor.ai.targetMpNum;
+                const bool otherAiChanged = sentAi.type != actor.ai.type
+                    || sentAi.combatPlayerTargets != actor.ai.combatPlayerTargets
+                    || sentAi.reset != actor.ai.reset;
+                bool sendAi = otherAiChanged;
+                if (!otherAiChanged && targetChanged)
+                {
+                    // Combat can choose a different nearby player on successive
+                    // mechanics ticks. Send only a target that persists briefly;
+                    // membership and combat start/stop still go out immediately.
+                    if (actor.ai.type != BaseActor::AIAction::Type::Combat)
+                        sendAi = true;
+                    else
+                    {
+                        if (runtime.pendingCombatTargetId != actor.ai.targetId
+                            || runtime.pendingCombatTargetMpNum != actor.ai.targetMpNum)
+                        {
+                            runtime.pendingCombatTargetId = actor.ai.targetId;
+                            runtime.pendingCombatTargetMpNum = actor.ai.targetMpNum;
+                            runtime.pendingCombatTargetSeconds = 0.f;
+                        }
+                        runtime.pendingCombatTargetSeconds += std::max(0.f, dt);
+                        sendAi = runtime.pendingCombatTargetSeconds >= 0.2f;
+                    }
+                }
+                else if (!targetChanged)
+                {
+                    runtime.pendingCombatTargetId.clear();
+                    runtime.pendingCombatTargetMpNum = 0;
+                    runtime.pendingCombatTargetSeconds = 0.f;
+                }
+
+                if (sendAi)
                 {
                     aiUpdate.actors.push_back(actor);
-                    Log(Debug::Info) << "[MP] ActorSync: queued ActorAI target update"
-                                     << " actorNetId=" << actorNetIdForActorState(actor)
-                                     << " refId=" << actor.refId
-                                     << " mpNum=" << actor.mpNum
-                                     << " cell=" << outgoing.cellId
-                                     << " previousType=" << static_cast<int>(previousAi.type)
-                                     << " type=" << static_cast<int>(actor.ai.type)
-                                     << " previousTarget=" << previousAi.targetId
-                                     << " target=" << actor.ai.targetId;
+                    Log(Debug::Verbose) << "[MP] ActorSync: queued ActorAI update"
+                                        << " actorNetId=" << actorNetIdForActorState(actor)
+                                        << " refId=" << actor.refId
+                                        << " mpNum=" << actor.mpNum
+                                        << " cell=" << outgoing.cellId
+                                        << " previousType=" << static_cast<int>(sentAi.type)
+                                        << " type=" << static_cast<int>(actor.ai.type)
+                                        << " previousTarget=" << sentAi.targetId
+                                        << " target=" << actor.ai.targetId;
+                    runtime.lastSentAi = actor.ai;
+                    runtime.pendingCombatTargetId.clear();
+                    runtime.pendingCombatTargetMpNum = 0;
+                    runtime.pendingCombatTargetSeconds = 0.f;
                 }
             }
 
@@ -10295,6 +10350,11 @@ namespace mwmp
                     currentServerSpawnedMpNums.insert(actorState.mpNum);
                 const bool firstSeenInCell = cell.actors.find(key) == cell.actors.end();
                 auto& runtime = cell.actors[key];
+                if (firstSeenInCell)
+                {
+                    runtime.lastSentAi = actorState.ai;
+                    runtime.hasLastSentAi = true;
+                }
                 runtime.state = actorState;
                 runtime.actorNetId = actorNetIdForActorState(actorState);
                 runtime.lastAttackingOrCasting = actorState.isAttackingOrCasting;

@@ -23,6 +23,7 @@ intent_policy.lua
 consuming_animated_relay.lua
 mark_recall.lua
 mod_manifest.lua
+morezombies_content_overrides.lua
 race_speech_commands.lua
 recorddynamic_test.lua
 recordstore.lua

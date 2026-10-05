@@ -273,6 +273,13 @@ namespace mwmp
             // ActorPositionV2 packet. Dense-cell scheduling uses this to avoid
             // starving active actors behind a large high-priority set.
             float timeSinceLastPositionSend = 0.f;
+            // Authority side: last reliable AI state. Keep this separate from
+            // state.ai, which is refreshed on every local mechanics scan.
+            BaseActor::AIAction lastSentAi;
+            bool hasLastSentAi = false;
+            std::string pendingCombatTargetId;
+            uint32_t pendingCombatTargetMpNum = 0;
+            float pendingCombatTargetSeconds = 0.f;
             float authoritySceneMissingSeconds = 0.f;
             float authorityAvailabilityReportSeconds = 0.f;
             bool authorityUnavailableReported = false;

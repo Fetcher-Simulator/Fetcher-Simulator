@@ -672,6 +672,9 @@ private:
         std::optional<uint32_t> actorAuthorityUnavailableGeneration;
         std::optional<ActorAuthorityTransfer> pendingAuthorityTransfer;
         uint64_t pendingAuthorityTransferStartedMs = 0;
+        // Try another simulator once after a Prepare stalls, then keep the
+        // pending candidate so it can become Ready when its scene actor loads.
+        bool pendingAuthorityTransferFallbackAttempted = false;
         std::optional<ActorAuthorityTransfer> awaitingAuthorityTransferAck;
         uint64_t awaitingAuthorityTransferAckStartedMs = 0;
         // Server-owned durable-in-session crime enforcement identity. Network GUIDs
