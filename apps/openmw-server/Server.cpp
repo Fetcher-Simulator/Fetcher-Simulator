@@ -4162,12 +4162,15 @@ void MPServer::onClientDisconnected(HSteamNetConnection conn, const std::string&
             auto& record = *recordPtr;
             auto& playerTargets = record.actor.ai.combatPlayerTargets;
             const auto beforeTargetCount = playerTargets.size();
-            std::erase_if(playerTargets, [disconnectedGuid](const std::string& id) {
+            std::erase_if(playerTargets, [this, disconnectedGuid](const std::string& id) {
                 const auto guid = remotePlayerGuidFromActorTarget(id);
-                return guid && *guid == disconnectedGuid;
+                const ConnectedClient* player = guid ? findClientByGuid(*guid) : nullptr;
+                return !player || !player->charSelectComplete || *guid == disconnectedGuid;
             });
             const auto targetGuid = remotePlayerGuidFromActorTarget(record.actor.ai.targetId);
-            if (targetGuid && *targetGuid == disconnectedGuid
+            const ConnectedClient* currentTarget = targetGuid ? findClientByGuid(*targetGuid) : nullptr;
+            if (targetGuid && (*targetGuid == disconnectedGuid
+                    || !currentTarget || !currentTarget->charSelectComplete)
                 && (record.actor.ai.type == BaseActor::AIAction::Type::Combat
                     || record.actor.ai.type == BaseActor::AIAction::Type::Pursue))
             {
@@ -5193,6 +5196,9 @@ void MPServer::prepareActorAuthorityTransferForActor(
                      << " oldOwner=" << oldOwnerGuid
                      << " newOwner=" << candidate->guid
                      << " target=" << (hasLiveTarget ? *targetGuid : 0)
+                     << " aiType=" << static_cast<int>(prepare.actor.ai.type)
+                     << " targetId=" << prepare.actor.ai.targetId
+                     << " hostilePlayers=" << prepare.actor.ai.combatPlayerTargets.size()
                      << " generation=" << prepare.authorityGeneration
                      << " transferId=" << prepare.transferId;
 }
@@ -12102,13 +12108,35 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
                              << " aiType=" << static_cast<int>(mergedActor.ai.type)
                              << " target=" << mergedActor.ai.targetId;
         }
+        if (mergedActor.ai.type != BaseActor::AIAction::Type::Combat)
+            mergedActor.ai.combatPlayerTargets.clear();
+        else
+        {
+            // A cell authority may still have a disconnected secondary player
+            // in its local combat roster. Never let a full ActorList restore
+            // that GUID to the canonical state after disconnect cleanup.
+            std::erase_if(mergedActor.ai.combatPlayerTargets, [this](const std::string& id) {
+                const auto guid = remotePlayerGuidFromActorTarget(id);
+                const ConnectedClient* player = guid ? findClientByGuid(*guid) : nullptr;
+                return !player || !player->charSelectComplete;
+            });
+        }
         if (mergedActor.ai.type == BaseActor::AIAction::Type::Combat
             || mergedActor.ai.type == BaseActor::AIAction::Type::Pursue)
         {
             const auto targetGuid = remotePlayerGuidFromActorTarget(mergedActor.ai.targetId);
             const ConnectedClient* target = targetGuid ? findClientByGuid(*targetGuid) : nullptr;
             if (targetGuid && (!target || !target->charSelectComplete))
-                mergedActor.ai = {};
+            {
+                if (mergedActor.ai.type == BaseActor::AIAction::Type::Combat
+                    && !mergedActor.ai.combatPlayerTargets.empty())
+                {
+                    mergedActor.ai.targetId = mergedActor.ai.combatPlayerTargets.front();
+                    mergedActor.ai.targetMpNum = 0;
+                }
+                else
+                    mergedActor.ai = {};
+            }
         }
 
         ActorRegistryRecord& refreshedRecord = restoreActorNode(actorKey, migratedRecord);

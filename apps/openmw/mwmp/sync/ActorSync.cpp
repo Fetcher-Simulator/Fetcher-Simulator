@@ -1914,6 +1914,9 @@ namespace mwmp
                                  << " reason=" << reason
                                  << " prepareCell=" << pending.prepare.cellId
                                  << " prepareMigrationGen=" << pending.prepare.migrationGeneration
+                                 << " prepareAiType=" << static_cast<int>(pending.prepare.actor.ai.type)
+                                 << " prepareTarget=" << pending.prepare.actor.ai.targetId
+                                 << " hostilePlayers=" << pending.prepare.actor.ai.combatPlayerTargets.size()
                                  << " runtimeCell=" << (runtime ? runtime->state.cellId : "<none>")
                                  << " runtimeMigrationGen=" << (runtime ? runtime->migrationGeneration : 0)
                                  << " boundCell=" << (runtime && !runtime->boundActor.isEmpty()
@@ -5640,6 +5643,17 @@ namespace mwmp
         std::size_t stopped = 0;
         auto clearTarget = [&](ActorRuntime& runtime)
         {
+            // An actor may be fighting another player while this player is a
+            // secondary hostile target. Drop that membership too, or a later
+            // complete ActorList can send the disconnected GUID back to the server.
+            std::erase(runtime.state.ai.combatPlayerTargets, targetId);
+            if (!player.isEmpty() && !runtime.boundActor.isEmpty()
+                && runtime.boundActor.getClass().isActor())
+            {
+                MWMechanics::CreatureStats& stats
+                    = runtime.boundActor.getClass().getCreatureStats(runtime.boundActor);
+                stats.getAiSequence().stopCombat({ player });
+            }
             if (runtime.state.ai.targetId != targetId
                 || (runtime.state.ai.type != BaseActor::AIAction::Type::Combat
                     && runtime.state.ai.type != BaseActor::AIAction::Type::Pursue))
@@ -5666,8 +5680,6 @@ namespace mwmp
                     ai.stopPursuit();
                 if (player.isEmpty())
                     ai.stopCombat();
-                else
-                    ai.stopCombat({ player });
                 stats.setAttacked(false);
             }
             ++stopped;
@@ -5686,6 +5698,7 @@ namespace mwmp
             (void)cellId;
             for (BaseActor& actor : cell.latest.actors)
             {
+                std::erase(actor.ai.combatPlayerTargets, targetId);
                 if (actor.ai.targetId == targetId
                     && (actor.ai.type == BaseActor::AIAction::Type::Combat
                         || actor.ai.type == BaseActor::AIAction::Type::Pursue))
@@ -5701,6 +5714,7 @@ namespace mwmp
         {
             (void)actorNetId;
             BaseActor& actor = pending.prepare.actor;
+            std::erase(actor.ai.combatPlayerTargets, targetId);
             if (actor.ai.targetId == targetId
                 && (actor.ai.type == BaseActor::AIAction::Type::Combat
                     || actor.ai.type == BaseActor::AIAction::Type::Pursue))
