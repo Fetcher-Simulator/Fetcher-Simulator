@@ -256,6 +256,7 @@ namespace
         table["isDead"] = actor.isDead;
         table["persistent"] = actorSnapshot.persistent;
         table["authorityGuid"] = actorSnapshot.authorityGuid;
+        table["authorityReason"] = actorSnapshot.authorityReason;
         table["isNpc"] = actorSnapshot.isNpc;
         table["position"] = makePositionTable(lua, actor.position);
         return sol::make_object(thisState, LuaUtil::makeReadOnly(table));
@@ -506,6 +507,32 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
             return sol::make_object(ts, sol::nil);
         auto actor = context->getActorByInstanceId(actorId);
         return actor ? makeActorValue(ts, *actor) : sol::make_object(ts, sol::nil);
+    });
+
+    mp.set_function("getActorsByLocalRefNum", [context](uint32_t refIndex, sol::this_state ts) -> sol::table
+    {
+        sol::state_view lua(ts);
+        sol::table matches(lua, sol::create);
+        if (context)
+        {
+            int index = 1;
+            for (const LuaActorSnapshot& actor : context->getActorsByLocalRefNum(refIndex))
+                matches[index++] = makeActorValue(ts, actor);
+        }
+        return matches;
+    });
+
+    mp.set_function("teleportActorByInstanceId",
+        [context](uint64_t actorId, const std::string& cellId, const sol::table& positionTable) -> bool
+    {
+        if (!context || !isValidActorInstanceId(actorId) || cellId.empty()
+            || !context->getActorByInstanceId(actorId))
+            return false;
+        auto position = parsePositionTable(positionTable);
+        if (!position)
+            return false;
+        context->queueTeleportActor(actorId, cellId, *position);
+        return true;
     });
 
     mp.set_function("grantInventoryItem", [context](uint32_t guid, const std::string& refId, int count) -> bool

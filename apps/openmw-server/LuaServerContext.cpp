@@ -347,6 +347,9 @@ void LuaServerContext::drainOutbound()
             case OutboundLuaActionType::RemoveActor:
                 mServer->removeActor(action.actorMpNum, action.cellId);
                 break;
+            case OutboundLuaActionType::TeleportActor:
+                mServer->teleportActor(action.actorInstanceId, action.cellId, action.position);
+                break;
             case OutboundLuaActionType::TeleportPlayer:
                 mServer->teleportPlayer(action.guid, action.cellId, action.position);
                 break;
@@ -936,6 +939,20 @@ std::optional<LuaActorSnapshot> LuaServerContext::getActorByInstanceId(ActorInst
     return it->second;
 }
 
+std::vector<LuaActorSnapshot> LuaServerContext::getActorsByLocalRefNum(uint32_t refIndex) const
+{
+    std::vector<LuaActorSnapshot> matches;
+    if (refIndex == 0 || refIndex > 0xffffff)
+        return matches;
+    std::lock_guard<std::mutex> lock(mActorsMutex);
+    for (const auto& [actorId, snapshot] : mActorsByInstanceId)
+    {
+        if (snapshot.actor.mpNum == 0 && (snapshot.actor.refNum & 0xffffff) == refIndex)
+            matches.push_back(snapshot);
+    }
+    return matches;
+}
+
 std::optional<PlacedObject> LuaServerContext::getPlacedObject(uint32_t mpNum) const
 {
     std::lock_guard<std::mutex> lock(mPlacedObjectsMutex);
@@ -1242,6 +1259,20 @@ void LuaServerContext::queueRemoveActor(uint32_t mpNum, const std::string& cellI
     action.type = OutboundLuaActionType::RemoveActor;
     action.actorMpNum = mpNum;
     action.cellId = cellId;
+    mOutboundQueue.push(std::move(action));
+}
+
+void LuaServerContext::queueTeleportActor(
+    ActorInstanceId actorId, const std::string& cellId, const Position& position)
+{
+    if (!isValidActorInstanceId(actorId) || cellId.empty())
+        return;
+
+    OutboundLuaAction action;
+    action.type = OutboundLuaActionType::TeleportActor;
+    action.actorInstanceId = actorId;
+    action.cellId = cellId;
+    action.position = position;
     mOutboundQueue.push(std::move(action));
 }
 

@@ -22,8 +22,12 @@ local DELETE_PREFIX = COMMAND_PREFIX .. "delete "
 local RESETCELL_PREFIX = COMMAND_PREFIX .. "resetcell "
 local RESETALLCELLS_COMMAND = COMMAND_PREFIX .. "resetallcells"
 local MPWHERE_PREFIX = COMMAND_PREFIX .. "mpwhere "
-local TOMP_PREFIX = COMMAND_PREFIX .. "tomp "
-local BRINGMP_PREFIX = COMMAND_PREFIX .. "bringmp "
+local TARGET_PREFIX = {
+    tomp = COMMAND_PREFIX .. "tomp ",
+    bringmp = COMMAND_PREFIX .. "bringmp ",
+    toref = COMMAND_PREFIX .. "toref ",
+    bringref = COMMAND_PREFIX .. "bringref ",
+}
 local TPTO_PREFIX = COMMAND_PREFIX .. "tpto "
 local TP_PREFIX = COMMAND_PREFIX .. "tp "
 local PLACEAT_PREFIX = COMMAND_PREFIX .. "placeat "
@@ -369,6 +373,82 @@ local function toPositiveInteger(value)
     return math.floor(number)
 end
 
+local function toCanonicalRefNum(value)
+    if type(value) ~= "string" then
+        return nil
+    end
+    local number = tonumber(value)
+    if not number or number < 1 or number > 0xffffffff or number % 1 ~= 0 then
+        return nil
+    end
+    return number
+end
+
+local function resolvePlacedRef(player, value)
+    if type(value) ~= "string" then
+        return nil, "Missing reference number."
+    end
+    -- The console header displays local RefNum-MpNum, not content file.
+    -- The same local index may occur in several content files, so resolve
+    -- it near the requesting player instead of inventing a FormId32.
+    local refIndex, mpNum = value:match("^(%d+)%-(%d+)$")
+    if refIndex then
+        refIndex, mpNum = tonumber(refIndex), tonumber(mpNum)
+        if not refIndex or refIndex < 1 or refIndex > 0xffffff or not mpNum then
+            return nil, "Invalid console reference number."
+        end
+        if mpNum ~= 0 then
+            return nil, "That is a spawned actor; use /tomp or /bringmp with its second number."
+        end
+        local matches = mp.getActorsByLocalRefNum(refIndex)
+        if #matches == 0 then
+            return nil, "No server-tracked placed actor found for " .. value .. "."
+        end
+        local playerCell = normalizeCellId(player.cell)
+        local loaded = {}
+        if playerCell then
+            loaded[playerCell] = true
+        end
+        for _, cell in ipairs(player.loadedActorCells or {}) do
+            local loadedCell = normalizeCellId(cell)
+            if loadedCell then
+                loaded[loadedCell] = true
+            end
+        end
+        local playerPos = player.position
+        local best, bestRank, bestDistance, bestRankCount
+        for _, candidate in ipairs(matches) do
+            local cell = normalizeCellId(candidate.cell or candidate.cellId)
+            local rank = cell == playerCell and 0 or (loaded[cell] and 1 or 2)
+            local pos = candidate.position
+            local dx, dy, dz = pos.x - playerPos.x, pos.y - playerPos.y, pos.z - playerPos.z
+            local distance = dx * dx + dy * dy + dz * dz
+            if not best or rank < bestRank then
+                best, bestRank, bestDistance, bestRankCount = candidate, rank, distance, 1
+            elseif rank == bestRank then
+                bestRankCount = bestRankCount + 1
+                if distance < bestDistance then
+                    best, bestDistance = candidate, distance
+                end
+            end
+        end
+        if bestRank == 2 and bestRankCount > 1 then
+            return nil, "Several placed actors use " .. value
+                .. "; move near the one you want or use its full server RefNum."
+        end
+        return best
+    end
+    local refNum = toCanonicalRefNum(value)
+    if not refNum then
+        return nil, "Invalid reference number."
+    end
+    local actor = mp.getActorByInstanceId(refNum)
+    if not actor or actor.mpNum ~= 0 then
+        return nil, "No server-tracked placed actor found for refNum=" .. tostring(refNum) .. "."
+    end
+    return actor
+end
+
 local function toNonNegativeNumber(value)
     local number = tonumber(value)
     if not number or number < 0 then
@@ -457,6 +537,19 @@ end
 local function sendBringMpUsage(player)
     player:sendMessage("Usage: /bringmp <mpNum> [distance] [direction]")
     player:sendMessage("direction: 0=front, 1=back, 2=left, 3=right")
+end
+
+local function sendBringRefUsage(player)
+    player:sendMessage("Usage: /bringref <serverRefNum|consoleRefNum-0> [distance] [direction]")
+    player:sendMessage("direction: 0=front, 1=back, 2=left, 3=right")
+end
+
+local function placementCellId(player, position)
+    local cellId = normalizeCellId(player.cell)
+    if cellId and cellId:sub(1, 4) == "EXT:" then
+        return string.format("EXT:%d,%d", math.floor(position.x / 8192), math.floor(position.y / 8192))
+    end
+    return cellId
 end
 
 local function resolveMpTarget(mpNum)
@@ -794,6 +887,79 @@ local function handleActivate(data)
     ))
 end
 
+local refCommands = {}
+
+function refCommands.toRef(player, msg)
+    if not requireAdmin(player) then
+        return false
+    end
+    local args, parseError = parseCommandArgs(msg:sub(#TARGET_PREFIX.toref + 1))
+    if not args or #args ~= 1 then
+        player:sendMessage(parseError or "Usage: /toref <serverRefNum|consoleRefNum-0>")
+        return false
+    end
+    local actor, resolutionError = resolvePlacedRef(player, args[1])
+    if not actor then
+        player:sendMessage(resolutionError)
+        return false
+    end
+    local refNum = actor.refNum
+    local cellId = normalizeCellId(actor.cell or actor.cellId)
+    local position = plainPosition(actor.position)
+    position.isTeleporting = true
+    if not cellId or cellId == "" or not mp.teleportPlayer(player.guid, cellId, position) then
+        player:sendMessage("Failed to queue teleport to refNum=" .. tostring(refNum) .. ".")
+        return false
+    end
+    player:sendMessage(string.format("Teleporting to %s refNum=%d in %s.", actor.refId, refNum, cellId))
+    mp.log(string.format("[core] /toref by %s refNum=%d refId=%s cell=%s",
+        player.name, refNum, actor.refId, cellId))
+    return false
+end
+
+function refCommands.bringRef(player, msg)
+    if not requireAdmin(player) then
+        return false
+    end
+    local args, parseError = parseCommandArgs(msg:sub(#TARGET_PREFIX.bringref + 1))
+    if not args or #args < 1 or #args > 3 then
+        player:sendMessage(parseError or "Invalid reference number or arguments.")
+        sendBringRefUsage(player)
+        return false
+    end
+    local actor, resolutionError = resolvePlacedRef(player, args[1])
+    if not actor then
+        player:sendMessage(resolutionError)
+        return false
+    end
+    local refNum = actor.refNum
+    if actor.isDead then
+        player:sendMessage("/bringref only moves live placed actors.")
+        return false
+    end
+    if actor.authorityReason == "script-owner" then
+        player:sendMessage("/bringref cannot move an actor with explicit script ownership.")
+        return false
+    end
+    local distance = args[2] and toNonNegativeNumber(args[2]) or 128
+    local direction = args[3] and toPlaceDirection(args[3]) or 0
+    if not distance or direction == nil then
+        sendBringRefUsage(player)
+        return false
+    end
+    local position = placeAtPosition(player, distance, direction)
+    position.isTeleporting = true
+    local cellId = placementCellId(player, position)
+    if not cellId or cellId == "" or not mp.teleportActorByInstanceId(actor.actorInstanceId, cellId, position) then
+        player:sendMessage("Failed to queue bring for refNum=" .. tostring(refNum) .. ".")
+        return false
+    end
+    player:sendMessage(string.format("Queued bring for %s refNum=%d to %s.", actor.refId, refNum, cellId))
+    mp.log(string.format("[core] /bringref by %s refNum=%d refId=%s from=%s to=%s distance=%.1f direction=%d",
+        player.name, refNum, actor.refId, tostring(actor.cell), cellId, distance, direction))
+    return false
+end
+
 local function handleChat(player, data)
     local msg = data.message or ""
 
@@ -1031,7 +1197,7 @@ local function handleChat(player, data)
         end
 
         player:sendMessage(string.format(
-            "Queued reset for all tracked cells. Removed spawners=%d payloads=%d. Relog or reload cells before retesting.",
+            "Queued reset for all tracked cells. Removed spawners=%d payloads=%d. Loaded cells will refresh automatically.",
             removedSpawners or 0,
             removedPayloads or 0
         ))
@@ -1071,12 +1237,12 @@ local function handleChat(player, data)
         return false
     end
 
-    if msg == COMMAND_PREFIX .. "tomp" or msg:sub(1, #TOMP_PREFIX) == TOMP_PREFIX then
+    if msg == COMMAND_PREFIX .. "tomp" or msg:sub(1, #TARGET_PREFIX.tomp) == TARGET_PREFIX.tomp then
         if not requireAdmin(player) then
             return false
         end
 
-        local args, parseError = parseCommandArgs(msg:sub(#TOMP_PREFIX + 1))
+        local args, parseError = parseCommandArgs(msg:sub(#TARGET_PREFIX.tomp + 1))
         if not args then
             player:sendMessage(parseError or "Invalid arguments.")
             player:sendMessage("Usage: /tomp <mpNum>")
@@ -1113,12 +1279,16 @@ local function handleChat(player, data)
         return false
     end
 
-    if msg == COMMAND_PREFIX .. "bringmp" or msg:sub(1, #BRINGMP_PREFIX) == BRINGMP_PREFIX then
+    if msg == COMMAND_PREFIX .. "toref" or msg:sub(1, #TARGET_PREFIX.toref) == TARGET_PREFIX.toref then
+        return refCommands.toRef(player, msg)
+    end
+
+    if msg == COMMAND_PREFIX .. "bringmp" or msg:sub(1, #TARGET_PREFIX.bringmp) == TARGET_PREFIX.bringmp then
         if not requireAdmin(player) then
             return false
         end
 
-        local args, parseError = parseCommandArgs(msg:sub(#BRINGMP_PREFIX + 1))
+        local args, parseError = parseCommandArgs(msg:sub(#TARGET_PREFIX.bringmp + 1))
         if not args then
             player:sendMessage(parseError or "Invalid arguments.")
             sendBringMpUsage(player)
@@ -1199,6 +1369,10 @@ local function handleChat(player, data)
             player.name, mpNum, tostring(actor.refId), tostring(sourceCellId), cellId, distance, direction
         ))
         return false
+    end
+
+    if msg == COMMAND_PREFIX .. "bringref" or msg:sub(1, #TARGET_PREFIX.bringref) == TARGET_PREFIX.bringref then
+        return refCommands.bringRef(player, msg)
     end
 
     if msg == COMMAND_PREFIX .. "placeat" or msg:sub(1, #PLACEAT_PREFIX) == PLACEAT_PREFIX then

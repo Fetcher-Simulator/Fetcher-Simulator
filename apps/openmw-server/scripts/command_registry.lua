@@ -288,6 +288,13 @@ local COMMANDS = {
         adminOnly = true,
     },
     {
+        id = "toref",
+        category = "Admin",
+        usage = "/toref <serverRefNum|consoleRefNum-0>",
+        summary = "Teleport to a server-tracked placed actor by reference number.",
+        adminOnly = true,
+    },
+    {
         id = "tpto",
         category = "Admin",
         usage = "/tpto <pid|name>",
@@ -306,6 +313,13 @@ local COMMANDS = {
         category = "Admin",
         usage = "/bringmp <mpNum> [distance] [direction]",
         summary = "Respawn a live server-spawned actor near you with the same mpNum.",
+        adminOnly = true,
+    },
+    {
+        id = "bringref",
+        category = "Admin",
+        usage = "/bringref <serverRefNum|consoleRefNum-0> [distance] [direction]",
+        summary = "Teleport a live placed actor near you without replacing its identity.",
         adminOnly = true,
     },
     {

@@ -2526,7 +2526,11 @@ void MPServer::tick(float dt)
                         record.pendingAuthorityTransferStartedMs = 0;
                     Log(Debug::Info) << "[Server] Actor authority transfer waiting for scene readiness"
                                      << " actorNetId=" << record.actorNetId
+                                     << " refId=" << record.actor.refId
                                      << " cell=" << cellId
+                                     << " pos=(" << record.actor.position.pos[0]
+                                     << "," << record.actor.position.pos[1]
+                                     << "," << record.actor.position.pos[2] << ")"
                                      << " transferId=" << timedOutTransferId
                                      << " candidate=" << timedOutCandidateGuid
                                      << " fallback=" << (record.pendingAuthorityTransfer
@@ -6078,6 +6082,19 @@ ActorInstanceId MPServer::ensureActorNetId(ActorRegistryRecord& record, const st
 
     if (record.actorNetId == 0)
         record.actorNetId = expectedActorNetId;
+    uint32_t& migrationHighWater = mWorld.actorMigrationGenerationHighWater[record.actorNetId];
+    if (migrationHighWater != 0 && generationIsNewer(migrationHighWater, record.migrationGeneration))
+    {
+        Log(Debug::Info) << "[Server] Restored actor migration generation after record recreation"
+                         << " actorNetId=" << record.actorNetId
+                         << " cell=" << cellId
+                         << " previous=" << record.migrationGeneration
+                         << " restored=" << migrationHighWater;
+        record.migrationGeneration = migrationHighWater;
+        record.actor.migrationGeneration = migrationHighWater;
+    }
+    else if (migrationHighWater == 0 || generationIsNewer(record.migrationGeneration, migrationHighWater))
+        migrationHighWater = record.migrationGeneration;
     if (!cellId.empty())
     {
         const auto cellIt = mWorld.actorCells.find(cellId);
@@ -12348,6 +12365,43 @@ void MPServer::handleActorList(ConnectedClient& c, const uint8_t* data, size_t s
         Log(Debug::Verbose) << "[Server] handleActorList retained omitted crime-pursuit vanilla actor(s)"
                             << " count=" << retainedCrimePursuitVanillaActors
                             << " cell=" << incoming.cellId;
+    }
+
+    // The cell owner can publish a complete roster that was sampled just
+    // before a reliable ActorCellChange moved a leveled-list child here. Do
+    // not interpret that brief omission as Chance None: deleting the freshly
+    // migrated record makes the client retire and reroll the same child, then
+    // repeatedly prepare a new authority transfer at this border.
+    constexpr uint64_t kRecentVanillaMigrationRosterGraceMs = 2000;
+    std::size_t retainedRecentVanillaMigrations = 0;
+    for (const ActorRegistryRecord& previousRecord : previousCellRecords)
+    {
+        if (previousRecord.actor.mpNum != 0 || previousRecord.actor.isDead
+            || previousRecord.actorAuthorityGuid != c.guid
+            || previousRecord.lastCellChangeTime == 0
+            || incoming.serverTimestamp < previousRecord.lastCellChangeTime
+            || incoming.serverTimestamp - previousRecord.lastCellChangeTime
+                > kRecentVanillaMigrationRosterGraceMs)
+            continue;
+
+        const std::string actorKey = makeActorKey(previousRecord.actor);
+        if (cellState.actors.contains(actorKey)
+            || cellContainsActorNetId(actorInstanceIdFromActor(previousRecord.actor)))
+            continue;
+        const auto locationIt = mWorld.actorLocations.find(actorKey);
+        if (locationIt != mWorld.actorLocations.end() && locationIt->second != incoming.cellId)
+            continue;
+
+        restoreActorNode(actorKey, {}) = previousRecord;
+        rememberActorLocation(previousRecord.actor, incoming.cellId);
+        ++retainedRecentVanillaMigrations;
+    }
+    if (retainedRecentVanillaMigrations != 0)
+    {
+        Log(Debug::Info) << "[Server] ActorList retained recently migrated vanilla actors"
+                         << " from=" << c.name
+                         << " cell=" << incoming.cellId
+                         << " count=" << retainedRecentVanillaMigrations;
     }
 
     // The cell publisher must not remove another simulator's actor by omitting
@@ -20834,6 +20888,134 @@ bool MPServer::spawnActor(
     return true;
 }
 
+bool MPServer::teleportActor(
+    ActorInstanceId actorId, const std::string& destinationCellId, const Position& destinationPosition)
+{
+    const ActorInstanceKey identity = unpackActorInstanceId(actorId);
+    if (identity.kind != ActorKeyKind::VanillaRefNum || destinationCellId.empty()
+        || (isExteriorCellKey(destinationCellId)
+            && exteriorCellIdForPosition(destinationPosition) != destinationCellId))
+        return false;
+
+    std::string sourceCellId;
+    ActorRegistryRecord* found = findActorByNetId(actorId, &sourceCellId);
+    if (!found || found->actor.isDead || found->actorAuthorityReason == "script-owner")
+        return false;
+    auto sourceCellIt = mWorld.actorCells.find(sourceCellId);
+    if (sourceCellIt == mWorld.actorCells.end())
+        return false;
+    const std::string actorKey = makeActorKey(found->actor);
+    auto sourceActorIt = sourceCellIt->second.actors.find(actorKey);
+    if (sourceActorIt == sourceCellIt->second.actors.end()
+        || sourceActorIt->second.get() != found)
+        return false;
+
+    const uint64_t timestamp = currentServerTimeMs();
+    const uint32_t sourceSnapshotSequence = sourceCellIt->second.nextSnapshotSequence++;
+    const uint32_t sourceAuthorityGuid = sourceCellIt->second.authorityGuid;
+    const uint32_t sourceAuthorityGeneration = sourceCellIt->second.authorityGeneration;
+    ActorRegistryRecord& record = *sourceActorIt->second;
+    cancelActorAuthorityTransfer(record);
+    forgetActorLocation(record.actor, sourceCellId);
+    record.actor.position = destinationPosition;
+    record.actor.position.isTeleporting = true;
+    record.actor.velocity = Velocity {};
+    record.actor.isMoving = false;
+    record.actor.animFlags.animFwd = 0.f;
+    record.actor.animFlags.animSide = 0.f;
+    record.actor.cellId = destinationCellId;
+    ++record.migrationGeneration;
+    if (record.migrationGeneration == 0)
+        ++record.migrationGeneration;
+    record.actor.migrationGeneration = record.migrationGeneration;
+    record.lastSnapshotTime = timestamp;
+    record.previousCellId = sourceCellId;
+    record.previousCellAuthorityGuid = record.actorAuthorityGuid;
+    record.lastCellChangeTime = timestamp;
+
+    // An admin teleport is discontinuous. Revoke the old simulator before
+    // choosing one near the destination so an in-flight old position cannot
+    // pull the actor back across the world.
+    record.actorAuthorityGuid = 0;
+    record.actorAuthorityTargetGuid = 0;
+    record.actorAuthorityLeaseUntilMs = 0;
+    record.actorAuthorityReason.clear();
+    ++record.actorAuthorityGeneration;
+    if (record.actorAuthorityGeneration == 0)
+        ++record.actorAuthorityGeneration;
+
+    if (sourceCellId != destinationCellId)
+    {
+        auto movedNode = sourceCellIt->second.actors.extract(sourceActorIt);
+        std::unordered_set<std::string> changedCellIds;
+        removeActorFromOtherCells(record.actor, destinationCellId, changedCellIds);
+        auto& destinationCell = mWorld.actorCells[destinationCellId];
+        destinationCell.actors.erase(actorKey);
+        destinationCell.actors.insert(std::move(movedNode));
+    }
+    auto& destinationCell = mWorld.actorCells[destinationCellId];
+    ActorRegistryRecord& moved = *destinationCell.actors.at(actorKey);
+    ensureActorNetId(moved, destinationCellId);
+    rememberActorLocation(moved.actor, destinationCellId);
+    persistSpawnedActorIfNeeded(moved);
+    markLuaActorDirty(moved, destinationCellId);
+
+    ActorList relocation;
+    relocation.cellId = sourceCellId;
+    relocation.isAuthority = false;
+    relocation.authorityGuid = sourceAuthorityGuid;
+    relocation.authorityGeneration = sourceAuthorityGeneration;
+    relocation.snapshotSequence = sourceSnapshotSequence;
+    relocation.serverTimestamp = timestamp;
+    relocation.actors.push_back(moved.actor);
+    PacketActorCellChange relocationPacket;
+    relocationPacket.setActorList(&relocation);
+    const std::vector<uint8_t> encodedRelocation = relocationPacket.encode();
+
+    broadcastActorAuthorityLease(destinationCellId, moved);
+    for (auto& [conn, client] : mClients)
+    {
+        if (!clientHasActorCellLoaded(client, sourceCellId)
+            && !clientHasActorCellLoaded(client, destinationCellId)
+            && client.actorV2IdentitySent.count(actorId) == 0)
+            continue;
+
+        if (client.actorSyncProtocolVersion >= ActorSyncProtocolVersionV2
+            && client.actorV2IdentitySent.count(actorId) == 0)
+        {
+            ActorIdentityList identityList;
+            identityList.protocolVersion = ActorSyncProtocolVersionV2;
+            identityList.cellId = destinationCellId;
+            identityList.authorityGuid = destinationCell.authorityGuid;
+            identityList.authorityGeneration = destinationCell.authorityGeneration;
+            identityList.sequence = destinationCell.nextSnapshotSequence++;
+            identityList.serverTimestamp = timestamp;
+            ActorIdentityRecord identityRecord;
+            identityRecord.actorNetId = actorId;
+            identityRecord.persistent = moved.persistent;
+            identityRecord.serverSpawned = false;
+            identityRecord.migrationGeneration = moved.migrationGeneration;
+            identityRecord.actor = moved.actor;
+            identityList.actors.push_back(std::move(identityRecord));
+            PacketActorIdentity identityPacket;
+            identityPacket.setIdentityList(&identityList);
+            sendTo(conn, identityPacket.encode());
+            client.actorV2IdentitySent.insert(actorId);
+        }
+        sendTo(conn, encodedRelocation);
+    }
+
+    updateActorAuthorityLeaseFromAi(destinationCellId, moved, moved.actor, timestamp, "ScriptActorTeleport");
+    Log(Debug::Info) << "[Server] Admin actor teleport"
+                     << " actorNetId=" << actorId
+                     << " refId=" << moved.actor.refId
+                     << " from=" << sourceCellId
+                     << " to=" << destinationCellId
+                     << " pos=(" << destinationPosition.pos[0] << ","
+                     << destinationPosition.pos[1] << "," << destinationPosition.pos[2] << ")";
+    return true;
+}
+
 bool MPServer::removeActor(uint32_t mpNum, const std::string& cellId)
 {
     if (mpNum == 0)
@@ -21752,6 +21934,7 @@ void MPServer::rebuildLuaActorSnapshot()
             snapshot.persistent = record.persistent;
             snapshot.authorityGuid = isActorAuthorityLeaseValid(record, cellId)
                 ? record.actorAuthorityGuid : cellState.authorityGuid;
+            snapshot.authorityReason = record.actorAuthorityReason;
             snapshot.isNpc = mContentRegistry && mContentRegistry->store().get<ESM::NPC>().search(
                 ESM::RefId::stringRefId(record.actor.refId)) != nullptr;
             actors.push_back(std::move(snapshot));
@@ -21819,6 +22002,7 @@ void MPServer::flushLuaActorChanges()
         snapshot.persistent = actorIt->second->persistent;
         snapshot.authorityGuid = isActorAuthorityLeaseValid(*actorIt->second, location.cellId)
             ? actorIt->second->actorAuthorityGuid : cellIt->second.authorityGuid;
+        snapshot.authorityReason = actorIt->second->actorAuthorityReason;
         snapshot.isNpc = mContentRegistry && mContentRegistry->store().get<ESM::NPC>().search(
             ESM::RefId::stringRefId(snapshot.actor.refId)) != nullptr;
         mLua.upsertActor(std::move(snapshot));

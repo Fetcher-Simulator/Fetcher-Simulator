@@ -366,6 +366,9 @@ namespace mwmp
             // Log-dedup: stale generated spawner record ids that were found as
             // vanilla actors in local content and intentionally not exported.
             std::unordered_set<std::string> authoritySkippedUnmanagedSpawners;
+            // Client-local dynamic refs need a server identity before they can
+            // enter an authoritative actor roster.
+            std::unordered_set<uint32_t> authoritySkippedUnmappedDynamicRefNums;
         };
 
         void queueSnapshot(ActorRuntime& actor, const BaseActor& state, const ActorList& list);
@@ -446,8 +449,10 @@ namespace mwmp
             bool commitReceived = false;
             bool snapshotApplied = false;
             std::string lastReadyBlockReason;
+            uint64_t nextCellMismatchDiagnosticMs = 0;
         };
         std::unordered_map<ActorInstanceId, PendingAuthorityTransfer> mPendingAuthorityTransfers;
+        std::unordered_map<ActorInstanceId, uint64_t> mNextIceMageDiagnosticMs;
         std::unordered_map<ActorInstanceId, uint32_t>       mActorAuthorityGuids;
         std::unordered_map<ActorInstanceId, uint32_t>       mActorAuthorityGenerations;
         std::unordered_map<ActorInstanceId, uint32_t>       mMechanicsSnapshotSequences;
@@ -481,6 +486,7 @@ namespace mwmp
         bool mHaveLastLocalCellId = false;
         uint64_t mUpdateSerial = 0;
         uint64_t mActorV2DiagnosticsLastLogMs = 0;
+        uint64_t mCombatSceneTraceLastLogMs = 0;
         std::size_t mActorV2SnapshotsWindow = 0;
         std::size_t mActorV2InvalidActorIdWindow = 0;
         std::size_t mActorV2MissingIdentityWindow = 0;

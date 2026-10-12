@@ -256,6 +256,7 @@ public:
         const std::string& refId, uint32_t refNum, uint32_t mpNum, const std::string& cellId, const Position& position,
         bool persistent = true, uint32_t authorityGuid = 0);
     bool removeActor(uint32_t mpNum, const std::string& cellId);
+    bool teleportActor(ActorInstanceId actorId, const std::string& cellId, const Position& position);
     bool removeGameObject(uint32_t mpNum, const std::string& cellId);
     bool resetCellStateForTesting(const std::string& cellId);
     std::size_t resetAllCellStatesForTesting();
@@ -862,6 +863,10 @@ private:
         // An ActorList can omit and later recreate a vanilla actor. Keep its
         // highest lease generation so a new record cannot send an older lease.
         std::unordered_map<ActorInstanceId, uint32_t> actorAuthorityGenerationHighWater;
+        // A recreated record must also retain its latest cell-migration epoch.
+        // Otherwise Prepare can advertise generation 1 to a client that already
+        // crossed the actor into a later generation and will never send Ready.
+        std::unordered_map<ActorInstanceId, uint32_t> actorMigrationGenerationHighWater;
         std::unordered_map<std::string, std::unordered_map<std::string, ActorRegistryRecord>> deadVanillaActorCells;
         std::unordered_map<std::string, BaseActor> disposedVanillaActors;
         uint64_t nextObjectMpNum = 1;

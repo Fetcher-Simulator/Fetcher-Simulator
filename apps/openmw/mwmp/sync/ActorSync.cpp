@@ -1110,7 +1110,9 @@ namespace mwmp
         mDisposedVanillaActorsByCell.clear();
         mActorsByNetId.clear();
         mPendingAuthorityTransfers.clear();
+        mNextIceMageDiagnosticMs.clear();
         mActorV2DiagnosticsLastLogMs = 0;
+        mCombatSceneTraceLastLogMs = 0;
         mActorV2SnapshotsWindow = 0;
         mActorV2InvalidActorIdWindow = 0;
         mActorV2MissingIdentityWindow = 0;
@@ -1469,6 +1471,7 @@ namespace mwmp
 
         std::vector<MWWorld::Ptr> vanillaActors;
         std::vector<MWWorld::Ptr> leveledSpawners;
+        std::vector<MWWorld::Ptr> localDynamicActors;
         cell.forEach([&](MWWorld::Ptr ptr) -> bool
         {
             if (ptr.isEmpty())
@@ -1477,6 +1480,9 @@ namespace mwmp
                 leveledSpawners.push_back(ptr);
             else if (ptr.getClass().isActor() && ptr.getCellRef().hasContentFile())
                 vanillaActors.push_back(ptr);
+            else if (ptr.getClass().isActor() && ptr != world->getPlayerPtr()
+                && !isNetworkPlayerProxy(ptr))
+                localDynamicActors.push_back(ptr);
             return true;
         }, true);
 
@@ -1493,6 +1499,26 @@ namespace mwmp
             if (suppressLeveledRoll)
                 leveledClass.setSpawnedActor(spawner, MWWorld::Ptr());
         }
+
+        // Resetting a live cell must also remove leveled children that have
+        // migrated away from their source spawner. They have temporary local
+        // RefNums; leaving them behind lets the next authority roster publish
+        // client-specific actors that no other player can bind.
+        std::size_t removedDynamicActors = 0;
+        for (const MWWorld::Ptr& actor : localDynamicActors)
+        {
+            MWWorld::Ptr current = MWBase::Environment::get().getWorldModel()->getCurrentPtr(actor);
+            if (current.isEmpty() || current.getCellRef().getCount() <= 0
+                || current.getCellRef().hasContentFile() || cellIdForPtr(current) != cellIdForStore(cell))
+                continue;
+            ScopedLocalDeleteSuppression suppression(Main::get().getWorldObjectSync());
+            world->deleteObject(current);
+            ++removedDynamicActors;
+        }
+        if (removedDynamicActors != 0)
+            Log(Debug::Info) << "[MP] ActorSync: removed local dynamic actors on cell reset"
+                             << " cell=" << cellIdForStore(cell)
+                             << " count=" << removedDynamicActors;
 
         for (const MWWorld::Ptr& actor : vanillaActors)
         {
@@ -1553,6 +1579,22 @@ namespace mwmp
     {
         if (cellId.empty())
             return;
+
+        // A migrated leveled-list child can be a placed local actor rather
+        // than the current child of its source spawner. Remember those Ptrs
+        // before clearing the canonical mapping; otherwise the next cell
+        // roster publishes their temporary local RefNums as new actors.
+        std::vector<MWWorld::Ptr> reconciledChildrenToRemove;
+        for (const auto& [actorNetId, ptr] : mReconciledVanillaActorsByNetId)
+        {
+            (void)actorNetId;
+            if (ptr.isEmpty() || ptr.getCellRef().hasContentFile()
+                || cellIdForPtr(ptr) != cellId)
+                continue;
+            if (std::none_of(reconciledChildrenToRemove.begin(), reconciledChildrenToRemove.end(),
+                    [&](const MWWorld::Ptr& existing) { return sameLocalActorObject(existing, ptr); }))
+                reconciledChildrenToRemove.push_back(ptr);
+        }
 
         std::unordered_set<ActorInstanceId> actorNetIds;
         for (const auto& [indexedCellId, cell] : mCells)
@@ -1630,6 +1672,21 @@ namespace mwmp
                 forceResetCellActorsToBaseState(*activeCell, true);
                 mCellResetsPending.erase(cellId);
             }
+            std::size_t removedReconciledChildren = 0;
+            for (const MWWorld::Ptr& ptr : reconciledChildrenToRemove)
+            {
+                MWWorld::Ptr current = MWBase::Environment::get().getWorldModel()->getCurrentPtr(ptr);
+                if (current.isEmpty() || current.getCellRef().getCount() <= 0
+                    || cellIdForPtr(current) != cellId)
+                    continue;
+                ScopedLocalDeleteSuppression suppression(Main::get().getWorldObjectSync());
+                world->deleteObject(current);
+                ++removedReconciledChildren;
+            }
+            if (removedReconciledChildren != 0)
+                Log(Debug::Info) << "[MP] ActorSync: removed reconciled local children on cell reset"
+                                 << " cell=" << cellId
+                                 << " count=" << removedReconciledChildren;
         }
 
         Log(Debug::Info) << "[MP] ActorSync: invalidated cached actor state for cell reset"
@@ -1905,9 +1962,15 @@ namespace mwmp
                 continue;
             const auto blocked = [&](const char* reason, const ActorRuntime* runtime = nullptr)
             {
-                if (pending.lastReadyBlockReason == reason)
+                const bool cellMismatch = std::string_view(reason) == "bound-cell-mismatch";
+                const uint64_t nowMs = currentClientTimeMs();
+                const bool periodicCellMismatch = cellMismatch
+                    && nowMs >= pending.nextCellMismatchDiagnosticMs;
+                if (pending.lastReadyBlockReason == reason && !periodicCellMismatch)
                     return;
                 pending.lastReadyBlockReason = reason;
+                if (cellMismatch)
+                    pending.nextCellMismatchDiagnosticMs = nowMs + 2000;
                 Log(Debug::Info) << "[MPDIAG] ActorSync: authority transfer not ready"
                                  << " actorNetId=" << actorNetId
                                  << " transferId=" << pending.prepare.transferId
@@ -1921,6 +1984,22 @@ namespace mwmp
                                  << " runtimeMigrationGen=" << (runtime ? runtime->migrationGeneration : 0)
                                  << " boundCell=" << (runtime && !runtime->boundActor.isEmpty()
                                         ? cellIdForPtr(runtime->boundActor) : "<none>");
+                if (cellMismatch && runtime && !runtime->boundActor.isEmpty())
+                {
+                    const auto& boundPos = runtime->boundActor.getRefData().getPosition();
+                    Log(Debug::Info) << "[MPDIAG] ActorSync: boundary transfer binding"
+                                     << " actorNetId=" << actorNetId
+                                     << " transferId=" << pending.prepare.transferId
+                                     << " refId=" << runtime->state.refId
+                                     << " runtimeCell=" << runtime->state.cellId
+                                     << " boundCell=" << cellIdForPtr(runtime->boundActor)
+                                     << " runtimePos=(" << runtime->state.position.pos[0]
+                                     << "," << runtime->state.position.pos[1]
+                                     << "," << runtime->state.position.pos[2] << ")"
+                                     << " boundPos=(" << boundPos.pos[0] << ","
+                                     << boundPos.pos[1] << "," << boundPos.pos[2] << ")"
+                                     << " sceneNode=" << (runtime->boundActor.getRefData().getBaseNode() != nullptr);
+                }
             };
             const auto runtimeIt = mActorsByNetId.find(actorNetId);
             if (runtimeIt == mActorsByNetId.end())
@@ -1954,12 +2033,25 @@ namespace mwmp
                 blocked("missing-world", &runtime);
                 continue;
             }
-            if (cellIdForPtr(runtime.boundActor) != pending.prepare.cellId)
+            const std::string boundCellId = cellIdForPtr(runtime.boundActor);
+            // Vanilla actors can physically step a few units into the next
+            // CellStore while the reliable ActorCellChange is held by border
+            // hysteresis. The bound scene actor is still safe to simulate there.
+            const bool heldAtExteriorBorder = runtime.state.mpNum == 0
+                && isExteriorActorCellId(pending.prepare.cellId)
+                && isExteriorActorCellId(boundCellId)
+                && boundCellId == exteriorCellIdForPosition(runtime.state.position)
+                && boundCellId == exteriorCellIdForPosition(pending.prepare.actor.position)
+                && exteriorCellBorderDistance(runtime.state.position) <= 64.f
+                && exteriorCellBorderDistance(pending.prepare.actor.position) <= 64.f;
+            if (boundCellId != pending.prepare.cellId && !heldAtExteriorBorder)
             {
                 blocked("bound-cell-mismatch", &runtime);
                 continue;
             }
-            if (!findActiveCellById(static_cast<MWWorld::World&>(*transferWorld), pending.prepare.cellId))
+            const std::string& simulationCellId = heldAtExteriorBorder
+                ? boundCellId : pending.prepare.cellId;
+            if (!findActiveCellById(static_cast<MWWorld::World&>(*transferWorld), simulationCellId))
             {
                 blocked("inactive-cell", &runtime);
                 continue;
@@ -2006,6 +2098,7 @@ namespace mwmp
             Log(Debug::Info) << "[MP] ActorSync: authority transfer ready"
                              << " actorNetId=" << actorNetId
                              << " cell=" << ready.cellId
+                             << " simulationCell=" << simulationCellId
                              << " generation=" << ready.authorityGeneration
                              << " transferId=" << ready.transferId;
         }
@@ -2389,6 +2482,133 @@ namespace mwmp
                                     << " cell=" << cellId;
         }
 
+        // Short-lived handoff diagnostic: compare the primary runtime, real
+        // CellStore Ptr, and render-node state for nearby combat actors on both
+        // clients. This identifies an observer-only frozen copy without asking
+        // the player to select individual actors in the console.
+        const uint64_t sceneTraceNowMs = currentClientTimeMs();
+        if (mCombatSceneTraceLastLogMs == 0 || sceneTraceNowMs - mCombatSceneTraceLastLogMs >= 3000)
+        {
+            mCombatSceneTraceLastLogMs = sceneTraceNowMs;
+            MWBase::World* sceneTraceWorld = MWBase::Environment::get().getWorld();
+            const MWWorld::Ptr localPlayer = sceneTraceWorld ? sceneTraceWorld->getPlayerPtr() : MWWorld::Ptr {};
+            if (!localPlayer.isEmpty())
+            {
+                const auto playerPosition = localPlayer.getRefData().getPosition().asVec3();
+                std::vector<std::pair<float, const ActorRuntime*>> nearbyCombatActors;
+                for (const auto& [actorNetId, actor] : mActorsByNetId)
+                {
+                    (void)actorNetId;
+                    if (actor.state.ai.type != BaseActor::AIAction::Type::Combat
+                        && actor.state.ai.type != BaseActor::AIAction::Type::Pursue)
+                        continue;
+                    const Position& position = actor.state.position;
+                    const osg::Vec3f actorPosition = actor.boundActor.isEmpty()
+                        ? osg::Vec3f(position.pos[0], position.pos[1], position.pos[2])
+                        : actor.boundActor.getRefData().getPosition().asVec3();
+                    const float distanceSquared = (playerPosition - actorPosition).length2();
+                    if (distanceSquared <= 8192.f * 8192.f)
+                        nearbyCombatActors.emplace_back(distanceSquared, &actor);
+                }
+                std::sort(nearbyCombatActors.begin(), nearbyCombatActors.end(),
+                    [](const auto& left, const auto& right) { return left.first < right.first; });
+                const std::size_t count = std::min<std::size_t>(nearbyCombatActors.size(), 24);
+                for (std::size_t index = 0; index < count; ++index)
+                {
+                    const ActorRuntime& actor = *nearbyCombatActors[index].second;
+                    const MWWorld::Ptr& ptr = actor.boundActor;
+                    bool markedAuthority = false;
+                    bool markedRemote = false;
+                    bool hiddenUntilFresh = false;
+                    unsigned int nodeMask = 0;
+                    bool mechanicsCombat = false;
+                    float boundX = 0.f;
+                    float boundY = 0.f;
+                    if (!ptr.isEmpty())
+                    {
+                        const auto& boundPosition = ptr.getRefData().getPosition();
+                        boundX = boundPosition.pos[0];
+                        boundY = boundPosition.pos[1];
+                        if (ptr.getClass().isActor())
+                            mechanicsCombat = ptr.getClass().getCreatureStats(ptr).getAiSequence().isInCombat();
+                        if (auto* node = ptr.getRefData().getBaseNode())
+                        {
+                            node->getUserValue("mp_authoritative_actor", markedAuthority);
+                            node->getUserValue("mp_remote_actor", markedRemote);
+                            node->getUserValue("mp_hide_until_fresh_actor_snapshot", hiddenUntilFresh);
+                            nodeMask = node->getNodeMask();
+                        }
+                    }
+                    Log(Debug::Info) << "[MPDIAG] Combat actor scene"
+                                     << " actorNetId=" << actor.actorNetId
+                                     << " refId=" << actor.state.refId
+                                     << " authority=" << hasAuthorityForActor(actor.actorNetId, actor.state.cellId)
+                                     << " stateCell=" << actor.state.cellId
+                                     << " boundCell=" << (ptr.isEmpty() ? "<none>" : cellIdForPtr(ptr))
+                                     << " statePos=(" << actor.state.position.pos[0] << "," << actor.state.position.pos[1] << ")"
+                                     << " boundPos=(" << boundX << "," << boundY << ")"
+                                     << " distance=" << std::sqrt(nearbyCombatActors[index].first)
+                                     << " nodeMask=" << nodeMask
+                                     << " nodeAuthority=" << markedAuthority
+                                     << " nodeRemote=" << markedRemote
+                                     << " hiddenUntilFresh=" << hiddenUntilFresh
+                                     << " mechanicsCombat=" << mechanicsCombat
+                                     << " aiType=" << static_cast<int>(actor.state.ai.type)
+                                     << " target=" << actor.state.ai.targetId
+                                     << " moving=" << actor.state.isMoving
+                                     << " snapshots=" << actor.snapshots.size()
+                                     << " lastSnapshotAgeMs=" << (actor.lastClientSnapshotReceiveTimeMs == 0
+                                            ? 0 : sceneTraceNowMs - actor.lastClientSnapshotReceiveTimeMs);
+                }
+
+                std::vector<std::pair<float, MWWorld::Ptr>> unboundVisibleActors;
+                std::unordered_set<MWWorld::LiveCellRefBase*> primaryBindings;
+                for (const auto& [actorNetId, actor] : mActorsByNetId)
+                {
+                    (void)actorNetId;
+                    if (!actor.boundActor.isEmpty())
+                        primaryBindings.insert(actor.boundActor.getBase());
+                }
+                auto& worldImp = static_cast<MWWorld::World&>(*sceneTraceWorld);
+                for (MWWorld::CellStore* activeCell : worldImp.getWorldScene().getActiveCells())
+                {
+                    activeCell->forEach([&](MWWorld::Ptr ptr) -> bool
+                    {
+                        if (ptr.isEmpty() || !ptr.getClass().isActor()
+                            || ptr.getCellRef().getCount() <= 0 || !ptr.getRefData().isEnabled())
+                            return true;
+                        auto* node = ptr.getRefData().getBaseNode();
+                        if (!node || node->getNodeMask() == 0)
+                            return true;
+                        const std::string refId = ptr.getCellRef().getRefId().serializeText();
+                        if (refId.find("zombie") == std::string::npos)
+                            return true;
+                        const float distanceSquared
+                            = (playerPosition - ptr.getRefData().getPosition().asVec3()).length2();
+                        if (distanceSquared > 8192.f * 8192.f)
+                            return true;
+                        if (!primaryBindings.contains(ptr.getBase()))
+                            unboundVisibleActors.emplace_back(distanceSquared, ptr);
+                        return true;
+                    });
+                }
+                std::sort(unboundVisibleActors.begin(), unboundVisibleActors.end(),
+                    [](const auto& left, const auto& right) { return left.first < right.first; });
+                for (std::size_t index = 0; index < std::min<std::size_t>(unboundVisibleActors.size(), 12); ++index)
+                {
+                    const MWWorld::Ptr& ptr = unboundVisibleActors[index].second;
+                    const auto& position = ptr.getRefData().getPosition();
+                    Log(Debug::Info) << "[MPDIAG] Unbound visible zombie"
+                                     << " refId=" << ptr.getCellRef().getRefId().serializeText()
+                                     << " refIndex=" << ptr.getCellRef().getRefNum().mIndex
+                                     << " contentFile=" << ptr.getCellRef().getRefNum().mContentFile
+                                     << " cell=" << cellIdForPtr(ptr)
+                                     << " pos=(" << position.pos[0] << "," << position.pos[1] << ")"
+                                     << " distance=" << std::sqrt(unboundVisibleActors[index].first);
+                }
+            }
+        }
+
     }
 
     void ActorSync::updateLoadedCellBootstrapVisuals()
@@ -2684,6 +2904,40 @@ namespace mwmp
         runtime.stationaryReleaseTimer = 0.f;
         runtime.deferCellStoreRebind = false;
         pendingIt->second.snapshotApplied = true;
+        if (runtime.boundActor.getClass().isActor())
+        {
+            MWMechanics::CreatureStats& stats
+                = runtime.boundActor.getClass().getCreatureStats(runtime.boundActor);
+            const float previousMagicka = stats.getMagicka().getCurrent();
+            const auto& canonicalMagicka = runtime.state.dynamicStats.magicka;
+            MWMechanics::DynamicStat<float> magicka = stats.getMagicka();
+            magicka.setBase(canonicalMagicka.base);
+            magicka.setModifier(canonicalMagicka.mod);
+            magicka.setCurrent(canonicalMagicka.current, true, true);
+            stats.setMagicka(magicka);
+
+            // A creature promoted in the middle of a remote attack/cast can
+            // inherit a puppet-owned random attack clip. Retire that clip and
+            // reset the controller before local AI tries to start the next cast.
+            const bool staleCreatureAttack = !runtime.state.isAttackingOrCasting
+                && isRandomCreatureAttackGroup(runtime.state.animFlags.currentAnimGroup);
+            if (staleCreatureAttack)
+            {
+                if (MWRender::Animation* animation = world->getAnimation(runtime.boundActor))
+                    animation->disable(runtime.state.animFlags.currentAnimGroup);
+                if (MWBase::MechanicsManager* mechanics
+                    = MWBase::Environment::get().getMechanicsManager())
+                    mechanics->forceStateUpdate(runtime.boundActor);
+                runtime.lastAppliedAnimGroup.clear();
+            }
+            Log(Debug::Info) << "[MPDIAG] ActorSync: promoted actor state"
+                             << " actorNetId=" << actorNetId
+                             << " refId=" << runtime.state.refId
+                             << " magickaBefore=" << previousMagicka
+                             << " magickaCanonical=" << canonicalMagicka.current
+                             << " staleCreatureAttack=" << staleCreatureAttack
+                             << " animGroup=" << runtime.state.animFlags.currentAnimGroup;
+        }
         applyBoundActorState(runtime);
         ActorAuthorityTransfer applied = pendingIt->second.prepare;
         applied.phase = ActorAuthorityTransferPhase::Applied;
@@ -4121,6 +4375,17 @@ namespace mwmp
                 primaryRuntime->state.cellId = destCellId;
                 mergeActorState(*primaryRuntime, actorState, true);
                 primaryRuntime->state.ai = actorState.ai;
+                if (actorState.position.isTeleporting)
+                {
+                    // Admin relocations can keep the same canonical cell. Clear
+                    // the old interpolation timeline before moving the Ptr so
+                    // neither an observer nor the current owner eases back to
+                    // the pre-teleport position.
+                    primaryRuntime->snapshots.clear();
+                    primaryRuntime->smoothedPosition = actorState.position;
+                    primaryRuntime->hasSmoothedPosition = true;
+                    cellMovePosition = actorState.position;
+                }
                 // Teleports and discontinuous migrations still rebase. A normal
                 // adjacent exterior crossing keeps its buffered timeline: the
                 // Ptr is moved to the canonical destination CellStore below,
@@ -4244,6 +4509,23 @@ namespace mwmp
                 const auto bindingStarted = std::chrono::steady_clock::now();
                 const bool bindingResolved = deferObserverCellStoreRebind
                     || resolveActorBinding(destCellId, *primaryRuntime, true);
+                if (bindingResolved && actorState.position.isTeleporting
+                    && !primaryRuntime->boundActor.isEmpty())
+                {
+                    if (MWBase::World* world = MWBase::Environment::get().getWorld())
+                    {
+                        if (MWWorld::CellStore* destinationCell = findActiveCellById(
+                                static_cast<MWWorld::World&>(*world), destCellId))
+                        {
+                            const Position& teleport = actorState.position;
+                            primaryRuntime->boundActor = world->moveObject(primaryRuntime->boundActor,
+                                destinationCell, osg::Vec3f(teleport.pos[0], teleport.pos[1], teleport.pos[2]));
+                            if (!primaryRuntime->boundActor.isEmpty())
+                                world->rotateObject(primaryRuntime->boundActor,
+                                    osg::Vec3f(teleport.rot[0], teleport.rot[1], teleport.rot[2]));
+                        }
+                    }
+                }
                 const double bindingElapsedMs = std::chrono::duration<double, std::milli>(
                     std::chrono::steady_clock::now() - bindingStarted).count();
                 const std::string boundCellAfter = !primaryRuntime->boundActor.isEmpty()
@@ -6865,9 +7147,12 @@ namespace mwmp
         mClient.sendReliable(pkt.encode());
 
         Log(Debug::Info) << "[MP] ActorSync: notifyNpcCast " << castActor.refId
+                         << " actorNetId=" << actorNetIdForPtr(cellId, npc)
                          << " spell='" << spellId << "' castAnim='" << castAnim
                          << "' target='" << castActor.cast.targetRefId
-                         << "' release=" << release;
+                         << "' targetGuid=" << castActor.cast.targetGuid
+                         << " magicka=" << npc.getClass().getCreatureStats(npc).getMagicka().getCurrent()
+                         << " release=" << release;
     }
 
     void ActorSync::queueSnapshot(ActorRuntime& actor, const BaseActor& state, const ActorList& list)
@@ -8168,6 +8453,7 @@ namespace mwmp
             cell.lastSentActorListKeys.clear();
             cell.authorityLoggedMpNums.clear();
             cell.authoritySkippedUnmanagedSpawners.clear();
+            cell.authoritySkippedUnmappedDynamicRefNums.clear();
         }
 
         MWWorld::World& worldImp = static_cast<MWWorld::World&>(*world);
@@ -8367,6 +8653,34 @@ namespace mwmp
             }
 
             const uint32_t mappedMpNum = mappedMpNumForPtr(ptr);
+            if (!ptr.getCellRef().hasContentFile() && mappedMpNum == 0
+                && actor.refNum == localRefNumIndex)
+            {
+                // A leveled child can outlive its local spawner association
+                // after migration or a live cell reset. Its generated refNum
+                // is unique only on this client and must never become a
+                // server-side vanilla actor identity.
+                const ActorInstanceKey knownKey
+                    = unpackActorInstanceId(actorNetIdForPtr(cell.outboundCellId, ptr));
+                if (knownKey.kind == ActorKeyKind::VanillaRefNum
+                    && knownKey.id != localRefNumIndex)
+                {
+                    actor.refNum = knownKey.id;
+                    if (const auto knownRuntime = mActorsByNetId.find(
+                            packActorInstanceKey(knownKey));
+                        knownRuntime != mActorsByNetId.end())
+                        actor.refId = knownRuntime->second.state.refId;
+                }
+                else
+                {
+                    if (cell.authoritySkippedUnmappedDynamicRefNums.insert(localRefNumIndex).second)
+                        Log(Debug::Info) << "[MP] ActorSync: skipped unmapped local dynamic actor"
+                                         << " cell=" << cell.outboundCellId
+                                         << " refId=" << actor.refId
+                                         << " localRefNum=" << localRefNumIndex;
+                    return true;
+                }
+            }
             const ActorInstanceId canonicalActorNetId = actorNetIdForActorState(actor);
             const ActorInstanceId collectionActorNetId = mappedMpNum != 0
                 ? packActorInstanceKey({ ActorKeyKind::SpawnedMpNum, mappedMpNum }) : canonicalActorNetId;
@@ -9075,6 +9389,37 @@ namespace mwmp
                     }
                     if (!classified)
                         ++invalidMechanicsSnapshots.otherValidationFailure;
+                }
+            }
+
+            // This mage cast repeatedly before the disconnect handoff, then
+            // stopped sending releases while its animation still looked active.
+            // Sample the owning controller without logging every mechanics tick.
+            if (actor.refId == "zombie 3 mage l ice" && outgoingActorNetId != 0)
+            {
+                const uint64_t nowMs = currentClientTimeMs();
+                uint64_t& nextLogMs = mNextIceMageDiagnosticMs[outgoingActorNetId];
+                if (nowMs >= nextLogMs)
+                {
+                    nextLogMs = nowMs + 2000;
+                    const ESM::RefId& selectedSpell = stats.getSpells().getSelectedSpell();
+                    Log(Debug::Info) << "[MPDIAG] ActorSync: ice mage authority state"
+                                     << " actorNetId=" << outgoingActorNetId
+                                     << " cell=" << actor.cellId
+                                     << " boundCell=" << cellIdForPtr(ptr)
+                                     << " pos=(" << actor.position.pos[0] << ","
+                                     << actor.position.pos[1] << "," << actor.position.pos[2] << ")"
+                                     << " magicka=" << actor.dynamicStats.magicka.current
+                                     << " selectedSpell=" << selectedSpell.serializeText()
+                                     << " aiType=" << static_cast<int>(actor.ai.type)
+                                     << " aiTarget=" << actor.ai.targetId
+                                     << " targetDistance=" << (aiTarget.isEmpty()
+                                            ? -1.f : std::sqrt(distanceSquared(ptr, aiTarget)))
+                                     << " hostilePlayers=" << actor.ai.combatPlayerTargets.size()
+                                     << " attackingOrCasting=" << actor.isAttackingOrCasting
+                                     << " attackEdge=" << actor.attack.pressed
+                                     << " spellReadied=" << actor.hasSpellReadied
+                                     << " animGroup=" << actor.animFlags.currentAnimGroup;
                 }
             }
 
@@ -9873,16 +10218,21 @@ namespace mwmp
             // actors that flicker in and out of an authority scan (notably dead
             // vanilla actors) emit an ActorStatsDynamic packet every scan.
             const float healthDelta = std::abs(actor.dynamicStats.health.current - prevHealth);
-            if (prevIt != cell.actors.end() && healthDelta > 0.5f)
+            const float prevMagicka = (prevIt != cell.actors.end())
+                ? prevIt->second.state.dynamicStats.magicka.current : actor.dynamicStats.magicka.current;
+            const float magickaDelta = std::abs(actor.dynamicStats.magicka.current - prevMagicka);
+            if (prevIt != cell.actors.end() && (healthDelta > 0.5f || magickaDelta > 0.5f))
             {
                 const bool importantHealthChange = healthDelta > 0.5f
                     && (actor.mpNum != 0 || actor.ai.type == BaseActor::AIAction::Type::Combat
                         || actor.isAttackingOrCasting);
                 Log(importantHealthChange ? Debug::Info : Debug::Verbose)
-                    << "[MP] ActorSync: health update for " << actor.refId
+                    << "[MP] ActorSync: dynamic stats update for " << actor.refId
                     << " mpNum=" << actor.mpNum
-                    << " prev=" << prevHealth
-                    << " cur=" << actor.dynamicStats.health.current
+                    << " healthPrev=" << prevHealth
+                    << " healthCur=" << actor.dynamicStats.health.current
+                    << " magickaPrev=" << prevMagicka
+                    << " magickaCur=" << actor.dynamicStats.magicka.current
                     << " dead=" << actor.isDead
                     << " firstSeen=0";
                 statsUpdate.actors.push_back(actor);

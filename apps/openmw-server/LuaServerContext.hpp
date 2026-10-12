@@ -63,6 +63,7 @@ struct LuaActorSnapshot
     BaseActor actor;
     bool persistent = false;
     uint32_t authorityGuid = 0;
+    std::string authorityReason;
     bool isNpc = false;
 };
 
@@ -145,6 +146,7 @@ public:
     float getWorldHour() const;
     std::optional<LuaActorSnapshot> getActor(uint32_t mpNum) const;
     std::optional<LuaActorSnapshot> getActorByInstanceId(ActorInstanceId actorId) const;
+    std::vector<LuaActorSnapshot> getActorsByLocalRefNum(uint32_t refIndex) const;
     std::optional<PlacedObject> getPlacedObject(uint32_t mpNum) const;
     SurfPhysicsSettings getGlobalSurfPhysicsSettings() const;
     SurfPhysicsSettings getCellSurfPhysicsSettings(const std::string& cellId) const;
@@ -179,6 +181,7 @@ public:
         const std::string& refId, uint32_t refNum, uint32_t mpNum, const std::string& cellId, const Position& position,
         bool persistent = true, uint32_t authorityGuid = 0);
     void queueRemoveActor(uint32_t mpNum, const std::string& cellId);
+    void queueTeleportActor(ActorInstanceId actorId, const std::string& cellId, const Position& position);
     void queueRemoveGameObject(uint32_t mpNum, const std::string& cellId);
     void queueResetCellState(const std::string& cellId);
     void queueResetAllCellStates();
