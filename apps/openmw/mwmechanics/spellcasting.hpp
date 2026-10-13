@@ -28,7 +28,8 @@ namespace MWMechanics
 
         void playSpellCastingEffects(const std::vector<ESM::IndexedENAMstruct>& effects) const;
 
-        void explodeSpell(const ESM::EffectList& effects, const MWWorld::Ptr& ignore, ESM::RangeType rangeType) const;
+        void explodeSpell(const ESM::EffectList& effects, const MWWorld::Ptr& ignore,
+            ESM::RangeType rangeType, bool playExplosionEffects = true) const;
 
         /// Launch a bolt with the given effects.
         void launchMagicBolt() const;
@@ -71,6 +72,10 @@ namespace MWMechanics
         /// @note \a target can be any type of object, not just actors.
         void inflict(const MWWorld::Ptr& target, const ESM::EffectList& effects, ESM::RangeType range,
             bool exploded = false) const;
+
+        /// Apply an area projectile's gameplay on this client's authoritative actors.
+        /// The projectile manager has already presented the impact effects.
+        void inflictAreaGameplay(const ESM::EffectList& effects, ESM::RangeType range) const;
     };
 
     void playEffects(const MWWorld::Ptr& target, const ESM::MagicEffect& magicEffect, bool playNonLooping = true);

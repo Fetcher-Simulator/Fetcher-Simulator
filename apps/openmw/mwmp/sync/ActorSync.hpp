@@ -119,7 +119,7 @@ namespace mwmp
             uint32_t candidateCanonicalRefNum, std::string_view candidateRefId, bool candidateIsLeveledSpawner);
         static bool isCompleteActorIdentitySnapshot(bool completeCellSnapshot);
         static bool shouldRetireLocalLeveledRoll(bool completeIdentitySnapshot,
-            bool authoritativeActorPresent, bool authoritativeActorMigrated);
+            bool authoritativeActorPresent, bool liveCanonicalActor);
         static bool shouldReplaceLocalLeveledRoll(bool authoritativeTransform,
             bool hasLocalActorAuthority, bool canonicalHandoffBaseline);
         static bool shouldInspectStationaryDestinationAuthorityEcho(
@@ -130,6 +130,7 @@ namespace mwmp
         {
             Position position;
             Velocity velocity;
+            float animationSpeed = 0.f;
             uint32_t sequence = 0;
             uint64_t serverTimestamp = 0;
             uint32_t migrationGeneration = 0;

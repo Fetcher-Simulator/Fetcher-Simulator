@@ -24,6 +24,9 @@ namespace mwmp
         // ------------------------------------------------------------------
         Position    position;
         Velocity    velocity;
+        // Current locomotion speed on the simulator, including temporary magic
+        // effects. Observers use this for animation cadence, never for movement.
+        float       animationSpeed = 0.f;
         bool        isMoving = false;
         bool        hasWeaponDrawn = false;
         bool        hasSpellReadied = false;

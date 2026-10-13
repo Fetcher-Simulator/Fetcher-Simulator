@@ -24,7 +24,8 @@ namespace mwmp
     // collapsing to the same deterministic ActorInstanceId.
     // Version 14 includes death event identity in authority-transfer snapshots.
     // Version 15 preserves all hostile player targets across authority handoff.
-    static constexpr uint32_t ActorSyncProtocolVersionV2 = 15;
+    // Version 16 carries authoritative locomotion speed in position snapshots.
+    static constexpr uint32_t ActorSyncProtocolVersionV2 = 16;
 
     using ActorInstanceId = uint64_t;
 
@@ -240,6 +241,7 @@ namespace mwmp
         uint32_t migrationGeneration = 0;
         Position position;
         Velocity velocity;
+        float animationSpeed = 0.f;
         uint16_t movementFlags = 0;
         int8_t animFwd = 0;
         int8_t animSide = 0;
@@ -364,6 +366,7 @@ namespace mwmp
         snapshot.migrationGeneration = actor.migrationGeneration;
         snapshot.position = actor.position;
         snapshot.velocity = actor.velocity;
+        snapshot.animationSpeed = actor.animationSpeed;
         snapshot.movementFlags = static_cast<uint16_t>(actor.animFlags.movementFlags);
         snapshot.animFwd = hasLocomotionInput ? quantizeActorAxis(animFwd) : 0;
         snapshot.animSide = hasLocomotionInput ? quantizeActorAxis(animSide) : 0;
@@ -378,6 +381,7 @@ namespace mwmp
 
         actor.position = snapshot.position;
         actor.velocity = snapshot.velocity;
+        actor.animationSpeed = snapshot.animationSpeed;
         applyActorPresentationFlags(actor, snapshot.presentationFlags);
         if (!includeDeathState)
             actor.isDead = previousDead;

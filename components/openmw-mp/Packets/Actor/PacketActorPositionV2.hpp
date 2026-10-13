@@ -113,6 +113,8 @@ namespace mwmp
                 ws.write(quantizeVelocity(axis));
             for (float axis : snapshot.velocity.angular)
                 ws.write(quantizeVelocity(axis));
+            const float finiteSpeed = std::isfinite(snapshot.animationSpeed) ? snapshot.animationSpeed : 0.f;
+            ws.write(static_cast<uint16_t>(std::round(std::clamp(finiteSpeed, 0.f, 6553.5f) * 10.f)));
             ws.write(snapshot.movementFlags);
             ws.write(snapshot.animFwd);
             ws.write(snapshot.animSide);
@@ -149,6 +151,9 @@ namespace mwmp
                 rs.read(velocityAxis);
                 axis = dequantizeVelocity(velocityAxis);
             }
+            uint16_t quantizedAnimationSpeed = 0;
+            rs.read(quantizedAnimationSpeed);
+            snapshot.animationSpeed = static_cast<float>(quantizedAnimationSpeed) / 10.f;
 
             rs.read(snapshot.movementFlags);
             rs.read(snapshot.animFwd);

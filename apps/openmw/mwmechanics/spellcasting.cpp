@@ -3,6 +3,7 @@
 #include <components/esm3/loadench.hpp>
 #include <components/esm3/loadmgef.hpp>
 #include <components/esm3/loadstat.hpp>
+#include <components/debug/debuglog.hpp>
 #include <components/misc/constants.hpp>
 #include <components/misc/resourcehelpers.hpp>
 #include <components/misc/rng.hpp>
@@ -26,6 +27,11 @@
 #include "spellutil.hpp"
 #include "weapontype.hpp"
 
+#ifdef BUILD_MULTIPLAYER
+#include "../mwmp/Main.hpp"
+#include "../mwmp/sync/ActorSync.hpp"
+#endif
+
 namespace MWMechanics
 {
     CastSpell::CastSpell(
@@ -37,11 +43,14 @@ namespace MWMechanics
     {
     }
 
-    void CastSpell::explodeSpell(
-        const ESM::EffectList& effects, const MWWorld::Ptr& ignore, ESM::RangeType rangeType) const
+    void CastSpell::explodeSpell(const ESM::EffectList& effects, const MWWorld::Ptr& ignore,
+        ESM::RangeType rangeType, bool playExplosionEffects) const
     {
         const auto world = MWBase::Environment::get().getWorld();
         std::map<MWWorld::Ptr, std::vector<ESM::IndexedENAMstruct>> toApply;
+#ifdef BUILD_MULTIPLAYER
+        std::map<MWWorld::Ptr, std::vector<ESM::IndexedENAMstruct>> toPresent;
+#endif
         for (const ESM::IndexedENAMstruct& effectInfo : effects.mList)
         {
             const ESM::MagicEffect* effect = world->getStore().get<ESM::MagicEffect>().find(effectInfo.mData.mEffectID);
@@ -59,28 +68,27 @@ namespace MWMechanics
                 continue; // Don't play explosion for touch spells on non-activatable objects except when spell is from
                           // a projectile enchantment or ExplodeSpell
 
-            // Spawn the explosion orb effect
-            const ESM::Static* areaStatic;
-            if (!effect->mArea.empty())
-                areaStatic = world->getStore().get<ESM::Static>().find(effect->mArea);
-            else
-                areaStatic = world->getStore().get<ESM::Static>().find(ESM::RefId::stringRefId("VFX_DefaultArea"));
-
-            const std::string& texture = effect->mParticle.getOriginal();
-
             if (effectInfo.mData.mArea <= 0)
             {
-                if (effectInfo.mData.mRange == ESM::RT_Target)
+                if (playExplosionEffects && effectInfo.mData.mRange == ESM::RT_Target)
+                {
+                    const ESM::Static* areaStatic = !effect->mArea.empty()
+                        ? world->getStore().get<ESM::Static>().find(effect->mArea)
+                        : world->getStore().get<ESM::Static>().find(ESM::RefId::stringRefId("VFX_DefaultArea"));
                     world->spawnEffect(Misc::ResourceHelpers::correctMeshPath(areaStatic->mModel.getNormalized()),
-                        texture, mHitPosition, 1.0f);
+                        effect->mParticle.getOriginal(), mHitPosition, 1.0f);
+                }
                 continue;
             }
-            else
-                world->spawnEffect(Misc::ResourceHelpers::correctMeshPath(areaStatic->mModel.getNormalized()), texture,
-                    mHitPosition, static_cast<float>(effectInfo.mData.mArea * 2));
-
-            // Play explosion sound (make sure to use NoTrack, since we will delete the projectile now)
+            if (playExplosionEffects)
             {
+                const ESM::Static* areaStatic = !effect->mArea.empty()
+                    ? world->getStore().get<ESM::Static>().find(effect->mArea)
+                    : world->getStore().get<ESM::Static>().find(ESM::RefId::stringRefId("VFX_DefaultArea"));
+                world->spawnEffect(Misc::ResourceHelpers::correctMeshPath(areaStatic->mModel.getNormalized()),
+                    effect->mParticle.getOriginal(), mHitPosition, static_cast<float>(effectInfo.mData.mArea * 2));
+
+                // Play explosion sound (make sure to use NoTrack, since we will delete the projectile now)
                 MWBase::SoundManager* sndMgr = MWBase::Environment::get().getSoundManager();
                 if (!effect->mAreaSound.empty())
                     sndMgr->playSound3D(mHitPosition, effect->mAreaSound, 1.0f, 1.0f);
@@ -100,6 +108,17 @@ namespace MWMechanics
                 // range.
                 if (affected.getClass().isActor() && !world->isActorCollisionEnabled(affected))
                     continue;
+#ifdef BUILD_MULTIPLAYER
+                // Every client simulates the explosion, but only the actor's
+                // simulator may change its ActiveSpells. A remote player proxy
+                // likewise belongs to that player's own client.
+                if (affected.getClass().isActor() && affected != getPlayer()
+                    && !mwmp::Main::get().getActorSync().hasAuthorityForObject(affected))
+                {
+                    toPresent[affected].push_back(effectInfo);
+                    continue;
+                }
+#endif
 
                 auto& list = toApply[affected];
                 list.push_back(effectInfo);
@@ -121,6 +140,36 @@ namespace MWMechanics
             effectsToApply.mList = applyPair.second;
             inflict(applyPair.first, effectsToApply, rangeType, true);
         }
+#ifdef BUILD_MULTIPLAYER
+        // Vanilla plays a body-hit effect for every actor caught in the blast.
+        // Observer copies do not own ActiveSpells, so reproduce the short hit
+        // presentation without changing gameplay. Continuous effects require
+        // authoritative status before a loop can safely be shown here.
+        for (const auto& [affected, areaEffects] : toPresent)
+        {
+            if (affected == mCaster || affected == ignore)
+                continue;
+            for (const ESM::IndexedENAMstruct& effectInfo : areaEffects)
+            {
+                const ESM::MagicEffect* effect = world->getStore().get<ESM::MagicEffect>().find(
+                    effectInfo.mData.mEffectID);
+                if ((effect->mData.mFlags & ESM::MagicEffect::ContinuousVfx) == 0)
+                    playEffects(affected, *effect);
+            }
+        }
+#endif
+    }
+
+    void CastSpell::inflictAreaGameplay(const ESM::EffectList& effects, ESM::RangeType range) const
+    {
+        ESM::EffectList areaEffects;
+        for (const ESM::IndexedENAMstruct& effect : effects.mList)
+        {
+            if (effect.mData.mRange == range && effect.mData.mArea > 0)
+                areaEffects.mList.push_back(effect);
+        }
+        if (!areaEffects.mList.empty())
+            explodeSpell(areaEffects, mTarget, range, false);
     }
 
     void CastSpell::launchMagicBolt() const

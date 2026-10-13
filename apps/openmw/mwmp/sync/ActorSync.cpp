@@ -1522,6 +1522,14 @@ namespace mwmp
 
         for (const MWWorld::Ptr& actor : vanillaActors)
         {
+            // A reset invalidates the old per-actor lease before the new cell
+            // owner republishes its roster. Do not leave the prior simulator's
+            // scene marker on a placed actor that remains in the CellStore.
+            if (auto* node = actor.getRefData().getBaseNode())
+            {
+                node->setUserValue("mp_authoritative_actor", false);
+                node->setUserValue("mp_remote_actor", false);
+            }
             const bool restoreCount = actor.getCellRef().getCount() <= 0;
             if (actor.getRefData().hasCustomData())
             {
@@ -1725,11 +1733,16 @@ namespace mwmp
             const ActorInstanceId actorNetId = packActorInstanceKey(
                 { ActorKeyKind::VanillaRefNum, spawnerRefNum });
             const auto canonicalIt = mActorsByNetId.find(actorNetId);
-            const bool migratedCanonicalActor = canonicalIt != mActorsByNetId.end()
+            // A complete origin-cell roster can arrive after this child has returned
+            // from another exterior cell. Do not erase its live Ptr just because
+            // that older roster omitted it.
+            const bool liveCanonicalActor = canonicalIt != mActorsByNetId.end()
                 && canonicalIt->second.state.mpNum == 0
                 && canonicalIt->second.state.refNum == spawnerRefNum
-                && canonicalIt->second.state.cellId != cellId
-                && !canonicalIt->second.boundActor.isEmpty();
+                && !canonicalIt->second.boundActor.isEmpty()
+                && canonicalIt->second.boundActor.getCellRef().getCount() > 0;
+            const bool migratedCanonicalActor = liveCanonicalActor
+                && canonicalIt->second.state.cellId != cellId;
             const auto rosterActor = pendingRosterIt == mPendingCanonicalActorsByCell.end()
                 ? nullptr
                 : [&]() -> const BaseActor* {
@@ -1741,12 +1754,14 @@ namespace mwmp
                 = static_cast<const MWClass::CreatureLevList&>(ptr.getClass());
             const MWWorld::Ptr localRoll = leveledClass.getSpawnedActor(ptr);
             const bool rosterMismatch = pendingRosterIt != mPendingCanonicalActorsByCell.end()
-                && !migratedCanonicalActor
+                && !liveCanonicalActor
                 && (!rosterActor || (!hasAuthorityForActor(actorNetId, cellId)
                     && (localRoll.isEmpty()
                         || localRoll.getCellRef().getRefId().serializeText() != rosterActor->refId)));
             const bool canonicalChanceNone = chanceNoneIt != mChanceNoneLeveledSpawnersByCell.end()
-                && chanceNoneIt->second.count(actorNetId) != 0;
+                && chanceNoneIt->second.count(actorNetId) != 0 && !liveCanonicalActor;
+            if (liveCanonicalActor && chanceNoneIt != mChanceNoneLeveledSpawnersByCell.end())
+                chanceNoneIt->second.erase(actorNetId);
             if (world && rosterActor && !migratedCanonicalActor && !canonicalChanceNone)
             {
                 if (auto previous = mReconciledVanillaActorsByNetId.find(actorNetId);
@@ -2974,10 +2989,9 @@ namespace mwmp
                         list.authorityGeneration, list.authorityGuid))
                     continue;
                 const bool wasOwner = hasAuthorityForActor(actorNetId, list.cellId);
-                if (list.authorityGuid == 0)
-                    mActorAuthorityGuids.erase(actorNetId);
-                else
-                    mActorAuthorityGuids[actorNetId] = list.authorityGuid;
+                // Zero is an explicit revoked lease. Keep it distinct from an
+                // unknown actor, which may still use the cell authority fallback.
+                mActorAuthorityGuids[actorNetId] = list.authorityGuid;
                 // Keep the generation even when the lease is revoked so an
                 // in-flight older grant cannot resurrect the old owner.
                 mActorAuthorityGenerations[actorNetId] = list.authorityGeneration;
@@ -3516,6 +3530,20 @@ namespace mwmp
                     else if (actorState.mpNum != 0)
                         forgetLocalMpNumMappings(actorState.mpNum);
                 }
+                // Identity removal is also lease revocation. A following cell
+                // reset can observe zero runtimes because this packet removed
+                // them first. A reset needs the new cell owner to discover its
+                // placed actors, while other removals must not fall back to
+                // cell authority for an actor the server explicitly retired.
+                if (record.removalReason == ActorRemovalReason::CellReset)
+                {
+                    mActorAuthorityGuids.erase(record.actorNetId);
+                    mActorAuthorityGenerations.erase(record.actorNetId);
+                }
+                else
+                    mActorAuthorityGuids[record.actorNetId] = 0;
+                mPendingAuthorityTransfers.erase(record.actorNetId);
+                mMechanicsSnapshotSequences.erase(record.actorNetId);
                 continue;
             }
 
@@ -3780,12 +3808,18 @@ namespace mwmp
                         const ActorInstanceId actorNetId = packActorInstanceKey(
                             { ActorKeyKind::VanillaRefNum, spawnerRefNum });
                         const auto knownActorIt = mActorsByNetId.find(actorNetId);
-                        const bool authoritativeActorMigrated
+                        // A cell roster describes one spatial snapshot, not the
+                        // lifetime of a child already tracked by its spawner ID.
+                        // On a rapid return crossing it can omit that live child.
+                        const bool liveCanonicalActor
                             = knownActorIt != mActorsByNetId.end()
                             && knownActorIt->second.state.mpNum == 0
                             && knownActorIt->second.state.refNum == spawnerRefNum
                             && !knownActorIt->second.state.refId.empty()
                             && !knownActorIt->second.state.cellId.empty()
+                            && !knownActorIt->second.boundActor.isEmpty()
+                            && knownActorIt->second.boundActor.getCellRef().getCount() > 0;
+                        const bool authoritativeActorMigrated = liveCanonicalActor
                             && knownActorIt->second.state.cellId != list.cellId;
                         const bool authoritativeActorPresent
                             = authoritativeVanillaRefNums.count(spawnerRefNum) != 0;
@@ -3813,7 +3847,7 @@ namespace mwmp
                             leveledClass.setSpawnedActor(ptr, MWWorld::Ptr());
                         }
                         if (!shouldRetireLocalLeveledRoll(completeIdentitySnapshot,
-                                authoritativeActorPresent, authoritativeActorMigrated))
+                                authoritativeActorPresent, liveCanonicalActor))
                         {
                             chanceNoneSpawners.erase(actorNetId);
                             return true;
@@ -4624,6 +4658,7 @@ namespace mwmp
                     BaseActor pendingState = primaryRuntime->state;
                     pendingState.position = pending.position;
                     pendingState.velocity = pending.velocity;
+                    pendingState.animationSpeed = pending.animationSpeed;
                     pendingState.isMoving = pending.isMoving;
                     pendingState.isAttackingOrCasting = pending.isAttackingOrCasting;
                     pendingState.hasWeaponDrawn = pending.hasWeaponDrawn;
@@ -4632,6 +4667,7 @@ namespace mwmp
                     pendingState.animFlags.animFwd = pending.animFwd;
                     pendingState.animFlags.animSide = pending.animSide;
                     pendingState.migrationGeneration = primaryRuntime->migrationGeneration;
+                    primaryRuntime->state.animationSpeed = pending.animationSpeed;
 
                     ActorList synthetic;
                     synthetic.cellId = destCellId;
@@ -4793,6 +4829,7 @@ namespace mwmp
                     BufferedSnapshot pending;
                     pending.position = snapshot.position;
                     pending.velocity = snapshot.velocity;
+                    pending.animationSpeed = snapshot.animationSpeed;
                     pending.sequence = list.sequence;
                     pending.serverTimestamp = list.serverTimestamp;
                     pending.migrationGeneration = snapshot.migrationGeneration;
@@ -6733,11 +6770,11 @@ namespace mwmp
     }
 
     bool ActorSync::shouldRetireLocalLeveledRoll(bool completeIdentitySnapshot,
-        bool authoritativeActorPresent, bool authoritativeActorMigrated)
+        bool authoritativeActorPresent, bool liveCanonicalActor)
     {
         return completeIdentitySnapshot
             && !authoritativeActorPresent
-            && !authoritativeActorMigrated;
+            && !liveCanonicalActor;
     }
 
     bool ActorSync::shouldReplaceLocalLeveledRoll(bool authoritativeTransform,
@@ -7180,6 +7217,7 @@ namespace mwmp
         BufferedSnapshot snapshot;
         snapshot.position = state.position;
         snapshot.velocity = state.velocity;
+        snapshot.animationSpeed = state.animationSpeed;
         snapshot.sequence = list.snapshotSequence;
         snapshot.serverTimestamp = list.serverTimestamp;
         snapshot.migrationGeneration = state.migrationGeneration;
@@ -7275,6 +7313,7 @@ namespace mwmp
         {
             actor.state.position = state.position;
             actor.state.velocity = state.velocity;
+            actor.state.animationSpeed = state.animationSpeed;
             // Update locomotion state from the position packet so the remote CC
             // always has current movement axes without a separate AnimFlags send.
             const bool holdingSyncedSpecialIdle = isIdleAnimGroup(actor.state.animFlags.currentAnimGroup)
@@ -8824,6 +8863,7 @@ namespace mwmp
             MWMechanics::CreatureStats& stats = ptr.getClass().getCreatureStats(ptr);
             MWMechanics::Movement& movement = ptr.getClass().getMovementSettings(ptr);
             actor.isDead = stats.isDead();
+            actor.animationSpeed = actor.isDead ? 0.f : ptr.getClass().getCurrentSpeed(ptr);
             actor.animFlags.movementFlags = 0;
             if (!actor.isDead && stats.getMovementFlag(MWMechanics::CreatureStats::Flag_Run))
                 actor.animFlags.movementFlags |= AnimFlags::MF_RUN;
@@ -12295,7 +12335,8 @@ namespace mwmp
         const float nominalAnimationSpeed = shouldDriveLocomotion
             ? actor.boundActor.getClass().getCurrentSpeed(actor.boundActor)
             : 0.f;
-        const float synchronizedAnimationSpeed = nominalAnimationSpeed;
+        const float synchronizedAnimationSpeed = actor.state.animationSpeed > 0.f
+            ? actor.state.animationSpeed : nominalAnimationSpeed;
         if (auto* baseNode = actor.boundActor.getRefData().getBaseNode())
             baseNode->setUserValue("mp_interp_speed", synchronizedAnimationSpeed);
 

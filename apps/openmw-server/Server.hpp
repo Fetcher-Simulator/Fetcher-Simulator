@@ -700,7 +700,11 @@ private:
         uint64_t authorityStickyUntilMs = 0;
         uint32_t nextSnapshotSequence = 1;
         bool hasCompleteAuthoritySnapshot = false;
-        // Spatial membership shares each live record with WorldState::actorsByNetId.
+        // Exterior membership is a spatial lookup only. WorldState::actorsByNetId
+        // owns actor identity and lifetime; losing this cell's publisher or
+        // omitting an actor from a local roster must not delete that record.
+        // Shared pointers keep legacy cell lookups compatible while migration
+        // reindexes the same object instead of reconstructing it.
         std::unordered_map<std::string, std::shared_ptr<ActorRegistryRecord>> actors;
         std::unordered_set<std::string> resetSuppressedVanillaDeaths;
         std::unordered_map<std::string, uint64_t> staleLiveVanillaDeathResendMs;

@@ -64,6 +64,11 @@
 #include "../mwphysics/physicssystem.hpp"
 #include "../mwphysics/projectile.hpp"
 
+#ifdef BUILD_MULTIPLAYER
+#include "../mwmp/Main.hpp"
+#include "../mwmp/sync/ActorSync.hpp"
+#endif
+
 namespace
 {
     const ESM::EffectList* resolveMagicBoltEffects(const MWWorld::ESMStore& esmStore, const ESM::RefId& id)
@@ -808,6 +813,14 @@ namespace MWWorld
             const ESM::EffectList* effects = resolveMagicBoltEffects(esmStore, magicBoltState.mSpellId);
             const MWWorld::Ptr localPlayer = MWBase::Environment::get().getWorld()->getPlayerPtr();
             const bool applyToLocalPlayer = magicBoltState.mVisualOnly && !target.isEmpty() && target == localPlayer;
+#ifdef BUILD_MULTIPLAYER
+            // All clients simulate the bolt for presentation. Only the actor's
+            // simulator may change ActiveSpells and therefore movement speed.
+            const bool actorTarget = !target.isEmpty() && target != localPlayer
+                && target.getClass().isActor() && !isRemotePlayerProxy(target);
+            const bool applyToOwnedActor = actorTarget
+                && mwmp::Main::get().getActorSync().hasAuthorityForObject(target);
+#endif
             // Remote-player proxies are presentation-only copies. Gameplay from a real
             // local bolt must never mutate their health/magic state, regardless of
             // whether the caster is the local player or an authority-owned NPC. The
@@ -815,6 +828,11 @@ namespace MWWorld
             // the only client allowed to apply the spell to the real player actor.
             const bool suppressProxyGameplay = !magicBoltState.mVisualOnly
                 && !target.isEmpty() && isRemotePlayerProxy(target);
+            bool applyGameplay = (!magicBoltState.mVisualOnly || applyToLocalPlayer) && !suppressProxyGameplay;
+#ifdef BUILD_MULTIPLAYER
+            if (actorTarget)
+                applyGameplay = applyToOwnedActor;
+#endif
 
             Log(Debug::Info) << "[MP] MagicBolt impact spell=" << magicBoltState.mSpellId.serializeText()
                              << " visualOnly=" << magicBoltState.mVisualOnly
@@ -823,9 +841,13 @@ namespace MWWorld
                                  : target.getCellRef().getRefId().serializeText())
                              << " applyToLocalPlayer=" << applyToLocalPlayer
                              << " suppressProxyGameplay=" << suppressProxyGameplay
+#ifdef BUILD_MULTIPLAYER
+                             << " applyToOwnedActor=" << applyToOwnedActor
+#endif
+                             << " applyGameplay=" << applyGameplay
                              << " effects=" << (effects ? effects->mList.size() : 0);
 
-            if ((!magicBoltState.mVisualOnly || applyToLocalPlayer) && !suppressProxyGameplay)
+            if (applyGameplay)
             {
                 MWMechanics::CastSpell cast(caster, target);
                 cast.mHitPosition = hitPosition;
@@ -842,6 +864,18 @@ namespace MWWorld
                     MWBase::Environment::get().getWindowManager()->setEnemy(target);
                 }
                 playMagicBoltImpactEffects(*effects, hitPosition, target);
+
+#ifdef BUILD_MULTIPLAYER
+                // The casting client can own only some of the actors in an
+                // explosion. Let each other simulator apply the area gameplay
+                // near its locally simulated impact, without replaying the orb.
+                MWMechanics::CastSpell areaCast(caster, target);
+                areaCast.mHitPosition = hitPosition;
+                areaCast.mId = magicBoltState.mSpellId;
+                areaCast.mSourceName = magicBoltState.mSourceName;
+                areaCast.mItem = magicBoltState.mItem;
+                areaCast.inflictAreaGameplay(*effects, ESM::RT_Target);
+#endif
 
                 // Play per-target body-hit VFX (glow, particles, hit sound)
                 // for visual-only bolts so non-authority clients see spell

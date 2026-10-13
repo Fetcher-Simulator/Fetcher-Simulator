@@ -185,7 +185,7 @@ TEST(ActorIdentityProtocol, ContentQualifiedVanillaRefNumsDoNotCollide)
     EXPECT_EQ(modActor.refNum, (37u << 24) | 1u);
     EXPECT_NE(baseActor.refNum, modActor.refNum);
     EXPECT_NE(mwmp::actorInstanceIdFromActor(baseActor), mwmp::actorInstanceIdFromActor(modActor));
-    EXPECT_EQ(mwmp::ActorSyncProtocolVersionV2, 15u);
+    EXPECT_EQ(mwmp::ActorSyncProtocolVersionV2, 16u);
 }
 
 TEST(ActorIdentityProtocol, EmptyCompleteSnapshotRemainsComplete)
@@ -205,7 +205,7 @@ TEST(ActorIdentityProtocol, EmptyCompleteSnapshotRemainsComplete)
         removalOnly.completeCellSnapshot));
 }
 
-TEST(ActorIdentityProtocol, CompleteEmptyCellRetiresLocalLeveledRoll)
+TEST(ActorIdentityProtocol, CompleteEmptyCellRetiresOnlyUnboundLeveledRoll)
 {
     EXPECT_TRUE(mwmp::ActorSync::shouldRetireLocalLeveledRoll(
         true, false, false));

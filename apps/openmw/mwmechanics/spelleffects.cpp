@@ -1407,7 +1407,12 @@ namespace MWMechanics
         auto& magnitudes = target.getClass().getCreatureStats(target).getMagicEffects();
         magnitudes.add(EffectKey(effect.mEffectId, effect.getSkillOrAttribute()), EffectParam(-effect.mMagnitude));
         removeMagicEffect(target, spellParams, effect);
-        if (magnitudes.getOrDefault(effect.mEffectId).getMagnitude() <= 0.f)
+        // Effects such as Fortify Attribute have an argument-specific key. Looking up only the effect id
+        // misses their active magnitude and can remove a newly replayed hit VFX when an older cast expires.
+        const bool effectStillActive = std::any_of(magnitudes.begin(), magnitudes.end(), [&](const auto& entry) {
+            return entry.first.mId == effect.mEffectId && entry.second.getMagnitude() > 0.f;
+        });
+        if (!effectStillActive)
         {
             auto anim = MWBase::Environment::get().getWorld()->getAnimation(target);
             if (anim)
