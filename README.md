@@ -79,7 +79,7 @@ Fetcher Simulator includes optional Source-style surfing. Surf behavior is serve
 
 ## Development
 
-Fetcher Simulator is a fork of OpenMW `0.52.0`, not a fork or continuation of the TES3MP repository. Its GameNetworkingSockets transport, packet framing, dedicated server, SQLite persistence, authentication, server-side Lua runtime, and current ActorSync systems were implemented in this repository. TES3MP was used as a technical reference for a limited set of multiplayer-specific engine techniques: remote actor ground and jump state, suppressing local AI on network-controlled proxies, synchronizing chosen attack and cast animation variants, `refNum`/`mpNum` identity conventions, and actor authority handoff across cells.
+Fetcher Simulator is a fork of OpenMW `0.52.0`, not a fork or continuation of the TES3MP repository. Its GameNetworkingSockets transport, packet framing, dedicated server, SQLite persistence, authentication, server-side Lua runtime, and current ActorSync systems were implemented in this repository. TES3MP was used as a technical reference for a limited set of multiplayer-specific engine techniques: remote actor ground and jump state, suppressing local AI on network-controlled proxies, synchronizing chosen attack and cast animation variants, and `refNum`/`mpNum` identity conventions. The current server-wide actor registry and per-actor, prepared authority handoff are separate designs.
 
 ### How actor synchronization differs from TES3MP
 
