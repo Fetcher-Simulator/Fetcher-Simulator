@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Fetcher Simulator developer architecture: actor identity, server and client storage, simulation authority, exterior cell travel, and live cell resets.">
+  <title>Actor identity and authority · Fetcher Simulator architecture</title>
+  <style>
+    :root { color-scheme: dark; --bg:#101315; --panel:#171c1f; --panel2:#1c2326; --text:#e8eeeb; --muted:#a6b4ae; --line:#35413e; --accent:#8bd5b6; --code:#c4e4d2; --warn:#e2bc79; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; background:var(--bg); color:var(--text); font:16px/1.68 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    a { color:var(--accent); text-underline-offset:3px; }
+    a:hover { color:#bcf1d8; }
+    :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+    .shell { max-width:1440px; margin:auto; display:grid; grid-template-columns:240px minmax(0,1fr); gap:clamp(24px,5vw,88px); padding:0 clamp(20px,4vw,64px); }
+    aside { border-right:1px solid var(--line); padding:32px 20px 48px 0; position:sticky; top:0; height:100vh; overflow:auto; }
+    .brand { color:var(--text); font-weight:700; letter-spacing:.02em; text-decoration:none; }
+    .series { display:block; color:var(--muted); font-size:.77rem; text-transform:uppercase; letter-spacing:.15em; margin:28px 0 12px; }
+    nav a { display:block; text-decoration:none; color:var(--muted); padding:5px 0; font-size:.88rem; }
+    nav a:hover { color:var(--accent); }
+    main { max-width:930px; min-width:0; padding:48px 0 96px; }
+    .eyebrow { margin:0 0 12px; color:var(--accent); text-transform:uppercase; letter-spacing:.17em; font-size:.77rem; font-weight:700; }
+    h1,h2,h3 { line-height:1.18; letter-spacing:-.03em; }
+    h1 { font-size:clamp(2.2rem,5vw,4rem); margin:0 0 22px; max-width:780px; }
+    h2 { font-size:clamp(1.55rem,3vw,2.1rem); margin:0 0 18px; }
+    h3 { font-size:1.12rem; margin:28px 0 8px; }
+    p { margin:0 0 17px; }
+    .lead { font-size:1.15rem; color:#cbd8d1; max-width:760px; }
+    .meta { color:var(--muted); font-size:.88rem; margin:22px 0 0; }
+    section { border-top:1px solid var(--line); margin-top:56px; padding-top:42px; scroll-margin-top:24px; }
+    .callout { background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--accent); border-radius:8px; padding:18px 20px; margin:24px 0; }
+    .callout.warning { border-left-color:var(--warn); }
+    .callout p:last-child { margin-bottom:0; }
+    .callout strong { color:var(--text); }
+    ul,ol { padding-left:24px; margin:12px 0 22px; }
+    li { padding-left:4px; margin:7px 0; }
+    code,pre { font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace; }
+    code { color:var(--code); background:var(--panel2); border-radius:4px; padding:.08em .28em; font-size:.9em; overflow-wrap:anywhere; }
+    pre { background:#121a1a; border:1px solid var(--line); border-radius:8px; color:var(--code); overflow-x:auto; padding:18px 20px; font-size:.85rem; line-height:1.55; }
+    pre code { padding:0; background:none; font-size:inherit; overflow-wrap:normal; }
+    .table-wrap { overflow-x:auto; border:1px solid var(--line); border-radius:8px; margin:22px 0; }
+    table { width:100%; border-collapse:collapse; min-width:570px; font-size:.92rem; }
+    th,td { vertical-align:top; text-align:left; padding:12px 15px; border-bottom:1px solid var(--line); }
+    th { color:var(--accent); background:var(--panel); font-size:.78rem; letter-spacing:.08em; text-transform:uppercase; }
+    tr:last-child td { border-bottom:0; }
+    .flow { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; margin:22px 0; }
+    .flow div { border:1px solid var(--line); background:var(--panel); border-radius:8px; padding:13px; min-width:0; }
+    .flow b { display:block; color:var(--accent); font-size:.85rem; }
+    .flow span { display:block; color:var(--muted); font-size:.82rem; line-height:1.45; margin-top:4px; }
+    .source-list li { overflow-wrap:anywhere; }
+    .foot { color:var(--muted); font-size:.84rem; }
+    @media (max-width:850px) { .shell { display:block; } aside { position:static; height:auto; border-right:0; border-bottom:1px solid var(--line); padding:20px 0; } nav { display:flex; gap:7px 18px; flex-wrap:wrap; } nav a { padding:0; } .series { margin:14px 0 8px; } main { padding-top:34px; } .flow { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media (max-width:490px) { .flow { grid-template-columns:1fr; } }
+    @media print { :root { color-scheme:light; --bg:#fff; --panel:#f4f6f4; --panel2:#edf2ef; --text:#16201b; --muted:#3d4b43; --line:#c7d1c9; --accent:#176044; --code:#194e38; --warn:#835600; } aside { display:none; } .shell { display:block; } main { max-width:none; } section { break-inside:avoid-page; } a { color:var(--accent); } }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <aside aria-label="Chapter navigation">
+    <a class="brand" href="https://github.com/Fetcher-Simulator/Fetcher-Simulator">Fetcher Simulator</a>
+    <span class="series">Architecture / 01</span>
+    <nav aria-label="On this page">
+      <a href="#model">Mental model</a>
+      <a href="#identity">Identity and epochs</a>
+      <a href="#storage">Server and client storage</a>
+      <a href="#authority">Choosing a simulator</a>
+      <a href="#transfer">Transfer protocol</a>
+      <a href="#border">Exterior crossings</a>
+      <a href="#rosters">Rosters and local rolls</a>
+      <a href="#reset">Cell resets</a>
+      <a href="#state">Combat and spell state</a>
+      <a href="#diagnostics">Debugging invariants</a>
+      <a href="#sources">Source map</a>
+    </nav>
+  </aside>
+
+  <main>
+    <header>
+      <p class="eyebrow">Developer onboarding · Actor synchronization</p>
+      <h1>Actor identity, authority, and cell travel</h1>
+      <p class="lead">How one NPC stays the same NPC while clients load and unload cells, players trade simulation responsibility, and the server resets a live world.</p>
+      <p class="meta">Applies to the experimental/public-test actor-sync v2 implementation through <code>8ff5998dc4</code> (October 2026). This chapter documents implementation behavior, not a stable public protocol.</p>
+    </header>
+
+    <section id="model">
+      <h2>1. The mental model</h2>
+      <p>The server owns the <strong>canonical identity and shared state</strong> of a multiplayer actor. A selected client runs the OpenMW AI and physics for that actor and reports updates. Other clients bind the same network identity to local engine objects and render it as an observer. The server validates who may publish; it does not run a second copy of OpenMW's NPC AI.</p>
+      <div class="callout"><p><strong>Four different questions:</strong> Who is this actor? Where is its canonical cell? Which client may simulate it? Which clients currently have it loaded? The answers live in different fields and can change independently.</p></div>
+      <div class="table-wrap"><table><thead><tr><th>Concept</th><th>Answer lives in</th><th>What it means</th></tr></thead><tbody>
+        <tr><td>Identity</td><td><code>ActorInstanceId</code></td><td>Stable key for this placed or server-spawned actor, independent of cell and owner.</td></tr>
+        <tr><td>Canonical location</td><td><code>BaseActor::cellId</code> + spatial index</td><td>Cell containing the authoritative actor record. It changes on a real exterior crossing.</td></tr>
+        <tr><td>Cell publisher</td><td><code>CellActorState::authorityGuid</code></td><td>Client that can supply the cell's complete roster and fallback data. It is not necessarily each actor's simulator.</td></tr>
+        <tr><td>Actor simulator</td><td><code>ActorRegistryRecord::actorAuthorityGuid</code></td><td>Client allowed to produce this actor's live AI, movement, and mechanics snapshots.</td></tr>
+        <tr><td>Observer interest</td><td>Loaded-cell reports and exterior interest radius</td><td>Who receives a baseline or live updates. Interest is not permission to simulate.</td></tr>
+      </tbody></table></div>
+      <p>For example, Mario may publish <code>EXT:-3,-2</code> while Sith continues to simulate a walker there. Crossing into <code>EXT:-2,-2</code> moves that walker's spatial index entry. Neither event alone requires an actor-authority transfer.</p>
+      <p>The earlier failure pattern came from conflating these questions: losing an origin cell could lose the actor's state, a new cell publisher could take over too early, and an observer's local leveled roll could survive beside a different canonical actor. The recent work separates identity, spatial membership, simulation lease, and presentation, then gives each transition its own generation or explicit removal reason.</p>
+    </section>
+
+    <section id="identity">
+      <h2>2. Identity is independent of location</h2>
+      <p><code>ActorInstanceId</code> is a 64-bit value derived from an <code>ActorInstanceKey</code>. Its high part encodes the key kind; its low 32 bits carry either the content-qualified vanilla <code>refNum</code> or a server-assigned spawned <code>mpNum</code>. A spawned actor can have a temporary engine ref number locally, but its multiplayer identity remains its <code>mpNum</code>. The console's local <code>97-0</code> notation is useful for investigation; it is not the actor's portable network key.</p>
+      <pre><code>vanilla placed actor → (VanillaRefNum, FormId32 refNum) → ActorInstanceId
+server-spawned actor → (SpawnedMpNum, mpNum)        → ActorInstanceId
+cell or owner change → same ActorInstanceId</code></pre>
+      <p>Two monotonically advancing epochs protect that stable ID. <code>migrationGeneration</code> advances when the canonical actor moves to another cell. <code>actorAuthorityGeneration</code> advances when its simulation lease changes or is revoked. A cell publisher has a separate <code>CellActorState::authorityGeneration</code>. Do not substitute one generation for another: a packet can be current for ownership but stale for physical location.</p>
+      <p>The server retains generation high-water maps for actors recreated after an incomplete roster or reset-related repair. The client rejects older migrations and leases, and buffers a small number of position snapshots that arrive before the matching reliable cell-change commit. This prevents late packets from moving an actor back across a border or resurrecting an old simulator.</p>
+    </section>
+
+    <section id="storage">
+      <h2>3. One canonical record, several indexes</h2>
+      <h3>Server</h3>
+      <p><code>WorldState::actorsByNetId</code> is the primary <code>unordered_map&lt;ActorInstanceId, shared_ptr&lt;ActorRegistryRecord&gt;&gt;</code>. A registry record contains the current <code>BaseActor</code> snapshot plus lease, migration, death, combat replay, crime, persistence, and temporary-spell state. <code>actorCells[cellId].actors</code> is a spatial bucket of <em>shared pointers to those same records</em>; <code>actorLocations</code> accelerates location lookup. A cell is therefore an index, not the lifetime owner of an exterior actor.</p>
+      <pre><code>WorldState
+├─ actorsByNetId[id] ─────────────┐  primary identity / lifetime
+├─ actorLocations[key] → cellId   │  location hint
+└─ actorCells[cellId].actors[key] ─┴→ same ActorRegistryRecord
+                         (not a second copy of AI or lease state)</code></pre>
+      <p>On migration, the server extracts the map node from the old cell bucket and inserts it into the destination bucket. It updates the record's canonical cell and migration generation without reconstructing the record. A stale duplicate bucket is removed; the global record wins even if the duplicate has a newer-looking snapshot. <code>findActorByNetId</code> resolves through the global map first, so an index that briefly lags cannot make a live actor disappear.</p>
+      <p>Exterior actors remain registered when the last cell publisher leaves. Interior nonpersistent runtime spawns still have their existing cell-scoped cleanup behavior. Persistence is separate again: durable spawned actors, dead vanilla actors, disposed corpses, and related world state live in the database, while ordinary session state lives in memory.</p>
+      <h3>Client</h3>
+      <p><code>ActorSync::mActorsByNetId</code> is the primary runtime map. An <code>ActorRuntime</code> joins a canonical <code>BaseActor</code> snapshot to a bound <code>MWWorld::Ptr</code>, migration epoch, interpolation queue, presentation state, and cell-handoff bookkeeping. <code>mCells[cellId]</code> holds cell-local packet state and provisional actors. Once identity is known, packet handling resolves the primary runtime first. Redundant observer shadows are pruned instead of becoming competing actor copies.</p>
+      <p>The engine <code>Ptr</code> and the network ID are deliberately distinct. A leveled-list child can resolve to a different local creature on another client; <code>mReconciledVanillaActorsByNetId</code> binds the authoritative placed-spawner ID to that client's replacement <code>Ptr</code>. A server-spawned actor has an additional <code>mpNum → Ptr</code> map to recover its binding after streaming. Neither map is a second source of actor identity.</p>
+      <div class="callout warning"><p><strong>When adding a new actor field:</strong> decide whether it belongs to canonical <code>BaseActor</code>, server-only registry metadata, client-only presentation, or durable database state. Putting it only in a cell bucket makes it vulnerable to migration and unload.</p></div>
+    </section>
+
+    <section id="authority">
+      <h2>4. Choosing who simulates</h2>
+      <p>The server still elects a <em>cell publisher</em> to seed complete cell rosters. Exterior eligibility is a configurable square grid radius (currently one cell). A brief sticky window (currently 3 seconds), exact-cell preference, nearest-grid selection, and stable GUID tie-breaks limit cell-publisher churn. Per-actor simulation is a separate lease for live registered actors; corpses and player avatars do not acquire it. Explicit <code>script-owner</code> authority is preserved.</p>
+      <p>A capable actor owner stays in place through a border, AI package change, Follow/Escort transition, or combat-target switch. “Capable” means it can simulate the actor's coordinates inside its active AI bounds and, for a live player target, also has that target within its eligible cell horizon. The actor-position check uses a 200-unit edge margin for retaining an owner. A replacement candidate needs 512 units of room, giving Ready/Commit time before it reaches OpenMW's inactive-cell pathfinding limit.</p>
+      <p>Only after the owner loses that capability does the server choose a candidate. It filters connected v2 clients by actor position and target coverage, then prefers an independent simulator over the combat victim when one is available; distance and GUID resolve the rest. Thus a nearby bystander can simulate an NPC <em>without becoming its combat target</em>. The server also preserves canonical combat when an owner's local target proxy leaves its horizon; the client cannot silently publish “idle” merely because that proxy unloaded.</p>
+      <p>If no client can cover both an ownerless actor and its distant combat victim, the server waits briefly (currently 5 seconds). It then abandons only the unreachable chase, retaining any reachable hostile player targets, and retries transfer so the actor can idle, return, or acquire a legitimate nearby target. This avoids both a permanent freeze and an unjustified attack on an innocent player.</p>
+    </section>
+
+    <section id="transfer">
+      <h2>5. A prepared transfer, not an optimistic owner flip</h2>
+      <div class="flow" role="list" aria-label="Actor authority transfer phases">
+        <div role="listitem"><b>1 · Prepare</b><span>Server selects candidate and sends canonical actor state, generations, location, and timed effects.</span></div>
+        <div role="listitem"><b>2 · Ready</b><span>Candidate verifies its actor and combat target are active scene objects it can actually simulate.</span></div>
+        <div role="listitem"><b>3 · Commit</b><span>Server revalidates, sends a fresh final snapshot, changes the lease, and broadcasts its generation.</span></div>
+        <div role="listitem"><b>4 · Applied</b><span>Candidate installs the snapshot before its first AI tick and acknowledges successful promotion.</span></div>
+      </div>
+      <p><code>ActorAuthorityTransfer</code> carries <code>actorNetId</code>, a unique <code>transferId</code>, old/new owner GUIDs, authority and migration generations, canonical cell, actor snapshot, and timed active spells. Ready and Commit must match this transaction exactly. The client does not send Ready merely because it has an identity record: the bound actor needs an active cell and scene node, and a combat target needs a live scene node too. A narrow border exception permits a vanilla actor already in the neighboring <code>CellStore</code> while a reliable migration commit is still in flight.</p>
+      <p>During preparation, the old lease remains valid. Immediately before Commit, the server refreshes the canonical snapshot so movement made by the old owner during the handshake is not lost. On promotion the new owner moves its gameplay <code>Ptr</code> to that committed transform, clears obsolete observer interpolation, restores AI and timed spells, then emits <code>Applied</code>. Duplicate or delayed Prepare messages cannot replace a newer generation or re-gate a committed owner. Cancel aborts an obsolete proposal; <code>Available</code>/<code>Unavailable</code> reports let a current simulator tell the server its scene actor appeared or vanished.</p>
+      <p>The server checks waiting transfers periodically. If a candidate is not Ready after 5 seconds, it tries another eligible candidate once; if none exists, it leaves the proposal pending for the original scene to load. If Commit receives no Applied acknowledgment in time, the server revokes that lease and retries. Every regular actor update is validated against the current lease so a former owner cannot keep writing after Commit.</p>
+    </section>
+
+    <section id="border">
+      <h2>6. Physical border crossing versus authority handoff</h2>
+      <p>A moving actor crossing an exterior grid line triggers a reliable <code>ActorCellChange</code> from its authorized source. The server validates destination eligibility and actor identity, rejects stale reverse crossings, advances <code>migrationGeneration</code>, moves the <em>same</em> registry pointer between spatial buckets, updates location and persistence links, and sends the migration to interested clients. An ordinary position packet does not get to invent a new canonical cell while that reliable path is available.</p>
+      <p>Position, animation, and attacks travel on different lanes. Compact <code>ActorPositionV2</code> snapshots carry position, velocity, animation speed, and locomotion axes; presentation snapshots carry animation state; attack events are reliable and deduplicated. Identity must be known before compact snapshots can be applied. Future-generation positions can wait briefly for the reliable migration packet rather than being discarded or interpreted in the old cell.</p>
+      <div class="table-wrap"><table><thead><tr><th>Message</th><th>Role</th><th>Ordering rule</th></tr></thead><tbody>
+        <tr><td><code>ActorIdentity</code> / <code>ActorIdentityAck</code></td><td>Stable ID, full baseline, authoritative roster.</td><td>Establish the binding before applying compact movement.</td></tr>
+        <tr><td><code>ActorPositionV2</code></td><td>Frequent compact movement and locomotion.</td><td>Reject stale generations; briefly buffer a future migration epoch.</td></tr>
+        <tr><td><code>ActorPresentationV2</code> / <code>ActorAttackV2</code></td><td>Observer animation and discrete attacks.</td><td>Use actor identity; deduplicate attack events.</td></tr>
+        <tr><td><code>ActorCellChange</code></td><td>Reliable canonical exterior migration.</td><td>Advance the migration epoch; do not infer it from an observer puppet.</td></tr>
+        <tr><td><code>ActorAuthorityTransfer</code></td><td>Prepared simulator change.</td><td>Match transaction ID, owners, cell, and both generations.</td></tr>
+      </tbody></table></div>
+      <p>Canonical location and rendered location need not advance on the same frame. The observer keeps a bound actor in its already-loaded source <code>CellStore</code> until the interpolated position has visually crossed the seam. Rebinding the engine object exactly at the line used to rebuild scene and mechanics state, producing a visible stall. On a simulator handoff, the promoted client's outgoing network position can use a short, bounded offset bridge so observers do not see a backward snap from its delayed puppet position. The gameplay <code>Ptr</code> still starts from Commit's canonical transform; presentation continuity does not authorize old movement.</p>
+      <p>The handoff helpers cap prediction after a delayed stream, expire stale locomotion, and guard against immediate reverse migration. These are presentation and ordering controls around a single canonical actor, not a second movement simulation.</p>
+    </section>
+
+    <section id="rosters">
+      <h2>7. Complete rosters reconcile local OpenMW rolls</h2>
+      <p>A cell publisher may send an <code>ActorList</code>; the server converts its accepted records into reliable <code>ActorIdentityList</code> baselines. <code>completeCellSnapshot</code> is set only after a genuinely complete publisher roster. A startup overlay of persistent corpses, for example, is not enough evidence to delete local actors. Clients acknowledge identities and then resolve compact movement by <code>actorNetId</code>.</p>
+      <p>Leveled creature spawners are particularly dangerous: two clients can roll different children, or one can roll “Chance None.” Once a complete authoritative roster arrives, observers bind the authoritative spawner identity to the local child, remove extra local rolls, or preserve the authoritative empty result. If the roster arrives before scene insertion, the client saves it and reconciles before the cell renders. Corpse-disposal tombstones likewise survive unload/reload so a local reroll cannot recreate a disposed actor.</p>
+      <p>A migrated actor absent from its old origin roster is <em>not</em> evidence of death or despawn. Migration generation, canonical cell, and primary runtime take precedence over an old cell's membership list. Explicit removal reasons distinguish ordinary despawn, cell reset, and corpse disposal. That distinction fixed stationary client-only extras, missing observers, and actors that appeared only after another player crossed a border.</p>
+    </section>
+
+    <section id="reset">
+      <h2>8. Live cell reset is an invalidation barrier</h2>
+      <p><code>/resetcell</code> and <code>/resetallcells</code> intentionally replace world state; walking away does not. The server first builds a per-cell reset plan, then deletes persisted world rows in one SQLite <code>BEGIN IMMEDIATE</code> transaction. If that transaction fails, it rolls back and does not mutate the runtime. Once it succeeds, the server clears the selected cells' actor indexes and related objects, containers, doors, deaths, and disposals, advances each cell-authority generation, and removes corresponding global actor IDs.</p>
+      <p>Publishing the reset is just as important as deleting the rows. The server sends explicit actor identity removals with <code>ActorRemovalReason::CellReset</code>, an empty actor list, object deletions, restored door baselines, and a container Reset packet to <em>every connected selected client</em>—including clients that visited a cell earlier but are no longer beside it. The old cell publisher is revoked, and the server elects a fresh one to seed the base state. Generation changes reject stale in-flight writes from before the reset.</p>
+      <p>Clients clear primary runtimes, <code>mpNum</code> bindings, authority caches, reconciled leveled children, and cached cell state. An active cell is reset immediately; an unloaded cell is marked pending and reset before its next scene insertion. Only the new authority rerolls leveled spawners. Observers wait for the canonical roster rather than creating independent zombies. No relog is required to see a correct live reset.</p>
+      <div class="callout warning"><p><strong>Do not implement reset as “clear the current cell map.”</strong> That misses the global registry, old client <code>CellStore</code>s, persisted rows, generations, and local leveled rolls. The full operation is a coordinated database, runtime, and network barrier.</p></div>
+    </section>
+
+    <section id="state">
+      <h2>9. State that must survive a new simulator</h2>
+      <p>The actor record retains canonical AI and its set of hostile player targets, so changing simulator does not implicitly redirect combat to the new owner. A disconnected target is cleared; a connected target outside every possible simulator's horizon can be abandoned after the grace period described above. Attack-event IDs and replay guards prevent a handoff from replaying a hit. Observer animation is presentation, not proof that an attack landed.</p>
+      <p>Temporary magic needs more than a movement-speed number. The owner reports <code>ESM::ActiveSpells</code> in mechanics snapshots; the server caches that state independently of cell rosters and ages its remaining durations before Prepare and again before Commit. The new simulator installs already-rolled effects before AI resumes. Transfer flags prevent a second resistance, reflection, or absorption roll. Lasting <code>Fortify Attribute</code> modifiers are deliberately applied once on promotion, while unrelated one-shot effects such as damage or teleportation are not replayed. This is why Fortify Speed can remain effective across owner disconnect and cell unload until its real timer expires.</p>
+      <p>Spell cast events and projectiles have their own replication paths; a correct actor lease alone does not guarantee that an observer sees a bolt or a hit VFX. When investigating “swinging but no projectile,” inspect both the actor's AI/lease and the cast-event path.</p>
+    </section>
+
+    <section id="diagnostics">
+      <h2>10. Debugging from invariants</h2>
+      <p>Start with the <code>actorNetId</code>, not the screen position or a client's console index. For any suspicious actor, reconstruct this chain:</p>
+      <ol>
+        <li>Does <code>actorsByNetId[id]</code> exist, and is the cell bucket pointing to the same record?</li>
+        <li>Do the actor's canonical cell and <code>migrationGeneration</code> match the latest accepted <code>ActorCellChange</code>?</li>
+        <li>Which GUID holds <code>actorAuthorityGeneration</code>? Is there a pending Prepare, a Ready, or an unacknowledged Commit?</li>
+        <li>Does that client's primary runtime have a live bound <code>Ptr</code>, active cell, and (for Combat/Pursue) an active target?</li>
+        <li>Did both observers receive and acknowledge identity before compact positions or presentation?</li>
+        <li>Was an actor explicitly removed, reset, disposed, or merely omitted from an old cell roster?</li>
+      </ol>
+      <p>Typical signatures: <strong>freezes at a border</strong> suggest the simulator lost its scene actor or a destination was never Ready; <strong>backward wiggles</strong> suggest canonical movement and delayed observer interpolation were mixed; <strong>one-client-only extras</strong> suggest stale local leveled rolls or a missing complete-roster cleanup; <strong>effects disappearing at handoff</strong> suggest a stale timed-spell snapshot or effect flags that prevented installation. Distinguish these before changing interpolation or widening rendering distance.</p>
+      <p>The focused regression surface includes identity packing, generation ordering, border presentation, transfer matching, and reset behavior. Follow it with two-client tests involving origin unload, return travel, disconnect, relog, and a live <code>/resetallcells</code>. Long sessions still matter: a passing one-border test does not exercise stale packets, delayed scene insertion, or cell-memory reuse.</p>
+    </section>
+
+    <section id="sources">
+      <h2>Read the implementation</h2>
+      <p>The links are pinned to the checkpoint documented here. In a newer checkout, compare them with the current branch before changing protocol or storage code.</p>
+      <ul class="source-list">
+        <li><a href="https://github.com/Fetcher-Simulator/Fetcher-Simulator/blob/8ff5998dc4/components/openmw-mp/Base/ActorSyncProtocol.hpp">ActorSyncProtocol.hpp</a> — deterministic ID, generations, identity and compact snapshot types.</li>
+        <li><a href="https://github.com/Fetcher-Simulator/Fetcher-Simulator/blob/8ff5998dc4/components/openmw-mp/Base/ActorAuthorityTransfer.hpp">ActorAuthorityTransfer.hpp</a> — transfer phases, transaction matching, timed-spell aging.</li>
+        <li><a href="https://github.com/Fetcher-Simulator/Fetcher-Simulator/blob/8ff5998dc4/components/openmw-mp/Base/ActorAuthorityEligibility.hpp">ActorAuthorityEligibility.hpp</a> — grid/AI bounds, target parsing, owner-retention rules.</li>
+        <li><a href="https://github.com/Fetcher-Simulator/Fetcher-Simulator/blob/8ff5998dc4/components/openmw-mp/Base/ActorCellHandoff.hpp">ActorCellHandoff.hpp</a> — border ordering and presentation guards.</li>
+        <li><a href="https://github.com/Fetcher-Simulator/Fetcher-Simulator/blob/8ff5998dc4/apps/openmw-server/Server.hpp">Server.hpp</a> and <a href="https://github.com/Fetcher-Simulator/Fetcher-Simulator/blob/8ff5998dc4/apps/openmw-server/Server.cpp">Server.cpp</a> — world registry, spatial buckets, candidate selection, transfer, migration, reset.</li>
+        <li><a href="https://github.com/Fetcher-Simulator/Fetcher-Simulator/blob/8ff5998dc4/apps/openmw/mwmp/sync/ActorSync.hpp">ActorSync.hpp</a> and <a href="https://github.com/Fetcher-Simulator/Fetcher-Simulator/blob/8ff5998dc4/apps/openmw/mwmp/sync/ActorSync.cpp">ActorSync.cpp</a> — client runtimes, binding, Ready checks, observer smoothing, reset reconciliation.</li>
+        <li><a href="https://github.com/Fetcher-Simulator/Fetcher-Simulator/blob/8ff5998dc4/apps/openmw-server/PlayerDatabase.cpp">PlayerDatabase.cpp</a> — transactional persisted-cell reset.</li>
+        <li><a href="https://github.com/Fetcher-Simulator/Fetcher-Simulator/blob/8ff5998dc4/apps/openmw_tests/mwmp/testactorborderpresentation.cpp">testactorborderpresentation.cpp</a> — focused border and transfer invariants.</li>
+      </ul>
+      <p class="foot">Fetcher Simulator architecture · Chapter 01 · Self-contained HTML, ready for a GitHub Pages <code>/docs</code> site.</p>
+    </section>
+  </main>
+</div>
+</body>
+</html>

@@ -4,13 +4,14 @@ Fetcher Simulator is an experimental native multiplayer fork of [OpenMW](https:/
 
 A legally obtained copy of Morrowind is required. Game data is not included.
 
-> **Project status:** playable and actively tested, but still under development. This is not an upstream OpenMW or TES3MP release, and multiplayer protocol, database, scripting, and save compatibility may change between builds.
+> **Project status:** playable and under active public testing. Recent two-client tests have covered actor border crossings, owner disconnects, live cell resets, combat, and temporary spell effects. Longer sessions and larger groups still need validation. This is not an upstream OpenMW or TES3MP release; multiplayer protocol, database, scripting, and save compatibility may change between builds.
 
 - [Downloads and releases](https://github.com/Fetcher-Simulator/Fetcher-Simulator/releases)
 - [Project Discord and public testing](https://discord.gg/wXqQeSWRZF)
 - [Multiplayer server setup guide](files/server/server-setup-guide.md)
 - [Dedicated server Lua guide](apps/openmw-server/scripts/README.md)
 - [Client-side Lua multiplayer compatibility](apps/openmw-server/scripts/CLIENT_LUA_MULTIPLAYER.md)
+- [Actor identity and authority architecture](docs/architecture/actor-authority.html)
 
 ## Current State
 
@@ -19,7 +20,9 @@ A legally obtained copy of Morrowind is required. Game data is not included.
 - Native multiplayer client integration and a standalone `openmw-server` dedicated server.
 - GameNetworkingSockets transport with direct connection, basic server-list flows, account login, key linking, and persistent characters.
 - Synchronization for player movement, appearance, equipment, inventory, stats, spells, chat, death, and cell changes.
-- Actor synchronization covering stable identities, authority handoff, movement, presentation, attacks, death, corpses, and exterior-cell transitions.
+- Actor synchronization with stable server-wide identities, per-actor simulation ownership, prepared authority handoffs, movement and combat presentation, death and corpses, and exterior crossings that preserve actor state.
+- Coordinated live cell resets that clear persisted world state and invalidate connected clients' actor and cell caches without requiring a relog.
+- Temporary actor spell effects and movement changes preserved through tested border crossings and owner handoffs.
 - Persistent shared state for containers, doors, placed objects, dynamic records, spawned actors, dead vanilla actors, accounts, and characters.
 - Server-authoritative Lua scripting, persistent Lua storage, commands, administration services, gameplay systems, and client/server Lua events.
 - A compatibility foundation for ordinary client-side OpenMW Lua mods, including PLAYER script persistence, storage handling, stable object identity, and initial generic synchronization routes.
@@ -28,8 +31,8 @@ A legally obtained copy of Morrowind is required. Game data is not included.
 
 ### Still being worked on
 
-- Actor authority edge cases, movement smoothing, and combat, spell, knockout, death, and visual parity between clients.
-- Persistence recovery during disconnects, authority changes, exterior transitions, server restarts, and long-running sessions.
+- Longer multi-client and modded-world tests of actor ownership, visibility, movement, combat, spells, knockout, death, and visual parity.
+- Recovery and compatibility testing across disconnects, authority changes, exterior travel, server restarts, and long-running sessions.
 - Broader generic support for client-side OpenMW Lua mods through validated server-authoritative requests and shared-state routes.
 - More complete quest, dialogue outcome, and world-progression synchronization.
 - Server browser and master-server polish, latency reporting, administration tooling, and automated regression tests.
@@ -77,6 +80,19 @@ Fetcher Simulator includes optional Source-style surfing. Surf behavior is serve
 ## Development
 
 Fetcher Simulator is a fork of OpenMW `0.52.0`, not a fork or continuation of the TES3MP repository. Its GameNetworkingSockets transport, packet framing, dedicated server, SQLite persistence, authentication, server-side Lua runtime, and current ActorSync systems were implemented in this repository. TES3MP was used as a technical reference for a limited set of multiplayer-specific engine techniques: remote actor ground and jump state, suppressing local AI on network-controlled proxies, synchronizing chosen attack and cast animation variants, `refNum`/`mpNum` identity conventions, and actor authority handoff across cells.
+
+### How actor synchronization differs from TES3MP
+
+TES3MP and its default CoreScripts persist actor state; this project does not introduce persistence where TES3MP had none. The main difference is **what owns a live actor and when its simulation owner changes**:
+
+| Aspect | TES3MP with default CoreScripts | Fetcher Simulator |
+| --- | --- | --- |
+| Live actor storage | The server groups actor lists and one simulation authority by loaded cell. CoreScripts saves and reloads cell data. | A server-wide registry keeps each actor's identity and state; exterior cells index actors by location. |
+| Simulation ownership | One client is authoritative for ordinary actors in a loaded cell. The default scripts select and replace that client. | Each eligible actor has its own simulator. A capable owner can keep that actor across cell borders and changes in cell publisher. |
+| Handoffs | A cell authority change switches the client's actor roles for that cell. | A per-actor Prepare/Ready/Commit/Applied exchange checks that the replacement can simulate the actor and transfers its final state before the new owner starts. |
+| Border crossing and reset | Actors move between cell-managed lists; CoreScripts persists the move and coordinates cell resets through scripts and client reset packets. | Crossing moves an actor's spatial index entry without replacing its server record. A live reset clears SQLite world state and coordinates registry and client-cache invalidation. |
+
+This adds protocol and bookkeeping complexity, but addresses freezes, duplicates, missing actors, and lost combat or temporary spell state encountered during this project's border, reset, and disconnect testing. It does not guarantee that every mod or long-running session is free of these bugs. TES3MP also supports actor rosters, active-spell synchronization, and configurable server-side Lua policy; the comparison above describes its default CoreScripts setup, not every TES3MP server. See the [actor architecture chapter](docs/architecture/actor-authority.html) for this project's data structures and transfer flow.
 
 AI-assisted development tools are used in parts of the project. Contributors remain responsible for reviewing, testing, integrating, and distributing all changes.
 
