@@ -364,7 +364,8 @@ namespace
         }
         // Notify the target actor they've been hit
         bool isHarmful = magicEffect->mData.mFlags & ESM::MagicEffect::Harmful;
-        if (target.getClass().isActor() && target != caster && !caster.isEmpty() && isHarmful)
+        if (target.getClass().isActor() && target != caster && !caster.isEmpty() && isHarmful
+            && !(effect.mFlags & ESM::ActiveEffect::Flag_Transferred))
             target.getClass().onHit(target, {}, {}, caster, true, MWMechanics::DamageSourceType::Magical);
         // Apply resistances
         if (!(effect.mFlags & ESM::ActiveEffect::Flag_Ignore_Resistances))
@@ -1343,7 +1344,8 @@ namespace MWMechanics
                 bool isTemporary = spellParams.hasFlag(ESM::ActiveSpells::Flag_Temporary);
                 bool isEquipment = spellParams.hasFlag(ESM::ActiveSpells::Flag_Equipment);
 
-                if (!spellParams.hasFlag(ESM::ActiveSpells::Flag_Lua))
+                if (!spellParams.hasFlag(ESM::ActiveSpells::Flag_Lua)
+                    && !(effect.mFlags & ESM::ActiveEffect::Flag_Transferred))
                     playEffects(target, *magicEffect, (isTemporary || (isEquipment && playNonLooping)));
 
                 if (effect.mEffectId == ESM::MagicEffect::Soultrap && !target.getClass().isNpc()
@@ -1394,6 +1396,7 @@ namespace MWMechanics
             // Note that we can't return REMOVED here because the effect still needs to be detectable
         }
         effect.mFlags |= applied;
+        effect.mFlags &= ~ESM::ActiveEffect::Flag_Transferred;
         if (recalculateMagicka)
             target.getClass().getCreatureStats(target).recalculateMagicka();
         return { MagicApplicationResult::Type::APPLIED, receivedMagicDamage, affectedHealth };

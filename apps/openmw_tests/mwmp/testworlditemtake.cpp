@@ -12,6 +12,9 @@
 #include <components/esm3/loadlevlist.hpp>
 #include <components/esm3/refnum.hpp>
 #include <components/openmw-mp/Base/ActorSyncProtocol.hpp>
+#include <components/openmw-mp/Base/ActorAuthorityTransfer.hpp>
+#include <components/openmw-mp/Packets/Actor/PacketActorAuthorityTransfer.hpp>
+#include <components/openmw-mp/Packets/Actor/PacketActorStatsDynamic.hpp>
 #include <components/openmw-mp/Sha256.hpp>
 
 namespace
@@ -185,7 +188,7 @@ TEST(ActorIdentityProtocol, ContentQualifiedVanillaRefNumsDoNotCollide)
     EXPECT_EQ(modActor.refNum, (37u << 24) | 1u);
     EXPECT_NE(baseActor.refNum, modActor.refNum);
     EXPECT_NE(mwmp::actorInstanceIdFromActor(baseActor), mwmp::actorInstanceIdFromActor(modActor));
-    EXPECT_EQ(mwmp::ActorSyncProtocolVersionV2, 16u);
+    EXPECT_EQ(mwmp::ActorSyncProtocolVersionV2, 17u);
 }
 
 TEST(ActorIdentityProtocol, EmptyCompleteSnapshotRemainsComplete)
@@ -215,6 +218,88 @@ TEST(ActorIdentityProtocol, CompleteEmptyCellRetiresOnlyUnboundLeveledRoll)
         true, true, false));
     EXPECT_FALSE(mwmp::ActorSync::shouldRetireLocalLeveledRoll(
         true, false, true));
+}
+
+TEST(ActorAuthorityTransfer, PreservesRolledTemporaryEffectAndAgesRemainingTime)
+{
+    mwmp::ActorAuthorityTransfer sent;
+    sent.phase = mwmp::ActorAuthorityTransferPhase::Commit;
+    sent.actorNetId = 1234;
+    sent.transferId = 9;
+    sent.newOwnerGuid = 16;
+    sent.cellId = "EXT:-3,-2";
+    sent.actor.refId = "zombie 1 walker";
+    sent.actor.refNum = 1234;
+    sent.actor.cellId = sent.cellId;
+    ESM::ActiveSpells::ActiveSpellParams spell{};
+    spell.mActiveSpellId = ESM::RefId::stringRefId("active-speed-1");
+    spell.mSourceSpellId = ESM::RefId::stringRefId("test-fortify-speed");
+    spell.mFlags = ESM::ActiveSpells::Flag_Temporary;
+    ESM::ActiveEffect effect{};
+    effect.mEffectId = ESM::RefId::stringRefId("fortify attribute");
+    effect.mArg = ESM::RefId::stringRefId("speed");
+    effect.mMagnitude = 50.f;
+    effect.mMinMagnitude = 50.f;
+    effect.mMaxMagnitude = 50.f;
+    effect.mDuration = 120.f;
+    effect.mTimeLeft = 91.f;
+    effect.mFlags = ESM::ActiveEffect::Flag_Applied;
+    spell.mEffects.push_back(effect);
+    sent.timedSpells.mSpells.push_back(spell);
+
+    mwmp::PacketActorAuthorityTransfer packet;
+    packet.setTransfer(&sent);
+    const auto wire = packet.encode();
+    mwmp::ActorAuthorityTransfer received;
+    mwmp::PacketActorAuthorityTransfer decoded;
+    decoded.setTransfer(&received);
+    ASSERT_TRUE(decoded.decode(wire));
+    ASSERT_EQ(received.timedSpells.mSpells.size(), 1u);
+    ASSERT_EQ(received.timedSpells.mSpells.front().mEffects.size(), 1u);
+    const auto& transferred = received.timedSpells.mSpells.front().mEffects.front();
+    EXPECT_EQ(transferred.mMagnitude, 50.f);
+    EXPECT_EQ(transferred.mTimeLeft, 91.f);
+    EXPECT_EQ(std::get<ESM::RefId>(transferred.mArg), ESM::RefId::stringRefId("speed"));
+
+    mwmp::ageActorTimedSpells(received.timedSpells, 1.5f);
+    EXPECT_FLOAT_EQ(received.timedSpells.mSpells.front().mEffects.front().mTimeLeft, 89.5f);
+    mwmp::ageActorTimedSpells(received.timedSpells, 90.f);
+    EXPECT_TRUE(received.timedSpells.mSpells.empty());
+}
+
+TEST(ActorAuthorityTransfer, StatsSnapshotCarriesTemporaryEffectsToServer)
+{
+    mwmp::ActorList sent;
+    sent.cellId = "EXT:-3,-2";
+    mwmp::BaseActor actor;
+    actor.cellId = sent.cellId;
+    actor.refId = "zombie 1 walker";
+    actor.refNum = 1234;
+    actor.hasTimedSpellSnapshot = true;
+    ESM::ActiveSpells::ActiveSpellParams spell{};
+    spell.mSourceSpellId = ESM::RefId::stringRefId("test-fortify-speed");
+    spell.mFlags = ESM::ActiveSpells::Flag_Temporary;
+    ESM::ActiveEffect effect{};
+    effect.mEffectId = ESM::RefId::stringRefId("fortify attribute");
+    effect.mArg = ESM::RefId::stringRefId("speed");
+    effect.mMagnitude = 50.f;
+    effect.mDuration = 120.f;
+    effect.mTimeLeft = 118.f;
+    spell.mEffects.push_back(effect);
+    actor.timedSpells.mSpells.push_back(spell);
+    sent.actors.push_back(actor);
+
+    mwmp::PacketActorStatsDynamic packet;
+    packet.setActorList(&sent);
+    const auto wire = packet.encode();
+    mwmp::ActorList received;
+    mwmp::PacketActorStatsDynamic decoded;
+    decoded.setActorList(&received);
+    ASSERT_TRUE(decoded.decode(wire));
+    ASSERT_EQ(received.actors.size(), 1u);
+    ASSERT_TRUE(received.actors.front().hasTimedSpellSnapshot);
+    ASSERT_EQ(received.actors.front().timedSpells.mSpells.size(), 1u);
+    EXPECT_FLOAT_EQ(received.actors.front().timedSpells.mSpells.front().mEffects.front().mTimeLeft, 118.f);
 }
 
 TEST(ActorIdentityProtocol, DifferentLocalRollIsReplacedByCanonicalChild)

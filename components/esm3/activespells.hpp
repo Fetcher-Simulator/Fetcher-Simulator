@@ -28,7 +28,10 @@ namespace ESM
             Flag_Ignore_Resistances = 1 << 2,
             Flag_Ignore_Reflect = 1 << 3,
             Flag_Ignore_SpellAbsorption = 1 << 4,
-            Flag_Invalid = 1 << 5
+            Flag_Invalid = 1 << 5,
+            // Multiplayer handoff re-applies an existing timed effect's rolled
+            // magnitude without presenting it as a new hit.
+            Flag_Transferred = 1 << 6
         };
 
         RefId mEffectId;

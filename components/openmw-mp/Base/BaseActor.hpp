@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include <components/esm3/activespells.hpp>
+
 #include "BaseStructs.hpp"
 
 namespace mwmp
@@ -36,6 +38,11 @@ namespace mwmp
         // Combat
         // ------------------------------------------------------------------
         DynamicStats dynamicStats;
+        // Only carried by ActorStatsDynamic. A complete timed-spell snapshot
+        // allows the server to preserve temporary gameplay effects if this
+        // simulator disconnects before another owner takes over.
+        bool hasTimedSpellSnapshot = false;
+        ESM::ActiveSpells timedSpells;
         AnimFlags    animFlags;
         AnimPlay     animPlay;
         Attack       attack;

@@ -378,6 +378,9 @@ namespace
             return false;
 
         MWMechanics::AiSequence& aiSequence = stats.getAiSequence();
+        if (actor.ai.type == mwmp::BaseActor::AIAction::Type::None
+            && (wasRemotePuppet || hadSavedAi) && aiSequence.isInCombat())
+            aiSequence.stopCombat();
         if (packetRequestsCombat && !aiSequence.isInCombat())
         {
             MWWorld::Ptr combatTarget;
@@ -2816,6 +2819,7 @@ namespace mwmp
                 || !matchesActorAuthorityTransferCommit(pendingIt->second.prepare, transfer))
                 return;
             pendingIt->second.prepare.actor = transfer.actor;
+            pendingIt->second.prepare.timedSpells = transfer.timedSpells;
             pendingIt->second.commitReceived = true;
             applyCommittedAuthorityTransfer(transfer.actorNetId);
             return;
@@ -2923,6 +2927,54 @@ namespace mwmp
         {
             MWMechanics::CreatureStats& stats
                 = runtime.boundActor.getClass().getCreatureStats(runtime.boundActor);
+            // The observer never applied the old simulator's temporary spells.
+            // Rebuild them from the final server snapshot before its first AI
+            // tick. Reapply the already rolled magnitudes on this owner; do not
+            // reroll resistance, reflection, or absorption during promotion.
+            stats.getActiveSpells().purge([](const auto& spell) {
+                return spell.hasFlag(ESM::ActiveSpells::Flag_Temporary);
+            }, runtime.boundActor);
+            ESM::ActiveSpells timedSpells = pendingIt->second.prepare.timedSpells;
+            for (auto& spell : timedSpells.mSpells)
+            {
+                for (auto& effect : spell.mEffects)
+                {
+                    const ESM::MagicEffect* effectRecord = world->getStore()
+                        .get<ESM::MagicEffect>().search(effect.mEffectId);
+                    // AppliedOnce also covers lasting stat modifiers such as
+                    // Fortify Attribute. The observer has the timer but never
+                    // applied its modifier, so its new simulator must apply
+                    // that modifier once at promotion. Keep other one-shot
+                    // effects (damage, cures, teleportation, etc.) suppressed.
+                    const bool reapplyFortifyAttribute
+                        = effect.mEffectId == ESM::MagicEffect::FortifyAttribute;
+                    if (!effectRecord || ((effectRecord->mData.mFlags & ESM::MagicEffect::AppliedOnce)
+                        && !reapplyFortifyAttribute))
+                        continue;
+                    effect.mFlags &= ~(ESM::ActiveEffect::Flag_Applied | ESM::ActiveEffect::Flag_Remove);
+                    effect.mFlags |= ESM::ActiveEffect::Flag_Ignore_Resistances
+                        | ESM::ActiveEffect::Flag_Ignore_Reflect
+                        | ESM::ActiveEffect::Flag_Ignore_SpellAbsorption
+                        | ESM::ActiveEffect::Flag_Transferred;
+                    effect.mMinMagnitude = effect.mMagnitude;
+                    effect.mMaxMagnitude = effect.mMagnitude;
+                }
+            }
+            for (auto& spell : timedSpells.mQueue)
+                for (auto& effect : spell.mEffects)
+                {
+                    effect.mFlags |= ESM::ActiveEffect::Flag_Ignore_Resistances
+                        | ESM::ActiveEffect::Flag_Ignore_Reflect
+                        | ESM::ActiveEffect::Flag_Ignore_SpellAbsorption
+                        | ESM::ActiveEffect::Flag_Transferred;
+                }
+            stats.getActiveSpells().readState(timedSpells);
+            runtime.lastTimedSpellSnapshotMs = 0;
+            runtime.hadTimedSpells = !timedSpells.mSpells.empty() || !timedSpells.mQueue.empty();
+            Log(Debug::Info) << "[MP] ActorSync: restored transferred temporary effects"
+                             << " actorNetId=" << actorNetId
+                             << " spells=" << timedSpells.mSpells.size()
+                             << " queued=" << timedSpells.mQueue.size();
             const float previousMagicka = stats.getMagicka().getCurrent();
             const auto& canonicalMagicka = runtime.state.dynamicStats.magicka;
             MWMechanics::DynamicStat<float> magicka = stats.getMagicka();
@@ -8544,6 +8596,7 @@ namespace mwmp
         std::vector<DuplicateServerSpawnedActor> duplicateServerSpawnedActors;
         std::unordered_map<uint32_t, SentServerSpawnedActor> sentServerSpawnedActors;
         std::unordered_map<ActorInstanceId, std::size_t> authorityOutgoingIndexByNetId;
+        std::unordered_map<ActorInstanceId, MWWorld::Ptr> authorityPtrByNetId;
 
         for (auto& [actorKey, actor] : cell.actors)
         {
@@ -9464,6 +9517,7 @@ namespace mwmp
             }
 
             authorityOutgoingIndexByNetId[outgoingActorNetId] = outgoing.actors.size();
+            authorityPtrByNetId[outgoingActorNetId] = ptr;
             outgoing.actors.push_back(std::move(actor));
             return true;
         };
@@ -10261,7 +10315,62 @@ namespace mwmp
             const float prevMagicka = (prevIt != cell.actors.end())
                 ? prevIt->second.state.dynamicStats.magicka.current : actor.dynamicStats.magicka.current;
             const float magickaDelta = std::abs(actor.dynamicStats.magicka.current - prevMagicka);
-            if (prevIt != cell.actors.end() && (healthDelta > 0.5f || magickaDelta > 0.5f))
+            const bool dynamicStatsChanged = prevIt != cell.actors.end()
+                && (healthDelta > 0.5f || magickaDelta > 0.5f);
+            BaseActor statsActor = actor;
+            const auto authorityPtrIt = authorityPtrByNetId.find(actorNetIdForActorState(actor));
+            if (prevIt != cell.actors.end() && authorityPtrIt != authorityPtrByNetId.end()
+                && !authorityPtrIt->second.isEmpty())
+            {
+                ActorRuntime& runtime = prevIt->second;
+                ESM::ActiveSpells timedSpells;
+                const MWWorld::Ptr& authorityPtr = authorityPtrIt->second;
+                authorityPtr.getClass().getCreatureStats(authorityPtr)
+                    .getActiveSpells().writeState(timedSpells);
+                const auto keepUnexpiredTemporarySpells = [](auto& spells) {
+                    for (auto& spell : spells)
+                        std::erase_if(spell.mEffects, [](const auto& effect) {
+                            return effect.mTimeLeft <= 0.f;
+                        });
+                    std::erase_if(spells, [](const auto& spell) {
+                        return !(spell.mFlags & ESM::ActiveSpells::Flag_Temporary)
+                            || spell.mEffects.empty();
+                    });
+                };
+                keepUnexpiredTemporarySpells(timedSpells.mSpells);
+                keepUnexpiredTemporarySpells(timedSpells.mQueue);
+                float maxTimeLeft = 0.f;
+                for (const auto& spell : timedSpells.mSpells)
+                    for (const auto& effect : spell.mEffects)
+                        maxTimeLeft = std::max(maxTimeLeft, effect.mTimeLeft);
+                for (const auto& spell : timedSpells.mQueue)
+                    for (const auto& effect : spell.mEffects)
+                        maxTimeLeft = std::max(maxTimeLeft, effect.mTimeLeft);
+                const uint64_t nowMs = currentClientTimeMs();
+                const float elapsed = runtime.lastTimedSpellSnapshotMs == 0 ? 0.f
+                    : static_cast<float>(nowMs - runtime.lastTimedSpellSnapshotMs) / 1000.f;
+                const bool hasTimedSpells = !timedSpells.mSpells.empty() || !timedSpells.mQueue.empty();
+                const bool refreshed = hasTimedSpells && runtime.hadTimedSpells
+                    && maxTimeLeft > runtime.lastSentTimedSpellMaxTimeLeft - elapsed + 1.f;
+                if ((hasTimedSpells || runtime.hadTimedSpells)
+                    && (runtime.lastTimedSpellSnapshotMs == 0 || elapsed >= 1.f
+                        || hasTimedSpells != runtime.hadTimedSpells || refreshed))
+                {
+                    const bool effectSetChanged = hasTimedSpells != runtime.hadTimedSpells || refreshed;
+                    statsActor.hasTimedSpellSnapshot = true;
+                    statsActor.timedSpells = std::move(timedSpells);
+                    runtime.lastTimedSpellSnapshotMs = nowMs;
+                    runtime.lastSentTimedSpellMaxTimeLeft = maxTimeLeft;
+                    runtime.hadTimedSpells = hasTimedSpells;
+                    Log(effectSetChanged ? Debug::Info : Debug::Verbose)
+                                     << "[MP] ActorSync: sent temporary effect snapshot"
+                                     << " actorNetId=" << actorNetIdForActorState(actor)
+                                     << " spells=" << statsActor.timedSpells.mSpells.size()
+                                     << " queued=" << statsActor.timedSpells.mQueue.size()
+                                     << " maxTimeLeft=" << maxTimeLeft;
+                }
+            }
+            if (dynamicStatsChanged)
             {
                 const bool importantHealthChange = healthDelta > 0.5f
                     && (actor.mpNum != 0 || actor.ai.type == BaseActor::AIAction::Type::Combat
@@ -10275,8 +10384,9 @@ namespace mwmp
                     << " magickaCur=" << actor.dynamicStats.magicka.current
                     << " dead=" << actor.isDead
                     << " firstSeen=0";
-                statsUpdate.actors.push_back(actor);
             }
+            if (dynamicStatsChanged || statsActor.hasTimedSpellSnapshot)
+                statsUpdate.actors.push_back(std::move(statsActor));
 
             // Send a death packet when an actor is dead and we haven't sent one yet.
             // We use deathPacketSent instead of simple edge detection because the

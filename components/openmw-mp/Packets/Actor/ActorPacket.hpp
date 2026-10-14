@@ -5,6 +5,7 @@
 #include <components/openmw-mp/Packets/BasePacket.hpp>
 
 #include <stdexcept>
+#include <cmath>
 
 namespace mwmp
 {
@@ -148,6 +149,117 @@ namespace mwmp
             unpackDynamicStat(rs, stats.health);
             unpackDynamicStat(rs, stats.magicka);
             unpackDynamicStat(rs, stats.fatigue);
+        }
+
+        void packTimedSpells(WriteStream& ws, const ESM::ActiveSpells& state) const
+        {
+            const auto packCollection = [&](const auto& spells) {
+                if (spells.size() > 256)
+                    throw std::runtime_error("Actor timed-spell snapshot exceeds limit");
+                ws.write(static_cast<std::uint16_t>(spells.size()));
+                for (const auto& spell : spells)
+                {
+                    ws.writeString(spell.mActiveSpellId.serializeText());
+                    ws.writeString(spell.mSourceSpellId.serializeText());
+                    ws.writeString(spell.mDisplayName);
+                    ws.write(spell.mCaster.mIndex);
+                    ws.write(spell.mCaster.mContentFile);
+                    ws.write(spell.mItem.mIndex);
+                    ws.write(spell.mItem.mContentFile);
+                    ws.write(static_cast<std::uint32_t>(spell.mFlags));
+                    ws.write(spell.mWorsenings);
+                    ws.write(spell.mNextWorsening.mHour);
+                    ws.write(spell.mNextWorsening.mDay);
+                    if (spell.mEffects.size() > 64)
+                        throw std::runtime_error("Actor timed-spell effects exceed limit");
+                    ws.write(static_cast<std::uint16_t>(spell.mEffects.size()));
+                    for (const auto& effect : spell.mEffects)
+                    {
+                        ws.writeString(effect.mEffectId.serializeText());
+                        ws.write(effect.mMagnitude);
+                        ws.write(effect.mMinMagnitude);
+                        ws.write(effect.mMaxMagnitude);
+                        ws.write(effect.mDuration);
+                        ws.write(effect.mTimeLeft);
+                        ws.write(effect.mEffectIndex);
+                        ws.write(effect.mFlags);
+                        const bool refNumArg = std::holds_alternative<ESM::RefNum>(effect.mArg);
+                        ws.write(refNumArg);
+                        if (refNumArg)
+                        {
+                            const ESM::RefNum arg = std::get<ESM::RefNum>(effect.mArg);
+                            ws.write(arg.mIndex);
+                            ws.write(arg.mContentFile);
+                        }
+                        else
+                            ws.writeString(std::get<ESM::RefId>(effect.mArg).serializeText());
+                    }
+                }
+            };
+            packCollection(state.mSpells);
+            packCollection(state.mQueue);
+        }
+
+        void unpackTimedSpells(ReadStream& rs, ESM::ActiveSpells& state)
+        {
+            const auto unpackCollection = [&](auto& spells) {
+                std::uint16_t count = 0;
+                rs.read(count);
+                if (count > 256)
+                    throw std::runtime_error("Actor timed-spell snapshot exceeds limit");
+                spells.resize(count);
+                for (auto& spell : spells)
+                {
+                    spell.mActiveSpellId = ESM::RefId::deserializeText(rs.readString());
+                    spell.mSourceSpellId = ESM::RefId::deserializeText(rs.readString());
+                    spell.mDisplayName = rs.readString();
+                    rs.read(spell.mCaster.mIndex);
+                    rs.read(spell.mCaster.mContentFile);
+                    rs.read(spell.mItem.mIndex);
+                    rs.read(spell.mItem.mContentFile);
+                    std::uint32_t flags = 0;
+                    rs.read(flags);
+                    spell.mFlags = static_cast<ESM::ActiveSpells::Flags>(flags);
+                    rs.read(spell.mWorsenings);
+                    rs.read(spell.mNextWorsening.mHour);
+                    rs.read(spell.mNextWorsening.mDay);
+                    std::uint16_t effectCount = 0;
+                    rs.read(effectCount);
+                    if (effectCount > 64)
+                        throw std::runtime_error("Actor timed-spell effects exceed limit");
+                    spell.mEffects.resize(effectCount);
+                    for (auto& effect : spell.mEffects)
+                    {
+                        effect.mEffectId = ESM::RefId::deserializeText(rs.readString());
+                        rs.read(effect.mMagnitude);
+                        rs.read(effect.mMinMagnitude);
+                        rs.read(effect.mMaxMagnitude);
+                        rs.read(effect.mDuration);
+                        rs.read(effect.mTimeLeft);
+                        rs.read(effect.mEffectIndex);
+                        rs.read(effect.mFlags);
+                        bool refNumArg = false;
+                        rs.read(refNumArg);
+                        if (refNumArg)
+                        {
+                            ESM::RefNum arg;
+                            rs.read(arg.mIndex);
+                            rs.read(arg.mContentFile);
+                            effect.mArg = arg;
+                        }
+                        else
+                            effect.mArg = ESM::RefId::deserializeText(rs.readString());
+                        if (!std::isfinite(effect.mMagnitude) || !std::isfinite(effect.mMinMagnitude)
+                            || !std::isfinite(effect.mMaxMagnitude) || !std::isfinite(effect.mDuration)
+                            || !std::isfinite(effect.mTimeLeft) || effect.mDuration < 0.f)
+                            throw std::runtime_error("Invalid actor timed-spell effect");
+                    }
+                }
+            };
+            state.mSpells.clear();
+            state.mQueue.clear();
+            unpackCollection(state.mSpells);
+            unpackCollection(state.mQueue);
         }
 
         void packAnimFlags(WriteStream& ws, const AnimFlags& flags) const

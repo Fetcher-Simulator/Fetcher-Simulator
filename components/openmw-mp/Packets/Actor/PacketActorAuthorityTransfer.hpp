@@ -51,6 +51,7 @@ namespace mwmp
             ws.write(actor.isInstantDeath);
             ws.writeString(actor.deathAnimGroup);
             ws.write(actor.isFollowerCellChange);
+            packTimedSpells(ws, mTransfer->timedSpells);
         }
 
         void unpack(ReadStream& rs) override
@@ -88,6 +89,7 @@ namespace mwmp
             rs.read(actor.isInstantDeath);
             actor.deathAnimGroup = rs.readString();
             rs.read(actor.isFollowerCellChange);
+            unpackTimedSpells(rs, mTransfer->timedSpells);
         }
 
     private:

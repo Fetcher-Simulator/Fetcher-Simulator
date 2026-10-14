@@ -2486,6 +2486,8 @@ void MPServer::tick(float dt)
     {
         mNextActorAuthorityTransferSweepMs = nowMs + 1000;
         constexpr uint64_t kActorAuthorityTransferTimeoutMs = 5000;
+        constexpr uint64_t kUnreachableCombatGraceMs = 5000;
+        std::unordered_map<std::string, std::vector<BaseActor>> abandonedCombatByCell;
         for (auto& [cellId, cellState] : mWorld.actorCells)
         {
             for (auto& [actorKey, recordPtr] : cellState.actors)
@@ -2501,6 +2503,73 @@ void MPServer::tick(float dt)
                 if (record.actorAuthorityUnavailableGeneration
                     == record.actorAuthorityGeneration)
                     prepareActorAuthorityTransferForActor(cellId, record);
+                // Once the victim has outrun the actor's simulation horizon,
+                // no client can take over the chase. A nearby player must be
+                // allowed to simulate the actor's ordinary idle/return AI,
+                // without being made an innocent combat target. A short grace
+                // period avoids dropping combat on a transient cell crossing.
+                const bool hostile = record.actor.ai.type == BaseActor::AIAction::Type::Combat
+                    || record.actor.ai.type == BaseActor::AIAction::Type::Pursue;
+                const auto targetGuid = hostile
+                    ? remotePlayerGuidFromActorTarget(record.actor.ai.targetId) : std::nullopt;
+                ConnectedClient* target = targetGuid ? findClientByGuid(*targetGuid) : nullptr;
+                bool nearbySimulator = false;
+                if (record.actorAuthorityGuid == 0 && !record.pendingAuthorityTransfer
+                    && target && target->charSelectComplete
+                    && !clientEligibleForActorCell(*target, cellId)
+                    && isPerActorAuthorityEligible(record.actor, record.actorNetId)
+                    && record.actorAuthorityReason != "script-owner")
+                {
+                    for (const auto& [conn, client] : mClients)
+                    {
+                        (void)conn;
+                        if (client.actorSyncProtocolVersion >= ActorSyncProtocolVersionV2
+                            && clientCanSimulateActorPosition(client, record.actor, cellId, 512.f))
+                        {
+                            nearbySimulator = true;
+                            break;
+                        }
+                    }
+                }
+                if (!nearbySimulator)
+                    record.unreachableCombatTargetSinceMs = 0;
+                else if (record.unreachableCombatTargetSinceMs == 0)
+                    record.unreachableCombatTargetSinceMs = nowMs;
+                else if (nowMs - record.unreachableCombatTargetSinceMs >= kUnreachableCombatGraceMs)
+                {
+                    const uint32_t abandonedTargetGuid = *targetGuid;
+                    std::vector<std::string> reachableHostiles;
+                    if (record.actor.ai.type == BaseActor::AIAction::Type::Combat)
+                    {
+                        for (const std::string& playerId : record.actor.ai.combatPlayerTargets)
+                        {
+                            const auto playerGuid = remotePlayerGuidFromActorTarget(playerId);
+                            ConnectedClient* player = playerGuid ? findClientByGuid(*playerGuid) : nullptr;
+                            if (player && clientCanSimulateActorPosition(
+                                    *player, record.actor, cellId, 512.f))
+                                reachableHostiles.push_back(playerId);
+                        }
+                    }
+                    record.actor.ai = {};
+                    if (!reachableHostiles.empty())
+                    {
+                        record.actor.ai.type = BaseActor::AIAction::Type::Combat;
+                        record.actor.ai.targetId = reachableHostiles.front();
+                        record.actor.ai.combatPlayerTargets = std::move(reachableHostiles);
+                    }
+                    record.lastSnapshotTime = nowMs;
+                    record.unreachableCombatTargetSinceMs = 0;
+                    markLuaActorDirty(record, cellId);
+                    abandonedCombatByCell[cellId].push_back(record.actor);
+                    prepareActorAuthorityTransferForActor(cellId, record);
+                    Log(Debug::Info) << "[Server] Abandoned unreachable actor chase"
+                                     << " actorNetId=" << record.actorNetId
+                                     << " cell=" << cellId
+                                     << " formerTarget=" << abandonedTargetGuid
+                                     << " replacementTarget=" << record.actor.ai.targetId
+                                     << " newCandidate=" << (record.pendingAuthorityTransfer
+                                            ? record.pendingAuthorityTransfer->newOwnerGuid : 0);
+                }
                 if (record.pendingAuthorityTransfer
                     && record.pendingAuthorityTransferStartedMs != 0
                     && nowMs >= record.pendingAuthorityTransferStartedMs
@@ -2563,6 +2632,22 @@ void MPServer::tick(float dt)
                 prepareActorAuthorityTransferAfterDisconnect(cellId, record);
                 broadcastActorAuthorityLease(cellId, record);
             }
+        }
+        for (auto& [cellId, actors] : abandonedCombatByCell)
+        {
+            auto cellIt = mWorld.actorCells.find(cellId);
+            if (cellIt == mWorld.actorCells.end())
+                continue;
+            ActorList update;
+            update.cellId = cellId;
+            update.authorityGuid = cellIt->second.authorityGuid;
+            update.authorityGeneration = cellIt->second.authorityGeneration;
+            update.snapshotSequence = cellIt->second.nextSnapshotSequence++;
+            update.serverTimestamp = nowMs;
+            update.actors = std::move(actors);
+            PacketActorAI packet;
+            packet.setActorList(&update);
+            broadcastActorToCell(cellId, packet.encode());
         }
     }
 
@@ -5197,6 +5282,11 @@ void MPServer::prepareActorAuthorityTransferForActor(
     prepare.migrationGeneration = record.migrationGeneration;
     prepare.cellId = cellId;
     prepare.actor = record.actor;
+    prepare.timedSpells = record.timedSpells;
+    if (record.timedSpellsSnapshotMs != 0
+        && currentServerTimeMs() >= record.timedSpellsSnapshotMs)
+        ageActorTimedSpells(prepare.timedSpells,
+            static_cast<float>(currentServerTimeMs() - record.timedSpellsSnapshotMs) / 1000.f);
     record.pendingAuthorityTransfer = prepare;
     record.pendingAuthorityTransferStartedMs = currentServerTimeMs();
 
@@ -13148,6 +13238,11 @@ void MPServer::handleActorAuthorityTransfer(ConnectedClient& c, const uint8_t* d
     ActorAuthorityTransfer finalSnapshot = *record.pendingAuthorityTransfer;
     finalSnapshot.phase = ActorAuthorityTransferPhase::Commit;
     finalSnapshot.actor = record.actor;
+    finalSnapshot.timedSpells = record.timedSpells;
+    if (record.timedSpellsSnapshotMs != 0
+        && currentServerTimeMs() >= record.timedSpellsSnapshotMs)
+        ageActorTimedSpells(finalSnapshot.timedSpells,
+            static_cast<float>(currentServerTimeMs() - record.timedSpellsSnapshotMs) / 1000.f);
     PacketActorAuthorityTransfer finalPacket;
     finalPacket.setTransfer(&finalSnapshot);
     sendTo(c.conn, finalPacket.encode());
@@ -15141,6 +15236,19 @@ void MPServer::handleActorStatsDynamic(ConnectedClient& c, const uint8_t* data, 
         stored->actor.mpNum = actor.mpNum;
         stored->actor.cellId = incoming.cellId;
         stored->actor.dynamicStats = actor.dynamicStats;
+        if (actor.hasTimedSpellSnapshot)
+        {
+            stored->timedSpells = actor.timedSpells;
+            stored->timedSpellsSnapshotMs = incoming.serverTimestamp;
+            Log(Debug::Verbose) << "[Server] Actor temporary effects cached"
+                             << " actorNetId=" << stored->actorNetId
+                             << " spells=" << stored->timedSpells.mSpells.size();
+        }
+        if (actor.isDead)
+        {
+            stored->timedSpells = {};
+            stored->timedSpellsSnapshotMs = incoming.serverTimestamp;
+        }
         stored->actor.isDead = actor.isDead;
         stored->lastSnapshotTime = incoming.serverTimestamp;
         persistSpawnedActorIfNeeded(*stored);

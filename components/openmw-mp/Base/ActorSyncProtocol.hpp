@@ -25,7 +25,8 @@ namespace mwmp
     // Version 14 includes death event identity in authority-transfer snapshots.
     // Version 15 preserves all hostile player targets across authority handoff.
     // Version 16 carries authoritative locomotion speed in position snapshots.
-    static constexpr uint32_t ActorSyncProtocolVersionV2 = 16;
+    // Version 17 carries temporary active spells through authority handoff.
+    static constexpr uint32_t ActorSyncProtocolVersionV2 = 17;
 
     using ActorInstanceId = uint64_t;
 

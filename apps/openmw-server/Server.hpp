@@ -671,6 +671,10 @@ private:
         // A lease can outlive the owner's scene actor. Keep the lease until a
         // prepared replacement is Ready, but stop treating that owner as capable.
         std::optional<uint32_t> actorAuthorityUnavailableGeneration;
+        // An ownerless actor may retain a combat target that has run beyond
+        // every nearby simulator's loaded range. Give handoff a brief chance
+        // before abandoning that unreachable chase.
+        uint64_t unreachableCombatTargetSinceMs = 0;
         std::optional<ActorAuthorityTransfer> pendingAuthorityTransfer;
         uint64_t pendingAuthorityTransferStartedMs = 0;
         // Try another simulator once after a Prepare stalls, then keep the
@@ -691,6 +695,10 @@ private:
         // against one multiplayer character from making the actor generically
         // aggressive toward whichever client currently owns actor simulation.
         std::unordered_map<std::int64_t, CrimeHostilityState> crimeHostilities;
+        // Latest owner-authored temporary effects, retained independently of
+        // cell rosters so disconnect handoff can preserve their remaining time.
+        ESM::ActiveSpells timedSpells;
+        uint64_t timedSpellsSnapshotMs = 0;
     };
 
     struct CellActorState

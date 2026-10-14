@@ -2,6 +2,7 @@
 #define OPENMW_MP_ACTORAUTHORITYTRANSFER_HPP
 
 #include <cstdint>
+#include <algorithm>
 #include <string>
 #include <string_view>
 
@@ -31,7 +32,24 @@ namespace mwmp
         std::uint32_t migrationGeneration = 0;
         std::string cellId;
         BaseActor actor;
+        ESM::ActiveSpells timedSpells;
     };
+
+    inline void ageActorTimedSpells(ESM::ActiveSpells& state, float elapsedSeconds)
+    {
+        const auto age = [elapsedSeconds](auto& spells) {
+            for (auto& spell : spells)
+            {
+                std::erase_if(spell.mEffects, [elapsedSeconds](auto& effect) {
+                    effect.mTimeLeft -= std::max(0.f, elapsedSeconds);
+                    return effect.mTimeLeft <= 0.f;
+                });
+            }
+            std::erase_if(spells, [](const auto& spell) { return spell.mEffects.empty(); });
+        };
+        age(state.mSpells);
+        age(state.mQueue);
+    }
 
     inline bool matchesActorAuthorityAvailability(const ActorAuthorityTransfer& report,
         ActorInstanceId actorNetId, std::uint32_t ownerGuid, std::uint32_t authorityGeneration,

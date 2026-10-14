@@ -24,6 +24,9 @@ namespace mwmp
                 packActorIdentity(ws, actor);
                 packDynamicStats(ws, actor.dynamicStats);
                 ws.write(actor.isDead);
+                ws.write(actor.hasTimedSpellSnapshot);
+                if (actor.hasTimedSpellSnapshot)
+                    packTimedSpells(ws, actor.timedSpells);
             }
         }
 
@@ -38,6 +41,9 @@ namespace mwmp
                 unpackActorIdentity(rs, actor);
                 unpackDynamicStats(rs, actor.dynamicStats);
                 rs.read(actor.isDead);
+                rs.read(actor.hasTimedSpellSnapshot);
+                if (actor.hasTimedSpellSnapshot)
+                    unpackTimedSpells(rs, actor.timedSpells);
             }
         }
     };

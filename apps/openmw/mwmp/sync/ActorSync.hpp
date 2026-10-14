@@ -158,6 +158,9 @@ namespace mwmp
             double interpolationRenderTimestamp = 0.0;
             float latestSnapshotAge = 0.f;
             uint64_t lastServerTimestamp = 0;
+            uint64_t lastTimedSpellSnapshotMs = 0;
+            float lastSentTimedSpellMaxTimeLeft = 0.f;
+            bool hadTimedSpells = false;
             uint64_t lastPresentationServerTimestamp = 0;
             uint64_t lastClientSnapshotReceiveTimeMs = 0;
             bool hasInterpolationRenderTimestamp = false;
