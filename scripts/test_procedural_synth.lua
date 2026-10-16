@@ -131,4 +131,13 @@ test('late listener snapshot has parameters and no historical notes',function()
     end
     check(found)
 end)
+test('performer identity is derived from the authenticated owner',function()
+    acquire()
+    for _,event in ipairs(sent) do
+        if event.data.op=='state' or event.data.op=='granted' then check(event.data.owner==1,'wrong performer GUID') end
+    end
+    sent={};request('on',{note=60,velocity=0.8,owner=3})
+    check(#sent>0)
+    for _,event in ipairs(sent) do check(event.data.owner==1,'payload spoofed performer GUID') end
+end)
 print(string.format('%d tests, %d assertions passed',tests,checks))

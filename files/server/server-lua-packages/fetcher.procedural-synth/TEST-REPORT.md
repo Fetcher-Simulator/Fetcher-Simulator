@@ -106,3 +106,70 @@ helpers parsed successfully; whitespace validation passed. Evidence is retained
 locally under the fixture's `evidence/keyboard` directory. Setup was returned to
 interactive use without the probe. The same fixture batch launchers now use the
 keyboard by default; no production configuration was changed.
+
+## Bone API and Bardcraft MIDI — October 16
+
+The client was rebuilt with `openmw.animation.boneTransformsVersion = 1`:
+`getBoneNames`, `getBoneTransform`, `setBoneTransform` and `clearBoneTransform`.
+Setters queue graph changes at the synchronized Lua action boundary. Reads are
+restricted to synchronized `onFrame`/input callbacks; unposed reads exclude these
+offsets on ancestor bones. The controller restores the underlying matrix before
+ordinary animation and applies its offset after it, preserving scale and avoiding
+feedback on partially keyed or static transforms. Leases expire after 0.5 real
+seconds by default. Animation-group changes reattach controllers; model rebuilds
+discard them. `openmw.mp.getPlayerObject` resolves the server-supplied owner GUID.
+
+New validation commands, from the repository root:
+
+```powershell
+cmake --build MSVC2022_64 --config RelWithDebInfo --target openmw --parallel 3
+cmake -S scripts/bone-pose-tests -B build/bone-pose-tests -G "Visual Studio 17 2022" -A x64 -DCMAKE_TOOLCHAIN_FILE= -DCMAKE_PREFIX_PATH=C:/serena_workspaces_directory/openmw/deps/vcpkg-x64-windows-2022-2026-02-24/installed/x64-windows
+cmake --build build/bone-pose-tests --config Release
+$env:PATH = "$PWD\deps\vcpkg-x64-windows-2022-2026-02-24\installed\x64-windows\bin;" + $env:PATH
+ctest --test-dir build/bone-pose-tests -C Release --output-on-failure
+lua scripts/test_procedural_synth_midi.lua 'C:\serena_workspaces_directory\fetcher-simulator\Data Files\fetcher-simulator\Gameplay\BardcraftOpenMW\midi\Bardcraft\preset\greensleeves.mid'
+lua scripts/test_procedural_synth_pose.lua
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-procedural-synth-test.ps1 -MidiProbe
+```
+
+Application build: **PASS**. Native bone CTest: **1/1 PASS**, covering finite/bounded
+inputs, zero-quaternion rejection, weighting, 200 repeated partial-animation
+updates without position/rotation accumulation, scale preservation, lease expiry,
+static transforms, explicit restore and osgAnimation skeleton-space updates.
+The synth DSP CTest remains **1/1 PASS**. Server Lua now passes **10 tests / 66
+assertions**, including authenticated performer identity despite a spoofed owner
+field. Client/editor harness passes **298 assertions**, including resumed-character
+MIDI discovery, catalog-only paths, synth/relay playback, preset interruption,
+manual-key takeover and close cleanup. MIDI parser/player checks pass **21
+assertions** with the installed Greensleeves file, including tempo changes,
+running status, velocity, sustain, shared pitches across/within channels, malformed
+data and frame-stall cleanup. Arm geometry passes **16 assertions** for link
+lengths, reach limits and degenerate targets. Existing relay regression remains
+**14 tests / 63 assertions PASS**.
+
+Local setup copied **21 MIDI files** from the existing Bardcraft installation into
+the fixture's `midi-data` directory. No Bardcraft scripts, ESP or prerecorded
+instrument samples are needed. The new parser read Greensleeves as **1,221 retained
+events, 11 tracks, 40.52 seconds**. Both actual clients produced polyphonic native
+PCM through the existing 3D synth and reported six active performer pose bones.
+The observer probe pointed its camera toward the performer to exercise visible
+bone updates: culled skeletons intentionally stop evaluating until visible.
+After solving IK before nonuniform race/model scaling, logged hand-to-clamped-IK
+target error was approximately **0.000 game units on A and 0.005 on B** in the
+steady-state run. This measures the computed reachable target, not contact with
+the keyboard's keys. The complete song ended and closing the editor removed the
+listener instance. Local evidence is retained in `evidence/midi`.
+
+The final MIDI run logged no Lua errors. A also logged 48 native `RigGeometry
+rendering with no skeleton` messages during initial character loading, before
+the synth was acquired or any scripted bone pose was installed; B logged none.
+Those startup rendering messages remain outside this feature's validation.
+
+Limits: all melodic MIDI channels use the current preset. Percussion, program
+changes, pitch bend and expression/volume controller rendering are outside this
+pass. Notes use the existing 40/sec, burst-80 server budget; excessive density or
+a frame stall stops playback safely. The small standless keyboard still needs a
+replacement or stand and proper placement. Arms clamp to reachable targets;
+there is no actor movement, key animation, finger IK or automatic facing. No
+in-game screenshot or human assessment of posture/hand contact was obtained.
+The fixture is restored to interactive mode after validation.

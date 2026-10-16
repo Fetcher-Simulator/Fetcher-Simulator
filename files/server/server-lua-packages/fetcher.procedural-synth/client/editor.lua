@@ -131,6 +131,14 @@ function E.new(params,cb)
     local w=self.width
     local content={label('OPENMW  /  SYNTH',20,14,260,22),label('PROCEDURAL • POLYPHONIC • SPATIAL',20,42,350,12,colors.muted)}
     content[#content+1]=self:button('Close',w-84,15,64,function() cb.close() end)
+    if cb.midiPlay then
+        content[#content+1]=self:button('<',350,14,26,function() cb.midiCycle(-1) end)
+        content[#content+1]=self:button('>',382,14,26,function() cb.midiCycle(1) end)
+        content[#content+1]=self:button('Play MIDI',418,14,104,cb.midiPlay)
+        content[#content+1]=self:button('Stop',530,14,64,cb.midiStop)
+        self.midiLabel=self:element(label(cb.midiLabel(),360,46,w-390,12,colors.accent))
+        content[#content+1]=self.midiLabel
+    end
     self.nameElement=self:element{type=ui.TYPE.TextEdit,props={position=v(20,72),size=v(215,28),text='Untitled',textSize=15,textColor=colors.accent},
         events={textChanged=callback(function(text) self.name=text:sub(1,64) end),
             focusGain=callback(function() self.typing=true end),focusLoss=callback(function() self.typing=false end)}}
@@ -211,6 +219,7 @@ function E:frame(now)
         local peak,voices=self.cb.meter()
         self.meter.layout.props.text=string.format('OUTPUT  %s  %d voices',string.rep('|',math.floor(peak*25)),voices)
         self.meter:update()
+        if self.midiLabel then self.midiLabel.layout.props.text=self.cb.midiLabel();self.midiLabel:update() end
     end
 end
 function E:destroy()

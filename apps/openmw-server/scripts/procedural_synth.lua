@@ -17,12 +17,12 @@ local function relevant(player, cell)
 end
 local function emit(guid, data) data.version = 1; mp.send(guid, 'Synth_Message', data) end
 local function broadcast(s, out, except)
-    out.id, out.epoch, out.seq, out.revision = s.id, s.epoch, s.outSeq, s.revision
+    out.id, out.epoch, out.seq, out.revision, out.owner = s.id, s.epoch, s.outSeq, s.revision, s.owner
     for _, player in ipairs(mp.getPlayers()) do
         if player.guid ~= except and relevant(player, s.cell) then
             if out.op == 'state' then s.recipients[player.guid] = true end
             if out.op == 'on' and not s.recipients[player.guid] then
-                emit(player.guid, {op='state',id=s.id,epoch=s.epoch,seq=s.outSeq-1,revision=s.revision,params=s.params})
+                emit(player.guid, {op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq-1,revision=s.revision,params=s.params})
                 s.recipients[player.guid] = true
             end
             emit(player.guid, out)
@@ -75,7 +75,7 @@ local function acquire(player, obj)
         revision=1, params=schema.state({}), expires=now+8, lastAlive=now, recipients={}, notes={} }
     sessions[s.id] = s
     broadcast(s, {op='state', params=s.params}, player.guid)
-    emit(player.guid, {op='granted', id=s.id, epoch=s.epoch, seq=s.outSeq, revision=s.revision, params=s.params})
+    emit(player.guid, {op='granted', owner=s.owner, id=s.id, epoch=s.epoch, seq=s.outSeq, revision=s.revision, params=s.params})
 end
 policy.registerHandler('Activate', 'procedural-synth', function(context)
     local obj = context.object
@@ -116,7 +116,7 @@ local function request(data)
         if not budget(data.pid,now,'sync',0.5,2) then return end
         for _, s in pairs(sessions) do
             if relevant(player,s.cell) then
-                emit(data.pid,{op='state',id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params})
+                emit(data.pid,{op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params})
             end
         end
         return
@@ -213,7 +213,7 @@ local function sweep()
             for _, p in ipairs(mp.getPlayers()) do
                 if relevant(p,s.cell) and p.guid ~= s.owner then
                     if not s.recipients[p.guid] then
-                        emit(p.guid,{op='state',id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params})
+                        emit(p.guid,{op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params})
                         s.recipients[p.guid]=true
                     end
                 else s.recipients[p.guid]=nil end

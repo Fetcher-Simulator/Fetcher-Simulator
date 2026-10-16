@@ -4,9 +4,12 @@ param(
     [string] $BuildDirectory = 'MSVC2022_64',
     [int] $Port = 25567,
     [switch] $LiveProbe,
-    [switch] $VanillaSynth
+    [switch] $MidiProbe,
+    [switch] $VanillaSynth,
+    [string] $BardcraftDataDirectory
 )
 $ErrorActionPreference = 'Stop'
+if ($MidiProbe) { $LiveProbe = $true }
 function Write-Utf8 {
     param([string] $Path, [object] $Value)
     [System.IO.File]::WriteAllText($Path, ([string[]]$Value -join "`n"), [System.Text.UTF8Encoding]::new($false))
@@ -93,7 +96,8 @@ Copy-Item -LiteralPath "$repo\files\server\server-lua-packages\fetcher.procedura
 $probe = Join-Path $fixture 'server-lua-packages\fetcher.synth-live-test'
 if ($LiveProbe) {
     New-Item -ItemType Directory -Force -Path $probe | Out-Null
-    Copy-Item -LiteralPath "$PSScriptRoot\procedural-synth-tests\live-player.lua" -Destination "$probe\player.lua" -Force
+    $probeFile = if ($MidiProbe) { 'midi-player.lua' } else { 'live-player.lua' }
+    Copy-Item -LiteralPath "$PSScriptRoot\procedural-synth-tests\$probeFile" -Destination "$probe\player.lua" -Force
     Write-Utf8 -Path "$probe\manifest.yaml" -Value @'
 manifestVersion: 3
 packageId: fetcher.synth-live-test
@@ -137,6 +141,24 @@ no-sound=0
 user-data="$($fixture.Replace('\','/'))/userdata"
 "@
 if ($assetModel) { $openmw += "`ndata=`"$($assetInstall.Replace('\','/'))`"" }
+if (-not $BardcraftDataDirectory) {
+    $BardcraftDataDirectory = Join-Path $SimulatorRoot 'Data Files\fetcher-simulator\Gameplay\BardcraftOpenMW'
+}
+$midiSource = Join-Path $BardcraftDataDirectory 'midi'
+if (Test-Path -LiteralPath $midiSource -PathType Container) {
+    $midiInstall = Join-Path $fixture 'midi-data'
+    $sourceBase = [IO.Path]::GetFullPath($midiSource) + [IO.Path]::DirectorySeparatorChar
+    $midiFiles = @(Get-ChildItem -LiteralPath $midiSource -Recurse -File | Where-Object { $_.Extension -in '.mid','.midi' -and $_.Length -le 524288 } | Select-Object -First 512)
+    foreach ($file in $midiFiles) {
+        if (-not $file.FullName.StartsWith($sourceBase,[StringComparison]::OrdinalIgnoreCase)) { throw 'MIDI source path escaped its root.' }
+        $relative = $file.FullName.Substring($sourceBase.Length)
+        $destination = Join-Path "$midiInstall\midi" $relative
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+        Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
+    }
+    $openmw += "`ndata=`"$($midiInstall.Replace('\','/'))`""
+    Write-Output "Installed $($midiFiles.Count) local Bardcraft MIDI files; original mod files preserved."
+}
 Write-Utf8 -Path "$fixture\openmw.cfg" -Value (@($openmw)+$fallbacks)
 $server = @"
 [server]

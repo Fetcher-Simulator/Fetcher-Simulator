@@ -11,6 +11,11 @@ function source:isValid() return self.valid end
 local self={cell={id='ToddTest'}}
 package.loaded[prefix..'shared.schema']=schema
 package.loaded['openmw.util']={vector2=vector,color={rgb=function(...) return {...} end}}
+package.loaded['openmw.util'].vector3=function(x,y,z) return {x=x,y=y,z=z} end
+package.loaded['openmw.animation']={}
+package.loaded['openmw.vfs']={pathsWithPrefix=function() return function() end end}
+package.loaded[prefix..'client.midi']=dofile(root..'client/midi.lua')
+package.loaded[prefix..'client.performance']=dofile(root..'client/performance.lua')
 local ui={TYPE={Text='Text',TextEdit='TextEdit',Widget='Widget',Image='Image'},
     texture=function() return {} end,content=function(t) return t end,screenSize=function() return vector(1024,768) end,
     showMessage=function() end}
@@ -88,4 +93,31 @@ check(mouseVelocity==1,'piano press position controls velocity')
 e:frame(200)
 check(released and not e.mouseNote,'mouse release outside the piano stops its note')
 e:destroy()
+-- Existing characters may resume without onInit. The first frame discovers MIDI.
+local function be(n,size) local b={};for i=size,1,-1 do b[i]=string.char(n%256);n=math.floor(n/256) end;return table.concat(b) end
+local track=string.char(0,144,60,100,96,128,60,0,0,255,47,0)
+local fileBytes='MThd'..be(6,4)..be(0,2)..be(1,2)..be(96,2)..'MTrk'..be(#track,4)..track
+local virtualPath='midi/bardcraft/preset/test.mid'
+package.loaded['openmw.vfs'].pathsWithPrefix=function()
+    local done=false
+    return function() if not done then done=true;return virtualPath end end
+end
+package.loaded['openmw.vfs'].open=function()
+    return {read=function() return fileBytes end,close=function() end}
+end
+player=dofile(root..'client/player.lua');api=player.interface;handler=player.eventHandlers.Synth_Message
+connected=true;now=200
+player.engineHandlers.onFrame(0)
+check(api.midiSongs()[1]==virtualPath,'resumed character discovers installed MIDI')
+handler{version=1,op='granted',id=7,epoch=4,seq=1,params=schema.state({})}
+check(not api.playMidi('arbitrary/path.mid') and api.playMidi(virtualPath),'MIDI catalog paths only')
+now=200.01;player.engineHandlers.onFrame(0.01)
+check(api.status()[1].midi and audios[#audios].notes[60],'MIDI uses native note-on and relay')
+check(sent[#sent].op=='on' and sent[#sent].note==60,'MIDI shares live-note transport')
+handler{version=1,op='preset',id=7,epoch=4,seq=2,params=schema.state({}),presetId='b:pad'}
+check(not api.status()[1].midi and audios[#audios].voices==0,'preset load stops MIDI')
+check(api.playMidi(virtualPath));player.engineHandlers.onFrame(0.01);api.noteOn(64)
+check(not api.status()[1].midi and audios[#audios].notes[64],'manual key takes over playback')
+check(api.playMidi(virtualPath));player.engineHandlers.onFrame(0.01);api.close()
+check(not api.status()[1].midi and audios[#audios].voices==0,'editor close stops MIDI')
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, sequence, listener cleanup; %d assertions',checks))
