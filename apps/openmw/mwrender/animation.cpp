@@ -1227,6 +1227,7 @@ namespace MWRender
 
     void Animation::resetActiveGroups()
     {
+        detachScriptBonePoses();
         // remove all previous external controllers from the scene graph
         for (auto it = mActiveControllers.begin(); it != mActiveControllers.end(); ++it)
         {
@@ -1350,6 +1351,7 @@ namespace MWRender
         }
 
         addControllers();
+        attachScriptBonePoses();
     }
 
     void Animation::adjustSpeedMult(const std::string& groupname, float speedmult)
@@ -1728,6 +1730,7 @@ namespace MWRender
 
     void Animation::setObjectRoot(const std::string& model, bool forceskeleton, bool baseonly, bool isCreature)
     {
+        clearScriptBoneTransforms();
         osg::ref_ptr<osg::StateSet> previousStateset;
         if (mObjectRoot)
         {
@@ -2144,6 +2147,140 @@ namespace MWRender
             return nullptr;
         else
             return found->second;
+    }
+
+    std::vector<std::string> Animation::getBoneNames() const
+    {
+        std::vector<std::string> names;
+        for (const auto& [name, node] : getNodeMap())
+            names.push_back(name);
+        std::sort(names.begin(), names.end());
+        return names;
+    }
+
+    std::optional<osg::Matrixf> Animation::getBoneTransform(std::string_view name, bool worldSpace, bool unposed) const
+    {
+        const auto found = getNodeMap().find(name);
+        if (found == getNodeMap().end())
+            return std::nullopt;
+        const auto matrix = [&](const osg::MatrixTransform* node) {
+            if (unposed)
+                for (const auto& [key, pose] : mScriptBonePoses)
+                    if (pose.mNode == node)
+                        return pose.mApply->baseMatrix(node);
+            return osg::Matrixf(node->getMatrix());
+        };
+        if (!worldSpace)
+            return matrix(found->second);
+        const auto paths = found->second->getParentalNodePaths();
+        if (paths.empty())
+            return std::nullopt;
+        osg::Matrix result;
+        for (const auto* node : paths.front())
+        {
+            if (const auto* mt = dynamic_cast<const osg::MatrixTransform*>(node))
+                result.preMult(matrix(mt));
+            else if (const auto* transform = dynamic_cast<const osg::Transform*>(node))
+                transform->computeLocalToWorldMatrix(result, nullptr);
+        }
+        return osg::Matrixf(result);
+    }
+
+    void Animation::detachScriptBonePoses()
+    {
+        for (auto& [name, pose] : mScriptBonePoses)
+        {
+            if (!pose.mNode)
+                continue;
+            pose.mApply->restore(pose.mNode);
+            pose.mNode->removeUpdateCallback(pose.mRestore);
+            pose.mNode->removeUpdateCallback(pose.mApply);
+            pose.mRestore->setNestedCallback(nullptr);
+            pose.mApply->setNestedCallback(nullptr);
+            pose.mNode = nullptr;
+        }
+    }
+
+    void Animation::attachScriptBonePoses()
+    {
+        for (auto it = mScriptBonePoses.begin(); it != mScriptBonePoses.end();)
+        {
+            auto& pose = it->second;
+            const auto found = getNodeMap().find(it->first);
+            if (!pose.mNode && (pose.mApply->expired() || found == getNodeMap().end()))
+            {
+                it = mScriptBonePoses.erase(it);
+                continue;
+            }
+            if (!pose.mNode)
+            {
+                pose.mNode = found->second;
+                osg::ref_ptr<osg::Callback> previous = pose.mNode->getUpdateCallback();
+                pose.mRestore->setNestedCallback(previous);
+                pose.mNode->setUpdateCallback(pose.mRestore);
+                pose.mNode->addUpdateCallback(pose.mApply);
+            }
+            ++it;
+        }
+    }
+
+    bool Animation::setScriptBoneTransform(std::string_view name, const osg::Vec3f& position,
+        const osg::Quat& rotation, float weight, float timeout)
+    {
+        if (!ScriptBoneController::valid(position, rotation, weight, timeout))
+            throw std::runtime_error("Invalid script bone transform");
+        const auto found = getNodeMap().find(name);
+        if (found == getNodeMap().end())
+            return false;
+        // Reclaim expired entries, including controllers on an off-screen actor.
+        for (auto it = mScriptBonePoses.begin(); it != mScriptBonePoses.end();)
+        {
+            if (it->second.mApply->expired())
+            {
+                const std::string expiredName = it->first;
+                ++it;
+                clearScriptBoneTransform(expiredName);
+            }
+            else
+                ++it;
+        }
+        const std::string key = Misc::StringUtils::lowerCase(name);
+        auto it = mScriptBonePoses.find(key);
+        if (it == mScriptBonePoses.end())
+        {
+            if (mScriptBonePoses.size() >= 64)
+                throw std::runtime_error("At most 64 script bone transforms per object");
+            ScriptBonePose pose;
+            pose.mApply = new ScriptBoneController;
+            pose.mRestore = new RestoreScriptBoneController(pose.mApply);
+            it = mScriptBonePoses.emplace(key, std::move(pose)).first;
+        }
+        it->second.mApply->set(position, rotation, weight, timeout);
+        attachScriptBonePoses();
+        return true;
+    }
+
+    void Animation::clearScriptBoneTransform(std::string_view name)
+    {
+        const auto it = mScriptBonePoses.find(Misc::StringUtils::lowerCase(name));
+        if (it == mScriptBonePoses.end())
+            return;
+        auto& pose = it->second;
+        if (pose.mNode)
+        {
+            pose.mApply->restore(pose.mNode);
+            pose.mNode->removeUpdateCallback(pose.mRestore);
+            pose.mNode->removeUpdateCallback(pose.mApply);
+            pose.mRestore->setNestedCallback(nullptr);
+            pose.mApply->setNestedCallback(nullptr);
+        }
+        mScriptBonePoses.erase(it);
+    }
+
+    void Animation::clearScriptBoneTransforms()
+    {
+        detachScriptBonePoses();
+        mScriptBonePoses.clear();
     }
 
     std::pair<std::string, osg::Matrixf> Animation::getNearestBoneAttachment(

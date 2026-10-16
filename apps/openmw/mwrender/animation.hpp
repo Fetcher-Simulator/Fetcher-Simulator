@@ -6,6 +6,7 @@
 #include "blendmask.hpp"
 #include "bonegroup.hpp"
 #include "vismask.hpp"
+#include "scriptbonecontroller.hpp"
 
 #include "../mwworld/movementdirection.hpp"
 #include "../mwworld/ptr.hpp"
@@ -222,6 +223,16 @@ namespace MWRender
 
         mutable NodeMap mNodeMap;
         mutable bool mNodeMapCreated;
+
+        struct ScriptBonePose
+        {
+            osg::ref_ptr<ScriptBoneController> mApply;
+            osg::ref_ptr<RestoreScriptBoneController> mRestore;
+            osg::ref_ptr<osg::MatrixTransform> mNode;
+        };
+        std::map<std::string, ScriptBonePose, std::less<>> mScriptBonePoses;
+        void detachScriptBonePoses();
+        void attachScriptBonePoses();
 
         MWWorld::Ptr mPtr;
 
@@ -488,6 +499,13 @@ namespace MWRender
         /// Return a node with the specified name, or nullptr if not existing.
         /// @note The matching is case-insensitive.
         const osg::Node* getNode(std::string_view name) const;
+
+        std::vector<std::string> getBoneNames() const;
+        std::optional<osg::Matrixf> getBoneTransform(std::string_view name, bool worldSpace, bool unposed) const;
+        bool setScriptBoneTransform(std::string_view name, const osg::Vec3f& position,
+            const osg::Quat& rotation, float weight, float timeout);
+        void clearScriptBoneTransform(std::string_view name);
+        void clearScriptBoneTransforms();
 
         /// Finds the animation bone nearest a world-space transform and returns
         /// the transform converted into that bone's local space.

@@ -49,4 +49,12 @@
 --     end
 -- end)
 
+--- Resolves an authenticated player GUID to the local/remote rendered object.
+-- Returns nil when disconnected or when that player has no loaded world object.
+-- Call during onFrame or an input callback, when player/scene state is synchronized.
+-- Use server-supplied GUIDs rather than client-provided actor IDs for performances.
+-- @function [parent=#mp] getPlayerObject
+-- @param #number guid
+-- @return openmw.core#GameObject
+
 return nil

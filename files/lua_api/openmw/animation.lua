@@ -271,5 +271,56 @@
 
 
 
+--- Version of the optional visual bone-transform extension (currently 1).
+-- @field [parent=#animation] #number boneTransformsVersion
+
+--- Lists named transform nodes/bones in the object's current rendered model.
+-- Local/player scripts only. Call during `onFrame` or an input callback.
+-- Names are matched case-insensitively by the other bone functions.
+-- @function [parent=#animation] getBoneNames
+-- @param openmw.core#GameObject object
+-- @return #list<#string>
+
+--- Reads the last rendered bone transform, or nil for a missing bone.
+-- Call during `onFrame` or an input callback; asynchronous reads are rejected.
+-- The result includes scale and can be applied to a vector to obtain a position.
+-- `unposed` excludes this API's offsets on the bone and its ancestors, allowing
+-- IK to use the underlying animated pose without feeding its own output back.
+-- @function [parent=#animation] getBoneTransform
+-- @param openmw.core#GameObject object
+-- @param #string bone
+-- @param #boolean worldSpace Optional, default false (parent-local space).
+-- @param #boolean unposed Optional, default false.
+-- @return openmw.util#Transform
+-- @return openmw.util#Transform Rotation only, with scale/translation removed.
+
+--- Queues a temporary visual offset after normal animation and look controllers.
+-- Available to local/player scripts for loaded objects, including remote actors.
+-- Position is an offset in the bone parent's coordinates (game units). Rotation
+-- is a util.transform rotation in the bone's own coordinates. It preserves scale.
+-- Defaults: position zero, rotation identity, weight 1, timeout 0.5 real seconds.
+-- Weight must be 0..1, timeout 0.05..2, each position component within ±1000;
+-- all values must be finite and rotation nonzero. At most 64 bones per object.
+-- Refresh during `onFrame`; expiry restores normal animation even if Lua stops.
+-- Missing/unloaded/disabled objects at action execution are skipped. Model rebuilds
+-- discard offsets. These offsets do not change physics, root motion, saved games,
+-- or network state; mods must synchronize performance intent separately.
+-- @function [parent=#animation] setBoneTransform
+-- @param openmw.core#GameObject object
+-- @param #string bone
+-- @param #table options Fields: position, rotation, weight, timeout.
+-- @return #boolean True when queued; use getBoneNames to check node availability.
+-- @usage
+-- -- In a player script's onFrame handler:
+-- anim.setBoneTransform(actor, 'Bip01 R Hand', {
+--     rotation = util.transform.rotateX(0.1), weight = 1, timeout = 0.5,
+-- })
+
+--- Removes one scripted offset and restores the underlying animated transform.
+-- Queued at the same synchronized boundary as setBoneTransform.
+-- @function [parent=#animation] clearBoneTransform
+-- @param openmw.core#GameObject object
+-- @param #string bone
+
 return nil
 

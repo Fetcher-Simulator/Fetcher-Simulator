@@ -1,5 +1,7 @@
 #include "animationbindings.hpp"
 
+#include <tuple>
+
 #include <components/lua/luastate.hpp>
 #include <components/lua/utilpackage.hpp>
 #include <components/misc/finitevalues.hpp>
@@ -240,6 +242,66 @@ namespace MWLua
         api["hasBone"] = [](const LObject& object, std::string_view bonename) -> bool {
             const MWRender::Animation* anim = getConstAnimationOrThrow(object);
             return anim->getNode(bonename) != nullptr;
+        };
+
+        api["boneTransformsVersion"] = 1;
+        api["getBoneNames"] = [context](const LObject& object) {
+            if (!context.mLuaManager->isSynchronizedUpdateRunning())
+                throw std::runtime_error("Read bone transforms from onFrame or an input callback");
+            return sol::as_table(getConstAnimationOrThrow(object)->getBoneNames());
+        };
+        api["getBoneTransform"] = [context](const LObject& object, std::string_view name,
+                                      sol::optional<bool> worldSpace, sol::optional<bool> unposed)
+            -> std::tuple<sol::optional<LuaUtil::TransformM>, sol::optional<LuaUtil::TransformQ>> {
+            if (!context.mLuaManager->isSynchronizedUpdateRunning())
+                throw std::runtime_error("Read bone transforms from onFrame or an input callback");
+            const auto matrix = getConstAnimationOrThrow(object)->getBoneTransform(
+                name, worldSpace.value_or(false), unposed.value_or(false));
+            if (!matrix)
+                return { sol::nullopt, sol::nullopt };
+            osg::Vec3f position, scale;
+            osg::Quat rotation, scaleOrientation;
+            matrix->decompose(position, rotation, scale, scaleOrientation);
+            return { LuaUtil::asTransform(*matrix), LuaUtil::asTransform(rotation) };
+        };
+        api["setBoneTransform"] = [context](const LObject& object, std::string name, const sol::table& options) {
+            const osg::Vec3f position = options.get<sol::optional<osg::Vec3f>>("position").value_or(osg::Vec3f());
+            osg::Quat rotation;
+            const sol::object value = options["rotation"];
+            if (value != sol::nil)
+            {
+                if (!value.is<LuaUtil::TransformQ>())
+                    throw std::runtime_error("Bone rotation must be a util.transform rotation");
+                rotation = value.as<LuaUtil::TransformQ>().mQ;
+            }
+            const float weight = options.get_or("weight", 1.f);
+            const float timeout = options.get_or("timeout", 0.5f);
+            if (name.empty() || name.size() > 128
+                || !MWRender::ScriptBoneController::valid(position, rotation, weight, timeout))
+                throw std::runtime_error("Invalid bone name, position, rotation, weight or timeout");
+            // Lua may run alongside rendering. Touch the graph only at the
+            // manager's synchronized action boundary and resolve the object again.
+            context.mLuaManager->addAction(
+                [object = Object(object), name = std::move(name), position, rotation, weight, timeout] {
+                    if (object.ptrOrEmpty().isEmpty() || !object.ptr().getRefData().isEnabled())
+                        return;
+                    if (auto* animation = MWBase::Environment::get().getWorld()->getAnimation(object.ptr()))
+                        animation->setScriptBoneTransform(name, position, rotation, weight, timeout);
+                },
+                "setBoneTransform");
+            return true;
+        };
+        api["clearBoneTransform"] = [context](const LObject& object, std::string name) {
+            if (name.empty() || name.size() > 128)
+                throw std::runtime_error("Invalid bone name");
+            context.mLuaManager->addAction(
+                [object = Object(object), name = std::move(name)] {
+                    if (object.ptrOrEmpty().isEmpty())
+                        return;
+                    if (auto* animation = MWBase::Environment::get().getWorld()->getAnimation(object.ptr()))
+                        animation->clearScriptBoneTransform(name);
+                },
+                "clearBoneTransform");
         };
 
         api["addVfx"] = [context](const Object& object, std::string_view model, sol::optional<sol::table> options) {

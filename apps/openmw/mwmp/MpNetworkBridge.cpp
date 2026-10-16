@@ -27,6 +27,8 @@
 #include "network/Client.hpp"
 #include "records/RecordCreationManager.hpp"
 #include "sync/ActorSync.hpp"
+#include "sync/PlayerSync.hpp"
+#include "sync/RemotePlayer.hpp"
 #include "sync/WorldObjectSync.hpp"
 
 namespace mwmp
@@ -344,6 +346,21 @@ namespace mwmp
 
         mp.set_function("isServer", []() -> bool {
             return false;
+        });
+
+        mp.set_function("getPlayerObject", [context](uint32_t guid) -> sol::optional<MWLua::LObject> {
+            if (!context.mLuaManager->isSynchronizedUpdateRunning())
+                throw std::runtime_error("mp.getPlayerObject must be called from onFrame or an input callback");
+            if (!Main::isInitialised() || !Main::isConnected())
+                return sol::nullopt;
+            MWWorld::Ptr ptr;
+            if (guid == Main::get().getPlayerSync().localPlayer().guid)
+                ptr = MWBase::Environment::get().getWorld()->getPlayerPtr();
+            else if (auto* player = Main::get().getPlayerList().getPlayer(guid))
+                ptr = player->getNpcPtr();
+            if (ptr.isEmpty())
+                return sol::nullopt;
+            return MWLua::LObject(ptr);
         });
 
         sol::table recordApi(lua, sol::create);
