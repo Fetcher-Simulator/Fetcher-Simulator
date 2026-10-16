@@ -1,0 +1,22 @@
+Keyboard (Casio VL-Tone)
+Original author: AleixoAlonso
+Author: https://sketchfab.com/AleixoAlonso
+Source: https://sketchfab.com/3d-models/keyboard-casio-vl-tone-be22fbe1ef0044f3bedc6e3edf459593
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+License URL: https://creativecommons.org/licenses/by/4.0/
+License confirmed using the model's public Sketchfab API metadata on 2026-10-16.
+
+Adaptation for OpenMW:
+- FBX transformed to Morrowind NIF 4.0.0.2 using Blender 4.5 and io_scene_mw.
+- Enlarged to 48 game units across for in-world readability; centered horizontally,
+  with the bottom at local Z=0. Separate key/button geometry is retained.
+- Original UV atlas and 6,896 visual triangles retained. Added a 12-triangle box collider.
+- Original 2K color texture converted to mipmapped DXT1 DDS. Original normal map
+  resized to 1K mipmapped DXT5 DDS, optionally detected by OpenMW's normal-map setting.
+- PBR materials adapted to two conventional NIF materials; LCD glass approximated
+  with alpha blending. Metalness/roughness are not used by this legacy material setup.
+
+The model and derived textures remain under CC BY 4.0. Preserve this credit,
+the license link/text and the indication of changes when redistributing the assets.
+No endorsement by AleixoAlonso or Casio is implied. The engine and Lua code are
+separate works under their own repository licenses.

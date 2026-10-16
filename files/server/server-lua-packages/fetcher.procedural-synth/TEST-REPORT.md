@@ -1,4 +1,4 @@
-# Local validation report — October 15, 2026 (America/Chicago)
+# Local validation report — October 15–16, 2026 (America/Chicago)
 
 The prototype builds and passes its automated checks. Two real compatible clients were exercised against a local dedicated server with only Morrowind.esm, Tribunal.esm and Bloodmoon.esm. No production host was contacted or modified.
 
@@ -59,7 +59,50 @@ Early fixture failures (missing defaults.bin, prefixed interior names and an inc
 * No native UI screenshot/visual inspection was available in this session. The real editor created and operated without Lua errors; mouse/keyboard usability, layout at multiple resolutions, focus changes and operating-system focus loss still need interactive QA. Intended minimum layout is approximately 964×719 including margins. Sliders use numeric feedback; the waveform graph is a theoretical oscillator preview rather than a captured output waveform.
 * Cell changes, malformed events, overlapping sessions and timeout cleanup were covered in the harness. Not all were repeated by walking/operating real clients. Sound device teardown is covered by native close/concurrency tests and ownership code review, not a physical audio-device hot-unplug test.
 * Full game CPU/frame-time profiling, several simultaneous synth instances, packet-loss/jitter tests and prolonged listening remain outstanding. The microbenchmark and the exercised chord do not establish these performance goals.
-* The CC-listed Casio keyboard was not imported: direct Sketchfab access returned 403. Exact license version/source access, Blender/NIF conversion, material optimization and a verified assets-only installation remain follow-up work. The vanilla fallback is usable now.
+* The original October 15 run used the vanilla lute. The Casio keyboard import and verified local installation were completed October 16, as recorded below.
 * Listener snapshots intentionally omit already-held notes; listeners hear subsequent live note-ons. Native/session state is transient, while personal preset libraries are durable. The first prototype has no public preset sharing, sequencer, MIDI import, Bardcraft port or external synthesizer dependency.
 
 The delivered fixture is switched back to interactive use without the automated probe after validation. Production feature activation stays disabled by default.
+
+## Keyboard asset integration — October 16
+
+The user supplied `keyboard-casio-vl-tone.zip`. Its SHA-256 is
+`61cac05a2dd8e7434beb0946a68d1d737210870ea08309300597056cb2564715`.
+The official public Sketchfab model API confirmed AleixoAlonso as author and the
+exact CC BY 4.0 license URI. Source metadata, author credit, license links and
+adaptation details accompany the converted bundle. Original FBX/Blend files remain
+outside the repository.
+
+Blender 4.5.3 with `io_scene_mw` exported Morrowind NIF 4.0.0.2, then reimported the
+serialized NIF successfully. The model retains 6,896 visual triangles and separate
+keys/buttons, plus 12 box-collision triangles. Verified dimensions are approximately
+48 × 12.04 × 5.07 game units. Two materials use a 2K DXT1 atlas and approximate LCD
+glass; an optional 1K DXT5 normal map is included. Both DDS files have mipmaps.
+The rendered reimport was visually inspected for texture resolution, geometry and
+orientation. This is an asset preview, not an in-game screenshot. The keys remain
+static geometry.
+
+`package_assets.py` passed NIF/DDS header and manifest checks and produced an
+818,793-byte ZIP. Setup verified all seven manifested files before and after
+installing them into the shared local client/server data directory. A separate
+`-VanillaSynth` setup run confirmed that the fallback removes the custom model/data
+configuration; the following default setup restored the keyboard.
+
+An actual dedicated-server restart updated the persistent activator's model to
+`meshes/fetcher/synth/keyboard.nif`. A read-only SQLite query confirmed that path in
+`world_dynamic_records` and exactly one placed synth in `world_objects`. Both real
+clients authenticated, entered ToddTest and ran the existing live probe with the
+new assets installed. Synth A opened the editor at 15:14:59, both clients produced
+three native voices and nonzero PCM, live waveform/cutoff edits propagated, and
+the save/load/close/reacquire sequence completed. After A was terminated while
+holding a note, B logged `PASS acquired after abrupt owner disconnect` at 15:15:47
+and `PASS observer takeover complete` at 15:15:48. Client logs contained no missing
+mesh/texture or Lua failure reports during this run. Live visual positioning and
+physical mouse-target/collision behavior still need interactive inspection.
+
+CTest 1/1, server Lua 9 tests/62 assertions, client Lua 196 assertions, and existing
+relay regression 14 tests/63 assertions were rerun and passed. Python conversion
+helpers parsed successfully; whitespace validation passed. Evidence is retained
+locally under the fixture's `evidence/keyboard` directory. Setup was returned to
+interactive use without the probe. The same fixture batch launchers now use the
+keyboard by default; no production configuration was changed.

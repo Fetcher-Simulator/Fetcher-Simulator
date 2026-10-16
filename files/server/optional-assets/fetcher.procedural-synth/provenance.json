@@ -1,0 +1,25 @@
+{
+  "uid": "be22fbe1ef0044f3bedc6e3edf459593",
+  "name": "Keyboard (Casio VL-Tone)",
+  "license": {
+    "uri": "https://api.sketchfab.com/v3/licenses/322a749bcfa841b29dff1e8a1bb74b0b",
+    "label": "CC Attribution",
+    "fullName": "Creative Commons Attribution",
+    "requirements": "Author must be credited. Commercial use is allowed.",
+    "url": "http://creativecommons.org/licenses/by/4.0/",
+    "slug": "by"
+  },
+  "publishedAt": "2020-08-16T08:31:49.170082",
+  "isDownloadable": true,
+  "vertexCount": 3750,
+  "faceCount": 6896,
+  "author": {
+    "username": "AleixoAlonso",
+    "displayName": "AleixoAlonso",
+    "profileUrl": "https://sketchfab.com/AleixoAlonso"
+  },
+  "sourceUrl": "https://sketchfab.com/3d-models/keyboard-casio-vl-tone-be22fbe1ef0044f3bedc6e3edf459593",
+  "metadataUrl": "https://api.sketchfab.com/v3/models/be22fbe1ef0044f3bedc6e3edf459593",
+  "verifiedDate": "2026-10-16",
+  "sourceArchiveSha256": "61cac05a2dd8e7434beb0946a68d1d737210870ea08309300597056cb2564715"
+}

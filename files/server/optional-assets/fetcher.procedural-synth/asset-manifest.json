@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "packageId": "fetcher.procedural-synth.assets",
+  "model": "meshes/fetcher/synth/keyboard.nif",
+  "files": [
+    {
+      "path": "ATTRIBUTION.txt",
+      "bytes": 1384,
+      "sha256": "bcda96b5971205f569c3825105bd6d52e3a68c255e1012bb75b6fed27c71c4c5"
+    },
+    {
+      "path": "conversion-report.json",
+      "bytes": 1711,
+      "sha256": "82793707d221bdb2110f28720cd6b1b7d7947c9044673be84397d909ef61d479"
+    },
+    {
+      "path": "LICENSE-CC-BY-4.0.txt",
+      "bytes": 411,
+      "sha256": "8dec9993e13c37e74a2e3129327b81dcd3785493cfdf100d2264e34862ed8dcb"
+    },
+    {
+      "path": "meshes/fetcher/synth/keyboard.nif",
+      "bytes": 271897,
+      "sha256": "46a8895c40f8e6c6b8dd8ce5843b9836b344650a294e450c1353557c766f9855"
+    },
+    {
+      "path": "provenance.json",
+      "bytes": 998,
+      "sha256": "ab94cccee373ccb8fd2cbcd201f8f704bc7cd36a87033b281cfa72a52fcac5fc"
+    },
+    {
+      "path": "textures/fetcher/synth/keyboard.dds",
+      "bytes": 2796344,
+      "sha256": "2de5142e04ad1d0b49eee07811753081fcfdf7d8593829b3d5f9470970736fab"
+    },
+    {
+      "path": "textures/fetcher/synth/keyboard_n.dds",
+      "bytes": 1398256,
+      "sha256": "ac9f19ab2974268f05e96998a7cfb19fb7c84fd1493e1ced713489717305974a"
+    }
+  ]
+}

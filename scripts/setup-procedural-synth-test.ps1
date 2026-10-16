@@ -3,7 +3,8 @@ param(
     [string] $SimulatorRoot = 'C:\serena_workspaces_directory\fetcher-simulator',
     [string] $BuildDirectory = 'MSVC2022_64',
     [int] $Port = 25567,
-    [switch] $LiveProbe
+    [switch] $LiveProbe,
+    [switch] $VanillaSynth
 )
 $ErrorActionPreference = 'Stop'
 function Write-Utf8 {
@@ -13,6 +14,29 @@ function Write-Utf8 {
 $repo = Split-Path -Parent $PSScriptRoot
 $fixture = Join-Path $SimulatorRoot 'test-server\procedural-synth'
 $runtime = Join-Path $repo "$BuildDirectory\RelWithDebInfo"
+$assetSource = Join-Path $repo 'files\server\optional-assets\fetcher.procedural-synth'
+$assetInstall = Join-Path $fixture 'synth-assets'
+$assetModel = $null
+if (-not $VanillaSynth -and (Test-Path -LiteralPath "$assetSource\asset-manifest.json")) {
+    $assetManifest = Get-Content -LiteralPath "$assetSource\asset-manifest.json" -Raw | ConvertFrom-Json
+    if ($assetManifest.version -ne 1 -or $assetManifest.model -ne 'meshes/fetcher/synth/keyboard.nif') {
+        throw 'Unsupported synth assets manifest.'
+    }
+    $assetBase = [IO.Path]::GetFullPath($assetSource) + [IO.Path]::DirectorySeparatorChar
+    foreach ($entry in $assetManifest.files) {
+        if ([IO.Path]::IsPathRooted($entry.path) -or ($entry.path -split '[/\\]') -contains '..') {
+            throw 'Invalid synth asset manifest path.'
+        }
+        $sourcePath = [IO.Path]::GetFullPath((Join-Path $assetSource $entry.path))
+        if (-not $sourcePath.StartsWith($assetBase,[StringComparison]::OrdinalIgnoreCase) -or
+            -not (Test-Path -LiteralPath $sourcePath -PathType Leaf) -or
+            (Get-Item -LiteralPath $sourcePath).Length -ne $entry.bytes -or
+            (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash -ne $entry.sha256) {
+            throw "Synth asset verification failed: $($entry.path)"
+        }
+    }
+    $assetModel = $assetManifest.model
+}
 $runningFixture = Get-CimInstance Win32_Process | Where-Object {
     $_.ExecutablePath -eq "$fixture\openmw-test.exe" -or $_.ExecutablePath -eq "$fixture\openmw-server-test.exe"
 }
@@ -22,6 +46,21 @@ foreach ($name in @('openmw.exe','openmw-server.exe')) {
 }
 foreach ($dir in @($fixture,"$fixture\server-scripts","$fixture\server-lua-packages","$fixture\logs","$fixture\mp-keys","$fixture\userdata")) {
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
+}
+if ($assetModel) {
+    foreach ($entry in $assetManifest.files) {
+        $destination = [IO.Path]::GetFullPath((Join-Path $assetInstall $entry.path))
+        $installBase = [IO.Path]::GetFullPath($assetInstall) + [IO.Path]::DirectorySeparatorChar
+        if (-not $destination.StartsWith($installBase,[StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Installed asset path escaped the fixture.'
+        }
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+        Copy-Item -LiteralPath (Join-Path $assetSource $entry.path) -Destination $destination -Force
+        if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $entry.sha256) {
+            throw "Installed synth asset hash mismatch: $($entry.path)"
+        }
+    }
+    Copy-Item -LiteralPath "$assetSource\asset-manifest.json" -Destination "$assetInstall\asset-manifest.json" -Force
 }
 Copy-Item -LiteralPath "$runtime\openmw.exe" -Destination "$fixture\openmw-test.exe" -Force
 Copy-Item -LiteralPath "$runtime\openmw-server.exe" -Destination "$fixture\openmw-server-test.exe" -Force
@@ -48,6 +87,7 @@ Config.DEFAULT_PLAYER_MARKS = {}
 Config.ADMIN_HTTP_ENABLED = false
 return Config
 "@
+if ($assetModel) { $localSettings = "Config.PROCEDURAL_SYNTH_MODEL = '$assetModel'`n" + $localSettings }
 Write-Utf8 -Path "$fixture\server-scripts\config.lua" -Value ($config.Replace('return Config',$localSettings))
 Copy-Item -LiteralPath "$repo\files\server\server-lua-packages\fetcher.procedural-synth" -Destination "$fixture\server-lua-packages" -Recurse -Force
 $probe = Join-Path $fixture 'server-lua-packages\fetcher.synth-live-test'
@@ -96,6 +136,7 @@ encoding=win1252
 no-sound=0
 user-data="$($fixture.Replace('\','/'))/userdata"
 "@
+if ($assetModel) { $openmw += "`ndata=`"$($assetInstall.Replace('\','/'))`"" }
 Write-Utf8 -Path "$fixture\openmw.cfg" -Value (@($openmw)+$fallbacks)
 $server = @"
 [server]
@@ -137,4 +178,6 @@ if (-not (Test-Path -LiteralPath "$fixture\mp-keys\127.0.0.1_$Port.key")) {
 & python "$PSScriptRoot\seed-procedural-synth-test.py" "$SimulatorRoot\test-server\playerdata.db" "$fixture\playerdata.db"
 if ($LASTEXITCODE -ne 0) { throw 'Failed to seed isolated characters.' }
 Write-Output "Synth fixture: $fixture"
+if ($assetModel) { Write-Output "Keyboard assets installed and SHA-256 verified: $assetModel" }
+else { Write-Output 'Using the vanilla lute fallback.' }
 Write-Output 'Launch launch-test-server.bat, then launch-test-clients.bat. Synth A and Synth B start in ToddTest.'
