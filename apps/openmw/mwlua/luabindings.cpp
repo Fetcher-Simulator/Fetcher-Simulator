@@ -25,6 +25,7 @@
 #include "objectbindings.hpp"
 #include "postprocessingbindings.hpp"
 #include "soundbindings.hpp"
+#include "synthbindings.hpp"
 #include "types/types.hpp"
 #include "uibindings.hpp"
 #include "vfsbindings.hpp"
@@ -78,6 +79,7 @@ namespace MWLua
     std::map<std::string, sol::object> initPlayerPackages(const Context& context)
     {
         return {
+            { "openmw.synth", initSynthPackage(context) },
             { "openmw.ambient", initAmbientPackage(context) },
             { "openmw.camera", initCameraPackage(context.sol()) },
             { "openmw.debug", initDebugPackage(context) },

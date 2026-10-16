@@ -47,6 +47,9 @@ namespace MWSound
         virtual size_t read(char* buffer, size_t bytes) = 0;
         virtual void readAll(std::vector<char>& output);
         virtual size_t getSampleOffset() = 0;
+        // Interactive generators use a short queue; ordinary decoders retain the
+        // established buffering and worker cadence.
+        virtual bool isInteractive() const { return false; }
 
         SoundDecoder(const VFS::Manager* resourceMgr)
             : mResourceMgr(resourceMgr)

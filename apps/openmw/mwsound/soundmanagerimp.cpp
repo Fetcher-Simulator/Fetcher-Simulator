@@ -1,4 +1,5 @@
 #include "soundmanagerimp.hpp"
+#include "synthdecoder.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -250,6 +251,25 @@ namespace MWSound
         if (!played)
             return nullptr;
         return sound;
+    }
+
+    std::shared_ptr<ProceduralSynth> SoundManager::createSynth(const MWWorld::ConstPtr& source)
+    {
+        if (!isEnabled() || source.isEmpty() || !source.isInCell() || mSynthSounds.size() >= 8)
+            throw std::runtime_error("Cannot create synthesizer: audio disabled, source unavailable or instance limit reached");
+        auto synth = std::make_shared<ProceduralSynth>();
+        auto stream = getStreamRef();
+        SoundParams params;
+        params.mPos = source.getRefData().getPosition().asVec3();
+        params.mBaseVolume = volumeFromType(Type::Sfx);
+        params.mMinDistance = 100;
+        params.mMaxDistance = 3000;
+        params.mFlags = PlayMode::NoScaling | Type::Sfx | Play_3D;
+        stream->init(params);
+        if (!mOutput->streamSound3D(std::make_shared<SynthDecoder>(synth), stream.get(), false))
+            throw std::runtime_error("No audio source available for synthesizer");
+        mSynthSounds.push_back({ source, source.getCell(), std::move(stream), synth });
+        return synth;
     }
 
     void SoundManager::stopMusic()
@@ -701,6 +721,8 @@ namespace MWSound
 
     void SoundManager::stopSound3D(const MWWorld::ConstPtr& ptr)
     {
+        for (auto& synth : mSynthSounds)
+            if (synth.source == ptr) { synth.synth->close(); mOutput->finishStream(synth.stream.get()); }
         SoundMap::iterator snditer = mActiveSounds.find(ptr.mRef);
         if (snditer != mActiveSounds.end())
         {
@@ -717,6 +739,8 @@ namespace MWSound
 
     void SoundManager::stopSound(const MWWorld::CellStore* cell)
     {
+        for (auto& synth : mSynthSounds)
+            if (synth.cell == cell) { synth.synth->close(); mOutput->finishStream(synth.stream.get()); }
         for (auto& [ref, sound] : mActiveSounds)
         {
             if (ref != nullptr && ref != MWMechanics::getPlayer().mRef && sound.mCell == cell)
@@ -1058,6 +1082,26 @@ namespace MWSound
             }
         }
 
+        for (auto it = mSynthSounds.begin(); it != mSynthSounds.end();)
+        {
+            auto& synth = *it;
+            auto* sound = synth.stream.get();
+            if (synth.synth->closed() || synth.synth->expired() || synth.source.getCellRef().getCount() == 0
+                || !synth.source.getRefData().isEnabled() || !mOutput->isStreamPlaying(sound))
+            {
+                synth.synth->close();
+                mOutput->finishStream(sound);
+                it = mSynthSounds.erase(it);
+            }
+            else
+            {
+                sound->setPosition(synth.source.getRefData().getPosition().asVec3());
+                cull3DSound(sound);
+                mOutput->updateStream(sound);
+                ++it;
+            }
+        }
+
         TrackList::iterator trkiter = mActiveTracks.begin();
         while (trkiter != mActiveTracks.end())
         {
@@ -1164,6 +1208,11 @@ namespace MWSound
             mMusic->setBaseVolume(volumeFromType(mMusic->getPlayType()));
             mOutput->updateStream(mMusic.get());
         }
+        for (const auto& synth : mSynthSounds)
+        {
+            synth.stream->setBaseVolume(volumeFromType(Type::Sfx));
+            mOutput->updateStream(synth.stream.get());
+        }
         mOutput->finishUpdate();
     }
 
@@ -1186,6 +1235,8 @@ namespace MWSound
 
     void SoundManager::updatePtr(const MWWorld::ConstPtr& old, const MWWorld::ConstPtr& updated)
     {
+        for (auto& synth : mSynthSounds)
+            if (synth.source == old) { synth.source = updated; synth.cell = updated.getCell(); }
         SoundMap::iterator snditer = mActiveSounds.find(old.mRef);
         if (snditer != mActiveSounds.end())
             snditer->second.mCell = updated.mCell;
@@ -1313,6 +1364,12 @@ namespace MWSound
         for (StreamPtr& sound : mActiveTracks)
             mOutput->finishStream(sound.get());
         mActiveTracks.clear();
+        for (auto& synth : mSynthSounds)
+        {
+            synth.synth->close();
+            mOutput->finishStream(synth.stream.get());
+        }
+        mSynthSounds.clear();
         mPlaybackPaused = false;
         std::fill(std::begin(mPausedSoundTypes), std::end(mPausedSoundTypes), 0);
     }

@@ -284,6 +284,7 @@ namespace MWSound
         ALuint mSource;
 
         std::array<ALuint, 6> mBuffers;
+        std::size_t mQueueLimit = 6;
         ALint mCurrentBufIdx;
 
         ALenum mFormat;
@@ -316,6 +317,7 @@ namespace MWSound
         float getCurrentLoudness() const;
 
         bool process();
+        bool isInteractive() const { return mDecoder->isInteractive(); }
         ALint refillQueue();
     };
     const ALfloat OpenAL_SoundStream::sBufferLength = 0.125f;
@@ -361,7 +363,9 @@ namespace MWSound
                         ++iter;
                 }
 
-                mCondVar.wait_for(lock, std::chrono::milliseconds(50));
+                const bool interactive = std::any_of(mStreams.begin(), mStreams.end(),
+                    [](const auto* stream) { return stream->isInteractive(); });
+                mCondVar.wait_for(lock, std::chrono::milliseconds(interactive ? 5 : 50));
             }
         }
 
@@ -510,7 +514,8 @@ namespace MWSound
         }
 
         mFrameSize = static_cast<ALuint>(framesToBytes(1, chans, type));
-        mBufferSize = static_cast<ALuint>(sBufferLength * mSampleRate);
+        mQueueLimit = mDecoder->isInteractive() ? 3 : mBuffers.size();
+        mBufferSize = static_cast<ALuint>((mDecoder->isInteractive() ? 0.01f : sBufferLength) * mSampleRate);
         mBufferSize *= mFrameSize;
 
         if (getLoudnessData)
@@ -625,10 +630,10 @@ namespace MWSound
 
         ALint queued;
         alGetSourcei(mSource, AL_BUFFERS_QUEUED, &queued);
-        if (!mIsFinished && (ALuint)queued < mBuffers.size())
+        if (!mIsFinished && (ALuint)queued < mQueueLimit)
         {
             std::vector<char> data(mBufferSize);
-            for (; !mIsFinished && (ALuint)queued < mBuffers.size(); ++queued)
+            for (; !mIsFinished && (ALuint)queued < mQueueLimit; ++queued)
             {
                 size_t got = mDecoder->read(data.data(), data.size());
                 if (got < data.size())

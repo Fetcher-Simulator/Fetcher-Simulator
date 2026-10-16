@@ -87,6 +87,14 @@ namespace MWSound
         TrackList mActiveTracks;
 
         StreamPtr mMusic;
+        struct SynthSound
+        {
+            MWWorld::ConstPtr source;
+            const MWWorld::CellStore* cell;
+            StreamPtr stream;
+            std::shared_ptr<ProceduralSynth> synth;
+        };
+        std::vector<SynthSound> mSynthSounds;
         MusicType mMusicType;
 
         bool mListenerUnderwater;
@@ -162,6 +170,7 @@ namespace MWSound
     public:
         SoundManager(const VFS::Manager* vfs, bool useSound);
         ~SoundManager() override;
+        std::shared_ptr<ProceduralSynth> createSynth(const MWWorld::ConstPtr& source) override;
 
         void processChangedSettings(const Settings::CategorySettingVector& settings) override;
 

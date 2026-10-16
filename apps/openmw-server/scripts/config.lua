@@ -5,6 +5,8 @@
 -- Return a plain table of operator-editable settings.
 
 local Config = {}
+-- Opt-in procedural audio prototype. Requires compatible clients and its Lua package.
+Config.PROCEDURAL_SYNTH_ENABLED = false
 
 ------------------------------------------------------------------------
 -- General
