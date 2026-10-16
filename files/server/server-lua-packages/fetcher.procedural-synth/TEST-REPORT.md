@@ -173,3 +173,56 @@ replacement or stand and proper placement. Arms clamp to reachable targets;
 there is no actor movement, key animation, finger IK or automatic facing. No
 in-game screenshot or human assessment of posture/hand contact was obtained.
 The fixture is restored to interactive mode after validation.
+
+## Combined stage, world transforms and camera controls — October 16
+
+The default local asset is now one floor-origin `keyboard-stand.nif`, combining
+the user-supplied Yamaha keyboard and X-stand under their verified CC BY 4.0
+licenses. Attribution and provenance for both authors accompany the runtime
+bundle; the older Casio remains available. Blender export/reimport and preview
+inspection passed: 12,189 visual triangles plus 84 collision triangles, dimensions
+104 × 30.16 × 111.68 units, four mipmapped diffuse DDS maps and two optional normals.
+Packaging produced a 3,521,484-byte assets-only ZIP; setup verified all 16 manifest
+files before and after installation. The new `-ResetStage` option explicitly
+backs up the isolated SQLite database before resetting the stage layout.
+
+The earlier small numerical hand errors did not establish correct rendered arm
+positions: the user supplied an in-game screenshot with arms raised overhead.
+The native world-transform getter included an absolute viewer camera in its node
+path. It now follows OSG's world-transform convention, skipping that camera and
+its ancestors, including when resolving unposed ancestor matrices. A regression
+compares the result to `osg::computeLocalToWorld` and verifies camera motion does
+not move the returned world bone position. The application rebuild passed; native
+bone CTest and synth DSP CTest each pass 1/1. In-game inspection confirmed the
+combined keyboard model renders and the performer's first-person hands are near
+the keys. Third-person hand contact and posture across races remain visual QA.
+
+The observer camera lock came from `midi-player.lua` forcibly setting yaw/pitch
+every frame. Those calls and the camera dependency were removed. The runtime
+performance module does not steer cameras. Hide / Escape / F8 now dismisses the
+editor while retaining the session, MIDI scheduler and heartbeat. F8 or activation
+reopens the same session; Finish stops playback and releases it. Hidden manual
+keys release, game keys stop acting as piano keys, and preset/name/selection
+state survives reopening and incoming updates. Another UI mode is preserved
+when it hides the synth. The public interface is version 3 (`hide`, `show`,
+`editorVisible`); `close` still ends the session.
+
+Client/editor harness: **790 assertions PASS**, including a hidden session held
+past the server lease with regular liveness, hidden MIDI loading, playback to
+completion, reopening without new acquire/events, pending edit flush, hidden
+preset responses, Finish and disconnect cleanup. Server Lua: **10 tests / 66
+assertions PASS**; MIDI parser/player **21 assertions PASS**; arm geometry **16
+assertions PASS**; relay regression **14 tests / 63 assertions PASS**.
+
+In the actual two-client camera-toggle run, Synth A logged playback and six active
+pose bones at 16:44:04, hid its editor for 11 seconds, then logged **PASS hidden
+MIDI heartbeat and reopen without interruption** at 16:44:15. Synth B received
+polyphonic native PCM and logged **PASS listener audio and performer pose** at
+16:44:11 with camera steering removed. The probe's final wall-clock completion
+assertion did not pass during the interactive run; it does not establish song-end
+behavior in that run. Deterministic playback-completion and Finish tests above
+passed. Native-window automation encountered user input and further UI input was
+stopped. Logs are retained privately in the fixture's `evidence/camera-toggle`.
+The fixture was then reinstalled without either probe and restarted for normal
+interactive testing. No production configuration or original local database was
+modified.

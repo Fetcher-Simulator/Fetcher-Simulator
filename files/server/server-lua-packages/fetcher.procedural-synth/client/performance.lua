@@ -1,6 +1,7 @@
 -- Presentation only: two-link arm IK, evaluated locally from the shared notes.
 local anim=require('openmw.animation')
 local util=require('openmw.util')
+local types=require('openmw.types')
 local M={}
 local v,T=util.vector3,util.transform
 local zero=v(0,0,0)
@@ -48,6 +49,10 @@ function M.new(actor)
     end
     function p:frame(dt,source,notes,now,strikes)
         self.error=0
+        local record=types.Activator.record(source)
+        local staged=record and record.model:lower():gsub('\\','/'):find('keyboard%-stand%.nif$')~=nil
+        local halfWidth,spacing,spread,front,height=8,0.65,5,-2,5
+        if staged then halfWidth,spacing,spread,front,height=14,1.2,18,-18,91 end
         local rootName=self.bones['bip01']
         local root=rootName and anim.getBoneTransform(self.actor,rootName,true,true)
         if not root then return end
@@ -84,8 +89,8 @@ function M.new(actor)
                     if #group>0 then pitch=0;for _,n in ipairs(group) do pitch=pitch+n end;pitch=pitch/#group end
                     -- Configurable keyboard-space targets: this small model has
                     -- a narrow key bed. No actor teleport or root motion is used.
-                    local x=sign*8+clamp((pitch-(side=='L' and 53 or 67))*0.65,-5,5)
-                    local target=toModel*(source.position+source.rotation*v(x,-2,5+(#group>0 and -pulse or 0)))
+                    local x=sign*halfWidth+clamp((pitch-(side=='L' and 53 or 67))*spacing,-spread,spread)
+                    local target=toModel*(source.position+source.rotation*v(x,front,height+(#group>0 and -pulse or 0)))
                     local a,b=(e-s):length(),(w-e):length()
                     if a>0.1 and b>0.1 then
                         local pole=toModel*(root*s+self.actor.rotation*v(sign,0,-0.6))-s

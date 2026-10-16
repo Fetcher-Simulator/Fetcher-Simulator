@@ -3,6 +3,7 @@ local core = require('openmw.core')
 local nearby = require('openmw.nearby')
 local self = require('openmw.self')
 local ui = require('openmw.ui')
+local input = require('openmw.input')
 local supported, synth = pcall(require,'openmw.synth')
 if not supported then
     return {eventHandlers={Synth_Activate=function()
@@ -25,7 +26,7 @@ local function scanSongs()
     end
     table.sort(songs)
 end
-local stopPlayback,playSong
+local stopPlayback,playSong,showEditor
 local function silence(i)
     i.audio:allNotesOff(); i.notes={}
 end
@@ -35,6 +36,12 @@ local function send(op, extra)
     local out={version=1,op=op,id=session.id,epoch=session.epoch,seq=session.inSeq}
     for k,v in pairs(extra or {}) do out[k]=v end
     mp.sendToServer('Synth_Request',out)
+end
+local function hideEditor()
+    if not editor then return end
+    session.view={name=editor.name,selected=editor.selected,entries=editor.entries}
+    editor:destroy(); editor=nil
+    ui.showMessage('Synth performance continues. Press F8 or activate the synth to reopen. Use Finish to end the session.')
 end
 local function closeEditor(notify)
     if stopPlayback then stopPlayback() end
@@ -77,7 +84,8 @@ local function startSong(song)
     if not session then return false end
     stopPlayback()
     local i=instances[session.id]
-    editor:releaseAll();silence(i);send('panic')
+    if editor then editor:releaseAll() end
+    silence(i);send('panic')
     local tokens,last=80,core.getRealTime()
     playback=MIDI.player(song,{
         on=function(note,velocity)
@@ -96,7 +104,7 @@ local function startSong(song)
     return true
 end
 playSong=function(path)
-    if not editor or not session then return false end
+    if not session then return false end
     path=path or songs[selectedSong]
     local allowed=false
     for n,p in ipairs(songs) do if p==path then allowed=true;selectedSong=n;break end end
@@ -110,11 +118,56 @@ playSong=function(path)
     end)
     return true
 end
+showEditor=function()
+    if editor or not session then return false end
+    local i=instances[session.id]
+    if not i then return false end
+    editor=Editor.new(i.params,{
+        noteOn=function(note,velocity)
+            stopPlayback()
+            velocity=velocity or 0.8
+            i.audio:noteOn(note,velocity); i.notes[note]=true;i.strikes=(i.strikes or 0)+1
+            send('on',{note=note,velocity=velocity})
+        end,
+        noteOff=function(note) i.audio:noteOff(note); i.notes[note]=nil;send('off',{note=note}) end,
+        panic=function() stopPlayback();silence(i); send('panic') end,
+        change=function(name,value) i.audio:set(name,value); dirty=true end,
+        command=function(op,args)
+            if op=='load' or op=='reset' then stopPlayback() end
+            -- Flush pending edits before operations that depend on current sound.
+            if dirty then send('edit',{params=i.params}); dirty=nil end
+            send(op,args)
+        end,
+        hide=hideEditor,
+        close=function() closeEditor(true) end,
+        meter=function() return i.audio.peak,i.audio.voices end,
+        midiLabel=songLabel,
+        midiCycle=function(step) stopPlayback();if #songs>0 then selectedSong=(selectedSong-1+step)%#songs+1 end end,
+        midiPlay=function() playSong() end,
+        midiStop=stopPlayback,
+    })
+    local view=session.view
+    if view then
+        editor.name=view.name;editor.selected=view.selected;editor:catalog(view.entries)
+    end
+    return true
+end
 local function message(data)
     if not mp.isConnected() or type(data)~='table' or data.version~=1 then return end
     if data.op=='error' then ui.showMessage(data.message); return end
-    if data.op=='catalog' then if editor then editor:catalog(data.entries) end; return end
+    if data.op=='catalog' then
+        if session then
+            session.view=session.view or {name='Untitled'}
+            session.view.entries=data.entries or {}
+        end
+        if editor then editor:catalog(data.entries) end
+        return
+    end
     if data.op=='saved' then
+        if session then
+            session.view=session.view or {name='Untitled',entries={}}
+            session.view.selected=not data.deleted and data.presetId or nil
+        end
         if editor then editor:saved(data.presetId,data.deleted) end
         ui.showMessage(data.deleted and 'Preset deleted.' or 'Preset saved.'); return
     end
@@ -134,29 +187,7 @@ local function message(data)
         if data.op=='granted' then
             closeEditor(true)
             session={id=data.id,epoch=data.epoch,inSeq=0}
-            editor=Editor.new(params,{
-                noteOn=function(note,velocity)
-                    stopPlayback()
-                    velocity=velocity or 0.8
-                    i.audio:noteOn(note,velocity); i.notes[note]=true;i.strikes=(i.strikes or 0)+1
-                    send('on',{note=note,velocity=velocity})
-                end,
-                noteOff=function(note) i.audio:noteOff(note); i.notes[note]=nil;send('off',{note=note}) end,
-                panic=function() stopPlayback();silence(i); send('panic') end,
-                change=function(name,value) i.audio:set(name,value); dirty=true end,
-                command=function(op,args)
-                    if op=='load' or op=='reset' then stopPlayback() end
-                    -- Flush pending edits before operations that depend on current sound.
-                    if dirty then send('edit',{params=editor.params}); dirty=nil end
-                    send(op,args)
-                end,
-                close=function() closeEditor(true) end,
-                meter=function() return i.audio.peak,i.audio.voices end,
-                midiLabel=songLabel,
-                midiCycle=function(step) stopPlayback();if #songs>0 then selectedSong=(selectedSong-1+step)%#songs+1 end end,
-                midiPlay=function() playSong() end,
-                midiStop=stopPlayback,
-            })
+            showEditor()
             send('list'); lastHeartbeat=core.getRealTime()
         end
         return
@@ -171,7 +202,17 @@ local function message(data)
         if params then
             if data.op=='preset' then if session and session.id==data.id then stopPlayback() end;silence(i) end
             apply(i,params)
-            if editor and session.id==data.id then editor:state(params,data.presetId); dirty=nil end
+            if session and session.id==data.id then
+                if data.presetId then
+                    session.view=session.view or {name='Untitled',entries={}}
+                    session.view.selected=data.presetId
+                    for _,p in ipairs(session.view.entries or {}) do
+                        if p.id==data.presetId then session.view.name=p.name end
+                    end
+                end
+                if editor then editor:state(params,data.presetId) end
+                dirty=nil
+            end
         end
     end
 end
@@ -205,12 +246,12 @@ local function frame(dt)
             end
         end
     end
-    if not editor then return end
+    if not session then return end
     local i=instances[session.id]
     if not i then closeEditor(true); return end
     -- The owner receives server liveness too; disconnected transport cannot sustain notes indefinitely.
     if now-lastHeartbeat>=2 then send('heartbeat'); lastHeartbeat=now end
-    if dirty and now-lastEdit>=0.1 then send('edit',{params=editor.params}); dirty=nil; lastEdit=now end
+    if dirty and now-lastEdit>=0.1 then send('edit',{params=i.params}); dirty=nil; lastEdit=now end
     if loading then
         local ok,result=coroutine.resume(loading)
         if not ok then loading=nil;ui.showMessage('MIDI: '..tostring(result))
@@ -220,16 +261,16 @@ local function frame(dt)
         local current=playback;current:update(dt)
         if not current.playing and playback==current then playback=nil end
     end
-    editor:frame(now)
+    if editor then editor:frame(now) end
 end
 return {
     interfaceName='ProceduralSynth',
     interface={
-        version=2,
+        version=3,
         status=function()
             local out={}
             for id,i in pairs(instances) do out[#out+1]={id=id,owner=i.owner,voices=i.audio.voices,peak=i.audio.peak,
-                editing=session~=nil and session.id==id,epoch=i.epoch,seq=i.seq,
+                editing=session~=nil and session.id==id,editorVisible=editor~=nil and session.id==id,epoch=i.epoch,seq=i.seq,
                 cutoff=i.params.cutoff,wave1=i.params.wave1,poseBones=i.pose and i.pose.applied or 0,
                 poseError=i.pose and i.pose.error or 0,midi=playback~=nil and playback.playing or false} end
             return out
@@ -248,13 +289,20 @@ return {
         end,
         presetCommand=function(op,args) if editor then editor.cb.command(op,args) end end,
         close=function() closeEditor(true) end,
+        hide=hideEditor,
+        show=showEditor,
         midiSongs=function() local out={};for n,p in ipairs(songs) do out[n]=p end;return out end,
         playMidi=playSong,
         stopMidi=stopPlayback,
     },
-    engineHandlers={onFrame=frame,onInit=scanSongs,onKeyPress=function(e) if editor then editor:key(e.code,true) end end,
+    engineHandlers={onFrame=frame,onInit=scanSongs,onKeyPress=function(e)
+        if session and e.code==input.KEY.F8 then
+            if editor then hideEditor() else showEditor() end
+        elseif editor then editor:key(e.code,true) end
+    end,
         onKeyRelease=function(e) if editor then editor:key(e.code,false) end end},
     eventHandlers={Synth_Message=message,Synth_Activate=function(data)
+        if session and session.id==data.id then showEditor();return end
         mp.sendToServer('Synth_Request',{version=1,op='acquire',id=data.id})
     end},
 }

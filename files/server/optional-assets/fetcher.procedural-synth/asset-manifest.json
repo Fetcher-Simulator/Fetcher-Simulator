@@ -1,12 +1,12 @@
 {
   "version": 1,
   "packageId": "fetcher.procedural-synth.assets",
-  "model": "meshes/fetcher/synth/keyboard.nif",
+  "model": "meshes/fetcher/synth/keyboard-stand.nif",
   "files": [
     {
       "path": "ATTRIBUTION.txt",
-      "bytes": 1384,
-      "sha256": "bcda96b5971205f569c3825105bd6d52e3a68c255e1012bb75b6fed27c71c4c5"
+      "bytes": 2559,
+      "sha256": "357d2113517bf56f0567387eaba745842bca1c28ec7365179a79811b8cafeab1"
     },
     {
       "path": "conversion-report.json",
@@ -15,8 +15,13 @@
     },
     {
       "path": "LICENSE-CC-BY-4.0.txt",
-      "bytes": 411,
-      "sha256": "8dec9993e13c37e74a2e3129327b81dcd3785493cfdf100d2264e34862ed8dcb"
+      "bytes": 425,
+      "sha256": "93c5ae2faa89427183ebcada515ebfce48e578fd447483c9a18f5b596fd1ad21"
+    },
+    {
+      "path": "meshes/fetcher/synth/keyboard-stand.nif",
+      "bytes": 550881,
+      "sha256": "897feb2081fab40d96a3849c7436b52f9b5479df96cf333b5dc8faa8e9aac42b"
     },
     {
       "path": "meshes/fetcher/synth/keyboard.nif",
@@ -29,6 +34,16 @@
       "sha256": "ab94cccee373ccb8fd2cbcd201f8f704bc7cd36a87033b281cfa72a52fcac5fc"
     },
     {
+      "path": "stage-provenance.json",
+      "bytes": 1827,
+      "sha256": "1d878b2831970aa666049a329a0e8e4dd6d5f1d02153b7702b92f5842f6095ca"
+    },
+    {
+      "path": "stage-report.json",
+      "bytes": 881,
+      "sha256": "60e65f09d1cf97c5a205c1dec5cf5eb68e797b30067c497e67077933248686d4"
+    },
+    {
       "path": "textures/fetcher/synth/keyboard.dds",
       "bytes": 2796344,
       "sha256": "2de5142e04ad1d0b49eee07811753081fcfdf7d8593829b3d5f9470970736fab"
@@ -37,6 +52,36 @@
       "path": "textures/fetcher/synth/keyboard_n.dds",
       "bytes": 1398256,
       "sha256": "ac9f19ab2974268f05e96998a7cfb19fb7c84fd1493e1ced713489717305974a"
+    },
+    {
+      "path": "textures/fetcher/synth/xstand.dds",
+      "bytes": 2796344,
+      "sha256": "af73948de58849c0b6539a5d4dc63c18870d8b34c5de6ce3544e19cc0f51287b"
+    },
+    {
+      "path": "textures/fetcher/synth/xstand_n.dds",
+      "bytes": 1398256,
+      "sha256": "56811678b8b93e5c5bae6722b8987fae49763a5822df5b3144f6385dcbcf0c4a"
+    },
+    {
+      "path": "textures/fetcher/synth/yamaha_body.dds",
+      "bytes": 2796344,
+      "sha256": "46c6b74b990b852b0844d146ff1c08afc19f4390605f01ee645defd00db689df"
+    },
+    {
+      "path": "textures/fetcher/synth/yamaha_body_n.dds",
+      "bytes": 1398256,
+      "sha256": "7a096c24100a55212d393cd6d4a7debcb4748956767e49c36a593117f3bef288"
+    },
+    {
+      "path": "textures/fetcher/synth/yamaha_keys.dds",
+      "bytes": 699192,
+      "sha256": "a3b4e9969d347df76e8bb6b24b49e6500d6469e577eeb763d08cae0f0119d407"
+    },
+    {
+      "path": "textures/fetcher/synth/yamaha_trim.dds",
+      "bytes": 699192,
+      "sha256": "7777ba1b2a9c9d4a661d177cec615831545064503d9d68c1f5bb7241a2cb24fa"
     }
   ]
 }

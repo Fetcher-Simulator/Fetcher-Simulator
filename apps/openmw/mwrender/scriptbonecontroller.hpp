@@ -4,6 +4,7 @@
 #include <components/sceneutil/nodecallback.hpp>
 
 #include <osg/MatrixTransform>
+#include <osg/Camera>
 #include <osgAnimation/Bone>
 
 #include <chrono>
@@ -11,6 +12,38 @@
 
 namespace MWRender
 {
+    // Match osg::computeLocalToWorld's world-space convention: the viewer's
+    // absolute camera (and its ancestors) is not part of an object's world pose.
+    // A custom resolver lets IK omit scripted offsets without touching the graph.
+    template <class MatrixResolver>
+    osg::Matrixf computeBoneWorldTransform(const osg::NodePath& path, MatrixResolver resolve)
+    {
+        std::size_t first = 0;
+        for (std::size_t i = path.size(); i > 0; --i)
+        {
+            const auto* camera = path[i - 1]->asCamera();
+            if (camera && (camera->getReferenceFrame() != osg::Transform::RELATIVE_RF || camera->getParents().empty()))
+            {
+                first = i;
+                break;
+            }
+        }
+        osg::Matrix result;
+        for (std::size_t i = first; i < path.size(); ++i)
+        {
+            if (const auto* node = dynamic_cast<const osg::MatrixTransform*>(path[i]))
+            {
+                if (node->getReferenceFrame() == osg::Transform::RELATIVE_RF)
+                    result.preMult(resolve(node));
+                else
+                    result = resolve(node);
+            }
+            else if (const auto* transform = dynamic_cast<const osg::Transform*>(path[i]))
+                transform->computeLocalToWorldMatrix(result, nullptr);
+        }
+        return osg::Matrixf(result);
+    }
+
     // One restore callback before the ordinary animation chain and one overlay
     // after it. Restoring first also handles unkeyed/partially keyed transforms.
     class ScriptBoneController : public SceneUtil::NodeCallback<ScriptBoneController, osg::MatrixTransform*>

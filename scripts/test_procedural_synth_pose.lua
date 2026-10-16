@@ -9,6 +9,7 @@ function V:dot(b) return self.x*b.x+self.y*b.y+self.z*b.z end
 function V:cross(b) return v(self.y*b.z-self.z*b.y,self.z*b.x-self.x*b.z,self.x*b.y-self.y*b.x) end
 function V:length() return math.sqrt(self:dot(self)) end
 package.loaded['openmw.animation']={}
+package.loaded['openmw.types']={}
 package.loaded['openmw.util']={vector3=v}
 local pose=dofile('files/server/server-lua-packages/fetcher.procedural-synth/client/performance.lua')
 local checks=0

@@ -31,6 +31,25 @@ public:
 
 void run()
 {
+    // Independent oracle: compare against OSG's actual world convention, not
+    // against another point measured by our own getter. Camera movement must
+    // never change the arm's target coordinates in the game world.
+    osg::ref_ptr<osg::Camera> camera = new osg::Camera;
+    camera->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
+    camera->setViewMatrixAsLookAt({2000, -1000, 200}, {0, 0, 0}, {0, 0, 1});
+    osg::ref_ptr<osg::MatrixTransform> actor = new osg::MatrixTransform;
+    actor->setMatrix(osg::Matrix::translate(100, 200, -700));
+    osg::ref_ptr<osg::MatrixTransform> hand = new osg::MatrixTransform;
+    hand->setMatrix(osg::Matrix::translate(2, 20, 90));
+    camera->addChild(actor); actor->addChild(hand);
+    const osg::NodePath path{camera, actor, hand};
+    const auto resolve = [](const osg::MatrixTransform* n) { return osg::Matrixf(n->getMatrix()); };
+    require(near(MWRender::computeBoneWorldTransform(path, resolve).getTrans(),
+        osg::computeLocalToWorld(path).getTrans()), "bone world transform includes camera");
+    camera->setViewMatrixAsLookAt({-1000, 5000, -100}, {1, 2, 3}, {0, 0, 1});
+    require(near(MWRender::computeBoneWorldTransform(path, resolve).getTrans(), {102, 220, -610}),
+        "camera motion changed bone world position");
+
     using MWRender::ScriptBoneController;
     const osg::Quat turn(0.3, osg::Vec3f(0, 0, 1));
     require(ScriptBoneController::valid({}, turn, 1, 0.5), "valid pose rejected");

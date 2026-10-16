@@ -13,6 +13,7 @@ package.loaded[prefix..'shared.schema']=schema
 package.loaded['openmw.util']={vector2=vector,color={rgb=function(...) return {...} end}}
 package.loaded['openmw.util'].vector3=function(x,y,z) return {x=x,y=y,z=z} end
 package.loaded['openmw.animation']={}
+package.loaded['openmw.types']={}
 package.loaded['openmw.vfs']={pathsWithPrefix=function() return function() end end}
 package.loaded[prefix..'client.midi']=dofile(root..'client/midi.lua')
 package.loaded[prefix..'client.performance']=dofile(root..'client/performance.lua')
@@ -27,7 +28,7 @@ function ui.create(layout)
 end
 package.loaded['openmw.ui']=ui
 package.loaded['openmw.async']={callback=function(_,fn) return fn end}
-local input={KEY={Escape=1},isMouseButtonPressed=function() return false end}
+local input={KEY={Escape=1,F8=100},isMouseButtonPressed=function() return false end}
 for i,name in ipairs({'Z','S','X','D','C','V','G','B','H','N','J','M','Comma'}) do input.KEY[name]=i+1 end
 package.loaded['openmw.input']=input
 package.loaded['openmw.interfaces']={UI={getMode=function() return mode end,
@@ -50,6 +51,9 @@ package.loaded['openmw.synth']={create=function(obj)
 end}
 local Editor=dofile(root..'client/editor.lua')
 package.loaded[prefix..'client.editor']=Editor
+local lastEditor
+local newEditor=Editor.new
+Editor.new=function(...) lastEditor=newEditor(...);return lastEditor end
 local player=dofile(root..'client/player.lua')
 local api=player.interface
 local handler=player.eventHandlers.Synth_Message
@@ -120,4 +124,74 @@ check(api.playMidi(virtualPath));player.engineHandlers.onFrame(0.01);api.noteOn(
 check(not api.status()[1].midi and audios[#audios].notes[64],'manual key takes over playback')
 check(api.playMidi(virtualPath));player.engineHandlers.onFrame(0.01);api.close()
 check(not api.status()[1].midi and audios[#audios].voices==0,'editor close stops MIDI')
+-- Hiding keeps the owned session alive, independently of UI and MIDI parsing.
+handler{version=1,op='close',id=7,epoch=4,seq=3}
+handler{version=1,op='granted',id=7,epoch=5,seq=1,params=schema.state({})}
+handler{version=1,op='catalog',entries={{id='p:42',name='My pad'}}}
+lastEditor.nameElement.layout.events.textChanged('Unfinished name')
+lastEditor:saved('p:42')
+api.noteOn(64)
+api.setParameter('cutoff',2345)
+local before=#sent
+player.engineHandlers.onKeyPress{code=input.KEY.Escape}
+check(mode==nil and api.status()[1].editing and not api.status()[1].editorVisible,'Escape hides without releasing ownership')
+check(not audios[#audios].notes[64] and sent[#sent].op=='off','hide releases manually held notes')
+for n=before+1,#sent do check(sent[n].op~='close','hide does not release lock') end
+now=201;player.engineHandlers.onFrame(0)
+check(sent[#sent].op=='edit' and sent[#sent].params.cutoff==2345,'hidden pending edit flushes')
+before=#sent
+player.engineHandlers.onKeyPress{code=input.KEY.Z}
+check(#sent==before and audios[#audios].voices==0,'hidden movement keys do not play notes')
+player.engineHandlers.onKeyPress{code=input.KEY.F8}
+check(api.status()[1].editorVisible and mode=='Interface','F8 reopens owned editor')
+check(lastEditor.name=='Unfinished name' and lastEditor.selected=='p:42' and #lastEditor.entries==1,'draft name and preset selection survive hiding')
+check(#sent==before,'reopening does not reacquire or restart session')
+player.engineHandlers.onKeyPress{code=input.KEY.F8}
+handler{version=1,op='saved',presetId='p:43'}
+handler{version=1,op='catalog',entries={{id='p:43',name='Saved while hidden'}}}
+handler{version=1,op='preset',id=7,epoch=5,seq=2,params=schema.state({cutoff=3456}),presetId='p:43'}
+player.eventHandlers.Synth_Activate{id=7}
+check(lastEditor.name=='Saved while hidden' and lastEditor.selected=='p:43' and lastEditor.params.cutoff==3456,'hidden server updates appear on activation')
+-- A different UI mode hides the editor without removing that mode.
+mode='Inventory';player.engineHandlers.onFrame(0)
+check(mode=='Inventory' and not api.status()[1].editorVisible and api.status()[1].editing,'mode change preserves session and other UI')
+mode=nil
+local longTrack=string.char(0,144,60,100,146,0,128,60,0,0,255,47,0) -- 12-second note
+local longBytes='MThd'..be(6,4)..be(0,2)..be(1,2)..be(96,2)..'MTrk'..be(#longTrack,4)..longTrack
+package.loaded['openmw.vfs'].open=function() return {read=function() return longBytes end,close=function() end} end
+check(api.playMidi(virtualPath),'MIDI may load while editor is hidden')
+player.engineHandlers.onFrame(0.01)
+check(api.status()[1].midi and audios[#audios].notes[60] and mode==nil,'hidden parsing starts native MIDI without opening UI')
+local heartbeats=0
+for step=1,100 do
+    now=201+step*0.1
+    handler{version=1,op='alive',id=7,epoch=5,seq=2+step}
+    before=#sent;player.engineHandlers.onFrame(0.1)
+    for n=before+1,#sent do if sent[n].op=='heartbeat' then heartbeats=heartbeats+1 end end
+    check(api.status()[1].midi and not api.status()[1].editorVisible,'hidden playback remains active past lease duration')
+end
+check(heartbeats==5,'owner heartbeat continues while hidden')
+before=#sent;player.eventHandlers.Synth_Activate{id=7}
+check(api.status()[1].editorVisible and api.status()[1].midi and #sent==before,'activation reopens without interrupting MIDI')
+api.hide()
+for step=1,21 do
+    now=211+step*0.1
+    handler{version=1,op='alive',id=7,epoch=5,seq=102+step}
+    player.engineHandlers.onFrame(0.1)
+end
+check(not api.status()[1].midi and audios[#audios].voices==0,'hidden MIDI reaches end and releases notes')
+check(api.show(),'explicit show reopens session')
+check(api.playMidi(virtualPath));player.engineHandlers.onFrame(0.01)
+local finish
+for _,element in ipairs(lastEditor.root.layout.content) do
+    if element.content and element.content[1] and element.content[1].props.text=='Finish' then finish=element end
+end
+check(finish~=nil,'Finish control is available')
+finish.events.mouseClick()
+check(not api.status()[1].editing and not api.status()[1].midi and sent[#sent].op=='close','Finish ends playback and releases lock')
+handler{version=1,op='close',id=7,epoch=5,seq=124}
+handler{version=1,op='granted',id=7,epoch=6,seq=1,params=schema.state({})}
+api.hide();api.playMidi(virtualPath);player.engineHandlers.onFrame(0.01)
+connected=false;player.engineHandlers.onFrame(0)
+check(#api.status()==0 and audios[#audios].closed and not api.show(),'hidden disconnect releases audio and ownership')
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, sequence, listener cleanup; %d assertions',checks))

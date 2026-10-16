@@ -2175,15 +2175,7 @@ namespace MWRender
         const auto paths = found->second->getParentalNodePaths();
         if (paths.empty())
             return std::nullopt;
-        osg::Matrix result;
-        for (const auto* node : paths.front())
-        {
-            if (const auto* mt = dynamic_cast<const osg::MatrixTransform*>(node))
-                result.preMult(matrix(mt));
-            else if (const auto* transform = dynamic_cast<const osg::Transform*>(node))
-                transform->computeLocalToWorldMatrix(result, nullptr);
-        }
-        return osg::Matrixf(result);
+        return computeBoneWorldTransform(paths.front(), matrix);
     }
 
     void Animation::detachScriptBonePoses()

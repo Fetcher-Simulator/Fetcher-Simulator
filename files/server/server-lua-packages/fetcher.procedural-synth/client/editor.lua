@@ -59,7 +59,7 @@ function E:note(note,on,velocity)
     elseif not on and self.held[note] then self.held[note]=nil; self.cb.noteOff(note) end
 end
 function E:key(code,on)
-    if code==input.KEY.Escape and on then self.cb.close(); return end
+    if code==input.KEY.Escape and on then (self.cb.hide or self.cb.close)(); return end
     if on and (self.typing or I.UI.getMode()~='Interface') then return end
     local keys={input.KEY.Z,input.KEY.S,input.KEY.X,input.KEY.D,input.KEY.C,input.KEY.V,input.KEY.G,
         input.KEY.B,input.KEY.H,input.KEY.N,input.KEY.J,input.KEY.M,input.KEY.Comma}
@@ -130,7 +130,8 @@ function E.new(params,cb)
     self.width=math.min(940,screen.x-24)
     local w=self.width
     local content={label('OPENMW  /  SYNTH',20,14,260,22),label('PROCEDURAL • POLYPHONIC • SPATIAL',20,42,350,12,colors.muted)}
-    content[#content+1]=self:button('Close',w-84,15,64,function() cb.close() end)
+    content[#content+1]=self:button('Hide [F8]',w-198,15,104,cb.hide or cb.close)
+    content[#content+1]=self:button('Finish',w-84,15,64,cb.close)
     if cb.midiPlay then
         content[#content+1]=self:button('<',350,14,26,function() cb.midiCycle(-1) end)
         content[#content+1]=self:button('>',382,14,26,function() cb.midiCycle(1) end)
@@ -212,7 +213,7 @@ function E.new(params,cb)
     return self
 end
 function E:frame(now)
-    if I.UI.getMode()~='Interface' then self.cb.close(); return end
+    if I.UI.getMode()~='Interface' then (self.cb.hide or self.cb.close)(); return end
     if self.mouseNote and not input.isMouseButtonPressed(1) then self:note(self.mouseNote,false); self.mouseNote=nil end
     if now-self.lastMeter>0.1 then
         self.lastMeter=now

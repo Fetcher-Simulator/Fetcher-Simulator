@@ -6,6 +6,7 @@ param(
     [switch] $LiveProbe,
     [switch] $MidiProbe,
     [switch] $VanillaSynth,
+    [switch] $ResetStage,
     [string] $BardcraftDataDirectory
 )
 $ErrorActionPreference = 'Stop'
@@ -22,7 +23,7 @@ $assetInstall = Join-Path $fixture 'synth-assets'
 $assetModel = $null
 if (-not $VanillaSynth -and (Test-Path -LiteralPath "$assetSource\asset-manifest.json")) {
     $assetManifest = Get-Content -LiteralPath "$assetSource\asset-manifest.json" -Raw | ConvertFrom-Json
-    if ($assetManifest.version -ne 1 -or $assetManifest.model -ne 'meshes/fetcher/synth/keyboard.nif') {
+    if ($assetManifest.version -ne 1 -or $assetManifest.model -notin @('meshes/fetcher/synth/keyboard.nif','meshes/fetcher/synth/keyboard-stand.nif')) {
         throw 'Unsupported synth assets manifest.'
     }
     $assetBase = [IO.Path]::GetFullPath($assetSource) + [IO.Path]::DirectorySeparatorChar
@@ -79,10 +80,11 @@ Get-ChildItem -LiteralPath $scripts -File | Where-Object Extension -In '.lua','.
 # Keep this local fixture focused on the synthesizer and standard server policy.
 Write-Utf8 -Path "$fixture\server-scripts\server.omwscripts" -Value "GLOBAL: core.lua`nGLOBAL: procedural_synth.lua"
 $config = Get-Content -LiteralPath "$scripts\config.lua" -Raw
+$testZ = if ($assetModel -eq 'meshes/fetcher/synth/keyboard-stand.nif') { -703 } else { -650 }
 $localSettings = @"
 Config.PROCEDURAL_SYNTH_ENABLED = true
 Config.PROCEDURAL_SYNTH_TEST_CELL = 'ToddTest'
-Config.PROCEDURAL_SYNTH_TEST_POSITION = {x=2175,y=2256,z=-650}
+Config.PROCEDURAL_SYNTH_TEST_POSITION = {x=2175,y=2256,z=$testZ}
 Config.PROCEDURAL_SYNTH_TEST_MP_NUM = 1
 Config.SPAWN_CELL = 'ToddTest'
 Config.DEFAULT_SPAWN = {cell='ToddTest',position={x=2175,y=2176,z=-700}}
@@ -199,6 +201,10 @@ if (-not (Test-Path -LiteralPath "$fixture\mp-keys\127.0.0.1_$Port.key")) {
 }
 & python "$PSScriptRoot\seed-procedural-synth-test.py" "$SimulatorRoot\test-server\playerdata.db" "$fixture\playerdata.db"
 if ($LASTEXITCODE -ne 0) { throw 'Failed to seed isolated characters.' }
+if ($ResetStage) {
+    & python "$PSScriptRoot\position-procedural-synth-stage.py" "$fixture\playerdata.db"
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to reset the isolated stage layout.' }
+}
 Write-Output "Synth fixture: $fixture"
 if ($assetModel) { Write-Output "Keyboard assets installed and SHA-256 verified: $assetModel" }
 else { Write-Output 'Using the vanilla lute fallback.' }

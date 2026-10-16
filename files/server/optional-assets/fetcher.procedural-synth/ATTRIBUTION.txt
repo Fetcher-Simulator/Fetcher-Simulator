@@ -20,3 +20,25 @@ The model and derived textures remain under CC BY 4.0. Preserve this credit,
 the license link/text and the indication of changes when redistributing the assets.
 No endorsement by AleixoAlonso or Casio is implied. The engine and Lua code are
 separate works under their own repository licenses.
+
+Combined Yamaha keyboard and X-stand adaptation for OpenMW
+=========================================================
+Yamaha Keyboard by Rapunzel123
+Author: https://sketchfab.com/Rapunzel123
+Source: https://sketchfab.com/3d-models/yamaha-keyboard-ed15fc0df2d244a583e2ac0929b57045
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+
+Keyboard X-Stand by Michael Perez
+Author: https://sketchfab.com/pixelflygraphics
+Source: https://sketchfab.com/3d-models/keyboard-x-stand-d76fd9cba4234dd1891581c2df6b7b00
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+
+Changes: combined the keyboard OBJ and the stand's static ASCII FBX into one
+Morrowind NIF 4.0.0.2; converted Y-up geometry, centered at the stand's feet;
+keyboard width 104 game units, stand top height 84. Preserved the original UVs,
+adapted materials to legacy NIF, resized textures to 1K/2K mipmapped DDS, and
+added seven simple collision boxes. Export removed one zero-area triangle;
+total visual surface area was checked unchanged. Keys remain static geometry.
+No endorsement by either author or Yamaha is implied.

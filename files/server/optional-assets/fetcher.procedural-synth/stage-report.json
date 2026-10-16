@@ -1,0 +1,36 @@
+{
+  "model": "meshes/fetcher/synth/keyboard-stand.nif",
+  "visualTriangles": 12189,
+  "sourceTriangles": 12190,
+  "removedDegenerateTriangles": 1,
+  "sourceArea": 15289.359574363123,
+  "serializedArea": 15289.359574363114,
+  "serializedTriangles": 12273,
+  "collisionBoxes": 7,
+  "dimensions": [
+    103.99999237060547,
+    30.162471771240234,
+    111.68399047851562
+  ],
+  "keyboardBottom": 84,
+  "keyBounds": [
+    [
+      -43.966651916503906,
+      -15.081235885620117,
+      87.15557098388672
+    ],
+    [
+      44.7617301940918,
+      -1.3304985761642456,
+      89.13059997558594
+    ]
+  ],
+  "roundTripImport": "PASS",
+  "origin": "floor, horizontally centered",
+  "textures": [
+    "textures\\fetcher\\synth\\xstand.dds",
+    "textures\\fetcher\\synth\\yamaha_body.dds",
+    "textures\\fetcher\\synth\\yamaha_trim.dds",
+    "textures\\fetcher\\synth\\yamaha_keys.dds"
+  ]
+}
