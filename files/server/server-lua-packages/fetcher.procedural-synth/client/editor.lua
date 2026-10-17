@@ -3,6 +3,7 @@ local util=require('openmw.util')
 local async=require('openmw.async')
 local input=require('openmw.input')
 local I=require('openmw.interfaces')
+local Window=require('scripts.multiplayer.fetcher.procedural-synth.client.window')
 local schema=require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
 local v=util.vector2
 local white=ui.texture{path='white'}
@@ -19,7 +20,7 @@ local function label(text,x,y,w,size,color)
 end
 local function callback(fn) return async:callback(function(...) fn(...); return false end) end
 function E:element(layout)
-    local element=ui.create(layout); self.children[#self.children+1]=element; return element
+    local element=self.window:create(layout); self.children[#self.children+1]=element; return element
 end
 function E:button(text,x,y,w,fn)
     local r=rect(x,y,w,28,colors.track)
@@ -29,10 +30,10 @@ function E:button(text,x,y,w,fn)
 end
 function E:refreshName()
     local name=self.name or 'Untitled'
-    self.nameElement.layout.props.text=name; self.nameElement:update()
+    self.nameElement.layout.props.text=name; self.window:update(self.nameElement)
     local selected='Choose a preset'
     for _,p in ipairs(self.entries) do if p.id==self.selected then selected=p.name end end
-    self.selection.layout.props.text=selected; self.selection:update()
+    self.selection.layout.props.text=selected; self.window:update(self.selection)
 end
 function E:catalog(entries)
     self.entries=entries or {}; self:refreshName()
@@ -84,7 +85,7 @@ function E:slider(name,title,x,y,width)
         local track=rect(0,25,width,10,colors.track)
         track.content=ui.content{rect(0,0,math.max(2,width*normalized(value)),10,colors.accent)}
         local function set(e)
-            local t=math.max(0,math.min(1,e.offset.x/width))
+            local t=math.max(0,math.min(1,e.offset.x/(width*self.window.scale)))
             local value=spec.min+(spec.max-spec.min)*t
             if name=='cutoff' then value=spec.min*(spec.max/spec.min)^t end
             if spec.discrete then value=math.floor(value+0.5) end
@@ -93,7 +94,7 @@ function E:slider(name,title,x,y,width)
         track.events={mousePress=callback(set),mouseMove=callback(function(e) if e.button==1 then set(e) end end)}
         -- Label and track are separate so changing a value never rebuilds the text input.
         element.layout.content=ui.content{label(title..'  '..display,0,0,width,13),track}
-        element:update()
+        self.window:update(element)
     end
     self.controls[name]=refresh; refresh(); return element
 end
@@ -122,15 +123,14 @@ function E:plots()
         elseif p.wave1==4 then local noise=math.sin(n*127.1)*43758.5453;a=(noise-math.floor(noise))*2-1 end
         content[#content+1]=rect(352+n*3,54-a*20,2,2,colors.accent)
     end
-    self.plot.layout.content=ui.content(content); self.plot:update()
+    self.plot.layout.content=ui.content(content); self.window:update(self.plot)
 end
 function E.new(params,cb)
-    local self=setmetatable({params=params,cb=cb,children={},controls={},entries={},held={},name='Untitled',lastMeter=0},E)
-    local screen=ui.screenSize()
-    -- Compact layout fits 1024x768 and common desktop resolutions.
-    self.width=math.min(940,screen.x-24)
+    local self=setmetatable({params=params,cb=cb,window=Window.new(),children={},controls={},entries={},held={},name='Untitled',lastMeter=0},E)
+    -- Window scales the logical canvas to the current viewport.
+    self.width=940
     local w=self.width
-    local content={label('OPENMW  /  SYNTH',20,14,260,22),label('PROCEDURAL • POLYPHONIC • SPATIAL',20,42,350,12,colors.muted)}
+    local content={label('OPENMW  /  SYNTH',20,14,260,22),label(cb.subtitle or 'PROCEDURAL / POLYPHONIC / SPATIAL',20,42,350,12,colors.muted)}
     if cb.studio then content[#content+1]=self:button('Studio',w-284,15,76,cb.studio) end
     content[#content+1]=self:button('Hide [F8]',w-198,15,104,cb.hide or cb.close)
     content[#content+1]=self:button('Finish',w-84,15,64,cb.close)
@@ -165,7 +165,7 @@ function E.new(params,cb)
     content[#content+1]=self:button('<',20,107,28,function() cycle(-1) end)
     content[#content+1]=self:button('>',390,107,28,function() cycle(1) end)
     content[#content+1]=self:button('Load',428,107,65,function() cb.command('load',{presetId=self.selected}) end)
-    content[#content+1]=label('Z S X D C V G B H N J M  /  C4–C5',515,113,390,12,colors.muted)
+    content[#content+1]=label('Z S X D C V G B H N J M  /  C4-C5',515,113,390,12,colors.muted)
     local col=(w-56)/3
     for n,title in ipairs({'OSCILLATORS','FILTER + ENVELOPES','MODULATION + OUTPUT'}) do
         local x=20+(n-1)*(col+8)
@@ -203,27 +203,26 @@ function E.new(params,cb)
         key.events={mousePress=callback(function(e)
                 if e.button==1 then
                     self.mouseNote=59+n
-                    self:note(59+n,true,math.max(0.2,math.min(1,0.2+0.8*e.offset.y/(black and 42 or 56))))
+                    self:note(59+n,true,math.max(0.2,math.min(1,0.2+0.8*e.offset.y/(self.window.scale*(black and 42 or 56)))))
                 end
             end),
             mouseRelease=callback(function() self:note(59+n,false); self.mouseNote=nil end)}
         content[#content+1]=key
     end
-    local root=rect(0,0,w,695,colors.bg)
-    root.layer='Windows'; root.props.position=v((screen.x-w)/2,math.max(4,(screen.y-695)/2)); root.content=ui.content(content)
-    self.root=ui.create(root)
+    self.root=self.window:root(content)
     I.UI.addMode('Interface',{windows={}})
     return self
 end
 function E:frame(now)
+    self.window:frame(self)
     if I.UI.getMode()~='Interface' then (self.cb.hide or self.cb.close)(); return end
     if self.mouseNote and not input.isMouseButtonPressed(1) then self:note(self.mouseNote,false); self.mouseNote=nil end
     if now-self.lastMeter>0.1 then
         self.lastMeter=now
         local peak,voices=self.cb.meter()
         self.meter.layout.props.text=string.format('OUTPUT  %s  %d voices',string.rep('|',math.floor(peak*25)),voices)
-        self.meter:update()
-        if self.midiLabel then self.midiLabel.layout.props.text=self.cb.midiLabel();self.midiLabel:update() end
+        self.window:update(self.meter)
+        if self.midiLabel then self.midiLabel.layout.props.text=self.cb.midiLabel();self.window:update(self.midiLabel) end
     end
 end
 function E:destroy()

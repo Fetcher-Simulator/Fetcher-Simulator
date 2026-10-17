@@ -48,6 +48,12 @@ local function run()
             assert(w:add('drum'));local snare=w.selected;w:preset(snare,'b:snare')
             for _,step in ipairs{4,12} do w:toggleStep(snare,step) end
             assert(w:add('piano'));w.noteLength=4;w:toggleNote(w.selected,60,0);w:toggleNote(w.selected,67,8)
+            w:length(32);w:toggleStep(kick,20);w:toggleNote(w.selected,64,16)
+            w:length(256);w:toggleStep(kick,255);w:toggleNote(w.selected,72,255)
+            for length=16,256,16 do assert(w:length(length)) end
+            assert(w.project.tracks[kick].steps:sub(21,21)~='0' and w.project.tracks[kick].steps:sub(256,256)~='0')
+            w:length(16);assert(api.saveProject())
+            log('PASS bar 2 and bar 16 retained after cycling all loop lengths; saving with a short loop')
             w.page='drums';api.studio();assert(w:play('clips'));played=now;phase=6
             log('PASS complete MIDI at real elapsed time; drum/piano clips started')
         elseif phase==6 and now-played>5 then
@@ -55,8 +61,14 @@ local function run()
             log('PASS drum machine and piano clips')
         elseif phase==7 and loaded then
             assert(w.project.name=='DAW Integration' and w.project.tracks[1].presetId=='b:flute' and w.project.tracks[2].presetId=='b:bass','Saved routing lost')
-            assert(not w.playing,'Project load autoplays');api.close();phase=8
-            log('PASS project restored from server storage and all voices released')
+            assert(not w.playing,'Project load autoplays')
+            assert(w.project.length==16 and #w.project.tracks==8,'Clip project lost on server round trip')
+            w:length(256)
+            assert(w.project.tracks[6].steps:sub(21,21)~='0' and w.project.tracks[6].steps:sub(256,256)~='0','Saved hidden drum bars lost')
+            local notes=w.project.tracks[8].notes
+            assert(notes[#notes-1].s==16 and notes[#notes].s==255,'Saved hidden piano bars lost')
+            w.bar=15;w.page='piano';w.selected=8;w.revision=w.revision+1;api.close();phase=8
+            log('PASS hidden bars restored from server SQLite and session released')
         elseif phase>0 and phase<8 and now-start>100 then error('DAW probe timeout') end
     elseif role=='Synth B' then
         if phase==0 and seen[1] and seen[2] and heard then phase=1;log('PASS listener hears independent channel 1 and 2 voices') end

@@ -46,10 +46,25 @@ check(not pianoReleased,'long piano note stays held across drum steps')
 for _=1,4 do w:frame(0.125) end
 check(events[#events][1]=='off' and events[#events][2]==2,'piano duration releases its own channel')
 w:stop();check(events[#events][1]=='panic','stop releases all channels')
-w:length(32);check(#w.project.tracks[1].steps==32,'bar length expands pattern without dropping first bar')
+w:length(32);check(#w.project.tracks[1].steps==256,'bar length expands pattern without dropping first bar')
 w:toggleNote(2,60,2);check(#w.project.tracks[2].notes==0,'click within a note removes it')
 w:toggleNote(2,64,16);w:toggleStep(1,20)
-w:length(16);check(#w.project.tracks[2].notes==0 and #w.project.tracks[1].steps==16,'shortening clips trims out-of-range notes')
+w:length(256);w:toggleNote(2,72,255);w:toggleStep(1,255)
+w:length(16);check(#w.project.tracks[2].notes==2 and #w.project.tracks[1].steps==256,'shortening only changes playback loop')
+w:save();check(w:load(saved),'hidden bars save/load with a short loop')
+for length=32,256,16 do check(w:length(length),'all sixteen bar lengths accepted') end
+check(w.project.tracks[2].notes[1].s==16 and w.project.tracks[2].notes[2].s==255 and w.project.tracks[1].steps:sub(21,21)~='0' and w.project.tracks[1].steps:sub(256,256)~='0','bar 2 and bar 16 survive cycling and persistence')
+check(not w:length(272) and not w:length(17) and not w:length(0/0),'invalid loop lengths rejected')
+events={};w:play('clips');w.beat=63.75;w.step=254;w:frame(0)
+local lastDrum,lastPiano=false,false
+for _,e in ipairs(events) do if e[1]=='on' and e[2]==1 then lastDrum=true elseif e[1]=='on' and e[2]==2 and e[3]==72 then lastPiano=true end end
+check(lastDrum and lastPiano,'last step of bar 16 plays drum and piano on their own channels')
+w:stop();w:length(16);events={};w:play('clips');w:frame(0)
+local hiddenPiano=false;for _,e in ipairs(events) do if e[1]=='on' and e[2]==2 then hiddenPiano=true end end
+check(not hiddenPiano,'notes in retained hidden bars do not leak into a short playback loop')
+w:stop()
+local legacy=copy(saved);legacy.tracks[1].steps=legacy.tracks[1].steps:sub(1,16);legacy.tracks[2].steps=legacy.tracks[2].steps:sub(1,16);legacy.tracks[2].notes={}
+local migrated=format.project(legacy);check(migrated and #migrated.tracks[1].steps==256,'existing one-to-four-bar saves migrate without losing their steps')
 w.project.swing=0.5;w:toggleStep(1,1);events={};w:play('clips');w:frame(0)
 w:frame(0.125)
 local on=0;for _,e in ipairs(events) do if e[1]=='on' then on=on+1 end end

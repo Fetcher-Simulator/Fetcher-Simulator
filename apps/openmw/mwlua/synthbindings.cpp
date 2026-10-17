@@ -3,6 +3,9 @@
 #include "../mwbase/soundmanager.hpp"
 #include "../mwsound/proceduralsynth.hpp"
 #include "objectvariant.hpp"
+#include "luamanagerimp.hpp"
+#include <components/settings/values.hpp>
+#include <cmath>
 
 namespace MWLua
 {
@@ -16,7 +19,17 @@ namespace MWLua
                 "keepAlive", &Synth::keepAlive, "closed", sol::property(&Synth::closed), "peak",
                 sol::property(&Synth::peak), "voices", sol::property(&Synth::voices));
             sol::table api(lua, sol::create);
-            api["version"] = 2;
+            api["version"] = 3;
+            api["getMonitorVolume"] = []() -> float { return Settings::sound().mInstrumentVolume; };
+            api["setMonitorVolume"] = [manager = context.mLuaManager](float value) {
+                if (!std::isfinite(value) || value < 0 || value > 1)
+                    throw std::invalid_argument("Monitor volume must be between 0 and 1");
+                manager->addAction([value] {
+                    Settings::sound().mInstrumentVolume.set(value);
+                    MWBase::Environment::get().getSoundManager()->processChangedSettings(
+                        { { "Sound", "instrument volume" } });
+                }, "Set instrument monitor volume");
+            };
             api["maxInstances"] = 32;
             api["sampleRate"] = Synth::SampleRate;
             api["create"] = [](const sol::object& object) {

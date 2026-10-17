@@ -66,6 +66,9 @@ namespace LuaUi
 
         mPreviousMouse.left = left;
         mPreviousMouse.top = top;
+        // forceCoord takes absolute coordinates. Start each gesture at the
+        // current rectangle so moving preserves size and resizing preserves position.
+        mMoveResize = widget()->getCoord();
 
         WidgetExtension* ext = mActionWidgets[sender];
 

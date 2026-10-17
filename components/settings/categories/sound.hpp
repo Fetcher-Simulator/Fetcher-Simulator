@@ -17,6 +17,7 @@ namespace Settings
         SettingValue<float> mMasterVolume{ mIndex, "Sound", "master volume", makeClampSanitizerFloat(0, 1) };
         SettingValue<float> mFootstepsVolume{ mIndex, "Sound", "footsteps volume", makeClampSanitizerFloat(0, 1) };
         SettingValue<float> mMusicVolume{ mIndex, "Sound", "music volume", makeClampSanitizerFloat(0, 1) };
+        SettingValue<float> mInstrumentVolume{ mIndex, "Sound", "instrument volume", makeClampSanitizerFloat(0, 1) };
         SettingValue<float> mSfxVolume{ mIndex, "Sound", "sfx volume", makeClampSanitizerFloat(0, 1) };
         SettingValue<float> mVoiceVolume{ mIndex, "Sound", "voice volume", makeClampSanitizerFloat(0, 1) };
         SettingValue<int> mBufferCacheMin{ mIndex, "Sound", "buffer cache min", makeMaxSanitizerInt(1) };

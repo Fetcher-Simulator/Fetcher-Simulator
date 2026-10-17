@@ -10,7 +10,8 @@ namespace MWSound
         Foot = 1 << 7, /* Footstep sound */
         Music = 1 << 8, /* Music track */
         Movie = 1 << 9, /* Movie audio track */
-        Mask = Sfx | Voice | Foot | Music | Movie
+        Instrument = 1 << 10, /* Player-created instrument audio */
+        Mask = Sfx | Voice | Foot | Music | Movie | Instrument
     };
 }
 

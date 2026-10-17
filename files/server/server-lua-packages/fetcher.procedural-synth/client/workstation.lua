@@ -68,12 +68,9 @@ function W:setTrack(index,name,value)
     self:touch();return true
 end
 function W:length(length)
-    if length~=16 and length~=32 and length~=48 and length~=64 then return false end
+    if type(length)~='number' or length<16 or length>format.maxSteps or length%16~=0 then return false end
     self:stop()
-    for _,t in ipairs(self.project.tracks) do
-        t.steps=(t.steps..string.rep('0',64)):sub(1,length)
-        local notes={};for _,n in ipairs(t.notes) do if n.s<length then n.l=math.min(n.l,length);notes[#notes+1]=n end end;t.notes=notes
-    end
+    -- The loop length never truncates composition data in later bars.
     self.project.length=length;self.bar=math.min(self.bar,length/16-1);self:touch();return true
 end
 function W:toggleStep(index,step)

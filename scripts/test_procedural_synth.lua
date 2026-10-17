@@ -164,12 +164,15 @@ end)
 test('DAW project saves per character and preserves presets and future documents',function()
     local f=require('procedural_synth_project')(schema)
     local project=f.new();project.name='My session';project.tracks[1]=f.newTrack('piano','Lead',16)
-    project.tracks[1].notes={{n=64,s=0,l=4,v=0.8}}
+    project.tracks[1].notes={{n=64,s=0,l=4,v=0.8},{n=72,s=255,l=1,v=0.9}}
+    project.tracks[2]=f.newTrack('drum','Drums',16)
+    project.tracks[2].steps=string.rep('0',255)..'9'
     acquire();request('saveAs',{name='Personal tone',params={wave1=2}})
     request('dawSave',{project=project})
     check(storage['project:11'].name=='My session' and storage[11].entries[1].name=='Personal tone','project and presets use different keys')
     local persisted=copy(storage);reset(persisted);sequence=0;acquire();request('dawLoad')
     check(sent[#sent].data.op=='dawProject' and sent[#sent].data.project.tracks[1].notes[1].n==64,'project survives server reload')
+    check(sent[#sent].data.project.length==16 and sent[#sent].data.project.tracks[1].notes[2].s==255 and sent[#sent].data.project.tracks[2].steps:sub(256,256)=='9','server round trip retains hidden bar 16 piano and drum data')
     now=now+3;request('dawLoad',{pid=2,characterId=22});check(storage['project:22']==nil,'another player cannot use owner session')
     project.tracks[1].notes[1].v=math.huge;request('dawSave',{project=project})
     check(storage['project:11'].tracks[1].notes[1].v==0.8,'malformed document cannot overwrite')

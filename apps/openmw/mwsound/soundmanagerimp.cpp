@@ -94,6 +94,9 @@ namespace MWSound
                 case Type::Sfx:
                     volume *= Settings::sound().mSfxVolume;
                     break;
+                case Type::Instrument:
+                    volume *= Settings::sound().mInstrumentVolume;
+                    break;
                 case Type::Voice:
                     volume *= Settings::sound().mVoiceVolume;
                     break;
@@ -261,10 +264,10 @@ namespace MWSound
         auto stream = getStreamRef();
         SoundParams params;
         params.mPos = source.getRefData().getPosition().asVec3();
-        params.mBaseVolume = volumeFromType(Type::Sfx);
+        params.mBaseVolume = volumeFromType(Type::Instrument);
         params.mMinDistance = 100;
         params.mMaxDistance = 3000;
-        params.mFlags = PlayMode::NoScaling | Type::Sfx | Play_3D;
+        params.mFlags = PlayMode::NoScaling | Type::Instrument | Play_3D;
         stream->init(params);
         if (!mOutput->streamSound3D(std::make_shared<SynthDecoder>(synth), stream.get(), false))
             throw std::runtime_error("No audio source available for synthesizer");
@@ -1210,7 +1213,7 @@ namespace MWSound
         }
         for (const auto& synth : mSynthSounds)
         {
-            synth.stream->setBaseVolume(volumeFromType(Type::Sfx));
+            synth.stream->setBaseVolume(volumeFromType(Type::Instrument));
             mOutput->updateStream(synth.stream.get());
         }
         mOutput->finishUpdate();

@@ -1014,6 +1014,8 @@ namespace MWGui
 
     void SettingsWindow::onOpen()
     {
+        // Lua instrument monitoring can change a setting while this window is closed.
+        configureWidgets(mMainWidget, false);
         highlightCurrentResolution();
         updateControlsBox();
         updateLightSettings();

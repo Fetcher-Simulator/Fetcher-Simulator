@@ -19,8 +19,10 @@ package.loaded['openmw.types']={}
 package.loaded['openmw.vfs']={pathsWithPrefix=function() return function() end end}
 package.loaded[prefix..'client.midi']=dofile(root..'client/midi.lua')
 package.loaded[prefix..'client.performance']=dofile(root..'client/performance.lua')
-local ui={TYPE={Text='Text',TextEdit='TextEdit',Widget='Widget',Image='Image'},
-    texture=function() return {} end,content=function(t) return t end,screenSize=function() return vector(1024,768) end,
+local viewport=vector(1024,768)
+local mouseDown=false
+local ui={TYPE={Text='Text',TextEdit='TextEdit',Widget='Widget',Image='Image',Window='Window'},
+    texture=function() return {} end,content=function(t) return t end,screenSize=function() return viewport end,
     showMessage=function() end}
 function ui.create(layout)
     local element={layout=layout}
@@ -30,7 +32,7 @@ function ui.create(layout)
 end
 package.loaded['openmw.ui']=ui
 package.loaded['openmw.async']={callback=function(_,fn) return fn end}
-local input={KEY={Escape=1,F8=100},isMouseButtonPressed=function() return false end}
+local input={KEY={Escape=1,F8=100},isMouseButtonPressed=function() return mouseDown end}
 for i,name in ipairs({'Z','S','X','D','C','V','G','B','H','N','J','M','Comma'}) do input.KEY[name]=i+1 end
 package.loaded['openmw.input']=input
 package.loaded['openmw.interfaces']={UI={getMode=function() return mode end,
@@ -51,6 +53,12 @@ package.loaded['openmw.synth']={create=function(obj)
     function audio:keepAlive() self.alive=self.alive+1 end
     audios[#audios+1]=audio; return audio
 end}
+local preferences={}
+package.loaded['openmw.storage']={playerSection=function() return {get=function(_,k) return preferences[k] end,set=function(_,k,v) preferences[k]=v end} end}
+local monitor=1
+package.loaded['openmw.synth'].getMonitorVolume=function() return monitor end
+package.loaded['openmw.synth'].setMonitorVolume=function(value) monitor=value end
+package.loaded[prefix..'client.window']=dofile(root..'client/window.lua')
 package.loaded[prefix..'client.workstation']=dofile(root..'client/workstation.lua')
 local Studio=dofile(root..'client/studio.lua')
 local lastStudio
@@ -104,7 +112,42 @@ firstPianoKey.events.mousePress{button=1,offset=vector(10,56)}
 check(mouseVelocity==1,'piano press position controls velocity')
 e:frame(200)
 check(released and not e.mouseNote,'mouse release outside the piano stops its note')
+-- Native Window events and scaled hit testing exercise the actual editor tree.
+local originalVolume=e.params.volume
+local networkEvents=#sent
+local win=e.window
+win:drag{position=vector(70,80),size=vector(846,659.7)}
+mouseDown=true;e:frame(201)
+check(e.root.layout.props.position.x~=70,'native drag is not rebuilt while mouse capture is active')
+mouseDown=false;e:frame(202)
+check(e.root.layout.props.position.x==70 and math.abs(win.scale-0.9)<0.0001,'drag/resize commits bounded geometry on release')
+local cutoff
+for _,element in ipairs(e.children) do
+    if element.layout.content and element.layout.content[1] and element.layout.content[1].props.text:find('Low%-pass cutoff') then cutoff=element;break end
+end
+check(cutoff~=nil,'cutoff control remains attached after resize')
+local cutoffWidth=cutoff.layout.props.size.x
+cutoff.layout.content[2].events.mousePress{button=1,offset=vector(cutoffWidth,5)}
+check(e.params.cutoff==schema.specs.cutoff.max,'resized slider maps physical mouse position to the correct value')
+for _=1,5 do e:plots() end
+check(cutoff.layout.props.size.x==cutoffWidth,'repeated live updates never multiply GUI scale again')
+local bar=e.root.layout.template.content[2]
+bar.content[7].events.mousePress{button=1,offset=vector(55*win.scale,5)}
+e:frame(203)
+check(monitor==0.5 and e.params.volume==originalVolume and #sent==networkEvents,'monitor changes listener volume without synth/project or network edits')
+local x,y,ww,hh=win.x,win.y,win.width,win.height
+win:fullscreen();e:frame(204)
+check(e.root.layout.props.position.x==0 and e.root.layout.props.size.x==viewport.x and e.root.layout.props.size.y==viewport.y,'fullscreen fills the current viewport')
+win:fullscreen();e:frame(205)
+check(win.x==x and win.y==y and win.width==ww and win.height==hh,'restore returns to previous window geometry')
+win:zoom(0.1);e:frame(206)
+check(win.scale>0.9 and preferences.scale==win.preferred,'scale setting updates the visible editor and persistent preference')
+viewport=vector(800,600);e:frame(207)
+check(win.x+win.actualWidth<=800 and win.y+win.actualHeight<=600,'resolution changes keep window and controls on screen')
+local restored=package.loaded[prefix..'client.window'].new()
+check(restored.preferred==win.preferred,'window preferences survive hiding, reopening and page switches')
 e:destroy()
+viewport=vector(1024,768);preferences={};monitor=1
 -- Existing characters may resume without onInit. The first frame discovers MIDI.
 local function be(n,size) local b={};for i=size,1,-1 do b[i]=string.char(n%256);n=math.floor(n/256) end;return table.concat(b) end
 local track=string.char(0,144,60,100,96,128,60,0,0,255,47,0)
@@ -258,4 +301,7 @@ check(w.dirty,'late save acknowledgement cannot clear newer edits')
 api.saveProject();handler{version=1,op='dawSaved',id=7,epoch=7,saveRevision=sent[#sent].saveRevision}
 check(not w.dirty,'matching saved generation clears unsaved indicator')
 api.close();check(sent[#sent].op=='close' and not api.status()[1].transport and mode==nil,'Finish closes Studio and all sequenced voices')
+package.loaded['openmw.synth'].version=2
+local oldClient=dofile(root..'client/player.lua')
+check(oldClient.interface==nil and oldClient.eventHandlers.Synth_Activate~=nil,'older engines receive an upgrade message before loading the new window controls')
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, sequence, listener cleanup; %d assertions',checks))

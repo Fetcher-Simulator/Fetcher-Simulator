@@ -3,6 +3,7 @@ local util=require('openmw.util')
 local async=require('openmw.async')
 local input=require('openmw.input')
 local I=require('openmw.interfaces')
+local Window=require('scripts.multiplayer.fetcher.procedural-synth.client.window')
 local S={};S.__index=S
 local v=util.vector2
 local white=ui.texture{path='white'}
@@ -20,11 +21,11 @@ function S:button(text,x,y,w,fn,on)
     r.content=ui.content{label(text,6,5,w-10,12,on and c.bg or c.text)};r.events={mouseClick=cb(fn)};return r
 end
 function S:element(layout)
-    local e=ui.create(layout);self.children[#self.children+1]=e;return e
+    local e=self.window:create(layout);self.children[#self.children+1]=e;return e
 end
 function S:slider(x,y,width,value,fn)
     local r=rect(x,y,width,14,c.track);r.content=ui.content{rect(0,0,math.max(1,width*value),14,c.accent)}
-    local function set(e) fn(math.max(0,math.min(1,e.offset.x/width))) end
+    local function set(e) fn(math.max(0,math.min(1,e.offset.x/(width*self.window.scale)))) end
     r.events={mousePress=cb(set),mouseMove=cb(function(e) if e.button==1 then set(e) end end)};return r
 end
 function S:select(delta)
@@ -171,7 +172,7 @@ function S:render()
     content[#content+1]=self:button('+',463,70,26,function() if not w.playing then p.bpm=math.min(240,p.bpm+1);w:touch() end end)
     content[#content+1]=self:button('Swing',504,70,66,function() p.swing=(math.floor(p.swing*10+0.5)+1)%7/10;w:touch() end)
     content[#content+1]=label(string.format('%.0f%%',p.swing*100),578,76,45)
-    content[#content+1]=self:button(p.length/16 ..' bars',630,70,70,function() w:length(p.length%64+16) end)
+    content[#content+1]=self:button(p.length/16 ..' bars',630,70,70,function() w:length(p.length%256+16) end)
     content[#content+1]=self:button('Loop',712,70,61,function() p.loop=not p.loop;w:touch() end,p.loop)
     content[#content+1]=self:button('Save',784,70,54,function() w:save() end)
     content[#content+1]=self:button('Load',848,70,54,self.cb.load)
@@ -183,25 +184,24 @@ function S:render()
     content[#content+1]=self:button('MIDI >',726,112,65,function() self.cb.cycleMidi(1);w.revision=w.revision+1 end)
     content[#content+1]=self:button('Import',803,112,92,self.cb.import)
     if w.page=='piano' then self:piano(content) elseif w.page=='drums' then self:drums(content) else self:mixer(content) end
-    local screen=ui.screenSize();local root=rect(0,0,self.width,695,c.bg)
-    root.layer='Windows';root.props.position=v((screen.x-self.width)/2,math.max(4,(screen.y-695)/2));root.content=ui.content(content)
-    self.root=ui.create(root);self.revision=w.revision
+    self.root=self.window:root(content);self.revision=w.revision
 end
 function S.new(workstation,callbacks)
-    local self=setmetatable({kind='studio',w=workstation,cb=callbacks,children={},width=math.min(940,ui.screenSize().x-24),lastFrame=-1},S)
+    local self=setmetatable({kind='studio',w=workstation,cb=callbacks,window=Window.new(),children={},width=940,lastFrame=-1},S)
     self:render();I.UI.addMode('Interface',{windows={}});return self
 end
 function S:releaseAll() end
 function S:key(code,on) if on and code==input.KEY.Escape then self.cb.hide() end end
 function S:frame(now)
+    self.window:frame(self)
     if I.UI.getMode()~='Interface' then self.cb.hide();return end
     if self.revision~=self.w.revision then self:render() end
     if now-self.lastFrame<0.1 then return end;self.lastFrame=now
     self.transport.layout.props.text=string.format('%s  |  %.1fs  |  Beat %.1f  |  %s%s',self.w.playing and 'PLAY' or 'STOP',self.w.time,self.w.beat+1,self.w.project.name,self.w.dirty and ' *' or '')
-    self.transport:update()
-    for lane,meter in pairs(self.meters) do meter.layout.props.size=v(math.max(1,220*self.w.cb.meter(lane)),3);meter:update() end
+    self.window:update(self.transport)
+    for lane,meter in pairs(self.meters) do meter.layout.props.size=v(math.max(1,220*self.w.cb.meter(lane)),3);self.window:update(meter) end
     if self.playhead then
-        self.playhead.layout.props.position=v(self.grid.x+math.max(0,self.w.step%16)*self.grid.cw,self.grid.y);self.playhead:update()
+        self.playhead.layout.props.position=v(self.grid.x+math.max(0,self.w.step%16)*self.grid.cw,self.grid.y);self.window:update(self.playhead)
     end
 end
 function S:destroy()

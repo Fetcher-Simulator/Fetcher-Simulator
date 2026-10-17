@@ -29,6 +29,26 @@ Use `-MidiProbe` for the disposable two-client Greensleeves/arm-pose test. It im
 
 ## Studio workflow
 
+Both views share a local window toolbar. Drag **Drag to move**, resize with the
+bottom-right mint grip, and use **Scale - / +** to change text and control sizes
+(75-200%, bounded to fit the current viewport). **Fullscreen / Restore** toggles
+an in-game full-viewport view and restores the previous window geometry. Window
+position, size, scale and fullscreen preference are saved in local player Lua
+storage and survive view switches and reopening; they are not sent to the server.
+
+**Monitor Volume (local)** controls the same **Player Instruments** category as
+Options > Sound. It affects every procedural instrument you hear, including other
+players, independently of Effects and background Music. Game Master still applies.
+The Studio Master and track faders remain the shared project mix; monitoring does
+not modify presets, projects or other listeners. Native `openmw.synth` version 3
+provides `getMonitorVolume()` and `setMonitorVolume(0..1)`; setters validate finite
+values and apply to already-playing streams on the engine thread.
+
+The bar-count control cycles from 1 through 16 bars. It changes playback length
+without deleting later drum steps or piano notes. Each clip retains 256 steps;
+hidden bars survive Save/Load and return when the loop grows. Earlier 1-4-bar
+projects are padded on load while retaining their existing composition.
+
 Activate the keyboard and click **Studio**. The tabs switch between **Synth**,
 **Mixer**, **Piano** and **Drums**, using one window so only one view captures game
 input. F8 / Hide / Escape preserves playback and reopens the last view; Finish
@@ -50,7 +70,7 @@ releases the instrument and every channel. Cameras remain under normal game cont
 4. **Drums** adds Kick, Snare or Hat lanes. Click a lane's name to audition it;
    click steps to toggle them at the chosen velocity. Pitch buttons retune that
    lane. Mixer can assign any saved sound to it. Patterns have 16 steps per bar,
-   1–4 bars, swing and looping. **Play clips** runs drum and piano clips together.
+   1-16 bars, swing and looping. **Play clips** runs drum and piano clips together.
    **Play song** combines them with the MIDI; clips follow the MIDI's tempo map.
 5. **Save** in Studio stores the current named project in the authenticated
    character's `ProceduralSynth/project` SQLite storage key. **Load** replaces the
@@ -88,14 +108,14 @@ DSP is 48 kHz mono, converted to signed 16-bit PCM for OpenAL spatialization. Ea
 
 Only OpenAL's existing stream worker renders PCM. Controls use fixed-size command storage (256 commands) and a mutex which the audio reader only tries, never waits on. Overflow clears queued commands and requests voice release. Parameter snapshots and all voice/filter/oscillator storage are bounded. Interactive decoders use three 10 ms queued buffers and a 5 ms worker cadence while active. Ordinary streams retain their six 125 ms buffers and normal 50 ms cadence. No continuous PCM is sent over the network.
 
-SoundManager owns streams attached to world references. They use normal environmental processing, SFX/master volume, fixed musical pitch independent of simulation time, 100-unit reference distance and 3000-unit maximum distance. Cell unload, object deletion/disable, explicit close, ten seconds without native keepalive, sound clear and backend shutdown clean up streams. Lua also drops instances on cell change, invalid references, disconnect and missing server liveness.
+SoundManager owns streams attached to world references. They use normal environmental processing, Player Instruments/master volume, fixed musical pitch independent of simulation time, 100-unit reference distance and 3000-unit maximum distance. Cell unload, object deletion/disable, explicit close, ten seconds without native keepalive, sound clear and backend shutdown clean up streams. Lua also drops instances on cell change, invalid references, disconnect and missing server liveness.
 
 ## API
 
 Available to player scripts on a compatible binary:
 
 ```lua
-local synth = require('openmw.synth') -- version == 2, sampleRate == 48000, maxInstances == 32
+local synth = require('openmw.synth') -- version == 3, sampleRate == 48000, maxInstances == 32
 local instrument = synth.create(worldObject) -- spatial source; throws when unavailable
 instrument:set('wave1', 2)           -- false for unknown/out-of-range/nonfinite values
 instrument:noteOn(60, 0.8)           -- MIDI pitch 0..127, velocity 0..1
@@ -106,7 +126,7 @@ print(instrument.peak, instrument.voices, instrument.closed)
 instrument:close()                  -- idempotent; no further playback
 ```
 
-`synth.parameters[name]` exposes immutable `min`, `max`, `default`, `discrete` metadata. `peak` is generated PCM peak before spatial attenuation, not a microphone or final output meter. The package's optional `I.ProceduralSynth` interface exposes `status`, `noteOn`, `noteOff`, `setParameter`, `presetCommand` and `close` for other client scripts/input methods, subject to an owned editor session. Older clients without the native module show a compatibility message on activation instead of acquiring a lock.
+`synth.parameters[name]` exposes immutable `min`, `max`, `default`, `discrete` metadata. `peak` is generated PCM peak before spatial attenuation, not a microphone or final output meter. The package's optional `I.ProceduralSynth` interface exposes `status`, `noteOn`, `noteOff`, `setParameter`, `presetCommand` and `close` for other client scripts/input methods, subject to an owned editor session. Older clients without native module version 3 show a compatibility message on activation instead of acquiring a lock.
 
 Interface version 4 adds `studio()`, `workstation()`, `importMidi(path)`, `saveProject()` and `loadProject()`, plus per-channel meter/parameter summaries and transport time in `status()`. Version 3 added `hide()` and `show()` and the `status().editorVisible` field; `editing` continues to mean owning the session, including while hidden. `close()` retains its original meaning of stopping playback and releasing ownership. Interface version 2 added `midiSongs()`, `playMidi(catalogPath)` and `stopMidi()`. Native `openmw.animation.boneTransformsVersion == 1` adds `getBoneNames`, `getBoneTransform`, `setBoneTransform` and `clearBoneTransform`; see `files/lua_api/openmw/animation.lua` for coordinate spaces, threading, validation and expiry. Transform reads return the matrix and a rotation-only transform, with an option to exclude scripted offsets for IK. `openmw.mp.getPlayerObject(serverGuid)` resolves the authoritative performer to the correct local/remote model in `onFrame`. These visual APIs are independent of the synthesizer. Older clients with no bone extension can still use the audio/editor, with the pose omitted.
 

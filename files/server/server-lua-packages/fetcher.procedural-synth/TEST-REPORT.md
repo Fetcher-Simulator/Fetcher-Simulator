@@ -1,4 +1,4 @@
-# Local validation report — October 15–16, 2026 (America/Chicago)
+# Local validation report - October 15-17, 2026 (America/Chicago)
 
 The prototype builds and passes its automated checks. Two real compatible clients were exercised against a local dedicated server with only Morrowind.esm, Tribunal.esm and Bloodmoon.esm. No production host was contacted or modified.
 
@@ -302,3 +302,33 @@ per character, 16 total tracks, 128 clip notes per track / 512 total and at most
 playback with a message. No final-speaker listening assessment, large multi-DAW
 CPU profile or packet-loss/jitter measurement is claimed. Production was not
 contacted or modified.
+
+## Instrument monitoring, sixteen bars and window controls - October 17
+
+Native RelWithDebInfo client build: PASS. Server/schema tests: 12 tests / 89
+assertions. Workstation: 59 assertions. Real client/editor/Studio harness: 1,657
+assertions. Existing MIDI and arm geometry suites: 27 and 16 assertions. The
+regressions cover all sixteen loop lengths; hidden piano/drum bars surviving a
+short-loop save/load; legacy short-pattern migration; final-step playback in bar
+16; silence for hidden bars; scaled mouse hit testing; repeated dynamic updates;
+window bounds, fullscreen/restore and persisted preferences; and local monitoring
+without project or network edits.
+
+The actual two-client DAW probe imported and played the five Greensleeves parts,
+continued while hidden, then played drum/piano clips. It created notes and steps
+in bars 2 and 16, cycled every loop length, saved with one active bar, loaded from
+server SQLite and recovered the later bars. The retained bar-16 piano note was
+also inspected in the native piano roll. A private fixture database backup was
+taken before testing. The test project is restored from that backup afterward;
+personal preset blobs are compared without printing their contents.
+
+Native UI inspection verified scale changes, fullscreen/restore, dragging,
+resizing and geometry shared by Synth/Studio. This caught an existing engine
+LuaWindow bug: drag deltas were applied to a zero rectangle. Gestures now start
+at the current rectangle, and native dragging/resizing was retested successfully.
+Sound options displayed Player Instruments at 50% after the setting changed in
+Studio. Changing it there to approximately 76% updated the native getter and
+persisted in the isolated client's settings.cfg; Synth B remained at 100%.
+Invalid native monitor values (negative, above one, NaN and infinity) were rejected.
+Private logs are under the fixture's evidence/window-bars directory. Final-speaker
+loudness and perceptual mix quality were not measured.
