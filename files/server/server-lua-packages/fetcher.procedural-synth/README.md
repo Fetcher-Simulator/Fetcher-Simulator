@@ -1,6 +1,6 @@
-# Procedural synthesizer prototype
+# Procedural synthesizer and Studio
 
-This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game editor and personal presets. It does not require Bardcraft, a client ESP, prerecorded samples, a DAW, or a synthesis library.
+This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
 ## Local use
 
@@ -21,11 +21,58 @@ For the scripted live probe, add `-LiveProbe` to setup, then run the same launch
 
 The editor also has MIDI previous/next, **Play MIDI** and **Stop** controls. Setup copies the locally installed Bardcraft MIDI directory into an isolated data directory; it copies no Bardcraft ESP, scripts or samples. Override its source with `-BardcraftDataDirectory 'C:\path\to\Bardcraft'`. Other installations can supply their own `.mid`/`.midi` files under a configured data directory's `midi/` folder. Files are discovered on the first frame even when resuming a saved multiplayer character. Original mod/song files are preserved and are not redistributed by this repository.
 
-Format 0/1 MIDI with PPQ timing supports merged tracks, tempo changes, running status, velocity, sustain pedal and note cleanup. All melodic tracks use the selected synth sound; program changes, pitch bend and expression/volume controllers do not select or alter sounds. Channel 10 percussion is skipped. Imports are limited to 512 KiB, 64 tracks, 60,000 retained events and 30 minutes; parsing yields between bounded groups of operations. Playback stops on long frame stalls or excessive density instead of bursting stale notes into the server. Manual playing, preset loads, Stop, Finish, disconnect and session loss release playback. MIDI notes use the same validated note transport and 3D synth as live playing, rather than transferring audio or MIDI files to listeners.
+Format 0/1 MIDI with PPQ timing supports merged tracks, tempo changes, running status, velocity, sustain pedal and note cleanup. Imports retain SMF track names, channels, program metadata and tempo maps. Each (SMF track, MIDI channel) becomes an independently assignable part; channel-10 percussion is split further by pitch, with kick/snare/hat synth defaults. Program changes, pitch bend and expression/volume controllers do not alter the assigned sound. Imports exceeding 16 parts including existing clips are rejected explicitly. Imports are limited to 512 KiB, 64 tracks, 60,000 retained events and 30 minutes; parsing yields between bounded groups of operations. Playback stops on long frame stalls or excessive density instead of bursting stale notes into the server. Manual playing, preset loads, Stop, Finish, disconnect and session loss release playback. MIDI notes use the same validated note transport and 3D synth as live playing, rather than transferring audio or MIDI files to listeners.
 
 During a session both clients pose the authenticated performer's upper arms, forearms and hands toward the instrument. Two-link IK preserves arm lengths and clamps unreachable targets; live notes add small wrist/target pulses. This first pass does not animate keyboard keys or fingers. The default test asset combines a wider Yamaha keyboard and X-stand, with the keys approximately 89 units above its floor origin. Hand contact and posture still require visual tuning for different races and positions; unreachable targets cannot be reached by stretching the skeleton. The pose does not move or turn the actor. Finish or session cleanup restores normal animation, with a native half-second expiry as backup.
 
 Use `-MidiProbe` for the disposable two-client Greensleeves/arm-pose test. It implies `-LiveProbe`; setup without either flag restores interactive mode.
+
+## Studio workflow
+
+Activate the keyboard and click **Studio**. The tabs switch between **Synth**,
+**Mixer**, **Piano** and **Drums**, using one window so only one view captures game
+input. F8 / Hide / Escape preserves playback and reopens the last view; Finish
+releases the instrument and every channel. Cameras remain under normal game control.
+
+1. Choose a local MIDI using the arrows and click **Import**. This lists all parts
+   without starting playback. **Play song** starts the complete MIDI with its
+   original tempo map. The original Synth editor's Play MIDI uses the same routing.
+2. In **Mixer**, each row selects its own saved sound with the arrows. The catalog
+   includes personal character presets as soon as the server response arrives;
+   built-ins are available immediately. Faders, Mute, Solo and the Master fader
+   apply live. **Sound** opens that row's sound in the synth editor; its changes
+   affect that part. Save/Save As there adds to the existing personal preset library.
+3. **+ Piano clip** creates an editable, quantized clip. Piano displays one bar and
+   octave at a time. Click a grid cell to add a note; click anywhere on a note to
+   remove it. Set note length and velocity before insertion. The Piano tab also
+   displays imported MIDI parts with track/channel identity and original beat
+   positions; imported notes are currently a read-only view.
+4. **Drums** adds Kick, Snare or Hat lanes. Click a lane's name to audition it;
+   click steps to toggle them at the chosen velocity. Pitch buttons retune that
+   lane. Mixer can assign any saved sound to it. Patterns have 16 steps per bar,
+   1–4 bars, swing and looping. **Play clips** runs drum and piano clips together.
+   **Play song** combines them with the MIDI; clips follow the MIDI's tempo map.
+5. **Save** in Studio stores the current named project in the authenticated
+   character's `ProceduralSynth/project` SQLite storage key. **Load** replaces the
+   current working project with that saved document, without autoplay. This first
+   pass has one working project per character. Project and preset storage are
+   separate; existing presets are preserved. Saves include sound snapshots,
+   assignments, mix, notes, steps, tempo, swing and the MIDI VFS path. The original
+   MIDI must remain installed; its file/audio is not stored or sent to listeners.
+
+The document has a maximum of 16 total MIDI/piano/drum tracks, 128 clip notes per
+track and 512 clip notes overall. Imported full-length MIDI is retained separately
+in memory (up to the existing 60,000-event bound); it is not truncated to the clip
+length. Dense piano-roll views draw at most 512 visible notes. All tracks currently
+output at the placed keyboard. The document's separate `output` field and
+part-to-channel routing leave room for held-instrument destinations, but physical
+instrument selection, recording, arrangement/song export, automation, effects and
+pan controls are not implemented. Manual playing in the Synth view takes over
+from the transport; drum-pad audition can run alongside clips.
+
+Use **-DawProbe** with local setup for the disposable two-client parts/mixer,
+hidden playback, drum/piano and server-project round-trip test. It implies the
+probe package; setup without probe flags restores normal interaction.
 
 ## Files and architecture
 
@@ -34,10 +81,10 @@ Use `-MidiProbe` for the disposable two-client Greensleeves/arm-pose test. It im
 * `apps/openmw/mwsound/{sounddecoder.hpp,openaloutput.cpp,soundmanagerimp.*}` and `apps/openmw/mwbase/soundmanager.hpp`: interactive streaming and spatial source lifecycle.
 * `apps/openmw/mwlua/synthbindings.*`, `luabindings.cpp`: the player-context `openmw.synth` API.
 * `apps/openmw-server/scripts/procedural_synth{,_schema}.lua`: ownership, validation, relay, runtime activator and persistence.
-* This package's `client/{global,player,editor}.lua`: activation/event forwarding, local playback and editor; `shared/schema.lua` is checked against the server schema by tests.
+* This package's `client/{global,player,editor,studio,workstation,midi}.lua`: activation, native channel lifecycle, sound/Studio views, transport/clip editing and SMF import. `shared/schema.lua` and `shared/project.lua` are checked against their server copies by tests.
 * `scripts/procedural-synth-tests`, `scripts/test_procedural_synth*.lua`, `scripts/setup-procedural-synth-test.ps1` and `scripts/seed-procedural-synth-test.py`: unit tests, client harness and disposable local setup.
 
-DSP is 48 kHz mono, converted to signed 16-bit PCM for OpenAL spatialization. Each voice has two oscillators, amp ADSR, filter ADSR and a resonant low-pass state-variable filter. Sine, additive band-limited triangle, PolyBLEP saw and PolyBLEP square are supported. There is a shared sine LFO for pitch, filter or amplitude modulation. Continuous values and waveform mixtures are smoothed; output uses a soft limiter. Default polyphony is 16, configurable from 1 to 32, with oldest-voice stealing. There are at most eight simultaneous native instances.
+DSP is 48 kHz mono, converted to signed 16-bit PCM for OpenAL spatialization. Each voice has two oscillators, amp ADSR, filter ADSR and a resonant low-pass state-variable filter. Sine, additive band-limited triangle, PolyBLEP saw/square and deterministic white noise are supported. A per-voice exponential pitch envelope provides falling kick-drum pitch. Synth Kick, Noise Snare and Closed Hat are native synth presets. There is a shared sine LFO for pitch, filter or amplitude modulation. Continuous values and waveform mixtures are smoothed; output uses a soft limiter. Default polyphony is 16, configurable from 1 to 32, with oldest-voice stealing. There are at most 32 simultaneous native instances across the whole client. DAW tracks create streams lazily on their first note and use at most eight voices each; the manual synth retains its 1–32 voice control. Running out of sources stops the transport with a message.
 
 Only OpenAL's existing stream worker renders PCM. Controls use fixed-size command storage (256 commands) and a mutex which the audio reader only tries, never waits on. Overflow clears queued commands and requests voice release. Parameter snapshots and all voice/filter/oscillator storage are bounded. Interactive decoders use three 10 ms queued buffers and a 5 ms worker cadence while active. Ordinary streams retain their six 125 ms buffers and normal 50 ms cadence. No continuous PCM is sent over the network.
 
@@ -48,7 +95,7 @@ SoundManager owns streams attached to world references. They use normal environm
 Available to player scripts on a compatible binary:
 
 ```lua
-local synth = require('openmw.synth') -- version == 1, sampleRate == 48000
+local synth = require('openmw.synth') -- version == 2, sampleRate == 48000, maxInstances == 32
 local instrument = synth.create(worldObject) -- spatial source; throws when unavailable
 instrument:set('wave1', 2)           -- false for unknown/out-of-range/nonfinite values
 instrument:noteOn(60, 0.8)           -- MIDI pitch 0..127, velocity 0..1
@@ -61,11 +108,11 @@ instrument:close()                  -- idempotent; no further playback
 
 `synth.parameters[name]` exposes immutable `min`, `max`, `default`, `discrete` metadata. `peak` is generated PCM peak before spatial attenuation, not a microphone or final output meter. The package's optional `I.ProceduralSynth` interface exposes `status`, `noteOn`, `noteOff`, `setParameter`, `presetCommand` and `close` for other client scripts/input methods, subject to an owned editor session. Older clients without the native module show a compatibility message on activation instead of acquiring a lock.
 
-Interface version 3 adds `hide()` and `show()` and the `status().editorVisible` field; `editing` continues to mean owning the session, including while hidden. `close()` retains its original meaning of stopping playback and releasing ownership. Interface version 2 added `midiSongs()`, `playMidi(catalogPath)` and `stopMidi()`. Native `openmw.animation.boneTransformsVersion == 1` adds `getBoneNames`, `getBoneTransform`, `setBoneTransform` and `clearBoneTransform`; see `files/lua_api/openmw/animation.lua` for coordinate spaces, threading, validation and expiry. Transform reads return the matrix and a rotation-only transform, with an option to exclude scripted offsets for IK. `openmw.mp.getPlayerObject(serverGuid)` resolves the authoritative performer to the correct local/remote model in `onFrame`. These visual APIs are independent of the synthesizer. Older clients with no bone extension can still use the audio/editor, with the pose omitted.
+Interface version 4 adds `studio()`, `workstation()`, `importMidi(path)`, `saveProject()` and `loadProject()`, plus per-channel meter/parameter summaries and transport time in `status()`. Version 3 added `hide()` and `show()` and the `status().editorVisible` field; `editing` continues to mean owning the session, including while hidden. `close()` retains its original meaning of stopping playback and releasing ownership. Interface version 2 added `midiSongs()`, `playMidi(catalogPath)` and `stopMidi()`. Native `openmw.animation.boneTransformsVersion == 1` adds `getBoneNames`, `getBoneTransform`, `setBoneTransform` and `clearBoneTransform`; see `files/lua_api/openmw/animation.lua` for coordinate spaces, threading, validation and expiry. Transform reads return the matrix and a rotation-only transform, with an option to exclude scripted offsets for IK. `openmw.mp.getPlayerObject(serverGuid)` resolves the authoritative performer to the correct local/remote model in `onFrame`. These visual APIs are independent of the synthesizer. Older clients with no bone extension can still use the audio/editor, with the pose omitted.
 
-All 26 controls are editable: both oscillator waveforms/levels/tuning/fine tuning, oscillator-2 enable, amplitude ADSR, cutoff/resonance, filter-envelope amount/ADSR, LFO rate/depth/destination, volume, gain and voice limit. The dark editor includes numeric feedback, amplitude-envelope graph, theoretical oscillator preview, output peak/voice count, and mouse/PC musical input. Graph/meter updates are bounded and do not rebuild the entire editor each frame.
+All 28 controls are editable: both oscillator waveforms/levels/tuning/fine tuning, oscillator-2 enable, amplitude ADSR, cutoff/resonance, filter-envelope amount/ADSR, LFO rate/depth/destination, volume, gain, voice limit, pitch-envelope amount and pitch decay. The dark editor includes numeric feedback, amplitude-envelope graph, theoretical oscillator preview, output peak/voice count, and mouse/PC musical input. Graph/meter updates are bounded and do not rebuild the entire editor each frame.
 
-New, Save, Save As, Load, Rename, Delete and Reset are implemented. The arrow controls select a catalog entry; Load applies it. Built-ins are Soft Pad, Plucked String, Retro Lead, Bass and Flute-like. Built-ins are read-only; Save on a built-in creates a personal preset. Each character has up to 32 personal presets, stable monotonic `p:N` identifiers and 64-byte names. Existing data is isolated in the `ProceduralSynth/presets` character-storage namespace. Format version 1 fills absent fields with defaults and refuses unknown future versions without overwriting them.
+New, Save, Save As, Load, Rename, Delete and Reset are implemented. The arrow controls select a catalog entry; Load applies it. Built-ins are Soft Pad, Plucked String, Retro Lead, Bass, Flute-like, Synth Kick, Noise Snare and Closed Hat. Built-ins are read-only; Save on a built-in creates a personal preset. Each character has up to 32 personal presets, stable monotonic `p:N` identifiers and 64-byte names. Existing data is isolated in the `ProceduralSynth/presets` character-storage namespace. Format version 1 fills absent fields with defaults and refuses unknown future versions without overwriting them.
 
 ## Server and protocol
 
@@ -73,7 +120,7 @@ Install the three server Lua files through the existing release-files list and a
 
 Existing reliable custom Lua events carry `Synth_Request` client-to-server and `Synth_Message` server-to-client. A client global activation handler forwards only the synth activator to its player script. Acquisition resolves an actual server-placed mpNum and verifies its record, authoritative cell and distance (300 units). The existing server `Activate` intent hook also recognizes the synth. Sender pid/characterId are supplied by the native authenticated bridge; payloads cannot choose a different owner or storage character.
 
-Every owned session has a server epoch, input sequence, output sequence and preset revision. Requests are shallow and bounded; preset fields are whitelisted and finite. Notes have a 40/sec, burst-80 token bucket; full parameter updates are coalesced to 10 Hz by the client and limited to 12/sec, burst 16 by the server. Preset operations, acquisition, sync and heartbeat have separate budgets. Note-off/panic/close bypass the musical bucket; redundant note-offs/panic are discarded so they cannot become an unlimited relay. Queue/rate overflow uses release instead of leaving a partially accepted chord held. The controller plays locally and receives no duplicate note echo.
+Every owned session has a server epoch, input sequence, output sequence and preset revision. Requests and nested project documents are whitelisted and bounded; preset fields are whitelisted and finite. Notes have a 40/sec, burst-80 token bucket; full parameter updates are coalesced to 10 Hz by the client and limited to 12/sec, burst 16 by the server. Preset operations, acquisition, sync and heartbeat have separate budgets. Note-off/panic/close bypass the musical bucket; redundant note-offs/panic are discarded so they cannot become an unlimited relay. Queue/rate overflow uses release instead of leaving a partially accepted chord held. The controller plays locally and receives no duplicate note echo. Channel IDs 1–16 identify DAW timbres; channel 0 is the original manual synth. Note ownership is keyed by channel and pitch. Channel parameters/levels precede notes and are included in late-listener snapshots. The original global 40/sec, burst-80 note-on budget is shared across the whole project. Off/panic remain safety operations; stopped/deleted tracks release their sources.
 
 An 8-second lease renewed every 2 seconds, authoritative object/range checks, disconnect and cell-change handlers release ownership. Server liveness reaches listeners every two seconds; silent transport loss expires client audio. Clients in the same or loaded actor cells receive state. Newly relevant listeners get current parameters before future live notes and never receive a historical note-on replay. Notes are intentionally not reconstructed midway through a held chord for a late join.
 

@@ -33,6 +33,25 @@ int main()
 {
     try
     {
+        Synth drum;
+        check(drum.set("pitchAmount",36) && drum.set("pitchDecay",0.025f), "drum pitch envelope controls");
+        check(!drum.set("pitchDecay",0) && !drum.set("wave1",5), "new controls bounded");
+        drum.set("wave1",4); drum.set("sustain",0); drum.set("decay",0.035f); drum.noteOn(60,1);
+        check(energy(render(drum,2400))>0.00001,"native noise percussion renders");
+        render(drum,48000);check(energy(render(drum,4800))<0.000001,"percussion envelope decays");
+        Synth kick;
+        kick.set("pitchAmount",24);kick.set("pitchDecay",0.04f);kick.set("attack",0.002f);kick.set("sustain",1);
+        kick.set("cutoff",18000);kick.noteOn(36,1);
+        const auto first = render(kick,4800);
+        const auto later = render(kick,4800);
+        auto crossingsOf = [](const auto& samples) {
+            unsigned count=0;
+            for (std::size_t i=1;i<samples.size();++i)
+                if (samples[i-1]<=0 && samples[i]>0) ++count;
+            return count;
+        };
+        check(crossingsOf(first)>crossingsOf(later)+2 && crossingsOf(later)>=6 && crossingsOf(later)<=8,
+            "kick pitch envelope falls toward its fundamental");
         Synth s;
         check(energy(render(s, 4800)) == 0, "idle silence");
         check(!s.set("cutoff", std::numeric_limits<float>::quiet_NaN()), "NaN rejected");
@@ -56,7 +75,7 @@ int main()
         render(s, 48000);
         check(s.voices() == 0 && energy(render(s, 4800)) == 0, "release reaches silence");
         std::cout << "PASS validation, pitch, sustain, live filter, release\n";
-        for (int waveform = 0; waveform < 4; ++waveform)
+        for (int waveform = 0; waveform < 5; ++waveform)
         {
             Synth chord;
             chord.set("wave1", static_cast<float>(waveform));

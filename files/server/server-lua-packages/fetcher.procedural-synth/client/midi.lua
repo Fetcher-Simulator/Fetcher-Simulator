@@ -29,13 +29,17 @@ function M.parse(bytes, checkpoint)
     assert(format<=1 and tracks>=1 and tracks<=64 and (format~=0 or tracks==1),'Unsupported MIDI format/track count')
     assert(division>0 and division<32768,'SMPTE MIDI timing is not supported')
     take(headerLength-6)
-    local events,order={},0
+    local events,order,names,programs={},0,{},{}
+    local currentTrack=0
     local function event(tick,kind,channel,note,velocity)
         order=order+1;assert(order<=60000,'MIDI event limit exceeded')
-        events[#events+1]={tick=tick,kind=kind,channel=channel,note=note,velocity=velocity,order=order}
+        local part=tostring(currentTrack)..':'..tostring(channel)
+        if channel==9 and (kind=='on' or kind=='off') then part=part..':'..note end
+        events[#events+1]={tick=tick,kind=kind,channel=channel,note=note,velocity=velocity,order=order,track=currentTrack,part=part}
     end
     local lastTick=0
-    for _=1,tracks do
+    for track=1,tracks do
+        currentTrack=track
         limit=#bytes
         assert(take(4)=='MTrk','Expected MIDI track')
         local length=number(4)
@@ -56,12 +60,14 @@ function M.parse(bytes, checkpoint)
                 if kind~=12 and kind~=13 then b=number(1);assert(b<128,'Invalid MIDI data byte') end
                 if kind==8 then event(tick,'off',channel,a)
                 elseif kind==9 then event(tick,b==0 and 'off' or 'on',channel,a,b/127)
-                elseif kind==11 then event(tick,'control',channel,a,b) end
+                elseif kind==11 then event(tick,'control',channel,a,b)
+                elseif kind==12 then programs[tostring(track)..':'..channel]=a end
             elseif status==255 then
                 running=nil
                 local kind=number(1)
                 local n=vlq()
-                if kind==81 then
+                if kind==3 then names[track]=take(n):gsub('%c',' '):sub(1,40)
+                elseif kind==81 then
                     assert(n==3,'Invalid MIDI tempo')
                     local tempo=number(3);assert(tempo>0,'Invalid MIDI tempo')
                     event(tick,'tempo',nil,nil,tempo)
@@ -76,53 +82,86 @@ function M.parse(bytes, checkpoint)
     end
     table.sort(events,function(a,b) if a.tick==b.tick then return a.order<b.order end return a.tick<b.tick end)
     local tick,seconds,tempo=0,0,500000
+    local tempos={}
     local playable={}
     for _,e in ipairs(events) do
         step();seconds=seconds+(e.tick-tick)*tempo/(division*1000000);tick=e.tick
         assert(seconds<=1800,'MIDI exceeds 30 minutes')
-        if e.kind=='tempo' then tempo=e.velocity
+        if e.kind=='tempo' then tempo=e.velocity;tempos[#tempos+1]={beat=e.tick/division,time=seconds,tempo=tempo}
         else e.time=seconds;playable[#playable+1]=e end
     end
     seconds=seconds+(lastTick-tick)*tempo/(division*1000000)
     assert(seconds<=1800,'MIDI exceeds 30 minutes')
-    return {events=playable,duration=seconds,division=division,tracks=tracks}
+    return {events=playable,duration=seconds,division=division,tracks=tracks,names=names,programs=programs,tempos=tempos,beats=lastTick/division}
 end
 
--- Note identity is per channel/pitch; the mono-timbral synth has pitch identity.
--- Reference counts prevent a note-off on one track cutting another channel off.
-function M.player(song, callbacks, options)
+-- Each (SMF track, MIDI channel) is a part. Preserve track names even when
+-- several channels occur in one track, and never infer identity from pitch.
+function M.parts(song)
+    local list,byId={},{}
+    for _,e in ipairs(song.events) do
+        if e.kind=='on' and not byId[e.part] then
+            local p={id=e.part,track=e.track,channel=e.channel,program=song.programs[e.part],
+                name=(song.names[e.track] or ('Track '..e.track))..' / Ch '..(e.channel+1)..(e.channel==9 and (' / Drum '..e.note) or ''),note=e.channel==9 and e.note or nil}
+            list[#list+1]=p;byId[p.id]=p
+        end
+    end
+    return list
+end
+function M.noteSpans(song)
+    local spans,held={},{}
+    for _,e in ipairs(song.events) do
+        local key=e.part..'/'..tostring(e.note)
+        if e.kind=='on' then
+            local n={n=e.note,s=e.tick/song.division*4,l=1,v=e.velocity}
+            spans[e.part]=spans[e.part] or {};spans[e.part][#spans[e.part]+1]=n
+            held[key]=held[key] or {first=1,last=0};local q=held[key];q.last=q.last+1;q[q.last]=n
+        elseif e.kind=='off' and held[key] and held[key].first<=held[key].last then
+            local q=held[key];local n=q[q.first];q[q.first]=nil;q.first=q.first+1;n.l=math.max(0.1,e.tick/song.division*4-n.s)
+        end
+    end
+    return spans
+end
+function M.player(song,callbacks,options)
     options=options or {}
     local p={song=song,callbacks=callbacks,index=1,time=0,playing=true,held={},sounding={},pedal={},counts={}}
-    function p:release(channel,note)
-        local key=channel*128+note
+    local function identity(channel,note,part)
+        return (options.multitimbral and part or channel)..'/'..note
+    end
+    local function output(note,part) return options.multitimbral and (part..'/'..note) or note end
+    function p:release(channel,note,part)
+        local key=identity(channel,note,part)
         if not self.sounding[key] then return end
         self.sounding[key]=nil
-        self.counts[note]=self.counts[note]-1
-        if self.counts[note]==0 then callbacks.off(note) end
+        local out=output(note,part);self.counts[out]=self.counts[out]-1
+        if self.counts[out]==0 then callbacks.off(note,channel,part) end
     end
     function p:event(e)
-        local channel,note=e.channel,e.note
+        local channel,note,part=e.channel,e.note,e.part or tostring(e.channel)
         if channel==9 and options.percussion~=true then return end
-        local key=channel*128+note
+        local key=identity(channel,note,part)
         if e.kind=='on' then
             self.held[key]=(self.held[key] or 0)+1
             if not self.sounding[key] then
-                self.sounding[key]=true;self.counts[note]=(self.counts[note] or 0)+1
+                self.sounding[key]={channel=channel,note=note,part=part}
+                local out=output(note,part);self.counts[out]=(self.counts[out] or 0)+1
             end
-            callbacks.on(note,e.velocity)
+            callbacks.on(note,e.velocity,channel,part)
         elseif e.kind=='off' then
             local remaining=math.max(0,(self.held[key] or 0)-1)
             self.held[key]=remaining>0 and remaining or nil
-            if not self.held[key] and not self.pedal[channel] then self:release(channel,note) end
+            if not self.held[key] and not self.pedal[channel] then self:release(channel,note,part) end
         elseif e.kind=='control' then
-            if note==64 or note==121 then
+            if note==64 or note==121 or note==120 or note==123 then
                 self.pedal[channel]=note==64 and e.velocity>=64
-                if not self.pedal[channel] then
-                    for n=0,127 do if not self.held[channel*128+n] then self:release(channel,n) end end
+                local pending={}
+                for k,n in pairs(self.sounding) do
+                    if n.channel==channel then
+                        if note==120 or note==123 then self.held[k]=nil end
+                        if not self.pedal[channel] and not self.held[k] then pending[#pending+1]=n end
+                    end
                 end
-            elseif note==120 or note==123 then
-                for n=0,127 do self.held[channel*128+n]=nil;self:release(channel,n) end
-                self.pedal[channel]=nil
+                for _,n in ipairs(pending) do self:release(n.channel,n.note,n.part) end
             end
         end
     end

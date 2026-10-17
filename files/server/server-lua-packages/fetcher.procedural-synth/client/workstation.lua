@@ -1,0 +1,213 @@
+-- Transport, parts, clip editing and routing; no UI or engine dependencies.
+local prefix='scripts.multiplayer.fetcher.procedural-synth.'
+local schema=require(prefix..'shared.schema')
+local format=require(prefix..'shared.project')(schema)
+local MIDI=require(prefix..'client.midi')
+local W={};W.__index=W
+function W.new(cb)
+    return setmetatable({cb=cb,project=format.new(),catalog=schema.builtins,selected=1,page='mixer',bar=0,base=60,
+        noteLength=1,velocity=0.8,time=0,beat=0,step=-1,playing=false,pending={},counts={},preview={},wall=0,dirty=false,revision=0,generation=0},W)
+end
+function W:touch() self.dirty=true;self.revision=self.revision+1;self.generation=self.generation+1 end
+function W:audible(index)
+    local solo=false;for _,t in ipairs(self.project.tracks) do if t.solo then solo=true end end
+    local t=self.project.tracks[index];return t and not t.mute and (not solo or t.solo)
+end
+function W:configure(index)
+    local t=self.project.tracks[index]
+    if t then self.cb.configure(index,t.params,self:audible(index) and t.level*self.project.master or 0) end
+end
+function W:configureAll()
+    for n in ipairs(self.project.tracks) do self:configure(n) end
+    if self.cb.prune then self.cb.prune(#self.project.tracks) end
+end
+function W:setCatalog(entries) self.catalog=entries or {};self.revision=self.revision+1 end
+function W:preset(index,id)
+    local t=self.project.tracks[index];if not t then return false end
+    for _,p in ipairs(self.catalog) do
+        if p.id==id then
+            local params=schema.state(p.state);if not params then return false end
+            params.polyphony=math.min(8,params.polyphony)
+            t.params=params;t.presetId=id;self:configure(index);self:touch();return true
+        end
+    end
+    return false
+end
+function W:cyclePreset(index,delta)
+    local t=self.project.tracks[index];if not t or #self.catalog==0 then return end
+    local at=0;for n,p in ipairs(self.catalog) do if p.id==t.presetId then at=n end end
+    self:preset(index,self.catalog[(at-1+delta)%#self.catalog+1].id)
+end
+function W:presetName(t)
+    for _,p in ipairs(self.catalog) do if p.id==t.presetId then return p.name end end
+    return 'Custom sound'
+end
+function W:add(kind)
+    if #self.project.tracks>=format.maxTracks then self.cb.message('Track limit: 16.');return false end
+    self:stop()
+    local t=format.newTrack(kind,(kind=='drum' and 'Drum ' or 'Piano ')..(#self.project.tracks+1),self.project.length)
+    local n=#self.project.tracks+1;self.project.tracks[n]=t;self.selected=n
+    if kind=='drum' then t.note=36;self:preset(n,'b:kick') end
+    self:configure(n);self:touch();return true
+end
+function W:remove(index)
+    if not self.project.tracks[index] then return false end
+    self:stop();table.remove(self.project.tracks,index);self.selected=math.max(1,math.min(index,#self.project.tracks))
+    self:configureAll();self:touch();return true
+end
+function W:setTrack(index,name,value)
+    local t=self.project.tracks[index];if not t then return false end
+    if name=='mute' or name=='solo' then
+        if type(value)~='boolean' then return false end;t[name]=value;self:configureAll()
+    elseif name=='level' then
+        if type(value)~='number' or value~=value or value<0 or value>1 then return false end
+        t.level=value;self:configure(index)
+    elseif name=='note' then
+        if type(value)~='number' or value%1~=0 or value<0 or value>127 then return false end;t.note=value
+    else return false end
+    self:touch();return true
+end
+function W:length(length)
+    if length~=16 and length~=32 and length~=48 and length~=64 then return false end
+    self:stop()
+    for _,t in ipairs(self.project.tracks) do
+        t.steps=(t.steps..string.rep('0',64)):sub(1,length)
+        local notes={};for _,n in ipairs(t.notes) do if n.s<length then n.l=math.min(n.l,length);notes[#notes+1]=n end end;t.notes=notes
+    end
+    self.project.length=length;self.bar=math.min(self.bar,length/16-1);self:touch();return true
+end
+function W:toggleStep(index,step)
+    local t=self.project.tracks[index]
+    if not t or t.kind~='drum' or step<0 or step>=self.project.length then return false end
+    local digit=t.steps:sub(step+1,step+1)=='0' and tostring(math.max(1,math.floor(self.velocity*9+0.5))) or '0'
+    t.steps=t.steps:sub(1,step)..digit..t.steps:sub(step+2);self:touch();return true
+end
+function W:toggleNote(index,note,step)
+    local t=self.project.tracks[index]
+    if not t or t.kind~='piano' or note<0 or note>127 or step<0 or step>=self.project.length then return false end
+    for at,n in ipairs(t.notes) do if n.n==note and n.s<=step and n.s+n.l>step then table.remove(t.notes,at);self:touch();return true end end
+    local count=0;for _,track in ipairs(self.project.tracks) do count=count+#track.notes end
+    if #t.notes>=128 or count>=format.maxNotes then self.cb.message('Project note limit reached.');return false end
+    t.notes[#t.notes+1]={n=note,s=step,l=math.min(self.noteLength,self.project.length),v=self.velocity}
+    self:touch();return true
+end
+function W:import(song,path)
+    local parts=MIDI.parts(song);local extra,old={},{}
+    for _,t in ipairs(self.project.tracks) do
+        if t.kind~='midi' then extra[#extra+1]=t elseif self.project.midi==path then old[t.part]=t end
+    end
+    if #parts+#extra>format.maxTracks then self.cb.message('MIDI has '..#parts..' parts; at most 16 tracks fit. Remove clips or choose a smaller MIDI.');return false end
+    self:stop();local tracks={}
+    for _,p in ipairs(parts) do
+        local t=old[p.id] or format.newTrack('midi',p.name:sub(1,48),self.project.length)
+        if not old[p.id] then t.params=schema.state(self.cb.currentParams());t.params.polyphony=math.min(8,t.params.polyphony) end
+        if not old[p.id] and p.channel==9 then
+            local preset=(p.note==35 or p.note==36) and 'b:kick' or ((p.note==42 or p.note==44 or p.note==46) and 'b:hat' or 'b:snare')
+            for _,sound in ipairs(schema.builtins) do if sound.id==preset then t.params=schema.state(sound.state);t.presetId=preset end end
+        end
+        t.part=p.id;tracks[#tracks+1]=t
+    end
+    for _,t in ipairs(extra) do tracks[#tracks+1]=t end
+    self.song=song;self:cacheSpans();self.project.midi=path;self.project.tracks=tracks;self.selected=1
+    if song.tempos and song.tempos[1] and song.tempos[1].beat==0 then self.project.bpm=math.max(40,math.min(240,60000000/song.tempos[1].tempo)) end
+    self:configureAll();self:touch();return true
+end
+function W:cacheSpans() self.spans=self.song and MIDI.noteSpans(self.song) or {} end
+function W:load(project)
+    local valid=format.project(project);if not valid then return false end
+    self:stop();if self.project.midi~=valid.midi then self.song=nil end
+    self.project=valid;self:cacheSpans();self.selected=1;self.bar=0;self.dirty=false;self.revision=self.revision+1;self.generation=self.generation+1;self:configureAll()
+    if valid.midi~='' and not self.song then self.cb.importMidi(valid.midi) end
+    return true
+end
+function W:save()
+    local p=format.project(self.project)
+    if not p then self.cb.message('Project contains unsupported data; save cancelled.');return false end
+    self.cb.save(p,self.generation);return true
+end
+function W:audition(index)
+    local t=self.project.tracks[index];if not t or t.kind=='midi' then return false end
+    local key=index*128+t.note;self.counts[key]=(self.counts[key] or 0)+1
+    if self.cb.on(index,t.note,self.velocity)==false then return false end
+    self.preview[#self.preview+1]={lane=index,note=t.note,finish=self.wall+t.gate}
+    return true
+end
+function W:stop()
+    local midi=self.midi;self.midi=nil
+    local active=self.playing or #self.preview>0;self.playing=false;self.pending={};self.preview={};self.counts={}
+    if midi and midi.playing then midi:stop() elseif active then self.cb.panic() end
+end
+function W:play(mode)
+    self:stop()
+    if mode=='song' and not self.song then self.cb.message('Import a MIDI file first.');return false end
+    self:configureAll();self.time=0;self.beat=0;self.step=-1;self.pending={};self.counts={};self.playing=true;self.mode=mode
+    if mode=='song' then
+        local routes={};for n,t in ipairs(self.project.tracks) do if t.kind=='midi' then routes[t.part]=n end end
+        self.midi=MIDI.player(self.song,{
+            on=function(note,velocity,_,part) local lane=routes[part];if lane then self.cb.on(lane,note,velocity) end end,
+            off=function(note,_,part) local lane=routes[part];if lane then self.cb.off(lane,note) end end,
+            panic=function() self.cb.panic() end,
+            finished=function(reason) self.playing=false;self.pending={};self.preview={};self.counts={};if reason then self.cb.message(reason) end end,
+        },{multitimbral=true,percussion=true})
+    end
+    return true
+end
+function W:beatAt(time)
+    if self.mode~='song' then return time*self.project.bpm/60 end
+    local beat,seconds,tempo=0,0,500000
+    for _,t in ipairs(self.song.tempos or {}) do if t.time>time then break end;beat,seconds,tempo=t.beat,t.time,t.tempo end
+    return beat+(time-seconds)*1000000/tempo
+end
+function W:frame(dt)
+    if type(dt)~='number' or dt~=dt or dt<0 or dt>0.25 then
+        if self.playing or #self.preview>0 then self:stop();self.cb.message('Transport stopped after a frame stall.') end
+        return
+    end
+    self.wall=self.wall+dt
+    local preview={}
+    for _,n in ipairs(self.preview) do
+        if n.finish<=self.wall then
+            local key=n.lane*128+n.note;self.counts[key]=self.counts[key]-1
+            if self.counts[key]==0 then self.cb.off(n.lane,n.note) end
+        else preview[#preview+1]=n end
+    end
+    self.preview=preview
+    if not self.playing then return end
+    self.time=self.time+dt
+    if self.mode=='song' then self.beat=self:beatAt(self.time) else self.beat=self.beat+dt*self.project.bpm/60 end
+    if self.midi then self.midi:update(dt);if not self.playing then return end end
+    local pending={}
+    for _,n in ipairs(self.pending) do if n.finish<=self.beat then
+            local key=n.lane*128+n.note;self.counts[key]=self.counts[key]-1
+            if self.counts[key]==0 then self.cb.off(n.lane,n.note) end
+        else pending[#pending+1]=n end end
+    self.pending=pending
+    local dispatched=0
+    while true do
+        local nextStep=self.step+1
+        local beat=nextStep/4+(nextStep%2==1 and self.project.swing/4 or 0)
+        if beat>self.beat then break end
+        if not self.project.loop and nextStep>=self.project.length then
+            if self.mode=='song' then self.step=math.floor(self.beat*4);break end
+            self:stop();return
+        end
+        self.step=nextStep;local step=nextStep%self.project.length
+        for lane,t in ipairs(self.project.tracks) do
+            local function trigger(note,velocity,length)
+                dispatched=dispatched+1
+                if dispatched>128 then self:stop();return end
+                local key=lane*128+note;self.counts[key]=(self.counts[key] or 0)+1
+                if self.cb.on(lane,note,velocity)==false then self:stop();return end
+                self.pending[#self.pending+1]={lane=lane,note=note,finish=beat+length}
+            end
+            if t.kind=='drum' then
+                local velocity=tonumber(t.steps:sub(step+1,step+1)) or 0
+                if velocity>0 then trigger(t.note,velocity/9,t.gate*self.project.bpm/60) end
+            elseif t.kind=='piano' then
+                for _,n in ipairs(t.notes) do if n.s==step then trigger(n.n,n.v,n.l/4) end end
+            end
+            if not self.playing then return end
+        end
+    end
+end
+return W

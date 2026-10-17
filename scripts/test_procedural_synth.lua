@@ -22,8 +22,8 @@ local function reset(preserve)
         getPlayers=function() local t={}; for _,p in pairs(players) do t[#t+1]=p end; return t end,
         getObjectByMpNum=function(id) return objects[id] end,
         send=function(guid,event,data) sent[#sent+1]={guid=guid,event=event,data=copy(data)} end,
-        getCharacterStorageForCharacter=function(id,namespace,key) check(namespace=='ProceduralSynth'); return copy(storage[id]) end,
-        setCharacterStorageForCharacter=function(id,namespace,key,data) storage[id]=copy(data); return true end,
+        getCharacterStorageForCharacter=function(id,namespace,key) check(namespace=='ProceduralSynth'); return copy(storage[key=='project' and ('project:'..id) or id]) end,
+        setCharacterStorageForCharacter=function(id,namespace,key,data) storage[key=='project' and ('project:'..id) or id]=copy(data); return true end,
         upsertDynamicRecord=function() return true end,placeObject=function() return true end,log=function() end,
     }
     module=dofile('apps/openmw-server/scripts/procedural_synth.lua')
@@ -44,7 +44,7 @@ test('schema defaults, validation, bounded payload and migration',function()
     check(schema.state({version=2})==nil); check(schema.state({gain=0/0})==nil)
     check(schema.state({cutoff=math.huge})==nil); check(schema.state({wave1=0.5})==nil)
     check(schema.state({unknown=1})==nil); check(schema.state({attack={}})==nil)
-    check(#schema.builtins==5)
+    check(#schema.builtins==8)
     for _,p in ipairs(schema.builtins) do check(schema.state(p.state)~=nil) end
     local f=assert(io.open('files/server/server-lua-packages/fetcher.procedural-synth/shared/schema.lua','rb'))
     local client=f:read('*a'); f:close()
@@ -139,5 +139,45 @@ test('performer identity is derived from the authenticated owner',function()
     sent={};request('on',{note=60,velocity=0.8,owner=3})
     check(#sent>0)
     for _,event in ipairs(sent) do check(event.data.owner==1,'payload spoofed performer GUID') end
+end)
+test('DAW channels isolate shared pitches and late listener state',function()
+    acquire();sent={}
+    request('channel',{channel=1,params={wave1=2},level=0.7})
+    request('channel',{channel=2,params={wave1=0},level=0.4})
+    check(sent[#sent].data.channel==2 and sent[#sent].data.params.wave1==0)
+    request('on',{channel=1,note=60,velocity=1});request('on',{channel=2,note=60,velocity=1})
+    request('off',{channel=1,note=60});check(sent[#sent].data.channel==1 and sent[#sent].data.op=='off')
+    request('off',{channel=2,note=60});check(sent[#sent].data.channel==2 and sent[#sent].data.op=='off')
+    local count=#sent
+    request('on',{channel=17,note=60,velocity=1});request('on',{channel=3,note=60,velocity=1})
+    request('channel',{channel=3,params={},level=0/0});request('channel',{channel=3,params={},level=2})
+    check(#sent==count,'invalid and unconfigured lanes rejected')
+    request('channel',{channel=3,params={polyphony=32},level=1})
+    check(sent[#sent].data.params.polyphony==8,'DAW polyphony bounded independently of manual synth')
+    players[3].cell='INT:A';request('on',{channel=2,note=61,velocity=1})
+    local snapshot
+    for _,e in ipairs(sent) do if e.guid==3 and e.data.op=='state' then snapshot=e.data end end
+    check(snapshot and snapshot.channels[1].params.wave1==2 and snapshot.channels[2].level==0.4,'late listener receives all timbres before note')
+    request('channelRemove',{channel=2});check(sent[#sent].data.op=='channelRemove','removed channel is broadcast')
+    local count=#sent;request('on',{channel=2,note=60,velocity=1});check(#sent==count,'removed channel cannot start another voice')
+end)
+test('DAW project saves per character and preserves presets and future documents',function()
+    local f=require('procedural_synth_project')(schema)
+    local project=f.new();project.name='My session';project.tracks[1]=f.newTrack('piano','Lead',16)
+    project.tracks[1].notes={{n=64,s=0,l=4,v=0.8}}
+    acquire();request('saveAs',{name='Personal tone',params={wave1=2}})
+    request('dawSave',{project=project})
+    check(storage['project:11'].name=='My session' and storage[11].entries[1].name=='Personal tone','project and presets use different keys')
+    local persisted=copy(storage);reset(persisted);sequence=0;acquire();request('dawLoad')
+    check(sent[#sent].data.op=='dawProject' and sent[#sent].data.project.tracks[1].notes[1].n==64,'project survives server reload')
+    now=now+3;request('dawLoad',{pid=2,characterId=22});check(storage['project:22']==nil,'another player cannot use owner session')
+    project.tracks[1].notes[1].v=math.huge;request('dawSave',{project=project})
+    check(storage['project:11'].tracks[1].notes[1].v==0.8,'malformed document cannot overwrite')
+    storage['project:11']={version=99};now=now+3;request('dawLoad')
+    check(sent[#sent].data.op=='error' and storage['project:11'].version==99,'future project preserved')
+    now=now+3;project.tracks[1].notes[1].v=0.8;request('dawSave',{project=project});check(storage['project:11'].version==99,'save cannot overwrite an unsupported future project')
+    local a=assert(io.open('files/server/server-lua-packages/fetcher.procedural-synth/shared/project.lua','rb'))
+    local b=assert(io.open('apps/openmw-server/scripts/procedural_synth_project.lua','rb'))
+    check(a:read('*a')==b:read('*a'),'project schema parity');a:close();b:close()
 end)
 print(string.format('%d tests, %d assertions passed',tests,checks))

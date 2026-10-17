@@ -58,7 +58,8 @@ function M.new(actor)
         if not root then return end
         local toModel=root:inverse()
         local signature,low,high={}, {}, {}
-        for note in pairs(notes) do
+        for identity in pairs(notes) do
+            local note=identity%128
             signature[#signature+1]=note
             local group=note<60 and low or high;group[#group+1]=note
         end

@@ -45,6 +45,24 @@ local big={}
 for _=1,500 do big[#big+1]=bytes(0,144,60,100,1,128,60,0) end
 local parsed=midi.parse(smf{table.concat(big)},function() checkpoints=checkpoints+1 end)
 check(checkpoints>=6 and #parsed.events==1000,'bounded import checkpoints')
+-- Multitimbral mode keeps equal pitches on separate SMF parts independent.
+local namedA=bytes(0,255,3,4)..'Bass'..bytes(0,192,33,0,144,60,100,24,128,60,0,0,255,47,0)
+local namedB=bytes(0,255,3,4)..'Lead'..bytes(0,144,60,80,48,128,60,0,0,255,47,0)
+local multi=midi.parse(smf{namedA,namedB});local parts=midi.parts(multi)
+check(#parts==2 and parts[1].name=='Bass / Ch 1' and parts[1].program==33,'track names, channel and program metadata retained')
+calls={}
+p=midi.player(multi,{on=function(n,v,ch,part) calls[#calls+1]={'on',n,part} end,
+    off=function(n,ch,part) calls[#calls+1]={'off',n,part} end,panic=function() end},{multitimbral=true,percussion=true})
+p:update(0.125)
+check(#calls==3 and calls[3][1]=='off' and calls[3][3]=='1:0','first part note-off stays on its own route')
+p:update(0.125);check(calls[4][3]=='2:0','second part sustains until its own note-off')
+local spans=midi.noteSpans(multi)
+check(spans['1:0'][1].s==0 and spans['1:0'][1].l==1 and spans['2:0'][1].l==2,'piano roll retains beat positions and duration')
+local drumSong=midi.parse(smf{bytes(0,153,36,100,0,153,42,90,24,137,36,0,24,137,42,0,0,255,47,0)})
+local drumParts=midi.parts(drumSong)
+check(#drumParts==2 and drumParts[1].note==36 and drumParts[2].note==42,'percussion pitches split into independently assignable lanes')
+calls={};p=midi.player(drumSong,{on=function(n,v,c,part) calls[#calls+1]=part end,off=function() end,panic=function() end},{multitimbral=true,percussion=true})
+p:update(0);check(calls[1]=='1:9:36' and calls[2]=='1:9:42','drum lane identity survives scheduling')
 -- Parse the user's installed Bardcraft repertoire without redistributing it.
 if arg[1] then
     local f=assert(io.open(arg[1],'rb'));local data=f:read('*a');f:close()

@@ -16,7 +16,8 @@ namespace MWLua
                 "keepAlive", &Synth::keepAlive, "closed", sol::property(&Synth::closed), "peak",
                 sol::property(&Synth::peak), "voices", sol::property(&Synth::voices));
             sol::table api(lua, sol::create);
-            api["version"] = 1;
+            api["version"] = 2;
+            api["maxInstances"] = 32;
             api["sampleRate"] = Synth::SampleRate;
             api["create"] = [](const sol::object& object) {
                 auto ptr = ObjectVariant(object).ptr();

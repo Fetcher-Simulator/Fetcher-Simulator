@@ -5,11 +5,13 @@ local schema=dofile(root..'shared/schema.lua')
 local now,connected,sent,audios,mode=100,true,{},{},nil
 local checks=0
 local function check(value,message) checks=checks+1; assert(value,message) end
+local function sounding(note) for _,audio in ipairs(audios) do if not audio.closed and audio.notes[note] then return true end end;return false end
 local function vector(x,y) return {x=x,y=y} end
 local source={recordId='fetcher_procedural_synth_v1',valid=true}
 function source:isValid() return self.valid end
 local self={cell={id='ToddTest'}}
 package.loaded[prefix..'shared.schema']=schema
+package.loaded[prefix..'shared.project']=dofile(root..'shared/project.lua')
 package.loaded['openmw.util']={vector2=vector,color={rgb=function(...) return {...} end}}
 package.loaded['openmw.util'].vector3=function(x,y,z) return {x=x,y=y,z=z} end
 package.loaded['openmw.animation']={}
@@ -49,6 +51,12 @@ package.loaded['openmw.synth']={create=function(obj)
     function audio:keepAlive() self.alive=self.alive+1 end
     audios[#audios+1]=audio; return audio
 end}
+package.loaded[prefix..'client.workstation']=dofile(root..'client/workstation.lua')
+local Studio=dofile(root..'client/studio.lua')
+local lastStudio
+local newStudio=Studio.new
+Studio.new=function(...) lastStudio=newStudio(...);return lastStudio end
+package.loaded[prefix..'client.studio']=Studio
 local Editor=dofile(root..'client/editor.lua')
 package.loaded[prefix..'client.editor']=Editor
 local lastEditor
@@ -85,12 +93,12 @@ handler{version=1,op='state',id=7,epoch=3,seq=1,params=schema.state({})}
 now=110;player.engineHandlers.onFrame()
 check(audios[3].closed,'missing server liveness expires audio')
 connected=false;player.engineHandlers.onFrame()
--- All 26 parameters have actual editable controls.
+-- All 28 parameters have actual editable controls.
 local mouseVelocity,released
 local e=Editor.new(schema.state({}),{noteOff=function() released=true end,noteOn=function(_,velocity) mouseVelocity=velocity end,change=function() end,
     command=function() end,close=function() end,meter=function() return 0,0 end})
 local controls=0; for name in pairs(e.controls) do controls=controls+1;check(schema.specs[name]~=nil) end
-check(controls==26,'all parameters editable')
+check(controls==28,'all parameters editable')
 local firstPianoKey=e.root.layout.content[#e.root.layout.content-12]
 firstPianoKey.events.mousePress{button=1,offset=vector(10,56)}
 check(mouseVelocity==1,'piano press position controls velocity')
@@ -121,7 +129,7 @@ check(sent[#sent].op=='on' and sent[#sent].note==60,'MIDI shares live-note trans
 handler{version=1,op='preset',id=7,epoch=4,seq=2,params=schema.state({}),presetId='b:pad'}
 check(not api.status()[1].midi and audios[#audios].voices==0,'preset load stops MIDI')
 check(api.playMidi(virtualPath));player.engineHandlers.onFrame(0.01);api.noteOn(64)
-check(not api.status()[1].midi and audios[#audios].notes[64],'manual key takes over playback')
+check(not api.status()[1].midi and sounding(64),'manual key takes over playback')
 check(api.playMidi(virtualPath));player.engineHandlers.onFrame(0.01);api.close()
 check(not api.status()[1].midi and audios[#audios].voices==0,'editor close stops MIDI')
 -- Hiding keeps the owned session alive, independently of UI and MIDI parsing.
@@ -194,4 +202,60 @@ handler{version=1,op='granted',id=7,epoch=6,seq=1,params=schema.state({})}
 api.hide();api.playMidi(virtualPath);player.engineHandlers.onFrame(0.01)
 connected=false;player.engineHandlers.onFrame(0)
 check(#api.status()==0 and audios[#audios].closed and not api.show(),'hidden disconnect releases audio and ownership')
+-- Exercise the actual Studio window and navigation through real callbacks.
+connected=true;now=400
+handler{version=1,op='granted',id=7,epoch=7,seq=1,params=schema.state({})}
+handler{version=1,op='catalog',entries=schema.builtins}
+api.studio();local w=api.workstation()
+check(lastStudio and lastStudio.kind=='studio' and mode=='Interface','studio opens from synth without releasing session')
+local function button(text)
+    for _,element in ipairs(lastStudio.root.layout.content) do
+        if element.content and element.content[1] and element.content[1].props.text==text then return element end
+    end
+    error('Missing button '..text)
+end
+button('+ Piano clip').events.mouseClick();now=400.01;player.engineHandlers.onFrame(0.01)
+check(w.page=='piano' and #w.project.tracks==1,'piano clip button switches to editable piano roll')
+local inserted=false
+for _,element in ipairs(lastStudio.root.layout.content) do
+    if element.props and element.props.position and element.props.position.x==76 and element.props.position.y==219 and element.events then
+        element.events.mouseClick();inserted=true;break
+    end
+end
+check(inserted and #w.project.tracks[1].notes==1,'piano grid click creates an actual note')
+now=400.02;player.engineHandlers.onFrame(0.01)
+button('Drums').events.mouseClick();now=400.03;player.engineHandlers.onFrame(0.01)
+button('+ Snare').events.mouseClick();now=400.04;player.engineHandlers.onFrame(0.01)
+check(w.project.tracks[2].presetId=='b:snare' and w.project.tracks[2].params.wave1==4,'drum button uses native noise sound')
+local toggled=false
+for _,element in ipairs(lastStudio.root.layout.content) do
+    if element.props and element.props.position and element.props.position.x==304 and element.props.position.y==225 and element.events then
+        element.events.mouseClick();toggled=true;break
+    end
+end
+check(toggled and w.project.tracks[2].steps:sub(1,1)~='0','drum grid changes pattern data')
+now=400.05;player.engineHandlers.onFrame(0.01)
+button('Play clips').events.mouseClick();now=400.06;player.engineHandlers.onFrame(0.01)
+check(api.status()[1].transport and sent[#sent].op=='on' and sent[#sent].channel==2,'studio transport plays both native tracks through channel relay')
+player.engineHandlers.onKeyPress{code=input.KEY.F8};now=400.16;player.engineHandlers.onFrame(0.001)
+check(api.status()[1].transportTime>=0.109,'transport uses real elapsed time instead of filtered engine frame duration')
+check(mode==nil and api.status()[1].transport,'hidden studio retains transport')
+player.engineHandlers.onKeyPress{code=input.KEY.F8}
+check(mode=='Interface' and w.page=='drums' and api.status()[1].transport,'F8 restores the same studio page')
+now=400.17;player.engineHandlers.onFrame(0.01)
+button('Mixer').events.mouseClick();now=400.18;player.engineHandlers.onFrame(0.01)
+button('Sound').events.mouseClick()
+check(lastEditor.params==w.project.tracks[1].params,'mixer Sound opens the selected track synth')
+api.setParameter('cutoff',2222);now=400.3;player.engineHandlers.onFrame(0.12)
+check(w.project.tracks[1].params.cutoff==2222 and sent[#sent].op=='channel' and sent[#sent].channel==1,'sound edits update one track instead of main/manual sound')
+api.studio();now=400.31;player.engineHandlers.onFrame(0.01)
+button('Save').events.mouseClick()
+check(sent[#sent].op=='dawSave' and sent[#sent].project.tracks[2].presetId=='b:snare','Save sends complete project to character storage')
+local saveRevision=sent[#sent].saveRevision
+w:setTrack(1,'level',0.1)
+handler{version=1,op='dawSaved',id=7,epoch=7,saveRevision=saveRevision}
+check(w.dirty,'late save acknowledgement cannot clear newer edits')
+api.saveProject();handler{version=1,op='dawSaved',id=7,epoch=7,saveRevision=sent[#sent].saveRevision}
+check(not w.dirty,'matching saved generation clears unsaved indicator')
+api.close();check(sent[#sent].op=='close' and not api.status()[1].transport and mode==nil,'Finish closes Studio and all sequenced voices')
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, sequence, listener cleanup; %d assertions',checks))

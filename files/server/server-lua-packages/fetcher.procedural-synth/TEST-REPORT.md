@@ -226,3 +226,79 @@ stopped. Logs are retained privately in the fixture's `evidence/camera-toggle`.
 The fixture was then reinstalled without either probe and restarted for normal
 interactive testing. No production configuration or original local database was
 modified.
+
+## Studio / multitimbral MIDI / drum and piano clips - October 17
+
+The engine was rebuilt successfully with `openmw.synth.version == 2`: native
+white-noise oscillators, an exponential per-voice pitch envelope and a 32-stream
+client-wide limit. DSP CTest passes 1/1, including all five waveforms, finite
+noise percussion, decay to silence and a measured downward kick pitch sweep.
+The bone-pose regression remains 1/1 PASS. No server binary change was required;
+the fixture uses the updated server Lua files and shared document validator.
+
+The package is version 3, with `I.ProceduralSynth` interface version 4. SMF import
+preserves names, track/channel identities, programs and original tempo maps.
+Channel-10 drum pitches become separate lanes. Each of up to 16 tracks selects
+its own personal/built-in preset snapshot; native streams are lazy and have at
+most eight voices per DAW track. Mixer level/mute/solo/master changes are relayed
+with channel configuration. Note identity includes channel and pitch; late
+listeners receive all timbres before future notes. Deleting tracks releases their
+streams. The original per-owner 40/sec, burst-80 note budget still applies to the
+whole project, with release/stop cleanup on rejection.
+
+Studio provides Synth/Mixer/Piano/Drums navigation, independent sound editing,
+editable sixteenth-note piano clips, velocity steps, native kick/snare/hat presets,
+pad audition, 1-4-bar patterns, swing and looping. Imported MIDI has a full-length
+piano-roll view; editing that source MIDI remains outside this pass. Real elapsed
+time drives the transport rather than filtered engine frame duration. The earlier
+song-end wall-clock failure was not reproduced with that clock: complete
+Greensleeves now finishes at its parsed duration of 40.52 seconds.
+
+A bounded version-1 project document stores one working project per authenticated
+character under `ProceduralSynth/project`, separate from `presets`. It includes
+sound snapshots, mix/routing, clip notes, drum steps and a MIDI VFS path. Unknown
+future projects cannot be loaded or overwritten. Save acknowledgements identify
+the session and saved generation; later edits stay marked unsaved. Original MIDI
+files are still required locally and are not redistributed or stored as audio.
+
+Final automated checks:
+
+* Server: **12 tests / 88 assertions PASS** (channel isolation/removal, snapshots,
+  per-character project persistence, unchanged preset storage, future documents).
+* Client/editor/Studio harness: **1,043 assertions PASS**, including real window
+  callbacks, clip creation, preset routing, sound edits, hide/reopen, project save
+  generations and real-clock playback despite a different engine frame delta.
+* Workstation transport/model: **38 assertions PASS**, including swing, note
+  durations, independent MIDI parts, tempo changes, mute/solo/master, pad audition,
+  stale MIDI cleanup, loop-off clips alongside full MIDI, validation and limits.
+* MIDI parser/player: **27 assertions PASS** with the installed Greensleeves file,
+  including same-pitch parts on one channel, names/programs and split drum pitches.
+* Existing arm geometry: **16 assertions PASS**. Existing relay: **14 tests /
+  63 assertions PASS**. Whitespace check: PASS.
+
+Actual two-client run with `-DawProbe`: five parts were imported from the local
+Bardcraft Greensleeves MIDI; the first two used Flute-like and Bass. Synth B
+reported native voices on both independent channels. A hid Studio for 12 seconds
+and reopened it while playback continued. The full song ended, then native drum
+steps and piano clips ran together. A saved and loaded the named project through
+the server, verified both assignments, then closed; B received cleanup. The final
+run logged all PASS milestones at 13:56-13:57 America/Chicago. An earlier retry
+caught a catalog-arrival race; built-ins are now immediately available, with
+personal catalog data arriving asynchronously.
+
+A read-only SQLite check found the saved project as a 3,660-byte blob for Synth A,
+with both test characters' existing preset blobs still present. A private SQLite
+backup was taken before integration. Actual native-window inspection verified
+Mixer rows, selecting a preset, the full MIDI piano roll, adding a snare lane and
+changing a step. The local evidence is retained under the fixture's `evidence/daw`
+and `evidence/daw-first-pass` directories, outside Git. Setup was returned to
+interactive mode without the probe and both clients were restarted.
+
+Limits: outputs currently share the placed keyboard. Held-instrument destinations,
+recording/overdub, source-MIDI editing/export, arrangement editing, effects,
+automation and pan controls are future work. There is one saved working project
+per character, 16 total tracks, 128 clip notes per track / 512 total and at most
+512 drawn notes per piano-roll view. Native source exhaustion and dense songs stop
+playback with a message. No final-speaker listening assessment, large multi-DAW
+CPU profile or packet-loss/jitter measurement is claimed. Production was not
+contacted or modified.

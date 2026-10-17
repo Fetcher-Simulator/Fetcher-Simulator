@@ -10,7 +10,7 @@ local E={}; E.__index=E
 local colors={bg=util.color.rgb(0.035,0.045,0.063),panel=util.color.rgb(0.075,0.09,0.12),
     track=util.color.rgb(0.14,0.17,0.21),accent=util.color.rgb(0.2,0.85,0.72),
     text=util.color.rgb(0.85,0.89,0.94),muted=util.color.rgb(0.5,0.58,0.68)}
-local waves={'Sine','Triangle','Saw','Square'}
+local waves={'Sine','Triangle','Saw','Square','Noise'}
 local function rect(x,y,w,h,color)
     return {type=ui.TYPE.Image,props={position=v(x,y),size=v(w,h),resource=white,color=color}}
 end
@@ -118,7 +118,8 @@ function E:plots()
         local phase=(n/99*3)%1
         local a=math.sin(phase*math.pi*2)
         if p.wave1==1 then a=2/math.pi*math.asin(a)
-        elseif p.wave1==2 then a=phase*2-1 elseif p.wave1==3 then a=phase<0.5 and 1 or -1 end
+        elseif p.wave1==2 then a=phase*2-1 elseif p.wave1==3 then a=phase<0.5 and 1 or -1
+        elseif p.wave1==4 then local noise=math.sin(n*127.1)*43758.5453;a=(noise-math.floor(noise))*2-1 end
         content[#content+1]=rect(352+n*3,54-a*20,2,2,colors.accent)
     end
     self.plot.layout.content=ui.content(content); self.plot:update()
@@ -130,6 +131,7 @@ function E.new(params,cb)
     self.width=math.min(940,screen.x-24)
     local w=self.width
     local content={label('OPENMW  /  SYNTH',20,14,260,22),label('PROCEDURAL • POLYPHONIC • SPATIAL',20,42,350,12,colors.muted)}
+    if cb.studio then content[#content+1]=self:button('Studio',w-284,15,76,cb.studio) end
     content[#content+1]=self:button('Hide [F8]',w-198,15,104,cb.hide or cb.close)
     content[#content+1]=self:button('Finish',w-84,15,64,cb.close)
     if cb.midiPlay then
@@ -178,6 +180,7 @@ function E.new(params,cb)
     slider('wave2','OSC 2 Wave',x1,330,col-20)
     slider('enabled2','Enable',x1,375,col/2-18); slider('volume2','Level',x1+col/2-5,375,col/2-18)
     slider('tune2','Tune',x1,420,col/2-18); slider('fine2','Fine (cents)',x1+col/2-5,420,col/2-18)
+    slider('pitchAmount','Pitch env',x1,465,col/2-18); slider('pitchDecay','Pitch decay',x1+col/2-5,465,col/2-18)
     for n,item in ipairs({{'cutoff','Low-pass cutoff'},{'resonance','Resonance'},{'filterAmount','Filter env (octaves)'}}) do slider(item[1],item[2],x2,185+(n-1)*43,col-20) end
     for n,name in ipairs({'attack','decay','sustain','release'}) do
         slider(name,({'AMP A','AMP D','AMP S','AMP R'})[n],x2+((n-1)%2)*(col/2-5),320+math.floor((n-1)/2)*45,col/2-18)

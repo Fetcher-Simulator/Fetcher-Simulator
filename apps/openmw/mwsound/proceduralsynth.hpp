@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <mutex>
 #include <string_view>
 
@@ -22,7 +23,7 @@ namespace MWSound
             bool discrete = false;
         };
         static constexpr unsigned SampleRate = 48000;
-        static constexpr std::size_t ParameterCount = 26;
+        static constexpr std::size_t ParameterCount = 28;
         static const std::array<Parameter, ParameterCount> Parameters;
         using State = std::array<float, ParameterCount>;
 
@@ -62,6 +63,8 @@ namespace MWSound
             float velocity = 0;
             double phase1 = 0, phase2 = 0;
             double filter1 = 0, filter2 = 0;
+            double pitchEnvelope = 1;
+            std::uint32_t noise = 0x9e3779b9u;
             Envelope amp, filter;
             unsigned long long age = 0;
         };
@@ -70,7 +73,7 @@ namespace MWSound
         std::array<Command, 256> mCommands{};
         std::size_t mCommandCount = 0;
         std::array<Voice, 32> mVoices{};
-        std::array<float, 4> mWave1{}, mWave2{};
+        std::array<float, 5> mWave1{}, mWave2{};
         unsigned long long mAge = 0;
         double mLfoPhase = 0;
         std::atomic<bool> mPanic{ false }, mClosed{ false };
