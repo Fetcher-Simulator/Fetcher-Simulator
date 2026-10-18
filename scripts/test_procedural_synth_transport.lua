@@ -4,7 +4,7 @@ local Sequence=dofile(root..'shared/sequence.lua');package.loaded[prefix..'share
 local T=dofile(root..'client/transport.lua');local now=100;local requests,messages,starts,replacements={},{},{},{}
 local function check(ok,msg) assert(ok,msg) end
 local engine={createStudio=function()
-    return {closed=false,playing=false,position=0,fault=0,strikes=0,configure=function() return true end,mixer=function() return true end,
+    return {closed=false,playing=false,position=0,fault=0,strikes=0,configure=function() return true end,mixer=function() return true end,effects=function() return true end,
         loadScore=function(_,bytes,length,loop) return Sequence.validate(bytes,length,loop) end,
         start=function(self,delay,offset) starts[#starts+1]={delay,offset};self.playing=true;return true end,
         replace=function(_,delay) replacements[#replacements+1]=delay;return true end,

@@ -48,6 +48,12 @@ namespace MWSound
         std::lock_guard<std::mutex> lock(mControl);
         mMixerTarget[n-1]=state; mMixerDirty[n-1]=true; return true;
     }
+    bool ProceduralStudio::effects(const ProceduralReturns::State& state, float master)
+    {
+        if (closed() || !ProceduralReturns::valid(state) || !std::isfinite(master) || master<0 || master>1) return false;
+        std::lock_guard<std::mutex> lock(mControl);
+        mEffectsTarget=state;mMasterTarget=master;mEffectsDirty=true;return true;
+    }
     bool ProceduralStudio::set(unsigned n, std::string_view name, float value)
     {
         if (!hasTrack(n) || closed() || !std::isfinite(value)) return false;
@@ -201,6 +207,13 @@ namespace MWSound
             std::unique_lock<std::mutex> lock(mControl, std::try_to_lock);
             if (lock.owns_lock())
             {
+                if (mEffectsDirty)
+                {
+                    mReturns.target(mEffectsTarget);mMasterAudioTarget=mMasterTarget;mEffectsDirty=false;
+                    if (!mMasterInitialized) {mMasterCurrent=mMasterTarget;mMasterInitialized=true;}
+                }
+                if (mStopPending) mReturns.stop();
+                if (mStartPending) mReturns.resume();
                 for (unsigned n=0;n<MaxTracks;++n) if (mMixerDirty[n])
                 { mMixer[n].target(mMixerTarget[n],mLevelTarget[n]); mMixerDirty[n]=false; }
                 if (mStopPending || mStartPending) { clearVoices(); mPlaying = false; mStopPending = false; mReplacement.reset(); mReplacePending = false; }
@@ -223,14 +236,14 @@ namespace MWSound
                     {
                         if (command.velocity == -2)
                             for (auto& voice : track->mVoices) { voice.amp.release(); voice.filter.release(); voice.drumChoke = true; }
-                        else track->apply({command.pitch, command.velocity});
+                        else { if (command.velocity>=0) mReturns.resume(); track->apply({command.pitch, command.velocity}); }
                     }
                 }
                 mLiveCount = 0;
             }
         }
         float peak = 0;
-        std::array<float, 480> lane{}, mixed{};
+        std::array<float, 480> lane{}, mixed{},delayInput{},reverbInput{};
         std::size_t done = 0;
         while (done < frames)
         {
@@ -259,7 +272,7 @@ namespace MWSound
                     count = static_cast<std::size_t>(std::min<std::uint64_t>(count, next - mTime));
                 }
             }
-            mixed.fill(0);
+            mixed.fill(0);delayInput.fill(0);reverbInput.fill(0);
             for (unsigned n=0;n<MaxTracks;++n)
                 if (auto track = std::atomic_load(&mTracks[n]))
                 {
@@ -268,6 +281,7 @@ namespace MWSound
                     for (std::size_t i=0;i<count;++i)
                     {
                         const float sample=mMixer[n].process(lane[i]); mixed[i]+=sample;
+                        delayInput[i]+=sample*mMixer[n].delaySend();reverbInput[i]+=sample*mMixer[n].reverbSend();
                         held=std::max(std::abs(sample),held*0.99993056f);
                         mPower[n]+=0.00013888*(sample*sample-mPower[n]);
                         if (mPower[n]<1e-25) mPower[n]=0;
@@ -275,14 +289,20 @@ namespace MWSound
                     mLanePeak[n]=held; mRms[n]=static_cast<float>(std::sqrt(mPower[n]));
                     mReduction[n]=mMixer[n].reduction();
                 }
-            float mixPeak=mMixPeak;
+            float mixPeak=mMixPeak,delayPeak=mDelayPeak,reverbPeak=mReverbPeak;
             for (std::size_t i=0;i<count;++i)
             {
+                const auto wet=mReturns.process(delayInput[i],reverbInput[i]);
+                delayPeak=std::max(std::abs(wet.delay),delayPeak*0.99993056f);reverbPeak=std::max(std::abs(wet.reverb),reverbPeak*0.99993056f);
+                mMasterCurrent+=(mMasterAudioTarget-mMasterCurrent)*0.0020811647;
+                if (std::abs(mMasterAudioTarget-mMasterCurrent)<1e-12) mMasterCurrent=mMasterAudioTarget;
+                mixed[i]=static_cast<float>((mixed[i]+wet.delay+wet.reverb)*mMasterCurrent);
                 mixPeak=std::max(std::abs(mixed[i]),mixPeak*0.99993056f);
                 output[done+i]=std::tanh(mixed[i]);peak=std::max(peak,std::abs(output[done+i]));
                 mMasterPower+=0.00013888*(output[done+i]*output[done+i]-mMasterPower);
                 if (mMasterPower<1e-25) mMasterPower=0;
             }
+            mDelayPeak=delayPeak;mReverbPeak=reverbPeak;
             mMixPeak=mixPeak; mMasterRms=static_cast<float>(std::sqrt(mMasterPower));
             if (mPlaying)
             {

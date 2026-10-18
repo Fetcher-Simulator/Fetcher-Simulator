@@ -3,6 +3,7 @@
 
 #include "proceduralsynth.hpp"
 #include "proceduralmixer.hpp"
+#include "proceduralreturns.hpp"
 #include <vector>
 
 namespace MWSound
@@ -37,6 +38,9 @@ namespace MWSound
         bool mixer(unsigned track, const ProceduralMixer::State& state);
         float trackRms(unsigned n) const { return hasTrack(n) ? mRms[n-1].load() : 0; }
         float trackReduction(unsigned n) const { return hasTrack(n) ? mReduction[n-1].load() : 0; }
+        bool effects(const ProceduralReturns::State& state, float master);
+        float delayPeak() const {return mDelayPeak;}
+        float reverbPeak() const {return mReverbPeak;}
         float masterRms() const { return mMasterRms; }
         float mixPeak() const { return mMixPeak; }
         bool set(unsigned track, std::string_view name, float value);
@@ -85,6 +89,11 @@ namespace MWSound
         std::array<double, MaxTracks> mPower{};
         std::atomic<float> mMasterRms{0}, mMixPeak{0};
         double mMasterPower=0;
+        ProceduralReturns mReturns;
+        ProceduralReturns::State mEffectsTarget=ProceduralReturns::defaults();
+        float mMasterTarget=1,mMasterAudioTarget=1;double mMasterCurrent=1;
+        bool mEffectsDirty=false,mMasterInitialized=false;
+        std::atomic<float> mDelayPeak{0},mReverbPeak{0};
         std::array<Off, MaxActive> mOffs{};
         std::size_t mOffCount = 0, mIndex = 0;
         std::uint64_t mTime = 0, mCycle = 0, mDelay = 0;

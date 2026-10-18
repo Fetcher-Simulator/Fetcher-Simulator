@@ -71,7 +71,7 @@ add_openmw_dir (mwlua
     )
 
 add_openmw_dir (mwsound
-    soundmanagerimp openaloutput ffmpegdecoder sound soundbuffer sounddecoder soundoutput proceduralaudio proceduralmixer proceduralsynth proceduralstudio synthdecoder
+    soundmanagerimp openaloutput ffmpegdecoder sound soundbuffer sounddecoder soundoutput proceduralaudio proceduralreturns proceduralmixer proceduralsynth proceduralstudio synthdecoder
     loudness movieaudiofactory alext efx efxpresets regionsoundselector watersoundupdater
     )
 

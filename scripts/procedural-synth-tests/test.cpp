@@ -83,6 +83,7 @@ void writePreview(const std::string& path)
 #include "guitar-tests.hpp"
 #include "studio-tests.hpp"
 #include "mixer-tests.hpp"
+#include "returns-tests.hpp"
 
 int main(int argc, char** argv)
 {
@@ -91,6 +92,7 @@ int main(int argc, char** argv)
         guitarTests();
         studioTests();
         mixerTests();
+        returnsTests();
         Synth snareLow, snareHigh;
         setupDrum(snareLow,2);setupDrum(snareHigh,2);
         snareLow.noteOn(38,1);snareHigh.noteOn(84,1);

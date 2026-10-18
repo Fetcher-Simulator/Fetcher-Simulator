@@ -521,3 +521,36 @@ Original character project/preset rows are restored after the probe; MIDI assets
 monitor preferences and world placement are preserved. This validates source PCM
 and local software behavior, not measured sound-card output, transparent dynamics
 at every setting, or hardware synchronization between clients.
+
+
+## 2026-10-18 - two-octave audition, selectors and shared returns
+
+API 8 / package 9. Added C4-C6 virtual audition, searchable selectors with a
+scrollbar and wheel navigation, and shared native mono delay/reverb returns.
+No production deployment was performed.
+
+- Full RelWithDebInfo OpenMW build and standalone CTest pass. Return tests cover
+  exact 40 ms impulse timing at zero feedback, isolated buses, causal/decaying
+  reverb, maximum feedback/decay stability, 10 ms Stop fade and clear, resume,
+  validation, return meters, and identical PCM at 137-/480-frame block sizes.
+- Server Lua: 18 tests / 231 assertions. Added invalid/unauthorized global return
+  controls, saved sends, restart, late snapshots and dry old-project migration.
+- Client UI harness checks C6 note 84, outside release, a 512-entry search,
+  scroll clamping/wheel behavior, exact selection, literal search, focus, Escape
+  and lifecycle cleanup. Workstation checks post-return master separation,
+  saved sends/returns, undo/redo and feedback validation. Existing sequence,
+  transport, MIDI and arm geometry checks continue passing.
+- Live two-client fixture: A saved/reloaded sends, delay 375 ms and reverb 2.8 s,
+  undid/redid edits, and played the native clock. Both return meters were active.
+  B joined mid-performance, received the same effects/sends and wet output,
+  received master 0.35, and drained wet output after Stop. A also passed Stop.
+- GUI checks use the existing 196% scale and 457-song catalog. Wheel scrolling
+  and scrollbar jumps were exercised live. The drag fix has a persistent-widget
+  capture regression check; ongoing human input prevented a final automated drag. Popup layer
+  prevents underlying widgets showing through. Persistent row/scrollbar widgets
+  retain text focus and mouse capture instead of rebuilding the popup on drag.
+
+Private logs: isolated fixture evidence/returns-milestone. Original character
+synth storage is restored after testing, and all 436 custom MIDI files retained.
+Wet delay/reverb history is rebuilt locally after late join; only settings and
+score phase are replicated. Output remains one mono spatial keyboard emitter.

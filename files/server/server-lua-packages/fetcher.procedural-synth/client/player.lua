@@ -5,9 +5,9 @@ local self = require('openmw.self')
 local ui = require('openmw.ui')
 local input = require('openmw.input')
 local supported, synth = pcall(require,'openmw.synth')
-if not supported or (synth.version and synth.version<7) then
+if not supported or (synth.version and synth.version<8) then
     return {eventHandlers={Synth_Activate=function()
-        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 7.')
+        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 8.')
     end}}
 end
 local schema = require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -35,6 +35,7 @@ local stopPlayback,playSong,showEditor,switchPage,makeWorkstation
 local loadIntent
 local function silence(i)
     i.audio:allNotesOff(); i.notes={}
+    if i.studio then i.studio:stop() end
     for _,channel in pairs(i.channels or {}) do if channel.audio then channel.audio:allNotesOff() end end
 end
 local function send(op, extra)
@@ -95,6 +96,10 @@ local function applyChannel(i,n,params,level,mixer)
         for name in pairs(schema.specs) do channel.audio:set(name,name=='polyphony' and math.min(8,params[name]) or params[name]) end
         channel.audio:set('volume',params.volume*level)
     end
+end
+local function applyEffects(i,effects,master)
+    i.effects=Project.effects(effects) or Project.effects();i.master=master or 0.7
+    if i.studio then assert(i.studio:effects(i.effects,i.master),'Invalid return settings') end
 end
 local function channelAudio(i,n,create)
     if n==0 then return i.audio end
@@ -177,12 +182,19 @@ makeWorkstation=function(i)
     i.pendingChannels={}
     local function flushChannels()
         local now=core.getRealTime();channelTokens=math.min(16,channelTokens+math.max(0,now-channelAt)*10);channelAt=now
-        for n=1,16 do if i.pendingChannels[n] and channelTokens>=1 then
-            channelTokens=channelTokens-1;send('channel',i.pendingChannels[n]);i.pendingChannels[n]=nil
+        for n=0,16 do if i.pendingChannels[n] and channelTokens>=1 then
+            channelTokens=channelTokens-1;send(n==0 and 'effects' or 'channel',i.pendingChannels[n]);i.pendingChannels[n]=nil
         end end
     end
     local w=Workstation.new{
         flushChannels=flushChannels,
+        effects=function(effects,master)
+            effects=effects or Project.effects()
+            local values={master};for _,name in ipairs(Project.effectsOrder) do values[#values+1]=effects[name] end
+            local signature=table.concat(values,',');if i.effectsSignature==signature then return end
+            applyEffects(i,effects,master);i.effectsSignature=signature
+            i.pendingChannels[0]={effects=effects,master=master};flushChannels()
+        end,
         schedule=synth.createStudio and function(plan,replace) return transport:queue(i,plan,replace,send) end or nil,
         stopSequence=function() transport:stop(i,send) end,
         progress=function()
@@ -214,6 +226,7 @@ makeWorkstation=function(i)
         save=function(project,generation) send('dawSave',{project=project,saveRevision=generation}) end,
         importMidi=function(path) playSong(path,'restore') end,
         message=ui.showMessage,
+        returnMeters=function() return i.studio and i.studio.delayPeak or 0,i.studio and i.studio.reverbPeak or 0 end,
         meters=function(n)
             local a=i.studio
             if not a then return 0,0,0 end
@@ -231,6 +244,15 @@ switchPage=function(page,track)
     session.page=page
     if track~=nil then session.editTrack=track end
     showEditor()
+end
+local function midiChoices()
+    local choices={};for _,path in ipairs(songs) do
+        choices[#choices+1]={id=path,label=(path:match('([^/]+)$') or path):gsub('%.mid[i]?$',''),search=path}
+    end;return choices
+end
+local function midiSelect(path)
+    for n,p in ipairs(songs) do if p==path then stopPlayback();selectedSong=n;return true end end
+    return false
 end
 showEditor=function()
     if editor or not session then return false end
@@ -250,7 +272,7 @@ showEditor=function()
             load=function() stopPlayback();send('dawLoad') end,
             import=function() playSong(nil,'import') end,
             cycleMidi=function(step) if #songs>0 then selectedSong=(selectedSong-1+step)%#songs+1 end end,
-            midiLabel=songLabel,
+            midiLabel=songLabel,midiChoices=midiChoices,midiSelected=function() return songs[selectedSong] end,midiSelect=midiSelect,
         })
         return true
     end
@@ -291,7 +313,7 @@ showEditor=function()
         hide=hideEditor,close=function() closeEditor(true) end,
         studio=function() switchPage('studio') end,
         meter=function() local audio=channelAudio(i,session.editTrack,false);return audio and audio.peak or 0,audio and audio.voices or 0 end,
-        midiLabel=songLabel,
+        midiLabel=songLabel,midiChoices=midiChoices,midiSelected=function() return songs[selectedSong] end,midiSelect=midiSelect,
         midiCycle=function(step) stopPlayback();if #songs>0 then selectedSong=(selectedSong-1+step)%#songs+1 end end,
         midiPlay=function() playSong() end,midiStop=function() stopPlayback(true) end,
     })
@@ -356,7 +378,7 @@ local function message(data)
         local ok,audio=pcall(synth.create,source)
         if not ok then ui.showMessage(tostring(audio)); return end
         i={id=data.id,audio=audio,source=source,cell=self.cell,owner=data.owner,notes={},channels={},epoch=data.epoch,seq=data.seq,seen=core.getRealTime()}
-        instances[data.id]=i;apply(i,params)
+        instances[data.id]=i;apply(i,params);applyEffects(i,data.effects,data.master)
         for n,channel in pairs(data.channels or {}) do
             local state=schema.state(channel.params)
             if type(n)=='number' and n>=1 and n<=16 and n%1==0 and state then applyChannel(i,n,state,channel.level or 1,channel.mixer) end
@@ -380,6 +402,7 @@ local function message(data)
     elseif data.op=='channel' then
         local params=schema.state(data.params)
         if params and channel>=1 and channel<=16 and channel%1==0 then applyChannel(i,channel,params,data.level,data.mixer) end
+    elseif data.op=='effects' then applyEffects(i,data.effects,data.master)
     elseif data.op=='on' then playNote(i,channel,data.note,data.velocity)
     elseif data.op=='off' then releaseNote(i,channel,data.note)
     elseif data.op=='panic' then if session and session.id==data.id then stopPlayback() end;silence(i)
@@ -464,7 +487,7 @@ end
 return {
     interfaceName='ProceduralSynth',
     interface={
-        version=7,
+        version=8,
         status=function()
             local out={}
             for id,i in pairs(instances) do
@@ -479,7 +502,7 @@ return {
                     phaseError=i.studio.audiblePosition-math.max(0,core.getRealTime()+transport.offset-i.transport.started)
                     if i.transport.loop then local period=i.transport.length/48000;phaseError=(phaseError+period/2)%period-period/2 end
                 end
-                out[#out+1]={id=id,owner=i.owner,voices=voices,peak=peak,mixPeak=i.studio and i.studio.mixPeak or 0,masterRms=i.studio and i.studio.masterRms or 0,
+                out[#out+1]={id=id,owner=i.owner,voices=voices,peak=peak,effects=i.effects,master=i.master,delayPeak=i.studio and i.studio.delayPeak or 0,reverbPeak=i.studio and i.studio.reverbPeak or 0,mixPeak=i.studio and i.studio.mixPeak or 0,masterRms=i.studio and i.studio.masterRms or 0,
                 editing=session~=nil and session.id==id,editorVisible=editor~=nil and session.id==id,epoch=i.epoch,seq=i.seq,
                 cutoff=i.params.cutoff,wave1=i.params.wave1,poseBones=i.pose and i.pose.applied or 0,
                 poseError=i.pose and i.pose.error or 0,midi=(playback~=nil and playback.playing) or (w and w.playing and w.mode=='song') or false,
@@ -523,6 +546,7 @@ return {
             if editor then hideEditor() else showEditor() end
         elseif editor then editor:key(e.code,true) end
     end,
+        onMouseWheel=function(vertical) if editor and editor.dropdown then editor.dropdown:wheel(vertical) end end,
         onKeyRelease=function(e) if editor then editor:key(e.code,false) end end},
     eventHandlers={Synth_Message=message,Synth_Activate=function(data)
         if session and session.id==data.id then showEditor();return end

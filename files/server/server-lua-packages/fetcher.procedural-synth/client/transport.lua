@@ -11,7 +11,10 @@ function T:ping()
     self.mp.sendToServer('Synth_Request',{version=1,op='clock',sent=now})
 end
 function T:studio(i)
-    if not i.studio or i.studio.closed then i.studio=self.synth.createStudio(i.source) end
+    if not i.studio or i.studio.closed then
+        i.studio=self.synth.createStudio(i.source)
+        assert(i.studio:effects(i.effects or {},i.master or 0.7),'Invalid return settings')
+    end
     return i.studio
 end
 function T:configure(i,n)

@@ -259,4 +259,21 @@ test('mixer migration, persistence, ownership and late listener state',function(
     local persisted=copy(storage);reset(persisted);sequence=0;acquire();request('dawLoad')
     check(sent[#sent].data.project.tracks[1].mixer.mid==-4,'strip survives server restart')
 end)
+test('shared returns validate, persist and reach late listeners',function()
+    local f=require('procedural_synth_project')(schema);local p=f.new();p.tracks[1]=f.newTrack('piano','Wet',16)
+    p.tracks[1].mixer.delaySend=0.8;p.tracks[1].mixer.reverbSend=0.6
+    p.effects.delayTime=375;p.effects.reverbDecay=3.2;p.master=0.4
+    acquire();request('dawSave',{project=p});request('channel',{channel=1,params={},level=0.8,mixer=p.tracks[1].mixer})
+    request('effects',{effects=p.effects,master=p.master});check(sent[#sent].data.op=='effects' and sent[#sent].data.master==0.4,'return state relayed separately from fader')
+    local before=#sent
+    request('effects',{pid=2,effects=p.effects,master=1});request('effects',{effects={delayFeedback=1},master=1})
+    request('effects',{effects={reverbDecay=0/0},master=1});request('effects',{effects={},master=2})
+    check(#sent==before,'unauthorized and unstable return settings rejected')
+    players[3].cell='INT:A';request('sync',{pid=3});local s=sent[#sent].data
+    check(s.master==0.4 and s.effects.delayTime==375 and s.channels[1].mixer.reverbSend==0.6,'late snapshot has sends, returns and master')
+    reset(copy(storage));sequence=0;acquire();request('dawLoad')
+    check(sent[#sent].data.project.effects.reverbDecay==3.2,'global returns survive database reload')
+    local legacy=f.new();legacy.effects=nil;legacy.tracks[1]=f.newTrack('piano','Old',16);legacy.tracks[1].mixer=nil
+    local migrated=f.project(legacy);check(migrated.effects.delayTime==250 and migrated.tracks[1].mixer.delaySend==0,'old songs remain dry')
+end)
 print(string.format('%d tests, %d assertions passed',tests,checks))

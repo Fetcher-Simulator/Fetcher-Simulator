@@ -16,15 +16,29 @@ local function array(t,max)
     return n==#t and n<=max
 end
 M.mixerSpecs={eqEnabled={0,1,0},highpass={20,1000,20},bass={-18,18,0},mid={-18,18,0},midFrequency={200,6000,1000},treble={-18,18,0},
-    compEnabled={0,1,0},threshold={-60,0,-18},ratio={1,20,4},attack={0.1,200,10},release={10,2000,150},makeup={0,24,0}}
-M.mixerOrder={'eqEnabled','highpass','bass','mid','midFrequency','treble','compEnabled','threshold','ratio','attack','release','makeup'}
+    compEnabled={0,1,0},threshold={-60,0,-18},ratio={1,20,4},attack={0.1,200,10},release={10,2000,150},makeup={0,24,0},delaySend={0,1,0},reverbSend={0,1,0}}
+M.mixerOrder={'eqEnabled','highpass','bass','mid','midFrequency','treble','compEnabled','threshold','ratio','attack','release','makeup','delaySend','reverbSend'}
 function M.mixer(t)
     if t==nil then t={} end
-    if not keys(t,M.mixerSpecs,12) then return nil end
+    if not keys(t,M.mixerSpecs,14) then return nil end
     local out={}
     for k,s in pairs(M.mixerSpecs) do
         local value=t[k];if value==nil then value=s[3] end
         if not num(value,s[1],s[2]) or ((k=='eqEnabled' or k=='compEnabled') and value%1~=0) then return nil end
+        out[k]=value
+    end
+    return out
+end
+M.effectsSpecs={delayEnabled={0,1,1},delayTime={40,1500,250},delayFeedback={0,0.85,0.35},delayReturn={0,1,0.35},
+    reverbEnabled={0,1,1},reverbDecay={0.2,8,1.8},reverbDamping={200,16000,6000},reverbReturn={0,1,0.25}}
+M.effectsOrder={'delayEnabled','delayTime','delayFeedback','delayReturn','reverbEnabled','reverbDecay','reverbDamping','reverbReturn'}
+function M.effects(t)
+    if t==nil then t={} end
+    if not keys(t,M.effectsSpecs,8) then return nil end
+    local out={}
+    for k,s in pairs(M.effectsSpecs) do
+        local value=t[k];if value==nil then value=s[3] end
+        if not num(value,s[1],s[2]) or ((k=='delayEnabled' or k=='reverbEnabled') and value%1~=0) then return nil end
         out[k]=value
     end
     return out
@@ -48,12 +62,13 @@ function M.track(t,length)
     return out
 end
 function M.project(p)
-    if not keys(p,{version=true,name=true,bpm=true,swing=true,length=true,loop=true,midi=true,tracks=true,master=true},9)
+    if not keys(p,{version=true,name=true,bpm=true,swing=true,length=true,loop=true,midi=true,tracks=true,master=true,effects=true},10)
         or not num(p.master or 0.7,0,1) or p.version~=1 or not text(p.name,64) or not num(p.bpm,40,240) or not num(p.swing,0,0.6)
         or not int(p.length,16,M.maxSteps) or p.length%16~=0 or type(p.loop)~='boolean' or not text(p.midi,192)
         or not array(p.tracks,M.maxTracks) then return nil end
     if p.midi~='' and (not p.midi:match('^midi/') or p.midi:find('..',1,true) or not p.midi:lower():match('%.mid[i]?$')) then return nil end
-    local out={version=1,name=p.name,bpm=p.bpm,swing=p.swing,length=p.length,loop=p.loop,midi=p.midi,master=p.master or 0.7,tracks={}}
+    local effects=M.effects(p.effects);if not effects then return nil end
+    local out={effects=effects,version=1,name=p.name,bpm=p.bpm,swing=p.swing,length=p.length,loop=p.loop,midi=p.midi,master=p.master or 0.7,tracks={}}
     local notes=0
     for _,t in ipairs(p.tracks) do
         local track=M.track(t,p.length);if not track then return nil end
@@ -62,7 +77,7 @@ function M.project(p)
     end
     return out
 end
-function M.new() return {version=1,name='New project',bpm=120,swing=0,length=16,loop=true,midi='',master=0.7,tracks={}} end
+function M.new() return {effects=M.effects(),version=1,name='New project',bpm=120,swing=0,length=16,loop=true,midi='',master=0.7,tracks={}} end
 function M.newTrack(kind,name,length)
     return {kind=kind,name=name,part='',presetId='',params=schema.state({polyphony=8}),level=0.8,mute=false,solo=false,
         note=60,gate=0.12,steps=string.rep('0',M.maxSteps),notes={},mixer=M.mixer(),output={kind='keyboard'}}

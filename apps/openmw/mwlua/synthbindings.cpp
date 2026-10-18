@@ -20,7 +20,7 @@ namespace MWLua
                 "keepAlive", &Synth::keepAlive, "closed", sol::property(&Synth::closed), "peak",
                 sol::property(&Synth::peak), "voices", sol::property(&Synth::voices));
             sol::table api(lua, sol::create);
-            api["version"] = 7;
+            api["version"] = 8;
             using Studio = MWSound::ProceduralStudio;
             lua.new_usertype<Studio>("ProceduralStudio", sol::no_constructor,
                 "closed", sol::property(&Studio::closed), "close", &Studio::close,
@@ -33,6 +33,13 @@ namespace MWLua
                 "voices", sol::property(&Studio::voices), "strikes", sol::property(&Studio::strikes),
                 "noteOn", &Studio::noteOn, "noteOff", &Studio::noteOff,
                 "releaseTrack", &Studio::releaseTrack, "trackPeak", &Studio::trackPeak, "trackVoices", &Studio::trackVoices,
+                "delayPeak", sol::property(&Studio::delayPeak), "reverbPeak", sol::property(&Studio::reverbPeak),
+                "effects", [](Studio& studio, const sol::table& values, float master) {
+                    MWSound::ProceduralReturns::State state;
+                    for (std::size_t i=0;i<state.size();++i)
+                        state[i]=values[MWSound::ProceduralReturns::Parameters[i].name].get_or(MWSound::ProceduralReturns::Parameters[i].initial);
+                    return studio.effects(state,master);
+                },
                 "trackRms", &Studio::trackRms, "trackReduction", &Studio::trackReduction,
                 "masterRms", sol::property(&Studio::masterRms), "mixPeak", sol::property(&Studio::mixPeak),
                 "mixer", [](Studio& studio, unsigned n, const sol::table& values) {
@@ -100,7 +107,7 @@ namespace MWLua
             {
                 sol::table spec(lua, sol::create);
                 spec["min"] = p.min; spec["max"] = p.max; spec["default"] = p.initial;
-                spec["discrete"] = p.min == 0 && p.max == 1;
+                spec["discrete"] = std::string_view(p.name)=="eqEnabled" || std::string_view(p.name)=="compEnabled";
                 mixerParameters[p.name] = LuaUtil::makeReadOnly(spec);
             }
             api["mixerParameters"] = LuaUtil::makeReadOnly(mixerParameters);

@@ -6,6 +6,7 @@ local I=require('openmw.interfaces')
 local Controls=require('scripts.multiplayer.fetcher.procedural-synth.client.controls')
 local schema=require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
 local Project=require('scripts.multiplayer.fetcher.procedural-synth.shared.project')(schema)
+local Dropdown=require('scripts.multiplayer.fetcher.procedural-synth.client.dropdown')
 local Window=require('scripts.multiplayer.fetcher.procedural-synth.client.window')
 local S={};S.__index=S
 local v=util.vector2
@@ -55,7 +56,10 @@ function S:mixer(content)
             local y=198+(row-1)*45
             content[#content+1]=self:button(index..'  '..t.name:sub(1,30),20,y,265,function() w.selected=index;w.revision=w.revision+1 end,index==w.selected)
             content[#content+1]=self:button('<',294,y,24,function() w:cyclePreset(index,-1) end)
-            content[#content+1]=label(w:presetName(t),326,y+4,173)
+            content[#content+1]=self:button(w:presetName(t)..' v',326,y,173,function()
+                local choices={};for _,p in ipairs(w.catalog) do choices[#choices+1]={id=p.id,label=p.name,search=p.name..' '..(p.bank or '')..' '..(p.role or '')} end
+                Dropdown.open(self,choices,t.presetId,function(id) w:preset(index,id) end,294,math.min(y+29,290),590)
+            end)
             content[#content+1]=self:button('>',505,y,24,function() w:cyclePreset(index,1) end)
             content[#content+1]=self:slider(546,y+5,94,t.level,function(value) w:setTrack(index,'level',value) end)
             content[#content+1]=self:button('M',650,y,30,function() w:setTrack(index,'mute',not t.mute) end,t.mute)
@@ -75,6 +79,7 @@ function S:mixer(content)
     content[#content+1]=self:button('Tracks 9-16',740,578,120,function() w.mixerPage=1;w.revision=w.revision+1 end,page==1)
     local t=p.tracks[w.selected]
     content[#content+1]=label(t and ('Selected: '..t.name..'  |  Output: keyboard in the world') or 'Import MIDI to list its parts, or add piano and drum tracks.',20,623,870,14,c.accent)
+    content[#content+1]=self:button('Delay / Reverb',705,614,180,function() w.page='returns';w.revision=w.revision+1 end)
     self:addMasterMeter(content,650)
 end
 local function db(value) return value>0.00001 and string.format('%.1f',20*math.log(value)/math.log(10)) or '-inf' end
@@ -108,10 +113,39 @@ function S:channel(content)
         content[#content+1]=Controls.slider(self,'mix:'..key,title,{min=spec[1],max=spec[2],unit=unit,log=log,step=step},
             function() return t.mixer[key] end,function(value) w:setMixer(w.selected,key,value) end,x,y,410)
     end
-    local text=self:element(label('',20,566,865,14,c.accent));self.meterLabels[w.selected]=text;content[#content+1]=text
-    content[#content+1]=label('Instrument + effects > EQ > compressor > track / master level > keyboard output',20,607,890,13,c.muted)
-    content[#content+1]=label('Bypass preserves settings. Peak / RMS are dBFS; GR shows compressor reduction in dB.',20,630,890,12,c.muted)
-    self:addMasterMeter(content,655)
+    local text=self:element(label('',20,552,865,14,c.accent));self.meterLabels[w.selected]=text;content[#content+1]=text
+    for n,key in ipairs{'delaySend','reverbSend'} do
+        content[#content+1]=Controls.slider(self,'send:'..key,n==1 and 'Delay send' or 'Reverb send',{min=0,max=1,unit='%',step=0.01},
+            function() return t.mixer[key] end,function(value) w:setMixer(w.selected,key,value) end,20+(n-1)*455,603,265)
+    end
+    content[#content+1]=self:button('Returns',775,609,110,function() w.page='returns';w.revision=w.revision+1 end)
+    content[#content+1]=label('Bypass preserves settings. Peak / RMS are dBFS; GR shows compressor reduction in dB.',20,658,890,10,c.muted)
+    self:addMasterMeter(content,576)
+end
+function S:returns(content)
+    local w=self.w;local e=w.project.effects
+    content[#content+1]=label('SHARED DELAY / REVERB',20,174,570,18,c.accent)
+    content[#content+1]=self:button('Back to mixer',710,169,175,function() w.page='mixer';w.revision=w.revision+1 end)
+    for n,key in ipairs{'delayEnabled','reverbEnabled'} do
+        local x=20+(n-1)*455
+        content[#content+1]=label(n==1 and 'DELAY' or 'REVERB',x,220,265,18,c.accent)
+        content[#content+1]=self:button(e[key]==1 and 'On' or 'Bypassed',x+290,214,120,function() w:setEffect(key,1-e[key]);w.revision=w.revision+1 end)
+    end
+    local controls={{'delayTime','Time (ms)',20,270,'ms',true,1},{'delayFeedback','Feedback',20,350,'%',false,0.01},
+        {'delayReturn','Return level',20,430,'%',false,0.01},{'reverbDecay','Decay (seconds)',475,270,'s',true,0.05},
+        {'reverbDamping','Damping (Hz)',475,350,'Hz',true,10},{'reverbReturn','Return level',475,430,'%',false,0.01}}
+    for _,entry in ipairs(controls) do
+        local key,title,x,y,unit,log,step=entry[1],entry[2],entry[3],entry[4],entry[5],entry[6],entry[7];local spec=Project.effectsSpecs[key]
+        -- The shared numeric control displays seconds as milliseconds.
+        if key=='reverbDecay' then title='Decay (ms)' end
+        content[#content+1]=Controls.slider(self,'return:'..key,title,{min=spec[1],max=spec[2],unit=unit,log=log,step=step},
+            function() return w.project.effects[key] end,function(value) w:setEffect(key,value) end,x,y,410)
+    end
+    content[#content+1]=label('Set send levels with Mix on each track. Sends follow the track fader and mute/solo.',20,535,890,13,c.muted)
+    content[#content+1]=label('Dry tracks + shared returns > master volume > limiter > keyboard in the world',20,567,890,13,c.muted)
+    content[#content+1]=label('Stop fades and clears effect tails. Delay time changes glide in pitch.',20,600,890,12,c.muted)
+    self.returnMeter=self:element(label('',20,626,890,13,c.accent));content[#content+1]=self.returnMeter
+    self:addMasterMeter(content,650)
 end
 function S:piano(content)
     local w,p=self.w,self.w.project;local t=p.tracks[w.selected]
@@ -199,11 +233,12 @@ function S:drums(content)
     content[#content+1]=label('Play clips loops the piano and drum clips together. Play song also follows the imported MIDI tempo map.',20,657,880,12,c.muted)
 end
 function S:render()
+    Dropdown.close(self)
     self.controlEpoch=(self.controlEpoch or 0)+1
     self.typing=false
     if self.root then self.root:destroy() end
     for _,e in ipairs(self.children) do e:destroy() end
-    self.children={};self.meters={};self.meterLabels={};self.playhead=nil;self.grid=nil
+    self.children={};self.meters={};self.meterLabels={};self.returnMeter=nil;self.playhead=nil;self.grid=nil
     local w,p=self.w,self.w.project;local content={label('OPENMW / STUDIO',20,13,275,21)}
     local tabs={{'Synth',self.cb.synth},{'Mixer',function() w.page='mixer';w.revision=w.revision+1 end},
         {'Piano',function() w.page='piano';w.revision=w.revision+1 end},{'Drums',function() w.page='drums';w.revision=w.revision+1 end}}
@@ -228,10 +263,12 @@ function S:render()
         events={textChanged=cb(function(text) p.name=text:gsub('%c',''):sub(1,64);w:touch('name',true) end),focusGain=cb(function() self.typing=true end),focusLoss=cb(function() self.typing=false end)}}
     content[#content+1]=name
     content[#content+1]=self:button('< MIDI',299,112,65,function() self.cb.cycleMidi(-1);w.revision=w.revision+1 end)
-    content[#content+1]=label(self.cb.midiLabel(),374,117,347,12,c.muted)
+    content[#content+1]=self:button(self.cb.midiLabel()..'  v',374,112,347,function()
+        if self.cb.midiChoices then Dropdown.open(self,self.cb.midiChoices(),self.cb.midiSelected(),self.cb.midiSelect,30,145,850) end
+    end)
     content[#content+1]=self:button('MIDI >',726,112,65,function() self.cb.cycleMidi(1);w.revision=w.revision+1 end)
     content[#content+1]=self:button('Import',803,112,92,self.cb.import)
-    if w.page=='piano' then self:piano(content) elseif w.page=='drums' then self:drums(content) elseif w.page=='channel' then self:channel(content) else self:mixer(content) end
+    if w.page=='piano' then self:piano(content) elseif w.page=='drums' then self:drums(content) elseif w.page=='channel' then self:channel(content) elseif w.page=='returns' then self:returns(content) else self:mixer(content) end
     self.root=self.window:root(content);self.revision=w.revision
 end
 function S.new(workstation,callbacks)
@@ -240,6 +277,7 @@ function S.new(workstation,callbacks)
 end
 function S:releaseAll() end
 function S:key(code,on)
+    if self.dropdown then if on and code==input.KEY.Escape then Dropdown.close(self) end;return end
     if on and code==input.KEY.Escape then self.cb.hide() end
     if on and not self.typing and input.isCtrlPressed and input.isCtrlPressed() then
         if code==input.KEY.Z then if input.isShiftPressed() then self.w:redo() else self.w:undo() end
@@ -248,6 +286,7 @@ function S:key(code,on)
 end
 function S:frame(now)
     self.window:frame(self)
+    Dropdown.frame(self)
     if I.UI.getMode()~='Interface' then self.cb.hide();return end
     if self.revision~=self.w.revision then self:render() end
     if now-self.lastFrame<0.1 then return end;self.lastFrame=now
@@ -261,11 +300,17 @@ function S:frame(now)
             or string.format('Peak %s / RMS %s dBFS  |  GR %.1f dB',db(peak),db(rms),reduction)
         self.window:update(text)
     end
+    if self.returnMeter and self.w.cb.returnMeters then
+        local delay,reverb=self.w.cb.returnMeters()
+        self.returnMeter.layout.props.text='Delay return '..db(delay)..' dBFS  |  Reverb return '..db(reverb)..' dBFS'
+        self.window:update(self.returnMeter)
+    end
     if self.playhead then
         self.playhead.layout.props.position=v(self.grid.x+math.max(0,self.w.step%16)*self.grid.cw,self.grid.y);self.window:update(self.playhead)
     end
 end
 function S:destroy()
+    Dropdown.close(self)
     self.uiClosed=true
     self.root:destroy();for _,e in ipairs(self.children) do e:destroy() end
     if I.UI.getMode()=='Interface' then I.UI.removeMode('Interface') end

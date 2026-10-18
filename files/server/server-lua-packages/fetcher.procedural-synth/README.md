@@ -126,7 +126,7 @@ print(instrument.peak, instrument.voices, instrument.closed)
 instrument:close()                  -- idempotent; no further playback
 ```
 
-`synth.parameters[name]` exposes immutable `min`, `max`, `default`, `discrete` metadata. `peak` is generated PCM peak before spatial attenuation, not a microphone or final output meter. The package's optional `I.ProceduralSynth` interface exposes `status`, `noteOn`, `noteOff`, `setParameter`, `presetCommand` and `close` for other client scripts/input methods, subject to an owned editor session. Older clients without native module version 7 show a compatibility message on activation instead of acquiring a lock.
+`synth.parameters[name]` exposes immutable `min`, `max`, `default`, `discrete` metadata. `peak` is generated PCM peak before spatial attenuation, not a microphone or final output meter. The package's optional `I.ProceduralSynth` interface exposes `status`, `noteOn`, `noteOff`, `setParameter`, `presetCommand` and `close` for other client scripts/input methods, subject to an owned editor session. Older clients without native module version 8 show a compatibility message on activation instead of acquiring a lock.
 
 Interface version 4 adds `studio()`, `workstation()`, `importMidi(path)`, `saveProject()` and `loadProject()`, plus per-channel meter/parameter summaries and transport time in `status()`. Version 3 added `hide()` and `show()` and the `status().editorVisible` field; `editing` continues to mean owning the session, including while hidden. `close()` retains its original meaning of stopping playback and releasing ownership. Interface version 2 added `midiSongs()`, `playMidi(catalogPath)` and `stopMidi()`. Native `openmw.animation.boneTransformsVersion == 1` adds `getBoneNames`, `getBoneTransform`, `setBoneTransform` and `clearBoneTransform`; see `files/lua_api/openmw/animation.lua` for coordinate spaces, threading, validation and expiry. Transform reads return the matrix and a rotation-only transform, with an option to exclude scripted offsets for IK. `openmw.mp.getPlayerObject(serverGuid)` resolves the authoritative performer to the correct local/remote model in `onFrame`. These visual APIs are independent of the synthesizer. Older clients with no bone extension can still use the audio/editor, with the pose omitted.
 
@@ -381,3 +381,50 @@ numeric states. Native synth API version 7 is required by this package.
 
 Shared delay/reverb sends, buses, stereo panning, sidechains, brickwall limiting,
 and separate physical destinations remain future mixer work.
+
+
+## Two-octave keyboard and shared returns (API 8, package 9)
+
+The instrument keyboard now spans C4-C6: 25 chromatic keys in the same width,
+including the closing C. Mouse position still sets velocity and releasing outside
+still releases the note. The existing physical-keyboard mapping remains C4-C5.
+
+Click the preset name in Synth or a saved sound name in Studio to open the sound
+selector. Click MIDI list in Synth or the MIDI name in Studio for the song list.
+MIDI rows show only the song name; full paths remain internal for loading/search.
+Both selectors support literal, case-insensitive filtering, a draggable scrollbar
+and mouse-wheel scrolling. Only eight result rows are rendered at a time, even
+with a 512-item catalog. Opening centers near the selection; filtering resets the
+scroll position. Escape or clicking outside closes the popup. Typing a filter
+cannot trigger instrument keys. Picking a sound loads it; picking a MIDI file
+selects it for Play/Import. The popup closes on window rebuild, hide or Finish.
+
+Studio > Mixer > Mix now includes post-fader Delay/Reverb sends on each lane.
+Mixer > Delay / Reverb opens the shared return controls. One native delay and one
+native reverb process the summed sends per Studio, rather than one pair per voice.
+Old projects have zero sends and stay dry. Settings are project data, participate
+in undo/redo, and replicate to listeners including late joiners.
+
+Delay: 40-1500 ms, fractional read position, smoothed time changes, low-pass
+feedback capped at 85%, bypass and return level. Moving time while playing glides
+pitch. Reverb: eight damped feedback combs and four all-pass diffusers, 0.2-8 s
+nominal decay, damping at 200-16000 Hz, bypass and return level. This is a basic
+algorithmic mono room, not convolution or a model of a named hardware unit.
+
+The signal path is now instrument effects > channel EQ/compression > track fader
+> dry sum plus shared sends/returns > project master > protective limiter > mono
+world emitter. Track meters are before master; master affects dry and wet output
+together. Existing tails can continue after muting a track; Stop fades return
+output over 10 ms, clears buffers and prevents queued tails from resurfacing.
+No render-time buffer allocations or blocking control locks are introduced.
+
+Native additions: mixer parameters `delaySend` / `reverbSend` (0-1),
+`studio:effects(values, master)` and `delayPeak` / `reverbPeak`. Global effect
+names: `delayEnabled`, `delayTime` (ms), `delayFeedback`, `delayReturn`,
+`reverbEnabled`, `reverbDecay` (seconds), `reverbDamping` (Hz), `reverbReturn`.
+Bypasses use 0/1; master is 0-1. Return meters are before master and spatial gain.
+
+Late listeners receive settings and seek the current native score; delay/reverb
+history is rebuilt from subsequent notes. Existing wet buffers are not transferred
+across the network. Stereo output, tempo-synced delay divisions, auxiliary group
+buses, automation and physical instrument routing remain later slices.

@@ -3,6 +3,7 @@ local util=require('openmw.util')
 local async=require('openmw.async')
 local input=require('openmw.input')
 local I=require('openmw.interfaces')
+local Dropdown=require('scripts.multiplayer.fetcher.procedural-synth.client.dropdown')
 local Window=require('scripts.multiplayer.fetcher.procedural-synth.client.window')
 local Controls=require('scripts.multiplayer.fetcher.procedural-synth.client.controls')
 local schema=require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -69,6 +70,7 @@ function E:note(note,on,velocity)
     elseif not on and self.held[note] then self.held[note]=nil; self.cb.noteOff(note) end
 end
 function E:key(code,on)
+    if self.dropdown then if code==input.KEY.Escape and on then Dropdown.close(self) end;return end
     if code==input.KEY.Escape and on then (self.cb.hide or self.cb.close)(); return end
     if on and input.isCtrlPressed and input.isCtrlPressed() then return end
     if on and (self.typing or I.UI.getMode()~='Interface') then return end
@@ -160,6 +162,7 @@ function E.new(params,cb)
     self:render();I.UI.addMode('Interface',{windows={}});return self
 end
 function E:render()
+    Dropdown.close(self)
     self:releaseAll()
     self.controlEpoch=(self.controlEpoch or 0)+1
     if self.root then self.root:destroy() end
@@ -180,6 +183,10 @@ function E:render()
         content[#content+1]=self:button('Stop',530,14,64,cb.midiStop)
         self.midiLabel=self:element(label(cb.midiLabel(),360,46,w-390,12,colors.accent))
         content[#content+1]=self.midiLabel
+        content[#content+1]=self:button('MIDI list v',350,44,95,function()
+            if cb.midiChoices then Dropdown.open(self,cb.midiChoices(),cb.midiSelected(),cb.midiSelect,30,76,850) end
+        end)
+        self.midiLabel.layout.props.position=v(452,48);self.midiLabel.layout.props.size=v(450,20);self.window:update(self.midiLabel)
     end
     self.nameElement=self:element{type=ui.TYPE.TextEdit,props={position=v(20,72),size=v(215,28),text=self.name,textSize=15,textColor=colors.accent},
         events={textChanged=callback(function(text) self.name=text:sub(1,64) end),
@@ -193,7 +200,14 @@ function E:render()
         {'Delete',function() cb.command('delete',{presetId=self.selected}) end},
         {'Reset',function() cb.command('reset') end}}
     for n,c in ipairs(commands) do content[#content+1]=self:button(c[1],245+(n-1)*math.floor((w-270)/6),72,math.floor((w-285)/6),c[2]) end
-    self.selection=self:element(label('Choose a preset',60,111,320,14,colors.accent)); content[#content+1]=self.selection
+    self.selection=self:element(label('Choose a preset',60,111,300,14,colors.accent)); content[#content+1]=self.selection
+    local presetBox=rect(54,107,328,28,colors.track);presetBox.content=ui.content{self.selection,label('v',310,5,14,12)}
+    -- selection has coordinates relative to the selector background.
+    self.selection.layout.props.position=v(6,4);self.window:update(self.selection)
+    presetBox.events={mouseClick=callback(function()
+        local choices={};for _,p in ipairs(self.entries) do choices[#choices+1]={id=p.id,label=p.name,search=p.name..' '..(p.bank or '')..' '..(p.role or '')} end
+        Dropdown.open(self,choices,self.selected,function(id) self.selected=id;self.cb.command('load',{presetId=id});self:refreshName() end,54,139,620)
+    end)};content[#content]=presetBox
     local function cycle(step)
         local index=0
         for n,p in ipairs(self.entries) do if p.id==self.selected then index=n end end
@@ -265,13 +279,14 @@ function E:render()
     content[#content+1]=label('Click values to type. Enter applies. +/- adjusts. Shift = fine.',30,518,870,10,colors.muted)
     self.plot=self:element{type=ui.TYPE.Widget,props={position=v(20,537),size=v(w-40,84)},content=ui.content{}}
     content[#content+1]=self.plot; self:plots()
-    local names={'C','C#','D','D#','E','F','F#','G','G#','A','A#','B','C'}
-    local keyWidth=(w-40)/13
-    for n,name in ipairs(names) do
+    local names={'C','C#','D','D#','E','F','F#','G','G#','A','A#','B'}
+    local keyWidth=(w-40)/25
+    for n=1,25 do
+        local name=names[(n-1)%12+1];if name=='C' then name=name..(4+math.floor((n-1)/12)) end
         local black=name:find('#')~=nil
         local key=rect(20+(n-1)*keyWidth,625,keyWidth-3,black and 42 or 56,
             black and colors.track or util.color.rgb(0.72,0.76,0.8))
-        key.content=ui.content{label(name,8,10,keyWidth-8,14,black and colors.text or colors.bg)}
+        key.content=ui.content{label(name,3,10,keyWidth-4,12,black and colors.text or colors.bg)}
         key.events={mousePress=callback(function(e)
                 if e.button==1 then
                     self.mouseNote=59+n
@@ -292,6 +307,7 @@ function E:frame(now)
     self.lastFrameTime=now
     if self.drums~=(self.params.drumType>0) or self.instrument~=self.params.instrumentType then self:render() end
     self.window:frame(self)
+    Dropdown.frame(self)
     if I.UI.getMode()~='Interface' then (self.cb.hide or self.cb.close)(); return end
     if self.mouseNote and not input.isMouseButtonPressed(1) then self:note(self.mouseNote,false); self.mouseNote=nil end
     if now-self.lastMeter>0.1 then
@@ -303,6 +319,7 @@ function E:frame(now)
     end
 end
 function E:destroy()
+    Dropdown.close(self)
     self.uiClosed=true
     self:releaseAll()
     self.root:destroy()

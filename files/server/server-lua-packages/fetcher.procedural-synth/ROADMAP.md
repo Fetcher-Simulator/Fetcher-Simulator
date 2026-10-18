@@ -102,11 +102,19 @@ late listeners remain future work. Current output is the placed keyboard's mono
 spatial emitter; each lane's instrument/effects identity is preserved for later
 physical destination routing.
 
+## Completed slice: two-octave audition and shared returns
+
+- Expand the synth keyboard to C4-C6 (25 chromatic keys) in the same width.
+- Searchable dropdowns with draggable scrollbar and wheel scrolling for MIDI
+  files and sound presets in Synth and Studio.
+- Shared native delay/reverb, per-lane post-fader sends, saved return controls,
+  post-return master volume, network state/late join, undo/redo and Stop cleanup.
+
 ## Following slices
 
-1. Mixer expansion: shared delay/reverb sends, buses, stereo/pan where routing
-   allows it, and explicit routing to physical world emitters. Per-track EQ,
-   compression, bypass and peak/RMS/gain-reduction meters are implemented.
+1. Mixer expansion: instrument/group buses, stereo/pan where routing allows it,
+   and explicit routing to physical world emitters. Shared delay/reverb sends,
+   per-track EQ/compression and source meters are implemented.
 2. Song editing: editable imported MIDI, note selection/drag/resize/copy,
    recording, arrangement clips and automation using the native clock.
 3. Project library, autosave/recovery, sample instruments and audio export.

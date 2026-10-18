@@ -13,11 +13,12 @@ namespace MWSound
     {
     public:
         struct Parameter { const char* name; float min, max, initial; };
-        inline static constexpr std::array<Parameter, 12> Parameters{{
+        inline static constexpr std::array<Parameter, 14> Parameters{{
             {"eqEnabled",0,1,0}, {"highpass",20,1000,20},
             {"bass",-18,18,0}, {"mid",-18,18,0}, {"midFrequency",200,6000,1000}, {"treble",-18,18,0},
             {"compEnabled",0,1,0}, {"threshold",-60,0,-18}, {"ratio",1,20,4},
-            {"attack",0.1f,200,10}, {"release",10,2000,150}, {"makeup",0,24,0}
+            {"attack",0.1f,200,10}, {"release",10,2000,150}, {"makeup",0,24,0},
+            {"delaySend",0,1,0}, {"reverbSend",0,1,0}
         }};
         using State = std::array<float, Parameters.size()>;
         static State defaults() { State s{}; for (unsigned i=0;i<s.size();++i) s[i]=Parameters[i].initial; return s; }
@@ -60,6 +61,8 @@ namespace MWSound
             value*=std::pow(10.0, (mState[11]-reduction)*mState[6]/20)*mLevel;
             return static_cast<float>(value);
         }
+        float delaySend() const {return static_cast<float>(mState[12]);}
+        float reverbSend() const {return static_cast<float>(mState[13]);}
         float reduction() const { return mReduction; }
     private:
         struct Biquad
@@ -99,7 +102,7 @@ namespace MWSound
             mAttack=std::exp(-1/(48*mState[9]));mRelease=std::exp(-1/(48*mState[10]));
         }
         State mTarget=defaults();
-        std::array<double,12> mState{{0,20,0,0,1000,0,0,-18,4,10,150,0}};
+        std::array<double,14> mState{{0,20,0,0,1000,0,0,-18,4,10,150,0,0,0}};
         std::array<Biquad,4> mFilters{};
         double mEnvelope=0,mAttack=0.99,mRelease=0.999,mLevel=1,mLevelTarget=1;
         unsigned mCounter=0;

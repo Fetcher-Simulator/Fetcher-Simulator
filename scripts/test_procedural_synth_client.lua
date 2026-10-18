@@ -14,7 +14,7 @@ package.loaded[prefix..'shared.schema']=schema
 package.loaded[prefix..'shared.sequence']=dofile(root..'shared/sequence.lua')
 package.loaded[prefix..'client.transport']=dofile(root..'client/transport.lua')
 package.loaded[prefix..'shared.project']=dofile(root..'shared/project.lua')
-package.loaded['openmw.util']={vector2=vector,color={rgb=function(...) return {...} end}}
+package.loaded['openmw.util']={vector2=vector,color={rgb=function(...) return {...} end,rgba=function(...) return {...} end}}
 package.loaded['openmw.util'].vector3=function(x,y,z) return {x=x,y=y,z=z} end
 package.loaded['openmw.animation']={}
 package.loaded['openmw.types']={}
@@ -63,6 +63,7 @@ package.loaded['openmw.synth'].setMonitorVolume=function(value) monitor=value en
 package.loaded[prefix..'client.window']=dofile(root..'client/window.lua')
 package.loaded[prefix..'client.workstation']=dofile(root..'client/workstation.lua')
 package.loaded[prefix..'client.controls']=dofile(root..'client/controls.lua')
+package.loaded[prefix..'client.dropdown']=dofile(root..'client/dropdown.lua')
 local Studio=dofile(root..'client/studio.lua')
 local lastStudio
 local newStudio=Studio.new
@@ -110,11 +111,33 @@ local e=Editor.new(schema.state({}),{noteOff=function() released=true end,noteOn
     command=function() end,close=function() end,meter=function() return 0,0 end})
 local controls=0; for name in pairs(e.controls) do controls=controls+1;check(schema.specs[name]~=nil) end
 check(controls==29,'all synth parameters including envelope curve editable')
-local firstPianoKey=e.root.layout.content[#e.root.layout.content-12]
+local firstPianoKey=e.root.layout.content[#e.root.layout.content-24]
 firstPianoKey.events.mousePress{button=1,offset=vector(10,56)}
 check(mouseVelocity==1,'piano press position controls velocity')
 e:frame(200)
 check(released and not e.mouseNote,'mouse release outside the piano stops its note')
+local lastPianoKey=e.root.layout.content[#e.root.layout.content]
+local upperNote;e.cb.noteOn=function(note) upperNote=note end
+lastPianoKey.events.mousePress{button=1,offset=vector(10,56)};lastPianoKey.events.mouseRelease()
+check(upperNote==84,'two-octave keyboard reaches closing C6')
+local Dropdown=package.loaded[prefix..'client.dropdown'];local choices={}
+for n=1,512 do choices[n]={id=n,label='Song '..n,search='folder/song '..n} end
+local picked;local d=Dropdown.open(e,choices,nil,function(id) picked=id end,30,140,850)
+check(e.dropdown==d and e.typing,'dropdown suppresses musical typing')
+d:scrollTo(9999);check(d.offset==504,'scrollbar reaches final eight entries without paging')
+d:wheel(1);check(d.offset==501,'wheel scrolls three rows')
+d:scrollTo(-100);check(d.offset==0,'scroll position clamps at start')
+local captured=d.thumb
+d.thumb.layout.events.mousePress{button=1,offset=vector(3,8)}
+d.thumb.layout.events.mouseMove{button=1,offset=vector(3,230*e.window.scale)}
+check(d.offset>450 and d.thumb==captured,'thumb drag advances while preserving the captured widget')
+d.field.layout.events.textChanged('song 512')
+check(#Dropdown.filtered(choices,d.query)==1,'512-entry catalog filters directly')
+d.rows[1].layout.events.mouseClick()
+check(picked==512 and not e.dropdown and not e.typing,'selection closes popup and chooses exact song')
+d=Dropdown.open(e,choices,nil,function() end,30,140,850);d.field.layout.events.textChanged('[')
+check(#Dropdown.filtered(choices,d.query)==0,'search treats pattern characters literally')
+e:key(input.KEY.Escape,true);check(not e.dropdown and mode=='Interface','Escape dismisses dropdown before hiding window')
 local Controls=package.loaded[prefix..'client.controls']
 check(Controls.parse('150 ms',{min=0.002,max=5,unit='s'})==0.15,'numeric fields accept milliseconds')
 check(Controls.parse('150',{min=0.002,max=5,unit='s'})==0.15,'bare time values use displayed milliseconds')
@@ -201,7 +224,7 @@ browser=Editor.new(schema.state({}),{noteOff=function() previewOffs=previewOffs+
 browser.bank='Guitar';browser.page='presets';browser:catalog(schema.builtins)
 local function browserButton(title)
     for _,item in ipairs(browser.root.layout.content) do
-        if item.content and item.content[1] and item.content[1].props.text==title then return item end
+        if item.content and item.content[1] and item.content[1].props and item.content[1].props.text==title then return item end
     end
     error('Missing browser button: '..title)
 end
@@ -301,10 +324,11 @@ for step=1,21 do
 end
 check(not api.status()[1].midi and audios[#audios].voices==0,'hidden MIDI reaches end and releases notes')
 check(api.show(),'explicit show reopens session')
+check(lastEditor.cb.midiChoices()[1].label=='test' and lastEditor.cb.midiChoices()[1].id==virtualPath,'MIDI list shows only the song name while preserving its loading path')
 check(api.playMidi(virtualPath));player.engineHandlers.onFrame(0.01)
 local finish
 for _,element in ipairs(lastEditor.root.layout.content) do
-    if element.content and element.content[1] and element.content[1].props.text=='Finish' then finish=element end
+    if element.content and element.content[1] and element.content[1].props and element.content[1].props.text=='Finish' then finish=element end
 end
 check(finish~=nil,'Finish control is available')
 finish.events.mouseClick()
@@ -322,7 +346,7 @@ api.studio();local w=api.workstation()
 check(lastStudio and lastStudio.kind=='studio' and mode=='Interface','studio opens from synth without releasing session')
 local function button(text)
     for _,element in ipairs(lastStudio.root.layout.content) do
-        if element.content and element.content[1] and element.content[1].props.text==text then return element end
+        if element.content and element.content[1] and element.content[1].props and element.content[1].props.text==text then return element end
     end
     error('Missing button '..text)
 end
