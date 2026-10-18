@@ -4,7 +4,7 @@ local Sequence=dofile(root..'shared/sequence.lua');package.loaded[prefix..'share
 local T=dofile(root..'client/transport.lua');local now=100;local requests,messages,starts,replacements={},{},{},{}
 local function check(ok,msg) assert(ok,msg) end
 local engine={createStudio=function()
-    return {closed=false,playing=false,position=0,fault=0,strikes=0,configure=function() return true end,
+    return {closed=false,playing=false,position=0,fault=0,strikes=0,configure=function() return true end,mixer=function() return true end,
         loadScore=function(_,bytes,length,loop) return Sequence.validate(bytes,length,loop) end,
         start=function(self,delay,offset) starts[#starts+1]={delay,offset};self.playing=true;return true end,
         replace=function(_,delay) replacements[#replacements+1]=delay;return true end,
@@ -19,6 +19,7 @@ local plan=Sequence.compile(p,nil,nil,'clips');local i={id=7,epoch=1,seen=100,so
 function i.workstation:stop() self.stopped=true;transport:stop(i,function(op,args) requests[#requests+1]={op=op,playId=args.playId} end) end
 local instances={[7]=i};local function send(op,args) args.op=op;requests[#requests+1]=args end
 check(transport:queue(i,plan,false,send),'queue starts upload and reserves native tracks')
+i.pendingChannels={[1]={}};transport:frame(instances);check(i.upload.offset==1,'score waits for pending channel settings');i.pendingChannels={}
 now=100.02;transport:receive({op='clock',sent=100,serverTime=50.01},instances)
 check(math.abs(transport.offset+50)<0.000001,'clock estimate subtracts half RTT')
 transport:frame(instances);check(requests[#requests].op=='scoreCommit','bounded chunks commit only after complete upload')

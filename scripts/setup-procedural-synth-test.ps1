@@ -9,12 +9,13 @@ param(
     [switch] $DrumProbe,
     [switch] $GuitarProbe,
     [switch] $TimingProbe,
+    [switch] $MixerProbe,
     [switch] $VanillaSynth,
     [switch] $ResetStage,
     [string] $BardcraftDataDirectory
 )
 $ErrorActionPreference = 'Stop'
-if ($MidiProbe -or $DawProbe -or $DrumProbe -or $GuitarProbe -or $TimingProbe) { $LiveProbe = $true }
+if ($MidiProbe -or $DawProbe -or $DrumProbe -or $GuitarProbe -or $TimingProbe -or $MixerProbe) { $LiveProbe = $true }
 function Write-Utf8 {
     param([string] $Path, [object] $Value)
     [System.IO.File]::WriteAllText($Path, ([string[]]$Value -join "`n"), [System.Text.UTF8Encoding]::new($false))
@@ -102,7 +103,7 @@ Copy-Item -LiteralPath "$repo\files\server\server-lua-packages\fetcher.procedura
 $probe = Join-Path $fixture 'server-lua-packages\fetcher.synth-live-test'
 if ($LiveProbe) {
     New-Item -ItemType Directory -Force -Path $probe | Out-Null
-    $probeFile = if ($TimingProbe) { 'timing-player.lua' } elseif ($GuitarProbe) { 'guitar-player.lua' } elseif ($DrumProbe) { 'drum-player.lua' } elseif ($DawProbe) { 'daw-player.lua' } elseif ($MidiProbe) { 'midi-player.lua' } else { 'live-player.lua' }
+    $probeFile = if ($MixerProbe) { 'mixer-player.lua' } elseif ($TimingProbe) { 'timing-player.lua' } elseif ($GuitarProbe) { 'guitar-player.lua' } elseif ($DrumProbe) { 'drum-player.lua' } elseif ($DawProbe) { 'daw-player.lua' } elseif ($MidiProbe) { 'midi-player.lua' } else { 'live-player.lua' }
     Copy-Item -LiteralPath "$PSScriptRoot\procedural-synth-tests\$probeFile" -Destination "$probe\player.lua" -Force
     Write-Utf8 -Path "$probe\manifest.yaml" -Value @'
 manifestVersion: 3

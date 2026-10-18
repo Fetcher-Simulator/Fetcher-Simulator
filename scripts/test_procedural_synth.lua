@@ -241,4 +241,22 @@ test('malformed and unauthorized native uploads preserve the running score',func
     request('scoreChunk',{playId=1,index=1,bytes=string.rep('\0',11)});request('scoreCommit',{playId=1})
     check(sent[#sent].data.op=='scoreError','invalid binary note controls are rejected before relay')
 end)
+test('mixer migration, persistence, ownership and late listener state',function()
+    local f=require('procedural_synth_project')(schema);local p=f.new();p.tracks[1]=f.newTrack('piano','Mix test',16)
+    p.tracks[1].mixer=nil
+    local old=f.project(p);check(old.tracks[1].mixer.eqEnabled==0 and old.tracks[1].mixer.compEnabled==0,'old projects migrate to bypass')
+    local m=f.mixer();m.eqEnabled=1;m.highpass=180;m.mid=-4;m.compEnabled=1;m.threshold=-26;m.ratio=6
+    check(not f.mixer({attack=0}) and not f.mixer({unknown=1}) and not f.mixer({eqEnabled=0.5}) and not f.mixer({makeup=math.huge}),'malformed mixer controls rejected')
+    p.tracks[1].mixer=m;acquire();request('dawSave',{project=p});request('channel',{channel=1,params={},level=0.8,mixer=m})
+    check(storage['project:11'].tracks[1].mixer.threshold==-26,'mixer stored with character project')
+    local before=#sent;request('channel',{pid=2,channel=1,params={},level=1,mixer={bass=18}});check(#sent==before,'observer cannot edit owner mixer')
+    for _,bad in ipairs{{ratio=0},{attack=0/0},{eqEnabled=0.5},{unknown=1},'invalid'} do
+        request('channel',{channel=1,params={},level=1,mixer=bad})
+    end
+    check(#sent==before,'bad strip cannot replace active channel')
+    players[3].cell='INT:A';request('sync',{pid=3})
+    check(sent[#sent].data.channels[1].mixer.highpass==180 and sent[#sent].data.channels[1].mixer.ratio==6,'late snapshot includes full mixer')
+    local persisted=copy(storage);reset(persisted);sequence=0;acquire();request('dawLoad')
+    check(sent[#sent].data.project.tracks[1].mixer.mid==-4,'strip survives server restart')
+end)
 print(string.format('%d tests, %d assertions passed',tests,checks))

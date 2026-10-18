@@ -2,6 +2,7 @@
 #define OPENMW_MWSOUND_PROCEDURALSTUDIO_H
 
 #include "proceduralsynth.hpp"
+#include "proceduralmixer.hpp"
 #include <vector>
 
 namespace MWSound
@@ -10,7 +11,14 @@ namespace MWSound
     class ProceduralStudio final : public ProceduralAudio
     {
     public:
-        ProceduralStudio() { for (auto& track : mTracks) track = nullptr; for (auto& lane : mNoteBits) for (auto& bits : lane) bits = 0; keepAlive(); }
+        ProceduralStudio()
+        {
+            for (auto& track : mTracks) track = nullptr;
+            for (auto& lane : mNoteBits) for (auto& bits : lane) bits = 0;
+            for (auto& state : mMixerTarget) state = ProceduralMixer::defaults();
+            for (unsigned n=0;n<MaxTracks;++n) { mLanePeak[n]=0; mRms[n]=0; mReduction[n]=0; }
+            keepAlive();
+        }
         static constexpr unsigned MaxTracks = 16, MaxNotes = 60000, MaxActive = 4096;
         static constexpr std::uint32_t MaxFrames = 48000 * 1800;
         struct Note
@@ -26,6 +34,11 @@ namespace MWSound
         };
         bool configure(unsigned track, const ProceduralSynth::State& state, float level);
         bool hasTrack(unsigned track) const;
+        bool mixer(unsigned track, const ProceduralMixer::State& state);
+        float trackRms(unsigned n) const { return hasTrack(n) ? mRms[n-1].load() : 0; }
+        float trackReduction(unsigned n) const { return hasTrack(n) ? mReduction[n-1].load() : 0; }
+        float masterRms() const { return mMasterRms; }
+        float mixPeak() const { return mMixPeak; }
         bool set(unsigned track, std::string_view name, float value);
         bool noteOn(unsigned track, int note, float velocity);
         bool noteOff(unsigned track, int note);
@@ -64,6 +77,14 @@ namespace MWSound
         std::array<std::array<unsigned, 128>, MaxTracks> mHeld{};
         std::array<std::array<std::atomic<std::uint64_t>, 2>, MaxTracks> mNoteBits{};
         std::array<unsigned, MaxTracks> mGeneration{};
+        std::array<ProceduralMixer, MaxTracks> mMixer{};
+        std::array<ProceduralMixer::State, MaxTracks> mMixerTarget{};
+        std::array<float, MaxTracks> mLevelTarget{};
+        std::array<bool, MaxTracks> mMixerDirty{};
+        std::array<std::atomic<float>, MaxTracks> mLanePeak{}, mRms{}, mReduction{};
+        std::array<double, MaxTracks> mPower{};
+        std::atomic<float> mMasterRms{0}, mMixPeak{0};
+        double mMasterPower=0;
         std::array<Off, MaxActive> mOffs{};
         std::size_t mOffCount = 0, mIndex = 0;
         std::uint64_t mTime = 0, mCycle = 0, mDelay = 0;

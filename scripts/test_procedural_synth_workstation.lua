@@ -13,7 +13,7 @@ local events,config,messages,saved={},{},{},nil
 local function copy(t) if type(t)~='table' then return t end;local out={};for k,v in pairs(t) do out[k]=copy(v) end;return out end
 local w=Workstation.new{
     currentParams=function() return schema.state({wave1=2}) end,
-    configure=function(n,p,level) config[n]={params=copy(p),level=level} end,
+    configure=function(n,p,level,mixer) config[n]={params=copy(p),level=level,mixer=copy(mixer)} end,
     on=function(lane,note,velocity) events[#events+1]={'on',lane,note,velocity} end,
     off=function(lane,note) events[#events+1]={'off',lane,note} end,
     panic=function() events[#events+1]={'panic'} end,
@@ -153,3 +153,13 @@ check(h.project.tracks[1].params.instrumentType==1 and h.project.tracks[1].param
 h.project.tracks[1].params.drive=30;h:touch('sound:drive');h:undo()
 check(h.project.tracks[1].params.drive==22,'effects edits participate in project undo')
 print('PASS DAW clips, drum swing, piano durations, mix, multitimbral MIDI, persistence and validation; '..checks..' assertions')
+
+local mix=Workstation.new{configure=function(n,p,l,m) config[n]={mixer=copy(m)} end,message=function() end,panic=function() end}
+mix:add('piano');mix.wall=10
+check(mix:setMixer(1,'bass',6) and config[1].mixer.bass==6,'strip config passed independently of patch')
+check(mix:undo() and mix.project.tracks[1].mixer.bass==0,'strip undo restores state')
+check(mix:redo() and mix.project.tracks[1].mixer.bass==6,'strip redo restores state')
+check(mix:preset(1,'b:guitar-clean') and mix.project.tracks[1].mixer.bass==6,'loading sound preserves mix')
+check(not mix:setMixer(1,'ratio',0) and not mix:setMixer(1,'eqEnabled',0.5),'invalid strip edit rejected')
+local doc=format.project(mix.project);check(doc.tracks[1].mixer.bass==6,'project serialization includes mix')
+print('PASS mixer patch independence, validation, project round trip, undo and redo')

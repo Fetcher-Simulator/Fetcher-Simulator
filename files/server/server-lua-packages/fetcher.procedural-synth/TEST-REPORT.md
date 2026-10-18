@@ -476,3 +476,48 @@ all 436 custom MIDI files are checked against source SHA-256 hashes.
 This milestone does not add separate physical instrument destinations, stereo
 mixing/sends, recording, arrangement automation, held-note reconstruction on late
 join or long-term device-clock correction. Those remain on the roadmap.
+
+
+## 2026-10-18 - native channel mixer (API 7 / package 8)
+
+Implemented a native mono channel strip for each of the 16 Studio lanes, with
+EQ/compressor bypass, project snapshots, undo/redo and listener replication.
+No production deployment was performed.
+
+Validation:
+
+- Full RelWithDebInfo OpenMW client build and standalone CTest: PASS.
+- Native mixer: sample-exact default bypass, fresh muted-lane silence, high-pass
+  rejection/passband, shelf response and mid cut. Analytical 4:1 compression
+  settles at 15 dB reduction for a 0 dB constant input / -20 dB threshold;
+  attack, release recovery, makeup, bypass and exact final mute: PASS.
+- Extreme EQ/compressor settings remain finite across 16 strips. An isolated
+  16-strip benchmark took about 0.023 seconds per second of PCM on this machine;
+  this excludes voice synthesis, OpenAL and game rendering.
+- Native Studio PCM remains identical at 137- and 480-frame render sizes with
+  EQ/compression active; lane/master meters and invalid native settings: PASS.
+- Server Lua: 17 tests / 224 assertions, including old-document bypass defaults,
+  malformed mixer rejection, owner checks, per-character persistence, restart and
+  late snapshots. Client/editor/UI harness: 5558 assertions. Workstation: previous
+  82 assertions plus mixer patch-independence, round trip, undo/redo and bounds.
+  Native sequence/compiler 21, MIDI 26 and arm geometry 16 assertions: PASS.
+- Transport harness: pending channel settings delay score upload until complete;
+  clock/start/replace/late-join/Stop checks remain passing.
+
+Local two-client test on port 25567:
+
+- Synth A saved/reloaded a five-lane project with active EQ/compression and
+  exercised undo/redo; native track/master RMS and compressor reduction were live.
+- Synth B joined the running loop and received the same saved controls and
+  active compressor. An 80-step bass edit reached its final -5 dB value on B.
+- Both clients continued playing and then released all voices after Stop.
+- First probe attempt checked reduction during detector startup; the probe was
+  corrected to wait for active reduction. The complete repeated run passed.
+- Processor and main mixer pages were inspected in the running native client at
+  the existing 196% GUI scale. Controls, units, bypasses and meter text fit.
+
+Evidence is private to the isolated fixture's evidence/mixer-milestone directory.
+Original character project/preset rows are restored after the probe; MIDI assets,
+monitor preferences and world placement are preserved. This validates source PCM
+and local software behavior, not measured sound-card output, transparent dynamics
+at every setting, or hardware synchronization between clients.

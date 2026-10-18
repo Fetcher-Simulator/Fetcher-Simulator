@@ -5,6 +5,7 @@ local input=require('openmw.input')
 local I=require('openmw.interfaces')
 local Controls=require('scripts.multiplayer.fetcher.procedural-synth.client.controls')
 local schema=require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
+local Project=require('scripts.multiplayer.fetcher.procedural-synth.shared.project')(schema)
 local Window=require('scripts.multiplayer.fetcher.procedural-synth.client.window')
 local S={};S.__index=S
 local v=util.vector2
@@ -60,9 +61,10 @@ function S:mixer(content)
             content[#content+1]=self:button('M',650,y,30,function() w:setTrack(index,'mute',not t.mute) end,t.mute)
             content[#content+1]=self:button('S',686,y,30,function() w:setTrack(index,'solo',not t.solo) end,t.solo)
             content[#content+1]=self:button('Sound',726,y,57,function() self.cb.sound(index) end)
-            content[#content+1]=self:button('Roll',790,y,45,function() w.selected=index;w.page='piano';w.bar=0;w.revision=w.revision+1 end)
+            content[#content+1]=self:button('Mix',790,y,45,function() w.selected=index;w.page='channel';w.revision=w.revision+1 end)
             content[#content+1]=self:button('Del',843,y,42,function() w:remove(index) end)
             local meter=self:element(rect(295,y+31,1,3,c.accent));content[#content+1]=meter;self.meters[index]=meter
+            local text=self:element(label('',546,y+29,340,10,c.muted));self.meterLabels[index]=text;content[#content+1]=text
         end
     end
     content[#content+1]=self:button('+ Piano clip',20,578,120,function() if w:add('piano') then w.page='piano' end end)
@@ -73,7 +75,43 @@ function S:mixer(content)
     content[#content+1]=self:button('Tracks 9-16',740,578,120,function() w.mixerPage=1;w.revision=w.revision+1 end,page==1)
     local t=p.tracks[w.selected]
     content[#content+1]=label(t and ('Selected: '..t.name..'  |  Output: keyboard in the world') or 'Import MIDI to list its parts, or add piano and drum tracks.',20,623,870,14,c.accent)
-    content[#content+1]=label('Each part has its own sound and level. M = mute, S = solo. Sound opens that track in the synth editor.',20,653,880,12,c.muted)
+    self:addMasterMeter(content,650)
+end
+local function db(value) return value>0.00001 and string.format('%.1f',20*math.log(value)/math.log(10)) or '-inf' end
+function S:addMasterMeter(content,y)
+    local text=self:element(label('',20,y,890,12,c.accent));self.meterLabels[0]=text;content[#content+1]=text
+end
+function S:channel(content)
+    local w=self.w;local t=w.project.tracks[w.selected]
+    content[#content+1]=self:button('< track',20,169,75,function() self:select(-1) end)
+    content[#content+1]=label(t and ('MIX / '..t.name) or 'Select a track in Mixer',110,174,470,16,c.accent)
+    content[#content+1]=self:button('track >',610,169,75,function() self:select(1) end)
+    content[#content+1]=self:button('Back to mixer',710,169,175,function() w.page='mixer';w.revision=w.revision+1 end)
+    if not t then return end
+    local m=t.mixer or Project.mixer();t.mixer=m
+    for n,entry in ipairs{{'EQ','eqEnabled',20},{'Compressor','compEnabled',475}} do
+        local title,key,x=entry[1],entry[2],entry[3]
+        content[#content+1]=label(title,x,218,260,18,c.accent)
+        content[#content+1]=self:button(m[key]==1 and 'On' or 'Bypassed',x+290,212,120,function()
+            w:setMixer(w.selected,key,1-m[key]);w.revision=w.revision+1
+        end,m[key]==1)
+    end
+    local controls={
+        {'highpass','High-pass (Hz)',20,260,'Hz',true,1}, {'bass','Bass shelf / 120 Hz (dB)',20,321,'dB',false,0.1},
+        {'mid','Mid bell (dB)',20,382,'dB',false,0.1}, {'midFrequency','Mid frequency (Hz)',20,443,'Hz',true,10},
+        {'treble','Treble shelf / 6 kHz (dB)',20,504,'dB',false,0.1},
+        {'threshold','Threshold (dB)',475,260,'dB',false,0.1}, {'ratio','Ratio',475,321,'',true,0.1},
+        {'attack','Attack (ms)',475,382,'ms',true,0.1}, {'release','Release (ms)',475,443,'ms',true,1},
+        {'makeup','Makeup gain (dB)',475,504,'dB',false,0.1}}
+    for _,entry in ipairs(controls) do
+        local key,title,x,y,unit,log,step=entry[1],entry[2],entry[3],entry[4],entry[5],entry[6],entry[7];local spec=Project.mixerSpecs[key]
+        content[#content+1]=Controls.slider(self,'mix:'..key,title,{min=spec[1],max=spec[2],unit=unit,log=log,step=step},
+            function() return t.mixer[key] end,function(value) w:setMixer(w.selected,key,value) end,x,y,410)
+    end
+    local text=self:element(label('',20,566,865,14,c.accent));self.meterLabels[w.selected]=text;content[#content+1]=text
+    content[#content+1]=label('Instrument + effects > EQ > compressor > track / master level > keyboard output',20,607,890,13,c.muted)
+    content[#content+1]=label('Bypass preserves settings. Peak / RMS are dBFS; GR shows compressor reduction in dB.',20,630,890,12,c.muted)
+    self:addMasterMeter(content,655)
 end
 function S:piano(content)
     local w,p=self.w,self.w.project;local t=p.tracks[w.selected]
@@ -165,7 +203,7 @@ function S:render()
     self.typing=false
     if self.root then self.root:destroy() end
     for _,e in ipairs(self.children) do e:destroy() end
-    self.children={};self.meters={};self.playhead=nil;self.grid=nil
+    self.children={};self.meters={};self.meterLabels={};self.playhead=nil;self.grid=nil
     local w,p=self.w,self.w.project;local content={label('OPENMW / STUDIO',20,13,275,21)}
     local tabs={{'Synth',self.cb.synth},{'Mixer',function() w.page='mixer';w.revision=w.revision+1 end},
         {'Piano',function() w.page='piano';w.revision=w.revision+1 end},{'Drums',function() w.page='drums';w.revision=w.revision+1 end}}
@@ -193,7 +231,7 @@ function S:render()
     content[#content+1]=label(self.cb.midiLabel(),374,117,347,12,c.muted)
     content[#content+1]=self:button('MIDI >',726,112,65,function() self.cb.cycleMidi(1);w.revision=w.revision+1 end)
     content[#content+1]=self:button('Import',803,112,92,self.cb.import)
-    if w.page=='piano' then self:piano(content) elseif w.page=='drums' then self:drums(content) else self:mixer(content) end
+    if w.page=='piano' then self:piano(content) elseif w.page=='drums' then self:drums(content) elseif w.page=='channel' then self:channel(content) else self:mixer(content) end
     self.root=self.window:root(content);self.revision=w.revision
 end
 function S.new(workstation,callbacks)
@@ -215,7 +253,14 @@ function S:frame(now)
     if now-self.lastFrame<0.1 then return end;self.lastFrame=now
     self.transport.layout.props.text=string.format('%s  |  %.1fs  |  Beat %.1f  |  %s%s',self.w.awaiting and 'BUFFER' or (self.w.playing and 'PLAY' or 'STOP'),self.w.time,self.w.beat+1,self.w.project.name,self.w.dirty and ' *' or '')
     self.window:update(self.transport)
-    for lane,meter in pairs(self.meters) do meter.layout.props.size=v(math.max(1,220*self.w.cb.meter(lane)),3);self.window:update(meter) end
+    for lane,meter in pairs(self.meters) do meter.layout.props.size=v(math.max(1,220*math.max(0,math.min(1,(20*math.log(math.max(0.001,self.w.cb.meter(lane)))/math.log(10)+60)/60))),3);self.window:update(meter) end
+    for n,text in pairs(self.meterLabels) do
+        local peak,rms,reduction=0,0,0
+        if self.w.cb.meters then peak,rms,reduction=self.w.cb.meters(n) end
+        text.layout.props.text=n==0 and string.format('MASTER  pre-limiter peak %s dBFS  |  output RMS %s dBFS%s',db(peak),db(rms),peak>1 and '  |  LIMITING - lower levels' or '')
+            or string.format('Peak %s / RMS %s dBFS  |  GR %.1f dB',db(peak),db(rms),reduction)
+        self.window:update(text)
+    end
     if self.playhead then
         self.playhead.layout.props.position=v(self.grid.x+math.max(0,self.w.step%16)*self.grid.cw,self.grid.y);self.window:update(self.playhead)
     end

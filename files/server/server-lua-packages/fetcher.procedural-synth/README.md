@@ -126,7 +126,7 @@ print(instrument.peak, instrument.voices, instrument.closed)
 instrument:close()                  -- idempotent; no further playback
 ```
 
-`synth.parameters[name]` exposes immutable `min`, `max`, `default`, `discrete` metadata. `peak` is generated PCM peak before spatial attenuation, not a microphone or final output meter. The package's optional `I.ProceduralSynth` interface exposes `status`, `noteOn`, `noteOff`, `setParameter`, `presetCommand` and `close` for other client scripts/input methods, subject to an owned editor session. Older clients without native module version 6 show a compatibility message on activation instead of acquiring a lock.
+`synth.parameters[name]` exposes immutable `min`, `max`, `default`, `discrete` metadata. `peak` is generated PCM peak before spatial attenuation, not a microphone or final output meter. The package's optional `I.ProceduralSynth` interface exposes `status`, `noteOn`, `noteOff`, `setParameter`, `presetCommand` and `close` for other client scripts/input methods, subject to an owned editor session. Older clients without native module version 7 show a compatibility message on activation instead of acquiring a lock.
 
 Interface version 4 adds `studio()`, `workstation()`, `importMidi(path)`, `saveProject()` and `loadProject()`, plus per-channel meter/parameter summaries and transport time in `status()`. Version 3 added `hide()` and `show()` and the `status().editorVisible` field; `editing` continues to mean owning the session, including while hidden. `close()` retains its original meaning of stopping playback and releasing ownership. Interface version 2 added `midiSongs()`, `playMidi(catalogPath)` and `stopMidi()`. Native `openmw.animation.boneTransformsVersion == 1` adds `getBoneNames`, `getBoneTransform`, `setBoneTransform` and `clearBoneTransform`; see `files/lua_api/openmw/animation.lua` for coordinate spaces, threading, validation and expiry. Transform reads return the matrix and a rotation-only transform, with an option to exclude scripted offsets for IK. `openmw.mp.getPlayerObject(serverGuid)` resolves the authoritative performer to the correct local/remote model in `onFrame`. These visual APIs are independent of the synthesizer. Older clients with no bone extension can still use the audio/editor, with the pose omitted.
 
@@ -334,3 +334,50 @@ patterns, MIDI references, sound snapshots and mixer settings as before.
 Use setup **-TimingProbe** only in the disposable fixture: it deliberately blocks
 Lua for 1.5 seconds while asserting that native notes and position continue,
 then exercises replacement, late listening, Stop and MIDI plus clips.
+
+
+## Studio channel mixer (API 7, package 8)
+
+Open Studio > Mixer > Mix on a track. Sound still opens the instrument editor;
+the Piano tab opens the selected track's notes. The processor page provides:
+
+- EQ bypass, 12 dB/octave high-pass (20-1000 Hz), bass shelf at 120 Hz,
+  mid bell with adjustable 200-6000 Hz center (Q 0.7), and treble shelf at 6 kHz.
+  Each EQ band has -18 to +18 dB gain.
+- Compressor bypass, threshold (-60 to 0 dB), ratio (1:1 to 20:1), attack
+  (0.1-200 ms), release (10-2000 ms) and makeup gain (0-24 dB). This is a
+  feed-forward peak compressor with a 6 dB soft knee and no look-ahead.
+- Post-fader track peak/RMS, compressor gain reduction, pre-limiter master peak
+  and output master RMS. These are generated PCM levels before local monitor
+  volume and world attenuation. Peak decay is about 300 ms; RMS averaging is
+  about 150 ms. A master peak above 0 dBFS flags excess mix level.
+
+The native C++ signal path is instrument/patch effects > channel EQ > compressor
+> track level multiplied by project master > sum > existing protective tanh
+limiter > spatial keyboard emitter. Moving a mixer fader no longer changes the
+level entering patch effects or compression. Strong old patches can therefore
+have slightly different gain staging than in earlier builds.
+
+Mixer controls and bypass transitions are smoothed; the audio callback allocates
+no strip buffers and never waits for the control mailbox. All 16 lanes stay on
+the existing native Studio clock. Manual standalone synth voices retain their
+existing instrument effects path.
+
+Each project track stores an optional `mixer` snapshot. Older version-1 projects
+default to bypassed EQ/compression. Project save/load and undo/redo include it;
+loading a sound preset preserves it. Sound presets remain instrument-only.
+The authenticated server validates and relays the settings and includes them in
+late-listener snapshots. Client changes coalesce to the latest value per lane
+with a bounded update budget; pending channel settings precede score commits.
+
+Native API additions: `studio:mixer(track, values)`, `trackRms(track)`,
+`trackReduction(track)`, `masterRms`, `mixPeak`, and read-only
+`synth.mixerParameters`. `trackPeak` is now measured after the channel strip and
+fader. Mixer table names are `eqEnabled`, `highpass`, `bass`, `mid`,
+`midFrequency`, `treble`, `compEnabled`, `threshold`, `ratio`, `attack`,
+`release`, `makeup`; times are milliseconds and bypass switches use 0/1.
+Missing controls use native defaults; native and server bounds reject invalid
+numeric states. Native synth API version 7 is required by this package.
+
+Shared delay/reverb sends, buses, stereo panning, sidechains, brickwall limiting,
+and separate physical destinations remain future mixer work.

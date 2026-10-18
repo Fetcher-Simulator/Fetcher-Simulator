@@ -20,7 +20,7 @@ namespace MWLua
                 "keepAlive", &Synth::keepAlive, "closed", sol::property(&Synth::closed), "peak",
                 sol::property(&Synth::peak), "voices", sol::property(&Synth::voices));
             sol::table api(lua, sol::create);
-            api["version"] = 6;
+            api["version"] = 7;
             using Studio = MWSound::ProceduralStudio;
             lua.new_usertype<Studio>("ProceduralStudio", sol::no_constructor,
                 "closed", sol::property(&Studio::closed), "close", &Studio::close,
@@ -33,6 +33,14 @@ namespace MWLua
                 "voices", sol::property(&Studio::voices), "strikes", sol::property(&Studio::strikes),
                 "noteOn", &Studio::noteOn, "noteOff", &Studio::noteOff,
                 "releaseTrack", &Studio::releaseTrack, "trackPeak", &Studio::trackPeak, "trackVoices", &Studio::trackVoices,
+                "trackRms", &Studio::trackRms, "trackReduction", &Studio::trackReduction,
+                "masterRms", sol::property(&Studio::masterRms), "mixPeak", sol::property(&Studio::mixPeak),
+                "mixer", [](Studio& studio, unsigned n, const sol::table& values) {
+                    MWSound::ProceduralMixer::State state;
+                    for (std::size_t i=0;i<state.size();++i)
+                        state[i]=values[MWSound::ProceduralMixer::Parameters[i].name].get_or(MWSound::ProceduralMixer::Parameters[i].initial);
+                    return studio.mixer(n,state);
+                },
                 "set", &Studio::set, "loadScore", &Studio::loadScore,
                 "notes", [lua](const Studio& studio) {
                     sol::table notes(lua, sol::create);
@@ -87,6 +95,15 @@ namespace MWLua
                 parameters[p.name] = LuaUtil::makeReadOnly(spec);
             }
             api["parameters"] = LuaUtil::makeReadOnly(parameters);
+            sol::table mixerParameters(lua, sol::create);
+            for (const auto& p : MWSound::ProceduralMixer::Parameters)
+            {
+                sol::table spec(lua, sol::create);
+                spec["min"] = p.min; spec["max"] = p.max; spec["default"] = p.initial;
+                spec["discrete"] = p.min == 0 && p.max == 1;
+                mixerParameters[p.name] = LuaUtil::makeReadOnly(spec);
+            }
+            api["mixerParameters"] = LuaUtil::makeReadOnly(mixerParameters);
             return LuaUtil::makeReadOnly(api);
         });
     }

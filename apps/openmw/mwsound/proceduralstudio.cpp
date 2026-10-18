@@ -37,9 +37,16 @@ namespace MWSound
             track = mOwnedTracks[n - 1].get();
         }
         for (std::size_t i = 0; i < state.size(); ++i)
-            track->set(ProceduralSynth::Parameters[i].name, i == 25 ? std::min(8.f, state[i]) : (i == 23 ? state[i] * level : state[i]));
+            track->set(ProceduralSynth::Parameters[i].name, i == 25 ? std::min(8.f, state[i]) : state[i]);
+        mLevelTarget[n-1]=level; mMixerDirty[n-1]=true;
         if (fresh) { std::atomic_store(&mTracks[n - 1], track); ++mTrackCount; }
         keepAlive(); return true;
+    }
+    bool ProceduralStudio::mixer(unsigned n, const ProceduralMixer::State& state)
+    {
+        if (!hasTrack(n) || closed() || !ProceduralMixer::valid(state)) return false;
+        std::lock_guard<std::mutex> lock(mControl);
+        mMixerTarget[n-1]=state; mMixerDirty[n-1]=true; return true;
     }
     bool ProceduralStudio::set(unsigned n, std::string_view name, float value)
     {
@@ -72,7 +79,7 @@ namespace MWSound
     }
     float ProceduralStudio::trackPeak(unsigned n) const
     {
-        return hasTrack(n) ? std::atomic_load(&mTracks[n - 1])->peak() : 0;
+        return hasTrack(n) ? mLanePeak[n-1].load() : 0;
     }
     unsigned ProceduralStudio::trackVoices(unsigned n) const
     {
@@ -194,6 +201,8 @@ namespace MWSound
             std::unique_lock<std::mutex> lock(mControl, std::try_to_lock);
             if (lock.owns_lock())
             {
+                for (unsigned n=0;n<MaxTracks;++n) if (mMixerDirty[n])
+                { mMixer[n].target(mMixerTarget[n],mLevelTarget[n]); mMixerDirty[n]=false; }
                 if (mStopPending || mStartPending) { clearVoices(); mPlaying = false; mStopPending = false; mReplacement.reset(); mReplacePending = false; }
                 if (mStartPending)
                 {
@@ -251,13 +260,30 @@ namespace MWSound
                 }
             }
             mixed.fill(0);
-            for (const auto& slot : mTracks)
-                if (auto track = std::atomic_load(&slot))
+            for (unsigned n=0;n<MaxTracks;++n)
+                if (auto track = std::atomic_load(&mTracks[n]))
                 {
                     track->keepAlive(); track->render(lane.data(), count);
-                    for (std::size_t i = 0; i < count; ++i) mixed[i] += lane[i];
+                    float held=mLanePeak[n];
+                    for (std::size_t i=0;i<count;++i)
+                    {
+                        const float sample=mMixer[n].process(lane[i]); mixed[i]+=sample;
+                        held=std::max(std::abs(sample),held*0.99993056f);
+                        mPower[n]+=0.00013888*(sample*sample-mPower[n]);
+                        if (mPower[n]<1e-25) mPower[n]=0;
+                    }
+                    mLanePeak[n]=held; mRms[n]=static_cast<float>(std::sqrt(mPower[n]));
+                    mReduction[n]=mMixer[n].reduction();
                 }
-            for (std::size_t i = 0; i < count; ++i) { output[done + i] = std::tanh(mixed[i]); peak = std::max(peak, std::abs(output[done + i])); }
+            float mixPeak=mMixPeak;
+            for (std::size_t i=0;i<count;++i)
+            {
+                mixPeak=std::max(std::abs(mixed[i]),mixPeak*0.99993056f);
+                output[done+i]=std::tanh(mixed[i]);peak=std::max(peak,std::abs(output[done+i]));
+                mMasterPower+=0.00013888*(output[done+i]*output[done+i]-mMasterPower);
+                if (mMasterPower<1e-25) mMasterPower=0;
+            }
+            mMixPeak=mixPeak; mMasterRms=static_cast<float>(std::sqrt(mMasterPower));
             if (mPlaying)
             {
                 if (mDelay) mDelay -= count;

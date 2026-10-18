@@ -104,10 +104,26 @@ physical destination routing.
 
 ## Following slices
 
-1. Mixer expansion: EQ, compression, delay/reverb sends, buses, useful meters and
-   explicit routing between tracks, instruments and physical world emitters.
+1. Mixer expansion: shared delay/reverb sends, buses, stereo/pan where routing
+   allows it, and explicit routing to physical world emitters. Per-track EQ,
+   compression, bypass and peak/RMS/gain-reduction meters are implemented.
 2. Song editing: editable imported MIDI, note selection/drag/resize/copy,
    recording, arrangement clips and automation using the native clock.
 3. Project library, autosave/recovery, sample instruments and audio export.
 4. Broader multiplayer synchronization: continuous drift correction, measured
    device latency, richer late-join state and further rate-budget work.
+
+
+## Completed slice: native channel mixer
+
+- Separate project mixer snapshots per lane; sound changes preserve the mix.
+- High-pass, bass/treble shelves and variable-frequency mid bell; EQ bypass.
+- Peak compressor with soft knee, threshold/ratio/attack/release/makeup and bypass.
+- Post-strip/post-fader track peak/RMS and gain reduction; pre-limiter master
+  peak, output RMS and overload indication before local/spatial volume.
+- Smoothed audio-thread DSP on the existing shared clock; faders now follow
+  patch effects and channel dynamics rather than changing instrument input gain.
+- Project migration, SQLite round trips, undo/redo, bounded coalesced network
+  settings, late-listener snapshots and two-client Stop verification.
+
+This slice does not add sends/buses or change the mono keyboard emitter.

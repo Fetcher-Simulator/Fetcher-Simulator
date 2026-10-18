@@ -17,6 +17,7 @@ end
 function T:configure(i,n)
     local c=i.channels[n]
     assert(self:studio(i):configure(n,c.params,c.level),'Native instrument budget reached (32 units). Finish another performance.')
+    assert(i.studio:mixer(n,c.mixer or {}),'Invalid mixer state')
 end
 function T:audio(i,n)
     self:configure(i,n);local studio=i.studio;local closed=false
@@ -121,7 +122,9 @@ function T:frame(instances)
         end
         if i.studio and now-i.seen<5 then i.studio:keepAlive() end
         local u=i.upload
-        if u then
+        -- Send channel settings ahead of the score: a fast edit/load can queue
+        -- more settings than one network burst permits.
+        if u and not next(i.pendingChannels or {}) then
             u.budget=math.min(8,u.budget+math.max(0,now-u.last)*32);u.last=now
             while u.budget>=1 and u.offset<=#u.plan.bytes do
                 local bytes=u.plan.bytes:sub(u.offset,u.offset+Sequence.chunkSize-1)

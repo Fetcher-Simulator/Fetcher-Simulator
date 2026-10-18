@@ -113,6 +113,7 @@ local function request(data)
         fields = fields + 1
         if fields > 14 or not text(k,24) then return end
         if type(v) == 'table' then if k=='params' then if not schema.state(v) then return end
+            elseif k=='mixer' and data.op=='channel' then if not projectFormat.mixer(v) then return end
             elseif k=='project' and data.op=='dawSave' then if not projectFormat.project(v) then return end
             else return end
         elseif type(v) == 'string' then
@@ -241,12 +242,13 @@ local function request(data)
     end
     if data.op=='channel' then
         local params=schema.state(data.params)
-        if channel==0 or not params or type(data.level)~='number' or data.level~=data.level or data.level<0 or data.level>1
+        local mixer=projectFormat.mixer(data.mixer)
+        if not mixer or channel==0 or not params or type(data.level)~='number' or data.level~=data.level or data.level<0 or data.level>1
             or not budget(data.pid,now,'channels',12,32) then return end
         params.polyphony=math.min(8,params.polyphony)
-        s.channels[channel]={params=params,level=data.level}
+        s.channels[channel]={params=params,level=data.level,mixer=mixer}
         s.revision=s.revision+1
-        nextEvent(s);broadcast(s,{op='channel',channel=channel,params=params,level=data.level},s.owner);return
+        nextEvent(s);broadcast(s,{op='channel',channel=channel,params=params,level=data.level,mixer=mixer},s.owner);return
     end
     if data.op=='dawSave' or data.op=='dawLoad' then
         if not integer(data.characterId,1,9007199254740991) or not budget(data.pid,now,'projects',0.5,2) then return end

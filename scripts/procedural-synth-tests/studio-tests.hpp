@@ -55,5 +55,13 @@ void studioTests()
     check(drain->loadScore(scoreNote(0,1000,2,67),12000,false) && drain->replace(0),"finite replacement accepted after several loop cycles");
     studioRender(*drain,48000);
     check(!drain->playing() && drain->voices()==0 && drain->activeNotes().empty(),"old cross-loop gates release even after replacement transport finishes");
+    NativeStudio mixedA,mixedB;setupStudio(mixedA);setupStudio(mixedB);
+    auto strip=MWSound::ProceduralMixer::defaults();strip[0]=strip[6]=1;strip[2]=9;strip[3]=-8;strip[7]=-40;strip[8]=8;
+    check(mixedA.mixer(1,strip) && mixedB.mixer(1,strip),"native per-lane mixer configured");
+    check(!mixedA.mixer(17,strip),"out-of-range mixer lane rejected");
+    strip[9]=0;check(!mixedA.mixer(1,strip),"invalid attack rejected without changing existing strip");
+    mixedA.loadScore(score,24000,true);mixedB.loadScore(score,24000,true);mixedA.start(0,0);mixedB.start(0,0);
+    check(studioRender(mixedA,96000,480)==studioRender(mixedB,96000,137),"active EQ/compression preserves block-independent scheduling and PCM");
+    check(mixedA.trackPeak(1)>0 && mixedA.trackRms(1)>0 && mixedA.trackReduction(1)>1 && mixedA.masterRms()>0 && mixedA.mixPeak()>0,"post-fader lane meters, gain reduction and master meters are live");
     std::cout<<"PASS native Studio block-invariant PCM, shared onsets, loop gates, seek, Stop, replacement and validation\n";
 }

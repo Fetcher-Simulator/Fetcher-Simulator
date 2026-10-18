@@ -56,7 +56,14 @@ function W:audible(index)
 end
 function W:configure(index)
     local t=self.project.tracks[index]
-    if t then self.cb.configure(index,t.params,self:audible(index) and t.level*self.project.master or 0) end
+    if t then self.cb.configure(index,t.params,self:audible(index) and t.level*self.project.master or 0,t.mixer) end
+end
+function W:setMixer(index,name,value)
+    local t=self.project.tracks[index];local spec=format.mixerSpecs[name]
+    if not t or not spec then return false end
+    local state=copy(t.mixer or format.mixer());state[name]=value
+    state=format.mixer(state);if not state then return false end
+    t.mixer=state;self:configure(index);self:touch('mixer:'..index..':'..name,true);return true
 end
 function W:configureAll()
     for n in ipairs(self.project.tracks) do self:configure(n) end
