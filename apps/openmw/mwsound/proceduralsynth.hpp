@@ -23,7 +23,7 @@ namespace MWSound
             bool discrete = false;
         };
         static constexpr unsigned SampleRate = 48000;
-        static constexpr std::size_t ParameterCount = 28;
+        static constexpr std::size_t ParameterCount = 41;
         static const std::array<Parameter, ParameterCount> Parameters;
         using State = std::array<float, ParameterCount>;
 
@@ -41,6 +41,11 @@ namespace MWSound
         void render(float* output, std::size_t frames);
 
     private:
+        enum DrumParameter : std::size_t
+        {
+            DrumType = 28, BodyFrequency, BodyDecay, BodyLevel, NoiseDecay, NoiseLevel,
+            NoiseHighpass, NoiseLowpass, DrumPitchAmount, DrumPitchDecay, DrumClick, DrumDrive, AmpCurve
+        };
         struct Command
         {
             int note;
@@ -66,6 +71,13 @@ namespace MWSound
             double pitchEnvelope = 1;
             std::uint32_t noise = 0x9e3779b9u;
             Envelope amp, filter;
+            int drumType = 0;
+            bool drumChoke = false;
+            double drumAge = 0, bodyEnvelope = 1, noiseEnvelope = 1, clickEnvelope = 1;
+            double drumLast = 0, drumCarry = 0;
+            double noiseHighState = 0, noiseLowState = 0;
+            double metalHighState = 0, metalLowState = 0;
+            std::array<double, 6> metalPhases{};
             unsigned long long age = 0;
         };
         std::mutex mMutex;

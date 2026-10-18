@@ -21,7 +21,7 @@ local w=Workstation.new{
     importMidi=function(path) messages[#messages+1]=path end,
     message=function(message) messages[#messages+1]=message end,
 }
-check(#w.catalog==8,'builtins available before asynchronous personal catalog response')
+check(#w.catalog==9,'builtins available before asynchronous personal catalog response')
 w:setCatalog(schema.builtins)
 check(w:add('drum') and w.project.tracks[1].presetId=='b:kick','new drum uses native kick preset')
 check(w:audition(1),'drum pad auditions while transport is stopped');w:frame(0.12)
@@ -89,7 +89,8 @@ local song={tracks=2,division=96,names={[1]='Strings',[2]='Bass'},programs={},te
 }}
 w.project.tracks={};w:import(song,'midi/test.mid');w:preset(1,'b:flute');w:preset(2,'b:bass')
 events={};w:play('song');w:frame(0)
-check(events[1][2]==1 and events[2][2]==2 and config[1].params.wave1==0 and config[2].params.wave1==3,'MIDI parts play through different presets')
+local starts={};for _,e in ipairs(events) do if e[1]=='on' then starts[#starts+1]=e end end
+check(starts[1][2]==1 and starts[2][2]==2 and config[1].params.wave1==0 and config[2].params.wave1==3,'MIDI parts play through different presets')
 for _=1,4 do w:frame(0.125) end
 check(events[#events][1]=='off' and events[#events][2]==1,'first equal pitch ends independently')
 w:frame(0.25);check(math.abs(w.beat-1.25)<0.001,'MIDI tempo change drives musical playhead')
@@ -115,4 +116,33 @@ local rejected
 rejected=Workstation.new{configure=function() end,on=function() rejected:stop();return false end,off=function() end,panic=function() end,message=function() end}
 rejected:add('drum');check(not rejected:audition(1),'rejected audition does not retain an off callback')
 rejected:frame(0.2);check(#rejected.preview==0,'rate rejection cannot leave a stale audition counter')
+-- History stores musical data, not UI state or audible transport position.
+local h=Workstation.new{configure=function() end,prune=function() end,panic=function() end,
+    currentParams=function() return schema.state({}) end,message=function() end,save=function() end,importMidi=function() end}
+check(h:add('drum','b:snare','Snare',38) and #h.undoStack==1,'adding a configured drum lane is one undo action')
+check(h.project.tracks[1].params.drumType==2,'new snare uses dedicated native voice')
+h:toggleStep(1,0);check(h:undo() and h.project.tracks[1].steps:sub(1,1)=='0','undo removes a drum step')
+check(h:redo() and h.project.tracks[1].steps:sub(1,1)~='0','redo restores step velocity')
+h:undo();h:toggleStep(1,4);check(not h:redo(),'new edits discard the abandoned redo branch')
+h:add('piano');h:length(32);h:toggleNote(2,64,16);h:length(16)
+check(h:undo() and h.project.length==32 and h.project.tracks[2].notes[1].s==16,'undo shortening restores loop length and retains later notes')
+check(h:undo() and #h.project.tracks[2].notes==0,'undo removes a piano note')
+check(h:redo() and h.project.tracks[2].notes[1].n==64,'redo restores complete piano note')
+h:remove(1);check(h:undo() and #h.project.tracks==2 and h.project.tracks[1].name=='Snare','undo deletion restores instrument and routing')
+h.project.tracks[1].params.bodyFrequency=200;h:touch('sound:1:bodyFrequency')
+h.project.tracks[1].params.bodyFrequency=210;h:touch('sound:1:bodyFrequency')
+check(h:undo() and h.project.tracks[1].params.bodyFrequency==190,'continuous sound edits coalesce into one undo gesture')
+check(h:redo() and h.project.tracks[1].params.bodyFrequency==210,'redo restores the final sound setting')
+for _=1,130 do h:toggleStep(1,1) end
+check(#h.undoStack==64,'history memory is bounded to 64 edits')
+local before=h.generation;h:undo();check(h.dirty and h.generation>before and not h.playing,'undo is a fresh unsaved edit and stops transport safely')
+h:load(format.new());check(h:addKit() and #h.project.tracks==4 and #h.undoStack==1,'complete four-voice kit is one undo action')
+check(h.project.tracks[4].params.drumType==4 and h.project.tracks[4].note==46,'kit includes an open hat with standard MIDI mapping')
+check(h:undo() and #h.project.tracks==0 and h:redo() and #h.project.tracks==4,'undo and redo restore the whole kit atomically')
+local percussion={tracks=1,division=96,names={},programs={},tempos={},duration=1,beats=2,events={}}
+for _,note in ipairs{38,46,42} do percussion.events[#percussion.events+1]={kind='on',part='1:9:'..note,track=1,channel=9,note=note,velocity=1,tick=0,time=0} end
+h:load(format.new());check(h:import(percussion,'midi/drums.mid'),'GM percussion imports')
+check(h.project.tracks[1].params.drumType==2 and h.project.tracks[2].params.drumType==4 and h.project.tracks[3].params.drumType==3,'GM snare, open and closed hats select the correct fixed-tuning engines')
+local restored=format.project(h.project);h:load(restored)
+check(#h.undoStack==0 and #h.redoStack==0 and not h.dirty,'loading another document starts fresh editing history')
 print('PASS DAW clips, drum swing, piano durations, mix, multitimbral MIDI, persistence and validation; '..checks..' assertions')

@@ -13,6 +13,12 @@ p('filterAttack',0.002,5,0.01); p('filterDecay',0.002,5,0.3); p('filterSustain',
 p('lfoRate',0.05,20,4); p('lfoDepth',0,1,0); p('lfoTarget',0,2,0,true)
 p('volume',0,1,0.7); p('gain',0,2,1); p('polyphony',1,32,16,true)
 p('pitchAmount',-48,48,0); p('pitchDecay',0.005,2,0.08)
+p('drumType',0,4,0,true)
+p('bodyFrequency',30,1000,180); p('bodyDecay',0.01,2,0.14); p('bodyLevel',0,1,0.55)
+p('noiseDecay',0.005,3,0.22); p('noiseLevel',0,1,0.75)
+p('noiseHighpass',20,16000,1500); p('noiseLowpass',200,18000,11000)
+p('drumPitchAmount',0,48,8); p('drumPitchDecay',0.005,0.5,0.025)
+p('drumClick',0,1,0.12); p('drumDrive',1,8,1.3); p('ampCurve',0.25,4,1)
 function M.valid(name, value)
     local s = M.specs[name]
     return s and type(value) == 'number' and value == value and value >= s.min and value <= s.max
@@ -23,7 +29,7 @@ function M.state(input)
     local count, result = 0, { version = 1 }
     for key, value in pairs(input) do
         count = count + 1
-        if count > 29 or (key ~= 'version' and not M.valid(key, value)) then return nil end
+        if count > #M.order+1 or (key ~= 'version' and not M.valid(key, value)) then return nil end
     end
     -- Missing fields in old version-1 saves receive stable defaults.
     for name, spec in pairs(M.specs) do result[name] = input[name] or spec.default end
@@ -35,9 +41,10 @@ M.builtins = {
     {id='b:lead', name='Retro Lead', state={wave1=2, enabled2=1, wave2=3, volume2=0.2, cutoff=6500, lfoDepth=0.08}},
     {id='b:bass', name='Bass', state={wave1=3, tune1=-12, cutoff=600, resonance=0.3, filterAmount=3, decay=0.18, sustain=0.5}},
     {id='b:flute', name='Flute-like', state={wave1=0, enabled2=1, wave2=0, tune2=12, volume2=0.1, attack=0.08, cutoff=3500, lfoDepth=0.08, lfoRate=5}},
-    {id='b:kick',name='Synth Kick',state={wave1=0,tune1=0,attack=0.002,decay=0.18,sustain=0,release=0.08,pitchAmount=36,pitchDecay=0.025,cutoff=1800,polyphony=4}},
-    {id='b:snare',name='Noise Snare',state={wave1=4,enabled2=1,wave2=0,tune2=-12,volume2=0.25,attack=0.002,decay=0.12,sustain=0,release=0.06,cutoff=10000,polyphony=4}},
-    {id='b:hat',name='Closed Hat',state={wave1=4,attack=0.002,decay=0.035,sustain=0,release=0.02,cutoff=16000,volume=0.35,polyphony=4}},
+    {id='b:kick',name='Synth Kick',state={drumType=1,bodyFrequency=55,bodyDecay=0.45,bodyLevel=0.95,noiseLevel=0.02,noiseDecay=0.025,noiseHighpass=500,noiseLowpass=4000,drumPitchAmount=30,drumPitchDecay=0.022,drumClick=0.12,drumDrive=1.6,polyphony=4}},
+    {id='b:snare',name='Noise Snare',state={drumType=2,bodyFrequency=190,bodyDecay=0.12,bodyLevel=0.55,noiseLevel=0.85,noiseDecay=0.24,noiseHighpass=1100,noiseLowpass=12000,drumPitchAmount=7,drumPitchDecay=0.018,drumClick=0.2,drumDrive=1.8,polyphony=4}},
+    {id='b:hat',name='Closed Hat',state={drumType=3,bodyFrequency=420,bodyDecay=0.04,bodyLevel=0.18,noiseLevel=0.7,noiseDecay=0.065,noiseHighpass=6500,noiseLowpass=16000,drumPitchAmount=0,drumClick=0.02,drumDrive=1,volume=0.5,polyphony=4}},
+    {id='b:openhat',name='Open Hat',state={drumType=4,bodyFrequency=420,bodyDecay=0.35,bodyLevel=0.18,noiseLevel=0.7,noiseDecay=0.65,noiseHighpass=6500,noiseLowpass=16000,drumPitchAmount=0,drumClick=0.02,drumDrive=1,volume=0.5,polyphony=4}},
 }
 for _, preset in ipairs(M.builtins) do preset.state = M.state(preset.state) end
 return M

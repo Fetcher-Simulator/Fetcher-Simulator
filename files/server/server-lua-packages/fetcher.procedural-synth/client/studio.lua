@@ -3,6 +3,7 @@ local util=require('openmw.util')
 local async=require('openmw.async')
 local input=require('openmw.input')
 local I=require('openmw.interfaces')
+local Controls=require('scripts.multiplayer.fetcher.procedural-synth.client.controls')
 local Window=require('scripts.multiplayer.fetcher.procedural-synth.client.window')
 local S={};S.__index=S
 local v=util.vector2
@@ -36,9 +37,8 @@ function S:barControls(content,y,maxBar)
     content[#content+1]=self:button('< bar',20,y,62,function() w.bar=math.max(0,w.bar-1);w.revision=w.revision+1 end)
     content[#content+1]=label('Bar '..(w.bar+1)..' / '..maxBar,90,y+4,120)
     content[#content+1]=self:button('bar >',205,y,62,function() w.bar=math.min(maxBar-1,w.bar+1);w.revision=w.revision+1 end)
-    content[#content+1]=self:button('Vel -',292,y,55,function() w.velocity=math.max(0.1,w.velocity-0.1);w.revision=w.revision+1 end)
-    content[#content+1]=label(string.format('%.0f%%',w.velocity*100),355,y+4,48)
-    content[#content+1]=self:button('Vel +',405,y,55,function() w.velocity=math.min(1,w.velocity+0.1);w.revision=w.revision+1 end)
+    local velocity=Controls.slider(self,'velocity','Velocity',{min=0.1,max=1,unit='%',step=0.01},function() return w.velocity end,function(value) w.velocity=value end,292,y-6,180)
+    content[#content+1]=velocity
 end
 function S:mixer(content)
     local w,p=self.w,self.w.project
@@ -143,17 +143,22 @@ function S:drums(content)
     end
     self.playhead=self:element(rect(gx,gy-5,3,4,c.accent));self.grid={x=gx,y=gy-5,cw=cw};content[#content+1]=self.playhead
     local function add(preset,name,note)
-        if w:add('drum') then local t=p.tracks[w.selected];t.name=name;t.note=note;w:preset(w.selected,preset) end
+        w:add('drum',preset,name,note)
     end
     content[#content+1]=self:button('+ Kick',20,578,90,function() add('b:kick','Kick',36) end)
-    content[#content+1]=self:button('+ Snare',120,578,90,function() add('b:snare','Snare',60) end)
-    content[#content+1]=self:button('+ Hat',220,578,90,function() add('b:hat','Hat',72) end)
+    content[#content+1]=self:button('+ Snare',120,578,90,function() add('b:snare','Snare',38) end)
+    content[#content+1]=self:button('+ Hat',220,578,90,function() add('b:hat','Hat',42) end)
+    content[#content+1]=self:button('+ Open hat',320,578,110,function() add('b:openhat','Open hat',46) end)
+    content[#content+1]=self:button('+ Kit',440,578,80,function() w:addKit() end)
+    content[#content+1]=self:button('Sound',530,578,110,function() if p.tracks[w.selected] then self.cb.sound(w.selected) end end)
     content[#content+1]=self:button('Lanes 1-8',650,578,100,function() w.drumPage=0;w.revision=w.revision+1 end,page==0)
     content[#content+1]=self:button('Lanes 9-16',760,578,110,function() w.drumPage=1;w.revision=w.revision+1 end,page==1)
     content[#content+1]=label('16 steps per bar. Lit steps play at their stored velocity. Use Mixer to assign any saved sound.',20,632,870,13,c.accent)
     content[#content+1]=label('Play clips loops the piano and drum clips together. Play song also follows the imported MIDI tempo map.',20,657,880,12,c.muted)
 end
 function S:render()
+    self.controlEpoch=(self.controlEpoch or 0)+1
+    self.typing=false
     if self.root then self.root:destroy() end
     for _,e in ipairs(self.children) do e:destroy() end
     self.children={};self.meters={};self.playhead=nil;self.grid=nil
@@ -163,21 +168,22 @@ function S:render()
     for n,tab in ipairs(tabs) do content[#content+1]=self:button(tab[1],330+(n-1)*77,12,70,tab[2],w.page==tab[1]:lower()) end
     content[#content+1]=self:button('Hide [F8]',self.width-198,12,104,self.cb.hide)
     content[#content+1]=self:button('Finish',self.width-84,12,64,self.cb.close)
-    self.transport=self:element(label('',20,43,880,12,c.accent));content[#content+1]=self.transport
+    self.transport=self:element(label('',20,43,660,12,c.accent));content[#content+1]=self.transport
+    content[#content+1]=self:button('Undo',714,41,80,function() w:undo() end,#w.undoStack>0)
+    content[#content+1]=self:button('Redo',807,41,80,function() w:redo() end,#w.redoStack>0)
     content[#content+1]=self:button('Play song',20,70,96,function() self.cb.playSong() end)
     content[#content+1]=self:button('Play clips',125,70,96,function() self.cb.playClips() end)
     content[#content+1]=self:button('Stop',230,70,58,self.cb.stop)
-    content[#content+1]=self:button('BPM -',309,70,58,function() if not w.playing then p.bpm=math.max(40,p.bpm-1);w:touch() end end)
-    content[#content+1]=label(string.format('%.0f BPM',p.bpm),376,76,83)
-    content[#content+1]=self:button('+',463,70,26,function() if not w.playing then p.bpm=math.min(240,p.bpm+1);w:touch() end end)
-    content[#content+1]=self:button('Swing',504,70,66,function() p.swing=(math.floor(p.swing*10+0.5)+1)%7/10;w:touch() end)
-    content[#content+1]=label(string.format('%.0f%%',p.swing*100),578,76,45)
+    local tempo=Controls.slider(self,'bpm','BPM',{min=40,max=240,step=1},function() return p.bpm end,function(value) if not w.playing then p.bpm=value;w:touch('bpm',true) end end,309,64,180)
+    content[#content+1]=tempo
+    local swing=Controls.slider(self,'swing','Swing',{min=0,max=0.6,unit='%',step=0.01},function() return p.swing end,function(value) p.swing=value;w:touch('swing',true) end,504,64,113)
+    content[#content+1]=swing
     content[#content+1]=self:button(p.length/16 ..' bars',630,70,70,function() w:length(p.length%256+16) end)
     content[#content+1]=self:button('Loop',712,70,61,function() p.loop=not p.loop;w:touch() end,p.loop)
     content[#content+1]=self:button('Save',784,70,54,function() w:save() end)
     content[#content+1]=self:button('Load',848,70,54,self.cb.load)
     local name=self:element{type=ui.TYPE.TextEdit,props={position=v(20,112),size=v(260,28),text=p.name,textSize=14,textColor=c.text},
-        events={textChanged=cb(function(text) p.name=text:gsub('%c',''):sub(1,64);w.dirty=true;w.generation=w.generation+1 end)}}
+        events={textChanged=cb(function(text) p.name=text:gsub('%c',''):sub(1,64);w:touch('name',true) end),focusGain=cb(function() self.typing=true end),focusLoss=cb(function() self.typing=false end)}}
     content[#content+1]=name
     content[#content+1]=self:button('< MIDI',299,112,65,function() self.cb.cycleMidi(-1);w.revision=w.revision+1 end)
     content[#content+1]=label(self.cb.midiLabel(),374,117,347,12,c.muted)
@@ -191,7 +197,13 @@ function S.new(workstation,callbacks)
     self:render();I.UI.addMode('Interface',{windows={}});return self
 end
 function S:releaseAll() end
-function S:key(code,on) if on and code==input.KEY.Escape then self.cb.hide() end end
+function S:key(code,on)
+    if on and code==input.KEY.Escape then self.cb.hide() end
+    if on and not self.typing and input.isCtrlPressed and input.isCtrlPressed() then
+        if code==input.KEY.Z then if input.isShiftPressed() then self.w:redo() else self.w:undo() end
+        elseif code==input.KEY.Y then self.w:redo() end
+    end
+end
 function S:frame(now)
     self.window:frame(self)
     if I.UI.getMode()~='Interface' then self.cb.hide();return end
@@ -205,6 +217,7 @@ function S:frame(now)
     end
 end
 function S:destroy()
+    self.uiClosed=true
     self.root:destroy();for _,e in ipairs(self.children) do e:destroy() end
     if I.UI.getMode()=='Interface' then I.UI.removeMode('Interface') end
 end

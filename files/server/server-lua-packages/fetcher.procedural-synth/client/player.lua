@@ -5,9 +5,9 @@ local self = require('openmw.self')
 local ui = require('openmw.ui')
 local input = require('openmw.input')
 local supported, synth = pcall(require,'openmw.synth')
-if not supported or (synth.version and synth.version<3) then
+if not supported or (synth.version and synth.version<4) then
     return {eventHandlers={Synth_Activate=function()
-        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 3.')
+        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 4.')
     end}}
 end
 local schema = require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -101,6 +101,15 @@ local function channelAudio(i,n,create)
     return channel.audio
 end
 local function playNote(i,channel,note,velocity)
+    local params=channel==0 and i.params or i.channels[channel] and i.channels[channel].params
+    if params and params.drumType==3 then
+        -- Every listener applies the same kit choke locally from the note event.
+        for n,c in pairs(i.channels) do if c.params.drumType==4 and c.audio then
+            c.audio:allNotesOff()
+            for key in pairs(i.notes) do if math.floor(key/128)==n then i.notes[key]=nil end end
+        end end
+        if i.params.drumType==4 then i.audio:allNotesOff();for key in pairs(i.notes) do if key<128 then i.notes[key]=nil end end end
+    end
     local audio=channelAudio(i,channel,true);if not audio then return false end
     audio:noteOn(note,velocity);i.notes[channel*128+note]=true;i.strikes=(i.strikes or 0)+1;return true
 end
@@ -121,10 +130,10 @@ local function songLabel()
     if active then return string.format('Playing %s  %.1fs',name and name:match('([^/]+)$') or 'MIDI',active.time) end
     return name and name:match('([^/]+)$'):gsub('%.mid[i]?$','') or 'No MIDI files installed'
 end
-stopPlayback=function()
+stopPlayback=function(force)
     loading=nil
     if playback then local old=playback;playback=nil;old:stop() end
-    if session and session.workstation then session.workstation:stop() end
+    if session and session.workstation then session.workstation:stop(force) end
 end
 local function startSong(song,intent)
     if not session then return false end
@@ -201,7 +210,7 @@ showEditor=function()
                 if w.song and w.project.midi==songs[selectedSong] then w:play('song') else playSong(nil,'play') end
             end,
             playClips=function() stopPlayback();w:play('clips') end,
-            stop=stopPlayback,
+            stop=function() stopPlayback(true) end,
             load=function() stopPlayback();send('dawLoad') end,
             import=function() playSong(nil,'import') end,
             cycleMidi=function(step) if #songs>0 then selectedSong=(selectedSong-1+step)%#songs+1 end end,
@@ -228,7 +237,7 @@ showEditor=function()
                 local level=channel>0 and i.channels[channel].level or 1
                 audio:set(name,name=='volume' and value*level or (name=='polyphony' and channel>0 and math.min(8,value) or value))
             end
-            if track then track.presetId='';w.dirty=true;w.generation=w.generation+1 end
+            if track then track.presetId='';w:touch('sound:'..session.editTrack..':'..name) end
             dirty=true
         end,
         command=function(op,args)
@@ -248,7 +257,7 @@ showEditor=function()
         meter=function() local audio=channelAudio(i,session.editTrack,false);return audio and audio.peak or 0,audio and audio.voices or 0 end,
         midiLabel=songLabel,
         midiCycle=function(step) stopPlayback();if #songs>0 then selectedSong=(selectedSong-1+step)%#songs+1 end end,
-        midiPlay=function() playSong() end,midiStop=stopPlayback,
+        midiPlay=function() playSong() end,midiStop=function() stopPlayback(true) end,
     })
     local view=session.views[session.editTrack] or session.editTrack==0 and session.view
     if view then editor.name=view.name;editor.selected=view.selected end
@@ -447,7 +456,7 @@ return {
         workstation=function() return session and session.workstation end,
         importMidi=function(path) return playSong(path,'import') end,
         playMidi=playSong,
-        stopMidi=stopPlayback,
+        stopMidi=function() stopPlayback(true) end,
     },
     engineHandlers={onFrame=frame,onInit=scanSongs,onKeyPress=function(e)
         if session and e.code==input.KEY.F8 then

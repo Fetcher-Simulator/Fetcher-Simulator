@@ -145,8 +145,8 @@ local function request(data)
             if not s.notes[noteKey] then return end
             s.notes[noteKey] = nil
         else
-            if next(s.notes) == nil then return end
-            s.notes = {}
+            if next(s.notes) == nil and not s.drumPending then return end
+            s.notes = {};s.drumPending=false
         end
         nextEvent(s); broadcast(s,{op=data.op,note=data.note,channel=channel},s.owner); return
     end
@@ -157,12 +157,14 @@ local function request(data)
         if not budget(data.pid,now,'notes',40,80) then
             -- End all remote voices when an optimistic local batch is rejected.
             if budget(data.pid,now,'errors',1,1) then
-                s.notes = {}
+                s.notes = {};s.drumPending=false
                 nextEvent(s); broadcast(s,{op='panic'})
             end
             return
         end
         s.notes[noteKey] = true
+        local params=channel==0 and s.params or s.channels[channel].params
+        if params.drumType>0 then s.drumPending=true end
         nextEvent(s); broadcast(s,{op='on',note=data.note,velocity=data.velocity,channel=channel},s.owner); return
     end
     if data.op=='channelRemove' then
@@ -218,7 +220,7 @@ local function request(data)
         local params = data.op == 'reset' and schema.state({}) or selected and schema.state(selected.state)
         for _, p in ipairs(schema.builtins) do if data.op == 'load' and p.id == data.presetId then params=p.state end end
         if not params then return end
-        s.params=params; s.revision=s.revision+1; s.notes={}
+        s.params=params; s.revision=s.revision+1; s.notes={};s.drumPending=false
         nextEvent(s); broadcast(s,{op='preset',params=params,presetId=data.presetId}); return
     end
     if data.op == 'saveAs' or data.op == 'save' then

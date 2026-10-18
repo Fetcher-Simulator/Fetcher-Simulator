@@ -4,11 +4,50 @@ local schema=require(prefix..'shared.schema')
 local format=require(prefix..'shared.project')(schema)
 local MIDI=require(prefix..'client.midi')
 local W={};W.__index=W
-function W.new(cb)
-    return setmetatable({cb=cb,project=format.new(),catalog=schema.builtins,selected=1,page='mixer',bar=0,base=60,
-        noteLength=1,velocity=0.8,time=0,beat=0,step=-1,playing=false,pending={},counts={},preview={},wall=0,dirty=false,revision=0,generation=0},W)
+local function copy(value)
+    if type(value)~='table' then return value end
+    local out={};for k,v in pairs(value) do out[k]=copy(v) end;return out
 end
-function W:touch() self.dirty=true;self.revision=self.revision+1;self.generation=self.generation+1 end
+local function equal(a,b)
+    if type(a)~=type(b) then return false end
+    if type(a)~='table' then return a==b end
+    for k,v in pairs(a) do if not equal(v,b[k]) then return false end end
+    for k in pairs(b) do if a[k]==nil then return false end end
+    return true
+end
+function W.new(cb)
+    local self=setmetatable({cb=cb,project=format.new(),catalog=schema.builtins,selected=1,page='mixer',bar=0,base=60,
+        noteLength=1,velocity=0.8,time=0,beat=0,step=-1,playing=false,pending={},counts={},preview={},wall=0,dirty=false,revision=0,generation=0,
+        undoStack={},redoStack={}},W)
+    self.checkpoint=copy(self.project);return self
+end
+function W:touch(key,quiet)
+    if self.editDepth and self.editDepth>0 then self.transactionTouched=true;return end
+    if not equal(self.checkpoint,self.project) then
+        if not key or key~=self.lastEditKey or self.wall-(self.lastEditTime or -1)>0.4 then
+            self.undoStack[#self.undoStack+1]=self.checkpoint
+            if #self.undoStack>64 then table.remove(self.undoStack,1) end
+        end
+        self.redoStack={};self.checkpoint=copy(self.project);self.lastEditKey=key;self.lastEditTime=self.wall
+    end
+    self.dirty=true;if not quiet then self.revision=self.revision+1 end;self.generation=self.generation+1
+end
+function W:restore(project)
+    self:stop(true)
+    if self.project.midi~=project.midi then self.song=nil end
+    self.project=copy(project);self.checkpoint=copy(project);self.lastEditKey=nil
+    self.selected=math.max(1,math.min(self.selected,#project.tracks));self.bar=math.min(self.bar,project.length/16-1)
+    self:cacheSpans();self:configureAll();self.dirty=true;self.revision=self.revision+1;self.generation=self.generation+1
+    if project.midi~='' and not self.song then self.cb.importMidi(project.midi) end
+end
+function W:undo()
+    local project=table.remove(self.undoStack);if not project then return false end
+    self.redoStack[#self.redoStack+1]=copy(self.project);self:restore(project);return true
+end
+function W:redo()
+    local project=table.remove(self.redoStack);if not project then return false end
+    self.undoStack[#self.undoStack+1]=copy(self.project);self:restore(project);return true
+end
 function W:audible(index)
     local solo=false;for _,t in ipairs(self.project.tracks) do if t.solo then solo=true end end
     local t=self.project.tracks[index];return t and not t.mute and (not solo or t.solo)
@@ -42,17 +81,34 @@ function W:presetName(t)
     for _,p in ipairs(self.catalog) do if p.id==t.presetId then return p.name end end
     return 'Custom sound'
 end
-function W:add(kind)
+function W:add(kind,presetId,name,note)
     if #self.project.tracks>=format.maxTracks then self.cb.message('Track limit: 16.');return false end
-    self:stop()
-    local t=format.newTrack(kind,(kind=='drum' and 'Drum ' or 'Piano ')..(#self.project.tracks+1),self.project.length)
+    self:stop(true)
+    local t=format.newTrack(kind,name or (kind=='drum' and 'Drum ' or 'Piano ')..(#self.project.tracks+1),self.project.length)
     local n=#self.project.tracks+1;self.project.tracks[n]=t;self.selected=n
-    if kind=='drum' then t.note=36;self:preset(n,'b:kick') end
+    if kind=='drum' then
+        t.note=note or 36
+        for _,sound in ipairs(self.catalog) do if sound.id==(presetId or 'b:kick') then
+            t.params=schema.state(sound.state);t.params.polyphony=math.min(8,t.params.polyphony);t.presetId=sound.id;break
+        end end
+    end
     self:configure(n);self:touch();return true
+end
+function W:addKit()
+    if #self.project.tracks>format.maxTracks-4 then self.cb.message('A kit needs four free tracks.');return false end
+    self.editDepth=(self.editDepth or 0)+1
+    self:add('drum','b:kick','Kick',36)
+    self:add('drum','b:snare','Snare',38)
+    self:add('drum','b:hat','Closed hat',42)
+    self:add('drum','b:openhat','Open hat',46)
+    self.selected=#self.project.tracks-3
+    self.editDepth=self.editDepth-1
+    if self.editDepth==0 and self.transactionTouched then self.transactionTouched=false;self:touch() end
+    return true
 end
 function W:remove(index)
     if not self.project.tracks[index] then return false end
-    self:stop();table.remove(self.project.tracks,index);self.selected=math.max(1,math.min(index,#self.project.tracks))
+    self:stop(true);table.remove(self.project.tracks,index);self.selected=math.max(1,math.min(index,#self.project.tracks))
     self:configureAll();self:touch();return true
 end
 function W:setTrack(index,name,value)
@@ -65,11 +121,11 @@ function W:setTrack(index,name,value)
     elseif name=='note' then
         if type(value)~='number' or value%1~=0 or value<0 or value>127 then return false end;t.note=value
     else return false end
-    self:touch();return true
+    self:touch(name..':'..index);return true
 end
 function W:length(length)
     if type(length)~='number' or length<16 or length>format.maxSteps or length%16~=0 then return false end
-    self:stop()
+    self:stop(true)
     -- The loop length never truncates composition data in later bars.
     self.project.length=length;self.bar=math.min(self.bar,length/16-1);self:touch();return true
 end
@@ -94,12 +150,12 @@ function W:import(song,path)
         if t.kind~='midi' then extra[#extra+1]=t elseif self.project.midi==path then old[t.part]=t end
     end
     if #parts+#extra>format.maxTracks then self.cb.message('MIDI has '..#parts..' parts; at most 16 tracks fit. Remove clips or choose a smaller MIDI.');return false end
-    self:stop();local tracks={}
+    self:stop(true);local tracks={}
     for _,p in ipairs(parts) do
         local t=old[p.id] or format.newTrack('midi',p.name:sub(1,48),self.project.length)
         if not old[p.id] then t.params=schema.state(self.cb.currentParams());t.params.polyphony=math.min(8,t.params.polyphony) end
         if not old[p.id] and p.channel==9 then
-            local preset=(p.note==35 or p.note==36) and 'b:kick' or ((p.note==42 or p.note==44 or p.note==46) and 'b:hat' or 'b:snare')
+            local preset=(p.note==35 or p.note==36) and 'b:kick' or (p.note==46 and 'b:openhat' or ((p.note==42 or p.note==44) and 'b:hat' or 'b:snare'))
             for _,sound in ipairs(schema.builtins) do if sound.id==preset then t.params=schema.state(sound.state);t.presetId=preset end end
         end
         t.part=p.id;tracks[#tracks+1]=t
@@ -112,12 +168,13 @@ end
 function W:cacheSpans() self.spans=self.song and MIDI.noteSpans(self.song) or {} end
 function W:load(project)
     local valid=format.project(project);if not valid then return false end
-    self:stop();if self.project.midi~=valid.midi then self.song=nil end
-    self.project=valid;self:cacheSpans();self.selected=1;self.bar=0;self.dirty=false;self.revision=self.revision+1;self.generation=self.generation+1;self:configureAll()
+    self:stop(true);if self.project.midi~=valid.midi then self.song=nil end
+    self.project=valid;self.checkpoint=copy(valid);self.undoStack={};self.redoStack={};self.lastEditKey=nil;self:cacheSpans();self.selected=1;self.bar=0;self.dirty=false;self.revision=self.revision+1;self.generation=self.generation+1;self:configureAll()
     if valid.midi~='' and not self.song then self.cb.importMidi(valid.midi) end
     return true
 end
 function W:save()
+    self.lastEditKey=nil
     local p=format.project(self.project)
     if not p then self.cb.message('Project contains unsupported data; save cancelled.');return false end
     self.cb.save(p,self.generation);return true
@@ -129,13 +186,13 @@ function W:audition(index)
     self.preview[#self.preview+1]={lane=index,note=t.note,finish=self.wall+t.gate}
     return true
 end
-function W:stop()
+function W:stop(force)
     local midi=self.midi;self.midi=nil
     local active=self.playing or #self.preview>0;self.playing=false;self.pending={};self.preview={};self.counts={}
-    if midi and midi.playing then midi:stop() elseif active then self.cb.panic() end
+    if midi and midi.playing then midi:stop() elseif active or force then self.cb.panic() end
 end
 function W:play(mode)
-    self:stop()
+    self:stop(true)
     if mode=='song' and not self.song then self.cb.message('Import a MIDI file first.');return false end
     self:configureAll();self.time=0;self.beat=0;self.step=-1;self.pending={};self.counts={};self.playing=true;self.mode=mode
     if mode=='song' then
@@ -186,7 +243,7 @@ function W:frame(dt)
         if beat>self.beat then break end
         if not self.project.loop and nextStep>=self.project.length then
             if self.mode=='song' then self.step=math.floor(self.beat*4);break end
-            self:stop();return
+            self:stop(true);return
         end
         self.step=nextStep;local step=nextStep%self.project.length
         for lane,t in ipairs(self.project.tracks) do

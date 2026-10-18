@@ -32,7 +32,7 @@ function ui.create(layout)
 end
 package.loaded['openmw.ui']=ui
 package.loaded['openmw.async']={callback=function(_,fn) return fn end}
-local input={KEY={Escape=1,F8=100},isMouseButtonPressed=function() return mouseDown end}
+local input={KEY={Escape=1,F8=100,Enter=101,NP_Enter=102},isMouseButtonPressed=function() return mouseDown end}
 for i,name in ipairs({'Z','S','X','D','C','V','G','B','H','N','J','M','Comma'}) do input.KEY[name]=i+1 end
 package.loaded['openmw.input']=input
 package.loaded['openmw.interfaces']={UI={getMode=function() return mode end,
@@ -60,6 +60,7 @@ package.loaded['openmw.synth'].getMonitorVolume=function() return monitor end
 package.loaded['openmw.synth'].setMonitorVolume=function(value) monitor=value end
 package.loaded[prefix..'client.window']=dofile(root..'client/window.lua')
 package.loaded[prefix..'client.workstation']=dofile(root..'client/workstation.lua')
+package.loaded[prefix..'client.controls']=dofile(root..'client/controls.lua')
 local Studio=dofile(root..'client/studio.lua')
 local lastStudio
 local newStudio=Studio.new
@@ -101,17 +102,53 @@ handler{version=1,op='state',id=7,epoch=3,seq=1,params=schema.state({})}
 now=110;player.engineHandlers.onFrame()
 check(audios[3].closed,'missing server liveness expires audio')
 connected=false;player.engineHandlers.onFrame()
--- All 28 parameters have actual editable controls.
+-- Both instrument views expose every native parameter through editable controls.
 local mouseVelocity,released
 local e=Editor.new(schema.state({}),{noteOff=function() released=true end,noteOn=function(_,velocity) mouseVelocity=velocity end,change=function() end,
     command=function() end,close=function() end,meter=function() return 0,0 end})
 local controls=0; for name in pairs(e.controls) do controls=controls+1;check(schema.specs[name]~=nil) end
-check(controls==28,'all parameters editable')
+check(controls==29,'all synth parameters including envelope curve editable')
 local firstPianoKey=e.root.layout.content[#e.root.layout.content-12]
 firstPianoKey.events.mousePress{button=1,offset=vector(10,56)}
 check(mouseVelocity==1,'piano press position controls velocity')
 e:frame(200)
 check(released and not e.mouseNote,'mouse release outside the piano stops its note')
+local Controls=package.loaded[prefix..'client.controls']
+check(Controls.parse('150 ms',{min=0.002,max=5,unit='s'})==0.15,'numeric fields accept milliseconds')
+check(Controls.parse('150',{min=0.002,max=5,unit='s'})==0.15,'bare time values use displayed milliseconds')
+check(Controls.parse('75',{min=0,max=1,unit='%'})==0.75,'bare percentage values use displayed percent')
+check(Controls.format(0.1201,{unit='s'})=='120.1 ms','fine envelope changes remain visible')
+check(Controls.parse('2 kHz',{min=20,max=18000,unit='Hz'})==2000,'numeric fields accept kHz')
+check(Controls.parse('75%',{min=0,max=1,unit='%'})==0.75,'numeric fields accept percent')
+for _,bad in ipairs{'NaN','1e999','-1','hello','150 Hz'} do
+    check(Controls.parse(bad,{min=0.002,max=5,unit='s'})==nil,'invalid numeric text rejected')
+end
+local function control(owner,title)
+    for _,element in ipairs(owner.children) do
+        local child=element.layout.content and element.layout.content[1]
+        if child and child.props and child.props.text==title then return element end
+    end
+end
+local attack=assert(control(e,'AMP A'))
+local field=attack.layout.content[3]
+field.layout.events.focusGain();field.layout.events.textChanged('150 ms')
+check(e.params.attack==0.01,'draft text does not emit intermediate audio edits')
+field.layout.events.keyPress{code=input.KEY.Enter}
+check(e.params.attack==0.15 and not e.typing,'Enter commits a precise envelope time')
+field.layout.events.focusGain();field.layout.events.textChanged('200 s');field.layout.events.focusLoss()
+check(e.params.attack==0.15,'invalid commit preserves the previous value')
+attack.layout.content[5].events.mouseClick()
+check(math.abs(e.params.attack-0.151)<0.000001,'plus button adjusts envelope by one millisecond')
+input.isShiftPressed=function() return true end
+attack.layout.content[5].events.mouseClick()
+check(math.abs(e.params.attack-0.1511)<0.000001,'Shift enables finer increments')
+input.isShiftPressed=function() return false end
+local seen={};for name in pairs(e.controls) do seen[name]=true end
+e.params.drumType=2;e:frame(200.1)
+check(e.drums and e.controls.noiseDecay and e.controls.bodyFrequency,'drum mode exposes separate body and noise controls')
+for name in pairs(e.controls) do seen[name]=true end
+for name in pairs(schema.specs) do check(seen[name],'parameter has an editable field: '..name) end
+e.params.drumType=0;e:frame(200.2)
 -- Native Window events and scaled hit testing exercise the actual editor tree.
 local originalVolume=e.params.volume
 local networkEvents=#sent
@@ -269,7 +306,7 @@ check(inserted and #w.project.tracks[1].notes==1,'piano grid click creates an ac
 now=400.02;player.engineHandlers.onFrame(0.01)
 button('Drums').events.mouseClick();now=400.03;player.engineHandlers.onFrame(0.01)
 button('+ Snare').events.mouseClick();now=400.04;player.engineHandlers.onFrame(0.01)
-check(w.project.tracks[2].presetId=='b:snare' and w.project.tracks[2].params.wave1==4,'drum button uses native noise sound')
+check(w.project.tracks[2].presetId=='b:snare' and w.project.tracks[2].params.drumType==2,'drum button uses native noise sound')
 local toggled=false
 for _,element in ipairs(lastStudio.root.layout.content) do
     if element.props and element.props.position and element.props.position.x==304 and element.props.position.y==225 and element.events then
@@ -301,6 +338,14 @@ check(w.dirty,'late save acknowledgement cannot clear newer edits')
 api.saveProject();handler{version=1,op='dawSaved',id=7,epoch=7,saveRevision=sent[#sent].saveRevision}
 check(not w.dirty,'matching saved generation clears unsaved indicator')
 api.close();check(sent[#sent].op=='close' and not api.status()[1].transport and mode==nil,'Finish closes Studio and all sequenced voices')
+handler{version=1,op='state',id=7,epoch=8,seq=1,params=schema.state({}),channels={
+    [1]={params=schema.state({drumType=4}),level=1},[2]={params=schema.state({drumType=3}),level=1}}}
+handler{version=1,op='on',id=7,epoch=8,seq=2,channel=1,note=46,velocity=1}
+local openAudio=audios[#audios]
+check(openAudio.notes[46],'listener starts open hat')
+handler{version=1,op='on',id=7,epoch=8,seq=3,channel=2,note=42,velocity=1}
+check(openAudio.voices==0 and audios[#audios].notes[42],'closed hat chokes open hat on the listener')
+handler{version=1,op='close',id=7,epoch=8,seq=4}
 package.loaded['openmw.synth'].version=2
 local oldClient=dofile(root..'client/player.lua')
 check(oldClient.interface==nil and oldClient.eventHandlers.Synth_Activate~=nil,'older engines receive an upgrade message before loading the new window controls')

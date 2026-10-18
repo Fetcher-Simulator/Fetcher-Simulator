@@ -34,6 +34,19 @@ namespace MWSound
         { "polyphony", 1, 32, 16, true },
         { "pitchAmount", -48, 48, 0 },
         { "pitchDecay", 0.005f, 2, 0.08f },
+        { "drumType", 0, 4, 0, true },
+        { "bodyFrequency", 30, 1000, 180 },
+        { "bodyDecay", 0.01f, 2, 0.14f },
+        { "bodyLevel", 0, 1, 0.55f },
+        { "noiseDecay", 0.005f, 3, 0.22f },
+        { "noiseLevel", 0, 1, 0.75f },
+        { "noiseHighpass", 20, 16000, 1500 },
+        { "noiseLowpass", 200, 18000, 11000 },
+        { "drumPitchAmount", 0, 48, 8 },
+        { "drumPitchDecay", 0.005f, 0.5f, 0.025f },
+        { "drumClick", 0, 1, 0.12f },
+        { "drumDrive", 1, 8, 1.3f },
+        { "ampCurve", 0.25f, 4, 1 },
     } };
 
     namespace
@@ -175,11 +188,21 @@ namespace MWSound
             {
                 if (command.velocity < 0)
                 {
-                    voice.amp.release();
-                    voice.filter.release();
+                    // Drum hits are one-shots. MIDI gate length must not cut their tails.
+                    if (voice.drumType == 0)
+                    {
+                        voice.amp.release();
+                        voice.filter.release();
+                    }
                     return;
                 }
-                // Retrigger this pitch without resetting its phase or envelope amplitude.
+                // Repeated drum hits overlap within the voice budget. Their note-off
+                // events do not own a shared gate, unlike melodic notes.
+                if (voice.drumType != 0 || mCurrent[DrumType] != 0)
+                    continue;
+                // Melodic retriggers preserve phase and envelope amplitude.
+                voice.note = command.note;
+                voice.drumType = static_cast<int>(mCurrent[DrumType]);
                 voice.velocity = command.velocity;
                 voice.pitchEnvelope = 1;
                 voice.amp.stage = voice.filter.stage = 1;
@@ -197,6 +220,13 @@ namespace MWSound
         });
         // Retain the stolen voice's envelope/phase/filter state to avoid a hard
         // output step.
+        if (slot->drumType != 0 || mCurrent[DrumType] != 0)
+        {
+            const double carry = slot->drumLast;
+            *slot = Voice{};
+            slot->drumCarry = carry;
+        }
+        slot->drumType = static_cast<int>(mCurrent[DrumType]);
         slot->note = command.note;
         slot->velocity = command.velocity;
         slot->pitchEnvelope = 1;
@@ -221,11 +251,13 @@ namespace MWSound
             {
                 target = mTarget;
                 mCurrent[25] = target[25];
+                mCurrent[DrumType] = target[DrumType];
                 if (mPanic.exchange(false))
                     for (auto& v : mVoices)
                     {
                         v.amp.release();
                         v.filter.release();
+                        v.drumChoke = true;
                     }
                 for (std::size_t i = 0; i < mCommandCount; ++i)
                     apply(mCommands[i]);
@@ -245,6 +277,13 @@ namespace MWSound
             const double lfo = std::sin(2 * Pi * mLfoPhase) * mCurrent[21];
             mLfoPhase += mCurrent[20] / SampleRate;
             mLfoPhase -= std::floor(mLfoPhase);
+            // Decay controls specify seconds to -60 dB. Shared coefficients avoid
+            // per-voice exponentials, and all voice/filter storage is fixed-size.
+            const double bodyDecay = std::exp(-6.907755 / (SampleRate * mCurrent[BodyDecay]));
+            const double noiseDecay = std::exp(-6.907755 / (SampleRate * mCurrent[NoiseDecay]));
+            const double drumPitchDecay = std::exp(-1.0 / (SampleRate * mCurrent[DrumPitchDecay]));
+            const double noiseHigh = 1 - std::exp(-2 * Pi * mCurrent[NoiseHighpass] / SampleRate);
+            const double noiseLow = 1 - std::exp(-2 * Pi * mCurrent[NoiseLowpass] / SampleRate);
             double mixed = 0;
             for (std::size_t i = 0; i < mVoices.size(); ++i)
             {
@@ -253,9 +292,72 @@ namespace MWSound
                 {
                     v.amp.release();
                     v.filter.release();
+                    v.drumChoke = true;
                 }
                 if (v.note < 0)
                     continue;
+                if (v.drumType != 0)
+                {
+                    v.noise ^= v.noise << 13; v.noise ^= v.noise >> 17; v.noise ^= v.noise << 5;
+                    const double noise = static_cast<double>(v.noise) / 2147483648.0 - 1;
+                    v.noiseHighState += noiseHigh * (noise - v.noiseHighState);
+                    const double high = noise - v.noiseHighState;
+                    v.noiseLowState += noiseLow * (high - v.noiseLowState);
+                    const double frequency = mCurrent[BodyFrequency]
+                        * std::exp2(v.pitchEnvelope * mCurrent[DrumPitchAmount] / 12);
+                    const double increment = std::min(0.45, frequency / SampleRate);
+                    double body;
+                    if (v.drumType >= 3)
+                    {
+                        // Six inharmonic, band-limited square oscillators make the
+                        // metallic hat layer. Noise has its own filter and decay.
+                        constexpr std::array<double, 6> ratios{ 1, 1.342, 1.689, 2.071, 2.683, 3.217 };
+                        constexpr std::array<float, 5> square{ 0, 0, 0, 1, 0 };
+                        body = 0;
+                        for (std::size_t n = 0; n < ratios.size(); ++n)
+                        {
+                            const double dt = std::min(0.45, increment * ratios[n]);
+                            body += oscillator(v.metalPhases[n], dt, square, 0) / ratios.size();
+                            v.metalPhases[n] = std::fmod(v.metalPhases[n] + dt, 1);
+                        }
+                        // Remove the square fundamentals from the hat's metallic
+                        // layer using the same color controls as its noise layer.
+                        v.metalHighState += noiseHigh * (body - v.metalHighState);
+                        v.metalLowState += noiseLow * (body - v.metalHighState - v.metalLowState);
+                        body = v.metalLowState;
+                    }
+                    else
+                    {
+                        body = std::sin(2 * Pi * v.phase1);
+                        if (v.drumType == 2)
+                            body = body * 0.75 + std::sin(2 * Pi * v.phase2) * 0.25;
+                    }
+                    v.phase1 = std::fmod(v.phase1 + increment, 1);
+                    v.phase2 = std::fmod(v.phase2 + std::min(0.45, increment * 1.78), 1);
+                    const double attack = std::min(1.0, v.drumAge / 0.0015);
+                    double sample = body * v.bodyEnvelope * mCurrent[BodyLevel]
+                        + v.noiseLowState * v.noiseEnvelope * mCurrent[NoiseLevel]
+                        + noise * v.clickEnvelope * mCurrent[DrumClick];
+                    sample = std::tanh(sample * mCurrent[DrumDrive]) / std::sqrt(mCurrent[DrumDrive]);
+                    v.drumLast = sample * attack * v.velocity + v.drumCarry * (1 - attack);
+                    mixed += v.drumLast;
+                    v.bodyEnvelope *= bodyDecay;
+                    v.noiseEnvelope *= noiseDecay;
+                    v.clickEnvelope *= 0.97938218; // one millisecond transient
+                    v.pitchEnvelope *= drumPitchDecay;
+                    v.drumAge += 1.0 / SampleRate;
+                    if (v.drumChoke)
+                    {
+                        v.bodyEnvelope *= 0.97;
+                        v.noiseEnvelope *= 0.97;
+                        v.clickEnvelope *= 0.97;
+                    }
+                    const double remaining = v.bodyEnvelope * mCurrent[BodyLevel]
+                        + v.noiseEnvelope * mCurrent[NoiseLevel] + v.clickEnvelope * mCurrent[DrumClick];
+                    if (remaining < 0.00001)
+                        v = Voice{};
+                    continue;
+                }
                 const float amp = v.amp.next(mCurrent[9], mCurrent[10], mCurrent[11], mCurrent[12]);
                 if (!v.amp.stage)
                 {
@@ -292,7 +394,7 @@ namespace MWSound
                     v.filter1 = 0;
                 if (std::abs(v.filter2) < 1e-20)
                     v.filter2 = 0;
-                mixed += low * amp * v.velocity * (target[22] == 2 ? 1 - mCurrent[21] * 0.5 + lfo * 0.5 : 1);
+                mixed += low * std::pow(std::max(0.f, amp), mCurrent[AmpCurve]) * v.velocity * (target[22] == 2 ? 1 - mCurrent[21] * 0.5 + lfo * 0.5 : 1);
             }
             output[frame] = static_cast<float>(std::tanh(mixed * mCurrent[23] * mCurrent[24] * 0.18));
             peakValue = std::max(peakValue, std::abs(output[frame]));

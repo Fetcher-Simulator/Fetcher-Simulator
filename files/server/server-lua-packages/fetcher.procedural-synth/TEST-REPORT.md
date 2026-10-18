@@ -332,3 +332,32 @@ persisted in the isolated client's settings.cfg; Synth B remained at 100%.
 Invalid native monitor values (negative, above one, NaN and infinity) were rejected.
 Private logs are under the fixture's evidence/window-bars directory. Final-speaker
 loudness and perceptual mix quality were not measured.
+
+## Native drum-machine milestone - October 17
+
+Native client and standalone DSP builds pass. The new native tests cover fixed
+drum tuning across MIDI notes; independent noise decay; one-shot tails after
+note-off; overlapping same-pitch hits and voice limits; panic/choke cleanup;
+finite output and extreme controls for all four drum types. The test executable
+also renders an eight-second normalized WAV preview of solo hits and a beat.
+
+The Lua regressions cover precise milliseconds/kHz/percent entry, invalid drafts,
+visible sub-millisecond increments, all 41 editable native parameters, scaled
+controls, drum view selection, listener hat choke, 64-edit history, undo/redo
+branching, grouped kit creation, track sound undo and legacy document migration.
+The server test ensures Stop still reaches a one-shot tail after note-off while
+repeated empty panic requests remain suppressed. Imported GM snare/open/closed
+hat parts choose the corresponding fixed-tuning drum engines.
+
+The real two-client drum probe exercised four native drum lanes, kit and step
+undo/redo, hat choking on the listener and server SQLite save/load of the new
+parameters. Native UI inspection verified a typed 150 ms body decay, a 1 ms
+increment and Undo restoring 121 ms. Private evidence and the engine-rendered
+WAV are under the isolated fixture's evidence/drum-milestone directory. The
+fixture database is backed up before the run and its previous synth project and
+preset blobs are restored and compared afterward. No production deployment.
+
+Final results: server 13 tests / 94 assertions; workstation 78 assertions;
+client/editor/Studio harness 3,877 assertions; MIDI 27 assertions; arm geometry
+16 assertions; standalone native DSP ctest 1/1; RelWithDebInfo client build PASS.
+The final live run also explicitly verified Stop after note-off on both clients.

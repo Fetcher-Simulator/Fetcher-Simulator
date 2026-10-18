@@ -101,7 +101,7 @@ probe package; setup without probe flags restores normal interaction.
 * `apps/openmw/mwsound/{sounddecoder.hpp,openaloutput.cpp,soundmanagerimp.*}` and `apps/openmw/mwbase/soundmanager.hpp`: interactive streaming and spatial source lifecycle.
 * `apps/openmw/mwlua/synthbindings.*`, `luabindings.cpp`: the player-context `openmw.synth` API.
 * `apps/openmw-server/scripts/procedural_synth{,_schema}.lua`: ownership, validation, relay, runtime activator and persistence.
-* This package's `client/{global,player,editor,studio,workstation,midi}.lua`: activation, native channel lifecycle, sound/Studio views, transport/clip editing and SMF import. `shared/schema.lua` and `shared/project.lua` are checked against their server copies by tests.
+* This package's `client/{global,player,editor,studio,workstation,midi,window,controls}.lua`: activation, native channel lifecycle, sound/Studio views, transport/clip editing and SMF import. `shared/schema.lua` and `shared/project.lua` are checked against their server copies by tests.
 * `scripts/procedural-synth-tests`, `scripts/test_procedural_synth*.lua`, `scripts/setup-procedural-synth-test.ps1` and `scripts/seed-procedural-synth-test.py`: unit tests, client harness and disposable local setup.
 
 DSP is 48 kHz mono, converted to signed 16-bit PCM for OpenAL spatialization. Each voice has two oscillators, amp ADSR, filter ADSR and a resonant low-pass state-variable filter. Sine, additive band-limited triangle, PolyBLEP saw/square and deterministic white noise are supported. A per-voice exponential pitch envelope provides falling kick-drum pitch. Synth Kick, Noise Snare and Closed Hat are native synth presets. There is a shared sine LFO for pitch, filter or amplitude modulation. Continuous values and waveform mixtures are smoothed; output uses a soft limiter. Default polyphony is 16, configurable from 1 to 32, with oldest-voice stealing. There are at most 32 simultaneous native instances across the whole client. DAW tracks create streams lazily on their first note and use at most eight voices each; the manual synth retains its 1–32 voice control. Running out of sources stops the transport with a message.
@@ -115,7 +115,7 @@ SoundManager owns streams attached to world references. They use normal environm
 Available to player scripts on a compatible binary:
 
 ```lua
-local synth = require('openmw.synth') -- version == 3, sampleRate == 48000, maxInstances == 32
+local synth = require('openmw.synth') -- version == 4, sampleRate == 48000, maxInstances == 32
 local instrument = synth.create(worldObject) -- spatial source; throws when unavailable
 instrument:set('wave1', 2)           -- false for unknown/out-of-range/nonfinite values
 instrument:noteOn(60, 0.8)           -- MIDI pitch 0..127, velocity 0..1
@@ -126,13 +126,13 @@ print(instrument.peak, instrument.voices, instrument.closed)
 instrument:close()                  -- idempotent; no further playback
 ```
 
-`synth.parameters[name]` exposes immutable `min`, `max`, `default`, `discrete` metadata. `peak` is generated PCM peak before spatial attenuation, not a microphone or final output meter. The package's optional `I.ProceduralSynth` interface exposes `status`, `noteOn`, `noteOff`, `setParameter`, `presetCommand` and `close` for other client scripts/input methods, subject to an owned editor session. Older clients without native module version 3 show a compatibility message on activation instead of acquiring a lock.
+`synth.parameters[name]` exposes immutable `min`, `max`, `default`, `discrete` metadata. `peak` is generated PCM peak before spatial attenuation, not a microphone or final output meter. The package's optional `I.ProceduralSynth` interface exposes `status`, `noteOn`, `noteOff`, `setParameter`, `presetCommand` and `close` for other client scripts/input methods, subject to an owned editor session. Older clients without native module version 4 show a compatibility message on activation instead of acquiring a lock.
 
 Interface version 4 adds `studio()`, `workstation()`, `importMidi(path)`, `saveProject()` and `loadProject()`, plus per-channel meter/parameter summaries and transport time in `status()`. Version 3 added `hide()` and `show()` and the `status().editorVisible` field; `editing` continues to mean owning the session, including while hidden. `close()` retains its original meaning of stopping playback and releasing ownership. Interface version 2 added `midiSongs()`, `playMidi(catalogPath)` and `stopMidi()`. Native `openmw.animation.boneTransformsVersion == 1` adds `getBoneNames`, `getBoneTransform`, `setBoneTransform` and `clearBoneTransform`; see `files/lua_api/openmw/animation.lua` for coordinate spaces, threading, validation and expiry. Transform reads return the matrix and a rotation-only transform, with an option to exclude scripted offsets for IK. `openmw.mp.getPlayerObject(serverGuid)` resolves the authoritative performer to the correct local/remote model in `onFrame`. These visual APIs are independent of the synthesizer. Older clients with no bone extension can still use the audio/editor, with the pose omitted.
 
-All 28 controls are editable: both oscillator waveforms/levels/tuning/fine tuning, oscillator-2 enable, amplitude ADSR, cutoff/resonance, filter-envelope amount/ADSR, LFO rate/depth/destination, volume, gain, voice limit, pitch-envelope amount and pitch decay. The dark editor includes numeric feedback, amplitude-envelope graph, theoretical oscillator preview, output peak/voice count, and mouse/PC musical input. Graph/meter updates are bounded and do not rebuild the entire editor each frame.
+The melodic controls are editable: both oscillator waveforms/levels/tuning/fine tuning, oscillator-2 enable, amplitude ADSR, cutoff/resonance, filter-envelope amount/ADSR, LFO rate/depth/destination, volume, gain, voice limit, pitch-envelope amount and pitch decay. The dark editor includes numeric feedback, amplitude-envelope graph, theoretical oscillator preview, output peak/voice count, and mouse/PC musical input. Graph/meter updates are bounded and do not rebuild the entire editor each frame.
 
-New, Save, Save As, Load, Rename, Delete and Reset are implemented. The arrow controls select a catalog entry; Load applies it. Built-ins are Soft Pad, Plucked String, Retro Lead, Bass, Flute-like, Synth Kick, Noise Snare and Closed Hat. Built-ins are read-only; Save on a built-in creates a personal preset. Each character has up to 32 personal presets, stable monotonic `p:N` identifiers and 64-byte names. Existing data is isolated in the `ProceduralSynth/presets` character-storage namespace. Format version 1 fills absent fields with defaults and refuses unknown future versions without overwriting them.
+New, Save, Save As, Load, Rename, Delete and Reset are implemented. The arrow controls select a catalog entry; Load applies it. Built-ins are Soft Pad, Plucked String, Retro Lead, Bass, Flute-like, Synth Kick, Noise Snare and Closed Hat and Open Hat. Built-ins are read-only; Save on a built-in creates a personal preset. Each character has up to 32 personal presets, stable monotonic `p:N` identifiers and 64-byte names. Existing data is isolated in the `ProceduralSynth/presets` character-storage namespace. Format version 1 fills absent fields with defaults and refuses unknown future versions without overwriting them.
 
 ## Server and protocol
 
@@ -157,3 +157,55 @@ Server Lua packages transfer scripts, not NIF/textures. For another installation
 ## Validation and remaining acceptance work
 
 See `TEST-REPORT.md` for commands, observed live results and limits. In particular, event timing and nonzero procedural PCM do not establish perceptual audio quality, final speaker output, walking-distance attenuation or UI visual QA.
+
+## Native drum machine and precise editing
+
+Package version 5 requires native `openmw.synth.version >= 4`. The existing
+version-1 preset/project formats remain supported. Missing new sound parameters
+receive stable defaults: `drumType = 0` and `ampCurve = 1` retain the melodic
+engine. Existing saved drum presets/project snapshots retain their old settings;
+reload a built-in drum preset to select the new native drum engine.
+
+In Studio > Drums, **+ Kit** adds Kick, Snare, Closed hat and Open hat as one
+undoable edit. Individual lane buttons remain available. Click a lane to audition
+and select it, then **Sound** to edit that lane directly. Drum presets select the
+dedicated editor automatically; **Drum / Synth** switches engine family. Drum type
+values are 0 Synth, 1 Kick, 2 Snare, 3 Closed hat and 4 Open hat.
+
+Native drum voices have fixed tuning in Hz independent of incoming MIDI note,
+separate exponential body/noise decays, noise high/low-pass filtering, a pitch
+sweep, attack click and saturation. Hats use six inharmonic, band-limited square
+oscillators alongside filtered noise; their metallic layer is filtered too. A
+closed hat chokes open-hat channels belonging to the same placed instrument on
+every listener. Repeated hits can overlap within the track's voice limit.
+Drum decays specify time to -60 dB. MIDI note-off leaves a one-shot tail intact;
+Stop, panic, session cleanup and source expiry still release it. The server keeps
+one pending-release flag for accepted one-shot hits so Stop reaches listeners even
+after all MIDI gates have ended; redundant panic remains suppressed.
+
+All 41 native parameters are available across the two sound views. Click a numeric
+value and press Enter or leave the field to apply it. Times display and accept
+milliseconds by default (150 means 150 ms); explicit `0.15 s` is also accepted.
+Frequency accepts Hz or `2 kHz`; percentages accept `75` or `75%`. Invalid/nonfinite
+and out-of-range values preserve the previous setting. Time/frequency sliders are
+logarithmic. +/- buttons adjust small increments; Shift makes continuous buttons
+and slider drags finer. The melodic engine also has an amplitude curve control.
+Studio tempo, swing and note-entry velocity use the same numeric controls.
+
+Studio **Undo / Redo** (Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z outside text fields) restores
+project edits, including steps, notes, track additions/deletions, kit creation,
+loop length, mix and track sound changes. History is local, bounded to 64 edits,
+and is not saved or transmitted. Consecutive edits to one continuous value are
+coalesced within 400 ms. Undo/redo stops playback and marks the restored document
+as a new unsaved edit; loading a saved project starts fresh history. Standalone
+manual-synth edits outside a project do not have project history.
+
+Use setup **-DrumProbe** for the disposable two-client drum/history/choke/Stop and
+SQLite round-trip test. It leaves Studio open for interface inspection. Setup
+without probe flags restores interactive operation. The native DSP test accepts
+`--preview <path.wav>` to render a normalized eight-second drum audition and beat
+without the game; this is a test helper, not Studio WAV export.
+
+Audio-clock scheduling, arrangement, recording, sampling, mixer effects and export
+remain subsequent milestones. This change does not claim sample-accurate timing
+or acoustic-drum realism.

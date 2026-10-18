@@ -19,7 +19,7 @@ namespace MWLua
                 "keepAlive", &Synth::keepAlive, "closed", sol::property(&Synth::closed), "peak",
                 sol::property(&Synth::peak), "voices", sol::property(&Synth::voices));
             sol::table api(lua, sol::create);
-            api["version"] = 3;
+            api["version"] = 4;
             api["getMonitorVolume"] = []() -> float { return Settings::sound().mInstrumentVolume; };
             api["setMonitorVolume"] = [manager = context.mLuaManager](float value) {
                 if (!std::isfinite(value) || value < 0 || value > 1)
