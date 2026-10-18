@@ -42,6 +42,8 @@ namespace MWSound
     class Sound;
     class Stream;
     class ProceduralSynth;
+    class ProceduralStudio;
+    class ProceduralAudio;
     struct SoundDecoder;
     typedef std::shared_ptr<SoundDecoder> DecoderPtr;
 
@@ -117,6 +119,9 @@ namespace MWBase
         SoundManager() {}
         virtual ~SoundManager() {}
         virtual std::shared_ptr<MWSound::ProceduralSynth> createSynth(const MWWorld::ConstPtr& source) = 0;
+        virtual std::shared_ptr<MWSound::ProceduralStudio> createStudio(const MWWorld::ConstPtr& source) = 0;
+        virtual unsigned synthUnits() const = 0;
+        virtual double synthDelay(const MWSound::ProceduralAudio* audio) = 0;
 
         virtual void processChangedSettings(const std::set<std::pair<std::string, std::string>>& settings) = 0;
 

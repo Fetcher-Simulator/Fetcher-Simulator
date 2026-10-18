@@ -12,8 +12,8 @@ basic starting points. Personal patches and a working project save per character
 Drum Drive saturates the dedicated drum voices. The final output also has a soft
 limiter. The guitar slice adds a physical string voice and independent instrument
 drive, amp tone and speaker filtering. Sampling and a general mixer effects rack
-remain planned. Sequencer
-dispatch still runs from Lua game frames rather than a native audio clock.
+remain planned. Studio sequencing now runs on a shared native sample clock;
+multiplayer starts use server-clock estimates and queued-audio compensation.
 
 ## Completed slice: native instrument effects and guitar sounds
 
@@ -83,17 +83,31 @@ Author presets only after their required DSP exists. Match useful playing levels
 check several registers and velocities, and audition each in a short arrangement
 with other sounds rather than evaluating solo tone alone.
 
+## Completed slice: native Studio transport
+
+- One native PCM stream and sample clock for up to 16 independent lanes.
+- Precompiled sample-position onsets/gates, cross-loop overlaps, swing, sustain,
+  imported MIDI tempo maps, hat choke and direct Stop cancellation.
+- Versioned owner uploads with bounded chunks, note-density/gate validation,
+  transient server score caching and current-phase late joining.
+- RTT-filtered server clocks, future starts, queued-audio compensation and native
+  positions for the UI. Step/note/swing edits replace scores at bar boundaries;
+  changing loop length/loop mode stops playback before a restart.
+- Exact within-stream scheduling tested with different render block sizes;
+  native playback continues during a deliberate 1.5-second Lua stall.
+
+This is a native timing foundation, not hardware-locked synchronization between
+machines. Continuous device-drift correction and reconstructing held notes for
+late listeners remain future work. Current output is the placed keyboard's mono
+spatial emitter; each lane's instrument/effects identity is preserved for later
+physical destination routing.
+
 ## Following slices
 
-1. Native sample-clock transport and scheduled note queues: tempo, swing, looping,
-   lookahead and reliable multiplayer start synchronization. Preserve per-track
-   instrument/effects separation and plan held-instrument destinations here.
-2. Mixer expansion: EQ, compression, delay/reverb sends, buses, useful meters and
+1. Mixer expansion: EQ, compression, delay/reverb sends, buses, useful meters and
    explicit routing between tracks, instruments and physical world emitters.
-3. Song editing: editable imported MIDI, note selection/drag/resize/copy,
+2. Song editing: editable imported MIDI, note selection/drag/resize/copy,
    recording, arrangement clips and automation using the native clock.
-4. Project library, autosave/recovery, sample instruments, audio export and
-   broader multiplayer synchronization/rate-budget work.
-
-Timing remains foundational: more presets and effects do not remove frame-based
-sequencer jitter. Do not expand arrangement/recording before addressing it.
+3. Project library, autosave/recovery, sample instruments and audio export.
+4. Broader multiplayer synchronization: continuous drift correction, measured
+   device latency, richer late-join state and further rate-budget work.

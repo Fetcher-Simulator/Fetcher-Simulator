@@ -1,5 +1,6 @@
 #include "soundmanagerimp.hpp"
 #include "synthdecoder.hpp"
+#include "proceduralstudio.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -258,9 +259,30 @@ namespace MWSound
 
     std::shared_ptr<ProceduralSynth> SoundManager::createSynth(const MWWorld::ConstPtr& source)
     {
-        if (!isEnabled() || source.isEmpty() || !source.isInCell() || mSynthSounds.size() >= 32)
-            throw std::runtime_error("Cannot create synthesizer: audio disabled, source unavailable or instance limit reached");
         auto synth = std::make_shared<ProceduralSynth>();
+        startProcedural(source, synth); return synth;
+    }
+    std::shared_ptr<ProceduralStudio> SoundManager::createStudio(const MWWorld::ConstPtr& source)
+    {
+        auto studio = std::make_shared<ProceduralStudio>();
+        startProcedural(source, studio); return studio;
+    }
+    unsigned SoundManager::synthUnits() const
+    {
+        unsigned count = 0;
+        for (const auto& sound : mSynthSounds) if (!sound.synth->closed()) count += sound.synth->units();
+        return count;
+    }
+    double SoundManager::synthDelay(const ProceduralAudio* audio)
+    {
+        for (const auto& sound : mSynthSounds) if (sound.synth.get() == audio) return std::max(0.0, mOutput->getStreamDelay(sound.stream.get()));
+        return 0;
+    }
+    void SoundManager::startProcedural(const MWWorld::ConstPtr& source, std::shared_ptr<ProceduralAudio> synth)
+    {
+        if (!isEnabled() || source.isEmpty() || !source.isInCell() || synthUnits() >= 32)
+            throw std::runtime_error("Cannot create synthesizer: audio disabled, source unavailable or instance limit reached");
+        synth->keepAlive();
         auto stream = getStreamRef();
         SoundParams params;
         params.mPos = source.getRefData().getPosition().asVec3();
@@ -272,7 +294,6 @@ namespace MWSound
         if (!mOutput->streamSound3D(std::make_shared<SynthDecoder>(synth), stream.get(), false))
             throw std::runtime_error("No audio source available for synthesizer");
         mSynthSounds.push_back({ source, source.getCell(), std::move(stream), synth });
-        return synth;
     }
 
     void SoundManager::stopMusic()

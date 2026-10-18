@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(procedural_synth_tests LANGUAGES CXX)
 enable_testing()
-add_executable(synth-tests test.cpp ../../apps/openmw/mwsound/proceduralsynth.cpp)
+add_executable(synth-tests test.cpp ../../apps/openmw/mwsound/proceduralsynth.cpp ../../apps/openmw/mwsound/proceduralstudio.cpp)
 target_compile_features(synth-tests PRIVATE cxx_std_17)
 if(MSVC)
   target_compile_options(synth-tests PRIVATE /W4 /EHsc)

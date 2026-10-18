@@ -3,10 +3,12 @@ local config = require('config')
 if config.PROCEDURAL_SYNTH_ENABLED ~= true then return {} end
 local schema = require('procedural_synth_schema')
 local projectFormat = require('procedural_synth_project')(schema)
+local sequenceFormat = require('procedural_synth_sequence')
 local policy = require('intent_policy')
 local RECORD = 'fetcher_procedural_synth_v1'
 local sessions, budgets, epoch = {}, {}, 0
 local lastSweep = 0
+local sendTransport
 local function integer(n, low, high)
     return type(n) == 'number' and n == n and n >= low and n <= high and n % 1 == 0
 end
@@ -24,11 +26,22 @@ local function broadcast(s, out, except)
             if out.op == 'state' then s.recipients[player.guid] = true end
             if out.op == 'on' and not s.recipients[player.guid] then
                 emit(player.guid, {op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq-1,revision=s.revision,params=s.params,channels=s.channels})
+                if s.transport then sendTransport(player.guid,s,s.transport) end
                 s.recipients[player.guid] = true
             end
             emit(player.guid, out)
+            if out.op=='state' and s.transport then sendTransport(player.guid,s,s.transport) end
         end
     end
+end
+sendTransport=function(guid,s,t)
+    emit(guid,{op='scoreBegin',id=s.id,epoch=s.epoch,playId=t.playId,count=t.count,length=t.length,loop=t.loop,
+        started=t.started,activate=t.activate,replace=t.replace})
+    local index=0
+    for at=1,#t.bytes,sequenceFormat.chunkSize do index=index+1
+        emit(guid,{op='scoreChunk',id=s.id,epoch=s.epoch,playId=t.playId,index=index,bytes=t.bytes:sub(at,at+sequenceFormat.chunkSize-1)})
+    end
+    emit(guid,{op='scoreReady',id=s.id,epoch=s.epoch,playId=t.playId})
 end
 local function nextEvent(s) s.outSeq = s.outSeq + 1 end
 local function release(s)
@@ -102,12 +115,20 @@ local function request(data)
         if type(v) == 'table' then if k=='params' then if not schema.state(v) then return end
             elseif k=='project' and data.op=='dawSave' then if not projectFormat.project(v) then return end
             else return end
-        elseif type(v) == 'string' then if not text(v,96) then return end
+        elseif type(v) == 'string' then
+            if k=='bytes' and data.op=='scoreChunk' then if #v<11 or #v>sequenceFormat.chunkSize or #v%11~=0 then return end
+            elseif not text(v,96) then return end
         elseif type(v) ~= 'number' and type(v) ~= 'boolean' then return end
     end
     local player = mp.getPlayer(data.pid)
     if not player then return end
     local now = mp.getUptime()
+    if data.op=='clock' then
+        if type(data.sent)=='number' and data.sent==data.sent and math.abs(data.sent)<1e12 and budget(data.pid,now,'clock',2,4) then
+            emit(data.pid,{op='clock',sent=data.sent,serverTime=now})
+        end
+        return
+    end
     if data.op == 'acquire' then
         if not integer(data.id,1,4294967295) or not budget(data.pid,now,'acquire',1,2) then return end
         local obj=objectFor(data.id)
@@ -120,6 +141,8 @@ local function request(data)
         for _, s in pairs(sessions) do
             if relevant(player,s.cell) then
                 emit(data.pid,{op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params,channels=s.channels})
+                if s.transport then sendTransport(data.pid,s,s.transport) end
+                s.recipients[data.pid]=true
             end
         end
         return
@@ -137,6 +160,49 @@ local function request(data)
     if data.op == 'close' then release(s); return end
     if data.op == 'heartbeat' then
         if budget(data.pid,now,'heartbeat',1,2) then s.expires=now+8 end
+        return
+    end
+    if data.op=='transportStop' then
+        if not integer(data.playId,1,2147483647) or not s.upload and not s.transport then return end
+        if data.playId<math.max(s.upload and s.upload.playId or 0,s.transport and s.transport.playId or 0) then return end
+        if s.upload and data.playId>=s.upload.playId then s.upload=nil end
+        if s.transport and data.playId>=s.transport.playId then s.transport=nil end
+        if data.playId>(s.lastStopped or 0) then
+            s.lastStopped=data.playId;nextEvent(s);broadcast(s,{op='transportStop',playId=data.playId})
+        end
+        return
+    end
+    if data.op=='scoreBegin' then
+        if not integer(data.playId,1,2147483647) or data.playId<=(s.lastPlayId or 0)
+            or not integer(data.count,1,sequenceFormat.maxNotes) or not integer(data.length,1,sequenceFormat.maxFrames)
+            or type(data.loop)~='boolean' or type(data.replace)~='boolean' or not integer(data.quantum,48000,288000)
+            or not budget(data.pid,now,'scoreBegins',4,4) then return end
+        s.lastPlayId=data.playId
+        s.upload={playId=data.playId,count=data.count,length=data.length,loop=data.loop,quantum=data.quantum,
+            replace=data.replace,chunks={},size=0,next=1,expires=now+20}
+        return
+    end
+    if data.op=='scoreChunk' then
+        local u=s.upload
+        if not u or u.playId~=data.playId or now>u.expires or data.index~=u.next or type(data.bytes)~='string'
+            or #data.bytes<11 or #data.bytes>sequenceFormat.chunkSize or #data.bytes%11~=0
+            or u.size+#data.bytes>u.count*11 or not budget(data.pid,now,'scoreChunks',64,64) then return end
+        u.chunks[#u.chunks+1]=data.bytes;u.size=u.size+#data.bytes;u.next=u.next+1;return
+    end
+    if data.op=='scoreCommit' then
+        local u=s.upload
+        if not u or u.playId~=data.playId or now>u.expires or u.size~=u.count*11 then
+            emit(data.pid,{op='scoreError',id=s.id,epoch=s.epoch,playId=data.playId,message='Incomplete score upload.'});return
+        end
+        s.upload=nil;u.bytes=table.concat(u.chunks);u.chunks=nil
+        local valid,err=sequenceFormat.validate(u.bytes,u.length,u.loop,s.channels)
+        if not valid then emit(data.pid,{op='scoreError',id=s.id,epoch=s.epoch,playId=u.playId,message=err});return end
+        local old=s.transport
+        u.replace=u.replace and old~=nil
+        u.started=u.replace and old.started or now+0.75
+        u.activate=u.replace and (u.started+(math.floor((now-u.started+0.25)/(u.quantum/48000))+1)*u.quantum/48000) or u.started
+        s.transport=u
+        for _,p in ipairs(mp.getPlayers()) do if relevant(p,s.cell) then sendTransport(p.guid,s,u);s.recipients[p.guid]=true end end
         return
     end
     if data.op == 'off' or data.op == 'panic' then
@@ -251,6 +317,8 @@ local function sweep()
     if now-lastSweep < 0.5 then return end
     lastSweep=now
     for _, s in pairs(sessions) do
+        if s.upload and now>s.upload.expires then s.upload=nil end
+        if s.transport and not s.transport.loop and now>s.transport.started+s.transport.length/48000+8 then s.transport=nil end
         local owner=mp.getPlayer(s.owner)
         if not owner or now>s.expires or not near(owner,objectFor(s.id)) then release(s)
         elseif now-s.lastAlive >= 2 then
@@ -260,6 +328,7 @@ local function sweep()
                 if relevant(p,s.cell) and p.guid ~= s.owner then
                     if not s.recipients[p.guid] then
                         emit(p.guid,{op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params,channels=s.channels})
+                        if s.transport then sendTransport(p.guid,s,s.transport) end
                         s.recipients[p.guid]=true
                     end
                 else s.recipients[p.guid]=nil end

@@ -411,3 +411,68 @@ The original ProceduralSynth project/preset rows are restored byte-for-byte from
 the fixture backup after testing. All 436 custom MIDI files match source SHA-256
 hashes. Other tests, production services and unrelated working-tree files are
 outside this milestone.
+
+
+## Native Studio sample-clock transport - 2026-10-18
+
+API 6 / package 7. The optional native Studio shares one PCM stream and clock
+across its instrument/effects lanes. Native track slots publish raw atomic
+pointers once and retain ownership off the render path. Score parsing/validation
+and allocation run on the control thread; rendering uses fixed gate storage,
+try-lock control consumption and retained immutable score data.
+
+Validation:
+
+- Full RelWithDebInfo openmw build and standalone Release native ctest pass.
+- Native Studio tests compare exact PCM with 480- and 137-frame render blocks;
+  scheduled onsets, two-lane timing and cross-loop gates remain identical.
+  Future delay, historical-attack skipping on seek, finite completion, repeated
+  gates, live replacement, Stop cancellation, post-Stop live notes, validation
+  and release of old gates after a finite replacement are covered.
+- Native render faults are bounded; score/active-gate/voice/unit limits are
+  explicit. Invalid/nonfinite controls, malformed bytes and unconfigured lanes
+  are rejected. Stop uses a short release and clears future scheduled gates.
+- Lua server: 16 tests / 215 assertions, including authenticated uploads,
+  binary validation, future shared start, late snapshots, malformed/incomplete
+  chunks and suppression of duplicate/invented Stop floods.
+- Sequence compiler/native workstation: 21 assertions, covering exact swing
+  samples, cross-loop gates, finite clipping, sustain, MIDI tempo changes,
+  game-frame independence, live rebuilds and stopping before loop-mode changes.
+- Transport tests cover half-RTT clock estimates, bounded upload/commit order,
+  future starts, replacement without restart, late seeking, Stop tombstones
+  and stale-session download protection. The server/client sequence copies
+  compare byte-for-byte.
+- Existing workstation reference tests: 82 assertions. Client/editor/Studio
+  mock lifecycle tests: 5324 assertions; the mock retains the reference path,
+  while native behavior is covered separately by the native/transport tests and
+  real two-client fixture. MIDI: 26 assertions. Arm geometry: 16 assertions.
+- All test commands and diff whitespace checks pass.
+
+Final real two-client TimingProbe:
+
+- Synth A runs kick, snare, closed/open hats and guitar clips together.
+- A deliberate 1.5-second busy Lua loop leaves native playback running; native
+  position advances 1.5 seconds and 18 scheduled strikes execute during it.
+- A live snare edit queues a bar-boundary replacement without stopping playback.
+- Synth B joins the already-playing performance, receives the score/configuration
+  and plays from the current phase without restarting the performer.
+- Final estimated audible-phase difference is -0.00142 seconds with a 0.0343 s
+  clock RTT in this local run. An earlier queue-compensated run measured
+  -0.000164 s. These are software estimates, not microphone, DAC or driver
+  latency measurements; continuous cross-device drift correction is not tested
+  or implemented.
+- Stop cancels native queued notes and leaves zero tested voices on both clients.
+- Imported Greensleeves with its MIDI tempo map and accompanying clips plays
+  through the native transport. No frame-stall safety stop or manual restart is
+  needed for the late join.
+
+Private evidence: isolated fixture evidence/timing-milestone/Synth_A-final.log
+and Synth_B-final.log, with earlier pass logs retained alongside them. Setup
+-TimingProbe deliberately stalls Lua and belongs only in the disposable fixture.
+The normal setup removes the probe. Before delivery, the original project and
+personal preset rows are restored exactly from timing-milestone-backup.db and
+all 436 custom MIDI files are checked against source SHA-256 hashes.
+
+This milestone does not add separate physical instrument destinations, stereo
+mixing/sends, recording, arrangement automation, held-note reconstruction on late
+join or long-term device-clock correction. Those remain on the roadmap.

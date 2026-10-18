@@ -5,9 +5,9 @@ local self = require('openmw.self')
 local ui = require('openmw.ui')
 local input = require('openmw.input')
 local supported, synth = pcall(require,'openmw.synth')
-if not supported or (synth.version and synth.version<5) then
+if not supported or (synth.version and synth.version<6) then
     return {eventHandlers={Synth_Activate=function()
-        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 5.')
+        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 6.')
     end}}
 end
 local schema = require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -17,6 +17,8 @@ local Workstation = require('scripts.multiplayer.fetcher.procedural-synth.client
 local Studio = require('scripts.multiplayer.fetcher.procedural-synth.client.studio')
 local Performance = require('scripts.multiplayer.fetcher.procedural-synth.client.performance')
 local vfs = require('openmw.vfs')
+local NativeTransport=require('scripts.multiplayer.fetcher.procedural-synth.client.transport')
+local transport=NativeTransport.new(synth,mp,core,function(message) ui.showMessage(message);print('[SynthStudio] '..message) end)
 local instances, editor, session = {}, nil, nil
 local connected, lastSync, lastHeartbeat, lastEdit = false, -10, 0, 0
 local dirty
@@ -70,6 +72,8 @@ local function destroy(id)
         if i.pose and not i.pose.missing then pcall(i.pose.clear,i.pose) end
         i.audio:close()
         for _,channel in pairs(i.channels or {}) do if channel.audio then channel.audio:close() end end
+        if i.studio then i.studio:close() end
+        transport.downloads[id]=nil
         instances[id]=nil
     end
 end
@@ -86,6 +90,7 @@ local function applyChannel(i,n,params,level)
     local channel=i.channels[n] or {};i.channels[n]=channel
     channel.params=params;channel.level=level
     if channel.audio then
+        if i.studio then transport:configure(i,n);return end
         for name in pairs(schema.specs) do channel.audio:set(name,name=='polyphony' and math.min(8,params[name]) or params[name]) end
         channel.audio:set('volume',params.volume*level)
     end
@@ -94,6 +99,11 @@ local function channelAudio(i,n,create)
     if n==0 then return i.audio end
     local channel=i.channels[n];if not channel then return end
     if not channel.audio and create then
+        if synth.createStudio then
+            local ok,audio=pcall(transport.audio,transport,i,n)
+            if not ok then ui.showMessage(tostring(audio));return end
+            channel.audio=audio;return audio
+        end
         local ok,audio=pcall(synth.create,i.source)
         if not ok then ui.showMessage('DAW audio source unavailable: '..tostring(audio));return end
         channel.audio=audio;applyChannel(i,n,channel.params,channel.level)
@@ -111,7 +121,8 @@ local function playNote(i,channel,note,velocity)
         if i.params.drumType==4 then i.audio:allNotesOff();for key in pairs(i.notes) do if key<128 then i.notes[key]=nil end end end
     end
     local audio=channelAudio(i,channel,true);if not audio then return false end
-    audio:noteOn(note,velocity);i.notes[channel*128+note]=true;i.strikes=(i.strikes or 0)+1;return true
+    if audio:noteOn(note,velocity)==false then return false end
+    i.notes[channel*128+note]=true;i.strikes=(i.strikes or 0)+1;return true
 end
 local function releaseNote(i,channel,note)
     local audio=channelAudio(i,channel,false);if audio then audio:noteOff(note) end
@@ -161,7 +172,14 @@ playSong=function(path,intent)
 end
 makeWorkstation=function(i)
     local tokens,last=80,core.getRealTime()
-    return Workstation.new{
+    local w=Workstation.new{
+        schedule=synth.createStudio and function(plan,replace) return transport:queue(i,plan,replace,send) end or nil,
+        stopSequence=function() transport:stop(i,send) end,
+        progress=function()
+            local a,t=i.studio,i.transport
+            return a and a.playing or false,a and a.audiblePosition or 0,a and a.fault or 0,
+                a and t and not t.loop and not a.playing and a.position>=t.length/48000 or false
+        end,
         configure=function(n,params,level)
             local values={level};for _,name in ipairs(schema.order) do values[#values+1]=params[name] end
             local signature=table.concat(values,',')
@@ -187,6 +205,7 @@ makeWorkstation=function(i)
         message=ui.showMessage,
         meter=function(n) local audio=channelAudio(i,n,false);return audio and audio.peak or 0 end,
     }
+    i.workstation=w;return w
 end
 switchPage=function(page,track)
     if not session then return end
@@ -270,6 +289,7 @@ showEditor=function()
 end
 local function message(data)
     if not mp.isConnected() or type(data)~='table' or data.version~=1 then return end
+    if transport:receive(data,instances) then return end
     if data.op=='error' then ui.showMessage(data.message); return end
     if data.op=='dawSaved' then
         if session and data.id==session.id and data.epoch==session.epoch then
@@ -318,7 +338,7 @@ local function message(data)
         if i then destroy(data.id) end
         local ok,audio=pcall(synth.create,source)
         if not ok then ui.showMessage(tostring(audio)); return end
-        i={audio=audio,source=source,cell=self.cell,owner=data.owner,notes={},channels={},epoch=data.epoch,seq=data.seq,seen=core.getRealTime()}
+        i={id=data.id,audio=audio,source=source,cell=self.cell,owner=data.owner,notes={},channels={},epoch=data.epoch,seq=data.seq,seen=core.getRealTime()}
         instances[data.id]=i;apply(i,params)
         for n,channel in pairs(data.channels or {}) do
             local state=schema.state(channel.params)
@@ -370,6 +390,7 @@ local function frame(dt)
     if not scanned then scanSongs() end
     local now=core.getRealTime()
     if not mp.isConnected() then
+        transport.offset=nil;transport.rtt=nil;transport.lastClock=-10;transport.downloads={};transport.pings={};transport.samples=0
         for id in pairs(instances) do destroy(id) end
         closeEditor(false); connected=false; return
     end
@@ -378,6 +399,7 @@ local function frame(dt)
         -- Request only when there are no instances: a snapshot never restarts held notes.
         if next(instances)==nil then mp.sendToServer('Synth_Request',{version=1,op='sync'}) end
     end
+    if synth.createStudio then transport:frame(instances) end
     for id,i in pairs(instances) do
         if not i.source:isValid() or self.cell~=i.cell or now-i.seen>7 or i.audio.closed then destroy(id)
         else
@@ -393,7 +415,11 @@ local function frame(dt)
                 end
                 if actor and actor:isValid() then
                     if not i.pose then i.pose=Performance.new(actor) end
-                    if i.pose and not i.pose.missing then i.pose:frame(dt,i.source,i.notes,now,i.strikes) end
+                    if i.pose and not i.pose.missing then
+                        local notes=i.notes;local strikes=i.strikes or 0
+                        if i.studio then notes=i.studio:notes();for key in pairs(i.notes) do notes[key]=true end;strikes=strikes+i.studio.strikes end
+                        i.pose:frame(dt,i.source,notes,now,strikes)
+                    end
                 end
             end
         end
@@ -420,7 +446,7 @@ end
 return {
     interfaceName='ProceduralSynth',
     interface={
-        version=5,
+        version=6,
         status=function()
             local out={}
             for id,i in pairs(instances) do
@@ -430,11 +456,19 @@ return {
                 for n,channel in pairs(i.channels) do channels[#channels+1]={id=n,voices=channel.audio and channel.audio.voices or 0,peak=channel.audio and channel.audio.peak or 0,wave1=channel.params.wave1,cutoff=channel.params.cutoff,
                     instrumentType=channel.params.instrumentType,driveType=channel.params.driveType,drive=channel.params.drive,cabinet=channel.params.cabinet,stringMute=channel.params.stringMute} end
                 local w=session and session.id==id and session.workstation
+                local phaseError=0
+                if i.studio and i.transport and transport.offset then
+                    phaseError=i.studio.audiblePosition-math.max(0,core.getRealTime()+transport.offset-i.transport.started)
+                    if i.transport.loop then local period=i.transport.length/48000;phaseError=(phaseError+period/2)%period-period/2 end
+                end
                 out[#out+1]={id=id,owner=i.owner,voices=voices,peak=peak,
                 editing=session~=nil and session.id==id,editorVisible=editor~=nil and session.id==id,epoch=i.epoch,seq=i.seq,
                 cutoff=i.params.cutoff,wave1=i.params.wave1,poseBones=i.pose and i.pose.applied or 0,
                 poseError=i.pose and i.pose.error or 0,midi=(playback~=nil and playback.playing) or (w and w.playing and w.mode=='song') or false,
-                channels=channels,tracks=w and #w.project.tracks or 0,transport=w and w.playing or false,transportTime=w and w.time or 0} end
+                channels=channels,tracks=w and #w.project.tracks or 0,transport=w and w.playing or false,transportTime=w and w.time or 0,
+                nativePlaying=i.studio and i.studio.playing or false,nativePosition=i.studio and i.studio.position or 0,
+                nativeStrikes=i.studio and i.studio.strikes or 0,nativeFault=i.studio and i.studio.fault or 0,
+                phaseError=phaseError,clockRtt=transport.rtt or -1} end
             return out
         end,
         noteOn=function(note,velocity) if editor and editor.kind~='studio' then editor:note(note,true,velocity) end end,

@@ -81,12 +81,14 @@ void writePreview(const std::string& path)
     check(static_cast<bool>(file),"preview output completes");
 }
 #include "guitar-tests.hpp"
+#include "studio-tests.hpp"
 
 int main(int argc, char** argv)
 {
     try
     {
         guitarTests();
+        studioTests();
         Synth snareLow, snareHigh;
         setupDrum(snareLow,2);setupDrum(snareHigh,2);
         snareLow.noteOn(38,1);snareHigh.noteOn(84,1);

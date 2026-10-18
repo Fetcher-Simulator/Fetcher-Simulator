@@ -22,6 +22,8 @@ function W.new(cb)
     self.checkpoint=copy(self.project);return self
 end
 function W:touch(key,quiet)
+    if self.native and self.playing and self.checkpoint.loop~=self.project.loop then self:stop(true) end
+    if self.native and self.playing and (not key or key=='swing' or key:find('^note:') or key=='sequence') then self.sequenceDirty=true end
     if self.editDepth and self.editDepth>0 then self.transactionTouched=true;return end
     if not equal(self.checkpoint,self.project) then
         if not key or key~=self.lastEditKey or self.wall-(self.lastEditTime or -1)>0.4 then
@@ -188,6 +190,8 @@ function W:audition(index)
     return true
 end
 function W:stop(force)
+    if self.cb.stopSequence and (self.native or force) then self.cb.stopSequence() end
+    if self.native then self.native=false;self.awaiting=false;self.sequenceDirty=false end
     local midi=self.midi;self.midi=nil
     local active=self.playing or #self.preview>0;self.playing=false;self.pending={};self.preview={};self.counts={}
     if midi and midi.playing then midi:stop() elseif active or force then self.cb.panic() end
@@ -196,6 +200,14 @@ function W:play(mode)
     self:stop(true)
     if mode=='song' and not self.song then self.cb.message('Import a MIDI file first.');return false end
     self:configureAll();self.time=0;self.beat=0;self.step=-1;self.pending={};self.counts={};self.playing=true;self.mode=mode
+    if self.cb.schedule then
+        local Sequence=require(prefix..'shared.sequence')
+        local ok,plan=pcall(Sequence.compile,self.project,self.song,MIDI,mode)
+        if not ok then self.playing=false;self.cb.message(tostring(plan));return false end
+        self.native=true;self.nativeStarted=false;self.awaiting=true;self.sequenceDirty=false
+        if self.cb.schedule(plan,false)==false then self:stop(true);return false end
+        return true
+    end
     if mode=='song' then
         local routes={};for n,t in ipairs(self.project.tracks) do if t.kind=='midi' then routes[t.part]=n end end
         self.midi=MIDI.player(self.song,{
@@ -214,6 +226,30 @@ function W:beatAt(time)
     return beat+(time-seconds)*1000000/tempo
 end
 function W:frame(dt)
+    if self.native then
+        self.wall=self.wall+math.max(0,type(dt)=='number' and dt==dt and dt or 0)
+        local preview={}
+        for _,n in ipairs(self.preview) do
+            if n.finish<=self.wall then
+                local key=n.lane*128+n.note;self.counts[key]=self.counts[key]-1
+                if self.counts[key]==0 then self.cb.off(n.lane,n.note) end
+            else preview[#preview+1]=n end
+        end
+        self.preview=preview
+        if self.sequenceDirty and self.wall-(self.lastSequenceEdit or -10)>0.25 then
+            self.sequenceDirty=false;self.lastSequenceEdit=self.wall
+            local Sequence=require(prefix..'shared.sequence')
+            local ok,plan=pcall(Sequence.compile,self.project,self.song,MIDI,self.mode)
+            if not ok or self.cb.schedule(plan,true)==false then self:stop(true);self.cb.message(tostring(plan));return end
+        end
+        if not self.awaiting then
+            local playing,time,fault,complete=self.cb.progress()
+            if playing then self.nativeStarted=true end
+            self.time=time;self.beat=self:beatAt(time);self.step=math.floor(self.beat*4)
+            if not playing and (self.nativeStarted or complete or fault and fault~=0) then self.playing=false;self.native=false;if fault and fault~=0 then self.cb.message('Native transport stopped: active-note limit.');self.cb.stopSequence() end end
+        end
+        return
+    end
     if type(dt)~='number' or dt~=dt or dt<0 or dt>0.25 then
         if self.playing or #self.preview>0 then self:stop();self.cb.message('Transport stopped after a frame stall.') end
         return

@@ -222,6 +222,7 @@ namespace MWSound
                 voice.pitchEnvelope = 1;
                 voice.amp.stage = voice.filter.stage = 1;
                 voice.age = ++mAge;
+                voice.drumChoke = false;
                 voice.instrumentType = static_cast<int>(mCurrent[InstrumentType]);
                 if (voice.instrumentType != 0)
                     pluck(voice);
@@ -251,6 +252,7 @@ namespace MWSound
         slot->noise ^= static_cast<std::uint32_t>(mAge + 1) * 2654435761u;
         slot->amp.stage = slot->filter.stage = 1;
         slot->age = ++mAge;
+        slot->drumChoke = false;
         slot->instrumentType = static_cast<int>(mCurrent[InstrumentType]);
         if (slot->instrumentType != 0)
             pluck(*slot);
@@ -410,7 +412,7 @@ namespace MWSound
                         v = Voice{};
                     continue;
                 }
-                const float amp = v.amp.next(mCurrent[9], mCurrent[10], mCurrent[11], mCurrent[12]);
+                const float amp = v.amp.next(mCurrent[9], mCurrent[10], mCurrent[11], v.drumChoke ? std::min(0.01f, mCurrent[12]) : mCurrent[12]);
                 if (!v.amp.stage)
                 {
                     v = Voice{};

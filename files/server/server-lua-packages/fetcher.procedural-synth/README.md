@@ -126,7 +126,7 @@ print(instrument.peak, instrument.voices, instrument.closed)
 instrument:close()                  -- idempotent; no further playback
 ```
 
-`synth.parameters[name]` exposes immutable `min`, `max`, `default`, `discrete` metadata. `peak` is generated PCM peak before spatial attenuation, not a microphone or final output meter. The package's optional `I.ProceduralSynth` interface exposes `status`, `noteOn`, `noteOff`, `setParameter`, `presetCommand` and `close` for other client scripts/input methods, subject to an owned editor session. Older clients without native module version 5 show a compatibility message on activation instead of acquiring a lock.
+`synth.parameters[name]` exposes immutable `min`, `max`, `default`, `discrete` metadata. `peak` is generated PCM peak before spatial attenuation, not a microphone or final output meter. The package's optional `I.ProceduralSynth` interface exposes `status`, `noteOn`, `noteOff`, `setParameter`, `presetCommand` and `close` for other client scripts/input methods, subject to an owned editor session. Older clients without native module version 6 show a compatibility message on activation instead of acquiring a lock.
 
 Interface version 4 adds `studio()`, `workstation()`, `importMidi(path)`, `saveProject()` and `loadProject()`, plus per-channel meter/parameter summaries and transport time in `status()`. Version 3 added `hide()` and `show()` and the `status().editorVisible` field; `editing` continues to mean owning the session, including while hidden. `close()` retains its original meaning of stopping playback and releasing ownership. Interface version 2 added `midiSongs()`, `playMidi(catalogPath)` and `stopMidi()`. Native `openmw.animation.boneTransformsVersion == 1` adds `getBoneNames`, `getBoneTransform`, `setBoneTransform` and `clearBoneTransform`; see `files/lua_api/openmw/animation.lua` for coordinate spaces, threading, validation and expiry. Transform reads return the matrix and a rotation-only transform, with an option to exclude scripted offsets for IK. `openmw.mp.getPlayerObject(serverGuid)` resolves the authoritative performer to the correct local/remote model in `onFrame`. These visual APIs are independent of the synthesizer. Older clients with no bone extension can still use the audio/editor, with the pose omitted.
 
@@ -267,3 +267,70 @@ This renders actual native patches; it is not a Studio export feature.
 Design reference for the string model: Julius O. Smith, Physical Audio Signal
 Processing, https://www.dsprelated.com/freebooks/pasp/Electric_Guitars.html .
 The remaining transport/routing/editor milestones are tracked in ROADMAP.md.
+
+
+## Native Studio transport (API 6, package 7)
+
+Studio now compiles clips and imported MIDI into a bounded native score before
+playing. One 48 kHz mono stream mixes up to 16 independent instrument/effects
+lanes against one sample clock. Onsets, gate releases, overlapping same-pitch
+notes, swing, loops and hat choke execute on the audio thread. Lua updates the
+editor, prepares scores and handles control/network messages; a long game frame
+no longer stops the sequencer or bunches its scheduled notes into a later frame.
+The standalone manual synth remains an immediate instrument.
+
+The existing Play clips / Play song / Stop controls select the native path.
+BUFFER means a score is being transferred. Starting a performance normally arms
+it for a shared server time 750 ms ahead. Looping clips repeat natively. Imported
+MIDI retains its tempo map, sustain and note cleanup; added clips follow the MIDI
+beat map. As before, Play song finishes at the song end; Loop controls repetition
+of accompanying clips. Changing loop length or the Loop setting stops playback;
+press Play again. Step/note/swing edits during playback prepare a replacement
+score for a future bar boundary, retaining the old score until that point.
+Sound and mixer edits update their independent native lanes directly.
+
+Only the authenticated performer can upload/start/replace/stop a score. The
+server validates sorted onsets, finite/bounded durations, configured lanes,
+40 note-ons/sec with burst 80 (including loop boundaries), and at most 4096
+outstanding gates. A score holds at most 60,000 note spans / 30 minutes, encoded
+as 11-byte records (LE onset and duration in samples, lane, pitch, 7-bit velocity).
+Uploads use bounded 2816-byte chunks; pending uploads expire and Stop cancels
+both uploads and scheduled playback. Rejected/incomplete scores never become
+listener performances. The client sends up to 32 chunks/sec, burst 8; server
+limits and ownership checks apply independently.
+
+The server caches the current compiled score and its start timestamp. Relevant
+listeners, including late joiners, receive the score, instrument states and
+clock anchor; they do not need the performer's MIDI file or frame-dispatched note
+messages. A late join seeks to the current phase and enters on future attacks;
+it does not replay historical attacks or reconstruct already-held sustained
+notes. Stop, Finish, session loss and cell changes cancel future scheduled notes.
+The existing session/liveness timeouts still apply to prolonged hangs/disconnects.
+
+Clock synchronization uses RTT-filtered server echoes and several startup
+samples when the first RTT is high. Native start/replacement accounts for queued
+OpenAL audio; the UI uses an estimated audible position rather than the render
+cursor ahead of it. Tracks within a Studio stream share exact sample positions.
+Separate machines use estimated start alignment; device clock drift, driver
+latency and network asymmetry are not solved by this milestone. Continuous drift
+correction and audio-device loopback measurement remain future work.
+
+Native `openmw.synth.createStudio(object)` returns a Studio with `configure`,
+`set`, `noteOn`, `noteOff`, `releaseTrack`, `loadScore`, `start`, `replace`, `stop`,
+`notes`, `trackPeak`, `trackVoices`, `keepAlive`, `close`, and read-only `playing`,
+`position` (render cursor), `audiblePosition` (queue-compensated estimate),
+`strikes`, `voices`, `peak`, `fault`, `closed`. `releaseTrack` releases its current
+voices; `stop` also cancels the score. `maxUnits=32` bounds native instruments
+plus streams globally; Studio lanes are allocated on the control thread and
+retained for the session. No score construction, heap allocation or blocking
+control mutex acquisition occurs in the render path. Each lane retains its
+existing eight-voice Studio cap and independent effects. All lanes currently
+feed the placed keyboard's mono spatial emitter; separate held instruments,
+stereo buses and mixer sends remain planned.
+
+Personal sound/project formats and their per-character SQLite namespaces remain
+unchanged. Playback scores are transient; saved projects retain editable notes,
+patterns, MIDI references, sound snapshots and mixer settings as before.
+Use setup **-TimingProbe** only in the disposable fixture: it deliberately blocks
+Lua for 1.5 seconds while asserting that native notes and position continue,
+then exercises replacement, late listening, Stop and MIDI plus clips.

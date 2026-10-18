@@ -10,12 +10,13 @@
 #include <memory>
 #include <string_view>
 #include "proceduralsyntheffects.hpp"
+#include "proceduralaudio.hpp"
 
 namespace MWSound
 {
     // No engine, Lua, OpenAL or file dependencies. render() has one audio-thread
     // owner.
-    class ProceduralSynth
+    class ProceduralSynth : public ProceduralAudio
     {
     public:
         struct Parameter
@@ -43,6 +44,7 @@ namespace MWSound
         void render(float* output, std::size_t frames);
 
     private:
+        friend class ProceduralStudio;
         enum DrumParameter : std::size_t
         {
             DrumType = 28, BodyFrequency, BodyDecay, BodyLevel, NoiseDecay, NoiseLevel,

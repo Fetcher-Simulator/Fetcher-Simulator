@@ -2,6 +2,7 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/soundmanager.hpp"
 #include "../mwsound/proceduralsynth.hpp"
+#include "../mwsound/proceduralstudio.hpp"
 #include "objectvariant.hpp"
 #include "luamanagerimp.hpp"
 #include <components/settings/values.hpp>
@@ -19,7 +20,44 @@ namespace MWLua
                 "keepAlive", &Synth::keepAlive, "closed", sol::property(&Synth::closed), "peak",
                 sol::property(&Synth::peak), "voices", sol::property(&Synth::voices));
             sol::table api(lua, sol::create);
-            api["version"] = 5;
+            api["version"] = 6;
+            using Studio = MWSound::ProceduralStudio;
+            lua.new_usertype<Studio>("ProceduralStudio", sol::no_constructor,
+                "closed", sol::property(&Studio::closed), "close", &Studio::close,
+                "keepAlive", &Studio::keepAlive, "stop", &Studio::stop,
+                "playing", sol::property(&Studio::playing), "position", sol::property(&Studio::position),
+                "audiblePosition", sol::property([](const Studio& studio) {
+                    return std::max(0.0, studio.position() - MWBase::Environment::get().getSoundManager()->synthDelay(&studio));
+                }),
+                "fault", sol::property(&Studio::fault), "peak", sol::property(&Studio::peak),
+                "voices", sol::property(&Studio::voices), "strikes", sol::property(&Studio::strikes),
+                "noteOn", &Studio::noteOn, "noteOff", &Studio::noteOff,
+                "releaseTrack", &Studio::releaseTrack, "trackPeak", &Studio::trackPeak, "trackVoices", &Studio::trackVoices,
+                "set", &Studio::set, "loadScore", &Studio::loadScore,
+                "notes", [lua](const Studio& studio) {
+                    sol::table notes(lua, sol::create);
+                    for (unsigned key : studio.activeNotes()) notes[key] = true;
+                    return notes;
+                },
+                "configure", [](Studio& studio, unsigned n, const sol::table& values, float level) {
+                    auto sound = MWBase::Environment::get().getSoundManager();
+                    if (!studio.hasTrack(n) && sound->synthUnits() >= 32) return false;
+                    Synth::State state;
+                    for (std::size_t i = 0; i < state.size(); ++i)
+                        state[i] = values[Synth::Parameters[i].name].get_or(Synth::Parameters[i].initial);
+                    return studio.configure(n, state, level);
+                },
+                "start", [](Studio& studio, double delay, double offset) {
+                    const double queued = MWBase::Environment::get().getSoundManager()->synthDelay(&studio);
+                    const double lead = delay - queued;
+                    return studio.start(std::max(0.0, lead), offset + std::max(0.0, -lead));
+                }, "replace", [](Studio& studio, double delay) {
+                    const double queued = MWBase::Environment::get().getSoundManager()->synthDelay(&studio);
+                    return studio.replace(std::max(0.0, delay - queued));
+                });
+            api["createStudio"] = [](const sol::object& object) {
+                return MWBase::Environment::get().getSoundManager()->createStudio(ObjectVariant(object).ptr());
+            };
             api["getMonitorVolume"] = []() -> float { return Settings::sound().mInstrumentVolume; };
             api["setMonitorVolume"] = [manager = context.mLuaManager](float value) {
                 if (!std::isfinite(value) || value < 0 || value > 1)
@@ -31,6 +69,8 @@ namespace MWLua
                 }, "Set instrument monitor volume");
             };
             api["maxInstances"] = 32;
+            api["maxUnits"] = 32;
+            api["maxScheduledNotes"] = Studio::MaxNotes;
             api["sampleRate"] = Synth::SampleRate;
             api["create"] = [](const sol::object& object) {
                 auto ptr = ObjectVariant(object).ptr();

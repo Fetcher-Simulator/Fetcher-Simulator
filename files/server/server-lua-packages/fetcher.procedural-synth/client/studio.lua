@@ -213,7 +213,7 @@ function S:frame(now)
     if I.UI.getMode()~='Interface' then self.cb.hide();return end
     if self.revision~=self.w.revision then self:render() end
     if now-self.lastFrame<0.1 then return end;self.lastFrame=now
-    self.transport.layout.props.text=string.format('%s  |  %.1fs  |  Beat %.1f  |  %s%s',self.w.playing and 'PLAY' or 'STOP',self.w.time,self.w.beat+1,self.w.project.name,self.w.dirty and ' *' or '')
+    self.transport.layout.props.text=string.format('%s  |  %.1fs  |  Beat %.1f  |  %s%s',self.w.awaiting and 'BUFFER' or (self.w.playing and 'PLAY' or 'STOP'),self.w.time,self.w.beat+1,self.w.project.name,self.w.dirty and ' *' or '')
     self.window:update(self.transport)
     for lane,meter in pairs(self.meters) do meter.layout.props.size=v(math.max(1,220*self.w.cb.meter(lane)),3);self.window:update(meter) end
     if self.playhead then

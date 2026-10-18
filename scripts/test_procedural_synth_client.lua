@@ -11,6 +11,8 @@ local source={recordId='fetcher_procedural_synth_v1',valid=true}
 function source:isValid() return self.valid end
 local self={cell={id='ToddTest'}}
 package.loaded[prefix..'shared.schema']=schema
+package.loaded[prefix..'shared.sequence']=dofile(root..'shared/sequence.lua')
+package.loaded[prefix..'client.transport']=dofile(root..'client/transport.lua')
 package.loaded[prefix..'shared.project']=dofile(root..'shared/project.lua')
 package.loaded['openmw.util']={vector2=vector,color={rgb=function(...) return {...} end}}
 package.loaded['openmw.util'].vector3=function(x,y,z) return {x=x,y=y,z=z} end
@@ -376,7 +378,7 @@ check(openAudio.notes[46],'listener starts open hat')
 handler{version=1,op='on',id=7,epoch=8,seq=3,channel=2,note=42,velocity=1}
 check(openAudio.voices==0 and audios[#audios].notes[42],'closed hat chokes open hat on the listener')
 handler{version=1,op='close',id=7,epoch=8,seq=4}
-package.loaded['openmw.synth'].version=4
+package.loaded['openmw.synth'].version=5
 local oldClient=dofile(root..'client/player.lua')
 check(oldClient.interface==nil and oldClient.eventHandlers.Synth_Activate~=nil,'older engines receive an upgrade message before loading the new window controls')
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, sequence, listener cleanup; %d assertions',checks))

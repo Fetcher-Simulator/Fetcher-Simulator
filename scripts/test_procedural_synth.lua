@@ -211,4 +211,34 @@ test('guitar effects round trip in personal patches and late listener snapshots'
     local guitars=0;for _,p in ipairs(entries) do if schema.inBank(p,'Guitar') then guitars=guitars+1 end end
     check(guitars==8,'genre catalog exposes all eight guitar starting points')
 end)
+test('native scores are validated, timestamped and included in late sync',function()
+    local Sequence=require('procedural_synth_sequence');local Format=require('procedural_synth_project')(schema)
+    local p=Format.new();p.tracks[1]=Format.newTrack('piano','Clock',16);p.tracks[1].notes={{n=60,s=0,l=2,v=0.8},{n=64,s=4,l=2,v=0.7}}
+    local score=Sequence.compile(p,nil,nil,'clips')
+    acquire();request('channel',{channel=1,params={},level=1});sent={}
+    request('clock',{sent=12});check(sent[#sent].data.op=='clock' and sent[#sent].data.serverTime==now,'clock echo uses server time')
+    request('scoreBegin',{playId=1,count=#score.bytes/11,length=score.length,loop=score.loop,quantum=score.quantum,replace=false})
+    request('scoreChunk',{playId=1,index=1,bytes=score.bytes});request('scoreCommit',{playId=1})
+    local ready,meta=0,nil
+    for _,e in ipairs(sent) do if e.data.op=='scoreReady' then ready=ready+1 elseif e.data.op=='scoreBegin' then meta=e.data end end
+    check(ready==2 and meta.started>now and meta.started==meta.activate,'both clients get one future shared start')
+    sent={};players[3].cell='INT:A';request('sync',{pid=3})
+    check(sent[#sent].data.op=='scoreReady','late listener receives the compiled score with its original clock anchor')
+    for _,e in ipairs(sent) do check(e.data.op~='on','score playback does not relay frame-dispatched note events') end
+    request('transportStop',{playId=1});local before=#sent
+    for id=1,1000 do request('transportStop',{playId=id}) end
+    check(#sent==before,'duplicate and invented Stop generations cannot flood listeners')
+    now=now+3;sent={};request('sync',{pid=3})
+    check(sent[#sent].data.op=='state','stopped scores are absent from snapshots')
+end)
+test('malformed and unauthorized native uploads preserve the running score',function()
+    acquire();request('channel',{channel=1,params={},level=1});sent={}
+    request('scoreBegin',{pid=2,playId=1,count=1,length=48000,loop=true,quantum=48000,replace=false})
+    check(#sent==0,'nonowner cannot upload a score')
+    request('scoreBegin',{playId=1,count=1,length=48000,loop=true,quantum=48000,replace=false})
+    request('scoreChunk',{playId=1,index=2,bytes=string.rep('\0',11)});request('scoreCommit',{playId=1})
+    check(sent[#sent].data.op=='scoreError','missing and reordered chunks cannot start playback')
+    request('scoreChunk',{playId=1,index=1,bytes=string.rep('\0',11)});request('scoreCommit',{playId=1})
+    check(sent[#sent].data.op=='scoreError','invalid binary note controls are rejected before relay')
+end)
 print(string.format('%d tests, %d assertions passed',tests,checks))

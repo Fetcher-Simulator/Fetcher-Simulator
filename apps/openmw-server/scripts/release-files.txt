@@ -24,6 +24,7 @@ consuming_animated_relay.lua
 procedural_synth.lua
 procedural_synth_schema.lua
 procedural_synth_project.lua
+procedural_synth_sequence.lua
 mark_recall.lua
 mod_manifest.lua
 morezombies_content_overrides.lua

@@ -11,11 +11,11 @@ namespace MWSound
 {
     class SynthDecoder final : public SoundDecoder
     {
-        std::shared_ptr<ProceduralSynth> mSynth;
+        std::shared_ptr<ProceduralAudio> mSynth;
         std::size_t mOffset = 0;
 
     public:
-        explicit SynthDecoder(std::shared_ptr<ProceduralSynth> synth)
+        explicit SynthDecoder(std::shared_ptr<ProceduralAudio> synth)
             : SoundDecoder(nullptr)
             , mSynth(std::move(synth))
         {
