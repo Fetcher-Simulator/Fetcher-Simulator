@@ -38,12 +38,15 @@ function E:refreshName()
 end
 function E:catalog(entries)
     self.entries=entries or {}; self:refreshName()
+    if self.page=='presets' then self:render() end
 end
 function E:saved(id,deleted)
     self.selected=not deleted and id or nil
     self:refreshName()
 end
 function E:state(params,id)
+    local audition=self.previewRequested and self.previewRequested==id
+    self.previewRequested=nil
     self:releaseAll(); self.params=params
     if id then
         self.selected=id
@@ -51,10 +54,15 @@ function E:state(params,id)
     end
     for name,control in pairs(self.controls) do control() end
     self:plots(); self:refreshName()
+    if self.page=='presets' then self:render() end
+    if audition then
+        self:note(params.drumType>0 and 38 or 60,true,0.8);self.previewRemaining=1.5
+    end
 end
 function E:releaseAll()
     for note in pairs(self.held) do self.cb.noteOff(note) end
     self.held={}; self.mouseNote=nil
+    self.previewRemaining=nil
 end
 function E:note(note,on,velocity)
     if on and not self.held[note] then self.held[note]=true; self.cb.noteOn(note,velocity or 0.8)
@@ -70,21 +78,53 @@ function E:key(code,on)
 end
 function E:slider(name,title,x,y,width)
     local base=schema.specs[name];local spec={min=base.min,max=base.max,discrete=base.discrete}
-    local times={attack=true,decay=true,release=true,filterAttack=true,filterDecay=true,filterRelease=true,pitchDecay=true,bodyDecay=true,noiseDecay=true,drumPitchDecay=true}
-    local hz={cutoff=true,lfoRate=true,bodyFrequency=true,noiseHighpass=true,noiseLowpass=true}
+    local times={attack=true,decay=true,release=true,filterAttack=true,filterDecay=true,filterRelease=true,pitchDecay=true,bodyDecay=true,noiseDecay=true,drumPitchDecay=true,stringDecay=true}
+    local hz={cutoff=true,lfoRate=true,bodyFrequency=true,noiseHighpass=true,noiseLowpass=true,driveTone=true}
     if times[name] then spec.unit='s';spec.log=true;spec.step=0.001
     elseif hz[name] then spec.unit='Hz';spec.log=true;spec.step=1
-    elseif name:find('Level') or name:find('volume') or name=='sustain' or name=='filterSustain' then spec.unit='%';spec.step=0.01
+    elseif name:find('Level') or name:find('volume') or name=='sustain' or name=='filterSustain' or name=='fxMix' or name=='stringDamping' or name=='stringMute' or name=='stringPick' then spec.unit='%';spec.step=0.01
+    elseif name=='drive' or name:find('^amp[BMT]') then spec.unit='dB';spec.step=0.5
     elseif name:find('tune') or name:find('fine') or name:find('Amount') then spec.step=1 end
-    local labels={wave1=waves,wave2=waves,enabled2={'Off','On'},lfoTarget={'Pitch','Filter','Amplitude'},drumType={'Synth','Kick','Snare','Closed hat','Open hat'}}
+    local labels={wave1=waves,wave2=waves,enabled2={'Off','On'},lfoTarget={'Pitch','Filter','Amplitude'},drumType={'Synth','Kick','Snare','Closed hat','Open hat'},
+        instrumentType={'Oscillators','Plucked string'},driveType={'Off','Overdrive','Distortion','Fuzz'},cabinet={'Off','Small speaker','Open speaker','Dark stack'}}
     local caption=labels[name] and function() return title..' / '..(labels[name][self.params[name]+1] or '') end or title
     local element,refresh=Controls.slider(self,name,caption,spec,function() return self.params[name] end,function(value)
         self.params[name]=value;self.cb.change(name,value)
     end,x,y,width)
     self.controls[name]=refresh;return element
 end
+function E:browser(content)
+    local bank=self.bank or 'All';local filtered={}
+    for _,p in ipairs(self.entries) do if schema.inBank(p,bank) then filtered[#filtered+1]=p end end
+    local function changeBank(delta)
+        local at=1;for n,b in ipairs(schema.banks) do if b==bank then at=n end end
+        self.bank=schema.banks[(at-1+delta)%#schema.banks+1];self.browserPage=0;self:render()
+    end
+    content[#content+1]=self:button('< Bank',30,185,80,function() changeBank(-1) end)
+    content[#content+1]=label(bank,122,190,390,16,colors.accent)
+    content[#content+1]=self:button('Bank >',510,185,80,function() changeBank(1) end)
+    local maxPage=math.max(0,math.ceil(#filtered/6)-1)
+    self.browserPage=math.min(self.browserPage or 0,maxPage)
+    content[#content+1]=label(string.format('%d sounds / page %d of %d',#filtered,self.browserPage+1,maxPage+1),620,190,270,13,colors.muted)
+    for row=1,6 do
+        local p=filtered[self.browserPage*6+row]
+        if p then
+            local y=228+(row-1)*44
+            content[#content+1]=self:button((p.id==self.selected and '> ' or '')..p.name,30,y,300,function() self.selected=p.id;self:render() end)
+            content[#content+1]=label((p.role or 'Personal')..' / '..(p.bank or 'Personal'),350,y+5,480,12,colors.muted)
+        end
+    end
+    content[#content+1]=self:button('< Page',30,497,100,function() self.browserPage=math.max(0,self.browserPage-1);self:render() end)
+    content[#content+1]=self:button('Page >',140,497,100,function() self.browserPage=math.min(maxPage,self.browserPage+1);self:render() end)
+    content[#content+1]=self:button('Load + Audition',680,497,200,function()
+        if self.selected then self.previewRequested=self.selected;self.cb.command('load',{presetId=self.selected}) end
+    end)
+end
 function E:plots()
-    local content={label(self.drums and 'BODY / NOISE DECAY (-60 dB)' or 'AMP ENVELOPE',10,4,180,12,colors.muted),label(self.drums and 'BODY WAVE (ILLUSTRATION)' or 'OSCILLATOR PREVIEW',350,4,260,12,colors.muted)}
+    local stringVoice=self.params.instrumentType==1 and not self.drums
+    local content={label(self.drums and 'BODY / NOISE DECAY (-60 dB)' or (stringVoice and 'AMP GATE ENVELOPE' or 'AMP ENVELOPE'),10,4,300,12,colors.muted),
+        label(stringVoice and 'PLUCKED STRING SIGNAL PATH' or (self.drums and 'BODY WAVE (ILLUSTRATION)' or 'OSCILLATOR PREVIEW'),350,4,400,12,colors.muted)}
+    if stringVoice then content[#content+1]=label('Pluck > string > filter > effects',350,40,500,13,colors.accent) end
     local p=self.params
     local total=p.attack+p.decay+0.7+p.release
     local function envelope(t)
@@ -111,7 +151,7 @@ function E:plots()
         if p.wave1==1 then a=2/math.pi*math.asin(a)
         elseif p.wave1==2 then a=phase*2-1 elseif p.wave1==3 then a=phase<0.5 and 1 or -1
         elseif p.wave1==4 then local noise=math.sin(n*127.1)*43758.5453;a=(noise-math.floor(noise))*2-1 end
-        content[#content+1]=rect(352+n*3,54-a*20,2,2,colors.accent)
+        if not stringVoice then content[#content+1]=rect(352+n*3,54-a*20,2,2,colors.accent) end
     end
     self.plot.layout.content=ui.content(content); self.window:update(self.plot)
 end
@@ -124,7 +164,7 @@ function E:render()
     self.controlEpoch=(self.controlEpoch or 0)+1
     if self.root then self.root:destroy() end
     for _,element in ipairs(self.children) do element:destroy() end
-    self.children={};self.controls={};self.typing=false;self.drums=self.params.drumType>0
+    self.children={};self.controls={};self.typing=false;self.drums=self.params.drumType>0;self.instrument=self.params.instrumentType
     local params,cb=self.params,self.cb
     -- Window scales the logical canvas to the current viewport.
     self.width=940
@@ -165,18 +205,33 @@ function E:render()
     content[#content+1]=self:button('>',390,107,28,function() cycle(1) end)
     content[#content+1]=self:button('Load',428,107,65,function() cb.command('load',{presetId=self.selected}) end)
     content[#content+1]=self:button(self.drums and 'Synth' or 'Drum',515,107,70,function()
-        self.params.drumType=self.drums and 0 or 2;cb.change('drumType',self.params.drumType)
+        self.params.instrumentType=0;cb.change('instrumentType',0)
+        self.params.drumType=self.drums and 0 or 2;cb.change('drumType',self.params.drumType);self.page='sound';self:render()
     end)
-    content[#content+1]=label(self.drums and 'One-shot / fixed tuning' or 'Z S X D C V G B H N J M',600,113,315,12,colors.muted)
+    content[#content+1]=self:button(params.instrumentType==1 and 'Synth' or 'Guitar',595,107,75,function()
+        self.params.drumType=0;cb.change('drumType',0);self.params.instrumentType=1-self.params.instrumentType;cb.change('instrumentType',self.params.instrumentType)
+        self.page='sound';self:render()
+    end)
+    content[#content+1]=self:button(self.page=='effects' and 'Sound' or 'Effects',680,107,95,function() self.page=self.page=='effects' and 'sound' or 'effects';self:render() end)
+    content[#content+1]=self:button(self.page=='presets' and 'Sound' or 'Browse',785,107,115,function() self.page=self.page=='presets' and 'sound' or 'presets';self:render() end)
     local col=(w-56)/3
-    for n,title in ipairs(self.drums and {'DRUM BODY','SNARES / NOISE','OUTPUT'} or {'OSCILLATORS','FILTER + ENVELOPES','MODULATION + OUTPUT'}) do
+    local titles=self.page=='effects' and {'DRIVE','AMP TONE','SPEAKER / OUTPUT'} or
+        (self.drums and {'DRUM BODY','SNARES / NOISE','OUTPUT'} or {self.params.instrumentType==1 and 'PLUCKED STRING' or 'OSCILLATORS','FILTER + ENVELOPES','MODULATION + OUTPUT'})
+    if self.page~='presets' then for n,title in ipairs(titles) do
         local x=20+(n-1)*(col+8)
         content[#content+1]=rect(x,150,col,380,colors.panel)
         content[#content+1]=label(title,x+10,160,col-15,13,colors.accent)
-    end
+    end end
     local x1,x2,x3=30,38+col,46+col*2
     local function slider(name,title,x,y,width) content[#content+1]=self:slider(name,title,x,y,width) end
-    if self.drums then
+    if self.page=='presets' then self:browser(content)
+    elseif self.page=='effects' then
+        for n,item in ipairs({{'driveType','Character'},{'drive','Input drive (dB)'},{'driveTone','Drive tone (Hz)'},{'fxMix','Wet / dry'}}) do slider(item[1],item[2],x1,185+(n-1)*55,col-20) end
+        for n,item in ipairs({{'ampBass','Bass (dB)'},{'ampMid','Mid (dB)'},{'ampTreble','Treble (dB)'}}) do slider(item[1],item[2],x2,185+(n-1)*55,col-20) end
+        for n,item in ipairs({{'cabinet','Speaker'},{'fxOutput','Effects output'},{'volume','Instrument volume'},{'gain','Output gain'}}) do slider(item[1],item[2],x3,185+(n-1)*55,col-20) end
+        content[#content+1]=label('Per-instrument insert / 4x drive',x1,435,col-20,12,colors.muted)
+        content[#content+1]=label('Drive adds color; volume sets level.',x1,477,col*2-20,12,colors.accent)
+    elseif self.drums then
         for n,item in ipairs({{'drumType','Drum type'},{'bodyFrequency','Body tune (Hz)'},{'bodyDecay','Body decay'},{'bodyLevel','Body level'},{'drumPitchAmount','Pitch sweep (semitones)'},{'drumPitchDecay','Pitch decay'},{'drumClick','Attack click'}}) do slider(item[1],item[2],x1,185+(n-1)*45,col-20) end
         for n,item in ipairs({{'noiseLevel','Noise level'},{'noiseDecay','Noise decay'},{'noiseHighpass','Noise high-pass'},{'noiseLowpass','Noise low-pass'},{'drumDrive','Saturation'}}) do slider(item[1],item[2],x2,185+(n-1)*45,col-20) end
         for n,item in ipairs({{'volume','Instrument volume'},{'gain','Output gain'},{'polyphony','Voice limit'}}) do slider(item[1],item[2],x3,185+(n-1)*45,col-20) end
@@ -187,6 +242,11 @@ function E:render()
         content[#content+1]=label('MIDI note does not retune drums.',x3,374,col-20,12,colors.muted)
         content[#content+1]=label('Stop always releases all tails.',x3,398,col-20,12,colors.muted)
     else
+        if params.instrumentType==1 then
+            for n,item in ipairs({{'instrumentType','Source'},{'stringDecay','String decay'},{'stringDamping','Damping'},{'stringMute','Palm mute'},{'stringPick','Pick position'}}) do slider(item[1],item[2],x1,185+(n-1)*50,col-20) end
+            slider('tune1','Tune',x1,440,col/2-18);slider('fine1','Fine cents',x1+col/2-5,440,col/2-18)
+            content[#content+1]=label('Noise-excited resonating string',x1,490,col-20,12,colors.muted)
+        else
         slider('wave1','OSC 1 Wave',x1,185,col-20)
         slider('volume1','Level',x1,230,col-20)
         slider('tune1','Tune',x1,275,col/2-18); slider('fine1','Fine cents',x1+col/2-5,275,col/2-18)
@@ -194,6 +254,7 @@ function E:render()
         slider('enabled2','Enable',x1,375,col/2-18); slider('volume2','Level',x1+col/2-5,375,col/2-18)
         slider('tune2','Tune',x1,420,col/2-18); slider('fine2','Fine cents',x1+col/2-5,420,col/2-18)
         slider('pitchAmount','Pitch env',x1,465,col/2-18); slider('pitchDecay','Pitch decay',x1+col/2-5,465,col/2-18)
+        end
         for n,item in ipairs({{'cutoff','Low-pass cutoff'},{'resonance','Resonance'},{'filterAmount','Filter env octaves'}}) do slider(item[1],item[2],x2,185+(n-1)*43,col-20) end
         for n,name in ipairs({'attack','decay','sustain','release'}) do slider(name,({'AMP A','AMP D','AMP S','AMP R'})[n],x2+((n-1)%2)*(col/2-5),320+math.floor((n-1)/2)*45,col/2-18) end
         slider('ampCurve','Amp curve',x3,477,col-20)
@@ -224,7 +285,12 @@ function E:render()
     self:refreshName()
 end
 function E:frame(now)
-    if self.drums~=(self.params.drumType>0) then self:render() end
+    if self.previewRemaining then
+        self.previewRemaining=self.previewRemaining-math.max(0,now-(self.lastFrameTime or now))
+        if self.previewRemaining<=0 then self:releaseAll() end
+    end
+    self.lastFrameTime=now
+    if self.drums~=(self.params.drumType>0) or self.instrument~=self.params.instrumentType then self:render() end
     self.window:frame(self)
     if I.UI.getMode()~='Interface' then (self.cb.hide or self.cb.close)(); return end
     if self.mouseNote and not input.isMouseButtonPressed(1) then self:note(self.mouseNote,false); self.mouseNote=nil end

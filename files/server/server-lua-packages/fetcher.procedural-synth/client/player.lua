@@ -5,9 +5,9 @@ local self = require('openmw.self')
 local ui = require('openmw.ui')
 local input = require('openmw.input')
 local supported, synth = pcall(require,'openmw.synth')
-if not supported or (synth.version and synth.version<4) then
+if not supported or (synth.version and synth.version<5) then
     return {eventHandlers={Synth_Activate=function()
-        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 4.')
+        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 5.')
     end}}
 end
 local schema = require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -43,7 +43,7 @@ local function send(op, extra)
 end
 local function captureEditor()
     if not editor or editor.kind=='studio' then return end
-    local view={name=editor.name,selected=editor.selected,entries=editor.entries}
+    local view={name=editor.name,selected=editor.selected,entries=editor.entries,page=editor.page,bank=editor.bank,browserPage=editor.browserPage}
     session.views[session.editTrack]=view
     if session.editTrack==0 then session.view=view end
 end
@@ -260,7 +260,10 @@ showEditor=function()
         midiPlay=function() playSong() end,midiStop=function() stopPlayback(true) end,
     })
     local view=session.views[session.editTrack] or session.editTrack==0 and session.view
-    if view then editor.name=view.name;editor.selected=view.selected end
+    if view then
+        editor.name=view.name;editor.selected=view.selected;editor.page=view.page
+        editor.bank=view.bank;editor.browserPage=view.browserPage;editor:render()
+    end
     editor:catalog(w.catalog)
     if track and not view then editor.name=w:presetName(track);editor.selected=track.presetId;editor:refreshName() end
     return true
@@ -417,14 +420,15 @@ end
 return {
     interfaceName='ProceduralSynth',
     interface={
-        version=4,
+        version=5,
         status=function()
             local out={}
             for id,i in pairs(instances) do
                 local voices,peak=i.audio.voices,i.audio.peak
                 local channels={}
                 for _,channel in pairs(i.channels) do if channel.audio then voices=voices+channel.audio.voices;peak=math.max(peak,channel.audio.peak) end end
-                for n,channel in pairs(i.channels) do channels[#channels+1]={id=n,voices=channel.audio and channel.audio.voices or 0,peak=channel.audio and channel.audio.peak or 0,wave1=channel.params.wave1,cutoff=channel.params.cutoff} end
+                for n,channel in pairs(i.channels) do channels[#channels+1]={id=n,voices=channel.audio and channel.audio.voices or 0,peak=channel.audio and channel.audio.peak or 0,wave1=channel.params.wave1,cutoff=channel.params.cutoff,
+                    instrumentType=channel.params.instrumentType,driveType=channel.params.driveType,drive=channel.params.drive,cabinet=channel.params.cabinet,stringMute=channel.params.stringMute} end
                 local w=session and session.id==id and session.workstation
                 out[#out+1]={id=id,owner=i.owner,voices=voices,peak=peak,
                 editing=session~=nil and session.id==id,editorVisible=editor~=nil and session.id==id,epoch=i.epoch,seq=i.seq,
@@ -453,6 +457,10 @@ return {
         saveProject=function() return session and session.workstation:save() end,
         loadProject=function() if session then stopPlayback();send('dawLoad') end end,
         studio=function() switchPage('studio') end,
+        sound=function(index)
+            if session and type(index)=='number' and index%1==0 and index>=0 and index<=#session.workstation.project.tracks then switchPage('synth',index);return true end
+            return false
+        end,
         workstation=function() return session and session.workstation end,
         importMidi=function(path) return playSong(path,'import') end,
         playMidi=playSong,

@@ -47,6 +47,20 @@ namespace MWSound
         { "drumClick", 0, 1, 0.12f },
         { "drumDrive", 1, 8, 1.3f },
         { "ampCurve", 0.25f, 4, 1 },
+        { "instrumentType", 0, 1, 0, true },
+        { "stringDecay", 0.1f, 10, 3 },
+        { "stringDamping", 0, 1, 0.35f },
+        { "stringMute", 0, 1, 0 },
+        { "stringPick", 0.05f, 0.95f, 0.23f },
+        { "driveType", 0, 3, 0, true },
+        { "drive", 0, 36, 12 },
+        { "driveTone", 200, 16000, 12000 },
+        { "fxMix", 0, 1, 1 },
+        { "fxOutput", 0, 2, 1 },
+        { "ampBass", -12, 12, 0 },
+        { "ampMid", -12, 12, 0 },
+        { "ampTreble", -12, 12, 0 },
+        { "cabinet", 0, 3, 0, true },
     } };
 
     namespace
@@ -87,6 +101,7 @@ namespace MWSound
     }
 
     ProceduralSynth::ProceduralSynth()
+        : mStrings(std::make_unique<Strings>())
     {
         for (std::size_t i = 0; i < ParameterCount; ++i)
             mTarget[i] = mCurrent[i] = Parameters[i].initial;
@@ -207,6 +222,9 @@ namespace MWSound
                 voice.pitchEnvelope = 1;
                 voice.amp.stage = voice.filter.stage = 1;
                 voice.age = ++mAge;
+                voice.instrumentType = static_cast<int>(mCurrent[InstrumentType]);
+                if (voice.instrumentType != 0)
+                    pluck(voice);
                 return;
             }
         if (command.velocity < 0)
@@ -233,6 +251,39 @@ namespace MWSound
         slot->noise ^= static_cast<std::uint32_t>(mAge + 1) * 2654435761u;
         slot->amp.stage = slot->filter.stage = 1;
         slot->age = ++mAge;
+        slot->instrumentType = static_cast<int>(mCurrent[InstrumentType]);
+        if (slot->instrumentType != 0)
+            pluck(*slot);
+    }
+    void ProceduralSynth::pluck(Voice& voice)
+    {
+        // Noise-excited, fractional-delay Karplus-Strong string. A comb in the
+        // excitation controls pick position. Excitation uses per-voice state;
+        // there is no shared random generator or audio-thread allocation.
+        const double frequency = 440 * std::exp2((voice.note - 69 + mCurrent[2] + mCurrent[3] / 100) / 12);
+        const auto period = static_cast<std::size_t>(std::clamp(std::round(SampleRate / frequency), 3.0, 8190.0));
+        const auto pick = std::max(std::size_t(1), static_cast<std::size_t>(period * mCurrent[StringPick]));
+        const auto noise = [&](std::size_t n) {
+            auto bits = static_cast<std::uint32_t>(n) + voice.noise;
+            bits ^= bits >> 16; bits *= 0x7feb352du; bits ^= bits >> 15; bits *= 0x846ca68bu; bits ^= bits >> 16;
+            return static_cast<double>(bits) / 2147483648.0 - 1;
+        };
+        auto& buffer = (*mStrings)[&voice - mVoices.data()];
+        double mean = 0;
+        for (std::size_t n = 0; n < period; ++n)
+        {
+            const double value = (noise(n) - noise((n + period - pick) % period)) * 0.7;
+            buffer[StringCapacity - period + n] = static_cast<float>(value);
+            mean += value / period;
+        }
+        for (std::size_t n = StringCapacity - period; n < StringCapacity; ++n)
+            buffer[n] -= static_cast<float>(mean);
+        // Initialize the entire history, including the part a pitch envelope or
+        // LFO can reach before the first pass. A re-pluck must not read an old note.
+        for (std::size_t n = StringCapacity - period; n-- > 0;)
+            buffer[n] = buffer[n + period];
+        voice.stringCarry = voice.stringLast;
+        voice.stringPosition = 0; voice.stringPrevious = 0; voice.stringAge = 0;
     }
     void ProceduralSynth::render(float* output, std::size_t frames)
     {
@@ -252,6 +303,7 @@ namespace MWSound
                 target = mTarget;
                 mCurrent[25] = target[25];
                 mCurrent[DrumType] = target[DrumType];
+                mCurrent[InstrumentType] = target[InstrumentType];
                 if (mPanic.exchange(false))
                     for (auto& v : mVoices)
                     {
@@ -377,7 +429,30 @@ namespace MWSound
                 const double dt1 = increment(mCurrent[2], mCurrent[3]);
                 const double dt2 = increment(mCurrent[7], mCurrent[8]);
                 double sample = oscillator(v.phase1, dt1, mWave1, noise) * mCurrent[1];
-                if (mCurrent[4] > 0.0001f)
+                if (v.instrumentType != 0)
+                {
+                    auto& buffer = (*mStrings)[i];
+                    const double damping = 0.05 + 0.45 * std::clamp(
+                        static_cast<double>(mCurrent[StringDamping]) + (1 - v.velocity) * 0.35 + mCurrent[StringMute] * 0.4, 0.0, 1.0);
+                    const double period = 1 / dt1;
+                    const double delay = std::clamp(period - damping, 2.0, 8190.0);
+                    double read = v.stringPosition + StringCapacity - delay;
+                    if (read >= StringCapacity) read -= StringCapacity;
+                    const auto index = static_cast<std::size_t>(read);
+                    const double fraction = read - index;
+                    const double delayed = buffer[index] * (1 - fraction) + buffer[(index + 1) % StringCapacity] * fraction;
+                    const double decay = mCurrent[StringDecay] * (1 - 0.94 * mCurrent[StringMute]);
+                    const double loss = std::exp(-6.907755 * period / (SampleRate * decay));
+                    const double filtered = (delayed * (1 - damping) + v.stringPrevious * damping) * loss;
+                    v.stringPrevious = delayed;
+                    buffer[v.stringPosition] = static_cast<float>(std::abs(filtered) < 1e-20 ? 0 : filtered);
+                    v.stringPosition = (v.stringPosition + 1) % StringCapacity;
+                    const double fade = std::min(1.0, v.stringAge / 0.002);
+                    v.stringLast = filtered * fade + v.stringCarry * (1 - fade);
+                    sample = v.stringLast * 2.5;
+                    v.stringAge += 1.0 / SampleRate;
+                }
+                else if (mCurrent[4] > 0.0001f)
                     sample += oscillator(v.phase2, dt2, mWave2, noise) * mCurrent[6] * mCurrent[4];
                 v.phase1 = std::fmod(v.phase1 + dt1, 1);
                 v.phase2 = std::fmod(v.phase2 + dt2, 1);
@@ -396,7 +471,13 @@ namespace MWSound
                     v.filter2 = 0;
                 mixed += low * std::pow(std::max(0.f, amp), mCurrent[AmpCurve]) * v.velocity * (target[22] == 2 ? 1 - mCurrent[21] * 0.5 + lfo * 0.5 : 1);
             }
-            output[frame] = static_cast<float>(std::tanh(mixed * mCurrent[23] * mCurrent[24] * 0.18));
+            ProceduralSynthEffects::Settings fx;
+            fx.mode = static_cast<int>(target[DriveType]); fx.cabinet = static_cast<int>(target[Cabinet]);
+            fx.drive = mCurrent[Drive]; fx.tone = mCurrent[DriveTone]; fx.mix = mCurrent[FxMix]; fx.output = mCurrent[FxOutput];
+            fx.bass = mCurrent[AmpBass]; fx.mid = mCurrent[AmpMid]; fx.treble = mCurrent[AmpTreble];
+            // Preserve legacy multiplication order when the insert is bypassed.
+            const double signal = mEffects.process(mixed, fx);
+            output[frame] = static_cast<float>(std::tanh(signal * mCurrent[23] * mCurrent[24] * 0.18));
             peakValue = std::max(peakValue, std::abs(output[frame]));
         }
         unsigned count = 0;

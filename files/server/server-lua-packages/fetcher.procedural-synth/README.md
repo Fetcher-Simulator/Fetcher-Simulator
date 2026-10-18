@@ -126,7 +126,7 @@ print(instrument.peak, instrument.voices, instrument.closed)
 instrument:close()                  -- idempotent; no further playback
 ```
 
-`synth.parameters[name]` exposes immutable `min`, `max`, `default`, `discrete` metadata. `peak` is generated PCM peak before spatial attenuation, not a microphone or final output meter. The package's optional `I.ProceduralSynth` interface exposes `status`, `noteOn`, `noteOff`, `setParameter`, `presetCommand` and `close` for other client scripts/input methods, subject to an owned editor session. Older clients without native module version 4 show a compatibility message on activation instead of acquiring a lock.
+`synth.parameters[name]` exposes immutable `min`, `max`, `default`, `discrete` metadata. `peak` is generated PCM peak before spatial attenuation, not a microphone or final output meter. The package's optional `I.ProceduralSynth` interface exposes `status`, `noteOn`, `noteOff`, `setParameter`, `presetCommand` and `close` for other client scripts/input methods, subject to an owned editor session. Older clients without native module version 5 show a compatibility message on activation instead of acquiring a lock.
 
 Interface version 4 adds `studio()`, `workstation()`, `importMidi(path)`, `saveProject()` and `loadProject()`, plus per-channel meter/parameter summaries and transport time in `status()`. Version 3 added `hide()` and `show()` and the `status().editorVisible` field; `editing` continues to mean owning the session, including while hidden. `close()` retains its original meaning of stopping playback and releasing ownership. Interface version 2 added `midiSongs()`, `playMidi(catalogPath)` and `stopMidi()`. Native `openmw.animation.boneTransformsVersion == 1` adds `getBoneNames`, `getBoneTransform`, `setBoneTransform` and `clearBoneTransform`; see `files/lua_api/openmw/animation.lua` for coordinate spaces, threading, validation and expiry. Transform reads return the matrix and a rotation-only transform, with an option to exclude scripted offsets for IK. `openmw.mp.getPlayerObject(serverGuid)` resolves the authoritative performer to the correct local/remote model in `onFrame`. These visual APIs are independent of the synthesizer. Older clients with no bone extension can still use the audio/editor, with the pose omitted.
 
@@ -209,3 +209,61 @@ without the game; this is a test helper, not Studio WAV export.
 Audio-clock scheduling, arrangement, recording, sampling, mixer effects and export
 remain subsequent milestones. This change does not claim sample-accurate timing
 or acoustic-drum realism.
+
+
+## Native guitar/effects and starter banks (API 5, package 6)
+
+The sound path now has a reusable native per-instrument insert after voice
+summing and before instrument/channel level, the existing protective limiter and
+OpenAL positioning. Manual playing and every Studio track use independent inserts.
+Overdrive, hard distortion and asymmetric fuzz use 4x FIR interpolation/decimation;
+continuous settings and mode transitions are smoothed. Amp Tone supplies three
+broad bands; Speaker supplies small/open/dark bandwidth models. These are simple
+speaker filters, not cabinet impulse responses or replicas of branded amps.
+
+A noise-excited fractional-delay Karplus-Strong string supplies the guitar source.
+String decay, damping, palm mute and pick position shape the pluck. Picking velocity
+also affects brightness. This is a basic physical string model; recorded guitar
+articulations, strumming input, bends/slides and external audio input remain future
+work. Its delay storage is preallocated (1 MiB per native instance); rendering and
+plucking allocate no memory. Active inserts introduce 16 samples of FIR delay,
+with a matching delayed dry signal. The original bypass path has no added delay.
+
+Open Synth or a track's Sound editor, then choose **Browse**. **Bank >** cycles
+All, Guitar, genre groups and Personal. Select a sound, then **Load + Audition**
+to apply it and play a short note. This replaces that instrument's working sound;
+Studio Undo restores its previous patch. Use **Effects** for drive/tone/mix/output,
+amp EQ and speaker settings. **Guitar / Synth** switches the melodic source.
+In **Studio > Drums**, choose **Kit: ...**, then **+ Kit** for a four-lane starting
+kit. General, Rock, House, Trap and DnB kits are available; adding a kit is one
+undo action and preserves other tracks. Presets and kits do not replace notes.
+
+There are 45 read-only built-in sounds (the original 9 plus 36 new starting
+sounds), including eight guitar patches and genre-oriented basses, keys, leads,
+pads and percussion. Genre groups cover rock/metal, blues/funk/jazz, house/techno/
+trance, hip-hop/trap/lo-fi, DnB/dubstep, pop/synthwave/disco, ambient/cinematic and
+chiptune. They are synthesized starting points, not realistic acoustic libraries.
+Personal patches retain their existing 32-entry limit and Save As behavior.
+
+New parameters are appended after the original 41, for 55 total:
+`instrumentType` (0 oscillators / 1 string), `stringDecay` (0.1-10 s),
+`stringDamping`, `stringMute` (0-1), `stringPick` (0.05-0.95),
+`driveType` (0 off / 1 overdrive / 2 distortion / 3 fuzz), `drive` (0-36 dB),
+`driveTone` (200-16000 Hz), `fxMix` (0-1), `fxOutput` (0-2),
+`ampBass`, `ampMid`, `ampTreble` (-12 to +12 dB), `cabinet` (0-3).
+Missing new fields preserve old patches: oscillator source, drive/speaker off,
+neutral EQ and unity effects output. Wire/persistence format version 1 remains
+supported. Full sound snapshots, including effects, save with personal patches and
+projects and replicate to observers/late joiners. Built-in updates do not rewrite
+saved project snapshots. Native `openmw.synth` and `I.ProceduralSynth` are version 5;
+the latter also exposes `sound(trackIndex)` (0 for the manual instrument).
+
+Setup **-GuitarProbe** runs the disposable clean/metal two-client, history,
+Stop and SQLite test. The native test helper accepts
+`--bank-preview <parameters.tsv> <output.wav>`; generate its input using
+`lua scripts/procedural-synth-tests/export-bank.lua <parameters.tsv> [Guitar]`.
+This renders actual native patches; it is not a Studio export feature.
+
+Design reference for the string model: Julius O. Smith, Physical Audio Signal
+Processing, https://www.dsprelated.com/freebooks/pasp/Electric_Guitars.html .
+The remaining transport/routing/editor milestones are tracked in ROADMAP.md.

@@ -147,8 +147,14 @@ local seen={};for name in pairs(e.controls) do seen[name]=true end
 e.params.drumType=2;e:frame(200.1)
 check(e.drums and e.controls.noiseDecay and e.controls.bodyFrequency,'drum mode exposes separate body and noise controls')
 for name in pairs(e.controls) do seen[name]=true end
+e.params.drumType=0;e.params.instrumentType=1;e:frame(200.11)
+check(e.controls.stringMute and e.controls.stringDecay,'guitar exposes physical string controls')
+for name in pairs(e.controls) do seen[name]=true end
+e.page='effects';e:render()
+check(e.controls.driveType and e.controls.cabinet,'effects controls exposed per instrument')
+for name in pairs(e.controls) do seen[name]=true end
 for name in pairs(schema.specs) do check(seen[name],'parameter has an editable field: '..name) end
-e.params.drumType=0;e:frame(200.2)
+e.page='sound';e.params.instrumentType=0;e.params.drumType=0;e:render();e:frame(200.2)
 -- Native Window events and scaled hit testing exercise the actual editor tree.
 local originalVolume=e.params.volume
 local networkEvents=#sent
@@ -184,6 +190,30 @@ check(win.x+win.actualWidth<=800 and win.y+win.actualHeight<=600,'resolution cha
 local restored=package.loaded[prefix..'client.window'].new()
 check(restored.preferred==win.preferred,'window preferences survive hiding, reopening and page switches')
 e:destroy()
+local browser,previewOns,previewOffs=nil,0,0
+browser=Editor.new(schema.state({}),{noteOff=function() previewOffs=previewOffs+1 end,
+    noteOn=function() previewOns=previewOns+1 end,change=function() end,close=function() end,meter=function() return 0,0 end,
+    command=function(op,args)
+        if op=='load' then for _,p in ipairs(schema.builtins) do if p.id==args.presetId then browser:state(schema.state(p.state),p.id) end end end
+    end})
+browser.bank='Guitar';browser.page='presets';browser:catalog(schema.builtins)
+local function browserButton(title)
+    for _,item in ipairs(browser.root.layout.content) do
+        if item.content and item.content[1] and item.content[1].props.text==title then return item end
+    end
+    error('Missing browser button: '..title)
+end
+browserButton('Clean Electric').events.mouseClick()
+check(browser.selected=='b:guitar-clean' and browser.params.instrumentType==0,'browser selection does not replace the current sound')
+browserButton('Load + Audition').events.mouseClick()
+check(browser.params.instrumentType==1 and previewOns==1,'audition waits for the loaded sound before starting its note')
+browser:frame(300);browser:frame(302)
+check(previewOffs==1 and not browser.previewRemaining,'audition releases its own note')
+browserButton('Page >').events.mouseClick()
+check(browser.browserPage==1 and browserButton('Garage Fuzz')~=nil,'filtered browser paginates guitar bank')
+browserButton('Bank >').events.mouseClick()
+check(browser.bank=='Rock / Metal' and browser.browserPage==0 and browserButton('Crunch Rhythm')~=nil,'changing genre resets pagination')
+browser:destroy()
 viewport=vector(1024,768);preferences={};monitor=1
 -- Existing characters may resume without onInit. The first frame discovers MIDI.
 local function be(n,size) local b={};for i=size,1,-1 do b[i]=string.char(n%256);n=math.floor(n/256) end;return table.concat(b) end
@@ -346,7 +376,7 @@ check(openAudio.notes[46],'listener starts open hat')
 handler{version=1,op='on',id=7,epoch=8,seq=3,channel=2,note=42,velocity=1}
 check(openAudio.voices==0 and audios[#audios].notes[42],'closed hat chokes open hat on the listener')
 handler{version=1,op='close',id=7,epoch=8,seq=4}
-package.loaded['openmw.synth'].version=2
+package.loaded['openmw.synth'].version=4
 local oldClient=dofile(root..'client/player.lua')
 check(oldClient.interface==nil and oldClient.eventHandlers.Synth_Activate~=nil,'older engines receive an upgrade message before loading the new window controls')
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, sequence, listener cleanup; %d assertions',checks))

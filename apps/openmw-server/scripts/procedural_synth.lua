@@ -56,8 +56,8 @@ local function catalog(guid, character)
 end
 local function sendCatalog(guid, library)
     local list = {}
-    for _, p in ipairs(schema.builtins) do list[#list+1] = {id=p.id, name=p.name, state=p.state} end
-    for _, p in ipairs(library.entries) do list[#list+1] = {id=p.id, name=p.name, state=p.state} end
+    for _, p in ipairs(schema.builtins) do list[#list+1] = {id=p.id, name=p.name, state=p.state,bank=p.bank,role=p.role} end
+    for _, p in ipairs(library.entries) do list[#list+1] = {id=p.id, name=p.name, state=p.state,bank='Personal',role='Personal'} end
     emit(guid, {op='catalog', entries=list})
 end
 local function acquire(player, obj)

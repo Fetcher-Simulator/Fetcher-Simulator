@@ -21,7 +21,7 @@ local w=Workstation.new{
     importMidi=function(path) messages[#messages+1]=path end,
     message=function(message) messages[#messages+1]=message end,
 }
-check(#w.catalog==9,'builtins available before asynchronous personal catalog response')
+check(#w.catalog==#schema.builtins and #w.catalog>=40,'banks available before asynchronous personal catalog response')
 w:setCatalog(schema.builtins)
 check(w:add('drum') and w.project.tracks[1].presetId=='b:kick','new drum uses native kick preset')
 check(w:audition(1),'drum pad auditions while transport is stopped');w:frame(0.12)
@@ -145,4 +145,11 @@ h:load(format.new());check(h:import(percussion,'midi/drums.mid'),'GM percussion 
 check(h.project.tracks[1].params.drumType==2 and h.project.tracks[2].params.drumType==4 and h.project.tracks[3].params.drumType==3,'GM snare, open and closed hats select the correct fixed-tuning engines')
 local restored=format.project(h.project);h:load(restored)
 check(#h.undoStack==0 and #h.redoStack==0 and not h.dirty,'loading another document starts fresh editing history')
+h:load(format.new());check(h:addKit(4) and h.project.tracks[1].presetId=='b:trap-kick' and h.project.tracks[3].presetId=='b:trap-hat','genre kit assigns its own drum starting sounds')
+check(h:undo() and #h.project.tracks==0 and h:redo() and h.project.tracks[2].presetId=='b:trap-snare','genre kit creation remains one undo action')
+h:load(format.new());h:add('piano');h:preset(1,'b:guitar-crunch')
+local guitar=format.project(h.project);h:load(guitar)
+check(h.project.tracks[1].params.instrumentType==1 and h.project.tracks[1].params.driveType==1 and h.project.tracks[1].params.cabinet==2,'project retains the complete guitar insert')
+h.project.tracks[1].params.drive=30;h:touch('sound:drive');h:undo()
+check(h.project.tracks[1].params.drive==22,'effects edits participate in project undo')
 print('PASS DAW clips, drum swing, piano durations, mix, multitimbral MIDI, persistence and validation; '..checks..' assertions')

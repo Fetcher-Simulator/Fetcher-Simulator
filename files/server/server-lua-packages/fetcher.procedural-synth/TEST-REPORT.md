@@ -361,3 +361,53 @@ Final results: server 13 tests / 94 assertions; workstation 78 assertions;
 client/editor/Studio harness 3,877 assertions; MIDI 27 assertions; arm geometry
 16 assertions; standalone native DSP ctest 1/1; RelWithDebInfo client build PASS.
 The final live run also explicitly verified Stop after note-off on both clients.
+
+
+## Guitar/effects and preset banks - 2026-10-18
+
+Native API 5 / package 6. All checks use the isolated port-25567 fixture.
+
+- Release native core test and full RelWithDebInfo openmw build pass.
+- String tests cover pluck output, MIDI pitch across guitar registers, shortened
+  palm-mute decay, repeated-note gates, extreme settings and panic/release.
+- Insert tests cover exact legacy bypass, distinct drive characters, finite
+  extreme controls and silence after tails. A 9 kHz hard-distortion probe measures
+  folded 3 kHz/fundamental ratios of 0.00964 at 4x versus 0.13291 at 1x (about
+  22.8 dB reduction in this probe). This is not a claim of alias-free processing.
+- A standalone, interleaved stress render of 16 instruments x 8 string voices,
+  all with active 4x distortion and speaker stages, takes about 0.44 seconds for
+  one second of PCM on this machine. This is not an end-to-end game profile.
+- All 45 built-ins pass actual native parameter validation, chord/single-note
+  rendering, soft-velocity/register checks and finite PCM checks. Levels were
+  reviewed numerically; rendered auditions are available for listening review.
+- Lua server: 14 tests / 203 assertions. Workstation: 82 assertions. Real
+  player/editor/Studio scripts in the mock harness: 5324 assertions (including
+  many lifecycle updates). MIDI: 26 assertions. Arm geometry: 16 assertions.
+- Server tests cover new parameter validation, personal patch round trips, full
+  late-listener configurations, catalog metadata and preserved legacy defaults.
+  Workstation tests cover genre kits as one undo action and complete guitar
+  insert snapshots in project persistence and undo.
+- Native two-client probe: independent clean and metal guitar tracks produce
+  audio, preset undo/redo succeeds, the server SQLite round trip retains string
+  and drive/cabinet controls, and Stop releases the tested guitar voices. Synth B
+  verifies both native sources and their independent effects configurations.
+- Final late-join run hit the existing game-frame transport safety stop when the
+  observer joined. Restarting Play clips through the real Studio UI completed
+  the observer check. Audio-clock sequencing remains the next milestone; this
+  slice does not fix game-frame timing or promise uninterrupted join playback.
+- Computer-use inspection confirms the physical-string controls, effects page,
+  genre-filtered browser, pagination and Load + Audition. Audition started a native
+  voice and released it. The string view shows its signal path rather than an
+  unrelated oscillator illustration.
+
+Private fixture evidence is in evidence/guitar-milestone: Synth_A.log / Synth_B.log
+(first successful pass), final client logs, and native-guitar-preview.wav. The
+14-second preview renders eight guitar patches in catalog order, 1.75 seconds
+per patch, with one common output scale: Clean Electric, Warm Jazz Guitar,
+Muted Funk Guitar, Blues Breakup, Crunch Rhythm, Metal Palm Mute, Singing Guitar
+Lead and Garage Fuzz. No perceptual realism claim is inferred from PCM tests.
+
+The original ProceduralSynth project/preset rows are restored byte-for-byte from
+the fixture backup after testing. All 436 custom MIDI files match source SHA-256
+hashes. Other tests, production services and unrelated working-tree files are
+outside this milestone.

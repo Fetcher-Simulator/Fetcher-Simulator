@@ -19,6 +19,11 @@ p('noiseDecay',0.005,3,0.22); p('noiseLevel',0,1,0.75)
 p('noiseHighpass',20,16000,1500); p('noiseLowpass',200,18000,11000)
 p('drumPitchAmount',0,48,8); p('drumPitchDecay',0.005,0.5,0.025)
 p('drumClick',0,1,0.12); p('drumDrive',1,8,1.3); p('ampCurve',0.25,4,1)
+p('instrumentType',0,1,0,true);p('stringDecay',0.1,10,3);p('stringDamping',0,1,0.35)
+p('stringMute',0,1,0);p('stringPick',0.05,0.95,0.23)
+p('driveType',0,3,0,true);p('drive',0,36,12);p('driveTone',200,16000,12000)
+p('fxMix',0,1,1);p('fxOutput',0,2,1)
+p('ampBass',-12,12,0);p('ampMid',-12,12,0);p('ampTreble',-12,12,0);p('cabinet',0,3,0,true)
 function M.valid(name, value)
     local s = M.specs[name]
     return s and type(value) == 'number' and value == value and value >= s.min and value <= s.max
@@ -46,5 +51,73 @@ M.builtins = {
     {id='b:hat',name='Closed Hat',state={drumType=3,bodyFrequency=420,bodyDecay=0.04,bodyLevel=0.18,noiseLevel=0.7,noiseDecay=0.065,noiseHighpass=6500,noiseLowpass=16000,drumPitchAmount=0,drumClick=0.02,drumDrive=1,volume=0.5,polyphony=4}},
     {id='b:openhat',name='Open Hat',state={drumType=4,bodyFrequency=420,bodyDecay=0.35,bodyLevel=0.18,noiseLevel=0.7,noiseDecay=0.65,noiseHighpass=6500,noiseLowpass=16000,drumPitchAmount=0,drumClick=0.02,drumDrive=1,volume=0.5,polyphony=4}},
 }
-for _, preset in ipairs(M.builtins) do preset.state = M.state(preset.state) end
+-- Stable IDs and snapshots keep bank updates from changing saved projects.
+-- Tags are catalog metadata only; the parameter validator stays strictly numeric.
+M.banks={'All','Guitar','Rock / Metal','Blues / Funk / Jazz','House / Techno / Trance',
+    'Hip-hop / Trap / Lo-fi','DnB / Dubstep','Pop / Synthwave / Disco','Ambient / Cinematic','Chiptune','Personal'}
+local function add(id,name,role,bank,state)
+    M.builtins[#M.builtins+1]={id='b:'..id,name=name,role=role,bank=bank,state=state}
+end
+local function guitar(id,name,bank,driveType,drive,cabinet,mute,damping)
+    add(id,name,'Guitar',bank,{instrumentType=1,stringDecay=4,stringDamping=damping or 0.3,
+        stringMute=mute or 0,stringPick=0.18,attack=0.002,decay=0.2,sustain=1,release=0.09,
+        cutoff=14000,driveType=driveType,drive=drive,cabinet=cabinet,driveTone=9000,
+        ampBass=-2,ampMid=1,ampTreble=-1,volume=driveType==0 and 0.8 or (driveType==1 and (drive<8 and 0.8 or 0.6) or 0.55),polyphony=8})
+end
+guitar('guitar-clean','Clean Electric','Blues / Funk / Jazz',0,0,1,0,0.22)
+guitar('guitar-warm','Warm Jazz Guitar','Blues / Funk / Jazz',1,3,1,0,0.7)
+guitar('guitar-muted','Muted Funk Guitar','Blues / Funk / Jazz',1,6,2,0.65,0.35)
+guitar('guitar-blues','Blues Breakup','Blues / Funk / Jazz',1,13,2,0,0.28)
+guitar('guitar-crunch','Crunch Rhythm','Rock / Metal',1,22,2,0,0.25)
+guitar('guitar-metal','Metal Palm Mute','Rock / Metal',2,32,3,0.7,0.18)
+guitar('guitar-lead','Singing Guitar Lead','Rock / Metal',2,26,3,0,0.2)
+guitar('guitar-fuzz','Garage Fuzz','Rock / Metal',3,24,2,0,0.3)
+add('rock-bass','Driven Rock Bass','Bass','Rock / Metal',{wave1=2,tune1=-12,cutoff=1600,filterAmount=1.5,attack=0.003,decay=0.3,sustain=0.7,release=0.08,driveType=1,drive=18,driveTone=5000,cabinet=2,ampBass=3,volume=0.45,polyphony=8})
+add('jazz-bass','Round Finger Bass','Bass','Blues / Funk / Jazz',{instrumentType=1,tune1=-12,stringDecay=3,stringDamping=0.65,stringPick=0.3,attack=0.003,sustain=1,release=0.1,cutoff=1800,volume=0.95,fxOutput=1.8})
+add('house-bass','House Sub Bass','Bass','House / Techno / Trance',{wave1=0,tune1=-12,enabled2=1,wave2=1,tune2=-12,volume2=0.2,attack=0.004,decay=0.18,sustain=0.6,release=0.08,cutoff=1000,volume=0.85})
+add('acid-bass','Acid Bass','Bass','House / Techno / Trance',{wave1=2,tune1=-12,attack=0.002,decay=0.18,sustain=0.15,release=0.06,cutoff=220,resonance=0.75,filterAmount=4,filterDecay=0.18,driveType=1,drive=14,driveTone=7000})
+add('trance-pluck','Trance Pluck','Pluck','House / Techno / Trance',{wave1=2,enabled2=1,wave2=2,fine2=14,attack=0.002,decay=0.35,sustain=0,release=0.18,cutoff=1000,filterAmount=4,filterDecay=0.22})
+add('trance-lead','Bright Trance Lead','Lead','House / Techno / Trance',{wave1=2,enabled2=1,wave2=2,fine2=18,volume2=0.65,attack=0.01,decay=0.2,sustain=0.85,release=0.15,cutoff=7000,driveType=1,drive=8,fxMix=0.3})
+add('trap-808','Long 808 Bass','Bass','Hip-hop / Trap / Lo-fi',{wave1=0,tune1=-12,attack=0.003,decay=1.8,sustain=0,release=0.15,pitchAmount=12,pitchDecay=0.02,cutoff=1200,driveType=1,drive=16,driveTone=5000})
+add('lofi-keys','Mellow Lo-fi Keys','Keys','Hip-hop / Trap / Lo-fi',{wave1=1,enabled2=1,wave2=0,tune2=12,volume2=0.18,attack=0.005,decay=1.2,sustain=0.1,release=0.3,cutoff=1600,driveType=1,drive=6,driveTone=4000,fxMix=0.35})
+add('reese-bass','Reese Bass','Bass','DnB / Dubstep',{wave1=2,tune1=-12,enabled2=1,wave2=2,tune2=-12,fine2=22,volume2=0.75,attack=0.01,decay=0.2,sustain=0.8,release=0.12,cutoff=1600,driveType=2,drive=20,driveTone=5500,volume=0.4})
+add('wobble-bass','Wobble Bass','Bass','DnB / Dubstep',{wave1=3,tune1=-12,enabled2=1,wave2=2,tune2=-12,volume2=0.6,cutoff=350,resonance=0.5,lfoTarget=1,lfoRate=2,lfoDepth=0.7,driveType=2,drive=24,driveTone=6500,volume=0.36})
+add('synth-brass','Synth Brass','Keys','Pop / Synthwave / Disco',{wave1=2,enabled2=1,wave2=2,fine2=9,volume2=0.5,attack=0.035,decay=0.3,sustain=0.65,release=0.18,cutoff=1800,filterAmount=2,filterAttack=0.02,filterDecay=0.3})
+add('disco-bass','Disco Pulse Bass','Bass','Pop / Synthwave / Disco',{wave1=3,tune1=-12,attack=0.003,decay=0.16,sustain=0.25,release=0.07,cutoff=700,filterAmount=2.5,filterDecay=0.12,resonance=0.2})
+add('synthwave-pad','Synthwave Pad','Pad','Pop / Synthwave / Disco',{wave1=2,enabled2=1,wave2=2,fine2=15,volume2=0.65,attack=0.6,release=1.8,cutoff=2200,lfoTarget=1,lfoDepth=0.15,lfoRate=0.4})
+add('ambient-pad','Slow Moving Pad','Pad','Ambient / Cinematic',{wave1=1,enabled2=1,wave2=2,tune2=12,volume2=0.2,attack=1.4,decay=1,sustain=0.75,release=3.5,cutoff=1200,lfoTarget=1,lfoDepth=0.35,lfoRate=0.12})
+add('dark-drone','Dark Drone','Drone','Ambient / Cinematic',{wave1=2,tune1=-12,enabled2=1,wave2=3,tune2=-24,volume2=0.35,attack=1.8,release=4,cutoff=300,resonance=0.25,lfoTarget=1,lfoRate=0.08,lfoDepth=0.3,driveType=1,drive=8,fxMix=0.2})
+add('glass-bell','Glass Bell','Bell','Ambient / Cinematic',{wave1=0,enabled2=1,wave2=0,tune2=19,volume2=0.3,attack=0.002,decay=2,sustain=0,release=1.2,cutoff=12000})
+add('chip-lead','Chip Pulse Lead','Lead','Chiptune',{wave1=3,attack=0.002,decay=0.07,sustain=0.7,release=0.02,cutoff=14000,volume=0.5})
+add('chip-bass','Chip Triangle Bass','Bass','Chiptune',{wave1=1,tune1=-12,attack=0.002,decay=0.08,sustain=0.7,release=0.02,cutoff=8000})
+add('chip-snare','Chip Noise Snare','Drums','Chiptune',{wave1=4,attack=0.002,decay=0.08,sustain=0,release=0.01,cutoff=7500,volume=0.5})
+local function drum(id,name,bank,base,changes)
+    local state={};for k,v in pairs(M.builtins[base].state) do state[k]=v end
+    for k,v in pairs(changes) do state[k]=v end
+    add(id,name,'Drums',bank,state)
+end
+drum('rock-kick','Punchy Rock Kick','Rock / Metal',6,{bodyFrequency=62,bodyDecay=0.3,drumClick=0.3,noiseLevel=0.08,drumDrive=2})
+drum('rock-snare','Rock Snare','Rock / Metal',7,{bodyFrequency=210,bodyDecay=0.14,noiseDecay=0.21,drumDrive=2.4})
+drum('house-kick','Four Floor Kick','House / Techno / Trance',6,{bodyFrequency=50,bodyDecay=0.38,drumClick=0.1,drumDrive=1.8})
+drum('house-snare','House Snare','House / Techno / Trance',7,{bodyFrequency=180,noiseDecay=0.16,noiseHighpass=1800})
+drum('trap-kick','Short Trap Kick','Hip-hop / Trap / Lo-fi',6,{bodyFrequency=58,bodyDecay=0.16,drumClick=0.2})
+drum('trap-snare','Trap Snare','Hip-hop / Trap / Lo-fi',7,{bodyFrequency=240,bodyDecay=0.07,noiseDecay=0.12,noiseHighpass=1800})
+drum('trap-hat','Tight Trap Hat','Hip-hop / Trap / Lo-fi',8,{noiseDecay=0.035,bodyDecay=0.02,volume=0.4})
+drum('dnb-kick','Tight DnB Kick','DnB / Dubstep',6,{bodyFrequency=65,bodyDecay=0.2,drumClick=0.25})
+drum('dnb-snare','Cracking DnB Snare','DnB / Dubstep',7,{bodyFrequency=225,bodyDecay=0.1,noiseDecay=0.17,noiseLevel=0.95,drumDrive=2.5})
+for _, preset in ipairs(M.builtins) do
+    preset.state = assert(M.state(preset.state),'Invalid built-in: '..preset.id)
+    preset.bank=preset.bank or 'General';preset.role=preset.role or (preset.state.drumType>0 and 'Drums' or 'Synth')
+end
+function M.inBank(preset,bank)
+    return not bank or bank=='All' or preset.bank==bank
+        or (bank=='Guitar' and preset.role=='Guitar') or (bank=='Personal' and preset.id:sub(1,2)=='p:')
+end
+M.kits={
+    {name='General',ids={'b:kick','b:snare','b:hat','b:openhat'}},
+    {name='Rock',ids={'b:rock-kick','b:rock-snare','b:hat','b:openhat'}},
+    {name='House',ids={'b:house-kick','b:house-snare','b:hat','b:openhat'}},
+    {name='Trap',ids={'b:trap-kick','b:trap-snare','b:trap-hat','b:openhat'}},
+    {name='DnB',ids={'b:dnb-kick','b:dnb-snare','b:hat','b:openhat'}},
+}
 return M

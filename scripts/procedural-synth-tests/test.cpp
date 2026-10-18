@@ -80,10 +80,13 @@ void writePreview(const std::string& path)
     for(float value:mix) number(static_cast<std::uint16_t>(static_cast<std::int16_t>(value/peak*0.8f*32767)),2);
     check(static_cast<bool>(file),"preview output completes");
 }
+#include "guitar-tests.hpp"
+
 int main(int argc, char** argv)
 {
     try
     {
+        guitarTests();
         Synth snareLow, snareHigh;
         setupDrum(snareLow,2);setupDrum(snareHigh,2);
         snareLow.noteOn(38,1);snareHigh.noteOn(84,1);
@@ -217,6 +220,7 @@ int main(int argc, char** argv)
         const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
         std::cout << "16-voice dual-triangle render: " << elapsed << " seconds for 2 seconds PCM\n";
         if (argc==3 && std::string(argv[1])=="--preview") writePreview(argv[2]);
+        if (argc==4 && std::string(argv[1])=="--bank-preview") writeBankPreview(argv[2],argv[3]);
         return 0;
     }
     catch (const std::exception& e)

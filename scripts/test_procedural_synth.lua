@@ -46,7 +46,11 @@ test('schema defaults, validation, bounded payload and migration',function()
     check(schema.state({unknown=1})==nil); check(schema.state({attack={}})==nil)
     local legacy=schema.state({wave1=4,decay=0.12,sustain=0});check(legacy.drumType==0 and legacy.ampCurve==1,'legacy presets retain the original engine and envelope curve')
     check(not schema.state({drumType=5}) and not schema.state({noiseDecay=0}) and not schema.state({bodyFrequency=0/0}),'new drum controls validated')
-    check(#schema.builtins==9)
+    check(#schema.builtins>=40)
+    check(legacy.instrumentType==0 and legacy.driveType==0 and legacy.cabinet==0 and legacy.ampBass==0,'legacy saves bypass new voices/effects')
+    check(not schema.state({driveType=4}) and not schema.state({drive=37}) and not schema.state({stringPick=0}),'new string/effects controls bounded')
+    local ids={};for _,p in ipairs(schema.builtins) do check(not ids[p.id],'unique built-in ID');ids[p.id]=true end
+    for _,kit in ipairs(schema.kits) do for _,id in ipairs(kit.ids) do check(ids[id],'kit refers to a built-in') end end
     for _,p in ipairs(schema.builtins) do check(schema.state(p.state)~=nil) end
     local f=assert(io.open('files/server/server-lua-packages/fetcher.procedural-synth/shared/schema.lua','rb'))
     local client=f:read('*a'); f:close()
@@ -191,5 +195,20 @@ test('DAW project saves per character and preserves presets and future documents
     local a=assert(io.open('files/server/server-lua-packages/fetcher.procedural-synth/shared/project.lua','rb'))
     local b=assert(io.open('apps/openmw-server/scripts/procedural_synth_project.lua','rb'))
     check(a:read('*a')==b:read('*a'),'project schema parity');a:close();b:close()
+end)
+test('guitar effects round trip in personal patches and late listener snapshots',function()
+    acquire();local patch
+    for _,p in ipairs(schema.builtins) do if p.id=='b:guitar-metal' then patch=copy(p.state) end end
+    request('saveAs',{name='QA Guitar',params=patch})
+    check(storage[11].entries[1].state.stringMute==0.7 and storage[11].entries[1].state.drive==32,'personal patch includes string and effects')
+    request('channel',{channel=1,params=patch,level=0.7})
+    players[3].cell='INT:A';sent={};request('on',{channel=1,note=40,velocity=0.8})
+    local snapshot;for _,event in ipairs(sent) do if event.guid==3 and event.data.op=='state' then snapshot=event.data end end
+    check(snapshot and snapshot.channels[1].params.cabinet==3 and snapshot.channels[1].params.instrumentType==1,'late listener gets the full guitar insert')
+    now=now+3;request('list')
+    local entries=sent[#sent].data.entries
+    check(entries and #entries==#schema.builtins+1 and entries[#entries].bank=='Personal','catalog keeps personal patches and metadata')
+    local guitars=0;for _,p in ipairs(entries) do if schema.inBank(p,'Guitar') then guitars=guitars+1 end end
+    check(guitars==8,'genre catalog exposes all eight guitar starting points')
 end)
 print(string.format('%d tests, %d assertions passed',tests,checks))

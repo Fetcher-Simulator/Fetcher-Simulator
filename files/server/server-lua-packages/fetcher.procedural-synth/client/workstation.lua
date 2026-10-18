@@ -94,13 +94,14 @@ function W:add(kind,presetId,name,note)
     end
     self:configure(n);self:touch();return true
 end
-function W:addKit()
+function W:addKit(kitIndex)
     if #self.project.tracks>format.maxTracks-4 then self.cb.message('A kit needs four free tracks.');return false end
     self.editDepth=(self.editDepth or 0)+1
-    self:add('drum','b:kick','Kick',36)
-    self:add('drum','b:snare','Snare',38)
-    self:add('drum','b:hat','Closed hat',42)
-    self:add('drum','b:openhat','Open hat',46)
+    local kit=schema.kits[kitIndex or 1] or schema.kits[1]
+    self:add('drum',kit.ids[1],kit.name..' Kick',36)
+    self:add('drum',kit.ids[2],kit.name..' Snare',38)
+    self:add('drum',kit.ids[3],kit.name..' Closed hat',42)
+    self:add('drum',kit.ids[4],kit.name..' Open hat',46)
     self.selected=#self.project.tracks-3
     self.editDepth=self.editDepth-1
     if self.editDepth==0 and self.transactionTouched then self.transactionTouched=false;self:touch() end

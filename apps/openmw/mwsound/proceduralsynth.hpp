@@ -7,7 +7,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <memory>
 #include <string_view>
+#include "proceduralsyntheffects.hpp"
 
 namespace MWSound
 {
@@ -23,7 +25,7 @@ namespace MWSound
             bool discrete = false;
         };
         static constexpr unsigned SampleRate = 48000;
-        static constexpr std::size_t ParameterCount = 41;
+        static constexpr std::size_t ParameterCount = 55;
         static const std::array<Parameter, ParameterCount> Parameters;
         using State = std::array<float, ParameterCount>;
 
@@ -44,7 +46,9 @@ namespace MWSound
         enum DrumParameter : std::size_t
         {
             DrumType = 28, BodyFrequency, BodyDecay, BodyLevel, NoiseDecay, NoiseLevel,
-            NoiseHighpass, NoiseLowpass, DrumPitchAmount, DrumPitchDecay, DrumClick, DrumDrive, AmpCurve
+            NoiseHighpass, NoiseLowpass, DrumPitchAmount, DrumPitchDecay, DrumClick, DrumDrive, AmpCurve,
+            InstrumentType, StringDecay, StringDamping, StringMute, StringPick,
+            DriveType, Drive, DriveTone, FxMix, FxOutput, AmpBass, AmpMid, AmpTreble, Cabinet
         };
         struct Command
         {
@@ -78,6 +82,9 @@ namespace MWSound
             double noiseHighState = 0, noiseLowState = 0;
             double metalHighState = 0, metalLowState = 0;
             std::array<double, 6> metalPhases{};
+            int instrumentType = 0;
+            std::size_t stringPosition = 0;
+            double stringPrevious = 0, stringAge = 0, stringLast = 0, stringCarry = 0;
             unsigned long long age = 0;
         };
         std::mutex mMutex;
@@ -85,6 +92,11 @@ namespace MWSound
         std::array<Command, 256> mCommands{};
         std::size_t mCommandCount = 0;
         std::array<Voice, 32> mVoices{};
+        static constexpr std::size_t StringCapacity = 8192;
+        using Strings = std::array<std::array<float, StringCapacity>, 32>;
+        // Allocated once on the control thread; never allocated in render().
+        std::unique_ptr<Strings> mStrings;
+        ProceduralSynthEffects mEffects;
         std::array<float, 5> mWave1{}, mWave2{};
         unsigned long long mAge = 0;
         double mLfoPhase = 0;
@@ -94,6 +106,7 @@ namespace MWSound
         std::atomic<long long> mAlive{ 0 };
         bool enqueue(int note, float velocity);
         void apply(Command command);
+        void pluck(Voice& voice);
     };
 }
 #endif
