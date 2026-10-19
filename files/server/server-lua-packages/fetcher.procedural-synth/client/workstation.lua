@@ -3,6 +3,7 @@ local prefix='scripts.multiplayer.fetcher.procedural-synth.'
 local schema=require(prefix..'shared.schema')
 local format=require(prefix..'shared.project')(schema)
 local MIDI=require(prefix..'client.midi')
+local SoundSets=require(prefix..'client.soundsets')
 local W={};W.__index=W
 local function copy(value)
     if type(value)~='table' then return value end
@@ -22,6 +23,7 @@ function W.new(cb)
     self.checkpoint=copy(self.project);return self
 end
 function W:touch(key,quiet)
+    if key and key:find('^sound:') then self.project.soundSet='' end
     if self.native and self.playing and self.checkpoint.loop~=self.project.loop then self:stop(true) end
     if self.native and self.playing and (not key or key=='swing' or key:find('^note:') or key=='sequence') then self.sequenceDirty=true end
     if self.editDepth and self.editDepth>0 then self.transactionTouched=true;return end
@@ -83,10 +85,32 @@ function W:preset(index,id)
         if p.id==id then
             local params=schema.state(p.state);if not params then return false end
             params.polyphony=math.min(8,params.polyphony)
-            t.params=params;t.presetId=id;self:configure(index);self:touch();return true
+            t.params=params;t.presetId=id;self.project.soundSet='';self:configure(index);self:touch();return true
         end
     end
     return false
+end
+function W:soundSetName()
+    local s=SoundSets.find(self.project.soundSet);return s and s.name or 'Custom'
+end
+function W:applySoundSet(id)
+    if not SoundSets.find(id) then return false end
+    local parts={}
+    if self.song then for _,p in ipairs(MIDI.parts(self.song)) do parts[p.id]=p end end
+    local changes={}
+    for n,t in ipairs(self.project.tracks) do
+        if t.kind=='midi' and not parts[t.part] then self.cb.message('Wait for the MIDI file to finish loading.');return false end
+        local role=SoundSets.trackRole(t,parts[t.part]);local state,presetId=SoundSets.assignment(id,role,t.kind=='midi',parts[t.part] and parts[t.part].note or t.note)
+        if not state then return false end
+        changes[n]={state,presetId}
+    end
+    for n,t in ipairs(self.project.tracks) do t.params=changes[n][1];t.presetId=changes[n][2] end
+    self.project.soundSet=id;self:configureAll();self:touch('soundset:'..self.generation);return true
+end
+function W:cycleSoundSet(delta)
+    local at=0;for n,s in ipairs(SoundSets.entries) do if s.id==self.project.soundSet then at=n end end
+    if at==0 and delta<0 then at=1 end
+    return self:applySoundSet(SoundSets.entries[(at-1+delta)%#SoundSets.entries+1].id)
 end
 function W:cyclePreset(index,delta)
     local t=self.project.tracks[index];if not t or #self.catalog==0 then return end
@@ -170,14 +194,13 @@ function W:import(song,path)
     self:stop(true);local tracks={}
     for _,p in ipairs(parts) do
         local t=old[p.id] or format.newTrack('midi',p.name:sub(1,48),self.project.length)
-        if not old[p.id] then t.params=schema.state(self.cb.currentParams());t.params.polyphony=math.min(8,t.params.polyphony) end
-        if not old[p.id] and p.channel==9 then
-            local preset=(p.note==35 or p.note==36) and 'b:kick' or (p.note==46 and 'b:openhat' or ((p.note==42 or p.note==44) and 'b:hat' or 'b:snare'))
-            for _,sound in ipairs(schema.builtins) do if sound.id==preset then t.params=schema.state(sound.state);t.presetId=preset end end
+        if not old[p.id] then
+            t.params,t.presetId=SoundSets.assignment(SoundSets.find(self.project.soundSet) and self.project.soundSet or 'balanced',SoundSets.role(p),true,p.note)
         end
         t.part=p.id;tracks[#tracks+1]=t
     end
     for _,t in ipairs(extra) do tracks[#tracks+1]=t end
+    if self.project.midi~=path and not SoundSets.find(self.project.soundSet) then self.project.soundSet='balanced' end
     self.song=song;self:cacheSpans();self.project.midi=path;self.project.tracks=tracks;self.selected=1
     if song.tempos and song.tempos[1] and song.tempos[1].beat==0 then self.project.bpm=math.max(40,math.min(240,60000000/song.tempos[1].tempo)) end
     self:configureAll();self:touch();return true

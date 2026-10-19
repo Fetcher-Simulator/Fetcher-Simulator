@@ -105,6 +105,12 @@ drum('trap-snare','Trap Snare','Hip-hop / Trap / Lo-fi',7,{bodyFrequency=240,bod
 drum('trap-hat','Tight Trap Hat','Hip-hop / Trap / Lo-fi',8,{noiseDecay=0.035,bodyDecay=0.02,volume=0.4})
 drum('dnb-kick','Tight DnB Kick','DnB / Dubstep',6,{bodyFrequency=65,bodyDecay=0.2,drumClick=0.25})
 drum('dnb-snare','Cracking DnB Snare','DnB / Dubstep',7,{bodyFrequency=225,bodyDecay=0.1,noiseDecay=0.17,noiseLevel=0.95,drumDrive=2.5})
+add('studio-keys','Studio Keys','Keys','General',{wave1=1,enabled2=1,wave2=0,tune2=12,volume2=0.15,attack=0.003,decay=0.9,sustain=0.16,release=0.18,cutoff=5000,volume=0.65})
+add('studio-strings','Fast String Pad','Pad','General',{wave1=2,enabled2=1,wave2=1,fine2=8,volume2=0.4,attack=0.035,decay=0.3,sustain=0.72,release=0.16,cutoff=2600,volume=0.55})
+add('studio-organ','Drawbar-like Organ','Keys','General',{wave1=0,enabled2=1,wave2=0,tune2=12,volume2=0.45,attack=0.006,decay=0.1,sustain=0.9,release=0.08,cutoff=9000,volume=0.6})
+add('studio-brass','Soft Synth Brass','Keys','General',{wave1=2,enabled2=1,wave2=3,volume2=0.2,attack=0.018,decay=0.2,sustain=0.65,release=0.1,cutoff=2200,filterAmount=1.3,filterDecay=0.2,volume=0.55})
+add('studio-reed','Mellow Synth Reed','Lead','General',{wave1=1,enabled2=1,wave2=0,tune2=12,volume2=0.14,attack=0.008,decay=0.2,sustain=0.8,release=0.1,cutoff=3600,resonance=0.12,lfoDepth=0.02,volume=0.65})
+drum('studio-tom','Synth Tom','General',6,{bodyFrequency=130,bodyDecay=0.28,bodyLevel=0.8,noiseLevel=0.025,noiseDecay=0.06,drumPitchAmount=3,drumPitchDecay=0.025,drumDrive=1.3,drumClick=0.1,volume=0.6})
 for _, preset in ipairs(M.builtins) do
     preset.state = assert(M.state(preset.state),'Invalid built-in: '..preset.id)
     preset.bank=preset.bank or 'General';preset.role=preset.role or (preset.state.drumType>0 and 'Drums' or 'Synth')

@@ -6,7 +6,7 @@ Updated 2026-10-18. Completed work and subsequent planned slices are identified 
 
 The native engine has two-oscillator subtractive synthesis, dedicated kick,
 snare and hat voices, precise sound controls, project undo, MIDI part assignment,
-16-bar clips and multiplayer positional playback. Forty-five built-in sounds provide
+16-bar clips and multiplayer positional playback. Fifty-one built-in sounds provide
 basic starting points. Personal patches and a working project save per character.
 
 Drum Drive saturates the dedicated drum voices. The final output also has a soft
@@ -135,3 +135,18 @@ physical destination routing.
   settings, late-listener snapshots and two-client Stop verification.
 
 This slice does not add sends/buses or change the mono keyboard emitter.
+
+
+## Completed slice: program-aware defaults and whole-song sound sets
+
+- Use initial MIDI channel programs, including setup tracks, to map instrument
+  families; use names only when the file omits program metadata.
+- Add six melodic/tom starter patches and compensate MIDI bass octave tuning.
+- Seven complete sound sets on Studio Mixer, with immediate previous/next and
+  the shared searchable dropdown. Apply to all existing parts/clips as one Undo.
+- Preserve score data, routing and the mix; update native parameters during play.
+- Save set selection and timbre snapshots; old projects/same-file imports retain
+  existing assignments until explicitly remapped. Ordinary per-track edits are
+  still available and mark the set Custom.
+- This does not implement samples, all GM percussion, mid-part program switching,
+  or musical role inference from unlabeled notes.

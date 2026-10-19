@@ -554,3 +554,42 @@ Private logs: isolated fixture evidence/returns-milestone. Original character
 synth storage is restored after testing, and all 436 custom MIDI files retained.
 Wet delay/reverb history is rebuilt locally after late join; only settings and
 score phase are replicated. Output remains one mono spatial keyboard emitter.
+
+
+## 2026-10-18 - program-aware defaults and whole-song Sound sets
+
+API 8 / package 10. Seven Sound sets apply role-based patches to all Studio
+tracks: Balanced, Rock, Metal, Electronic, Lo-fi / Jazz, Chiptune and Ambient.
+Six additional starter patches bring the built-in catalog to 51. No production
+deployment was performed.
+
+- Full RelWithDebInfo client build and standalone native CTest pass. A regression
+  first reproduced a silent voice retained after zero-sustain smoothing and
+  release. Flooring inaudible release values fixes Stop after sound-set changes.
+- Server Lua: 18 tests / 243 assertions. Client/editor/UI: 5838 assertions.
+  Sound sets: 273 assertions covering every GM program, role/set validation,
+  MIDI bass octave compensation, tom tuning, custom overrides, one-step undo,
+  transport continuity, mix preservation and saved-project migration.
+- Workstation, native sequence (21), transport, MIDI (28) and arm geometry (16)
+  suites pass. A full 457-file local MIDI catalog comparison preserves exact
+  event ordering, timestamps and duration for all 447 previously accepted files;
+  both readers reject the same 10 files. All 4569 parsed parts resolve valid
+  patches in every set. Programs on separate setup tracks and later program
+  changes are covered; fixed part assignment uses the first note's program.
+- Live isolated port 25567: A played six parts, cycled every set without stopping
+  or recompiling the score, retained track gain, then saved/reloaded the set and
+  patch snapshots through character SQLite storage. Stop released all voices.
+  B received Rock/Metal/clean guitar changes during playback and passed Stop.
+- Mixer layout inspected in the running client at existing 196% GUI scale.
+  Sound-set arrows/dropdown and all eight track rows fit.
+
+Private evidence: fixture evidence/soundsets-milestone, including the original
+playerdata.db SQLite backup and final A/B logs. The user began testing another
+MIDI after the probe, so the current session and database were retained rather
+than overwriting those edits. A second SQLite snapshot preserves that state.
+The optional probe is disabled for the next server launch. All 436 custom MIDI
+copies match their originals. Settings, keyboard placement and assets remain.
+
+These are procedural approximations, not a General MIDI sample library. Unknown
+percussion currently falls back to snare; per-event program changes, realistic
+cymbal/sample coverage and instrument-specific synthesis remain future work.

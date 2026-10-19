@@ -188,7 +188,10 @@ namespace MWSound
         else if (stage == 4)
         {
             value -= dt * releaseStart / releaseTime;
-            if (value <= 0)
+            // Smoothed zero sustain can leave a subnormal value whose release
+            // decrement underflows. Retire this inaudible tail so Stop and
+            // preset changes cannot leave a silent voice allocated forever.
+            if (value <= 1e-8f)
             {
                 value = 0;
                 stage = 0;

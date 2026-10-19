@@ -93,6 +93,12 @@ int main(int argc, char** argv)
         studioTests();
         mixerTests();
         returnsTests();
+        Synth silentRelease;
+        silentRelease.set("attack",0.002f);silentRelease.set("decay",0.002f);silentRelease.set("sustain",1);
+        silentRelease.noteOn(38,1);render(silentRelease,2400);
+        silentRelease.set("sustain",0);render(silentRelease,48000);
+        silentRelease.allNotesOff();render(silentRelease,4800);
+        check(silentRelease.voices()==0,"Stop frees an envelope after sustain smoothing reaches subnormal levels");
         Synth snareLow, snareHigh;
         setupDrum(snareLow,2);setupDrum(snareHigh,2);
         snareLow.noteOn(38,1);snareHigh.noteOn(84,1);

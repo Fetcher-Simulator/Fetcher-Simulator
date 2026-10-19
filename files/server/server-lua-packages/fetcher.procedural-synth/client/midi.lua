@@ -61,7 +61,7 @@ function M.parse(bytes, checkpoint)
                 if kind==8 then event(tick,'off',channel,a)
                 elseif kind==9 then event(tick,b==0 and 'off' or 'on',channel,a,b/127)
                 elseif kind==11 then event(tick,'control',channel,a,b)
-                elseif kind==12 then programs[tostring(track)..':'..channel]=a end
+                elseif kind==12 then event(tick,'program',channel,a) end
             elseif status==255 then
                 running=nil
                 local kind=number(1)
@@ -80,15 +80,29 @@ function M.parse(bytes, checkpoint)
         end
         pos=ending
     end
-    table.sort(events,function(a,b) if a.tick==b.tick then return a.order<b.order end return a.tick<b.tick end)
+    table.sort(events,function(a,b)
+        if a.tick~=b.tick then return a.tick<b.tick end
+        if (a.kind=='program')~=(b.kind=='program') then return a.kind=='program' end
+        return a.order<b.order
+    end)
     local tick,seconds,tempo=0,0,500000
     local tempos={}
     local playable={}
+    local channelPrograms,assigned={},{}
     for _,e in ipairs(events) do
-        step();seconds=seconds+(e.tick-tick)*tempo/(division*1000000);tick=e.tick
-        assert(seconds<=1800,'MIDI exceeds 30 minutes')
-        if e.kind=='tempo' then tempo=e.velocity;tempos[#tempos+1]={beat=e.tick/division,time=seconds,tempo=tempo}
-        else e.time=seconds;playable[#playable+1]=e end
+        step()
+        if e.kind=='program' then channelPrograms[e.channel]=e.note
+        else
+            -- Metadata must not split the clock's floating-point accumulation:
+            -- preserve the exact note/tempo timing of the existing reader.
+            seconds=seconds+(e.tick-tick)*tempo/(division*1000000);tick=e.tick
+            assert(seconds<=1800,'MIDI exceeds 30 minutes')
+            if e.kind=='tempo' then tempo=e.velocity;tempos[#tempos+1]={beat=e.tick/division,time=seconds,tempo=tempo}
+            else
+                if e.kind=='on' and not assigned[e.part] then programs[e.part]=channelPrograms[e.channel];assigned[e.part]=true end
+                e.time=seconds;playable[#playable+1]=e
+            end
+        end
     end
     seconds=seconds+(lastTick-tick)*tempo/(division*1000000)
     assert(seconds<=1800,'MIDI exceeds 30 minutes')

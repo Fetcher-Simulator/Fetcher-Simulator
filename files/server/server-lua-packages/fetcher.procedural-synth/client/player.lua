@@ -302,7 +302,7 @@ showEditor=function()
             flushEdit()
             if track and (op=='load' or op=='reset') then
                 editor:releaseAll()
-                if op=='reset' then track.params=schema.state({polyphony=8});track.presetId='';w:configure(session.editTrack);w:touch()
+                if op=='reset' then w.project.soundSet='';track.params=schema.state({polyphony=8});track.presetId='';w:configure(session.editTrack);w:touch()
                 else w:preset(session.editTrack,args.presetId) end
                 editor:state(track.params,args and args.presetId);return
             end

@@ -4,6 +4,7 @@ local schema=dofile(root..'shared/schema.lua')
 local format=dofile(root..'shared/project.lua')(schema)
 local midi=dofile(root..'client/midi.lua')
 package.loaded[prefix..'shared.schema']=schema
+package.loaded[prefix..'client.soundsets']=dofile(root..'client/soundsets.lua')
 package.loaded[prefix..'shared.project']=dofile(root..'shared/project.lua')
 package.loaded[prefix..'client.midi']=midi
 local Workstation=dofile(root..'client/workstation.lua')

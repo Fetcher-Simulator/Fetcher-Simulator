@@ -11,6 +11,7 @@ local source={recordId='fetcher_procedural_synth_v1',valid=true}
 function source:isValid() return self.valid end
 local self={cell={id='ToddTest'}}
 package.loaded[prefix..'shared.schema']=schema
+package.loaded[prefix..'client.soundsets']=dofile(root..'client/soundsets.lua')
 package.loaded[prefix..'shared.sequence']=dofile(root..'shared/sequence.lua')
 package.loaded[prefix..'client.transport']=dofile(root..'client/transport.lua')
 package.loaded[prefix..'shared.project']=dofile(root..'shared/project.lua')
@@ -380,6 +381,11 @@ player.engineHandlers.onKeyPress{code=input.KEY.F8}
 check(mode=='Interface' and w.page=='drums' and api.status()[1].transport,'F8 restores the same studio page')
 now=400.17;player.engineHandlers.onFrame(0.01)
 button('Mixer').events.mouseClick();now=400.18;player.engineHandlers.onFrame(0.01)
+local originalSet=w.project.soundSet
+button('>').events.mouseClick();now=400.181;player.engineHandlers.onFrame(0.001)
+check(w.project.soundSet=='rock','Mixer set arrow changes the full arrangement')
+w:undo();now=400.182;player.engineHandlers.onFrame(0.001)
+check(w.project.soundSet==originalSet,'one Undo restores the arrangement before the set click')
 button('Mix').events.mouseClick();now=400.19;player.engineHandlers.onFrame(0.01)
 check(w.page=='channel','per-track processor page opens')
 button('Bypassed').events.mouseClick();now=400.2;player.engineHandlers.onFrame(0.01)

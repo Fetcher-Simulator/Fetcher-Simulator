@@ -14,6 +14,9 @@ local song=midi.parse(smf{tempo,notes})
 check(#song.events==4 and song.events[1].note==60 and song.events[2].note==64,'running status/track merge')
 check(song.events[3].time==0.5 and song.events[4].time==1.5,'tempo map in seconds')
 check(song.duration==1.5,'track-end duration')
+local assigned=midi.parse(smf{bytes(0,144,60,90,48,192,32,48,128,60,0,0,255,47,0),bytes(0,192,24,96,255,47,0)})
+check(midi.parts(assigned)[1].program==24,'program from a separate setup track at the same tick selects the initial instrument')
+check(#assigned.events==2,'program metadata does not add playable note events or change part identity')
 local calls={}
 local function callbacks() return {on=function(n,v) calls[#calls+1]={'on',n,v} end,
     off=function(n) calls[#calls+1]={'off',n} end,panic=function() calls[#calls+1]={'panic'} end} end

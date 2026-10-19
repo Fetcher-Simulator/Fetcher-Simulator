@@ -5,6 +5,7 @@ local input=require('openmw.input')
 local I=require('openmw.interfaces')
 local Controls=require('scripts.multiplayer.fetcher.procedural-synth.client.controls')
 local schema=require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
+local SoundSets=require('scripts.multiplayer.fetcher.procedural-synth.client.soundsets')
 local Project=require('scripts.multiplayer.fetcher.procedural-synth.shared.project')(schema)
 local Dropdown=require('scripts.multiplayer.fetcher.procedural-synth.client.dropdown')
 local Window=require('scripts.multiplayer.fetcher.procedural-synth.client.window')
@@ -46,14 +47,21 @@ end
 function S:mixer(content)
     local w,p=self.w,self.w.project
     local page=w.mixerPage or 0
-    content[#content+1]=label('PART / TRACK',28,169,240,12,c.muted)
-    content[#content+1]=label('SAVED SOUND',295,169,225,12,c.muted)
-    content[#content+1]=label('LEVEL',554,169,90,12,c.muted)
+    content[#content+1]=self:button('<',20,150,28,function() w:cycleSoundSet(-1) end)
+    content[#content+1]=self:button('Sound set: '..w:soundSetName()..' v',55,150,300,function()
+        local choices={};for _,s in ipairs(SoundSets.entries) do choices[#choices+1]={id=s.id,label=s.name} end
+        Dropdown.open(self,choices,p.soundSet,function(id) w:applySoundSet(id) end,55,181,590)
+    end)
+    content[#content+1]=self:button('>',362,150,28,function() w:cycleSoundSet(1) end)
+    content[#content+1]=label('Changes sounds on all tracks. Undo restores the previous set.',410,155,480,11,c.muted)
+    content[#content+1]=label('PART / TRACK',28,183,240,10,c.muted)
+    content[#content+1]=label('SAVED SOUND',295,183,225,10,c.muted)
+    content[#content+1]=label('LEVEL',554,183,90,10,c.muted)
     self.meters={}
     for row=1,8 do
         local index=page*8+row;local t=p.tracks[index]
         if t then
-            local y=198+(row-1)*45
+            local y=210+(row-1)*43
             content[#content+1]=self:button(index..'  '..t.name:sub(1,30),20,y,265,function() w.selected=index;w.revision=w.revision+1 end,index==w.selected)
             content[#content+1]=self:button('<',294,y,24,function() w:cyclePreset(index,-1) end)
             content[#content+1]=self:button(w:presetName(t)..' v',326,y,173,function()

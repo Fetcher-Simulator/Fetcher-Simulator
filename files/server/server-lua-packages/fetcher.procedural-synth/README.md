@@ -428,3 +428,34 @@ Late listeners receive settings and seek the current native score; delay/reverb
 history is rebuilt from subsequent notes. Existing wet buffers are not transferred
 across the network. Stereo output, tempo-synced delay divisions, auxiliary group
 buses, automation and physical instrument routing remain later slices.
+
+
+## Whole-song sound sets (package 10, native API 8 unchanged)
+
+Previously, each new melodic MIDI part copied the manual synth's current patch;
+GM program metadata was read but not used for assignment. GM percussion used
+four basic families, with other notes falling back to snare.
+
+New imports use the MIDI instrument family at the part's first note (including
+program messages in separate setup tracks). Names help when no program exists;
+otherwise an unidentified melodic part uses keys. Program changes later within
+one part do not change its assigned Studio patch during playback. These are
+approximations from our own synthesis bank, not a complete sampled GM sound set.
+Six additional keys/string/organ/brass/reed/tom patches bring the built-ins to 51.
+MIDI bass assignments compensate for the manual bass presets' octave-down tuning.
+
+On Studio > Mixer, the Sound set arrows immediately apply Balanced, Rock, Metal,
+Electronic, Lo-fi / Jazz, Chiptune or Ambient across existing tracks. Click the
+name for the searchable/scrollable list. These are complete instrument-and-drum
+arrangements; the separate + Kit button still adds four editable drum lanes.
+GM toms use a pitched tom body; cymbals and other unsupported percussion remain
+approximations and need more dedicated voices or sampling in a later slice.
+
+Switching sets updates native track parameters while playback continues. It keeps
+notes, timing, track identities, levels, mute/solo, EQ/compression, sends, returns
+and master settings. One Undo restores the previous complete sound snapshots
+(the existing project Undo stops transport). Individual sound edits mark the set
+Custom. Existing saved sounds and same-file reimports are preserved; choose a set
+explicitly to remap an older project. The selection and snapshots save per
+character; observers receive ordinary bounded instrument-state updates. A full
+16-track switch may reach listeners over multiple control-update frames.

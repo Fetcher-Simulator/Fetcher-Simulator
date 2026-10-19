@@ -2,7 +2,8 @@ local root='files/server/server-lua-packages/fetcher.procedural-synth/'
 local prefix='scripts.multiplayer.fetcher.procedural-synth.'
 local schema=dofile(root..'shared/schema.lua');local format=dofile(root..'shared/project.lua')(schema)
 local Sequence=dofile(root..'shared/sequence.lua');local MIDI=dofile(root..'client/midi.lua')
-package.loaded[prefix..'shared.schema']=schema;package.loaded[prefix..'shared.project']=dofile(root..'shared/project.lua')
+package.loaded[prefix..'shared.schema']=schema
+package.loaded[prefix..'client.soundsets']=dofile(root..'client/soundsets.lua');package.loaded[prefix..'shared.project']=dofile(root..'shared/project.lua')
 package.loaded[prefix..'shared.sequence']=Sequence;package.loaded[prefix..'client.midi']=MIDI
 local checks=0;local function check(ok,msg) checks=checks+1;assert(ok,msg) end
 local function number(bytes,at) local a,b,c,d=bytes:byte(at,at+3);return a+b*256+c*65536+d*16777216 end
