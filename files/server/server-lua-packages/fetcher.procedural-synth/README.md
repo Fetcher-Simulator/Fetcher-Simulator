@@ -459,3 +459,32 @@ Custom. Existing saved sounds and same-file reimports are preserved; choose a se
 explicitly to remap an older project. The selection and snapshots save per
 character; observers receive ordinary bounded instrument-state updates. A full
 16-track switch may reach listeners over multiple control-update frames.
+
+
+## Portable keyboard (package 11)
+
+Pick up is in the shared top bar of both Synth and Studio, beside the local
+monitor control. It stops the performance, saves a changed Studio project to
+your character, and transfers the keyboard/stand into inventory as one portable
+item. An untouched empty editor does not replace an existing saved song. Drop
+/place the item from inventory, activate it, then use Studio Load to continue
+your saved project. Personal presets remain in the character library.
+
+The item is Portable Synth Keyboard (weight 8, value 200), with an inventory
+icon rendered from the credited keyboard/stand NIF. Existing placed activators
+and newly dropped miscellaneous keyboard items both open the same synth. The
+optional asset manifest installs the icon and model together; the vanilla-model
+fallback uses the vanilla lute icon. Other clients need the same asset bundle.
+
+The updated server adds mp.pickupPlacedObject(guid, mpNum, inventoryRefId), a
+server-script-only operation. It reuses authoritative world-item pickup: fresh
+player position, range/cell checks, inventory revision, source identity and the
+atomic SQLite world-removal/inventory/tombstone commit. The client cannot supply
+the replacement record ID. OnPlacedObjectPickup reports the native result to
+server Lua; a client-supplied event cannot forge that completion. Errors leave
+the keyboard/session available. The disposable fixture remembers a picked-up
+initial stage keyboard instead of restocking it on every server restart.
+
+This slice supplies a portable placed instrument. Actor-held attachments, band
+member/track routing and native sample voices remain the following roadmap
+slices; the inventory keyboard is not an equipped weapon or wearable yet.

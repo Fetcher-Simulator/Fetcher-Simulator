@@ -544,6 +544,16 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
         return true;
     });
 
+    // Server-only atomic world -> inventory transfer. A replacement record lets
+    // scripted activators become ordinary, placeable inventory instruments.
+    mp.set_function("pickupPlacedObject", [context](uint32_t guid, uint32_t mpNum, const std::string& refId) -> bool
+    {
+        if (!context || guid == 0 || mpNum == 0 || refId.empty() || refId.size() > 128)
+            return false;
+        context->queuePickupPlacedObject(guid, mpNum, refId);
+        return true;
+    });
+
     mp.set_function("ensureInventoryItem", [context](uint32_t guid, const std::string& refId) -> bool
     {
         if (!context || guid == 0 || refId.empty())

@@ -42,3 +42,6 @@ adapted materials to legacy NIF, resized textures to 1K/2K mipmapped DDS, and
 added seven simple collision boxes. Export removed one zero-area triangle;
 total visual surface area was checked unchanged. Keys remain static geometry.
 No endorsement by either author or Yamaha is implied.
+
+Inventory icon: rendered from the credited combined Yamaha keyboard and X-stand
+NIF, with transparent background, square framing and mipmapped DXT5 alpha.

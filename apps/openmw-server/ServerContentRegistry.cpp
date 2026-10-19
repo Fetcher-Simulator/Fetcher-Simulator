@@ -1,4 +1,7 @@
 #include "ServerContentRegistry.hpp"
+#include <sol/sol.hpp>
+#include <components/lua/serialization.hpp>
+#include <apps/openmw/mwlua/types/types.hpp>
 
 #include <algorithm>
 #include <array>
@@ -874,6 +877,25 @@ mwmp::ServerContentRegistry::findCrimeInteractionReference(
         return true;
     });
     return ambiguous ? std::nullopt : result;
+}
+
+void mwmp::ServerContentRegistry::installLegacyMiscellaneous(std::string_view id, std::string_view data)
+{
+    // Miscellaneous records still use the trusted legacy Lua-table wire format.
+    // Install the same parsed item on the headless server so authoritative
+    // inventory/pickup can resolve its value, weight and stack identity too.
+    sol::state lua;
+    const sol::object decoded = LuaUtil::deserialize(lua.lua_state(), data);
+    if (!decoded.is<sol::table>())
+        throw std::runtime_error("Legacy miscellaneous record is not a table");
+    ESM::Miscellaneous record = MWLua::tableToMisc(decoded.as<sol::table>());
+    record.mId = ESM::RefId::stringRefId(id);
+    mRuntime->world->getStore().overrideRecord(record);
+}
+
+void mwmp::ServerContentRegistry::removeLegacyMiscellaneous(std::string_view id)
+{
+    mRuntime->world->getStore().eraseDynamic<ESM::Miscellaneous>(ESM::RefId::stringRefId(id));
 }
 
 void mwmp::ServerContentRegistry::installRuntimeDefinition(

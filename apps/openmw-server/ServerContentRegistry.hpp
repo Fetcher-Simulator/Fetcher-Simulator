@@ -133,6 +133,8 @@ namespace mwmp
             const CellId& playerCell, const Position& playerPosition) const;
         void installRuntimeDefinition(
             std::string_view id, const records::DynamicRecordDefinition& definition);
+        void installLegacyMiscellaneous(std::string_view id, std::string_view data);
+        void removeLegacyMiscellaneous(std::string_view id);
 
         static std::string orderedManifestFingerprint(const std::vector<ManifestEntry>& entries);
 

@@ -41,6 +41,7 @@ enum class OutboundLuaActionType
     SendLuaStorage,
     GrantInventoryItem,
     EnsureInventoryItem,
+    PickupPlacedObject,
     RemovePlacedObject,
     RemoveGameObject,
     ResetCellState,

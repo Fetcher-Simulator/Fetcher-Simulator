@@ -6,6 +6,8 @@ local projectFormat = require('procedural_synth_project')(schema)
 local sequenceFormat = require('procedural_synth_sequence')
 local policy = require('intent_policy')
 local RECORD = 'fetcher_procedural_synth_v1'
+local PORTABLE = 'fetcher_procedural_keyboard_v1'
+local function isKeyboard(id) return id==RECORD or id==PORTABLE end
 local sessions, budgets, epoch = {}, {}, 0
 local lastSweep = 0
 local sendTransport
@@ -50,7 +52,7 @@ local function release(s)
 end
 local function objectFor(id)
     local obj = mp.getObjectByMpNum(id)
-    return obj and obj.refId == RECORD and obj or nil
+    return obj and isKeyboard(obj.refId) and obj or nil
 end
 local function near(player, obj)
     if not obj or player.cell ~= obj.cell then return false end
@@ -93,7 +95,7 @@ local function acquire(player, obj)
 end
 policy.registerHandler('Activate', 'procedural-synth', function(context)
     local obj = context.object
-    if not obj or obj.recordId ~= RECORD then return end
+    if not obj or not isKeyboard(obj.recordId) then return end
     local verified = objectFor(obj.mpNum or 0)
     if not context.player or not near(context.player, verified) then return {accepted=false, reason='synth_out_of_range'} end
     acquire(context.player, verified)
@@ -115,7 +117,7 @@ local function request(data)
         if type(v) == 'table' then if k=='params' then if not schema.state(v) then return end
             elseif k=='effects' and data.op=='effects' then if not projectFormat.effects(v) then return end
             elseif k=='mixer' and data.op=='channel' then if not projectFormat.mixer(v) then return end
-            elseif k=='project' and data.op=='dawSave' then if not projectFormat.project(v) then return end
+            elseif k=='project' and (data.op=='dawSave' or data.op=='pickup') then if not projectFormat.project(v) then return end
             else return end
         elseif type(v) == 'string' then
             if k=='bytes' and data.op=='scoreChunk' then if #v<11 or #v>sequenceFormat.chunkSize or #v%11~=0 then return end
@@ -162,6 +164,24 @@ local function request(data)
     if data.op == 'close' then release(s); return end
     if data.op == 'heartbeat' then
         if budget(data.pid,now,'heartbeat',1,2) then s.expires=now+8 end
+        return
+    end
+    if s.pickup then return end
+    if data.op=='pickup' then
+        local function failed(message) emit(data.pid,{op='error',message=message,pickupFailed=true,id=s.id,epoch=s.epoch}) end
+        if not budget(data.pid,now,'projects',0.5,2) then failed('Please wait a moment before picking up the keyboard.');return end
+        if not mp.pickupPlacedObject then failed('Keyboard pickup requires the updated server.');return end
+        if data.project then
+            if not integer(data.characterId,1,9007199254740991) then return end
+            local existing=mp.getCharacterStorageForCharacter(data.characterId,'ProceduralSynth','project')
+            local project=projectFormat.project(data.project)
+            if existing~=nil and not projectFormat.project(existing) then failed('Existing saved project is unsupported; keyboard was left in place.');return end
+            if not project or not mp.setCharacterStorageForCharacter(data.characterId,'ProceduralSynth','project',project) then
+                failed('Project save failed; keyboard was left in place.');return
+            end
+        end
+        s.pickup=true
+        if not mp.pickupPlacedObject(s.owner,s.id,PORTABLE) then s.pickup=nil;failed('Keyboard pickup could not be queued. Please try again.') end
         return
     end
     if data.op=='transportStop' then
@@ -351,17 +371,37 @@ return {
     engineHandlers={onUpdate=sweep},
     eventHandlers={
         Synth_Request=request,
+        OnPlacedObjectPickup=function(data)
+            -- Client events always have an injected pid. Only a native server
+            -- completion may finish this transfer; never trust a claimed guid.
+            if data.pid~=nil or data.refId~=PORTABLE then return end
+            local s=sessions[data.mpNum]
+            if not s or not s.pickup or s.owner~=data.guid then return end
+            s.pickup=nil
+            if data.accepted then
+                if config.PROCEDURAL_SYNTH_TEST_MP_NUM==s.id and mp.storage then
+                    mp.storage.globalSection('ProceduralSynthFixture'):set('pickedUp',true)
+                end
+                emit(s.owner,{op='pickedUp',id=s.id,epoch=s.epoch})
+                release(s)
+            else emit(s.owner,{op='error',message='Keyboard pickup failed ('..tostring(data.error or 'unknown')..'); it was left in place. Please try again.',pickupFailed=true,id=s.id,epoch=s.epoch}) end
+        end,
         OnServerInit=function()
             -- Runtime record with a vanilla mesh; no client ESP and no asset transfer.
             local ok=mp.upsertDynamicRecord('activator',RECORD,
                 {name='OpenMW Synthesizer',model=config.PROCEDURAL_SYNTH_MODEL or 'meshes/m/Misc_de_lute_01.nif'},
                 {scope='permanent',persistent=true})
             mp.log('[synth] runtime activator registered: '..tostring(ok))
+            mp.upsertDynamicRecord('miscellaneous',PORTABLE,
+                {name='Portable Synth Keyboard',model=config.PROCEDURAL_SYNTH_MODEL or 'meshes/m/Misc_de_lute_01.nif',
+                    icon=config.PROCEDURAL_SYNTH_ICON or 'm/misc_de_lute_01.tga',weight=8,value=200},
+                {scope='permanent',persistent=true})
             -- Placement is opt-in. The disposable fixture pins its expected mpNum
             -- so restarting it does not duplicate its persistent placed object.
             if config.PROCEDURAL_SYNTH_TEST_CELL then
                 local existing=config.PROCEDURAL_SYNTH_TEST_MP_NUM and objectFor(config.PROCEDURAL_SYNTH_TEST_MP_NUM)
-                if not existing then mp.placeObject(RECORD,1,config.PROCEDURAL_SYNTH_TEST_CELL,
+                local pickedUp=mp.storage and mp.storage.globalSection('ProceduralSynthFixture'):getCopy('pickedUp')
+                if not existing and not pickedUp then mp.placeObject(RECORD,1,config.PROCEDURAL_SYNTH_TEST_CELL,
                     config.PROCEDURAL_SYNTH_TEST_POSITION or {x=0,y=0,z=0}) end
             end
         end,

@@ -2,6 +2,7 @@
 package.path='apps/openmw-server/scripts/?.lua;'..package.path
 local schema=require('procedural_synth_schema')
 local now,sent,players,objects,storage,handler,module
+local pickups,records
 local checks,tests=0,0
 local function check(b,m) checks=checks+1; assert(b,m) end
 local function copy(t)
@@ -9,7 +10,7 @@ local function copy(t)
     local r={}; for k,v in pairs(t) do r[k]=copy(v) end; return r
 end
 local function reset(preserve)
-    now,sent=100,{}
+    now,sent,pickups,records=100,{},{},{}
     players={ [1]={guid=1,cell='INT:A',position={x=0,y=0,z=0}},
         [2]={guid=2,cell='INT:A',position={x=0,y=0,z=0}},
         [3]={guid=3,cell='INT:B',position={x=0,y=0,z=0}} }
@@ -24,7 +25,9 @@ local function reset(preserve)
         send=function(guid,event,data) sent[#sent+1]={guid=guid,event=event,data=copy(data)} end,
         getCharacterStorageForCharacter=function(id,namespace,key) check(namespace=='ProceduralSynth'); return copy(storage[key=='project' and ('project:'..id) or id]) end,
         setCharacterStorageForCharacter=function(id,namespace,key,data) storage[key=='project' and ('project:'..id) or id]=copy(data); return true end,
-        upsertDynamicRecord=function() return true end,placeObject=function() return true end,log=function() end,
+        upsertDynamicRecord=function(kind,id,data) records[id]={kind=kind,data=copy(data)};return true end,
+        pickupPlacedObject=function(guid,id,ref) pickups[#pickups+1]={guid=guid,id=id,ref=ref};return true end,
+        placeObject=function() return true end,log=function() end,
     }
     module=dofile('apps/openmw-server/scripts/procedural_synth.lua')
 end
@@ -275,5 +278,35 @@ test('shared returns validate, persist and reach late listeners',function()
     check(sent[#sent].data.project.effects.reverbDecay==3.2,'global returns survive database reload')
     local legacy=f.new();legacy.effects=nil;legacy.tracks[1]=f.newTrack('piano','Old',16);legacy.tracks[1].mixer=nil
     local migrated=f.project(legacy);check(migrated.effects.delayTime==250 and migrated.tracks[1].mixer.delaySend==0,'old songs remain dry')
+end)
+test('portable keyboard registers a real inventory record and saves before pickup',function()
+    module.eventHandlers.OnServerInit()
+    local item=records.fetcher_procedural_keyboard_v1
+    check(item and item.kind=='miscellaneous' and item.data.weight==8 and item.data.icon,'portable keyboard has an inventory icon and item metadata')
+    local f=require('procedural_synth_project')(schema);local p=f.new();p.name='Carry my song'
+    acquire();request('pickup',{project=p})
+    check(#pickups==1 and pickups[1].guid==1 and pickups[1].ref=='fetcher_procedural_keyboard_v1','owner queues one native atomic transfer')
+    check(storage['project:11'].name=='Carry my song','dirty project is saved before moving the instrument')
+    request('pickup',{project=p});check(#pickups==1,'double click cannot queue duplicate pickups')
+    module.eventHandlers.OnPlacedObjectPickup{pid=1,guid=1,mpNum=7,refId=pickups[1].ref,accepted=true}
+    acquire(2);check(sent[#sent].data.op=='error','client cannot forge native pickup completion')
+    objects[7]=nil
+    module.eventHandlers.OnPlacedObjectPickup{guid=1,mpNum=7,refId=pickups[1].ref,accepted=true}
+    check(sent[#sent].data.op=='close','successful pickup releases every listener and editor')
+end)
+test('pickup preserves untouched saves, rejects other owners and recovers from failure',function()
+    local f=require('procedural_synth_project')(schema);storage['project:11']=f.new();storage['project:11'].name='Existing song'
+    acquire();request('pickup',{pid=2});check(#pickups==0,'other player cannot take an occupied keyboard via this session')
+    request('pickup');check(#pickups==1 and storage['project:11'].name=='Existing song','fresh editor pickup does not overwrite saved song with empty defaults')
+    module.eventHandlers.OnPlacedObjectPickup{guid=1,mpNum=7,refId='fetcher_procedural_keyboard_v1',accepted=false}
+    check(sent[#sent].data.pickupFailed and objects[7],'failed native transaction leaves object/session available')
+    now=now+3;request('on',{note=60,velocity=1});check(sent[#sent].data.op=='on','performance still works after pickup failure')
+    package.loaded.mp.setCharacterStorageForCharacter=function() return false end
+    request('pickup',{project=f.new()});check(#pickups==1 and sent[#sent].data.pickupFailed,'save failure cannot remove the world instrument')
+end)
+test('placed portable items acquire the same synth session',function()
+    objects[7].refId='fetcher_procedural_keyboard_v1'
+    handler{object={recordId=objects[7].refId,mpNum=7},player=players[1]}
+    check(sent[#sent].data.op=='granted','inventory placement reopens the normal synth')
 end)
 print(string.format('%d tests, %d assertions passed',tests,checks))

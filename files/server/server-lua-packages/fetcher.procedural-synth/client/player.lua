@@ -80,9 +80,9 @@ local function destroy(id)
     end
 end
 local function object(id)
-    for _, o in ipairs(nearby.activators) do
-        if o.recordId=='fetcher_procedural_synth_v1' and mp.getObjectMpNum(o)==id then return o end
-    end
+    for _,list in ipairs{nearby.activators,nearby.items or {}} do for _,o in ipairs(list) do
+        if (o.recordId=='fetcher_procedural_synth_v1' or o.recordId=='fetcher_procedural_keyboard_v1') and mp.getObjectMpNum(o)==id then return o end
+    end end
 end
 local function apply(instance, params)
     for name in pairs(schema.specs) do instance.audio:set(name,params[name]) end
@@ -254,13 +254,25 @@ local function midiSelect(path)
     for n,p in ipairs(songs) do if p==path then stopPlayback();selectedSong=n;return true end end
     return false
 end
+local function pickupKeyboard()
+    if not session or session.pickup then return false end
+    flushEdit()
+    local w=session.workstation
+    local snapshot=w.dirty and Project.project(w.project) or nil
+    if w.dirty and not snapshot then ui.showMessage('Project contains unsupported data; keyboard was left in place.');return false end
+    stopPlayback(true)
+    if editor then captureEditor();editor:destroy();editor=nil end
+    session.pickup=true;session.pickupAt=core.getRealTime()
+    send('pickup',{project=snapshot})
+    return true
+end
 showEditor=function()
-    if editor or not session then return false end
+    if editor or not session or session.pickup then return false end
     local i=instances[session.id];if not i then return false end
     local w=session.workstation
     if session.page=='studio' then
         editor=Studio.new(w,{
-            hide=hideEditor,close=function() closeEditor(true) end,
+            hide=hideEditor,close=function() closeEditor(true) end,pickup=pickupKeyboard,
             synth=function() switchPage('synth',w.project.tracks[w.selected] and w.selected or 0) end,
             sound=function(index) w.selected=index;switchPage('synth',index) end,
             playSong=function()
@@ -310,7 +322,7 @@ showEditor=function()
             args=args or {};args.channel=session.editTrack
             send(op,args)
         end,
-        hide=hideEditor,close=function() closeEditor(true) end,
+        hide=hideEditor,close=function() closeEditor(true) end,pickup=pickupKeyboard,
         studio=function() switchPage('studio') end,
         meter=function() local audio=channelAudio(i,session.editTrack,false);return audio and audio.peak or 0,audio and audio.voices or 0 end,
         midiLabel=songLabel,midiChoices=midiChoices,midiSelected=function() return songs[selectedSong] end,midiSelect=midiSelect,
@@ -329,7 +341,16 @@ end
 local function message(data)
     if not mp.isConnected() or type(data)~='table' or data.version~=1 then return end
     if transport:receive(data,instances) then return end
-    if data.op=='error' then ui.showMessage(data.message); return end
+    if data.op=='error' then
+        ui.showMessage(data.message)
+        if data.pickupFailed then print('[SynthPickup] '..tostring(data.message)) end
+        if data.pickupFailed and session and session.id==data.id and session.epoch==data.epoch then session.pickup=nil;showEditor() end
+        return
+    end
+    if data.op=='pickedUp' then
+        if session and session.id==data.id and session.epoch==data.epoch then ui.showMessage('Keyboard added to inventory. Place it from inventory to perform again.');closeEditor(false) end
+        return
+    end
     if data.op=='dawSaved' then
         if session and data.id==session.id and data.epoch==session.epoch then
             local w=session.workstation
@@ -468,6 +489,7 @@ local function frame(dt)
     if not session then return end
     local i=instances[session.id]
     if not i then closeEditor(true); return end
+    if session.pickup and now-session.pickupAt>8 then session.pickup=nil;showEditor();ui.showMessage('Keyboard pickup timed out; check your inventory before retrying.') end
     -- The owner receives server liveness too; disconnected transport cannot sustain notes indefinitely.
     if now-lastHeartbeat>=2 then send('heartbeat'); lastHeartbeat=now end
     if dirty and now-lastEdit>=0.1 then flushEdit();lastEdit=now end
@@ -526,6 +548,7 @@ return {
         end,
         presetCommand=function(op,args) if editor and editor.kind~='studio' then editor.cb.command(op,args) end end,
         close=function() closeEditor(true) end,
+        pickupKeyboard=pickupKeyboard,
         hide=hideEditor,
         show=showEditor,
         midiSongs=function() local out={};for n,p in ipairs(songs) do out[n]=p end;return out end,

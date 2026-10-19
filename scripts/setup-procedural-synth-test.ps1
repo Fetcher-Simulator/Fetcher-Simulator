@@ -12,12 +12,13 @@ param(
     [switch] $MixerProbe,
     [switch] $ReturnsProbe,
     [switch] $SoundSetProbe,
+    [switch] $PickupProbe,
     [switch] $VanillaSynth,
     [switch] $ResetStage,
     [string] $BardcraftDataDirectory
 )
 $ErrorActionPreference = 'Stop'
-if ($MidiProbe -or $DawProbe -or $DrumProbe -or $GuitarProbe -or $TimingProbe -or $MixerProbe -or $ReturnsProbe -or $SoundSetProbe) { $LiveProbe = $true }
+if ($MidiProbe -or $DawProbe -or $DrumProbe -or $GuitarProbe -or $TimingProbe -or $MixerProbe -or $ReturnsProbe -or $SoundSetProbe -or $PickupProbe) { $LiveProbe = $true }
 function Write-Utf8 {
     param([string] $Path, [object] $Value)
     [System.IO.File]::WriteAllText($Path, ([string[]]$Value -join "`n"), [System.Text.UTF8Encoding]::new($false))
@@ -100,12 +101,17 @@ Config.ADMIN_HTTP_ENABLED = false
 return Config
 "@
 if ($assetModel) { $localSettings = "Config.PROCEDURAL_SYNTH_MODEL = '$assetModel'`n" + $localSettings }
+if ($assetModel -and $assetManifest.icon) {
+    if ($assetManifest.icon -ne 'fetcher/synth/keyboard.dds' -or
+        -not ($assetManifest.files | Where-Object path -EQ 'icons/fetcher/synth/keyboard.dds')) { throw 'Unsupported keyboard inventory icon.' }
+    $localSettings = "Config.PROCEDURAL_SYNTH_ICON = '$($assetManifest.icon)'`n" + $localSettings
+}
 Write-Utf8 -Path "$fixture\server-scripts\config.lua" -Value ($config.Replace('return Config',$localSettings))
 Copy-Item -LiteralPath "$repo\files\server\server-lua-packages\fetcher.procedural-synth" -Destination "$fixture\server-lua-packages" -Recurse -Force
 $probe = Join-Path $fixture 'server-lua-packages\fetcher.synth-live-test'
 if ($LiveProbe) {
     New-Item -ItemType Directory -Force -Path $probe | Out-Null
-    $probeFile = if ($SoundSetProbe) { 'soundsets-player.lua' } elseif ($ReturnsProbe) { 'returns-player.lua' } elseif ($MixerProbe) { 'mixer-player.lua' } elseif ($TimingProbe) { 'timing-player.lua' } elseif ($GuitarProbe) { 'guitar-player.lua' } elseif ($DrumProbe) { 'drum-player.lua' } elseif ($DawProbe) { 'daw-player.lua' } elseif ($MidiProbe) { 'midi-player.lua' } else { 'live-player.lua' }
+    $probeFile = if ($PickupProbe) { 'pickup-player.lua' } elseif ($SoundSetProbe) { 'soundsets-player.lua' } elseif ($ReturnsProbe) { 'returns-player.lua' } elseif ($MixerProbe) { 'mixer-player.lua' } elseif ($TimingProbe) { 'timing-player.lua' } elseif ($GuitarProbe) { 'guitar-player.lua' } elseif ($DrumProbe) { 'drum-player.lua' } elseif ($DawProbe) { 'daw-player.lua' } elseif ($MidiProbe) { 'midi-player.lua' } else { 'live-player.lua' }
     Copy-Item -LiteralPath "$PSScriptRoot\procedural-synth-tests\$probeFile" -Destination "$probe\player.lua" -Force
     Write-Utf8 -Path "$probe\manifest.yaml" -Value @'
 manifestVersion: 3
@@ -119,6 +125,11 @@ scripts:
   - path: player.lua
     flags: [player]
 '@
+    if ($PickupProbe) {
+        Copy-Item -LiteralPath "$PSScriptRoot\procedural-synth-tests\pickup-global.lua" -Destination "$probe\global.lua" -Force
+        $probeManifest = [IO.File]::ReadAllText("$probe\manifest.yaml").Replace('files: [player.lua]','files: [player.lua, global.lua]')
+        Write-Utf8 -Path "$probe\manifest.yaml" -Value ($probeManifest + "`n  - path: global.lua`n    flags: [global]")
+    }
 } elseif (Test-Path -LiteralPath $probe) {
     # Move only this fixture's optional probe out of the package scan directory.
     $resolvedProbe = [System.IO.Path]::GetFullPath($probe)

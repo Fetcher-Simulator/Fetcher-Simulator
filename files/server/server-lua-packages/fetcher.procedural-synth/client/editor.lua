@@ -159,7 +159,7 @@ function E:plots()
 end
 function E.new(params,cb)
     local self=setmetatable({params=params,cb=cb,window=Window.new(),children={},controls={},entries={},held={},name='Untitled',lastMeter=0},E)
-    self:render();I.UI.addMode('Interface',{windows={}});return self
+    self.window.pickup=cb.pickup;self:render();I.UI.addMode('Interface',{windows={}});return self
 end
 function E:render()
     Dropdown.close(self)

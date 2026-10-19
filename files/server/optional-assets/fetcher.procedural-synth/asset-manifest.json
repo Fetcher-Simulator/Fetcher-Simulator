@@ -5,8 +5,8 @@
   "files": [
     {
       "path": "ATTRIBUTION.txt",
-      "bytes": 2559,
-      "sha256": "357d2113517bf56f0567387eaba745842bca1c28ec7365179a79811b8cafeab1"
+      "bytes": 2715,
+      "sha256": "1ccf36e421cbf37bec0276388e934522a7b6bffd0e49a559247cd9a36c485c32"
     },
     {
       "path": "conversion-report.json",
@@ -82,6 +82,12 @@
       "path": "textures/fetcher/synth/yamaha_trim.dds",
       "bytes": 699192,
       "sha256": "7777ba1b2a9c9d4a661d177cec615831545064503d9d68c1f5bb7241a2cb24fa"
+    },
+    {
+      "path": "icons/fetcher/synth/keyboard.dds",
+      "bytes": 22000,
+      "sha256": "72008124febae528953597dab1349e82044a5d6cc4a7915c0768d1398a9cc3a4"
     }
-  ]
+  ],
+  "icon": "fetcher/synth/keyboard.dds"
 }

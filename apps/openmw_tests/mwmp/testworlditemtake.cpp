@@ -472,6 +472,52 @@ TEST(WorldItemTakePersistence, CommitsTombstoneInventoryAndReplayAtomically)
     EXPECT_EQ(reopened.loadTakenWorldItemReferences().front(), original.object);
 }
 
+TEST(WorldItemTakePersistence, ActivatorBecomesPortableItemWithoutDuplicateWorldOrInventoryCopies)
+{
+    TemporaryDatabase temporary;
+    std::int64_t character = 0;
+    {
+        mwmp::PlayerDatabase database(temporary.path.string());
+        const auto account = database.createAccount("portable-keyboard-account");
+        character = database.createCharacter(account, "Keyboard Owner").characterId;
+        const auto other = database.createCharacter(account, "Other Player").characterId;
+        auto commit = makeCommit(database, account, character, "script-pickup:700");
+        commit.object.kind = mwmp::PlacedObjectKind::ServerPlaced;
+        commit.object.mpNum = 700;
+        commit.object.refIndex = 0;
+        commit.object.refContentFile = -1;
+        commit.object.refId = "fetcher_procedural_synth_v1";
+        commit.expectedWorldCount = 1;
+        commit.result.object = commit.object;
+        commit.result.itemRefId = "fetcher_procedural_keyboard_v1";
+        commit.result.theft = false;
+        commit.result.crimeValue = 0;
+        commit.stolenItemMutations.clear();
+        commit.inventory.front().refId = commit.result.itemRefId;
+        mwmp::PlacedObject placed;
+        placed.mpNum = commit.object.mpNum;
+        placed.refId = commit.object.refId;
+        placed.cellId = commit.object.cellId;
+        placed.count = 1;
+        database.upsertWorldObject(placed);
+        ASSERT_EQ(database.commitWorldItemTake(commit).status, mwmp::WorldItemTakeCommitStatus::Committed);
+        EXPECT_TRUE(database.loadWorldObjects().empty());
+        ASSERT_EQ(database.loadCharacterInventory(character).size(), 1u);
+        EXPECT_EQ(database.loadCharacterInventory(character).front().refId, commit.result.itemRefId);
+        EXPECT_EQ(database.commitWorldItemTake(commit).status, mwmp::WorldItemTakeCommitStatus::DuplicateRequest);
+        commit.characterId = other;
+        commit.requestId = "other-pickup";
+        commit.requestHash = mwmp::crypto::sha256hex(commit.requestId);
+        EXPECT_EQ(database.commitWorldItemTake(commit).status, mwmp::WorldItemTakeCommitStatus::ObjectAlreadyTaken);
+        EXPECT_TRUE(database.loadCharacterInventory(other).empty());
+    }
+    mwmp::PlayerDatabase reopened(temporary.path.string());
+    EXPECT_TRUE(reopened.loadWorldObjects().empty());
+    ASSERT_EQ(reopened.loadCharacterInventory(character).size(), 1u);
+    EXPECT_EQ(reopened.loadCharacterInventory(character).front().refId, "fetcher_procedural_keyboard_v1");
+    EXPECT_EQ(reopened.loadTakenWorldItemReferences().front().refId, "fetcher_procedural_synth_v1");
+}
+
 TEST(WorldItemTakePersistence, CrimeResultCommitsAtomicallyWithTombstoneAndInventory)
 {
     TemporaryDatabase temporary;

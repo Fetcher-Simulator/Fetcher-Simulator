@@ -281,7 +281,7 @@ function S:render()
 end
 function S.new(workstation,callbacks)
     local self=setmetatable({kind='studio',w=workstation,cb=callbacks,window=Window.new(),children={},width=940,lastFrame=-1},S)
-    self:render();I.UI.addMode('Interface',{windows={}});return self
+    self.window.pickup=callbacks.pickup;self:render();I.UI.addMode('Interface',{windows={}});return self
 end
 function S:releaseAll() end
 function S:key(code,on)

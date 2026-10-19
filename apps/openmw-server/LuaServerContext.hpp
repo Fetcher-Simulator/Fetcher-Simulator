@@ -200,6 +200,7 @@ public:
     void queueBroadcastLuaStorageSection(const std::string& section, std::vector<LuaStorageEntry> entries);
     bool queueIntentOps(const sol::table& ops, std::string* error = nullptr);
     void queueGrantInventoryItem(uint32_t guid, const std::string& refId, int count);
+    void queuePickupPlacedObject(uint32_t guid, uint32_t mpNum, const std::string& inventoryRefId);
     void queueEnsureInventoryItem(uint32_t guid, const std::string& refId);
     void queueRemovePlacedObject(uint32_t mpNum, const std::string& cellId);
     void queueUpsertDynamicRecord(const std::string& recordType, const std::string& recordId,

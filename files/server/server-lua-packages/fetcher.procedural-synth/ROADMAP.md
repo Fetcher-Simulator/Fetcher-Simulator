@@ -1,6 +1,36 @@
 # Procedural Synth / Studio roadmap
 
-Updated 2026-10-18. Completed work and subsequent planned slices are identified below.
+Updated 2026-10-19. Completed work and subsequent planned slices are identified below.
+
+## Product goal
+
+Create, import and edit MIDI arrangements in the in-game Studio, then perform
+them through Bardcraft-style gameplay. Tracks belong to instruments played by
+players or NPC band members, rather than being tied to the workstation window.
+Multiple performers may use keyboards; the vanilla lute and drum are the first
+additional instrument models for testing. Editing a song and performing it are
+two views of the same saved arrangement, patches, sample references and routing.
+
+Installed game audio is also an instrument source: voice lines, effects and
+music, including archive-backed files and loose files from enabled mods. A
+searchable sample browser must support audition, trim/start/end, root note,
+pitch tracking, one-shot/gated/loop modes, envelopes and gain. A later slice adds
+chopping, reverse and crossfades. Long music files need bounded excerpts and
+off-thread decoding; decoding and disk I/O must never occur in the audio callback.
+Samples follow the native score clock, mixer, spatial routing and local monitor.
+Persist VFS paths and playback settings, not copies of game audio. Multiplayer
+must check asset identity/availability and report missing samples. Reuse the
+server `/s` speech-command catalog and Bardcraft playback code as references for discovery,
+path handling and gameplay presentation; native sample voices provide timing.
+
+Sampling reference: `apps/openmw-server/scripts/speech_commands.lua` handles
+`/s` and `/speech`, indexed categories and explicit paths, with
+`speech_data.lua`, `starwind_speech_data.lua` and `custom_speech_data.lua` supplying
+the catalogs. Reuse those file/category identities where useful and normalize
+their relative `Vo` paths into full VFS `sound/vo` paths. The sampler browser must
+also discover installed effects and music beyond that command's MP3 voice-only
+filter. Keep chat speech playback/cooldowns separate from sample-accurate MIDI
+voices.
 
 ## Current baseline
 
@@ -110,14 +140,35 @@ physical destination routing.
 - Shared native delay/reverb, per-lane post-fader sends, saved return controls,
   post-return master volume, network state/late join, undo/redo and Stop cleanup.
 
+## Completed slice: portable keyboard
+
+- Pick up from Synth or Studio into a real inventory item with a matching icon.
+- Native authoritative pickup atomically removes the placed object and updates
+  inventory; existing stage activators become portable miscellaneous items.
+- Place from inventory, activate to reopen Studio, and load the character's
+  saved arrangement. Dirty projects save before pickup; untouched windows do
+  not overwrite an existing song. Personal patches stay per character.
+- Two-client playback/cleanup, repeated pickup and server restart are tested.
+  Actor-held attachments and band routing are the next slice.
+
 ## Following slices
 
-1. Mixer expansion: instrument/group buses, stereo/pan where routing allows it,
-   and explicit routing to physical world emitters. Shared delay/reverb sends,
-   per-track EQ/compression and source meters are implemented.
-2. Song editing: editable imported MIDI, note selection/drag/resize/copy,
-   recording, arrangement clips and automation using the native clock.
-3. Project library, autosave/recovery, sample instruments and audio export.
+1. Band routing and gameplay: explicit per-track output assignments, several
+   placed keyboards and player/NPC members holding keyboard/lute/drum instruments.
+   Separate instrument identity, timbre and performer. Add invite/consent for
+   players, controlled NPC membership, instrument attachment/animation and
+   physical emitters sharing score timing. Handle absent/dead/disconnected or
+   unequipped members without silently sending their part to another performer.
+   Save stable member slots; resolve live actor/object identities at performance
+   time. Group buses and stereo/pan follow the output architecture.
+2. Song editing: convert imported parts to editable note data, with selection,
+   drag/resize/copy, zoom/scroll, velocity/gate editing, quantized recording,
+   arrangement clips and automation. Preserve tempo maps and export edited MIDI
+   for the performance path. Existing click-to-create clips remain supported.
+3. Project library and autosave/recovery, followed by native sample instruments
+   and the installed-game-audio browser described above. Test spoken lines,
+   effects and trimmed music with single notes, chords, drums and band playback.
+   Distinguish MIDI export from rendered audio export.
 4. Broader multiplayer synchronization: continuous drift correction, measured
    device latency, richer late-join state and further rate-budget work.
 

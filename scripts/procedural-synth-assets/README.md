@@ -68,3 +68,19 @@ floor Z=0 and key height near 89, creates seven collision boxes, exports NIF
 The report counts 12,189 visual triangles after one zero-area source face is
 removed; collision adds 84. Packaging retains the older Casio files, updates the
 SHA-256 manifest and writes an assets-only ZIP. Source downloads are not bundled.
+
+
+## Inventory icon
+
+`icons/fetcher/synth/keyboard.dds` is a 128 x 128 DXT5 icon with alpha and a
+complete mip chain. It is rendered from the actual combined keyboard/stand NIF;
+its source model attribution is retained in the optional asset bundle.
+
+```powershell
+$assets = "$PWD/files/server/optional-assets/fetcher.procedural-synth"
+& 'C:/Program Files/Blender Foundation/Blender 4.5/blender.exe' --background --factory-startup --disable-autoexec --python-exit-code 1 --python scripts/procedural-synth-assets/render_inventory_icon.py -- --assets $assets --output "$PWD/build/keyboard-inventory-icon.png"
+magick build/keyboard-inventory-icon.png -resize 128x128 -alpha on -strip -define dds:compression=dxt5 -define dds:mipmaps=7 "$assets/icons/fetcher/synth/keyboard.dds"
+```
+
+Re-run `package_stage.py` after changing bundle bytes to regenerate the manifest
+and asset ZIP. Setup verifies the manifest before installing either model or icon.

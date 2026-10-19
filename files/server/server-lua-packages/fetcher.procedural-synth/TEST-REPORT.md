@@ -632,3 +632,45 @@ Private evidence: fixture evidence/soundset-performance, including pre-update
 SQLite backup, live logs, native test output and diagnostic timings. This fixes
 a reproduced DSP slowdown; a long interactive song-cycling session is still the
 check for the user's exact frame-rate/audio symptom and any additional causes.
+
+
+## 2026-10-19 - portable keyboard and gameplay/sampling roadmap
+
+Package 11 keeps native synth API 8 and the existing project schema. This slice
+adds Pick up to both windows, an actual miscellaneous inventory record with a
+rendered keyboard icon, placement and reactivation. Dirty projects save before
+pickup; an untouched editor preserves the character's existing saved song.
+
+- Full RelWithDebInfo server build passes. Native world-item/content-registry
+  suites: 20 tests pass, including activator -> portable item atomic persistence,
+  tombstone/replay protection, competing character rejection and restart.
+- Server Lua: 21 tests / 257 assertions. Client/editor/UI: 6337 assertions,
+  including shared activation-chain suppression of the default ActionTake,
+  dirty-save ordering, fresh-save preservation, failure recovery and cleanup.
+- Workstation, mixer/returns, transport, sound-set (273), MIDI (28), pose (16)
+  and sequence (21) suites pass. Python asset helpers compile; bundle hashes
+  verify. The icon was visually checked after rendering from the installed NIF.
+- Live isolated A/B test on port 25567: native clips played to the observer;
+  legacy stage pickup produced exactly one inventory keyboard with its icon;
+  placement removed the inventory copy; activation reopened Studio; Load
+  recovered the saved note; a second pickup stopped and removed both physical
+  playback sources on the observer without duplication.
+- Live testing exposed and fixed missing miscellaneous records in the headless
+  server item store, and normal ActionTake consuming newly placed keyboards.
+  Native completion drives UI success; client-claimed completion is rejected.
+- After an orderly server restart, the portable item remained in inventory and
+  the test stage did not respawn a duplicate. A normal client reconnected with
+  the persistent item record available. The fixture's auto-spawn suppression
+  uses global Lua storage, which is saved on orderly shutdown.
+
+Private evidence: fixture evidence/portable-keyboard, including original full
+SQLite/global-storage backups, successful A/B logs and post-restart snapshot.
+The original database and global storage were restored byte-for-byte before
+normal launch; original saved projects, inventory and stage objects were then
+compared. The optional probe is disabled. Production was not restarted.
+
+Roadmap now targets one saved MIDI arrangement for authoring and Bardcraft-style
+player/NPC performance, multiple keyboards and vanilla lute/drum test members.
+Future sampling covers installed voice lines, SFX and music. Its reference is
+the server /s and /speech command system and speech catalogs. Band attachments,
+output routing, full MIDI editing and native sample voices are not added here.

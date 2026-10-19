@@ -250,6 +250,7 @@ public:
     ConnectedClient* findClientByGuid(uint32_t guid);
     bool grantPlayerInventoryItem(uint32_t guid, const std::string& refId, int count);
     bool ensurePlayerInventoryItem(uint32_t guid, const std::string& refId);
+    WorldItemTakeError pickupPlacedObject(uint32_t guid, uint32_t mpNum, const std::string& inventoryRefId);
     bool placeObject(const std::string& refId, int count, const std::string& cellId, const Position& position);
     bool removePlacedObjectByMpNum(uint32_t mpNum, const std::string& cellId);
     bool spawnActor(
@@ -377,6 +378,8 @@ private:
     void handleLuaEvent         (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleObjectPlace      (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size);
+    void takeWorldItem(ConnectedClient& c, const WorldItemTakeRequest& request,
+        const std::string& inventoryRefId, WorldItemTakeResult* scriptResult);
     void handleInventoryTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleInventoryTakeBatchRequest(ConnectedClient& c, const uint8_t* data, size_t size);
     void handleInventoryPutRequest(ConnectedClient& c, const uint8_t* data, size_t size);

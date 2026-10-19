@@ -7127,6 +7127,8 @@ void MPServer::loadPersistentWorldState()
             stored.dependencyRecordIds = records::extractContentDependencies(definition);
             mContentRegistry->installRuntimeDefinition(record.recordId, definition);
         }
+        else if (stored.recordType == "miscellaneous")
+            mContentRegistry->installLegacyMiscellaneous(record.recordId, record.data);
         stored.sequence = mWorld.nextDynamicRecordSequence++;
         mWorld.dynamicRecords[makeDynamicRecordKey(stored.recordType, stored.recordId)] = std::move(stored);
         ++dynamicRecordCount;
@@ -16154,15 +16156,24 @@ void MPServer::handleObjectPlace(ConnectedClient& c, const uint8_t* data, size_t
 void MPServer::handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* data, size_t size)
 {
     PacketWorldItemTakeRequest packet;
+    if (packet.decode(data, size))
+        takeWorldItem(c, packet.request, {}, nullptr);
+}
+
+void MPServer::takeWorldItem(ConnectedClient& c, const WorldItemTakeRequest& request,
+    const std::string& inventoryRefId, WorldItemTakeResult* scriptResult)
+{
     WorldItemTakeResult result;
     auto sendResult = [&] {
+        if (scriptResult)
+        {
+            *scriptResult = result;
+            return;
+        }
         PacketWorldItemTakeResult response;
         response.result = result;
         sendTo(c.conn, response.encode());
     };
-    if (!packet.decode(data, size))
-        return;
-    const WorldItemTakeRequest& request = packet.request;
     result.requestId = request.requestId;
     result.object = request.object;
 
@@ -16242,9 +16253,13 @@ void MPServer::handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* dat
         item.enabled = found->count > 0;
         try
         {
-            ESM::RefId contentId = ESM::RefId::deserializeText(found->refId);
+            // Only trusted server scripts can substitute a portable inventory
+            // record for a placed activator. The world identity remains intact
+            // for the existing atomic pickup, revision and replay checks.
+            const std::string& itemRefId = inventoryRefId.empty() ? found->refId : inventoryRefId;
+            ESM::RefId contentId = ESM::RefId::deserializeText(itemRefId);
             if (contentId.empty())
-                contentId = ESM::RefId::stringRefId(found->refId);
+                contentId = ESM::RefId::stringRefId(itemRefId);
             MWWorld::ManualRef contentRef(mContentRegistry->store(), contentId, found->count);
             const MWWorld::Ptr ptr = contentRef.getPtr();
             item.gold = ptr.getClass().isGold(ptr);
@@ -16311,7 +16326,7 @@ void MPServer::handleWorldItemTakeRequest(ConnectedClient& c, const uint8_t* dat
     // an actor inventory. Keep the world object's denomination in result.object,
     // but make the authoritative player-inventory identity match what the client
     // can actually resolve after applying the snapshot.
-    added.refId = item.gold ? "gold_001" : item.identity.refId;
+    added.refId = item.gold ? "gold_001" : (inventoryRefId.empty() ? item.identity.refId : inventoryRefId);
     added.count = item.inventoryCount;
     added.charge = item.charge;
     added.enchantmentCharge = item.enchantmentCharge;
@@ -20764,6 +20779,34 @@ bool MPServer::ensurePlayerInventoryItem(uint32_t guid, const std::string& refId
     return true;
 }
 
+WorldItemTakeError MPServer::pickupPlacedObject(uint32_t guid, uint32_t mpNum, const std::string& inventoryRefId)
+{
+    ConnectedClient* client = findClientByGuid(guid);
+    if (!client || inventoryRefId.empty() || !isAuthoritativeRecordReference(inventoryRefId))
+        return WorldItemTakeError::InvalidRequest;
+    const auto cell = mWorld.placedObjects.find(makeCellKey(client->player.cell));
+    if (cell == mWorld.placedObjects.end())
+        return WorldItemTakeError::WrongCell;
+    const auto found = std::find_if(cell->second.begin(), cell->second.end(),
+        [&](const PlacedObject& object) { return object.mpNum == mpNum && object.count > 0; });
+    if (found == cell->second.end())
+        return WorldItemTakeError::UnknownObject;
+    WorldItemTakeRequest request;
+    request.requestId = "script-pickup:" + std::to_string(mpNum);
+    request.object.kind = PlacedObjectKind::ServerPlaced;
+    request.object.cellId = found->cellId;
+    request.object.refId = found->refId;
+    request.object.mpNum = mpNum;
+    request.requestedCount = found->count;
+    request.expectedInventoryRevision = client->inventoryRevision;
+    WorldItemTakeResult result;
+    takeWorldItem(*client, request, inventoryRefId, &result);
+    if (!result.accepted)
+        Log(Debug::Warning) << "[WorldItemTake] scripted pickup rejected player=" << client->name
+                            << " mpNum=" << mpNum << " error=" << getWorldItemTakeErrorCode(result.error);
+    return result.accepted ? WorldItemTakeError::None : result.error;
+}
+
 bool MPServer::placeObject(const std::string& refId, int count, const std::string& cellId, const Position& position)
 {
     if (!isAuthoritativeRecordReference(refId))
@@ -21718,6 +21761,19 @@ bool MPServer::upsertDynamicRecord(const std::string& recordType, const std::str
         return false;
     if (!isCanonicalServerLuaRecordType(normalizedType))
     {
+        if (normalizedType == "miscellaneous")
+        {
+            try
+            {
+                mContentRegistry->installLegacyMiscellaneous(recordId, data);
+            }
+            catch (const std::exception& e)
+            {
+                Log(Debug::Warning) << "[Server] Rejected miscellaneous server-Lua record id=" << recordId
+                                    << " error=" << e.what();
+                return false;
+            }
+        }
         // Trusted server Lua historically supports a wider RecordDynamic surface
         // (notably Bardcraft NPCs and administrative spell/NPC test records).
         // Keep that server-only compatibility path until those record kinds have
@@ -21943,6 +21999,8 @@ bool MPServer::removeDynamicRecord(const std::string& recordType, const std::str
         recordId);
 
     mWorld.dynamicRecords.erase(it);
+    if (normalizedType == "miscellaneous")
+        mContentRegistry->removeLegacyMiscellaneous(recordId);
 
     if (mPlayerDb)
     {

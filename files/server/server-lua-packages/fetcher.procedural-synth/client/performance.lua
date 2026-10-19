@@ -49,7 +49,7 @@ function M.new(actor)
     end
     function p:frame(dt,source,notes,now,strikes)
         self.error=0
-        local record=types.Activator.record(source)
+        local record=source.recordId=='fetcher_procedural_keyboard_v1' and types.Miscellaneous.record(source) or types.Activator.record(source)
         local staged=record and record.model:lower():gsub('\\','/'):find('keyboard%-stand%.nif$')~=nil
         local halfWidth,spacing,spread,front,height=8,0.65,5,-2,5
         if staged then halfWidth,spacing,spread,front,height=14,1.2,18,-18,91 end

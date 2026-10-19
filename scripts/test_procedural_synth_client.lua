@@ -413,6 +413,48 @@ check(openAudio.notes[46],'listener starts open hat')
 handler{version=1,op='on',id=7,epoch=8,seq=3,channel=2,note=42,velocity=1}
 check(openAudio.voices==0 and audios[#audios].notes[42],'closed hat chokes open hat on the listener')
 handler{version=1,op='close',id=7,epoch=8,seq=4}
+-- A dropped miscellaneous keyboard is a valid sound source, and both windows
+-- use the shared chrome action rather than a second pickup implementation.
+source.recordId='fetcher_procedural_keyboard_v1'
+package.loaded['openmw.nearby'].activators={};package.loaded['openmw.nearby'].items={source}
+handler{version=1,op='granted',id=7,epoch=9,seq=1,params=schema.state({})}
+api.studio();w=api.workstation();w.project.name='Portable song';w:touch()
+local pickButton
+for _,layout in ipairs(lastStudio.root.layout.template.content[2].content) do
+    if layout.content and layout.content[1].props.text=='Pick up' then pickButton=layout end
+end
+check(pickButton~=nil,'Studio chrome exposes keyboard pickup')
+pickButton.events.mouseClick()
+check(sent[#sent].op=='pickup' and sent[#sent].project.name=='Portable song' and not api.status()[1].editorVisible,
+    'pickup sends a dirty project snapshot and hides the UI until the transaction completes')
+check(not api.show() and not api.pickupKeyboard(),'pending pickup cannot reopen or double-submit')
+handler{version=1,op='error',message='Test transfer failure',pickupFailed=true,id=7,epoch=9}
+check(api.status()[1].editorVisible and api.status()[1].editing,'native failure restores the editor and ownership')
+check(api.pickupKeyboard(),'retry queues pickup after failure')
+handler{version=1,op='pickedUp',id=7,epoch=9}
+check(not api.status()[1].editing and audios[#audios].voices==0,'successful pickup closes the performance')
+handler{version=1,op='close',id=7,epoch=9,seq=2}
+handler{version=1,op='granted',id=7,epoch=10,seq=1,params=schema.state({})}
+check(api.pickupKeyboard() and sent[#sent].project==nil,'untouched fresh editor does not overwrite an existing saved project during pickup')
+handler{version=1,op='pickedUp',id=7,epoch=10}
+handler{version=1,op='close',id=7,epoch=10,seq=2}
+-- Misc items normally run ActionTake. The shared activation interface must
+-- consume keyboard activation before the standard handler takes the item.
+local activation,activations=nil,{}
+local actor={sendEvent=function(_,name,data) activations[#activations+1]={name=name,data=data} end}
+package.loaded['openmw.world']={players={actor}}
+package.loaded['openmw.interfaces'].Activation={addGlobalHandler=function(fn) activation=fn end}
+local global=dofile(root..'client/global.lua')
+check(type(activation)=='function' and global.engineHandlers==nil,'keyboard uses the default activation handler chain')
+check(activation(source,actor)==false and #activations==1 and activations[1].name=='Synth_Activate',
+    'placed miscellaneous keyboard opens Studio and suppresses ActionTake')
+source.recordId='fetcher_procedural_synth_v1'
+check(activation(source,actor)==false and #activations==2,'legacy stage keyboard still opens Studio')
+check(activation(source,{})==false and #activations==2,'NPC activation cannot open a player editor')
+check(activation({recordId='ordinary_lute'},actor)==nil and #activations==2,'other items keep normal activation')
+connected=false
+check(activation(source,actor)==nil and #activations==2,'offline activation keeps normal behavior')
+connected=true
 package.loaded['openmw.synth'].version=5
 local oldClient=dofile(root..'client/player.lua')
 check(oldClient.interface==nil and oldClient.eventHandlers.Synth_Activate~=nil,'older engines receive an upgrade message before loading the new window controls')

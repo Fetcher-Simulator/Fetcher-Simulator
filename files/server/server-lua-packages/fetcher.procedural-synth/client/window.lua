@@ -107,6 +107,7 @@ function W:root(content)
         {type=ui.TYPE.Text,props={position=v(470,10),size=v(181,22),text='Monitor Volume (local)',textSize=13,textColor=text}},monitor,
         {type=ui.TYPE.Text,props={position=v(775,9),size=v(62,24),text=string.format('%.0f%%',volume*100),textSize=13,textColor=accent}}}
     -- Action widgets must be in a Window template for native dragging/resizing.
+    if self.pickup then bar.content[#bar.content+1]=self:button('Pick up',842,88,self.pickup) end
     if not self.full then title.external={action=true} else title.external={} end
     self:layout(bar)
     local slot={type=ui.TYPE.Widget,external={slot=true},props={position=v(0,chrome*s),size=v(self.actualWidth,self.actualHeight-chrome*s)}}

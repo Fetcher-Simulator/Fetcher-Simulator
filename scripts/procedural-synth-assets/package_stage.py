@@ -25,7 +25,8 @@ for path in args.converted.rglob('*'):
     if path.suffix=='.dds':
         data=path.read_bytes()
         assert data[:4]==b'DDS ' and data[84:88] in (b'DXT1',b'DXT5')
-        assert struct.unpack_from('<I',data,28)[0]>=10
+        minimum_mips=7 if path.relative_to(args.converted).parts[0]=='icons' else 10
+        assert struct.unpack_from('<I',data,28)[0]>=minimum_mips
     target=args.output/path.relative_to(args.converted)
     target.parent.mkdir(parents=True,exist_ok=True)
     shutil.copyfile(path,target)
@@ -55,6 +56,8 @@ added seven simple collision boxes. Export removed one zero-area triangle;
 total visual surface area was checked unchanged. Keys remain static geometry.
 No endorsement by either author or Yamaha is implied.
 '''
+if (args.output/'icons/fetcher/synth/keyboard.dds').is_file():
+    notice+='\nInventory icon: rendered from this combined NIF, with transparent background, square framing and mipmapped DXT5 alpha.\n'
 old=(args.output/'ATTRIBUTION.txt').read_text(encoding='utf-8').split('Combined Yamaha keyboard and X-stand adaptation for OpenMW')[0].rstrip()
 write(args.output/'ATTRIBUTION.txt',old+'\n\n'+notice)
 write(args.output/'LICENSE-CC-BY-4.0.txt','''The keyboard models, stand and derived textures in this bundle are licensed
@@ -67,6 +70,7 @@ This notice supplies the license URI; it is not a reproduction of the legal text
 write(args.output/'stage-provenance.json',json.dumps(sources,indent=2)+'\n')
 write(args.output/'stage-report.json',json.dumps(report,indent=2)+'\n')
 manifest={'version':1,'packageId':'fetcher.procedural-synth.assets','model':model,'files':[]}
+if (args.output/'icons/fetcher/synth/keyboard.dds').is_file():manifest['icon']='fetcher/synth/keyboard.dds'
 for path in sorted(args.output.rglob('*')):
     if path.is_file() and path.name!='asset-manifest.json':
         data=path.read_bytes()

@@ -389,6 +389,18 @@ void LuaServerContext::drainOutbound()
             case OutboundLuaActionType::EnsureInventoryItem:
                 mServer->ensurePlayerInventoryItem(action.guid, action.text);
                 break;
+            case OutboundLuaActionType::PickupPlacedObject:
+            {
+                const WorldItemTakeError error = mServer->pickupPlacedObject(action.guid, action.mpNum, action.text);
+                enqueueEvent(0, "OnPlacedObjectPickup", makeMainThreadSerializedTable([&](sol::table payload) {
+                    payload["guid"] = action.guid;
+                    payload["mpNum"] = action.mpNum;
+                    payload["refId"] = action.text;
+                    payload["accepted"] = error == WorldItemTakeError::None;
+                    payload["error"] = std::string(getWorldItemTakeErrorCode(error));
+                }));
+                break;
+            }
             case OutboundLuaActionType::RemovePlacedObject:
                 mServer->removePlacedObjectByMpNum(action.mpNum, action.cellId);
                 break;
@@ -1463,6 +1475,16 @@ void LuaServerContext::queueGrantInventoryItem(uint32_t guid, const std::string&
     action.guid = guid;
     action.text = refId;
     action.itemCount = count;
+    mOutboundQueue.push(std::move(action));
+}
+
+void LuaServerContext::queuePickupPlacedObject(uint32_t guid, uint32_t mpNum, const std::string& inventoryRefId)
+{
+    OutboundLuaAction action;
+    action.type = OutboundLuaActionType::PickupPlacedObject;
+    action.guid = guid;
+    action.mpNum = mpNum;
+    action.text = inventoryRefId;
     mOutboundQueue.push(std::move(action));
 }
 
