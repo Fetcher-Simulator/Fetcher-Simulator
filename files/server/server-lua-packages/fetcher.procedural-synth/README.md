@@ -488,3 +488,39 @@ initial stage keyboard instead of restocking it on every server restart.
 This slice supplies a portable placed instrument. Actor-held attachments, band
 member/track routing and native sample voices remain the following roadmap
 slices; the inventory keyboard is not an equipped weapon or wearable yet.
+
+
+## Band outputs (package 12 / native synth API 9)
+
+Open Studio > Band. Up to eight named member slots can bind nearby placed
+keyboards. Choose the destination for each track on the right; This keyboard
+keeps the original workstation output. Track pages cover all sixteen lanes.
+Member level and Mute affect that physical output, including its effects tails;
+track faders, mute/solo, saved sounds and inserts remain independent.
+
+Save stores member names, gain/mute, physical object identity and track-to-slot
+assignments in the character project. Older songs migrate to This keyboard.
+Bindings require the same placed object, record and cell; Missing, Busy and
+Out of range members remain silent. Bind another object explicitly to replace
+one that was picked up or removed. A reappearing original object rejoins at the
+current song phase. Refresh instruments retries reservations/status. Instruments
+are reserved to one Studio session; Finish/disconnect releases them.
+Changing bindings or track destinations stops playback. Gain and mute change
+while playing. Player/NPC held instruments and their consent/animation remain
+the next slice; this page currently binds placed keyboards only.
+
+Each physical output uses one native mono spatial stream with only its assigned
+lanes. Scores share the server timeline, tempo map, future start/replacement and
+queued-audio compensation. An empty home score retains the workstation clock
+when every lane is routed elsewhere. Timing is scheduled in native PCM, with
+separate device queues per output; continuous drift correction is not added.
+Delay/reverb settings are shared, but each physical output has its own send sum
+and tails. OUTPUT MAX meters show the loudest output, not a summed master bus.
+The existing 32-unit native budget includes each output stream plus its lanes.
+
+To add/preserve a second keyboard on the isolated test stage, stop its processes
+and run setup with -BandStage. This leaves characters/projects/inventory intact,
+backs up before adding a stage object, and does not add another copy on repeat.
+-BandProbe implies -BandStage and enables a disposable automated A/B test,
+including a QA-only server removal script. Re-run setup without -BandProbe
+before normal play; the QA script is excluded from server.omwscripts.

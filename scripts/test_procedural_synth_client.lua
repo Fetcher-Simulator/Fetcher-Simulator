@@ -380,6 +380,16 @@ check(mode==nil and api.status()[1].transport,'hidden studio retains transport')
 player.engineHandlers.onKeyPress{code=input.KEY.F8}
 check(mode=='Interface' and w.page=='drums' and api.status()[1].transport,'F8 restores the same studio page')
 now=400.17;player.engineHandlers.onFrame(0.01)
+button('Band').events.mouseClick();now=400.171;player.engineHandlers.onFrame(0.001)
+check(w.page=='band' and button('Refresh instruments') and button('This keyboard v'),'Band page exposes member discovery and per-track destinations')
+local fields=0
+for _,element in ipairs(lastStudio.root.layout.content) do
+    if element.layout and element.layout.type=='TextEdit' and element.layout.props.position.y>=205 then fields=fields+1 end
+    local props=element.props or element.layout and element.layout.props
+    if props and props.position and props.size then check(props.position.x+props.size.x<=940 and props.position.y+props.size.y<=705,'Band controls fit the logical window') end
+end
+check(fields==8,'all eight stable member names are editable')
+button('Refresh instruments').events.mouseClick()
 button('Mixer').events.mouseClick();now=400.18;player.engineHandlers.onFrame(0.01)
 local originalSet=w.project.soundSet
 button('>').events.mouseClick();now=400.181;player.engineHandlers.onFrame(0.001)

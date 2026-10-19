@@ -151,16 +151,25 @@ physical destination routing.
 - Two-client playback/cleanup, repeated pickup and server restart are tested.
   Actor-held attachments and band routing are the next slice.
 
+## Completed slice: placed-keyboard band routing
+
+- Band page with eight saved named member slots and outputs for all sixteen
+  tracks; member gain/mute remain independent of timbre and the track mix.
+- Persistent placed-keyboard bindings with server reservations and explicit
+  Ready/Unbound/Missing/Busy/Out of range states; no automatic fallback.
+- One native spatial stream per physical output, disjoint lane scores, common
+  server song timeline/start/replacement and per-stream queue compensation.
+- Native silent-score clock, observer snapshots, missing-output cleanup,
+  current-phase rejoin and Stop/Finish across every output.
+- Per-output delay/reverb tails with shared settings. Stereo, group buses and
+  continuous drift correction remain planned.
+
 ## Following slices
 
-1. Band routing and gameplay: explicit per-track output assignments, several
-   placed keyboards and player/NPC members holding keyboard/lute/drum instruments.
-   Separate instrument identity, timbre and performer. Add invite/consent for
-   players, controlled NPC membership, instrument attachment/animation and
-   physical emitters sharing score timing. Handle absent/dead/disconnected or
-   unequipped members without silently sending their part to another performer.
-   Save stable member slots; resolve live actor/object identities at performance
-   time. Group buses and stereo/pan follow the output architecture.
+1. Band gameplay: extend member slots to players/NPCs holding keyboards and
+   vanilla lute/drum models. Add player invite/consent, controlled NPC membership,
+   attachment/animation and physical actor emitters using the routing timeline.
+   Handle unequipped, dead and disconnected members without redirecting parts.
 2. Song editing: convert imported parts to editable note data, with selection,
    drag/resize/copy, zoom/scroll, velocity/gate editing, quantized recording,
    arrangement clips and automation. Preserve tempo maps and export edited MIDI

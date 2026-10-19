@@ -86,9 +86,56 @@ function S:mixer(content)
     content[#content+1]=self:button('Tracks 1-8',620,578,110,function() w.mixerPage=0;w.revision=w.revision+1 end,page==0)
     content[#content+1]=self:button('Tracks 9-16',740,578,120,function() w.mixerPage=1;w.revision=w.revision+1 end,page==1)
     local t=p.tracks[w.selected]
-    content[#content+1]=label(t and ('Selected: '..t.name..'  |  Output: keyboard in the world') or 'Import MIDI to list its parts, or add piano and drum tracks.',20,623,870,14,c.accent)
+    content[#content+1]=label(t and ('Selected: '..t.name..'  |  Output: '..((t.output.slot or 0)==0 and 'This keyboard' or p.band[t.output.slot].name)) or 'Import MIDI to list its parts, or add piano and drum tracks.',20,623,870,14,c.accent)
     content[#content+1]=self:button('Delay / Reverb',705,614,180,function() w.page='returns';w.revision=w.revision+1 end)
     self:addMasterMeter(content,650)
+end
+function S:band(content)
+    local w,p=self.w,self.w.project;local page=w.bandPage or 0
+    content[#content+1]=label('BAND MEMBERS / PLACED KEYBOARDS',20,158,500,13,c.accent)
+    content[#content+1]=label('TRACK OUTPUTS',550,158,340,13,c.accent)
+    content[#content+1]=label('Name                 Instrument                     Level        Mute',20,181,510,10,c.muted)
+    local function update(slot,key,value)
+        local old=p.band[slot];local m={name=old.name,target=old.target,level=old.level,mute=old.mute};m[key]=value
+        w:setMember(slot,m)
+    end
+    for slot,m in ipairs(p.band) do
+        local y=205+(slot-1)*42
+        local name=self:element{type=ui.TYPE.TextEdit,props={position=v(20,y),size=v(98,27),text=m.name,textSize=11,textColor=c.text},
+            events={textChanged=cb(function(text) update(slot,'name',text:gsub('%c',''):sub(1,48)) end),
+                focusGain=cb(function() self.typing=true end),focusLoss=cb(function() self.typing=false end)}}
+        content[#content+1]=name
+        content[#content+1]=self:button(m.target and ('Keyboard #'..m.target.mpNum..' v') or 'Bind keyboard v',128,y,180,function()
+            local choices={{id=0,label='Unbound (silent)'}};local targets={}
+            for _,entry in ipairs(w.cb.instruments and w.cb.instruments() or {}) do
+                choices[#choices+1]={id=entry.id,label=entry.label};targets[entry.id]=entry.target
+            end
+            Dropdown.open(self,choices,m.target and m.target.mpNum or 0,function(id)
+                update(slot,'target',targets[id]);w.revision=w.revision+1
+            end,128,math.min(y+29,290),575)
+        end)
+        content[#content+1]=self:slider(320,y+6,110,m.level,function(value) update(slot,'level',value) end)
+        content[#content+1]=self:button('M',440,y,32,function() update(slot,'mute',not m.mute);w.revision=w.revision+1 end,m.mute)
+        local status=w.cb.bandStatus and w.cb.bandStatus(slot) or 'Unbound'
+        content[#content+1]=label(status,130,y+27,370,10,status=='Ready' and c.accent or c.muted)
+        local index=page*8+slot;local track=p.tracks[index]
+        if track then
+            content[#content+1]=label(index..'  '..track.name:sub(1,21),550,y+5,170,11)
+            local output=track.output.slot or 0
+            local title=output==0 and 'This keyboard' or p.band[output].name
+            content[#content+1]=self:button(title..' v',725,y,168,function()
+                local choices={{id=0,label='This keyboard'}}
+                for n,member in ipairs(p.band) do choices[#choices+1]={id=n,label=n..': '..member.name} end
+                Dropdown.open(self,choices,output,function(id) w:setOutput(index,id) end,520,math.min(y+29,290),380)
+            end)
+        end
+    end
+    content[#content+1]=self:button('Refresh instruments',20,566,190,function() if w.cb.refreshBand then w.cb.refreshBand() end;w.revision=w.revision+1 end)
+    content[#content+1]=self:button('Tracks 1-8',550,566,140,function() w.bandPage=0;w.revision=w.revision+1 end,page==0)
+    content[#content+1]=self:button('Tracks 9-16',705,566,150,function() w.bandPage=1;w.revision=w.revision+1 end,page==1)
+    content[#content+1]=label('Bind nearby placed keyboards. Assigned instruments are reserved while this Studio session is open.',20,609,880,12,c.muted)
+    content[#content+1]=label('Changing a binding or track output stops playback. Missing or busy members stay silent.',20,638,880,12,c.muted)
+    content[#content+1]=label('Save stores member slots and outputs with the song. Player / NPC performers are coming next.',20,667,880,12,c.accent)
 end
 local function db(value) return value>0.00001 and string.format('%.1f',20*math.log(value)/math.log(10)) or '-inf' end
 function S:addMasterMeter(content,y)
@@ -149,8 +196,8 @@ function S:returns(content)
         content[#content+1]=Controls.slider(self,'return:'..key,title,{min=spec[1],max=spec[2],unit=unit,log=log,step=step},
             function() return w.project.effects[key] end,function(value) w:setEffect(key,value) end,x,y,410)
     end
-    content[#content+1]=label('Set send levels with Mix on each track. Sends follow the track fader and mute/solo.',20,535,890,13,c.muted)
-    content[#content+1]=label('Dry tracks + shared returns > master volume > limiter > keyboard in the world',20,567,890,13,c.muted)
+    content[#content+1]=label('Set sends with Mix on each track. Each physical output has its own delay and reverb tails.',20,535,890,13,c.muted)
+    content[#content+1]=label('Each physical output: dry tracks + returns > master volume > member level > limiter',20,567,890,13,c.muted)
     content[#content+1]=label('Stop fades and clears effect tails. Delay time changes glide in pitch.',20,600,890,12,c.muted)
     self.returnMeter=self:element(label('',20,626,890,13,c.accent));content[#content+1]=self.returnMeter
     self:addMasterMeter(content,650)
@@ -249,7 +296,7 @@ function S:render()
     self.children={};self.meters={};self.meterLabels={};self.returnMeter=nil;self.playhead=nil;self.grid=nil
     local w,p=self.w,self.w.project;local content={label('OPENMW / STUDIO',20,13,275,21)}
     local tabs={{'Synth',self.cb.synth},{'Mixer',function() w.page='mixer';w.revision=w.revision+1 end},
-        {'Piano',function() w.page='piano';w.revision=w.revision+1 end},{'Drums',function() w.page='drums';w.revision=w.revision+1 end}}
+        {'Piano',function() w.page='piano';w.revision=w.revision+1 end},{'Drums',function() w.page='drums';w.revision=w.revision+1 end},{'Band',function() w.page='band';w.revision=w.revision+1 end}}
     for n,tab in ipairs(tabs) do content[#content+1]=self:button(tab[1],330+(n-1)*77,12,70,tab[2],w.page==tab[1]:lower()) end
     content[#content+1]=self:button('Hide [F8]',self.width-198,12,104,self.cb.hide)
     content[#content+1]=self:button('Finish',self.width-84,12,64,self.cb.close)
@@ -276,7 +323,7 @@ function S:render()
     end)
     content[#content+1]=self:button('MIDI >',726,112,65,function() self.cb.cycleMidi(1);w.revision=w.revision+1 end)
     content[#content+1]=self:button('Import',803,112,92,self.cb.import)
-    if w.page=='piano' then self:piano(content) elseif w.page=='drums' then self:drums(content) elseif w.page=='channel' then self:channel(content) elseif w.page=='returns' then self:returns(content) else self:mixer(content) end
+    if w.page=='piano' then self:piano(content) elseif w.page=='drums' then self:drums(content) elseif w.page=='channel' then self:channel(content) elseif w.page=='returns' then self:returns(content) elseif w.page=='band' then self:band(content) else self:mixer(content) end
     self.root=self.window:root(content);self.revision=w.revision
 end
 function S.new(workstation,callbacks)
@@ -304,7 +351,7 @@ function S:frame(now)
     for n,text in pairs(self.meterLabels) do
         local peak,rms,reduction=0,0,0
         if self.w.cb.meters then peak,rms,reduction=self.w.cb.meters(n) end
-        text.layout.props.text=n==0 and string.format('MASTER  pre-limiter peak %s dBFS  |  output RMS %s dBFS%s',db(peak),db(rms),peak>1 and '  |  LIMITING - lower levels' or '')
+        text.layout.props.text=n==0 and string.format('OUTPUT MAX  pre-limiter peak %s dBFS  |  RMS %s dBFS%s',db(peak),db(rms),peak>1 and '  |  LIMITING - lower levels' or '')
             or string.format('Peak %s / RMS %s dBFS  |  GR %.1f dB',db(peak),db(rms),reduction)
         self.window:update(text)
     end

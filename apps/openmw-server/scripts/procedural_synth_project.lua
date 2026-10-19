@@ -1,7 +1,7 @@
 -- Bounded, versioned DAW document shared by client and server.
 -- Kept as a factory so both runtimes supply their own synth schema module.
 return function(schema)
-local M={version=1,maxTracks=16,maxNotes=512,maxSteps=256}
+local M={version=1,maxTracks=16,maxNotes=512,maxSteps=256,maxMembers=8}
 local function num(v,a,b) return type(v)=='number' and v==v and v>=a and v<=b end
 local function int(v,a,b) return num(v,a,b) and v%1==0 end
 local function text(v,n) return type(v)=='string' and #v<=n and not v:find('%c') end
@@ -43,17 +43,39 @@ function M.effects(t)
     end
     return out
 end
+function M.band(value)
+    if value==nil then value={} end
+    if not array(value,M.maxMembers) then return nil end
+    local out={}
+    for n=1,M.maxMembers do
+        local m=value[n] or {name='Keyboard '..n,level=1,mute=false}
+        if not keys(m,{name=true,level=true,mute=true,target=true},4) or not text(m.name,48)
+            or not num(m.level,0,1) or type(m.mute)~='boolean' then return nil end
+        local target=m.target
+        if target and (not keys(target,{mpNum=true,cell=true,refId=true},3) or not int(target.mpNum,1,4294967295)
+            or not text(target.cell,128) or #target.cell==0 or not text(target.refId,128)
+            or (target.refId~='fetcher_procedural_synth_v1' and target.refId~='fetcher_procedural_keyboard_v1')) then return nil end
+        out[n]={name=m.name,level=m.level,mute=m.mute}
+        if target then out[n].target={mpNum=target.mpNum,cell=target.cell,refId=target.refId} end
+    end
+    return out
+end
+function M.routes(value)
+    if not array(value,M.maxTracks) then return nil end
+    local out={};for n,slot in ipairs(value) do if not int(slot,0,M.maxMembers) then return nil end;out[n]=slot end
+    return out
+end
 local trackKeys={name=true,kind=true,part=true,presetId=true,params=true,level=true,mute=true,solo=true,note=true,gate=true,steps=true,notes=true,output=true,mixer=true}
 function M.track(t,length)
     if not keys(t,trackKeys,15) or not text(t.name,48) or (t.kind~='midi' and t.kind~='piano' and t.kind~='drum')
         or not text(t.part or '',48) or not text(t.presetId or '',32) or not num(t.level,0,1)
         or type(t.mute)~='boolean' or type(t.solo)~='boolean' or not int(t.note,0,127) or not num(t.gate,0.01,1)
         or type(t.steps)~='string' or (#t.steps<length or #t.steps>M.maxSteps or #t.steps%16~=0) or t.steps:find('[^0-9]')
-        or not array(t.notes,128) or not keys(t.output,{kind=true},1) or t.output.kind~='keyboard' then return nil end
+        or not array(t.notes,128) or not keys(t.output,{kind=true,slot=true},2) or t.output.kind~='keyboard' or not int(t.output.slot or 0,0,M.maxMembers) then return nil end
     local mixer=M.mixer(t.mixer);if not mixer then return nil end
     local params=schema.state(t.params);if not params then return nil end;params.polyphony=math.min(8,params.polyphony)
     local out={name=t.name,kind=t.kind,part=t.part or '',presetId=t.presetId or '',params=params,level=t.level,
-        mute=t.mute,solo=t.solo,note=t.note,gate=t.gate,steps=t.steps..string.rep('0',M.maxSteps-#t.steps),notes={},mixer=mixer,output={kind='keyboard'}}
+        mute=t.mute,solo=t.solo,note=t.note,gate=t.gate,steps=t.steps..string.rep('0',M.maxSteps-#t.steps),notes={},mixer=mixer,output={kind='keyboard',slot=t.output.slot or 0}}
     for _,n in ipairs(t.notes) do
         if not keys(n,{n=true,s=true,l=true,v=true},4) or not int(n.n,0,127) or not int(n.s,0,M.maxSteps-1)
             or not int(n.l,1,M.maxSteps) or not num(n.v,0.01,1) then return nil end
@@ -62,13 +84,13 @@ function M.track(t,length)
     return out
 end
 function M.project(p)
-    if not keys(p,{version=true,name=true,bpm=true,swing=true,length=true,loop=true,midi=true,tracks=true,master=true,effects=true,soundSet=true},11)
+    if not keys(p,{version=true,name=true,bpm=true,swing=true,length=true,loop=true,midi=true,tracks=true,master=true,effects=true,soundSet=true,band=true},12)
         or not num(p.master or 0.7,0,1) or p.version~=1 or not text(p.name,64) or not num(p.bpm,40,240) or not num(p.swing,0,0.6)
         or not int(p.length,16,M.maxSteps) or p.length%16~=0 or type(p.loop)~='boolean' or not text(p.midi,192)
         or not text(p.soundSet or '',32) or not array(p.tracks,M.maxTracks) then return nil end
     if p.midi~='' and (not p.midi:match('^midi/') or p.midi:find('..',1,true) or not p.midi:lower():match('%.mid[i]?$')) then return nil end
-    local effects=M.effects(p.effects);if not effects then return nil end
-    local out={soundSet=p.soundSet or '',effects=effects,version=1,name=p.name,bpm=p.bpm,swing=p.swing,length=p.length,loop=p.loop,midi=p.midi,master=p.master or 0.7,tracks={}}
+    local effects=M.effects(p.effects);local band=M.band(p.band);if not effects or not band then return nil end
+    local out={band=band,soundSet=p.soundSet or '',effects=effects,version=1,name=p.name,bpm=p.bpm,swing=p.swing,length=p.length,loop=p.loop,midi=p.midi,master=p.master or 0.7,tracks={}}
     local notes=0
     for _,t in ipairs(p.tracks) do
         local track=M.track(t,p.length);if not track then return nil end
@@ -77,10 +99,10 @@ function M.project(p)
     end
     return out
 end
-function M.new() return {soundSet='balanced',effects=M.effects(),version=1,name='New project',bpm=120,swing=0,length=16,loop=true,midi='',master=0.7,tracks={}} end
+function M.new() return {band=M.band(),soundSet='balanced',effects=M.effects(),version=1,name='New project',bpm=120,swing=0,length=16,loop=true,midi='',master=0.7,tracks={}} end
 function M.newTrack(kind,name,length)
     return {kind=kind,name=name,part='',presetId='',params=schema.state({polyphony=8}),level=0.8,mute=false,solo=false,
-        note=60,gate=0.12,steps=string.rep('0',M.maxSteps),notes={},mixer=M.mixer(),output={kind='keyboard'}}
+        note=60,gate=0.12,steps=string.rep('0',M.maxSteps),notes={},mixer=M.mixer(),output={kind='keyboard',slot=0}}
 end
 return M
 end

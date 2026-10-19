@@ -19,6 +19,7 @@ local plan=Sequence.compile(p,nil,nil,'clips');local i={id=7,epoch=1,seen=100,so
 function i.workstation:stop() self.stopped=true;transport:stop(i,function(op,args) requests[#requests+1]={op=op,playId=args.playId} end) end
 local instances={[7]=i};local function send(op,args) args.op=op;requests[#requests+1]=args end
 check(transport:queue(i,plan,false,send),'queue starts upload and reserves native tracks')
+i.pendingBand={};transport:frame(instances);check(not i.upload.began,'score Begin waits for structural band update so server cannot cancel its upload');i.pendingBand=nil
 i.pendingChannels={[1]={}};transport:frame(instances);check(i.upload.offset==1,'score waits for pending channel settings');i.pendingChannels={}
 now=100.02;transport:receive({op='clock',sent=100,serverTime=50.01},instances)
 check(math.abs(transport.offset+50)<0.000001,'clock estimate subtracts half RTT')

@@ -73,7 +73,25 @@ function W:setEffect(name,value)
     self.project.effects=state;if self.cb.effects then self.cb.effects(state,self.project.master) end
     self:touch('effects:'..name,true);return true
 end
+function W:configureBand()
+    if self.cb.band then
+        local routes={};for n,t in ipairs(self.project.tracks) do routes[n]=t.output.slot or 0 end
+        self.cb.band(self.project.band,routes)
+    end
+end
+function W:setOutput(index,slot)
+    local t=self.project.tracks[index]
+    if not t or type(slot)~='number' or slot%1~=0 or slot<0 or slot>format.maxMembers then return false end
+    self:stop(true);t.output={kind='keyboard',slot=slot};self:configureBand();self:touch('output:'..index);return true
+end
+function W:setMember(slot,member)
+    if not self.project.band[slot] then return false end
+    local band=copy(self.project.band);band[slot]=copy(member);band=format.band(band);if not band then return false end
+    if not equal(band[slot].target,self.project.band[slot].target) then self:stop(true) end
+    self.project.band=band;self:configureBand();self:touch('member:'..slot,true);return true
+end
 function W:configureAll()
+    self:configureBand()
     for n in ipairs(self.project.tracks) do self:configure(n) end
     if self.cb.prune then self.cb.prune(#self.project.tracks) end
     if self.cb.effects then self.cb.effects(self.project.effects,self.project.master) end

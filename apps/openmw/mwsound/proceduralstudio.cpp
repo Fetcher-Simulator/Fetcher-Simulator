@@ -93,7 +93,8 @@ namespace MWSound
     }
     bool ProceduralStudio::loadScore(std::string_view bytes, std::uint32_t length, bool loop)
     {
-        if (closed() || bytes.empty() || bytes.size() % 11 || bytes.size() / 11 > MaxNotes || !length || length > MaxFrames) return false;
+        // A routed output may have no notes while retaining the song clock.
+        if (closed() || bytes.size() % 11 || bytes.size() / 11 > MaxNotes || !length || length > MaxFrames) return false;
         auto score = std::make_shared<Score>(); score->length = length; score->loop = loop;
         score->notes.reserve(bytes.size() / 11);
         auto u32 = [&](std::size_t offset) {

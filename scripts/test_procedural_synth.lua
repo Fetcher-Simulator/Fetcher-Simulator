@@ -309,4 +309,57 @@ test('placed portable items acquire the same synth session',function()
     handler{object={recordId=objects[7].refId,mpNum=7},player=players[1]}
     check(sent[#sent].data.op=='granted','inventory placement reopens the normal synth')
 end)
+test('band slots reserve placed keyboards and reject forged or competing control',function()
+    objects[8]={mpNum=8,refId='fetcher_procedural_keyboard_v1',cell='INT:A',position={x=120,y=0,z=0}}
+    acquire();local band=require('procedural_synth_project')(schema).band()
+    band[1].target={mpNum=8,refId=objects[8].refId,cell='INT:A'}
+    request('band',{band=band,routes={1,0}})
+    check(sent[#sent].data.availability[1]=='Ready' and sent[#sent].data.routes[1]==1,'server resolves physical output')
+    local before=#sent;request('band',{pid=2,band=band,routes={0}});check(#sent==before,'observer cannot change routing')
+    handler{object={recordId=objects[8].refId,mpNum=8},player=players[2]}
+    check(sent[#sent].data.op=='error','reserved instrument cannot become another session')
+    request('sync',{pid=2});check(sent[#sent].data.band[1].target.mpNum==8,'late state contains binding and routing')
+    request('close');handler{object={recordId=objects[8].refId,mpNum=8},player=players[2]}
+    check(sent[#sent].data.op=='granted','Finish releases reservations')
+end)
+test('missing, duplicate, busy and distant band members never become another output',function()
+    local f=require('procedural_synth_project')(schema);local band=f.band()
+    for _,id in ipairs{8,9} do objects[id]={mpNum=id,refId='fetcher_procedural_keyboard_v1',cell='INT:A',position={x=100,y=0,z=0}} end
+    handler{object={recordId=objects[9].refId,mpNum=9},player=players[2]};acquire()
+    for slot,id in ipairs{8,8,9,10} do band[slot].target={mpNum=id,refId='fetcher_procedural_keyboard_v1',cell='INT:A'} end
+    request('band',{epoch=2,band=band,routes={1,2,3,4}})
+    local a=sent[#sent].data.availability
+    check(a[1]=='Ready' and a[2]=='Busy' and a[3]=='Busy' and a[4]=='Missing','invalid destinations remain explicitly unavailable')
+    objects[8]=nil;now=now+2.1;module.engineHandlers.onUpdate()
+    local missing=false;for _,e in ipairs(sent) do if e.data.op=='band' and e.data.id==7 and e.data.availability[1]=='Missing' then missing=true end end
+    check(missing,'removal reaches all listeners during native playback')
+    objects[8]={mpNum=8,refId='fetcher_procedural_keyboard_v1',cell='INT:A',position={x=2100,y=0,z=0}}
+    request('band',{epoch=2,band=band,routes={1}});check(sent[#sent].data.availability[1]=='Out of range','remote objects cannot be claimed')
+    band[1].target.refId='wrong_record';local count=#sent;request('band',{epoch=2,band=band,routes={1}})
+    check(#sent==count,'malformed record identity is rejected')
+end)
+test('band routing saves per character and survives format migration',function()
+    local f=require('procedural_synth_project')(schema);local p=f.new();p.tracks[1]=f.newTrack('piano','Routed',16)
+    p.band[1].name='Bass keyboard';p.band[1].level=0.4;p.band[1].mute=true
+    p.band[1].target={mpNum=8,cell='INT:A',refId='fetcher_procedural_keyboard_v1'};p.tracks[1].output.slot=1
+    acquire();request('dawSave',{project=p});reset(copy(storage));sequence=0;acquire();request('dawLoad')
+    local saved=sent[#sent].data.project
+    check(saved.band[1].name=='Bass keyboard' and saved.band[1].level==0.4 and saved.tracks[1].output.slot==1,'routing and member mix survive character storage')
+    p.band=nil;p.tracks[1].output.slot=nil;local migrated=f.project(p)
+    check(migrated and #migrated.band==8 and migrated.tracks[1].output.slot==0,'older songs retain home keyboard routing')
+    check(not f.routes({9}) and not f.routes({[2]=1}) and not f.band({{name='Bad',level=0/0,mute=false}}),'invalid slots, sparse routes and gains rejected')
+end)
+test('member mix changes preserve native transport but structural routes cancel it',function()
+    local f=require('procedural_synth_project')(schema);local p=f.new();p.tracks[1]=f.newTrack('piano','Clock',16);p.tracks[1].notes={{n=60,s=0,l=2,v=1}}
+    local score=require('procedural_synth_sequence').compile(p,nil,nil,'clips')
+    acquire();request('channel',{channel=1,params={},level=1})
+    request('scoreBegin',{playId=1,count=#score.bytes/11,length=score.length,loop=score.loop,quantum=score.quantum,replace=false})
+    request('scoreChunk',{playId=1,index=1,bytes=score.bytes});request('scoreCommit',{playId=1})
+    local band=f.band();band[1].mute=true;band[1].level=0.2;sent={}
+    request('band',{band=band,routes={0}})
+    for _,e in ipairs(sent) do check(e.data.op~='transportStop','member mute cannot reset score clock') end
+    sent={};request('band',{band=band,routes={1}})
+    local stopped=false;for _,e in ipairs(sent) do if e.data.op=='transportStop' then stopped=true end end
+    check(stopped,'structural route change stops old score before assigning a new destination')
+end)
 print(string.format('%d tests, %d assertions passed',tests,checks))

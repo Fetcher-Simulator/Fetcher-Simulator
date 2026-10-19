@@ -21,6 +21,13 @@ std::vector<float> studioRender(NativeStudio& studio,unsigned frames,unsigned bl
 }
 void studioTests()
 {
+    NativeStudio silent;
+    check(silent.loadScore("",24000,true) && silent.start(0.01,0),"empty output score keeps native band clock");
+    check(energy(studioRender(silent,96480,137))==0 && silent.playing() && silent.voices()==0 && silent.position()==2,
+        "empty output loops in exact phase without allocating track voices");
+    check(silent.units()==1 && silent.loadScore("",2400,false) && silent.replace(0),"silent finite replacement accepted");
+    studioRender(silent,4800);check(!silent.playing(),"empty finite output completes");
+    check(!silent.loadScore("",0,true),"empty output still requires a valid length");
     NativeStudio a,b;setupStudio(a);setupStudio(b);
     const auto score=scoreNote(37,12001,1,60)+scoreNote(37,6001,2,64)+scoreNote(6013,4000,2,67)+scoreNote(19000,20000,1,60);
     check(a.loadScore(score,24000,true) && b.loadScore(score,24000,true),"score loads with cross-loop gates");

@@ -13,12 +13,15 @@ param(
     [switch] $ReturnsProbe,
     [switch] $SoundSetProbe,
     [switch] $PickupProbe,
+    [switch] $BandProbe,
+    [switch] $BandStage,
     [switch] $VanillaSynth,
     [switch] $ResetStage,
     [string] $BardcraftDataDirectory
 )
 $ErrorActionPreference = 'Stop'
-if ($MidiProbe -or $DawProbe -or $DrumProbe -or $GuitarProbe -or $TimingProbe -or $MixerProbe -or $ReturnsProbe -or $SoundSetProbe -or $PickupProbe) { $LiveProbe = $true }
+if ($BandProbe) { $BandStage = $true }
+if ($MidiProbe -or $DawProbe -or $DrumProbe -or $GuitarProbe -or $TimingProbe -or $MixerProbe -or $ReturnsProbe -or $SoundSetProbe -or $PickupProbe -or $BandProbe) { $LiveProbe = $true }
 function Write-Utf8 {
     param([string] $Path, [object] $Value)
     [System.IO.File]::WriteAllText($Path, ([string[]]$Value -join "`n"), [System.Text.UTF8Encoding]::new($false))
@@ -111,7 +114,7 @@ Copy-Item -LiteralPath "$repo\files\server\server-lua-packages\fetcher.procedura
 $probe = Join-Path $fixture 'server-lua-packages\fetcher.synth-live-test'
 if ($LiveProbe) {
     New-Item -ItemType Directory -Force -Path $probe | Out-Null
-    $probeFile = if ($PickupProbe) { 'pickup-player.lua' } elseif ($SoundSetProbe) { 'soundsets-player.lua' } elseif ($ReturnsProbe) { 'returns-player.lua' } elseif ($MixerProbe) { 'mixer-player.lua' } elseif ($TimingProbe) { 'timing-player.lua' } elseif ($GuitarProbe) { 'guitar-player.lua' } elseif ($DrumProbe) { 'drum-player.lua' } elseif ($DawProbe) { 'daw-player.lua' } elseif ($MidiProbe) { 'midi-player.lua' } else { 'live-player.lua' }
+    $probeFile = if ($BandProbe) { 'band-player.lua' } elseif ($PickupProbe) { 'pickup-player.lua' } elseif ($SoundSetProbe) { 'soundsets-player.lua' } elseif ($ReturnsProbe) { 'returns-player.lua' } elseif ($MixerProbe) { 'mixer-player.lua' } elseif ($TimingProbe) { 'timing-player.lua' } elseif ($GuitarProbe) { 'guitar-player.lua' } elseif ($DrumProbe) { 'drum-player.lua' } elseif ($DawProbe) { 'daw-player.lua' } elseif ($MidiProbe) { 'midi-player.lua' } else { 'live-player.lua' }
     Copy-Item -LiteralPath "$PSScriptRoot\procedural-synth-tests\$probeFile" -Destination "$probe\player.lua" -Force
     Write-Utf8 -Path "$probe\manifest.yaml" -Value @'
 manifestVersion: 3
@@ -125,6 +128,10 @@ scripts:
   - path: player.lua
     flags: [player]
 '@
+    if ($BandProbe) {
+        Copy-Item -LiteralPath "$PSScriptRoot\procedural-synth-tests\band-server.lua" -Destination "$fixture\server-scripts\band-qa.lua" -Force
+        Write-Utf8 -Path "$fixture\server-scripts\server.omwscripts" -Value "GLOBAL: core.lua`nGLOBAL: procedural_synth.lua`nGLOBAL: band-qa.lua"
+    }
     if ($PickupProbe) {
         Copy-Item -LiteralPath "$PSScriptRoot\procedural-synth-tests\pickup-global.lua" -Destination "$probe\global.lua" -Force
         $probeManifest = [IO.File]::ReadAllText("$probe\manifest.yaml").Replace('files: [player.lua]','files: [player.lua, global.lua]')
@@ -222,6 +229,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Failed to seed isolated characters.' }
 if ($ResetStage) {
     & python "$PSScriptRoot\position-procedural-synth-stage.py" "$fixture\playerdata.db"
     if ($LASTEXITCODE -ne 0) { throw 'Failed to reset the isolated stage layout.' }
+}
+if ($BandStage) {
+    & python "$PSScriptRoot\seed-procedural-synth-band.py" "$fixture\playerdata.db"
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to add the second band-test keyboard.' }
 }
 Write-Output "Synth fixture: $fixture"
 if ($assetModel) { Write-Output "Keyboard assets installed and SHA-256 verified: $assetModel" }

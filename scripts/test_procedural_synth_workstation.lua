@@ -170,3 +170,13 @@ check(mix:redo() and mix.project.effects.delayTime==375,'global return redo')
 check(mix:setMixer(1,'reverbSend',0.6) and format.project(mix.project).tracks[1].mixer.reverbSend==0.6,'send saved independently of sound')
 check(not mix:setEffect('delayFeedback',1),'unsafe feedback refused')
 print('PASS shared sends/returns persistence, migration, undo and feedback validation')
+
+local routing={};mix.cb.band=function(band,routes) routing={band=copy(band),routes=copy(routes)} end
+local member=copy(mix.project.band[1]);member.name='Low keys';member.level=0.5
+member.target={mpNum=82,cell='INT:ToddTest',refId='fetcher_procedural_keyboard_v1'}
+check(mix:setMember(1,member) and mix:setOutput(1,1) and routing.routes[1]==1,'member and track routing reach the runtime callback')
+local routed=format.project(mix.project);check(routed.band[1].target.mpNum==82 and routed.tracks[1].output.slot==1,'stable member slot and physical identity serialize')
+check(mix:undo() and mix.project.tracks[1].output.slot==0 and mix:redo() and mix.project.tracks[1].output.slot==1,'output assignment has undo/redo')
+check(mix:preset(1,'b:guitar-clean') and mix.project.tracks[1].output.slot==1 and mix.project.band[1].level==0.5,'sound changes preserve member routing and gain')
+check(not mix:setOutput(1,9) and not mix:setOutput(1,0/0),'invalid destinations rejected before editing')
+print('PASS band routing, slot persistence, mix independence and undo/redo')

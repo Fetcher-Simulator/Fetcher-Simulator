@@ -674,3 +674,46 @@ player/NPC performance, multiple keyboards and vanilla lute/drum test members.
 Future sampling covers installed voice lines, SFX and music. Its reference is
 the server /s and /speech command system and speech catalogs. Band attachments,
 output routing, full MIDI editing and native sample voices are not added here.
+
+
+## 2026-10-19 - placed-keyboard band outputs
+
+Package 12 requires native synth API 9. Version-1 projects gain optional band
+slots/output slot fields; old songs migrate to the original home keyboard.
+
+- Full RelWithDebInfo client/server builds pass. Standalone native CTest passes,
+  including the existing DSP soak, mixer/returns, block-independent scheduling
+  and new empty-score looping/finite completion/validation checks. Empty outputs
+  retain a native song clock without allocating duplicate instrument voices.
+- Server Lua: 25 tests / 274 assertions. Covers exclusive reservations, owner
+  validation, late snapshots, missing/duplicate/busy/distant destinations,
+  character persistence/migration and structural-stop versus live mix updates.
+- Client/UI: 6452 assertions including Band navigation, eight member-name fields,
+  output selectors and logical-window bounds. Workstation tests cover output
+  undo/redo, persistent member identity and independent mix/sound assignments.
+- New band transport harness: 35 assertions covering exact disjoint score bytes,
+  physical source identity, shared future starts/replacement, member mute/gain,
+  missing/rejoin phase, all-remote songs, 24 repeated reroutes and full cleanup.
+  Existing transport, sound sets (273), sequence (21) and MIDI (28) suites pass.
+- Live isolated A/B: two physical keyboard streams played different parts.
+  Sampled audible phase difference was zero on owner and observer in this run;
+  this is a local observation, not a cross-device clock-lock guarantee.
+  Member mute reached native silence while transport continued. Character SQLite
+  load retained member identity, routing and saved mix. A late-started observer
+  joined both streams of an already-running arrangement. Removing the bound keyboard silenced only that member;
+  home playback continued. Finish removed every band stream on the observer.
+- First live run found score Begin could precede a pending structural band
+  update, which correctly cancelled its upload on the server. Begin now waits
+  behind band/channel settings; the regression and complete second live run pass.
+- Original fixture projects, inventory/equipment and global storage restored.
+  Normal setup disables both the player probe and QA-only server removal handler.
+  One additional persistent keyboard is intentionally retained on the isolated
+  stage for manual Band testing. The helper backs up and is idempotent.
+
+Private evidence: fixture evidence/band-routing contains the original SQLite and
+global-storage backups, A/B logs, server output and successful project snapshot.
+Existing custom MIDI and model/icon assets are preserved. No production restart
+or deployment. Player/NPC held instruments, stereo/group buses and continuous
+output/device drift correction remain future work. Each output currently has
+its own native delay/reverb state with common settings; OUTPUT MAX meters show
+the loudest output rather than a summed master bus.
