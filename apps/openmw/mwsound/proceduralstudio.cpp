@@ -282,7 +282,7 @@ namespace MWSound
                     {
                         const float sample=mMixer[n].process(lane[i]); mixed[i]+=sample;
                         delayInput[i]+=sample*mMixer[n].delaySend();reverbInput[i]+=sample*mMixer[n].reverbSend();
-                        held=std::max(std::abs(sample),held*0.99993056f);
+                        held=std::max(std::abs(sample),ProceduralDsp::silence(held*0.99993056f));
                         mPower[n]+=0.00013888*(sample*sample-mPower[n]);
                         if (mPower[n]<1e-25) mPower[n]=0;
                     }
@@ -293,11 +293,11 @@ namespace MWSound
             for (std::size_t i=0;i<count;++i)
             {
                 const auto wet=mReturns.process(delayInput[i],reverbInput[i]);
-                delayPeak=std::max(std::abs(wet.delay),delayPeak*0.99993056f);reverbPeak=std::max(std::abs(wet.reverb),reverbPeak*0.99993056f);
+                delayPeak=std::max(std::abs(wet.delay),ProceduralDsp::silence(delayPeak*0.99993056f));reverbPeak=std::max(std::abs(wet.reverb),ProceduralDsp::silence(reverbPeak*0.99993056f));
                 mMasterCurrent+=(mMasterAudioTarget-mMasterCurrent)*0.0020811647;
                 if (std::abs(mMasterAudioTarget-mMasterCurrent)<1e-12) mMasterCurrent=mMasterAudioTarget;
                 mixed[i]=static_cast<float>((mixed[i]+wet.delay+wet.reverb)*mMasterCurrent);
-                mixPeak=std::max(std::abs(mixed[i]),mixPeak*0.99993056f);
+                mixPeak=std::max(std::abs(mixed[i]),ProceduralDsp::silence(mixPeak*0.99993056f));
                 output[done+i]=std::tanh(mixed[i]);peak=std::max(peak,std::abs(output[done+i]));
                 mMasterPower+=0.00013888*(output[done+i]*output[done+i]-mMasterPower);
                 if (mMasterPower<1e-25) mMasterPower=0;

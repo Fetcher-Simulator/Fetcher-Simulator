@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include "proceduraldsp.hpp"
 
 namespace MWSound
 {
@@ -39,7 +40,7 @@ namespace MWSound
         {
             const bool active = p.mode != 0 || p.cabinet != 0 || std::abs(p.bass) + std::abs(p.mid)
                 + std::abs(p.treble) > 0.00001 || std::abs(p.output - 1) > 0.00001;
-            mBlend += ((active && p.mix > 0.000001 ? 1.0 : 0.0) - mBlend) * 0.004;
+            mBlend = ProceduralDsp::smooth(mBlend, active && p.mix > 0.000001 ? 1.0 : 0.0, 0.004);
             if (mBlend < 0.000001)
             {
                 if (mWasActive)
@@ -59,13 +60,13 @@ namespace MWSound
                 mEq = { std::pow(10.0, p.bass / 20), std::pow(10.0, p.mid / 20), std::pow(10.0, p.treble / 20) };
             }
             for (std::size_t i = 0; i < mWeights.size(); ++i)
-                mWeights[i] += ((static_cast<int>(i) == p.mode ? 1.0 : 0.0) - mWeights[i]) * 0.004;
+                mWeights[i] = ProceduralDsp::smooth(mWeights[i], static_cast<int>(i) == p.mode ? 1.0 : 0.0, 0.004);
             for (std::size_t i = 0; i < mCabWeights.size(); ++i)
-                mCabWeights[i] += ((static_cast<int>(i) == p.cabinet ? 1.0 : 0.0) - mCabWeights[i]) * 0.004;
+                mCabWeights[i] = ProceduralDsp::smooth(mCabWeights[i], static_cast<int>(i) == p.cabinet ? 1.0 : 0.0, 0.004);
             mDry[mUpPosition] = input;
             const double dry = mDry[(mUpPosition + 1) % mDry.size()];
-            mBass += 0.032195 * (input - mBass); // 250 Hz
-            mUpper += 0.279043 * (input - mUpper); // 2500 Hz
+            mBass = zap(mBass + 0.032195 * (input - mBass)); // 250 Hz
+            mUpper = zap(mUpper + 0.279043 * (input - mUpper)); // 2500 Hz
             mUp[mUpPosition] = mBass * mEq[0] + (mUpper - mBass) * mEq[1] + (input - mUpper) * mEq[2];
             double wet = 0;
             for (std::size_t phase = 0; phase < 4; ++phase)

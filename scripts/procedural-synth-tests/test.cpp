@@ -84,6 +84,7 @@ void writePreview(const std::string& path)
 #include "studio-tests.hpp"
 #include "mixer-tests.hpp"
 #include "returns-tests.hpp"
+#include "soak-tests.hpp"
 
 int main(int argc, char** argv)
 {
@@ -93,6 +94,7 @@ int main(int argc, char** argv)
         studioTests();
         mixerTests();
         returnsTests();
+        soundChangeSoakTests();
         Synth silentRelease;
         silentRelease.set("attack",0.002f);silentRelease.set("decay",0.002f);silentRelease.set("sustain",1);
         silentRelease.noteOn(38,1);render(silentRelease,2400);

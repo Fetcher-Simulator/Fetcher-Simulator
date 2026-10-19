@@ -325,11 +325,11 @@ namespace MWSound
         for (std::size_t frame = 0; frame < frames; ++frame)
         {
             for (std::size_t i = 0; i < ParameterCount; ++i)
-                mCurrent[i] += (target[i] - mCurrent[i]) * 0.004f;
+                mCurrent[i] = ProceduralDsp::smooth(mCurrent[i], target[i], 0.004f);
             for (std::size_t w = 0; w < 5; ++w)
             {
-                mWave1[w] += ((w == static_cast<std::size_t>(target[0]) ? 1.f : 0.f) - mWave1[w]) * 0.004f;
-                mWave2[w] += ((w == static_cast<std::size_t>(target[5]) ? 1.f : 0.f) - mWave2[w]) * 0.004f;
+                mWave1[w] = ProceduralDsp::smooth(mWave1[w], w == static_cast<std::size_t>(target[0]) ? 1.f : 0.f, 0.004f);
+                mWave2[w] = ProceduralDsp::smooth(mWave2[w], w == static_cast<std::size_t>(target[5]) ? 1.f : 0.f, 0.004f);
             }
             const double lfo = std::sin(2 * Pi * mLfoPhase) * mCurrent[21];
             mLfoPhase += mCurrent[20] / SampleRate;
@@ -398,10 +398,10 @@ namespace MWSound
                     sample = std::tanh(sample * mCurrent[DrumDrive]) / std::sqrt(mCurrent[DrumDrive]);
                     v.drumLast = sample * attack * v.velocity + v.drumCarry * (1 - attack);
                     mixed += v.drumLast;
-                    v.bodyEnvelope *= bodyDecay;
-                    v.noiseEnvelope *= noiseDecay;
-                    v.clickEnvelope *= 0.97938218; // one millisecond transient
-                    v.pitchEnvelope *= drumPitchDecay;
+                    v.bodyEnvelope = ProceduralDsp::silence(v.bodyEnvelope * bodyDecay);
+                    v.noiseEnvelope = ProceduralDsp::silence(v.noiseEnvelope * noiseDecay);
+                    v.clickEnvelope = ProceduralDsp::silence(v.clickEnvelope * 0.97938218); // one millisecond transient
+                    v.pitchEnvelope = ProceduralDsp::silence(v.pitchEnvelope * drumPitchDecay);
                     v.drumAge += 1.0 / SampleRate;
                     if (v.drumChoke)
                     {
@@ -424,7 +424,7 @@ namespace MWSound
                 const float env = v.filter.next(mCurrent[16], mCurrent[17], mCurrent[18], mCurrent[19]);
                 const double pitchLfo = target[22] == 0 ? lfo * 2 : 0;
                 const double pitchEnvelope = v.pitchEnvelope * mCurrent[26];
-                v.pitchEnvelope *= std::exp(-1.0 / (SampleRate * mCurrent[27]));
+                v.pitchEnvelope = ProceduralDsp::silence(v.pitchEnvelope * std::exp(-1.0 / (SampleRate * mCurrent[27])));
                 v.noise ^= v.noise << 13; v.noise ^= v.noise >> 17; v.noise ^= v.noise << 5;
                 const double noise = static_cast<double>(v.noise) / 2147483648.0 - 1;
                 const auto increment = [&](float tune, float fine) {

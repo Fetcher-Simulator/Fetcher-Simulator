@@ -593,3 +593,42 @@ copies match their originals. Settings, keyboard placement and assets remain.
 These are procedural approximations, not a General MIDI sample library. Unknown
 percussion currently falls back to snare; per-event program changes, realistic
 cymbal/sample coverage and instrument-specific synthesis remain future work.
+
+
+## 2026-10-18 - repeated sound changes and gradual-underflow slowdown
+
+User reported playback dropping from roughly 240 to 70 FPS after trying many
+songs/sets, recovering after Finish/reopen. Live A/B logs were preserved before
+restarting; they contain no synth exceptions or transport failures, but do not
+contain profiling data for the reported slowdown.
+
+A native 16-track reproduction isolated a matching CPU-growth mechanism even
+without notes: oscillator weights and zero-valued parameter smoothers decayed
+into subnormal floats. With gradual underflow, fresh render cost was 0.062 s per
+second of PCM versus 0.242 s after cycling. Enabling CPU flush-to-zero in the
+private diagnostic returned the same cycled engine to 0.062 s. This identifies
+a reproducible cause consistent with Finish destroying/recreating the rack.
+
+- Portable per-state silence floors now clear recursive values below 1e-20; no
+  process-wide floating-point mode is changed. Controls/wave weights, insert
+  blend/mode/cabinet crossfades, EQ input history, pitch/drum decay envelopes and
+  peak-meter tails are covered. The floor is far below audible signal levels.
+- Same diagnostic after the fix: fresh 0.0668 s, cycled 0.0669 s, cycled with
+  CPU flush-to-zero 0.0668 s per second of PCM. Timings are machine-dependent.
+- Added deterministic float/double convergence checks and a 16-track soak with
+  twelve waveform/drive/cabinet changes followed by 35 seconds of idle PCM.
+  Rack allocation remains bounded; voices and long-idle meters reach zero.
+  The old native sources fail the new long-idle meter assertion.
+- Full standalone native suite passes, including guitar alias suppression,
+  synth/drum envelopes, mixer/returns, exact PCM across render block sizes,
+  scheduling/Stop/replacement, validation, overflow and concurrent controls.
+  Soak render cost: 0.0712 s fresh / 0.0646 s cycled per second of PCM.
+- Full RelWithDebInfo OpenMW client build passes. After the user closed the
+  client, the isolated test executable was updated, SHA-256 checked and Synth A
+  relaunched on port 25567. The optional probe stays disabled. No production
+  deployment, project remapping or preset edits were performed.
+
+Private evidence: fixture evidence/soundset-performance, including pre-update
+SQLite backup, live logs, native test output and diagnostic timings. This fixes
+a reproduced DSP slowdown; a long interactive song-cycling session is still the
+check for the user's exact frame-rate/audio symptom and any additional causes.
