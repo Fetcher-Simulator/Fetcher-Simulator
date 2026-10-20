@@ -200,4 +200,20 @@ function M.player(song,callbacks,options)
     end
     return p
 end
+-- Bake the same effective gates used by native playback, including sustain,
+-- overlapping same-pitch notes and all-notes-off controls, into editable ticks.
+function M.editableSpans(song,part)
+    local notes,pending,at={},{},0
+    local player=M.player(song,{on=function(note,velocity,_,id)
+        if id~=part or at>=song.beats*song.division then return end
+        local n={n=note,s=at/song.division*4,l=math.max(1,(song.beats or 0)*song.division-at)/song.division*4,v=velocity}
+        notes[#notes+1]=n;pending[note]=pending[note] or {};pending[note][#pending[note]+1]=n
+    end,off=function(note,_,id)
+        if id~=part then return end
+        for _,n in ipairs(pending[note] or {}) do n.l=math.max(0,at/song.division*4-n.s) end
+        pending[note]=nil
+    end,panic=function() end},{multitimbral=true,percussion=true})
+    for _,e in ipairs(song.events) do at=e.tick;player:event(e) end
+    return notes
+end
 return M

@@ -166,10 +166,9 @@ physical destination routing.
 
 ## Following slices
 
-1. Song editing: convert imported parts to editable note data, with selection,
-   drag/resize/copy, zoom/scroll, velocity/gate editing, quantized recording,
-   arrangement clips and automation. Preserve tempo maps and export edited MIDI
-   for the performance path. Existing click-to-create clips remain supported.
+1. Deeper song composition: quantized recording, arrangement clips, automation,
+   tempo/controller editing and edited MIDI export. The first imported-part note
+   editor is complete below; existing piano/drum clips remain supported.
 2. Project library and autosave/recovery, followed by native sample instruments
    and the installed-game-audio browser described above. Test spoken lines,
    effects and trimmed music with single notes, chords, drums and band playback.
@@ -221,3 +220,18 @@ This slice does not add sends/buses or change the mono keyboard emitter.
   animation yet. NPC instrument props are presentation, not inventory equipment.
 - Two-client integration and restart persistence checks in the original isolated
   port-25567 fixture; latest user project/settings backed up and restored.
+
+
+## Completed slice: imported MIDI note editing
+
+- Explicit undoable part conversion preserves source PPQ/effective sustain gates,
+  sounds, channel mix and saved player/NPC/keyboard output assignments.
+- Note selection, group move/resize, copy/paste/duplicate/delete, velocity, snap,
+  half-to-four-bar time zoom, pitch/time navigation and draggable time scrollbar.
+- Drag previews commit once on release; native live edits use bar replacement.
+- Compact bounded saved note overrides and tempo map; empty overrides stay silent,
+  full converted arrangements reload/play without their original MIDI file.
+- Whole-song MIDI parts extend beyond the independent sixteen-bar clip loop.
+  MIDI sound roles survive conversion/source-free reload and sound-set cycling.
+- Native two-client band playback, private SQLite persistence and an 8,192-note
+  network round trip tested in the existing isolated port-25567 fixture.

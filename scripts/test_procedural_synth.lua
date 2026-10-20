@@ -379,4 +379,16 @@ test('performer commands are authenticated outside leader-only Studio operations
     request('leaveBand',{pid=2,characterId=22})
     check(sent[#sent].data.op=='band' and sent[#sent].data.availability[1]=='Invite required' and not sent[#sent].data.performers[1],'leaving silences the member without a leader command')
 end)
+test('edited MIDI and its tempo map save privately without resurrecting empty parts',function()
+    local f=require('procedural_synth_project')(schema);local project=f.new()
+    project.midi='midi/edit.mid';project.timeline={beats=8,tempos={{beat=0,tempo=500000},{beat=4,tempo=1000000}}}
+    project.tracks[1]=f.newTrack('midi','Edited',16);project.tracks[1].part='1:0'
+    project.tracks[1].edited=assert(f.encodeNotes({{n=60,s=4.5,l=2.5,v=1}},480))
+    acquire();request('dawSave',{project=project});request('dawLoad')
+    check(sent[#sent].data.project.tracks[1].edited.bytes==project.tracks[1].edited.bytes and sent[#sent].data.project.timeline.tempos[2].tempo==1000000,'edited data and tempo snapshot round trip through private character storage')
+    now=now+3;project.tracks[1].edited.bytes='';request('dawSave',{project=project});now=now+2;request('dawLoad')
+    check(sent[#sent].data.project.tracks[1].edited.bytes=='','empty edited part stays explicitly empty across storage')
+    now=now+3;project.tracks[1].edited.bytes='bad';request('dawSave',{project=project})
+    check(storage['project:11'].tracks[1].edited.bytes=='' and not storage['project:22'],'invalid binary cannot overwrite saved edits or another character')
+end)
 print(string.format('%d tests, %d assertions passed',tests,checks))

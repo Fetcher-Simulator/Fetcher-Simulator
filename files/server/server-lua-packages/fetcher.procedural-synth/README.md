@@ -578,3 +578,58 @@ For local tests, stop the existing isolated fixture and run setup with
 profiles, shared settings, projects and inventory are preserved. -PerformerProbe
 also enables the disposable automated test; rerun without that flag before
 normal play. Its QA removal script is never included in normal server scripts.
+
+
+## Editable MIDI piano roll (package 14 / native synth API 10)
+
+In Studio, choose a MIDI and Import (or Load your saved project). Open Piano,
+select a MIDI track with the track arrows, then click Edit MIDI. This is an
+explicit, undoable conversion of that part into saved note data. Its patch,
+channel mix, member output and band slots stay intact. The original MIDI file
+is never rewritten. Other parts remain source-backed until converted too.
+
+- Click empty grid space to add a note. Click a note to select it; Shift-click
+  adds/removes notes from the selection. Select all / Ctrl+A selects the track.
+- Drag the selected notes to move their pitch/time. Drag a note's right edge
+  to resize the selected gates. Preview is local; release commits one undo step
+  and one native sequence update. Arrow keys nudge time/pitch.
+- Copy / Ctrl+C copies selected intervals; Paste / Ctrl+V inserts them at the
+  left edge of the visible time range. Duplicate / Ctrl+D copies them one grid
+  step later. Delete removes the selection. Undo/redo use the existing history.
+- Velocity changes selected notes, or the default for new notes if none are
+  selected. Len -/+ changes the default new-note length. Note selection, view,
+  snap, zoom and clipboard do not edit the saved song by themselves.
+- Snap cycles 1/64, 1/32, 1/16, 1/8, 1/4 and Off. Imported notes are never snapped
+  on conversion; grid-sized moves preserve their original off-grid offset.
+- Zoom shows half, one, two or four bars. Use time arrows, the draggable time
+  scrollbar or Shift-wheel to pan. Wheel scrolls pitch; Ctrl-wheel zooms time;
+  Oct -/+ moves the pitch range. Up to 512 visible note widgets are rendered;
+  zoom in when a dense view exceeds that display limit.
+
+Play song plays the current imported/edited arrangement with its tempo map.
+Select a different file and Import to replace the source arrangement. Play clips
+plays the separate looping piano/drum clips. Edited MIDI parts play once on the
+song timeline; they are not truncated or repeated at the 16-bar clip loop.
+Original and converted parts share the same native PCM clock and physical band
+routing. Live note changes use the existing scheduled bar replacement.
+
+Save/Load stores converted notes, MIDI PPQ, source sound roles and a tempo-map
+snapshot in the character's server SQLite project. An explicitly empty edited
+part remains silent after load; deleting its notes never restores the source.
+Once all source parts are converted, the saved arrangement can play without the
+original file. Mixed projects still require that file for unconverted parts.
+Sound-set cycling retains GM family/percussion roles even without the source.
+
+Limits: 4,096 converted notes per part, 8,192 per project, 1,024 tempo changes
+and a 30-minute native song. Refused conversion keeps the source part intact;
+there is no silent truncation. Compact tick records bound the project payload
+(ten bytes per converted note). Clip limits remain 128 notes/track and 512 total.
+Source PPQ and effective sustain gates are preserved; sustain/control events are
+baked into note lengths rather than exposed as editable controller lanes. The
+bar grid assumes four quarter notes. Tempo-map editing, recording, arrangement
+clips, automation and MIDI export are subsequent slices. Game-audio sample
+instruments and the /s voice catalog browser remain planned.
+
+The optional -EditingProbe setup flag installs a disposable two-client test in
+the existing isolated fixture. It temporarily saves test projects; back up the
+current database and profiles first. Rerun setup without that flag after QA.

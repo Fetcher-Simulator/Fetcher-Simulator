@@ -319,7 +319,7 @@ showEditor=function()
             sound=function(index) w.selected=index;switchPage('synth',index) end,
             playSong=function()
                 stopPlayback()
-                if w.song and w.project.midi==songs[selectedSong] then w:play('song') else playSong(nil,'play') end
+                if w:hasSong() then w:play('song') else playSong(nil,'play') end
             end,
             playClips=function() stopPlayback();w:play('clips') end,
             stop=function() stopPlayback(true) end,
@@ -659,7 +659,7 @@ return {
             if editor then hideEditor() else showEditor() end
         elseif editor then editor:key(e.code,true) end
     end,
-        onMouseWheel=function(vertical) if editor and editor.dropdown then editor.dropdown:wheel(vertical) end end,
+        onMouseWheel=function(vertical) if editor and editor.dropdown then editor.dropdown:wheel(vertical) elseif editor and editor.wheel then editor:wheel(vertical) end end,
         onKeyRelease=function(e) if editor then editor:key(e.code,false) end end},
     eventHandlers={Synth_Message=message,Synth_Activate=function(data)
         if session and session.id==data.id then showEditor();return end

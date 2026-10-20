@@ -1,7 +1,7 @@
 -- Bounded, versioned DAW document shared by client and server.
 -- Kept as a factory so both runtimes supply their own synth schema module.
 return function(schema)
-local M={version=1,maxTracks=16,maxNotes=512,maxSteps=256,maxMembers=8}
+local M={version=1,maxTracks=16,maxNotes=512,maxSteps=256,maxMembers=8,maxEditedNotes=8192,maxPartNotes=4096,maxSongBeats=65536}
 local function num(v,a,b) return type(v)=='number' and v==v and v>=a and v<=b end
 local function int(v,a,b) return num(v,a,b) and v%1==0 end
 local function text(v,n) return type(v)=='string' and #v<=n and not v:find('%c') end
@@ -85,9 +85,65 @@ function M.routes(value)
     local out={};for n,slot in ipairs(value) do if not int(slot,0,M.maxMembers) then return nil end;out[n]=slot end
     return out
 end
-local trackKeys={name=true,kind=true,part=true,presetId=true,params=true,level=true,mute=true,solo=true,note=true,gate=true,steps=true,notes=true,output=true,mixer=true}
+-- Compact saved MIDI notes: LE u32 onset/gate ticks, pitch and MIDI velocity.
+-- Preserve source PPQ rather than quantizing imported timing to the editor grid.
+local function pack32(n)
+    local a=n%256;n=math.floor(n/256);local b=n%256;n=math.floor(n/256)
+    return string.char(a,b,n%256,math.floor(n/256))
+end
+local function read32(s,at) local a,b,c,d=s:byte(at,at+3);return a+b*256+c*65536+d*16777216 end
+function M.decodeNotes(data)
+    if not keys(data,{division=true,bytes=true},2) or not int(data.division,1,32767) or type(data.bytes)~='string'
+        or #data.bytes%10~=0 or #data.bytes>M.maxPartNotes*10 then return nil end
+    local out={};local maximum=M.maxSongBeats*data.division
+    for at=1,#data.bytes,10 do
+        local s,l=read32(data.bytes,at),read32(data.bytes,at+4);local n,v=data.bytes:byte(at+8,at+9)
+        if s>=maximum or s+l>maximum or n>127 or v<1 or v>127 then return nil end
+        out[#out+1]={n=n,s=s/data.division*4,l=l/data.division*4,v=v/127}
+    end
+    return out
+end
+function M.encodeNotes(notes,division)
+    if not array(notes,M.maxPartNotes) or not int(division,1,32767) then return nil end
+    local bytes={}
+    for _,n in ipairs(notes) do
+        if not keys(n,{n=true,s=true,l=true,v=true},4) or not int(n.n,0,127) or not num(n.s,0,M.maxSongBeats*4)
+            or not num(n.l,0,M.maxSongBeats*4) or not num(n.v,0.001,1) then return nil end
+        local s,l=math.floor(n.s*division/4+0.5),math.max(0,math.floor(n.l*division/4+0.5))
+        bytes[#bytes+1]=pack32(s)..pack32(l)..string.char(n.n,math.max(1,math.floor(n.v*127+0.5)))
+    end
+    local data={division=division,bytes=table.concat(bytes)}
+    return M.decodeNotes(data) and data or nil
+end
+function M.timeline(value)
+    if not keys(value,{beats=true,tempos=true},2) or not num(value.beats,0,M.maxSongBeats) or not array(value.tempos,1024) then return nil end
+    local out={beats=value.beats,tempos={}};local previous=-1
+    for _,t in ipairs(value.tempos) do
+        if not keys(t,{beat=true,tempo=true},2) or not num(t.beat,0,value.beats) or t.beat<previous or not int(t.tempo,1,16777215) then return nil end
+        out.tempos[#out.tempos+1]={beat=t.beat,tempo=t.tempo};previous=t.beat
+    end
+    if M.seconds(out,out.beats)>1800 then return nil end
+    return out
+end
+local clocks=setmetatable({},{__mode='k'})
+function M.seconds(timeline,beat)
+    local clock=clocks[timeline]
+    if not clock then
+        clock={{beat=0,time=0,tempo=500000}};local previous=clock[1]
+        for _,t in ipairs(timeline.tempos or {}) do
+            local entry={beat=t.beat,tempo=t.tempo,time=previous.time+(t.beat-previous.beat)*previous.tempo/1000000}
+            clock[#clock+1]=entry;previous=entry
+        end
+        clocks[timeline]=clock
+    end
+    local low,high=1,#clock
+    while low<high do local middle=math.floor((low+high+1)/2);if clock[middle].beat<=beat then low=middle else high=middle-1 end end
+    local t=clock[low];return t.time+(beat-t.beat)*t.tempo/1000000
+end
+local roles={keys=true,mallet=true,organ=true,guitar=true,bass=true,strings=true,brass=true,reed=true,pipe=true,lead=true,pad=true,fx=true,pluck=true,kick=true,snare=true,hat=true,openhat=true,tom=true}
+local trackKeys={name=true,kind=true,part=true,presetId=true,params=true,level=true,mute=true,solo=true,note=true,gate=true,steps=true,notes=true,output=true,mixer=true,edited=true,sourceRole=true}
 function M.track(t,length)
-    if not keys(t,trackKeys,15) or not text(t.name,48) or (t.kind~='midi' and t.kind~='piano' and t.kind~='drum')
+    if not keys(t,trackKeys,17) or not text(t.name,48) or (t.kind~='midi' and t.kind~='piano' and t.kind~='drum')
         or not text(t.part or '',48) or not text(t.presetId or '',32) or not num(t.level,0,1)
         or type(t.mute)~='boolean' or type(t.solo)~='boolean' or not int(t.note,0,127) or not num(t.gate,0.01,1)
         or type(t.steps)~='string' or (#t.steps<length or #t.steps>M.maxSteps or #t.steps%16~=0) or t.steps:find('[^0-9]')
@@ -96,25 +152,36 @@ function M.track(t,length)
     local params=schema.state(t.params);if not params then return nil end;params.polyphony=math.min(8,params.polyphony)
     local out={name=t.name,kind=t.kind,part=t.part or '',presetId=t.presetId or '',params=params,level=t.level,
         mute=t.mute,solo=t.solo,note=t.note,gate=t.gate,steps=t.steps..string.rep('0',M.maxSteps-#t.steps),notes={},mixer=mixer,output={kind='keyboard',slot=t.output.slot or 0}}
+    if t.sourceRole~=nil then if t.kind~='midi' or not roles[t.sourceRole] then return nil end;out.sourceRole=t.sourceRole end
+    if t.edited~=nil then
+        if t.kind~='midi' or not M.decodeNotes(t.edited) then return nil end
+        out.edited={division=t.edited.division,bytes=t.edited.bytes}
+    end
     for _,n in ipairs(t.notes) do
-        if not keys(n,{n=true,s=true,l=true,v=true},4) or not int(n.n,0,127) or not int(n.s,0,M.maxSteps-1)
-            or not int(n.l,1,M.maxSteps) or not num(n.v,0.01,1) then return nil end
+        if not keys(n,{n=true,s=true,l=true,v=true},4) or not int(n.n,0,127) or not num(n.s,0,M.maxSteps-0.000001)
+            or not num(n.l,1/960,M.maxSteps) or not num(n.v,0.001,1) then return nil end
         out.notes[#out.notes+1]={n=n.n,s=n.s,l=n.l,v=n.v}
     end
     return out
 end
 function M.project(p)
-    if not keys(p,{version=true,name=true,bpm=true,swing=true,length=true,loop=true,midi=true,tracks=true,master=true,effects=true,soundSet=true,band=true},12)
+    if not keys(p,{version=true,name=true,bpm=true,swing=true,length=true,loop=true,midi=true,tracks=true,master=true,effects=true,soundSet=true,band=true,timeline=true},13)
         or not num(p.master or 0.7,0,1) or p.version~=1 or not text(p.name,64) or not num(p.bpm,40,240) or not num(p.swing,0,0.6)
         or not int(p.length,16,M.maxSteps) or p.length%16~=0 or type(p.loop)~='boolean' or not text(p.midi,192)
         or not text(p.soundSet or '',32) or not array(p.tracks,M.maxTracks) then return nil end
     if p.midi~='' and (not p.midi:match('^midi/') or p.midi:find('..',1,true) or not p.midi:lower():match('%.mid[i]?$')) then return nil end
     local effects=M.effects(p.effects);local band=M.band(p.band);if not effects or not band then return nil end
     local out={band=band,soundSet=p.soundSet or '',effects=effects,version=1,name=p.name,bpm=p.bpm,swing=p.swing,length=p.length,loop=p.loop,midi=p.midi,master=p.master or 0.7,tracks={}}
-    local notes=0
+    if p.timeline~=nil then out.timeline=M.timeline(p.timeline);if not out.timeline then return nil end end
+    local notes,edited=0,0
     for _,t in ipairs(p.tracks) do
         local track=M.track(t,p.length);if not track then return nil end
         notes=notes+#track.notes;if notes>M.maxNotes then return nil end
+        if track.edited then
+            if not out.timeline then return nil end
+            edited=edited+#track.edited.bytes/10;if edited>M.maxEditedNotes then return nil end
+            for _,n in ipairs(M.decodeNotes(track.edited)) do if M.seconds(out.timeline,(n.s+n.l)/4)>1800 then return nil end end
+        end
         out.tracks[#out.tracks+1]=track
     end
     return out

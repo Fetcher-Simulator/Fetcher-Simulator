@@ -42,7 +42,7 @@ function M.validate(bytes,length,loop,channels)
     for _,event in ipairs(intervals) do base=base+event[2];if base>4096 then return nil,'Too many overlapping gates.' end end
     return true
 end
-function M.compile(project,song,MIDI,mode)
+function M.compile(project,song,MIDI,mode,format)
     local notes={};local function add(lane,pitch,velocity,time,gate)
         local frame=math.max(0,math.floor(time*M.rate+0.5))
         notes[#notes+1]={frame=frame,duration=math.max(1,math.floor(gate*M.rate+0.5)),lane=lane,note=pitch,
@@ -50,30 +50,42 @@ function M.compile(project,song,MIDI,mode)
         assert(#notes<=M.maxNotes,'Compiled score exceeds 60,000 notes.')
         return notes[#notes]
     end
-    local songMode=mode=='song';assert(not songMode or song,'Import a MIDI file first.')
+    local songMode=mode=='song';local timeline=project.timeline or song
+    assert(not songMode or timeline,'Import a MIDI file first.')
+    if songMode then for _,t in ipairs(project.tracks) do assert(t.kind~='midi' or t.edited or song,'The original MIDI file is required for unedited parts.') end end
     local function seconds(beat)
         if not songMode then return beat*60/project.bpm end
+        if project.timeline then return format.seconds(timeline,beat) end
         local t={time=0,beat=0,tempo=500000}
-        for _,tempo in ipairs(song.tempos or {}) do if tempo.beat>beat then break end;t=tempo end
+        for _,tempo in ipairs(timeline.tempos or {}) do if tempo.beat>beat then break end;t=tempo end
         return t.time+(beat-t.beat)*t.tempo/1000000
     end
-    local beats=songMode and song.beats or project.length/4
-    local total=songMode and math.max(song.duration,seconds(beats)) or seconds(beats)
-    if songMode then
+    local beats=songMode and timeline.beats or project.length/4
+    if songMode then for _,t in ipairs(project.tracks) do if t.edited then
+        for _,n in ipairs(assert(format.decodeNotes(t.edited))) do beats=math.max(beats,(n.s+n.l)/4) end
+    end end end
+    local total=songMode and math.max(project.timeline and 0 or song.duration,seconds(beats)) or seconds(beats)
+    if songMode and song then
         local routes,pending,at={},{},0
-        for lane,t in ipairs(project.tracks) do if t.kind=='midi' then routes[t.part]=lane end end
+        local sourceEnd=project.timeline and seconds(timeline.beats) or song.duration
+        for lane,t in ipairs(project.tracks) do if t.kind=='midi' and not t.edited then routes[t.part]=lane end end
         local player=MIDI.player(song,{on=function(note,velocity,_,part)
             local lane=routes[part];if not lane then return end
             local key=lane*128+note;pending[key]=pending[key] or {}
-            pending[key][#pending[key]+1]=add(lane,note,velocity,at,math.max(1/M.rate,total-at))
+            pending[key][#pending[key]+1]=add(lane,note,velocity,at,math.max(1/M.rate,sourceEnd-at))
         end,off=function(note,_,part)
             local lane=routes[part];if not lane then return end
             local key=lane*128+note
             for _,n in ipairs(pending[key] or {}) do n.duration=math.max(1,math.floor(at*M.rate+0.5)-n.frame) end
             pending[key]=nil
         end,panic=function() end},{multitimbral=true,percussion=true})
-        for _,e in ipairs(song.events) do at=e.time;player:event(e) end
+        for _,e in ipairs(song.events) do at=project.timeline and seconds(e.tick/song.division) or e.time;player:event(e) end
     end
+    if songMode then for lane,t in ipairs(project.tracks) do if t.edited then
+        for _,n in ipairs(assert(format.decodeNotes(t.edited))) do
+            local time=seconds(n.s/4);add(lane,n.n,n.v,time,seconds((n.s+n.l)/4)-time)
+        end
+    end end end
     local period=project.length/4
     local cycles=songMode and (project.loop and math.ceil(beats/period) or 1) or 1
     for cycle=0,cycles-1 do
@@ -100,7 +112,7 @@ function M.compile(project,song,MIDI,mode)
             bytes[#bytes+1]=pack(n.frame)..pack(n.duration)..string.char(n.lane,n.note,n.velocity)
         end
     end
-    bytes=table.concat(bytes);local loop=not songMode and project.loop
+    bytes=table.concat(bytes);assert(#bytes>0,'No notes to play. Add notes or choose another playback view.');local loop=not songMode and project.loop
     local ok,err=M.validate(bytes,length,loop);assert(ok,err)
     return {bytes=bytes,length=length,loop=loop,quantum=math.floor(4*60/project.bpm*M.rate+0.5)}
 end

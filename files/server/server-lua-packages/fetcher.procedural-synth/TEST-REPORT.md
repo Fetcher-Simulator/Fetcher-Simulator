@@ -772,3 +772,58 @@ ordinary AI; followers/stage positioning, combat behavior and finger animations
 are not implemented. Native prop limits/expiry are bounded; unavailable actor
 parts remain silent. Stereo/group buses and continuous drift correction remain
 planned. Created NPCs are opt-in, character-owned persistent world actors.
+
+
+## Imported MIDI note editing - 2026-10-19 (package 14 / native synth API 10)
+
+This slice changes Lua project/editor/score compilation; it reuses the existing
+native synth, spatial Studio streams, audio clock and score replacement API.
+No C++ or DSP algorithm change/rebuild was needed. Server/client project and
+score-format mirrors are byte-identical. Optional project fields remain schema
+version 1; old projects migrate without conversion or truncation.
+
+Regression checks passed:
+- Server: 27 tests / 285 assertions, including private edited-note/tempo storage,
+  explicitly empty overrides and refusal to overwrite with malformed binary.
+- New MIDI editing: 40 assertions covering source PPQ/sustain gates, source score
+  byte parity on conversion, notes beyond bar 16, sound/mix/band preservation,
+  group edits, atomic refusal, clipboard, undo/redo, empty overrides, extension,
+  source-free reload, GM role retention and compact note/tempo limits.
+- Same-tick gates preserve native one-sample impulses. Notes at the MIDI end
+  marker stay excluded. Unclosed source notes retain their source end when
+  another edited part extends the arrangement.
+- Client/editor: 6844 assertions, including real Studio callback drag preview,
+  one release/undo action, resize at enlarged GUI scale, duplicate/delete keys,
+  zoom and view navigation without a project edit.
+- Existing workstation: 82 assertions plus mixer/returns/band checks; score: 21;
+  MIDI parser/player: 28; sound sets: 273; band: 37; performers: 27; arm IK: 16;
+  native-clock/chunk/late-seek transport harness passed. git diff --check passed.
+
+The existing isolated port-25567 Synth A/B fixture supplied the live check.
+The probe parses a deterministic two-part SMF with off-grid onset, tempo change
+and notes after bar 16; converts both parts, changes notes and plays through
+independent home and consenting player-lute native outputs. It exercises live
+replacement, Stop, character SQLite save/load without the original MIDI,
+retained sound/routing/tempo, then an 8,192-note real network/SQLite round trip.
+Owner and observer both reported PASS, including Finish cleanup. Evidence is in
+fixture evidence/midi-editing/live1, live2 and live3 logs and qa-completed.db.
+
+Computer-use inspection of the enlarged (136%) in-game Piano page verified note
+selection, a snapped time/pitch move, right-edge gate resize, selected velocity
+refresh, continuous timeline scrollbar movement and Save. Fullscreen gameplay
+key injection initially did not respond reliably; the controlled probe opened
+the page and the actual GUI mouse gestures worked. The subsequent native band
+playback/save/load probe also passed with those manual GUI edits included.
+
+Normal startup installs package 14 with the automated probe disabled. The user's
+latest pre-QA database (baseline-20261019-232457), profiles and shared settings
+were backed up and restored. Database hash, profile settings and input bindings
+were checked after restoration; custom MIDI files remain installed. Only the
+isolated fixture was restarted; no production action or push was performed.
+
+Limits: 4,096 converted notes per part / 8,192 per project, 1,024 tempo changes,
+30 minutes of song audio. Refused conversion preserves source data. Display is
+bounded to 512 note widgets per view (zoom in for denser passages). Clip limits
+remain separate. Sustain is baked into effective gates; editable controller
+lanes, tempo editing, recording, arrangement clips and MIDI export remain planned.
+Sampling/game-audio browsing and voice-line instruments are not added here.

@@ -9,6 +9,7 @@ local SoundSets=require('scripts.multiplayer.fetcher.procedural-synth.client.sou
 local Project=require('scripts.multiplayer.fetcher.procedural-synth.shared.project')(schema)
 local Dropdown=require('scripts.multiplayer.fetcher.procedural-synth.client.dropdown')
 local Window=require('scripts.multiplayer.fetcher.procedural-synth.client.window')
+local PianoRoll=require('scripts.multiplayer.fetcher.procedural-synth.client.piano-roll')
 local S={};S.__index=S
 local v=util.vector2
 local white=ui.texture{path='white'}
@@ -213,42 +214,49 @@ function S:piano(content)
     content[#content+1]=self:button('track >',575,169,70,function() self:select(1) end)
     content[#content+1]=self:button('+ Piano',660,169,86,function() w:add('piano') end)
     if not t then return end
-    local spans=t.kind=='midi' and w.spans and w.spans[t.part] or t.notes
-    spans=spans or {}
-    local bars=p.length/16
-    if t.kind=='midi' then for _,n in ipairs(spans) do bars=math.max(bars,math.ceil((n.s+n.l)/16)) end end
-    w.bar=math.min(w.bar,bars-1)
-    local gx,gy,gw,rh=76,219,self.width-106,27;local cw=gw/16
-    for beat=0,3 do content[#content+1]=label(tostring(beat+1),gx+beat*4*cw,gy-19,40,11,c.muted) end
-    for row=0,11 do
-        local note=w.base+11-row
-        content[#content+1]=label(pitch(note),20,gy+row*rh+4,52,13,c.muted)
-        for column=0,15 do
-            local step=w.bar*16+column
-            local color=names[note%12+1]:find('#') and c.bg or c.panel
-            local cell=rect(gx+column*cw,gy+row*rh,cw-2,rh-2,color)
-            if t.kind=='piano' then cell.events={mouseClick=cb(function() w:toggleNote(w.selected,note,step) end)} end
-            content[#content+1]=cell
-        end
+    if t.kind=='drum' then content[#content+1]=label('Choose a piano or MIDI track, or use the Drums page for this lane.',20,250,880,15,c.muted);return end
+    local snapNames={[0]='Off',[0.25]='1/64',[0.5]='1/32',[1]='1/16',[2]='1/8',[4]='1/4'}
+    content[#content+1]=self:button('Snap: '..snapNames[w.snap],20,207,110,function()
+        local values={0.25,0.5,1,2,4,0};local at=1;for n,q in ipairs(values) do if q==w.snap then at=n end end
+        w.snap=values[at%#values+1];w.revision=w.revision+1
+    end)
+    content[#content+1]=self:button('Zoom -',140,207,78,function() self:zoomRoll(2) end)
+    content[#content+1]=self:button('Zoom +',228,207,78,function() self:zoomRoll(0.5) end)
+    content[#content+1]=label(string.format('%.1f bars in view',w.rollSteps/16),320,212,180,12,c.muted)
+    if t.kind=='midi' then content[#content+1]=self:button(t.edited and 'Edited MIDI' or 'Edit MIDI',745,207,150,function() w:convertPart(w.selected) end,t.edited~=nil) end
+    for row=0,11 do content[#content+1]=label(pitch(w.base+11-row),20,260+row*22+3,52,12,c.muted) end
+    self.roll=PianoRoll.new(self,content)
+    self.playhead=self:element(rect(76,255,3,4,c.accent));content[#content+1]=self.playhead
+    content[#content+1]=self:button('Oct -',20,558,62,function() w.base=math.max(0,w.base-12);w.revision=w.revision+1 end)
+    content[#content+1]=self:button('Oct +',90,558,62,function() w.base=math.min(116,w.base+12);w.revision=w.revision+1 end)
+    content[#content+1]=self:button('< time',175,558,70,function() self.roll:pan(-w.rollSteps) end)
+    content[#content+1]=self:button('time >',255,558,70,function() self.roll:pan(w.rollSteps) end)
+    content[#content+1]=self:button('Len -',347,558,57,function() w.noteLength=math.max(0.25,w.noteLength-(w.snap>0 and w.snap or 0.25));w.revision=w.revision+1 end)
+    content[#content+1]=label(string.format('%.2g steps',w.noteLength),412,563,95)
+    content[#content+1]=self:button('Len +',510,558,57,function() w.noteLength=math.min(256,w.noteLength+(w.snap>0 and w.snap or 0.25));w.revision=w.revision+1 end)
+    local function velocity()
+        local id=w:selectedNotes(w.selected)[1];return id and w:noteData(w.selected)[id].v or w.velocity
     end
-    local drawn=0
-    for _,n in ipairs(spans) do
-        if n.n>=w.base and n.n<w.base+12 and n.s<w.bar*16+16 and n.s+n.l>w.bar*16 then
-            drawn=drawn+1;if drawn>512 then break end
-            local left=math.max(n.s,w.bar*16);local right=math.min(n.s+n.l,w.bar*16+16)
-            local r=rect(gx+(left-w.bar*16)*cw,gy+(w.base+11-n.n)*rh,math.max(2,(right-left)*cw-2),rh-3,c.note)
-            if t.kind=='piano' then r.events={mouseClick=cb(function() w:toggleNote(w.selected,n.n,n.s) end)} end
-            content[#content+1]=r
-        end
+    local velocityControl,refreshVelocity=Controls.slider(self,'noteVelocity','Velocity',{min=0.01,max=1,unit='%',step=0.01},velocity,function(value)
+        w.velocity=value;if #w:selectedNotes(w.selected)>0 then w:editSelected(w.selected,{velocity=value},'note:velocity:'..w.selected,true) end
+    end,610,550,285)
+    self.noteVelocityRefresh=refreshVelocity;content[#content+1]=velocityControl
+    for n,entry in ipairs{{'Select all',function() w:selectAllNotes(w.selected);self.roll:draw() end},
+        {'Copy',function() w:copyNotes(w.selected) end},{'Paste',function() w:pasteNotes(w.selected,self.roll.start) end},
+        {'Duplicate',function() w:duplicateNotes(w.selected) end},{'Delete',function() w:deleteNotes(w.selected) end}} do
+        content[#content+1]=self:button(entry[1],20+(n-1)*116,602,106,entry[2])
     end
-    self.playhead=self:element(rect(gx,gy-5,3,4,c.accent));self.grid={x=gx,y=gy-5,cw=cw};content[#content+1]=self.playhead
-    self:barControls(content,558,bars)
-    content[#content+1]=self:button('Oct -',20,599,62,function() w.base=math.max(0,w.base-12);w.revision=w.revision+1 end)
-    content[#content+1]=self:button('Oct +',90,599,62,function() w.base=math.min(116,w.base+12);w.revision=w.revision+1 end)
-    content[#content+1]=self:button('Len -',290,599,57,function() w.noteLength=math.max(1,w.noteLength-1);w.revision=w.revision+1 end)
-    content[#content+1]=label(w.noteLength..' steps',356,604,88)
-    content[#content+1]=self:button('Len +',450,599,57,function() w.noteLength=math.min(16,w.noteLength+1);w.revision=w.revision+1 end)
-    content[#content+1]=label(t.kind=='midi' and 'Imported MIDI view. Add a Piano clip to write editable notes alongside it.' or 'Click a cell to add a note; click a note to remove it. Length and velocity apply to new notes.',20,650,875,12,c.muted)
+    content[#content+1]=label(t.kind=='midi' and not t.edited and 'Read only: Edit MIDI creates saved notes; the original file stays intact.' or 'Click adds. Shift-click selects. Drag moves; drag the right edge resizes. Edits keep routing.',20,644,895,12,c.muted)
+    content[#content+1]=label('Ctrl+A/C/V/D, Delete, arrow keys. Wheel: pitch; Shift-wheel: time; Ctrl-wheel: zoom.',20,670,895,12,c.muted)
+end
+function S:zoomRoll(factor)
+    self.w.rollSteps=math.max(8,math.min(64,self.w.rollSteps*factor));self.w.revision=self.w.revision+1
+end
+function S:wheel(delta)
+    if not self.roll or self.w.page~='piano' then return end
+    if input.isCtrlPressed and input.isCtrlPressed() then self:zoomRoll(delta>0 and 0.5 or 2)
+    elseif input.isShiftPressed and input.isShiftPressed() then self.roll:pan(-delta*self.w.rollSteps/4)
+    else self.w.base=math.max(0,math.min(116,self.w.base+math.floor(delta*3)));self.w.revision=self.w.revision+1 end
 end
 function S:drums(content)
     local w,p=self.w,self.w.project
@@ -292,6 +300,8 @@ function S:drums(content)
     content[#content+1]=label('Play clips loops the piano and drum clips together. Play song also follows the imported MIDI tempo map.',20,657,880,12,c.muted)
 end
 function S:render()
+    self.controlEpoch=(self.controlEpoch or 0)+1;self.noteVelocityRefresh=nil
+    if self.roll then self.roll:finish(true);self.roll=nil end
     Dropdown.close(self)
     self.controlEpoch=(self.controlEpoch or 0)+1
     self.typing=false
@@ -334,19 +344,37 @@ function S.new(workstation,callbacks)
     local self=setmetatable({kind='studio',w=workstation,cb=callbacks,window=Window.new(),children={},width=940,lastFrame=-1},S)
     self.window.pickup=callbacks.pickup;self:render();I.UI.addMode('Interface',{windows={}});return self
 end
-function S:releaseAll() end
+function S:releaseAll() if self.roll then self.roll:finish(true) end end
 function S:key(code,on)
     if self.dropdown then if on and code==input.KEY.Escape then Dropdown.close(self) end;return end
-    if on and code==input.KEY.Escape then self.cb.hide() end
-    if on and not self.typing and input.isCtrlPressed and input.isCtrlPressed() then
-        if code==input.KEY.Z then if input.isShiftPressed() then self.w:redo() else self.w:undo() end
-        elseif code==input.KEY.Y then self.w:redo() end
+    if on and code==input.KEY.Escape then self.cb.hide();return end
+    if not on or self.typing then return end
+    local ctrl=input.isCtrlPressed and input.isCtrlPressed()
+    if ctrl then
+        if self.roll then self.roll:finish(true) end
+        if code==input.KEY.Z then if input.isShiftPressed and input.isShiftPressed() then self.w:redo() else self.w:undo() end
+        elseif code==input.KEY.Y then self.w:redo()
+        elseif self.roll then
+            local w=self.w;local n=w.selected
+            if code==input.KEY.A then w:selectAllNotes(n);self.roll:draw()
+            elseif code==input.KEY.C then w:copyNotes(n)
+            elseif code==input.KEY.V then w:pasteNotes(n,self.roll.start)
+            elseif code==input.KEY.D then w:duplicateNotes(n) end
+        end
+    elseif self.roll then
+        local w=self.w
+        if code==input.KEY.Delete then w:deleteNotes(w.selected)
+        elseif code==input.KEY.LeftArrow then w:editSelected(w.selected,{step=-(w.snap>0 and w.snap or 0.25)})
+        elseif code==input.KEY.RightArrow then w:editSelected(w.selected,{step=w.snap>0 and w.snap or 0.25})
+        elseif code==input.KEY.UpArrow then w:editSelected(w.selected,{pitch=1})
+        elseif code==input.KEY.DownArrow then w:editSelected(w.selected,{pitch=-1}) end
     end
 end
 function S:frame(now)
     self.window:frame(self)
     Dropdown.frame(self)
     if I.UI.getMode()~='Interface' then self.cb.hide();return end
+    if self.roll then self.roll:frame() end
     if self.revision~=self.w.revision then self:render() end
     if now-self.lastFrame<0.1 then return end;self.lastFrame=now
     self.transport.layout.props.text=string.format('%s  |  %.1fs  |  Beat %.1f  |  %s%s',self.w.awaiting and 'BUFFER' or (self.w.playing and 'PLAY' or 'STOP'),self.w.time,self.w.beat+1,self.w.project.name,self.w.dirty and ' *' or '')
@@ -364,11 +392,16 @@ function S:frame(now)
         self.returnMeter.layout.props.text='Delay return '..db(delay)..' dBFS  |  Reverb return '..db(reverb)..' dBFS'
         self.window:update(self.returnMeter)
     end
-    if self.playhead then
+    if self.playhead and self.roll then
+        local step=self.w.mode=='song' and self.w.beat*4 or self.w.beat*4%self.w.project.length
+        self.playhead.layout.props.visible=step>=self.roll.start and step<self.roll.start+self.roll.steps
+        self.playhead.layout.props.position=v(self.roll.x+(step-self.roll.start)*self.roll.cw,self.roll.y-5);self.window:update(self.playhead)
+    elseif self.playhead then
         self.playhead.layout.props.position=v(self.grid.x+math.max(0,self.w.step%16)*self.grid.cw,self.grid.y);self.window:update(self.playhead)
     end
 end
 function S:destroy()
+    self:releaseAll()
     Dropdown.close(self)
     self.uiClosed=true
     self.root:destroy();for _,e in ipairs(self.children) do e:destroy() end

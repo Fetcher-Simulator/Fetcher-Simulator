@@ -39,6 +39,9 @@ package.loaded['openmw.ui']=ui
 package.loaded['openmw.async']={callback=function(_,fn) return fn end}
 local input={KEY={Escape=1,F8=100,F9=103,Enter=101,NP_Enter=102},isMouseButtonPressed=function() return mouseDown end}
 for i,name in ipairs({'Z','S','X','D','C','V','G','B','H','N','J','M','Comma'}) do input.KEY[name]=i+1 end
+local ctrl,shift=false,false
+input.isCtrlPressed=function() return ctrl end;input.isShiftPressed=function() return shift end
+for n,name in ipairs{'A','Delete','LeftArrow','RightArrow','UpArrow','DownArrow','Y'} do input.KEY[name]=200+n end
 package.loaded['openmw.input']=input
 package.loaded['openmw.interfaces']={UI={getMode=function() return mode end,
     addMode=function(m) mode=m end,removeMode=function() mode=nil end}}
@@ -66,6 +69,7 @@ package.loaded['openmw.synth'].setMonitorVolume=function(value) monitor=value en
 package.loaded[prefix..'client.window']=dofile(root..'client/window.lua')
 package.loaded[prefix..'client.workstation']=dofile(root..'client/workstation.lua')
 package.loaded[prefix..'client.controls']=dofile(root..'client/controls.lua')
+package.loaded[prefix..'client.piano-roll']=dofile(root..'client/piano-roll.lua')
 package.loaded[prefix..'client.dropdown']=dofile(root..'client/dropdown.lua')
 local Studio=dofile(root..'client/studio.lua')
 local lastStudio
@@ -359,12 +363,43 @@ button('+ Piano clip').events.mouseClick();now=400.01;player.engineHandlers.onFr
 check(w.page=='piano' and #w.project.tracks==1,'piano clip button switches to editable piano roll')
 local inserted=false
 for _,element in ipairs(lastStudio.root.layout.content) do
-    if element.props and element.props.position and element.props.position.x==76 and element.props.position.y==219 and element.events then
-        element.events.mouseClick();inserted=true;break
+    if element.props and element.props.position and element.props.position.x==76 and element.props.position.y==260 and element.events then
+        element.events.mousePress{button=1,offset=vector(1,1)};inserted=true;break
     end
 end
 check(inserted and #w.project.tracks[1].notes==1,'piano grid click creates an actual note')
 now=400.02;player.engineHandlers.onFrame(0.01)
+local function dragNote(resize,steps)
+    local roll=lastStudio.roll;local note=roll.pool[1];local props=note.layout.props;local scale=lastStudio.window.scale
+    local offset=resize and props.size.x-1 or 1;local rootPosition=lastStudio.root.layout.props.position
+    local point=vector(rootPosition.x+props.position.x+offset,rootPosition.y+38*scale+props.position.y+5)
+    local history=#w.undoStack;local old=w.project.tracks[1].notes[1].s
+    mouseDown=true;note.layout.events.mousePress{button=1,position=point,offset=vector(offset,5)}
+    note.layout.events.mouseMove{button=1,position=vector(point.x+steps*roll.cw*scale,point.y),offset=vector(offset,5)}
+    check(#w.undoStack==history and w.project.tracks[1].notes[1].s==old,'drag previews do not mutate the song or rebuild history')
+    mouseDown=false;now=now+0.001;lastStudio:frame(now)
+    check(#w.undoStack==history+1,'release commits exactly one history action')
+end
+dragNote(false,2)
+check(w.project.tracks[1].notes[1].s==2,'mouse drag moves a note on the snapped time grid')
+check(w:undo() and w.project.tracks[1].notes[1].s==0,'drag undo restores its original start')
+now=now+0.001;lastStudio:frame(now)
+viewport=vector(1920,1440);lastStudio.window:zoom(0.5);now=now+0.001;lastStudio:frame(now)
+dragNote(true,2)
+check(w.project.tracks[1].notes[1].l==3,'resize uses physical coordinates correctly at enlarged GUI scale')
+check(w:undo() and w.project.tracks[1].notes[1].l==1,'resize undo restores gate')
+viewport=vector(1024,768);lastStudio.window:zoom(-0.5);now=now+0.001;lastStudio:frame(now)
+w:selectNote(1,1);ctrl=true;lastStudio:key(input.KEY.D,true);ctrl=false
+check(#w.project.tracks[1].notes==2 and w.project.tracks[1].notes[2].s==1,'Ctrl+D duplicates selected notes without changing their sound')
+check(w:undo() and #w.project.tracks[1].notes==1,'duplicate is one undo action')
+now=now+0.001;lastStudio:frame(now)
+w:selectNote(1,1);lastStudio:key(input.KEY.Delete,true)
+check(#w.project.tracks[1].notes==0 and w:undo() and #w.project.tracks[1].notes==1,'Delete and undo work through the actual Studio key handler')
+now=now+0.001;lastStudio:frame(now)
+local generation=w.generation;button('Zoom -').events.mouseClick();now=now+0.001;lastStudio:frame(now)
+check(lastStudio.roll.steps==32,'piano roll zoom exposes two bars')
+lastStudio.roll:pan(16);check(lastStudio.roll.start==16 and w.generation==generation,'timeline navigation is local view state, not a musical edit')
+lastStudio.roll:pan(-16);button('Zoom +').events.mouseClick();now=now+0.001;lastStudio:frame(now)
 button('Drums').events.mouseClick();now=400.03;player.engineHandlers.onFrame(0.01)
 button('+ Snare').events.mouseClick();now=400.04;player.engineHandlers.onFrame(0.01)
 check(w.project.tracks[2].presetId=='b:snare' and w.project.tracks[2].params.drumType==2,'drum button uses native noise sound')

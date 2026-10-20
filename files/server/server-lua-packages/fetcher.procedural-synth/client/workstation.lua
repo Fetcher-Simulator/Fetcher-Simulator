@@ -19,7 +19,7 @@ end
 function W.new(cb)
     local self=setmetatable({cb=cb,project=format.new(),catalog=schema.builtins,selected=1,page='mixer',bar=0,base=60,
         noteLength=1,velocity=0.8,time=0,beat=0,step=-1,playing=false,pending={},counts={},preview={},wall=0,dirty=false,revision=0,generation=0,
-        undoStack={},redoStack={}},W)
+        undoStack={},redoStack={},noteSelection={},snap=1,rollSteps=16},W)
     self.checkpoint=copy(self.project);return self
 end
 function W:touch(key,quiet)
@@ -41,8 +41,8 @@ function W:restore(project)
     if self.project.midi~=project.midi then self.song=nil end
     self.project=copy(project);self.checkpoint=copy(project);self.lastEditKey=nil
     self.selected=math.max(1,math.min(self.selected,#project.tracks));self.bar=math.min(self.bar,project.length/16-1)
-    self:cacheSpans();self:configureAll();self.dirty=true;self.revision=self.revision+1;self.generation=self.generation+1
-    if project.midi~='' and not self.song then self.cb.importMidi(project.midi) end
+    self.noteSelection={};self.noteCache={};self:cacheSpans();self:configureAll();self.dirty=true;self.revision=self.revision+1;self.generation=self.generation+1
+    if self:needsMidi() and not self.song then self.cb.importMidi(project.midi) end
 end
 function W:undo()
     local project=table.remove(self.undoStack);if not project then return false end
@@ -117,7 +117,7 @@ function W:applySoundSet(id)
     if self.song then for _,p in ipairs(MIDI.parts(self.song)) do parts[p.id]=p end end
     local changes={}
     for n,t in ipairs(self.project.tracks) do
-        if t.kind=='midi' and not parts[t.part] then self.cb.message('Wait for the MIDI file to finish loading.');return false end
+        if t.kind=='midi' and not t.edited and not parts[t.part] then self.cb.message('Wait for the MIDI file to finish loading.');return false end
         local role=SoundSets.trackRole(t,parts[t.part]);local state,presetId=SoundSets.assignment(id,role,t.kind=='midi',parts[t.part] and parts[t.part].note or t.note)
         if not state then return false end
         changes[n]={state,presetId}
@@ -203,11 +203,116 @@ function W:toggleNote(index,note,step)
     t.notes[#t.notes+1]={n=note,s=step,l=math.min(self.noteLength,self.project.length),v=self.velocity}
     self:touch();return true
 end
+function W:needsMidi()
+    for _,t in ipairs(self.project.tracks) do if t.kind=='midi' and not t.edited then return true end end
+    return false
+end
+function W:hasSong() return self.song~=nil or self.project.timeline~=nil and not self:needsMidi() end
+function W:noteData(index)
+    local t=self.project.tracks[index];if not t then return {} end
+    if t.edited then
+        self.noteCache=self.noteCache or {};local cached=self.noteCache[index]
+        if not cached or cached.data~=t.edited then cached={data=t.edited,notes=assert(format.decodeNotes(t.edited))};self.noteCache[index]=cached end
+        return cached.notes
+    end
+    return t.kind=='midi' and self.spans and self.spans[t.part] or t.notes
+end
+function W:canEditNotes(index)
+    local t=self.project.tracks[index];return t and (t.kind=='piano' or t.kind=='midi' and t.edited~=nil)
+end
+function W:convertPart(index)
+    local t=self.project.tracks[index]
+    if not t or t.kind~='midi' or t.edited then return false end
+    if not self.song then self.cb.message('Load the original MIDI before editing this part.');return false end
+    local timeline={beats=self.song.beats,tempos={}}
+    for _,tempo in ipairs(self.song.tempos or {}) do timeline.tempos[#timeline.tempos+1]={beat=tempo.beat,tempo=tempo.tempo} end
+    timeline=self.project.timeline or format.timeline(timeline)
+    if not timeline then self.cb.message('This MIDI tempo map exceeds the editable song limits.');return false end
+    local notes=MIDI.editableSpans(self.song,t.part);local data=format.encodeNotes(notes,self.song.division)
+    local total=#notes;for _,track in ipairs(self.project.tracks) do if track.edited then total=total+#track.edited.bytes/10 end end
+    if not data or total>format.maxEditedNotes then self.cb.message('Editing supports 4,096 notes per part and 8,192 per project. Original part preserved.');return false end
+    self:stop(true);self.project.timeline=timeline;t.edited=data;self.noteCache={};self.noteSelection={};self.selectionTrack=index
+    for _,part in ipairs(MIDI.parts(self.song)) do if part.id==t.part then t.sourceRole=SoundSets.role(part);t.note=part.note or t.note end end
+    if notes[1] then self.bar=math.floor(notes[1].s/16);self.base=math.max(0,math.min(116,math.floor(notes[1].n/12)*12)) end
+    self:touch();return true
+end
+function W:selectNote(index,id,additive)
+    if self.selectionTrack~=index or not additive then self.noteSelection={} end
+    self.selectionTrack=index;self.lastEditKey=nil
+    if id then self.noteSelection[id]=not self.noteSelection[id] or nil end
+end
+function W:selectAllNotes(index)
+    self:selectNote(index);for id in ipairs(self:noteData(index) or {}) do self.noteSelection[id]=true end
+end
+function W:selectedNotes(index)
+    local ids={};if self.selectionTrack==index then for id in ipairs(self:noteData(index) or {}) do if self.noteSelection[id] then ids[#ids+1]=id end end end
+    return ids
+end
+function W:storeNotes(index,notes,key,quiet)
+    local t=self.project.tracks[index];if not self:canEditNotes(index) then return false end
+    if t.edited then
+        local data=format.encodeNotes(notes,t.edited.division);local total=#notes
+        for n,track in ipairs(self.project.tracks) do if n~=index and track.edited then total=total+#track.edited.bytes/10 end end
+        if not data or total>format.maxEditedNotes then self.cb.message('Edited note limit reached; change cancelled.');return false end
+        for _,n in ipairs(notes) do if format.seconds(self.project.timeline,(n.s+n.l)/4)>1800 then self.cb.message('Song limit: 30 minutes.');return false end end
+        if data.bytes==t.edited.bytes then return true end
+        t.edited=data
+    else
+        local candidate=copy(t);candidate.notes=notes;local valid=format.track(candidate,self.project.length)
+        local count=#notes;for n,track in ipairs(self.project.tracks) do if n~=index then count=count+#track.notes end end
+        if not valid or count>format.maxNotes then self.cb.message('Clip note limit or range exceeded; change cancelled.');return false end
+        if equal(t.notes,valid.notes) then return true end
+        t.notes=valid.notes
+    end
+    self.noteCache={};self:touch(key or 'sequence',quiet);return true
+end
+function W:addNote(index,pitch,step)
+    if not self:canEditNotes(index) then return false end
+    local notes=copy(self:noteData(index));notes[#notes+1]={n=pitch,s=step,l=self.noteLength,v=self.velocity}
+    if not self:storeNotes(index,notes) then return false end
+    self:selectNote(index,#notes);return true
+end
+function W:editSelected(index,change,key,quiet)
+    if not self:canEditNotes(index) then return false end
+    local ids=self:selectedNotes(index);if #ids==0 then return false end
+    local notes=copy(self:noteData(index))
+    for _,id in ipairs(ids) do local n=notes[id]
+        n.s=n.s+(change.step or 0);n.n=n.n+(change.pitch or 0);n.l=n.l+(change.length or 0)
+        if change.velocity then n.v=change.velocity end
+    end
+    return self:storeNotes(index,notes,key,quiet)
+end
+function W:deleteNotes(index)
+    if not self:canEditNotes(index) then return false end
+    local notes={};for id,n in ipairs(self:noteData(index)) do if self.selectionTrack~=index or not self.noteSelection[id] then notes[#notes+1]=copy(n) end end
+    if #notes==#self:noteData(index) then return false end
+    if not self:storeNotes(index,notes) then return false end
+    self.noteSelection={};return true
+end
+function W:copyNotes(index)
+    local ids=self:selectedNotes(index);if #ids==0 then return false end
+    local notes=self:noteData(index);local first=math.huge;self.clipboard={}
+    for _,id in ipairs(ids) do first=math.min(first,notes[id].s) end
+    for _,id in ipairs(ids) do local n=copy(notes[id]);n.s=n.s-first;self.clipboard[#self.clipboard+1]=n end
+    return first
+end
+function W:pasteNotes(index,step)
+    if not self:canEditNotes(index) or not self.clipboard then return false end
+    local notes=copy(self:noteData(index));local first=#notes+1
+    for _,source in ipairs(self.clipboard) do local n=copy(source);n.s=n.s+step;notes[#notes+1]=n end
+    if not self:storeNotes(index,notes) then return false end
+    self:selectNote(index);for id=first,#notes do self.noteSelection[id]=true end;return true
+end
+function W:duplicateNotes(index)
+    local step=self:copyNotes(index);return step and self:pasteNotes(index,step+(self.snap>0 and self.snap or 0.25)) or false
+end
 function W:import(song,path)
     local parts=MIDI.parts(song);local extra,old={},{}
     for _,t in ipairs(self.project.tracks) do
         if t.kind~='midi' then extra[#extra+1]=t elseif self.project.midi==path then old[t.part]=t end
     end
+    local found={};for _,p in ipairs(parts) do found[p.id]=true end
+    for _,t in ipairs(self.project.tracks) do if t.edited and self.project.midi==path and not found[t.part] then extra[#extra+1]=t end end
     if #parts+#extra>format.maxTracks then self.cb.message('MIDI has '..#parts..' parts; at most 16 tracks fit. Remove clips or choose a smaller MIDI.');return false end
     self:stop(true);local tracks={}
     for _,p in ipairs(parts) do
@@ -216,10 +321,12 @@ function W:import(song,path)
             t.params,t.presetId=SoundSets.assignment(SoundSets.find(self.project.soundSet) and self.project.soundSet or 'balanced',SoundSets.role(p),true,p.note)
         end
         t.part=p.id;tracks[#tracks+1]=t
+        if not t.edited then t.sourceRole=SoundSets.role(p);t.note=p.note or t.note end
     end
     for _,t in ipairs(extra) do tracks[#tracks+1]=t end
     if self.project.midi~=path and not SoundSets.find(self.project.soundSet) then self.project.soundSet='balanced' end
-    self.song=song;self:cacheSpans();self.project.midi=path;self.project.tracks=tracks;self.selected=1
+    if self.project.midi~=path then self.project.timeline=nil end
+    self.song=song;self:cacheSpans();self.project.midi=path;self.project.tracks=tracks;self.selected=1;self.noteSelection={};self.noteCache={}
     if song.tempos and song.tempos[1] and song.tempos[1].beat==0 then self.project.bpm=math.max(40,math.min(240,60000000/song.tempos[1].tempo)) end
     self:configureAll();self:touch();return true
 end
@@ -227,8 +334,8 @@ function W:cacheSpans() self.spans=self.song and MIDI.noteSpans(self.song) or {}
 function W:load(project)
     local valid=format.project(project);if not valid then return false end
     self:stop(true);if self.project.midi~=valid.midi then self.song=nil end
-    self.project=valid;self.checkpoint=copy(valid);self.undoStack={};self.redoStack={};self.lastEditKey=nil;self:cacheSpans();self.selected=1;self.bar=0;self.dirty=false;self.revision=self.revision+1;self.generation=self.generation+1;self:configureAll()
-    if valid.midi~='' and not self.song then self.cb.importMidi(valid.midi) end
+    self.project=valid;self.checkpoint=copy(valid);self.undoStack={};self.redoStack={};self.lastEditKey=nil;self.noteSelection={};self.noteCache={};self:cacheSpans();self.selected=1;self.bar=0;self.dirty=false;self.revision=self.revision+1;self.generation=self.generation+1;self:configureAll()
+    if self:needsMidi() and not self.song then self.cb.importMidi(valid.midi) end
     return true
 end
 function W:save()
@@ -253,11 +360,14 @@ function W:stop(force)
 end
 function W:play(mode)
     self:stop(true)
-    if mode=='song' and not self.song then self.cb.message('Import a MIDI file first.');return false end
+    if mode=='song' and not self:hasSong() then self.cb.message('Load the original MIDI file for unedited parts first.');return false end
+    if mode=='song' and not self.cb.schedule then
+        for _,t in ipairs(self.project.tracks) do if t.edited then self.cb.message('Edited MIDI requires native Studio playback.');return false end end
+    end
     self:configureAll();self.time=0;self.beat=0;self.step=-1;self.pending={};self.counts={};self.playing=true;self.mode=mode
     if self.cb.schedule then
         local Sequence=require(prefix..'shared.sequence')
-        local ok,plan=pcall(Sequence.compile,self.project,self.song,MIDI,mode)
+        local ok,plan=pcall(Sequence.compile,self.project,self.song,MIDI,mode,format)
         if not ok then self.playing=false;self.cb.message(tostring(plan));return false end
         self.native=true;self.nativeStarted=false;self.awaiting=true;self.sequenceDirty=false
         if self.cb.schedule(plan,false)==false then self:stop(true);return false end
@@ -277,7 +387,11 @@ end
 function W:beatAt(time)
     if self.mode~='song' then return time*self.project.bpm/60 end
     local beat,seconds,tempo=0,0,500000
-    for _,t in ipairs(self.song.tempos or {}) do if t.time>time then break end;beat,seconds,tempo=t.beat,t.time,t.tempo end
+    local timeline=self.project.timeline or self.song
+    for _,t in ipairs(timeline.tempos or {}) do
+        local at=self.project.timeline and seconds+(t.beat-beat)*tempo/1000000 or t.time
+        if at>time then break end;beat,seconds,tempo=t.beat,at,t.tempo
+    end
     return beat+(time-seconds)*1000000/tempo
 end
 function W:frame(dt)
@@ -294,7 +408,7 @@ function W:frame(dt)
         if self.sequenceDirty and self.wall-(self.lastSequenceEdit or -10)>0.25 then
             self.sequenceDirty=false;self.lastSequenceEdit=self.wall
             local Sequence=require(prefix..'shared.sequence')
-            local ok,plan=pcall(Sequence.compile,self.project,self.song,MIDI,self.mode)
+            local ok,plan=pcall(Sequence.compile,self.project,self.song,MIDI,self.mode,format)
             if not ok or self.cb.schedule(plan,true)==false then self:stop(true);self.cb.message(tostring(plan));return end
         end
         if not self.awaiting then

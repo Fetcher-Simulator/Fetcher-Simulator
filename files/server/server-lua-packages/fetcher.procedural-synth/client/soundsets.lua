@@ -49,6 +49,7 @@ function M.assignment(id,role,midi,note)
 end
 function M.trackRole(track,part)
     if part then return M.role(part) end
+    if track.kind=='midi' and track.sourceRole then return track.sourceRole end
     if track.kind=='drum' then return M.role{channel=9,note=track.note} end
     local role=M.role{name=track.name};if role~='keys' then return role end
     local p=builtins[track.presetId];local tag=p and p.role
