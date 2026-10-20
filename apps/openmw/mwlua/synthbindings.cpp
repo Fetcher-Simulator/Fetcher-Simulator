@@ -7,6 +7,7 @@
 #include "objectvariant.hpp"
 #include "luamanagerimp.hpp"
 #include <components/settings/values.hpp>
+#include <components/files/conversion.hpp>
 #include <cmath>
 
 namespace MWLua
@@ -52,7 +53,16 @@ namespace MWLua
                     auto s = readSample(value); return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 12;
+            api["version"] = 13;
+            api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
+                const auto path = manager->exportStudioMidi(name, bytes);
+                sol::table result(lua, sol::create);
+                result["name"] = Files::pathToUnicodeString(path.filename());
+                result["path"] = Files::pathToUnicodeString(path);
+                return LuaUtil::makeReadOnly(result);
+            };
+            api["listMidiExports"] = [manager = context.mLuaManager] { return sol::as_table(manager->listStudioMidi()); };
+            api["readMidiExport"] = [manager = context.mLuaManager](std::string name) { return manager->readStudioMidi(name); };
             api["sampleInfo"] = [lua](std::string path, double offset, double duration) {
                 const auto data = MWBase::Environment::get().getSoundManager()->requestSample(std::move(path), offset, duration);
                 sol::table info(lua, sol::create);

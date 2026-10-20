@@ -36,7 +36,7 @@ voices.
 
 Completed 2026-10-20 in package 18 / native synth API 12. Browser and playable
 voice-line instruments share the native Studio clock and physical band outputs.
-MIDI export and track renaming are next, followed by library/recovery and automation.
+MIDI export and track renaming shipped in package 19; library/recovery is next.
 
 ### Shipped first pass
 
@@ -78,41 +78,44 @@ Later sample work: sustained sample loops, chopping, reverse, crossfades and
 more elaborate sampled instruments. These are not prerequisites for the first
 browser + voice-line playback slice.
 
-## Remaining roadmap (next: MIDI export and track renaming)
+## Completed slice: MIDI export, track names and responsive editing
 
-1. MIDI export, track renaming and round-trip checks: flatten linear notes and
-   linked placements into MIDI, retaining timing, velocities, drum parts and
-   tempo maps. Add an explicit Rename track action in Studio, separate from
-   project and sound-preset naming. Names update consistently across track views,
-   support undo/redo and persist through project Save/Load. Retain imported track
-   names and write user-edited names as MIDI track-name metadata on export.
-   Renaming preserves notes, sound/sample settings, mixer and band routing.
-   Acceptance includes renaming a sample part, saving/reloading it and exporting
-   and reimporting its name alongside the unchanged musical data. Native
-   sound/effect/band settings remain in the Studio project. Rendered audio export
-   is a separate later feature.
-2. Project library and autosave/recovery: multiple named projects per character,
+Completed 2026-10-20 in package 19 / native synth API 13. Studio exports complete
+songs or one legacy pattern cycle as format-1 MIDI, flattening linked arrangements
+and retaining notes, gates, velocities, tempo maps, percussion and track names.
+Authored meter is written for other DAWs; applying imported meter is later work.
+Exports stay in the owner's local character profile and immediately join the MIDI
+picker. Sound/sample/effect/band settings remain in server-saved Studio projects.
+Track renaming has explicit Apply/Cancel, Undo/Redo and project persistence.
+Fullscreen/resizing expands the Piano workspace, and Drums can duplicate the
+current bar across all lanes into the next bar, extending up to 16 bars with Undo.
+Offline regressions and native two-client export/reimport/playback checks passed.
+See README.md for usage/limits and TEST-REPORT.md for evidence.
+
+## Remaining roadmap (next: project library and autosave/recovery)
+
+1. Project library and autosave/recovery: multiple named projects per character,
    Save As/rename/delete, recovery snapshots and unsaved-work handling.
-3. Automation and MIDI-controller editing: saved/recorded parameter curves,
+2. Automation and MIDI-controller editing: saved/recorded parameter curves,
    sustain, pitch bend, modulation, expression and supported controller/program
    changes, with native-clock playback and multiplayer replication.
-4. Tempo/meter editing: changes within a song, editable maps and matching bar
+3. Tempo/meter editing: changes within a song, editable maps and matching bar
    displays. Imported tempo-map playback already exists; authored songs currently
    have a constant tempo and meter.
-5. Arranger improvements: multi-selection/group moves, independent source
+4. Arranger improvements: multi-selection/group moves, independent source
    variations, cross-track source transfer and source offsets. Linked sources
    and individual move/repeat/trim/transpose/mute are already implemented.
-6. Recording improvements: audible metronome, configurable count-in, measured
+5. Recording improvements: audible metronome, configurable count-in, measured
    recording latency, hardware MIDI input and additional recording modes,
    including shared-source overdub while the transport plays.
-7. Mixer/effects routing: stereo/panning, group buses and flexible effect chains.
+6. Mixer/effects routing: stereo/panning, group buses and flexible effect chains.
    Native EQ/compression, instrument drive/cabinet and shared delay/reverb exist.
-8. Band gameplay/presentation: NPC stage position/facing/follow behaviour and
+7. Band gameplay/presentation: NPC stage position/facing/follow behaviour and
    better instrument-specific arm/hand/finger animation. Consent, held-instrument
    readiness, owned NPCs and saved leader-controlled part routing already work.
-9. Multiplayer timing/scale: continuous device-drift correction, device latency,
+8. Multiplayer timing/scale: continuous device-drift correction, device latency,
    richer late-join state and larger-band/long-session performance checks.
-10. Further sample tools and sound-library refinement: the advanced sampler
+9. Further sample tools and sound-library refinement: the advanced sampler
     features above, acoustic/sample-based starting sounds and additional guitar
     articulations. Continue preset listening/balance refinement as tools mature.
 

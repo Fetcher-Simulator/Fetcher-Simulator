@@ -5,9 +5,9 @@ local self = require('openmw.self')
 local ui = require('openmw.ui')
 local input = require('openmw.input')
 local supported, synth = pcall(require,'openmw.synth')
-if not supported or (synth.version and synth.version<12) then
+if not supported or (synth.version and synth.version<13) then
     return {eventHandlers={Synth_Activate=function()
-        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 12.')
+        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 13.')
     end}}
 end
 local schema = require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -36,12 +36,26 @@ local instances, editor, session = {}, nil, nil
 local connected, lastSync, lastHeartbeat, lastEdit = false, -10, 0, 0
 local dirty
 local songs,selectedSong,playback,loading,scanned={},1,nil,nil,false
+local exportedSongs={}
+local function refreshExports()
+    local selected=songs[selectedSong];local kept={}
+    for _,path in ipairs(songs) do if not exportedSongs[path] then kept[#kept+1]=path end end
+    songs=kept;exportedSongs={}
+    if synth.listMidiExports then
+        local ok,names=pcall(synth.listMidiExports)
+        if ok then for _,name in ipairs(names) do
+            local path='midi/__studio_exports__/'..name;exportedSongs[path]=name;songs[#songs+1]=path
+        end end
+    end
+    table.sort(songs);selectedSong=1
+    for n,path in ipairs(songs) do if path==selected then selectedSong=n;break end end
+end
 local function scanSongs()
     songs={};selectedSong=1;scanned=true
     for path in vfs.pathsWithPrefix('midi/') do
         if path:lower():match('%.mid[i]?$') then songs[#songs+1]=path;if #songs>=512 then break end end
     end
-    table.sort(songs)
+    refreshExports()
 end
 local stopPlayback,playSong,showEditor,switchPage,makeWorkstation
 local function silence(i)
@@ -190,6 +204,7 @@ playSong=function(path,intent)
     if not allowed then return false end
     stopPlayback()
     loading={path=path,intent=intent or 'play',session=session,co=coroutine.create(function()
+        if exportedSongs[path] then return MIDI.parse(synth.readMidiExport(exportedSongs[path]),function() coroutine.yield() end) end
         local file,err=vfs.open(path)
         assert(file,err or 'Cannot open MIDI')
         local bytes=file:read(512*1024+1);file:close()
@@ -223,6 +238,9 @@ makeWorkstation=function(i)
         documentChanged=function() loading=nil;if session and session.id==i.id then session.songSelection=nil end end,
         now=core.getRealTime,
         sampleStatus=function(reference) return Samples.status(synth,reference) end,
+        exportMidi=function(name,bytes)
+            local result=synth.exportMidi(name,bytes);refreshExports();return result.path
+        end,
         samples=function() return Samples.new(synth,vfs,self) end,
         canMonitor=function(channel)
             local params=i.channels[channel] and i.channels[channel].params
@@ -498,6 +516,7 @@ local function message(data)
             if type(n)=='number' and n>=1 and n<=16 and n%1==0 and state then applyChannel(i,n,state,channel.level or 1,channel.mixer) end
         end
         if data.op=='granted' then
+            refreshExports()
             closeEditor(true)
             session={id=data.id,epoch=data.epoch,inSeq=0,editTrack=0,views={},page='synth',transportLast=core.getRealTime()}
             session.workstation=makeWorkstation(i)
@@ -638,7 +657,7 @@ end
 return {
     interfaceName='ProceduralSynth',
     interface={
-        version=12,
+        version=13,
         status=function()
             local out={}
             for id,i in pairs(instances) do

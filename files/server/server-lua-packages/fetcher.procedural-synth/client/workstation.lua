@@ -256,6 +256,21 @@ function W:setTrack(index,name,value)
     else return false end
     self:touch(name..':'..index);return true
 end
+function W:renameTrack(index,name)
+    local t=self.project.tracks[index]
+    if not t or type(name)~='string' or #name>48 or name:find('%c') or not name:find('%S') then return false end
+    if t.name==name then return true end
+    t.name=name;self:touch('trackName:'..index);return true
+end
+function W:exportMidi()
+    if not self.cb.exportMidi then self.cb.message('This client does not support MIDI export.');return false end
+    local exporter=require(prefix..'client.midi-export')
+    local ok,bytes=pcall(exporter.encode,self.project,self.song,MIDI,format)
+    if not ok then self.cb.message('MIDI export: '..tostring(bytes));return false end
+    local written,path=pcall(self.cb.exportMidi,self.project.name,bytes)
+    if not written then self.cb.message('MIDI export: '..tostring(path));return false end
+    self.cb.message('MIDI exported: '..path);return true
+end
 function W:length(length)
     if type(length)~='number' or length<16 or length>format.maxSteps or length%16~=0 then return false end
     self:stop(true)
@@ -267,6 +282,19 @@ function W:toggleStep(index,step)
     if not t or t.kind~='drum' or step<0 or step>=self.project.length then return false end
     local digit=t.steps:sub(step+1,step+1)=='0' and tostring(math.max(1,math.floor(self.velocity*9+0.5))) or '0'
     t.steps=t.steps:sub(1,step)..digit..t.steps:sub(step+2);self:touch();return true
+end
+function W:duplicateDrumBar()
+    local first=self.bar*16;local target=first+16
+    if self.bar<0 or self.bar%1~=0 or first>=self.project.length then return false end
+    if target>=format.maxSteps then self.cb.message('The drum pattern is already at its 16-bar limit.');return false end
+    local found=false;for _,t in ipairs(self.project.tracks) do if t.kind=='drum' then found=true;break end end
+    if not found then self.cb.message('Add a drum lane before duplicating a bar.');return false end
+    self:stop(true)
+    for _,t in ipairs(self.project.tracks) do if t.kind=='drum' then
+        t.steps=t.steps:sub(1,target)..t.steps:sub(first+1,first+16)..t.steps:sub(target+17)
+    end end
+    self.project.length=math.max(self.project.length,target+16);self.bar=self.bar+1
+    self:touch();return true
 end
 function W:toggleNote(index,note,step)
     local t=self.project.tracks[index]

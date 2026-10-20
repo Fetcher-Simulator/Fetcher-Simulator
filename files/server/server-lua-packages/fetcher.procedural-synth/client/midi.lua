@@ -66,7 +66,7 @@ function M.parse(bytes, checkpoint)
                 running=nil
                 local kind=number(1)
                 local n=vlq()
-                if kind==3 then names[track]=take(n):gsub('%c',' '):sub(1,40)
+                if kind==3 then names[track]=take(n):gsub('%c',' '):sub(1,48)
                 elseif kind==81 then
                     assert(n==3,'Invalid MIDI tempo')
                     local tempo=number(3);assert(tempo>0,'Invalid MIDI tempo')

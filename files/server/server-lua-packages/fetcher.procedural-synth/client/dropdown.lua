@@ -19,9 +19,11 @@ function D.open(owner,entries,selected,choose,x,y,width)
     local offset=0;for n,e in ipairs(entries) do if e.id==selected then offset=math.max(0,n-4) end end
     local self=setmetatable({owner=owner,entries=entries,selected=selected,choose=choose,offset=offset,query='',active=true,children={},rows={}},D)
     owner.dropdown=self;owner.typing=true;self.anchor=owner.root
-    x=math.min(x,920-width);y=math.min(y,300);local w=width;local s=owner.window.scale;local p=owner.root.layout.props
+    local canvasWidth,canvasHeight=owner.window.canvasWidth,owner.window.canvasHeight
+    x=math.max(0,math.min(x+(owner.bodyOffset or 0),canvasWidth-width-20));y=math.min(y,canvasHeight-380)
+    local w=width;local s=owner.window.scale;local p=owner.root.layout.props
     self.barScreenY=p.position.y+(38+y+72)*s
-    local content={};local backdrop=rect(0,0,940,695,util.color.rgba(0,0,0,0.25))
+    local content={};local backdrop=rect(0,0,canvasWidth,canvasHeight,util.color.rgba(0,0,0,0.25))
     backdrop.events={mouseClick=cb(function() D.close(owner) end)};content[#content+1]=backdrop
     local panel=rect(x,y,w,360,bg);panel.events={mouseClick=cb(function() end)};content[#content+1]=panel
     content[#content+1]=label('Filter by name:',x+12,y+8,w-100)
@@ -51,7 +53,7 @@ function D.open(owner,entries,selected,choose,x,y,width)
     self.bar=self:element(bar);content[#content+1]=self.bar
     self.footer=self:element(label('',x+12,y+331,w-24));content[#content+1]=self.footer
     for _,item in ipairs(content) do if item.layout then owner.window:update(item) else owner.window:layout(item) end end
-    self.element=ui.create{type=ui.TYPE.Widget,layer='Popup',props={position=v(p.position.x,p.position.y+38*s),size=v(940*s,695*s)},content=ui.content(content)}
+    self.element=ui.create{type=ui.TYPE.Widget,layer='Popup',props={position=v(p.position.x,p.position.y+38*s),size=v(canvasWidth*s,canvasHeight*s)},content=ui.content(content)}
     self:draw();return self
 end
 function D.close(owner)

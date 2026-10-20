@@ -180,3 +180,25 @@ check(mix:undo() and mix.project.tracks[1].output.slot==0 and mix:redo() and mix
 check(mix:preset(1,'b:guitar-clean') and mix.project.tracks[1].output.slot==1 and mix.project.band[1].level==0.5,'sound changes preserve member routing and gain')
 check(not mix:setOutput(1,9) and not mix:setOutput(1,0/0),'invalid destinations rejected before editing')
 print('PASS band routing, slot persistence, mix independence and undo/redo')
+
+-- A drum bar is a synchronized slice across every drum lane, including page 2.
+local d=Workstation.new(w.cb)
+for n=1,9 do
+    assert(d:add('drum'));d.velocity=n/9;assert(d:toggleStep(n,n-1))
+    local t=d.project.tracks[n];t.steps=t.steps:sub(1,16)..string.rep('9',16)..t.steps:sub(33)
+end
+assert(d:add('piano'));assert(d:toggleNote(10,60,0));d:touch()
+local before=copy(d.project);local history=#d.undoStack
+local patch,mixer,route=d.project.tracks[1].params,d.project.tracks[1].mixer,d.project.tracks[1].output
+check(d:duplicateDrumBar() and d.project.length==32 and d.bar==1,'duplicate extends and selects the next bar')
+for n=1,9 do check(d.project.tracks[n].steps:sub(17,32)==before.tracks[n].steps:sub(1,16),'copies each lane including velocity and rests') end
+check(#d.undoStack==history+1 and #d.project.tracks[10].notes==1,'one history action and piano notes untouched')
+check(d.project.tracks[1].params==patch and d.project.tracks[1].mixer==mixer and d.project.tracks[1].output==route,'drum duplication keeps sound, mixer and performer route')
+check(d:undo() and d.project.length==16 and d.project.tracks[1].steps==before.tracks[1].steps,'undo restores replaced destination and original length')
+check(d:redo() and d.project.length==32,'redo restores duplicated bar')
+d:length(48);d.bar=0;check(d:duplicateDrumBar() and d.project.length==48,'existing next bar is replaced without growing length')
+local loaded=assert(format.project(d.project));check(loaded.tracks[9].steps==d.project.tracks[9].steps,'duplicated velocities persist in project format')
+d:length(256);d.bar=15;history=#d.undoStack
+check(not d:duplicateDrumBar() and #d.undoStack==history and d.project.length==256,'sixteen-bar cap rejects duplication without edits')
+local empty=Workstation.new(w.cb);check(not empty:duplicateDrumBar() and empty.project.length==16,'no lanes cannot create an empty history edit')
+print('PASS drum bar duplication across all lanes, velocity/rests, replacement, extension, single-step history, persistence and limits')

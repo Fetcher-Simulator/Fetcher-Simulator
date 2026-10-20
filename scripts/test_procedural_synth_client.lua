@@ -25,6 +25,7 @@ package.loaded['openmw.camera']={MODE={FirstPerson=1},getMode=function() return 
 package.loaded['openmw.types']={}
 package.loaded['openmw.vfs']={pathsWithPrefix=function() return function() end end}
 package.loaded[prefix..'client.midi']=dofile(root..'client/midi.lua')
+package.loaded[prefix..'client.midi-export']=dofile(root..'client/midi-export.lua')
 package.loaded[prefix..'client.performance']=dofile(root..'client/performance.lua')
 local viewport=vector(1024,768)
 local mouseDown=false
@@ -520,7 +521,7 @@ api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrum
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
 -- Reproduce loaded-song reuse from the actual Studio callbacks, including Band.
-package.loaded['openmw.synth'].version=12
+package.loaded['openmw.synth'].version=13
 local paths={'midi/a.mid','midi/b.mid'};local files={}
 local function midiBytes(pitch,count)
     local events={};for n=1,count or 1 do events[#events+1]=string.char(0,144,pitch,100,96,128,pitch,0) end
@@ -631,6 +632,60 @@ w:undo();w:editClip(1,1);now=now+0.01;lastStudio:frame(now)
 w:selectAllNotes(1);w:editSelected(1,{pitch=2});button('Arrange clips').events.mouseClick();now=now+0.01;player.engineHandlers.onFrame(0.01)
 check(not w.clipEdit and w.project.tracks[1].arrangement.clips[1].notes.bytes~=composed.tracks[1].edited.bytes,'returning to arranger exits source editing')
 button('Save').events.mouseClick();check(sent[#sent].project.tracks[1].arrangement.regions[2].clip==1,'actual Save sends compact source references')
+-- Fullscreen grows the musical viewport without stretching fonts or editing notes.
+assert(w:newSong(120,4,4,8));assert(w:addNote(1,60,0));w.page='piano';w.rollSteps=16;w.rollStart=0
+viewport=vector(2560,1440);lastStudio.window.preferred=1.3;lastStudio.window.full=false
+lastStudio.window.width=940*1.3;lastStudio.window.height=733*1.3
+w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
+local win=lastStudio.window;local oldWidth,oldHeight=lastStudio.roll.width,lastStudio.roll.height
+local oldRows,oldSteps=lastStudio.roll.rows,lastStudio.roll.steps
+local generation,history=w.generation,#w.undoStack
+win:fullscreen();now=now+.01;lastStudio:frame(now)
+local roll=lastStudio.roll
+check(roll.width>oldWidth and roll.height>oldHeight and roll.rows>oldRows and roll.steps>oldSteps,'1440p fullscreen grows time and pitch capacity')
+check(math.abs(win.scale-1.3)<1e-6 and roll.width*win.scale>2400,'fullscreen uses available width while keeping chosen text scale')
+check(w.generation==generation and #w.undoStack==history,'viewport expansion is not a song edit')
+local position=lastStudio.root.layout.props.position;local grid
+for _,item in ipairs(lastStudio.root.layout.content) do if item.events and item.props and item.props.position and math.abs(item.props.position.x-roll.x*win.scale)<.01 and math.abs(item.props.position.y-roll.y*win.scale)<.01 then grid=item end end
+assert(grid);local row=math.min(15,roll.rows-1);local expected=roll.base+roll.rows-1-row
+local point=vector(position.x+(roll.x+roll.cw*3)*win.scale,position.y+(38+roll.y+(row+.5)*roll.rh)*win.scale)
+grid.events.mousePress{button=1,position=point,offset=vector(3*roll.cw*win.scale,(row+.5)*roll.rh*win.scale)}
+check(w:noteData(1)[2].n==expected and w:noteData(1)[2].s==3,'expanded grid hit testing places the intended pitch and time')
+now=now+.01;lastStudio:frame(now);roll=lastStudio.roll
+w:selectNote(1,2);roll:draw();local note=roll.pool[2];local props=note.layout.props
+point=vector(position.x+props.position.x+5,position.y+38*win.scale+props.position.y+5)
+mouseDown=true;note.layout.events.mousePress{button=1,position=point,offset=vector(5,5)}
+note.layout.events.mouseMove{button=1,position=vector(point.x+roll.cw*win.scale,point.y-roll.rh*win.scale),offset=vector(5,5)}
+mouseDown=false;now=now+.01;lastStudio:frame(now)
+check(w:noteData(1)[2].n==expected+1,'dragging an expanded note moves one pitch row')
+generation=w.generation;history=#w.undoStack
+viewport=vector(3440,1440);now=now+.01;lastStudio:frame(now)
+check(lastStudio.roll.width>roll.width and w.generation==generation,'ultrawide viewport expands without a musical edit')
+w.base=116;w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
+check(lastStudio.roll.base+lastStudio.roll.rows==128,'expanded pitch range stays within MIDI 0-127')
+viewport=vector(800,600);now=now+.01;lastStudio:frame(now)
+check(lastStudio.root.layout.props.size.x==800 and lastStudio.roll.rows>=12 and lastStudio.roll.width*win.scale<=800,'small viewport refits controls and retains usable rows')
+viewport=vector(2560,1440);now=now+.01;lastStudio:frame(now);win:fullscreen();now=now+.01;lastStudio:frame(now)
+check(math.abs(lastStudio.roll.width-oldWidth)<.01 and math.abs(lastStudio.roll.height-oldHeight)<.01,'Restore recovers previous editor dimensions')
+w.page='drums';assert(w:add('drum'));assert(w:toggleStep(2,0));w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
+button('Duplicate to next bar').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(w.bar==1 and w.project.tracks[2].steps:sub(17,17)~='0','Drums button duplicates the displayed bar')
+button('Mixer').events.mouseClick();now=now+.01;lastStudio:frame(now)
+button('Rename track').events.mouseClick();now=now+.01;lastStudio:frame(now)
+local field
+for _,element in ipairs(lastStudio.children) do if element.layout.type==ui.TYPE.TextEdit and math.abs(element.layout.props.size.x-660*lastStudio.window.scale)<.1 then field=element end end
+assert(field);field.layout.events.focusGain();field.layout.events.textChanged('My renamed drum')
+button('Apply name').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(w.project.tracks[w.selected].name=='My renamed drum' and w.page=='mixer','Rename track commits and returns to its originating page')
+local exportData;local native=package.loaded['openmw.synth']
+native.exportMidi=function(name,data) exportData=data;return {name='roundtrip.mid',path='test-profile/studio-midi/roundtrip.mid'} end
+native.listMidiExports=function() return exportData and {'roundtrip.mid'} or {} end
+native.readMidiExport=function(name) check(name=='roundtrip.mid','only listed native exports are read');return exportData end
+button('Export MIDI').events.mouseClick();check(exportData and exportData:sub(1,4)=='MThd','Export MIDI button invokes native writer')
+local present=false;for _,path in ipairs(api.midiSongs()) do if path=='midi/__studio_exports__/roundtrip.mid' then present=true end end
+check(present and api.importMidi('midi/__studio_exports__/roundtrip.mid'),'new export is immediately eligible for the MIDI selector')
+now=now+.01;player.engineHandlers.onFrame(.01)
+check(w.project.midi=='midi/__studio_exports__/roundtrip.mid' and w.song,'export imports through the native bounded reader')
 viewport=vector(1024,768);lastStudio.window:zoom(-0.5)
 api.close()
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

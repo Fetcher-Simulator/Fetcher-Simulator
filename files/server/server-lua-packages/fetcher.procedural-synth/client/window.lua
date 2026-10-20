@@ -32,13 +32,16 @@ function W.new()
 end
 function W:bounds()
     local screen=ui.screenSize();self.screen=screen
-    self.width=clamp(self.width,math.min(screen.x,width*0.75),screen.x)
-    self.height=clamp(self.height,math.min(screen.y,(height+chrome)*0.75),screen.y)
-    self.x=clamp(self.x,0,screen.x-self.width);self.y=clamp(self.y,0,screen.y-self.height)
+    if not self.full then
+        self.width=clamp(self.width,math.min(screen.x,width*0.75),screen.x)
+        self.height=clamp(self.height,math.min(screen.y,(height+chrome)*0.75),screen.y)
+        self.x=clamp(self.x,0,screen.x-self.width);self.y=clamp(self.y,0,screen.y-self.height)
+    end
     local w,h=self.width,self.height
     if self.full then w,h=screen.x,screen.y end
     self.scale=math.min(self.preferred,w/width,h/(height+chrome))
     self.actualWidth,self.actualHeight=w,h
+    self.canvasWidth,self.canvasHeight=w/self.scale,h/self.scale-chrome
 end
 function W:save()
     storage:set('geometry',{x=self.x,y=self.y,width=self.width,height=self.height})
@@ -127,6 +130,11 @@ function W:frame(owner)
     if screen.x~=self.screen.x or screen.y~=self.screen.y then self:bounds();self.changed=true end
     if synth.getMonitorVolume and synth.getMonitorVolume()~=self.monitor then self.changed=true end
     if not self.changed or input.isMouseButtonPressed(1) then return end
+    -- Responsive pages must rebuild their logical geometry, not merely scale
+    -- widgets from the old fixed-size canvas. Wait for mouse release above.
+    if owner.resize and (math.abs(owner.width-self.canvasWidth)>0.1 or math.abs(owner.height-self.canvasHeight)>0.1) then
+        owner:resize();return
+    end
     local content=owner.root.layout.content
     owner.root:destroy();owner.root=self:root(content)
 end

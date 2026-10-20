@@ -62,6 +62,9 @@ namespace MWLua
             bool deferMultiplayerPlayerStorage, bool isolatedMultiplayerProfile,
             const std::filesystem::path& multiplayerPlayerStorageRoot);
         void savePermanentStorage(const std::filesystem::path& userConfigPath) override;
+        std::filesystem::path exportStudioMidi(std::string_view name, std::string_view bytes) const;
+        std::vector<std::string> listStudioMidi() const;
+        std::string readStudioMidi(std::string_view name) const;
         void prepareMultiplayerPlayerStorage() override;
         bool bindMultiplayerPlayerStorage(std::string_view storageNamespace,
             std::string_view characterKey, std::string_view characterName, bool restorePlayerScripts,
@@ -326,6 +329,7 @@ namespace MWLua
         std::filesystem::path mMultiplayerPlayerStorageRoot;
         std::optional<std::filesystem::path> mLoadedPlayerStoragePath;
         std::optional<std::filesystem::path> mBoundPlayerStoragePath;
+        std::filesystem::path studioMidiDirectory() const;
         std::optional<std::filesystem::path> mBoundPlayerScriptsPath;
         std::optional<ESM::LuaScripts> mPendingPlayerScripts;
         double mPendingPlayerScriptsSimulationTime = 0.0;

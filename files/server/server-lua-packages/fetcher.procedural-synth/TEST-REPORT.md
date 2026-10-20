@@ -1007,3 +1007,33 @@ A late listener joins on subsequent notes after loading. Advanced sample loops,
 chopping, crossfades, reverse, time stretch, stereo lanes and multisample zones
 remain future work. Broad long-session/device latency measurements remain
 separate from the bounded forty-switch check above.
+
+
+## 2026-10-20: MIDI export, track naming, responsive Studio and drum-bar copy
+
+Package 19 / native synth API 13. Windows RelWithDebInfo openmw and openmw-server
+builds passed. All 16 Lua regression scripts passed, including the actual Bardcraft
+Greensleeves import/export test, and the native procedural-synth CTest passed.
+The client regression covers expanded piano hit testing/dragging at 2560x1440,
+ultrawide and small viewports, pitch bounds, geometry restore, UI rename/export
+callbacks and dropdown placement. Drum copy covers both lane pages, velocity/rest
+replacement, extension, persistence, Undo/Redo and the 16-bar cap. Export covers
+tempo/gates, authored meter, whole-song versus loop-range behavior, linked source
+transpose/mute, percussion, 48-byte track names and all 16 melodic parts.
+
+Native -ExportProbe ran on the established port-25567 fixture. Synth A exported
+linked notes and named parts, read them back through the restricted native API,
+saved/reloaded the renamed project, reimported the immediately listed local file
+and played it on the native clock. Synth B reported active voices for that score.
+Invalid bytes and parent-path reads were rejected. Native drum-copy/Undo/Redo passed.
+Sky visual inspection verified full-width Piano, painting/moving a note at the far
+right, geometry Restore, and clicking Duplicate to next bar on the actual Drums UI.
+This does not claim external-DAW listening or MIDI-controller/meter editing support.
+
+Local evidence: fixture/evidence/export-layout/ contains live-A.log, live-B.log,
+live-server.log, qa-completed.db and exported MIDI. The fresh user baseline was
+captured after the user closed their session: baseline-20261020-170606. After QA,
+its DB, global storage and profiles/userdata were restored with all 13 recorded
+SHA-256 checks matching before normal fixture startup. QA exports are retained
+only in evidence. Normal package installation disables the probe. Port 25568 and
+production binaries/databases were not used.

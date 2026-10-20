@@ -13,6 +13,8 @@
 #include <cerrno>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <cstdio>
 #include <system_error>
 #include <thread>
 
@@ -31,6 +33,7 @@
 #include <sol/types.hpp>
 
 #include <components/debug/debuglog.hpp>
+#include <components/files/conversion.hpp>
 
 #include <components/esm/luascripts.hpp>
 #include <components/esm3/esmreader.hpp>
@@ -84,6 +87,68 @@
 
 namespace MWLua
 {
+    std::filesystem::path LuaManager::studioMidiDirectory() const
+    {
+        const auto base = mBoundPlayerStoragePath.value_or(mDefaultPlayerStoragePath).parent_path();
+        if (base.empty()) throw std::runtime_error("Player storage is not ready for MIDI export");
+        auto directory = base / "studio-midi";
+        if (std::filesystem::is_symlink(directory)) throw std::runtime_error("MIDI export folder must not be a symbolic link");
+        return directory;
+    }
+    std::vector<std::string> LuaManager::listStudioMidi() const
+    {
+        const auto directory = studioMidiDirectory();
+        std::vector<std::string> result;
+        if (!std::filesystem::exists(directory)) return result;
+        unsigned scanned = 0;
+        for (const auto& entry : std::filesystem::directory_iterator(directory))
+        {
+            if (++scanned > 256) throw std::runtime_error("MIDI export folder has too many entries");
+            if (!entry.is_symlink() && entry.is_regular_file() && entry.path().extension() == ".mid")
+                result.push_back(Files::pathToUnicodeString(entry.path().filename()));
+        }
+        std::sort(result.begin(), result.end()); return result;
+    }
+    std::string LuaManager::readStudioMidi(std::string_view name) const
+    {
+        if (name.empty() || name.size() > 96 || name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.") != name.npos
+            || name.find("..") != name.npos || !name.ends_with(".mid")) throw std::invalid_argument("Invalid MIDI export name");
+        const auto path = studioMidiDirectory() / std::string(name);
+        if (std::filesystem::is_symlink(path) || !std::filesystem::is_regular_file(path)) throw std::runtime_error("MIDI export not found");
+        const auto size = std::filesystem::file_size(path);
+        if (size < 14 || size > 512 * 1024) throw std::runtime_error("Invalid MIDI export size");
+        std::ifstream file(path, std::ios::binary); std::string bytes(size, '\0');
+        if (!file.read(bytes.data(), static_cast<std::streamsize>(size)) || !bytes.starts_with("MThd"))
+            throw std::runtime_error("Cannot read MIDI export");
+        return bytes;
+    }
+    std::filesystem::path LuaManager::exportStudioMidi(std::string_view name, std::string_view bytes) const
+    {
+        if (bytes.size() < 14 || bytes.size() > 512 * 1024 || !bytes.starts_with("MThd"))
+            throw std::invalid_argument("MIDI export must be a Standard MIDI File of at most 512 KiB");
+        if (listStudioMidi().size() >= 128) throw std::runtime_error("MIDI export folder is full (128 files); move older exports out first");
+        std::string stem;
+        for (unsigned char c : name.substr(0, 48))
+            stem += ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') ? c : '_';
+        if (stem.empty()) stem = "Studio";
+        const auto directory = studioMidiDirectory(); std::filesystem::create_directories(directory);
+        for (unsigned n = 1; n <= 10000; ++n)
+        {
+            const auto path = directory / (stem + "-" + std::to_string(n) + ".mid");
+#ifdef _WIN32
+            auto* raw = _wfopen(path.c_str(), L"wbx");
+#else
+            auto* raw = std::fopen(path.c_str(), "wbx");
+#endif
+            if (!raw) { if (errno == EEXIST) continue; throw std::runtime_error("Cannot create MIDI export"); }
+            std::unique_ptr<std::FILE, decltype(&std::fclose)> file(raw, &std::fclose);
+            const bool written = std::fwrite(bytes.data(), 1, bytes.size(), file.get()) == bytes.size() && std::fflush(file.get()) == 0;
+            file.reset();
+            if (!written) { std::filesystem::remove(path); throw std::runtime_error("MIDI export write failed"); }
+            return path;
+        }
+        throw std::runtime_error("No unused MIDI export filename available");
+    }
     class PlayerStorageLock
     {
     public:

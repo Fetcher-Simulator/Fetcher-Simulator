@@ -52,7 +52,7 @@ function R.new(owner,content)
 end
 function R:point(e)
     local p=self.owner.root and self.owner.root.layout.props.position or v(0,0);local scale=self.owner.window.scale
-    if e.position then return v((e.position.x-p.x)/scale-self.x,(e.position.y-p.y)/scale-38-self.y) end
+    if e.position then return v((e.position.x-p.x)/scale-self.x-(self.owner.bodyOffset or 0),(e.position.y-p.y)/scale-38-self.y) end
     return v(e.offset.x/scale,e.offset.y/scale)
 end
 function R:press(slot,e)

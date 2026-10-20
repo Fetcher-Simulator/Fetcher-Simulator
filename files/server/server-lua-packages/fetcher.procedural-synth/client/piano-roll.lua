@@ -12,8 +12,14 @@ local function round(n,q) return math.floor(n/q+0.5)*q end
 local function shift() return input.isShiftPressed and input.isShiftPressed() end
 function R.new(owner,content)
     local w=owner.w;local t=w.project.tracks[w.selected]
-    local self=setmetatable({owner=owner,w=w,index=w.selected,track=t,x=76,y=260,width=owner.width-106,height=264,rows=12,pool={},visible={}},R)
-    self.steps=w.rollSteps;self.cw=self.width/self.steps;self.rh=self.height/self.rows
+    local self=setmetatable({owner=owner,w=w,index=w.selected,track=t,x=76,y=260,width=owner.width-106,
+        height=math.max(264,(owner.height or 695)-431),pool={},visible={}},R)
+    self.rows=math.min(128,math.max(12,math.floor(self.height/22)))
+    self.base=math.min(w.base,128-self.rows)
+    -- Keep approximately the same musical zoom as the viewport grows. The
+    -- explicit zoom buttons continue to control the baseline time density.
+    self.steps=math.min(256,math.max(w.rollSteps,math.floor(w.rollSteps*self.width/834/4+1e-6)*4))
+    self.cw=self.width/self.steps;self.rh=self.height/self.rows
     self.start=w.rollStart or w.bar*16;local notes=w:noteData(self.index) or {}
     local finish=t.kind=='midi' and math.max(w.project.timeline and w.project.timeline.beats*4 or w.song and w.song.beats*4 or 16,16) or Project.maxSteps
     local clip=w:clipSource(self.index);if clip then finish=clip.length end
@@ -21,7 +27,7 @@ function R.new(owner,content)
     self.maximum=math.max(0,finish-self.steps);self.start=clamp(self.start,0,self.maximum)
     local grid=rect(self.x,self.y,self.width,self.height,colors.bg);local cells={}
     for row=0,self.rows-1 do
-        local note=w.base+11-row;local black=({[1]=true,[3]=true,[6]=true,[8]=true,[10]=true})[note%12]
+        local note=self.base+self.rows-1-row;local black=({[1]=true,[3]=true,[6]=true,[8]=true,[10]=true})[note%12]
         cells[#cells+1]=rect(0,row*self.rh,self.width,self.rh-1,black and colors.bg or colors.row)
     end
     self.barSteps=w.project.composition and Project.barBeats(w.project)*4 or 16
@@ -36,7 +42,7 @@ function R.new(owner,content)
         w:selectNote(self.index)
         if w:canEditNotes(self.index) then
             local point=self:point(e);local step=math.max(0,round(self.start+point.x/self.cw,self:quantum()))
-            local pitch=clamp(w.base+11-math.floor(point.y/self.rh),0,127)
+            local pitch=clamp(self.base+self.rows-1-math.floor(point.y/self.rh),0,127)
             w:addNote(self.index,pitch,step)
         end
         self:draw()
@@ -114,12 +120,12 @@ function R:draw()
     for id,source in ipairs(w:noteData(self.index) or {}) do
         local n,s,l=source.n,source.s,source.l
         if self.drag and w.noteSelection[id] then local d=self.drag.change;n=n+(d.pitch or 0);s=s+(d.step or 0);l=l+(d.length or 0) end
-        if n>=w.base and n<w.base+12 and s<self.start+self.steps and s+math.max(l,0.06)>self.start then
+        if n>=self.base and n<self.base+self.rows and s<self.start+self.steps and s+math.max(l,0.06)>self.start then
             shown=shown+1
             if slot<#self.pool then
                 slot=slot+1;self.visible[slot]=id;local r=self.pool[slot].layout.props
                 local left,right=math.max(s,self.start),math.min(s+l,self.start+self.steps)
-                r.visible=true;r.position=v(self.x+(left-self.start)*self.cw,self.y+(w.base+11-n)*self.rh)
+                r.visible=true;r.position=v(self.x+(left-self.start)*self.cw,self.y+(self.base+self.rows-1-n)*self.rh)
                 r.size=v(math.max(3,(right-left)*self.cw-1),self.rh-2)
                 r.color=w.selectionTrack==self.index and w.noteSelection[id] and colors.selected or colors.note
                 self.owner.window:update(self.pool[slot])

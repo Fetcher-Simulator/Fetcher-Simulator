@@ -2,11 +2,9 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Next planned slice: **installed-game sound browser and voice-line sample
-playback**, including the native sample voices needed to perform /s-catalog
-speech as MIDI instruments. This now precedes MIDI export, project-library work
-and automation. See [the roadmap](ROADMAP.md#next-slice-installed-game-sound-browser-and-voice-line-sample-playback)
-for the scope and acceptance checks. Sampling is planned, not available yet.
+Current build: package 19 / native synth API 13. Installed-game voice, effect
+and music samples are available, along with MIDI export and track renaming.
+Next: multiple-project library and autosave/recovery. See [the roadmap](ROADMAP.md).
 
 ## Local use
 
@@ -832,3 +830,50 @@ stereo sample lanes or time stretching. The file identity detects mismatches;
 it is not an authentication or cryptographic integrity mechanism. Discovery is
 capped at 100,000 installed sounds. Rebuild speech metadata after updating the
 server catalogs with lua scripts/generate-procedural-synth-speech-catalog.lua.
+
+
+## MIDI export, names and expanded editing (package 19 / native synth API 13)
+
+Use **Export MIDI** in the Studio header to write a Standard MIDI format-1 file.
+It exports the complete song, including linear notes, repeated/transposed/unmuted
+linked clips, velocities, note lengths, tempo changes and authored meter. A project
+containing only the older piano/drum patterns exports one active pattern cycle.
+An enabled song-loop range does not crop the export. Unedited imported parts still
+require their original MIDI source. Export does not stop playback or alter the song.
+
+The result appears immediately in the MIDI song picker and is available after
+reconnecting. The status message gives its full local path: studio-midi/ beside
+this character's config/player_storage.bin, under the server/account/character
+profile. Each export gets a new filename; earlier files are preserved. Files stay
+on this computer, outside the server database. Move/copy them normally to use in
+another DAW. The folder holds at most 128 exports; move older files out when full.
+
+MIDI carries notes, tempo, names and supported original GM program hints. Your
+synth patches, sample audio/settings, effects, mixer and band routes remain in the
+saved Studio project. Opening exported MIDI elsewhere will use that application's
+instruments. This is MIDI export, not rendered audio export. Limits: 29,000 expanded
+notes and 512 KiB, plus existing playback density/duration limits. Sixteen melodic
+parts use MIDI Port metadata for the final part; percussion uses MIDI channel 10.
+The current importer preserves tempo but does not apply time-signature metadata.
+
+Choose **Rename** beside a Song part or on Piano, or select a Mixer part and press
+**Rename track**. Enter up to 48 bytes and use **Apply name** (or Enter); Cancel /
+Escape discards the draft. Names appear across views, support Undo/Redo, save with
+the project, and become MIDI track names on export. Notes, samples and routing stay
+attached to the same part. Reimported names retain the usual channel/pitch suffixes.
+
+On Drums, select a source bar and use **Duplicate to next bar**. It copies all drum
+lanes, including lanes on the other page, with their velocities and rests. It
+replaces the next bar, selects that bar, and grows the active clip length when
+needed, up to 16 bars. Undo restores the entire operation, including clip length.
+Melodic notes and reusable arrangement clips are separate from this pattern copy.
+
+Fullscreen and window resizing now give Studio an actual larger canvas. Piano
+uses the additional width for more time and the height for more pitches, retaining
+readable controls at the chosen Scale. Drum steps spread across the width. Headers
+stay at the edges; other Studio page bodies stay centered. Restore returns to the
+previous window geometry. The Synth sound editor retains its existing fixed layout.
+
+For disposable two-client export/rename/duplicate-bar QA use setup's -ExportProbe;
+back up the latest fixture database/profiles first. Setup without that flag restores
+normal interactive mode. It never needs a second fixture or a different port.
