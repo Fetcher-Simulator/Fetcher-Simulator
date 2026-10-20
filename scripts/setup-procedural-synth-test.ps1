@@ -18,6 +18,7 @@ param(
     [switch] $PerformerProbe,
     [switch] $PerformerStage,
     [switch] $EditingProbe,
+    [switch] $RecordingProbe,
     [switch] $VanillaSynth,
     [switch] $ResetStage,
     [string] $BardcraftDataDirectory
@@ -26,6 +27,7 @@ $ErrorActionPreference = 'Stop'
 if ($BandProbe) { $BandStage = $true }
 if ($PerformerProbe) { $PerformerStage = $true; $LiveProbe = $true }
 if ($EditingProbe) { $PerformerStage = $true; $LiveProbe = $true }
+if ($RecordingProbe) { $PerformerStage = $true; $LiveProbe = $true }
 if ($MidiProbe -or $DawProbe -or $DrumProbe -or $GuitarProbe -or $TimingProbe -or $MixerProbe -or $ReturnsProbe -or $SoundSetProbe -or $PickupProbe -or $BandProbe) { $LiveProbe = $true }
 function Write-Utf8 {
     param([string] $Path, [object] $Value)
@@ -119,7 +121,7 @@ Copy-Item -LiteralPath "$repo\files\server\server-lua-packages\fetcher.procedura
 $probe = Join-Path $fixture 'server-lua-packages\fetcher.synth-live-test'
 if ($LiveProbe) {
     New-Item -ItemType Directory -Force -Path $probe | Out-Null
-    $probeFile = if ($EditingProbe) { 'editing-player.lua' } elseif ($PerformerProbe) { 'performers-player.lua' } elseif ($BandProbe) { 'band-player.lua' } elseif ($PickupProbe) { 'pickup-player.lua' } elseif ($SoundSetProbe) { 'soundsets-player.lua' } elseif ($ReturnsProbe) { 'returns-player.lua' } elseif ($MixerProbe) { 'mixer-player.lua' } elseif ($TimingProbe) { 'timing-player.lua' } elseif ($GuitarProbe) { 'guitar-player.lua' } elseif ($DrumProbe) { 'drum-player.lua' } elseif ($DawProbe) { 'daw-player.lua' } elseif ($MidiProbe) { 'midi-player.lua' } else { 'live-player.lua' }
+    $probeFile = if ($RecordingProbe) { 'recording-player.lua' } elseif ($EditingProbe) { 'editing-player.lua' } elseif ($PerformerProbe) { 'performers-player.lua' } elseif ($BandProbe) { 'band-player.lua' } elseif ($PickupProbe) { 'pickup-player.lua' } elseif ($SoundSetProbe) { 'soundsets-player.lua' } elseif ($ReturnsProbe) { 'returns-player.lua' } elseif ($MixerProbe) { 'mixer-player.lua' } elseif ($TimingProbe) { 'timing-player.lua' } elseif ($GuitarProbe) { 'guitar-player.lua' } elseif ($DrumProbe) { 'drum-player.lua' } elseif ($DawProbe) { 'daw-player.lua' } elseif ($MidiProbe) { 'midi-player.lua' } else { 'live-player.lua' }
     Copy-Item -LiteralPath "$PSScriptRoot\procedural-synth-tests\$probeFile" -Destination "$probe\player.lua" -Force
     Write-Utf8 -Path "$probe\manifest.yaml" -Value @'
 manifestVersion: 3
@@ -237,6 +239,10 @@ if ($PerformerStage) {
     Copy-Item -LiteralPath "$PSScriptRoot\procedural-synth-tests\performers-stage.lua" -Destination "$fixture\server-scripts\performers-stage.lua" -Force
     $serverList = [IO.File]::ReadAllText("$fixture\server-scripts\server.omwscripts")
     Write-Utf8 -Path "$fixture\server-scripts\server.omwscripts" -Value ($serverList+"`nGLOBAL: performers-stage.lua")
+}
+if ($RecordingProbe) {
+    & python "$PSScriptRoot\procedural-synth-tests\seed-recording-midi.py" $fixture
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to prepare recording-test MIDI files.' }
 }
 if ($PerformerProbe) {
     Copy-Item -LiteralPath "$PSScriptRoot\procedural-synth-tests\performers-server.lua" -Destination "$fixture\server-scripts\performers-qa.lua" -Force

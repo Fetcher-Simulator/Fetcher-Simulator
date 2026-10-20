@@ -21,14 +21,24 @@ std::vector<float> studioRender(NativeStudio& studio,unsigned frames,unsigned bl
 }
 void studioTests()
 {
-    NativeStudio silent;
+    {
+        auto overdub=std::make_unique<NativeStudio>();setupStudio(*overdub);
+        overdub->loadScore(scoreNote(0,4800,1,60),12000,false);overdub->start(0,0);studioRender(*overdub,1000);
+        overdub->noteOn(1,60,1);studioRender(*overdub,100);overdub->noteOff(1,60);studioRender(*overdub,100);
+        check(!overdub->activeNotes().empty() && overdub->trackVoices(1)>0,"live release cannot cut a same-pitch score gate");
+        overdub->noteOn(1,60,1);studioRender(*overdub,6000);
+        check(!overdub->activeNotes().empty() && overdub->trackVoices(1)>0,"score gate cannot cut a held recording key");
+        overdub->noteOff(1,60);studioRender(*overdub,9600);
+        check(overdub->activeNotes().empty() && overdub->voices()==0,"shared pitch releases after both sources finish");
+    }
+    auto silentStorage=std::make_unique<NativeStudio>();auto& silent=*silentStorage;
     check(silent.loadScore("",24000,true) && silent.start(0.01,0),"empty output score keeps native band clock");
     check(energy(studioRender(silent,96480,137))==0 && silent.playing() && silent.voices()==0 && silent.position()==2,
         "empty output loops in exact phase without allocating track voices");
     check(silent.units()==1 && silent.loadScore("",2400,false) && silent.replace(0),"silent finite replacement accepted");
     studioRender(silent,4800);check(!silent.playing(),"empty finite output completes");
     check(!silent.loadScore("",0,true),"empty output still requires a valid length");
-    NativeStudio a,b;setupStudio(a);setupStudio(b);
+    auto aStorage=std::make_unique<NativeStudio>();auto& a=*aStorage;auto bStorage=std::make_unique<NativeStudio>();auto& b=*bStorage;setupStudio(a);setupStudio(b);
     const auto score=scoreNote(37,12001,1,60)+scoreNote(37,6001,2,64)+scoreNote(6013,4000,2,67)+scoreNote(19000,20000,1,60);
     check(a.loadScore(score,24000,true) && b.loadScore(score,24000,true),"score loads with cross-loop gates");
     check(a.start(0.01,0) && b.start(0.01,0),"future native start");
@@ -38,7 +48,7 @@ void studioTests()
     check(a.position()>1.98 && a.playing() && a.strikes()>12,"transport advances and loops without Lua updates");
     a.stop();studioRender(a,9600);check(!a.playing() && a.voices()==0 && a.activeNotes().empty(),"Stop cancels future onsets and all gates");
     check(energy(studioRender(a,24000))==0,"cancelled score never restarts");
-    NativeStudio late;setupStudio(late);
+    auto lateStorage=std::make_unique<NativeStudio>();auto& late=*lateStorage;setupStudio(late);
     check(late.loadScore(scoreNote(0,20000,1,60)+scoreNote(12000,2000,2,67),24000,true) && late.start(0,0.125),"late seek accepted");
     studioRender(late,5000);check(late.strikes()==0 && late.activeNotes().empty(),"seek does not replay historical attacks");
     studioRender(late,2000);check(late.strikes()==1 && late.trackVoices(2)>0,"late listener enters at the next scheduled onset");
@@ -48,7 +58,7 @@ void studioTests()
     late.stop();late.noteOn(1,76,1);studioRender(late,1000);
     check(late.trackVoices(1)>0,"live note after Stop survives command ordering");
     late.stop();studioRender(late,9600);check(late.voices()==0,"live note releases on Stop");
-    NativeStudio finite;setupStudio(finite);
+    auto finiteStorage=std::make_unique<NativeStudio>();auto& finite=*finiteStorage;setupStudio(finite);
     check(finite.loadScore(scoreNote(0,1200,1,60),2400,false) && finite.start(0,0),"finite score accepted");
     studioRender(finite,24000);check(!finite.playing() && finite.voices()==0,"finite score finishes and releases");
     check(!finite.loadScore(scoreNote(0,1,17,60),24000,true) && !finite.loadScore(scoreNote(100,0,1,60),24000,true),"invalid lanes and zero gate rejected");
@@ -62,7 +72,7 @@ void studioTests()
     check(drain->loadScore(scoreNote(0,1000,2,67),12000,false) && drain->replace(0),"finite replacement accepted after several loop cycles");
     studioRender(*drain,48000);
     check(!drain->playing() && drain->voices()==0 && drain->activeNotes().empty(),"old cross-loop gates release even after replacement transport finishes");
-    NativeStudio mixedA,mixedB;setupStudio(mixedA);setupStudio(mixedB);
+    auto mixedAStorage=std::make_unique<NativeStudio>();auto& mixedA=*mixedAStorage;auto mixedBStorage=std::make_unique<NativeStudio>();auto& mixedB=*mixedBStorage;setupStudio(mixedA);setupStudio(mixedB);
     auto strip=MWSound::ProceduralMixer::defaults();strip[0]=strip[6]=1;strip[2]=9;strip[3]=-8;strip[7]=-40;strip[8]=8;
     check(mixedA.mixer(1,strip) && mixedB.mixer(1,strip),"native per-lane mixer configured");
     check(!mixedA.mixer(17,strip),"out-of-range mixer lane rejected");

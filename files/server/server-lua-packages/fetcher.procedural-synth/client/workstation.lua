@@ -45,10 +45,12 @@ function W:restore(project)
     if self:needsMidi() and not self.song then self.cb.importMidi(project.midi) end
 end
 function W:undo()
+    if self.recording then self.cb.message('End or cancel the take before undo.');return false end
     local project=table.remove(self.undoStack);if not project then return false end
     self.redoStack[#self.redoStack+1]=copy(self.project);self:restore(project);return true
 end
 function W:redo()
+    if self.recording then self.cb.message('End or cancel the take before redo.');return false end
     local project=table.remove(self.redoStack);if not project then return false end
     self.undoStack[#self.undoStack+1]=copy(self.project);self:restore(project);return true
 end
@@ -249,6 +251,7 @@ function W:selectedNotes(index)
     return ids
 end
 function W:storeNotes(index,notes,key,quiet)
+    if self.recording then self.cb.message('End or cancel the take before editing notes.');return false end
     local t=self.project.tracks[index];if not self:canEditNotes(index) then return false end
     if t.edited then
         local data=format.encodeNotes(notes,t.edited.division);local total=#notes
@@ -333,12 +336,13 @@ end
 function W:cacheSpans() self.spans=self.song and MIDI.noteSpans(self.song) or {} end
 function W:load(project)
     local valid=format.project(project);if not valid then return false end
-    self:stop(true);if self.project.midi~=valid.midi then self.song=nil end
+    self:endTake(true);self:stop(true);if self.project.midi~=valid.midi then self.song=nil end
     self.project=valid;self.checkpoint=copy(valid);self.undoStack={};self.redoStack={};self.lastEditKey=nil;self.noteSelection={};self.noteCache={};self:cacheSpans();self.selected=1;self.bar=0;self.dirty=false;self.revision=self.revision+1;self.generation=self.generation+1;self:configureAll()
     if self:needsMidi() and not self.song then self.cb.importMidi(valid.midi) end
     return true
 end
 function W:save()
+    if self.recording then self.cb.message('Keep or cancel the take before saving.');return false end
     self.lastEditKey=nil
     local p=format.project(self.project)
     if not p then self.cb.message('Project contains unsupported data; save cancelled.');return false end
@@ -352,6 +356,7 @@ function W:audition(index)
     return true
 end
 function W:stop(force)
+    self:endTake(false)
     if self.cb.stopSequence and (self.native or force) then self.cb.stopSequence() end
     if self.native then self.native=false;self.awaiting=false;self.sequenceDirty=false end
     local midi=self.midi;self.midi=nil
@@ -384,8 +389,8 @@ function W:play(mode)
     end
     return true
 end
-function W:beatAt(time)
-    if self.mode~='song' then return time*self.project.bpm/60 end
+function W:beatAt(time,mode)
+    if (mode or self.mode)~='song' then return time*self.project.bpm/60 end
     local beat,seconds,tempo=0,0,500000
     local timeline=self.project.timeline or self.song
     for _,t in ipairs(timeline.tempos or {}) do
@@ -394,7 +399,106 @@ function W:beatAt(time)
     end
     return beat+(time-seconds)*1000000/tempo
 end
+function W:recordClock()
+    local r=self.recording;if not r then return end
+    if r.overdub then
+        local playing,time=self.cb.progress()
+        if not playing or self.awaiting then return nil end
+        return self:beatAt(time,r.mode)*4
+    end
+    local now=self.cb.now and self.cb.now() or self.wall
+    if now<r.starts then return nil end
+    return self:beatAt(r.seconds+now-r.starts,r.mode)*4
+end
+function W:startTake(index)
+    if self.failedTake then self.cb.message('Retry or cancel the recovered take before recording again.');return false end
+    if self.playing and (not self.native or not self.cb.progress) then self.cb.message('Native playback is required for overdub.');return false end
+    if self.recording or not self:canEditNotes(index) then self.cb.message('Choose a piano clip or convert the MIDI part with Edit MIDI first.');return false end
+    local t=self.project.tracks[index]
+    if t.edited and self.playing and self.mode~='song' then self.cb.message('Play song, or stop playback before recording this MIDI part.');return false end
+    self:configure(index)
+    if self.cb.canMonitor and not self.cb.canMonitor(index) then self.cb.message('The assigned instrument must be Ready and loaded before recording.');return false end
+    local capacity=t.edited and format.maxPartNotes-#self:noteData(index) or 128-#t.notes
+    local remaining=t.edited and format.maxEditedNotes or format.maxNotes
+    for _,track in ipairs(self.project.tracks) do remaining=remaining-(t.edited and (track.edited and #track.edited.bytes/10 or 0) or #track.notes) end
+    capacity=math.min(capacity,remaining)
+    if capacity<=0 then self.cb.message('No free note capacity for this take.');return false end
+    local now=self.cb.now and self.cb.now() or self.wall
+    local mode=self.playing and self.mode or (t.edited and 'song' or 'clips')
+    local seconds=self.playing and self.time or (t.edited and format.seconds(self.project.timeline,(self.rollStart or self.bar*16)/4) or (self.rollStart or self.bar*16)/4*60/self.project.bpm)
+    local step=self:beatAt(seconds,mode)*4
+    if self.playing and self.cb.progress then local _,time=self.cb.progress();step=self:beatAt(time,mode)*4 end
+    local origin=t.edited and 0 or (self.playing and math.floor(step/self.project.length)*self.project.length or 0)
+    local limit=t.edited and math.min(format.maxSongBeats*4,self:beatAt(1800,'song')*4) or origin+self.project.length
+    if step>=limit then self.cb.message('Move the view inside the clip loop before recording.');return false end
+    self.recording={index=index,track=t,mode=mode,overdub=self.playing,origin=origin,limit=limit,notes={},held={},capacity=capacity,
+        starts=now+4*60/self.project.bpm,seconds=seconds,snap=self.snap>0 and self.snap or (t.edited and 4/t.edited.division or 1/240)}
+    self.revision=self.revision+1;return true
+end
+function W:recordOn(note,velocity)
+    local r=self.recording;local step=self:recordClock()
+    if not r or not step or step>=r.limit or type(note)~='number' or note%1~=0 or note<0 or note>127 or r.held[note] then return false end
+    velocity=velocity or self.velocity
+    if type(velocity)~='number' or velocity~=velocity or velocity<0.01 or velocity>1 then return false end
+    local count=#r.notes;for _ in pairs(r.held) do count=count+1 end
+    if count>=r.capacity then self.cb.message('Take note limit reached; keep or cancel this take.');return false end
+    if self.cb.on(r.index,note,velocity)==false then return false end
+    if self.recording~=r then return false end
+    r.held[note]={n=note,raw=step,v=velocity};r.last=step;return true
+end
+function W:recordOff(note,step)
+    local r=self.recording;local held=r and r.held[note];if not held then return false end
+    step=math.min(step or self:recordClock() or r.last or held.raw,r.limit)
+    self.cb.off(r.index,note);r.held[note]=nil
+    local s=math.floor((held.raw-r.origin)/r.snap+0.5)*r.snap
+    local finish=math.floor((step-r.origin)/r.snap+0.5)*r.snap
+    local limit=r.limit-r.origin
+    s=math.max(0,math.min(limit-r.snap,s));finish=math.max(s+r.snap,math.min(limit,finish))
+    r.notes[#r.notes+1]={n=note,s=s,l=finish-s,v=held.v};r.last=step;return true
+end
+function W:endTake(cancel)
+    local r=self.recording
+    if not r then if cancel then self.failedTake=nil;self.revision=self.revision+1 end;return false end
+    if r.ending then return false end;r.ending=true
+    local step=self:recordClock() or r.last
+    local held={};for note in pairs(r.held) do held[#held+1]=note end
+    for _,note in ipairs(held) do self:recordOff(note,step) end
+    self.recording=nil;self.revision=self.revision+1
+    if cancel or #r.notes==0 then return true end
+    if self.project.tracks[r.index]~=r.track then self.cb.message('Recording destination changed; take discarded.');return false end
+    local notes=copy(self:noteData(r.index));local first=#notes+1
+    for _,n in ipairs(r.notes) do notes[#notes+1]=n end
+    if not self:storeNotes(r.index,notes) then self.failedTake={index=r.index,track=r.track,notes=copy(r.notes)};self.cb.message('Take not committed. Free note capacity, then Retry take; Cancel discards recovery.');return false end
+    self:selectNote(r.index);for id=first,#notes do self.noteSelection[id]=true end
+    return true
+end
+function W:recoverTake()
+    local r=self.failedTake;if not r or self.recording or self.project.tracks[r.index]~=r.track or not self:canEditNotes(r.index) then return false end
+    local notes=copy(self:noteData(r.index));for _,n in ipairs(r.notes) do notes[#notes+1]=copy(n) end
+    if not self:storeNotes(r.index,notes) then return false end
+    self.failedTake=nil;return true
+end
+function W:recordFrame()
+    local r=self.recording;if not r then return end
+    if r.overdub and not self.playing and not self.awaiting then self:endTake(false);return end
+    if self.cb.canMonitor and not self.cb.canMonitor(r.index) then self:endTake(false);self.cb.message('Recording stopped because its instrument became unavailable.');return end
+    local step=self:recordClock()
+    if step then r.started=true;r.last=step;if step>=r.limit then self:endTake(false) end
+    elseif r.overdub and r.started and not self.awaiting then self:endTake(false) end
+end
+function W:recordStatus()
+    local r=self.recording;if not r then return 'No active take' end
+    local step=self:recordClock()
+    if not step then
+        if r.overdub then return 'Waiting for native playback...' end
+        local now=self.cb.now and self.cb.now() or self.wall
+        return 'Count in: '..math.max(1,math.ceil((r.starts-now)*self.project.bpm/60))
+    end
+    local held=0;for _ in pairs(r.held) do held=held+1 end
+    return string.format('RECORD  |  Beat %.2f  |  %d notes + %d held',step/4+1,#r.notes,held)
+end
 function W:frame(dt)
+    self:recordFrame()
     if self.native then
         self.wall=self.wall+math.max(0,type(dt)=='number' and dt==dt and dt or 0)
         local preview={}

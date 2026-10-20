@@ -515,4 +515,40 @@ api.respondToInvite(false);check(sent[#sent].op=='respond' and sent[#sent].token
 api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrument=='lute','ready requests a server inventory check')
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
-print(string.format('PASS client/editor lifecycle, chords, edits, presets, sequence, listener cleanup; %d assertions',checks))
+-- Reproduce loaded-song reuse from the actual Studio callbacks, including Band.
+package.loaded['openmw.synth'].version=11
+local paths={'midi/a.mid','midi/b.mid'};local files={}
+local function midiBytes(pitch,count)
+    local events={};for n=1,count or 1 do events[#events+1]=string.char(0,144,pitch,100,96,128,pitch,0) end
+    local bytes=table.concat(events)..string.char(0,255,47,0)
+    return 'MThd'..be(6,4)..be(0,2)..be(1,2)..be(96,2)..'MTrk'..be(#bytes,4)..bytes
+end
+files[paths[1]]=midiBytes(60);files[paths[2]]=midiBytes(72)
+package.loaded['openmw.vfs'].pathsWithPrefix=function() local at=0;return function() at=at+1;return paths[at] end end
+package.loaded['openmw.vfs'].open=function(path) return {read=function() return assert(files[path]) end,close=function() end} end
+now=600;player=dofile(root..'client/player.lua');api=player.interface;handler=player.eventHandlers.Synth_Message
+player.engineHandlers.onFrame(0)
+handler{version=1,op='granted',id=7,epoch=20,seq=1,params=schema.state({})};api.studio();w=api.workstation()
+lastStudio.cb.playSong();now=now+0.01;player.engineHandlers.onFrame(0.01)
+check(w.project.midi==paths[1] and w.song.events[1].note==60,'initial Studio Play uses selected song')
+lastStudio.cb.midiSelect(paths[2]);lastStudio.cb.playSong();now=now+0.01;player.engineHandlers.onFrame(0.01)
+check(w.project.midi==paths[2] and w.song.events[1].note==72,'new selection replaces loaded song without Finish')
+w.page='band';w.revision=w.revision+1;now=now+0.01;player.engineHandlers.onFrame(0.01)
+lastStudio.cb.cycleMidi(-1);lastStudio.cb.playSong();now=now+0.01;player.engineHandlers.onFrame(0.01)
+check(w.project.midi==paths[1] and w.song.events[1].note==60,'Band-page song cycling cannot replay previous selection')
+files[paths[2]]=midiBytes(72,140)
+lastStudio.cb.midiSelect(paths[2]);lastStudio.cb.playSong();now=now+0.01;player.engineHandlers.onFrame(0.01)
+check(lastStudio.cb.midiLabel():find('Loading'),'large parse yields instead of blocking')
+lastStudio.cb.midiSelect(paths[1]);lastStudio.cb.playSong()
+for n=1,10 do now=now+0.01;player.engineHandlers.onFrame(0.01) end
+check(w.project.midi==paths[1] and w.song.events[1].note==60,'cancelled asynchronous parse cannot overwrite newer selection')
+local Format=package.loaded[prefix..'shared.project'](schema)
+w:load(Format.new());w:add('piano');w.page='piano';w.revision=w.revision+1;now=now+0.01;player.engineHandlers.onFrame(0.01)
+button('Record keyboard >').events.mouseClick();now=now+0.01;player.engineHandlers.onFrame(0.01)
+check(w.page=='record','piano roll opens the dedicated recording keyboard')
+button('Start take').events.mouseClick();now=now+2.13;player.engineHandlers.onFrame(0.01)
+lastStudio:key(input.KEY.Z,true);lastStudio:key(input.KEY.Z,true)
+now=now+0.38;lastStudio:key(input.KEY.Z,false);button('Keep take').events.mouseClick()
+check(#w:noteData(1)==1 and w:noteData(1)[1].n==60 and w:noteData(1)[1].s==1 and w:noteData(1)[1].l==3,'actual keyboard callback records a quantized gate without key-repeat duplication')
+api.close()
+print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

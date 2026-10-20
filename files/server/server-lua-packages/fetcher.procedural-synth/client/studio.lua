@@ -35,6 +35,7 @@ function S:slider(x,y,width,value,fn)
     r.events={mousePress=cb(set),mouseMove=cb(function(e) if e.button==1 then set(e) end end)};return r
 end
 function S:select(delta)
+    self:releaseAll()
     local n=#self.w.project.tracks;if n>0 then self.w.selected=(self.w.selected-1+delta)%n+1;self.w.revision=self.w.revision+1 end
 end
 function S:barControls(content,y,maxBar)
@@ -246,8 +247,46 @@ function S:piano(content)
         {'Duplicate',function() w:duplicateNotes(w.selected) end},{'Delete',function() w:deleteNotes(w.selected) end}} do
         content[#content+1]=self:button(entry[1],20+(n-1)*116,602,106,entry[2])
     end
+    content[#content+1]=self:button('Record keyboard >',610,602,285,function() w.page='record';w.revision=w.revision+1 end)
     content[#content+1]=label(t.kind=='midi' and not t.edited and 'Read only: Edit MIDI creates saved notes; the original file stays intact.' or 'Click adds. Shift-click selects. Drag moves; drag the right edge resizes. Edits keep routing.',20,644,895,12,c.muted)
     content[#content+1]=label('Ctrl+A/C/V/D, Delete, arrow keys. Wheel: pitch; Shift-wheel: time; Ctrl-wheel: zoom.',20,670,895,12,c.muted)
+end
+function S:recordKey(note,on,velocity)
+    self.recordHeld=self.recordHeld or {}
+    if on then
+        if self.recordHeld[note] or not self.w:recordOn(note,velocity) then return end
+        self.recordHeld[note]=true
+    else self.w:recordOff(note);self.recordHeld[note]=nil end
+end
+function S:record(content)
+    local w=self.w;local t=w.project.tracks[w.selected];local base=w.recordBase or 60
+    content[#content+1]=self:button('< track',20,169,70,function() self:select(-1) end)
+    content[#content+1]=label(t and t.name or 'Add a piano track first',104,174,450,15,c.accent)
+    content[#content+1]=self:button('track >',575,169,70,function() self:select(1) end)
+    content[#content+1]=self:button('+ Piano',660,169,86,function() self:releaseAll();w:add('piano') end)
+    content[#content+1]=self:button('Piano roll',755,169,140,function() w.page='piano';w.revision=w.revision+1 end)
+    content[#content+1]=label('QUANTIZED KEYBOARD RECORDING',20,222,850,18,c.accent)
+    content[#content+1]=self:button('Start take',20,265,150,function() w:startTake(w.selected) end)
+    content[#content+1]=self:button('Keep take',185,265,150,function() w:endTake(false) end)
+    content[#content+1]=self:button('Cancel take',350,265,150,function() w:endTake(true) end)
+    if w.failedTake then content[#content+1]=self:button('Retry take',515,265,150,function() w:recoverTake() end) end
+    self.recordText=self:element(label(w:recordStatus(),20,320,875,17,c.accent));content[#content+1]=self.recordText
+    content[#content+1]=label('Stopped: one-bar visual count-in from the current piano-roll view. Playing: overdub the audible clock.',20,365,880,12,c.muted)
+    content[#content+1]=label('Piano clips record to the next loop boundary. Edited MIDI records on the full song timeline.',20,393,880,12,c.muted)
+    content[#content+1]=self:button('Oct -',20,430,80,function() w.recordBase=math.max(0,base-12);w.revision=w.revision+1 end)
+    content[#content+1]=self:button('Oct +',110,430,80,function() w.recordBase=math.min(103,base+12);w.revision=w.revision+1 end)
+    content[#content+1]=label('Grid: '..(w.snap>0 and (w.snap..' sixteenth steps') or 'Off')..'  |  Notes use the selected track sound and band destination.',210,436,680,12,c.muted)
+    self.recordKeyboard={}
+    for n=0,24 do
+        local note=base+n;local black=names[note%12+1]:find('#')~=nil
+        local key=rect(20+n*35,480,33,black and 85 or 120,black and c.track or c.text)
+        key.content=ui.content{label(pitch(note),2,black and 59 or 94,32,10,black and c.text or c.bg)}
+        key.events={mousePress=cb(function(e) if e.button==1 then self.mouseRecord=note;self:recordKey(note,true,math.max(0.2,math.min(1,e.offset.y/(120*self.window.scale)))) end end),
+            mouseRelease=cb(function() self:recordKey(note,false);self.mouseRecord=nil end)}
+        local element=self:element(key);self.recordKeyboard[note]={element=element,color=black and c.track or c.text};content[#content+1]=element
+    end
+    content[#content+1]=label('Play after count-in: Z S X D C V G B H N J M ,  |  mouse keys span two octaves.',20,628,880,12,c.muted)
+    content[#content+1]=label('Keep commits one undo action. Cancel discards the take. Stop/Hide keep notes; Save before Finish.',20,660,880,12,c.muted)
 end
 function S:zoomRoll(factor)
     self.w.rollSteps=math.max(8,math.min(64,self.w.rollSteps*factor));self.w.revision=self.w.revision+1
@@ -300,6 +339,8 @@ function S:drums(content)
     content[#content+1]=label('Play clips loops the piano and drum clips together. Play song also follows the imported MIDI tempo map.',20,657,880,12,c.muted)
 end
 function S:render()
+    if self.lastPage=='record' and self.w.page~='record' then self:releaseAll() end;self.lastPage=self.w.page
+    self.recordText=nil;self.recordKeyboard=nil
     self.controlEpoch=(self.controlEpoch or 0)+1;self.noteVelocityRefresh=nil
     if self.roll then self.roll:finish(true);self.roll=nil end
     Dropdown.close(self)
@@ -337,19 +378,31 @@ function S:render()
     end)
     content[#content+1]=self:button('MIDI >',726,112,65,function() self.cb.cycleMidi(1);w.revision=w.revision+1 end)
     content[#content+1]=self:button('Import',803,112,92,self.cb.import)
-    if w.page=='piano' then self:piano(content) elseif w.page=='drums' then self:drums(content) elseif w.page=='channel' then self:channel(content) elseif w.page=='returns' then self:returns(content) elseif w.page=='band' then self:band(content) else self:mixer(content) end
+    if w.page=='record' then self:record(content) elseif w.page=='piano' then self:piano(content) elseif w.page=='drums' then self:drums(content) elseif w.page=='channel' then self:channel(content) elseif w.page=='returns' then self:returns(content) elseif w.page=='band' then self:band(content) else self:mixer(content) end
     self.root=self.window:root(content);self.revision=w.revision
 end
 function S.new(workstation,callbacks)
     local self=setmetatable({kind='studio',w=workstation,cb=callbacks,window=Window.new(),children={},width=940,lastFrame=-1},S)
     self.window.pickup=callbacks.pickup;self:render();I.UI.addMode('Interface',{windows={}});return self
 end
-function S:releaseAll() if self.roll then self.roll:finish(true) end end
+function S:releaseAll()
+    if self.roll then self.roll:finish(true) end
+    for note in pairs(self.recordHeld or {}) do self.w:recordOff(note) end
+    self.recordHeld={};self.recordKeys={};self.mouseRecord=nil;self.w:endTake(false)
+end
 function S:key(code,on)
+    self.recordKeys=self.recordKeys or {}
+    if not on and self.recordKeys[code] then self:recordKey(self.recordKeys[code],false);self.recordKeys[code]=nil;return end
     if self.dropdown then if on and code==input.KEY.Escape then Dropdown.close(self) end;return end
     if on and code==input.KEY.Escape then self.cb.hide();return end
     if not on or self.typing then return end
     local ctrl=input.isCtrlPressed and input.isCtrlPressed()
+    if self.w.page=='record' and not ctrl then
+        for n,key in ipairs{input.KEY.Z,input.KEY.S,input.KEY.X,input.KEY.D,input.KEY.C,input.KEY.V,input.KEY.G,input.KEY.B,input.KEY.H,input.KEY.N,input.KEY.J,input.KEY.M,input.KEY.Comma} do
+            if key==code and not self.recordKeys[code] then local note=(self.w.recordBase or 60)+n-1;self:recordKey(note,true);self.recordKeys[code]=note end
+        end
+        return
+    end
     if ctrl then
         if self.roll then self.roll:finish(true) end
         if code==input.KEY.Z then if input.isShiftPressed and input.isShiftPressed() then self.w:redo() else self.w:undo() end
@@ -375,10 +428,13 @@ function S:frame(now)
     Dropdown.frame(self)
     if I.UI.getMode()~='Interface' then self.cb.hide();return end
     if self.roll then self.roll:frame() end
+    if self.mouseRecord and not input.isMouseButtonPressed(1) then self:recordKey(self.mouseRecord,false);self.mouseRecord=nil end
     if self.revision~=self.w.revision then self:render() end
     if now-self.lastFrame<0.1 then return end;self.lastFrame=now
     self.transport.layout.props.text=string.format('%s  |  %.1fs  |  Beat %.1f  |  %s%s',self.w.awaiting and 'BUFFER' or (self.w.playing and 'PLAY' or 'STOP'),self.w.time,self.w.beat+1,self.w.project.name,self.w.dirty and ' *' or '')
     self.window:update(self.transport)
+    if self.recordText then self.recordText.layout.props.text=self.w:recordStatus();self.window:update(self.recordText) end
+    for note,key in pairs(self.recordKeyboard or {}) do key.element.layout.props.color=self.recordHeld and self.recordHeld[note] and c.accent or key.color;self.window:update(key.element) end
     for lane,meter in pairs(self.meters) do meter.layout.props.size=v(math.max(1,220*math.max(0,math.min(1,(20*math.log(math.max(0.001,self.w.cb.meter(lane)))/math.log(10)+60)/60))),3);self.window:update(meter) end
     for n,text in pairs(self.meterLabels) do
         local peak,rms,reduction=0,0,0

@@ -79,6 +79,7 @@ namespace MWSound
         std::array<std::unique_ptr<ProceduralSynth>, MaxTracks> mOwnedTracks{};
         std::array<std::atomic<ProceduralSynth*>, MaxTracks> mTracks{};
         std::array<std::array<unsigned, 128>, MaxTracks> mHeld{};
+        std::array<std::array<bool, 128>, MaxTracks> mLiveHeld{};
         std::array<std::array<std::atomic<std::uint64_t>, 2>, MaxTracks> mNoteBits{};
         std::array<unsigned, MaxTracks> mGeneration{};
         std::array<ProceduralMixer, MaxTracks> mMixer{};

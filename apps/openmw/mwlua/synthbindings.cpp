@@ -20,7 +20,7 @@ namespace MWLua
                 "keepAlive", &Synth::keepAlive, "closed", sol::property(&Synth::closed), "peak",
                 sol::property(&Synth::peak), "voices", sol::property(&Synth::voices));
             sol::table api(lua, sol::create);
-            api["version"] = 10;
+            api["version"] = 11;
             using Studio = MWSound::ProceduralStudio;
             lua.new_usertype<Studio>("ProceduralStudio", sol::no_constructor,
                 "closed", sol::property(&Studio::closed), "close", &Studio::close,

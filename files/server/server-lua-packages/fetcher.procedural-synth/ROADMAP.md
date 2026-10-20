@@ -1,6 +1,6 @@
 # Procedural Synth / Studio roadmap
 
-Updated 2026-10-19. Completed work and subsequent planned slices are identified below.
+Updated 2026-10-20. Completed work and subsequent planned slices are identified below.
 
 ## Product goal
 
@@ -166,7 +166,7 @@ physical destination routing.
 
 ## Following slices
 
-1. Deeper song composition: quantized recording, arrangement clips, automation,
+1. Deeper song composition: arrangement clips, automation,
    tempo/controller editing and edited MIDI export. The first imported-part note
    editor is complete below; existing piano/drum clips remain supported.
 2. Project library and autosave/recovery, followed by native sample instruments
@@ -235,3 +235,18 @@ This slice does not add sends/buses or change the mono keyboard emitter.
   MIDI sound roles survive conversion/source-free reload and sound-set cycling.
 - Native two-client band playback, private SQLite persistence and an 8,192-note
   network round trip tested in the existing isolated port-25567 fixture.
+
+
+## Completed slice: quantized keyboard takes and selected-song playback
+
+- Dedicated recording keyboard page with mouse/musical typing, four-beat visual
+  count-in, frozen-grid onset/gate quantization, velocity and chord capture.
+- Overdub on the native audible clock; tempo-map-aware song takes and bounded
+  clip-loop capture; Keep/Cancel, held-note cleanup and one undo step per take.
+- Recorded notes save using existing project data and band routing. Input state
+  stays transient. Temporary commit failures have explicit retry/cancel recovery.
+- Selected-song Play replaces the prior loaded song on every Studio page;
+  immutable asynchronous load identity prevents stale-selection/session races.
+- Native live/sequence pitch gating prevents premature same-pitch releases.
+- External MIDI devices, audible metronome and recording latency calibration
+  remain follow-up work, alongside arrangement/automation/export.

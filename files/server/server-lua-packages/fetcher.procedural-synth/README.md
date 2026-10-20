@@ -633,3 +633,49 @@ instruments and the /s voice catalog browser remain planned.
 The optional -EditingProbe setup flag installs a disposable two-client test in
 the existing isolated fixture. It temporarily saves test projects; back up the
 current database and profiles first. Rerun setup without that flag after QA.
+
+
+## Quantized recording and song selection (package 15 / native synth API 11)
+
+Selecting a different MIDI in either editor and pressing Play now imports and
+plays that selection, including from Band. Playing the already loaded file
+keeps its edited notes, patches and routing. Each asynchronous parse carries
+its file, intent and session identity; changing selection cancels the old load.
+Load restores the project selection. Fully converted saved songs can still play
+when their original file is absent. The picker marks a different pending choice
+as selected instead of claiming that it is the currently playing arrangement.
+
+Open Piano > Record keyboard. Choose a piano clip or an already converted MIDI
+part (use Edit MIDI first). The recording keyboard has 25 mouse keys; musical
+typing uses Z S X D C V G B H N J M comma. Oct -/+ changes the typing range.
+This first recording slice uses computer/mouse input, not an external MIDI device
+or microphone. Monitoring follows the track's patch, mixer and band destination;
+that physical destination must be Ready and locally loaded.
+
+Start take while stopped gives a four-beat visual count-in, then records from
+the left edge of the piano-roll view. Start take during native playback overdubs
+the audible song clock without restarting it. Editable MIDI uses the saved tempo
+map, and piano clips capture through the next loop boundary. The clip view must
+start inside its playback loop. Play notes after the count-in/waiting indicator.
+There is no audible metronome or latency calibration in this slice.
+
+The piano-roll Snap value is frozen for the take and quantizes both onset and
+gate; Off retains MIDI PPQ (or fine clip ticks). Chords, velocities and held-note
+release are captured. Keep take appends the whole take as one undo action. Cancel
+releases live notes and discards that take. Stop, Hide and leaving the recording
+page finish the take into the current project. Save it before Finish ends the
+Studio session. A failed commit retains temporary take recovery with Retry take;
+Cancel discards recovery. Existing project/note limits still apply.
+
+Saved takes use ordinary clip/edited-MIDI notes and retain the existing channel
+mix and player/NPC/keyboard output. During playback, keeping a take uses the
+existing scheduled native score replacement. Temporary held keys, count-in,
+clipboard and recording state are not saved or restored as active input.
+Native API 11 combines manual and sequenced pitch gates, preventing either
+source's note-off from prematurely cutting the other; Stop/choke/track release
+clear both. Manual active notes also drive held-instrument pose diagnostics.
+
+The optional -RecordingProbe setup flag runs disposable two-client tests in the
+existing isolated fixture. It creates midi/qa/recording-a.mid and recording-b.mid
+(two test phrases with different pitches). Back up the DB/profiles before QA and
+rerun setup without the flag for normal use. No public-server grant is added.

@@ -827,3 +827,39 @@ bounded to 512 note widgets per view (zoom in for denser passages). Clip limits
 remain separate. Sustain is baked into effective gates; editable controller
 lanes, tempo editing, recording, arrangement clips and MIDI export remain planned.
 Sampling/game-audio browsing and voice-line instruments are not added here.
+
+
+## Quantized recording / selected-song fix - 2026-10-20
+
+Package 15 requires native synth API 11. Client and server RelWithDebInfo builds
+passed. Native CTest passed, including new same-pitch live/score release tests.
+Large Studio test fixtures now allocate on the heap to avoid Windows test-stack
+exhaustion; runtime Studio instances already use heap allocation.
+
+The actual Studio/Band callback regression reproduces A -> select B -> Play,
+arrow cycling back, and cancellation of a yielding parse. The selected file now
+wins, while replaying the same arrangement preserves its edits. Coroutine loads
+capture path/intent/session instead of consulting mutable selection on completion.
+Client/UI harness: 7424 assertions; recording model: 24 assertions covering
+count-in, chords, repeat suppression, quantization, native clock, loop boundary,
+Keep/Cancel/Stop, history, unavailable targets, retry recovery and saved tempo.
+Existing server, editing, workstation, sequence, MIDI, sound-set, performer,
+band and transport suites also passed. git diff --check passed.
+
+Existing isolated port-25567 Synth A/B live checks reported PASS for new-song
+playback from Band without Finish, a count-in chord monitored at the consenting
+player lute, whole-take undo/redo, native-clock overdub, Cancel preservation,
+SQLite notes/routing round trip and Finish cleanup on the observer. The probe
+was updated to accept the user's placed portable keyboard rather than assuming
+the old initial activator still existed. No stage reset was required.
+Evidence is fixture evidence/recording/live2*.log and qa-completed.db. Only that
+fixture was restarted; production and the unused 25568 fixture were untouched.
+
+The latest pre-test DB/profiles/userdata were backed up, restored and hash-checked
+before normal startup. The automated probe is disabled and package/build hashes
+are checked. QA MIDI files are local fixture-only files. Sound monitoring/input
+state is transient; saved takes are normal project notes. No push/deployment.
+
+Limits: computer/mouse input, visual count-in, one clip pass, existing note caps;
+no hardware MIDI input, audible metronome, latency calibration, arrangement clips,
+automation, MIDI export or samples. This slice does not claim a full DAW recorder.

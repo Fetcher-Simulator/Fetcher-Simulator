@@ -5,9 +5,9 @@ local self = require('openmw.self')
 local ui = require('openmw.ui')
 local input = require('openmw.input')
 local supported, synth = pcall(require,'openmw.synth')
-if not supported or (synth.version and synth.version<10) then
+if not supported or (synth.version and synth.version<11) then
     return {eventHandlers={Synth_Activate=function()
-        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 10.')
+        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 11.')
     end}}
 end
 local schema = require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -43,7 +43,6 @@ local function scanSongs()
     table.sort(songs)
 end
 local stopPlayback,playSong,showEditor,switchPage,makeWorkstation
-local loadIntent
 local function silence(i)
     i.audio:allNotesOff(); i.notes={}
     transport:each(i,function(a) a:stop() end)
@@ -155,7 +154,11 @@ local function songLabel()
     local name=songs[selectedSong]
     if loading then return 'Loading MIDI…' end
     local active=playback or session and session.workstation and session.workstation.playing and session.workstation
-    if active then return string.format('Playing %s  %.1fs',name and name:match('([^/]+)$') or 'MIDI',active.time) end
+    if active then
+        local path=session and session.workstation.project.midi
+        if path and name and name~=path then return (name:match('([^/]+)$') or name)..' [selected]' end
+        return string.format('Playing %s  %.1fs',name and name:match('([^/]+)$') or 'MIDI',active.time)
+    end
     return name and name:match('([^/]+)$'):gsub('%.mid[i]?$','') or 'No MIDI files installed'
 end
 stopPlayback=function(force)
@@ -163,13 +166,17 @@ stopPlayback=function(force)
     if playback then local old=playback;playback=nil;old:stop() end
     if session and session.workstation then session.workstation:stop(force) end
 end
-local function startSong(song,intent)
-    if not session then return false end
+local function startSong(song,request)
+    if not session or session~=request.session then return false end
     if editor then editor:releaseAll() end
     local w=session.workstation
-    if intent=='restore' then w.song=song;w:cacheSpans();w.revision=w.revision+1;return true end
-    if not w:import(song,songs[selectedSong]) then return false end
-    if intent=='import' then return true end
+    if request.intent=='restore' then
+        if w.project.midi~=request.path then return false end
+        w.song=song;w:cacheSpans();w.revision=w.revision+1;return true
+    end
+    if not w:import(song,request.path) then return false end
+    session.songSelection=request.path
+    if request.intent=='import' then return true end
     return w:play('song')
 end
 playSong=function(path,intent)
@@ -178,14 +185,22 @@ playSong=function(path,intent)
     local allowed=false
     for n,p in ipairs(songs) do if p==path then allowed=true;selectedSong=n;break end end
     if not allowed then return false end
-    stopPlayback();loadIntent=intent or 'play'
-    loading=coroutine.create(function()
+    stopPlayback()
+    loading={path=path,intent=intent or 'play',session=session,co=coroutine.create(function()
         local file,err=vfs.open(path)
         assert(file,err or 'Cannot open MIDI')
         local bytes=file:read(512*1024+1);file:close()
         return MIDI.parse(bytes,function() coroutine.yield() end)
-    end)
+    end)}
     return true
+end
+local function playSelected()
+    if not session then return false end
+    local w=session.workstation
+    local path=session.songSelection or (w.project.midi~='' and w.project.midi) or songs[selectedSong]
+    stopPlayback()
+    if path==w.project.midi and w:hasSong() then return w:play('song') end
+    return playSong(path,'play')
 end
 makeWorkstation=function(i)
     local tokens,last=80,core.getRealTime()
@@ -201,6 +216,8 @@ makeWorkstation=function(i)
         end end
     end
     local w=Workstation.new{
+        now=core.getRealTime,
+        canMonitor=function(channel) return channelAudio(i,channel,true) and (not synth.createStudio or transport:laneStudio(i,channel,true))~=nil end,
         band=function(band,routes)
             local values={}
             for n,m in ipairs(band) do
@@ -292,7 +309,7 @@ local function midiChoices()
     end;return choices
 end
 local function midiSelect(path)
-    for n,p in ipairs(songs) do if p==path then stopPlayback();selectedSong=n;return true end end
+    for n,p in ipairs(songs) do if p==path then stopPlayback();selectedSong=n;if session then session.songSelection=path end;return true end end
     return false
 end
 local function pickupKeyboard()
@@ -317,15 +334,12 @@ showEditor=function()
             hide=hideEditor,close=function() closeEditor(true) end,pickup=pickupKeyboard,
             synth=function() switchPage('synth',w.project.tracks[w.selected] and w.selected or 0) end,
             sound=function(index) w.selected=index;switchPage('synth',index) end,
-            playSong=function()
-                stopPlayback()
-                if w:hasSong() then w:play('song') else playSong(nil,'play') end
-            end,
+            playSong=playSelected,
             playClips=function() stopPlayback();w:play('clips') end,
             stop=function() stopPlayback(true) end,
             load=function() stopPlayback();send('dawLoad') end,
             import=function() playSong(nil,'import') end,
-            cycleMidi=function(step) if #songs>0 then selectedSong=(selectedSong-1+step)%#songs+1 end end,
+            cycleMidi=function(step) if #songs>0 then midiSelect(songs[(selectedSong-1+step)%#songs+1]) end end,
             midiLabel=songLabel,midiChoices=midiChoices,midiSelected=function() return songs[selectedSong] end,midiSelect=midiSelect,
         })
         return true
@@ -368,8 +382,8 @@ showEditor=function()
         studio=function() switchPage('studio') end,
         meter=function() local audio=channelAudio(i,session.editTrack,false);return audio and audio.peak or 0,audio and audio.voices or 0 end,
         midiLabel=songLabel,midiChoices=midiChoices,midiSelected=function() return songs[selectedSong] end,midiSelect=midiSelect,
-        midiCycle=function(step) stopPlayback();if #songs>0 then selectedSong=(selectedSong-1+step)%#songs+1 end end,
-        midiPlay=function() playSong() end,midiStop=function() stopPlayback(true) end,
+        midiCycle=function(step) if #songs>0 then midiSelect(songs[(selectedSong-1+step)%#songs+1]) end end,
+        midiPlay=playSelected,midiStop=function() stopPlayback(true) end,
     })
     local view=session.views[session.editTrack] or session.editTrack==0 and session.view
     if view then
@@ -421,7 +435,11 @@ local function message(data)
         end
         return
     end
-    if data.op=='dawProject' then if session and data.id==session.id and data.epoch==session.epoch then session.editTrack=0;session.workstation:load(data.project) end;return end
+    if data.op=='dawProject' then if session and data.id==session.id and data.epoch==session.epoch then
+        loading=nil;session.editTrack=0;session.songSelection=nil
+        for n,path in ipairs(songs) do if path==data.project.midi then selectedSong=n;break end end
+        session.workstation:load(data.project)
+    end;return end
     if data.op=='catalog' then
         if session then session.workstation:setCatalog(data.entries) end
         if session then
@@ -573,9 +591,9 @@ local function frame(dt)
     if now-lastHeartbeat>=2 then send('heartbeat'); lastHeartbeat=now end
     if dirty and now-lastEdit>=0.1 then flushEdit();lastEdit=now end
     if loading then
-        local ok,result=coroutine.resume(loading)
+        local request=loading;local ok,result=coroutine.resume(request.co)
         if not ok then loading=nil;ui.showMessage('MIDI: '..tostring(result))
-        elseif coroutine.status(loading)=='dead' then loading=nil;startSong(result,loadIntent) end
+        elseif coroutine.status(request.co)=='dead' then loading=nil;startSong(result,request) end
     end
     if playback then
         local current=playback;current:update(dt)
@@ -588,7 +606,7 @@ end
 return {
     interfaceName='ProceduralSynth',
     interface={
-        version=10,
+        version=11,
         status=function()
             local out={}
             for id,i in pairs(instances) do
@@ -649,6 +667,8 @@ return {
         workstation=function() return session and session.workstation end,
         importMidi=function(path) return playSong(path,'import') end,
         playMidi=playSong,
+        selectMidi=midiSelect,
+        playSelected=playSelected,
         stopMidi=function() stopPlayback(true) end,
     },
     engineHandlers={onFrame=frame,onInit=scanSongs,onKeyPress=function(e)
