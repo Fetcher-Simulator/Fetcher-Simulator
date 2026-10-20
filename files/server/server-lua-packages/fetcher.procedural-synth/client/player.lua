@@ -5,9 +5,9 @@ local self = require('openmw.self')
 local ui = require('openmw.ui')
 local input = require('openmw.input')
 local supported, synth = pcall(require,'openmw.synth')
-if not supported or (synth.version and synth.version<11) then
+if not supported or (synth.version and synth.version<12) then
     return {eventHandlers={Synth_Activate=function()
-        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 11.')
+        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 12.')
     end}}
 end
 local schema = require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -18,6 +18,7 @@ local Workstation = require('scripts.multiplayer.fetcher.procedural-synth.client
 local Studio = require('scripts.multiplayer.fetcher.procedural-synth.client.studio')
 local Performance = require('scripts.multiplayer.fetcher.procedural-synth.client.performance')
 local vfs = require('openmw.vfs')
+local Samples=require('scripts.multiplayer.fetcher.procedural-synth.client.samples')
 local NativeTransport=require('scripts.multiplayer.fetcher.procedural-synth.client.transport')
 local object
 local Actors=require('scripts.multiplayer.fetcher.procedural-synth.client.actors')
@@ -96,6 +97,7 @@ object=function(id)
 end
 local function apply(instance, params)
     for name in pairs(schema.specs) do instance.audio:set(name,params[name]) end
+    if instance.audio.sample then instance.audio:sample(params.sample) end
     instance.params=params
 end
 local function applyChannel(i,n,params,level,mixer)
@@ -220,7 +222,13 @@ makeWorkstation=function(i)
     local w=Workstation.new{
         documentChanged=function() loading=nil;if session and session.id==i.id then session.songSelection=nil end end,
         now=core.getRealTime,
-        canMonitor=function(channel) return channelAudio(i,channel,true) and (not synth.createStudio or transport:laneStudio(i,channel,true))~=nil end,
+        sampleStatus=function(reference) return Samples.status(synth,reference) end,
+        samples=function() return Samples.new(synth,vfs,self) end,
+        canMonitor=function(channel)
+            local params=i.channels[channel] and i.channels[channel].params
+            return (not params or not params.sample or Samples.status(synth,params.sample).status=='Ready')
+                and channelAudio(i,channel,true) and (not synth.createStudio or transport:laneStudio(i,channel,true))~=nil
+        end,
         band=function(band,routes)
             local values={}
             for n,m in ipairs(band) do
@@ -266,6 +274,7 @@ makeWorkstation=function(i)
         end,
         configure=function(n,params,level,mixer)
             local values={level};for _,name in ipairs(schema.order) do values[#values+1]=params[name] end
+            values[#values+1]=schema.sampleKey(params.sample)
             for _,name in ipairs(Project.mixerOrder) do values[#values+1]=(mixer or Project.mixer())[name] end
             local signature=table.concat(values,',')
             if i.channels[n] and i.channels[n].signature==signature then return end
@@ -560,6 +569,25 @@ local function frame(dt)
     for id,i in pairs(instances) do
         if not i.source:isValid() or self.cell~=i.cell or now-i.seen>7 or i.audio.closed then destroy(id)
         else
+            if now-(i.sampleCheckAt or -10)>0.5 and synth.sampleInfo then
+                i.sampleCheckAt=now;i.sampleStates=i.sampleStates or {}
+                for n=0,16 do
+                    local params=n==0 and i.params or i.channels[n] and i.channels[n].params
+                    local ref=params and params.sample
+                    if ref then
+                        local info=Samples.status(synth,ref);local key=schema.sampleKey(ref)..info.status
+                        if i.sampleStates[n]~=key then
+                            i.sampleStates[n]=key
+                            print('[SynthSample] '..id..' part '..n..': '..info.status..' '..ref.path)
+                            if info.status=='Unavailable' or info.status=='Mismatch' then
+                                ui.showMessage('Sample part '..n..': '..info.status..' / '..ref.path)
+                            elseif info.status=='Ready' then
+                                if n==0 then i.audio:sample(ref) elseif i.channels[n].audio then transport:configure(i,n) end
+                            end
+                        end
+                    else i.sampleStates[n]=nil end
+                end
+            end
             if now-i.seen<5 then
                 i.audio:keepAlive()
                 for _,channel in pairs(i.channels) do if channel.audio then channel.audio:keepAlive() end end
@@ -610,7 +638,7 @@ end
 return {
     interfaceName='ProceduralSynth',
     interface={
-        version=11,
+        version=12,
         status=function()
             local out={}
             for id,i in pairs(instances) do

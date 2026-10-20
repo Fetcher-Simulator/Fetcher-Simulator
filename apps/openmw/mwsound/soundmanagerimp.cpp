@@ -1,6 +1,7 @@
 #include "soundmanagerimp.hpp"
 #include "synthdecoder.hpp"
 #include "proceduralstudio.hpp"
+#include "proceduralsamplebank.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -124,6 +125,7 @@ namespace MWSound
 
     SoundManager::SoundManager(const VFS::Manager* vfs, bool useSound)
         : mVFS(vfs)
+        , mSampleBank(std::make_unique<ProceduralSampleBank>(vfs))
         , mOutput(std::make_unique<OpenALOutput>(*this))
         , mWaterSoundUpdater(makeWaterSoundUpdaterSettings())
         , mSoundBuffers(*mOutput)
@@ -175,6 +177,7 @@ namespace MWSound
 
     SoundManager::~SoundManager()
     {
+        mSampleBank.reset(); // Join the decoder before resources/VFS are released.
         SoundManager::clear();
         mSoundBuffers.clear();
         mOutput.reset();
@@ -257,6 +260,10 @@ namespace MWSound
         return sound;
     }
 
+    std::shared_ptr<ProceduralSample> SoundManager::requestSample(std::string path, double offset, double duration)
+    {
+        return mSampleBank->request(std::move(path), offset, duration);
+    }
     std::shared_ptr<ProceduralSynth> SoundManager::createSynth(const MWWorld::ConstPtr& source)
     {
         auto synth = std::make_shared<ProceduralSynth>();

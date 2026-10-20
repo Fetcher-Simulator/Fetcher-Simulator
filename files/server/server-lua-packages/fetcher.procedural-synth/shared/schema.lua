@@ -29,15 +29,35 @@ function M.valid(name, value)
     return s and type(value) == 'number' and value == value and value >= s.min and value <= s.max
         and (not s.discrete or value % 1 == 0)
 end
+function M.sample(input)
+    if type(input)~='table' then return nil end
+    local fields={path=true,offset=true,duration=true,root=true,oneShot=true,hash=true}
+    for key in pairs(input) do if not fields[key] then return nil end end
+    local path=input.path
+    if type(path)~='string' or #path>240 or not (path:sub(1,6)=='sound/' or path:sub(1,6)=='music/')
+        or path~=path:lower() or path:find('[%c\\:]') or path:find('..',1,true) or path:find('//',1,true)
+        or not ({mp3=true,wav=true,ogg=true,flac=true,opus=true})[path:match('%.([a-z0-9]+)$')] then return nil end
+    local function number(n,low,high) return type(n)=='number' and n==n and n>=low and n<=high end
+    if not number(input.offset,0,600) or not number(input.duration,0.01,30)
+        or not number(input.root,0,127) or input.root%1~=0 or type(input.oneShot)~='boolean'
+        or type(input.hash)~='string' or #input.hash~=32 or input.hash:find('[^0-9a-f]') then return nil end
+    return {path=path,offset=math.floor(input.offset*1000+0.5)/1000,
+        duration=math.floor(input.duration*1000+0.5)/1000,root=input.root,oneShot=input.oneShot,hash=input.hash}
+end
+function M.sampleKey(sample)
+    if not sample then return '' end
+    return table.concat({sample.path,sample.offset,sample.duration,sample.root,tostring(sample.oneShot),sample.hash},'|')
+end
 function M.state(input)
     if type(input) ~= 'table' or (input.version ~= nil and input.version ~= 1) then return nil end
     local count, result = 0, { version = 1 }
     for key, value in pairs(input) do
         count = count + 1
-        if count > #M.order+1 or (key ~= 'version' and not M.valid(key, value)) then return nil end
+        if count > #M.order+2 or (key ~= 'version' and key~='sample' and not M.valid(key, value)) then return nil end
     end
     -- Missing fields in old version-1 saves receive stable defaults.
     for name, spec in pairs(M.specs) do result[name] = input[name] or spec.default end
+    if input.sample~=nil then result.sample=M.sample(input.sample);if not result.sample then return nil end end
     return result
 end
 M.builtins = {

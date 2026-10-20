@@ -787,3 +787,48 @@ placements. Multi-selection, independent source copies/cross-track transfer,
 source offsets, automation/controller lanes, MIDI export and native samples are
 later work. The optional -ArrangementProbe setup flag runs disposable A/B tests;
 back up the latest fixture DB/profiles before running it.
+
+
+## Installed-game sample instruments (package 18 / native synth API 12)
+
+Open Studio > Samples. Choose the target part, choose Voices / Effects / Music /
+All, then Browse sounds. The existing searchable popup supports mouse-wheel
+scrolling and a draggable scrollbar. Voice search also matches the server /s
+catalog's race, collection, gender and speech type; only installed VFS files
+appear. Both enabled archives and loose files are resolved by the engine.
+
+Select a file, wait for Ready and press Audition. Start/End are seconds in the
+source file: enter them and Apply trim. Excerpts are 0.01-30 seconds long, starting
+within the first ten minutes. Root is the MIDI note that plays at original speed.
+One-shot ignores note-off and plays to the excerpt's end; Gated follows note length
+and the sound's amplitude envelope. Stop preview ends local audition. Audition
+uses the instrument monitor volume and is not broadcast as chat speech.
+
+Use sample on part changes that part's instrument while preserving its notes,
+channel mixer and band output. Piano-roll notes, keyboard recording, imported MIDI
+and reusable clips all use it. Sound / save preset opens the usual sound editor:
+attack/release, gain, filter and insert effects still work, and Save As creates a
+personal sample sound. Edit part sample copies the selected part's saved reference
+into the browser for further trimming. Use synth keys selects a synthesized sound.
+
+Save/Load stores paths, a 128-bit source-file identity, trim, root and playback
+mode in the character's existing server project/preset data. Game audio never
+travels with the project. Each listener resolves its own installed file; missing
+or different files leave that part silent, with a local status message. Other
+parts continue. Pending samples show Loading; the owner can press Play again when
+ready. A listener that finishes loading during a song joins on subsequent notes.
+
+Native decoding uses one bounded background worker and the existing FFmpeg/VFS
+reader. The audio callback reads immutable 48-kHz mono PCM with independent voice
+cursors and performs no file I/O, decoding or PCM allocation/reclamation. Limits:
+32 cached excerpts (at most 176 MiB PCM plus bounded decode scratch), 16 queued
+loads, source files at most 64 MiB, decode work limited to ten seconds per job,
+and the existing 32-voice standalone / 8-voice-per-Studio-lane budgets. Typical
+stereo game files are averaged to mono for physical instrument placement.
+
+Pitch changes playback speed/duration using linear interpolation. This first pass
+has no sustained sample loops, chopping, reverse, crossfades, multisample zones,
+stereo sample lanes or time stretching. The file identity detects mismatches;
+it is not an authentication or cryptographic integrity mechanism. Discovery is
+capped at 100,000 installed sounds. Rebuild speech metadata after updating the
+server catalogs with lua scripts/generate-procedural-synth-speech-catalog.lua.

@@ -3,6 +3,7 @@
 #include "../mwbase/soundmanager.hpp"
 #include "../mwsound/proceduralsynth.hpp"
 #include "../mwsound/proceduralstudio.hpp"
+#include "../mwsound/proceduralsamplebank.hpp"
 #include "objectvariant.hpp"
 #include "luamanagerimp.hpp"
 #include <components/settings/values.hpp>
@@ -10,6 +11,34 @@
 
 namespace MWLua
 {
+    namespace
+    {
+        struct SampleSettings
+        {
+            std::shared_ptr<MWSound::ProceduralSample> data;
+            int root = 60;
+            bool oneShot = false;
+            std::string hash;
+        };
+        SampleSettings readSample(const sol::object& value)
+        {
+            SampleSettings result;
+            if (!value.valid() || value == sol::nil) return result;
+            const auto table = value.as<sol::table>();
+            auto path = table["path"].get<std::string>();
+            const double offset = table["offset"].get<double>(), duration = table["duration"].get<double>();
+            const double root = table["root"].get<double>();
+            result.oneShot = table["oneShot"].get<bool>();
+            result.hash = table["hash"].get<std::string>();
+            if (!MWSound::ProceduralSampleBank::valid(path, offset, duration) || !std::isfinite(root)
+                || root < 0 || root > 127 || std::floor(root) != root || result.hash.size() != 32
+                || result.hash.find_first_not_of("0123456789abcdef") != result.hash.npos)
+                throw std::invalid_argument("Invalid sample settings");
+            result.root = static_cast<int>(root);
+            result.data = MWBase::Environment::get().getSoundManager()->requestSample(std::move(path), offset, duration);
+            return result;
+        }
+    }
     sol::table initSynthPackage(const Context& context)
     {
         return context.cachePackage("openmw_synth", [&context]() {
@@ -18,9 +47,25 @@ namespace MWLua
             lua.new_usertype<Synth>("ProceduralSynth", sol::no_constructor, "set", &Synth::set, "noteOn",
                 &Synth::noteOn, "noteOff", &Synth::noteOff, "allNotesOff", &Synth::allNotesOff, "close", &Synth::close,
                 "keepAlive", &Synth::keepAlive, "closed", sol::property(&Synth::closed), "peak",
-                sol::property(&Synth::peak), "voices", sol::property(&Synth::voices));
+                sol::property(&Synth::peak), "voices", sol::property(&Synth::voices),
+                "sample", [](Synth& synth, const sol::object& value) {
+                    auto s = readSample(value); return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash);
+                });
             sol::table api(lua, sol::create);
-            api["version"] = 11;
+            api["version"] = 12;
+            api["sampleInfo"] = [lua](std::string path, double offset, double duration) {
+                const auto data = MWBase::Environment::get().getSoundManager()->requestSample(std::move(path), offset, duration);
+                sol::table info(lua, sol::create);
+                const auto status = data->status.load(std::memory_order_acquire);
+                info["status"] = status == MWSound::ProceduralSample::Ready ? "Ready"
+                    : status == MWSound::ProceduralSample::Loading ? "Loading" : "Unavailable";
+                if (status != MWSound::ProceduralSample::Loading)
+                {
+                    info["hash"] = data->hash; info["error"] = data->error;
+                    info["duration"] = data->pcm.size() / 48000.0;
+                }
+                return LuaUtil::makeReadOnly(info);
+            };
             using Studio = MWSound::ProceduralStudio;
             lua.new_usertype<Studio>("ProceduralStudio", sol::no_constructor,
                 "closed", sol::property(&Studio::closed), "close", &Studio::close,
@@ -60,7 +105,9 @@ namespace MWLua
                     Synth::State state;
                     for (std::size_t i = 0; i < state.size(); ++i)
                         state[i] = values[Synth::Parameters[i].name].get_or(Synth::Parameters[i].initial);
-                    return studio.configure(n, state, level);
+                    auto sample = readSample(values["sample"]);
+                    return studio.configure(n, state, level)
+                        && studio.sample(n, std::move(sample.data), sample.root, sample.oneShot, sample.hash);
                 },
                 "start", [](Studio& studio, double delay, double offset) {
                     const double queued = MWBase::Environment::get().getSoundManager()->synthDelay(&studio);

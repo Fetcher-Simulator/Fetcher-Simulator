@@ -323,7 +323,7 @@ local function request(data)
         end
         s.notes[noteKey] = true
         local params=channel==0 and s.params or s.channels[channel].params
-        if params.drumType>0 then s.drumPending=true end
+        if params.drumType>0 or (params.sample and params.sample.oneShot) then s.drumPending=true end
         nextEvent(s); broadcast(s,{op='on',note=data.note,velocity=data.velocity,channel=channel},s.owner); return
     end
     if data.op=='channelRemove' then

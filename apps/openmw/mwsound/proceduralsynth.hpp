@@ -11,6 +11,7 @@
 #include <string_view>
 #include "proceduralsyntheffects.hpp"
 #include "proceduralaudio.hpp"
+#include "proceduralsample.hpp"
 
 namespace MWSound
 {
@@ -32,6 +33,7 @@ namespace MWSound
 
         ProceduralSynth();
         bool set(std::string_view name, float value);
+        bool sample(std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash);
         bool noteOn(int note, float velocity);
         bool noteOff(int note);
         void allNotesOff();
@@ -73,6 +75,7 @@ namespace MWSound
             int note = -1;
             float velocity = 0;
             double phase1 = 0, phase2 = 0;
+            double samplePosition = 0;
             double filter1 = 0, filter2 = 0;
             double pitchEnvelope = 1;
             std::uint32_t noise = 0x9e3779b9u;
@@ -90,6 +93,23 @@ namespace MWSound
             unsigned long long age = 0;
         };
         std::mutex mMutex;
+        struct SampleSettings
+        {
+            ProceduralSample* data = nullptr;
+            int root = 60;
+            bool oneShot = false;
+            std::array<char, 32> hash{};
+            bool operator==(const SampleSettings& other) const
+            {
+                return data == other.data && root == other.root && oneShot == other.oneShot && hash == other.hash;
+            }
+        };
+        SampleSettings mSampleTarget, mSampleCurrent;
+        // Reclaimed on control calls only. The current audio pointer remains
+        // pinned until a later call observes that the callback has switched.
+        std::vector<std::shared_ptr<ProceduralSample>> mSamplePins;
+        bool sampleReady() const;
+        void syncSample(); // mMutex held, audio thread only
         State mTarget{}, mCurrent{};
         std::array<Command, 256> mCommands{};
         std::size_t mCommandCount = 0;

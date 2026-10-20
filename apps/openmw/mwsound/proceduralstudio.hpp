@@ -34,6 +34,10 @@ namespace MWSound
             bool loop;
         };
         bool configure(unsigned track, const ProceduralSynth::State& state, float level);
+        bool sample(unsigned n, std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash)
+        {
+            return hasTrack(n) && std::atomic_load(&mTracks[n - 1])->sample(std::move(data), root, oneShot, hash);
+        }
         bool hasTrack(unsigned track) const;
         bool mixer(unsigned track, const ProceduralMixer::State& state);
         float trackRms(unsigned n) const { return hasTrack(n) ? mRms[n-1].load() : 0; }

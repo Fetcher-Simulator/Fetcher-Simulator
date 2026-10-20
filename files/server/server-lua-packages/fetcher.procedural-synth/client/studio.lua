@@ -480,7 +480,75 @@ function S:drums(content)
     content[#content+1]=self:button('Capture lane',745,610,145,function() self:releaseAll();if w:captureClip(w.selected) then self:openArranger() end end)
     content[#content+1]=label('Play clips loops the piano and drum clips together. Play song also follows the imported MIDI tempo map.',20,657,880,12,c.muted)
 end
+function S:samplePage(content)
+    local w=self.w
+    if not w.cb.samples then content[#content+1]=label('Sample browser unavailable',20,180,870);return end
+    if not self.samples then
+        self.samples=w.cb.samples();self.samples:start()
+        local t=w.project.tracks[w.selected];local ref=t and t.params.sample
+        if ref then for k,value in pairs(ref) do self.samples[k]=value end end
+    end
+    local browser=self.samples;local t=w.project.tracks[w.selected]
+    local function refresh() w.revision=w.revision+1 end
+    content[#content+1]=label('INSTALLED GAME SAMPLES',20,166,870,18,c.accent)
+    content[#content+1]=self:button(t and ('Part '..w.selected..': '..t.name..' v') or 'Choose a part v',20,207,390,function()
+        local entries={};for n,track in ipairs(w.project.tracks) do entries[#entries+1]={id=n,label=n..': '..track.name} end
+        Dropdown.open(self,entries,w.selected,function(n) w.selected=n;refresh() end,20,242,600)
+    end)
+    content[#content+1]=self:button(browser.category..' v',430,207,200,function()
+        local entries={};for _,name in ipairs{'All','Voices','Effects','Music'} do entries[#entries+1]={id=name,label=name} end
+        Dropdown.open(self,entries,browser.category,function(name) browser.category=name;refresh() end,430,242,400)
+    end)
+    content[#content+1]=self:button('Browse sounds v',650,207,240,function()
+        Dropdown.open(self,browser:entries(),browser.path,function(path) browser:select(path);refresh() end,20,245,870)
+    end)
+    content[#content+1]=label((browser.path or 'Choose an installed sound. Search also finds race, collection, gender and voice type.'):sub(1,125),20,256,880,12)
+    content[#content+1]=label(browser:description(),20,279,880,11,c.muted)
+    self.sampleStatus=self:element(label('',20,310,880,11,c.accent));content[#content+1]=self.sampleStatus
+    content[#content+1]=label('Start (seconds)',20,333,180,13,c.muted)
+    content[#content+1]=label('End (seconds)',240,333,180,13,c.muted)
+    local startText,endText=tostring(browser.offset),tostring(browser.offset+browser.duration)
+    local function field(x,value,change)
+        return self:element{type=ui.TYPE.TextEdit,template={content=ui.content{{type=ui.TYPE.Image,props={relativeSize=v(1,1),resource=white,color=c.track}}}},
+            props={position=v(x,365),size=v(180,28),text=value,textSize=15,textColor=c.text},events={
+            textChanged=cb(change),focusGain=cb(function() self.typing=true end),focusLoss=cb(function() self.typing=false end)}}
+    end
+    content[#content+1]=field(20,startText,function(text) startText=text:sub(1,20) end)
+    content[#content+1]=field(240,endText,function(text) endText=text:sub(1,20) end)
+    content[#content+1]=self:button('Apply trim',460,363,150,function()
+        local first,last=tonumber(startText),tonumber(endText)
+        if not first or not last or first~=first or last~=last or first<0 or first>600 or last-first<0.01 or last-first>30 then
+            w.cb.message('Start must be 0-600 seconds; the excerpt must be 0.01-30 seconds long.');return
+        end
+        browser:stop();browser.offset=math.floor(first*1000+0.5)/1000;browser.duration=math.floor((last-first)*1000+0.5)/1000;refresh()
+    end)
+    content[#content+1]=label('Up to 30 seconds per excerpt; start within the first 10 minutes.',20,408,870,12,c.muted)
+    content[#content+1]=self:button('Root: '..pitch(browser.root)..' v',20,451,200,function()
+        local entries={};for n=0,127 do entries[#entries+1]={id=n,label=pitch(n)..' / MIDI '..n} end
+        Dropdown.open(self,entries,browser.root,function(n) browser:stop();browser.root=n;refresh() end,20,280,390)
+    end)
+    content[#content+1]=self:button(browser.oneShot and 'One-shot' or 'Gated',240,451,180,function() browser:stop();browser.oneShot=not browser.oneShot;refresh() end,browser.oneShot)
+    content[#content+1]=self:button('Audition',460,451,150,function()
+        if not browser:audition() then w.cb.message('Wait until the preview is Ready, or choose another trim.');end
+    end)
+    content[#content+1]=self:button('Stop preview',630,451,180,function() browser:stop() end)
+    content[#content+1]=label('Root plays at original speed. Gated follows MIDI note length; one-shot plays to the end.',20,499,870,12,c.muted)
+    content[#content+1]=self:button('Use sample on part',20,543,250,function()
+        local ref=browser:reference();if ref then browser:stop();w:setSample(w.selected,ref)
+        else w.cb.message('Choose a sound and wait until Ready before assigning it.');end
+    end)
+    content[#content+1]=self:button('Sound / save preset',290,543,220,function() if t then self.cb.sound(w.selected) end end)
+    content[#content+1]=self:button('Use synth keys',530,543,160,function() w:preset(w.selected,'b:studio-keys') end)
+    content[#content+1]=self:button('Edit part sample',710,543,180,function()
+        if t and t.params.sample then browser:stop();for k,value in pairs(t.params.sample) do browser[k]=value end;refresh() end
+    end)
+    content[#content+1]=label(t and t.params.sample and ('Assigned: '..t.params.sample.path):sub(1,125) or 'Assigned: synthesized sound',20,595,880,12,c.accent)
+    content[#content+1]=label('Piano, recorded notes, imported MIDI and linked clips all play the assigned sound through its band output.',20,627,880,12,c.muted)
+    content[#content+1]=label('Save stores the reference and file identity. Each listener needs the same installed file.',20,657,880,12,c.muted)
+end
 function S:render()
+    if self.samples and self.w.page~='samples' then self.samples:stop() end
+    self.sampleStatus=nil
     if self.lastPage=='record' and self.w.page~='record' then self:releaseAll() end;self.lastPage=self.w.page
     self.recordText=nil;self.recordKeyboard=nil
     self.controlEpoch=(self.controlEpoch or 0)+1;self.noteVelocityRefresh=nil
@@ -494,8 +562,9 @@ function S:render()
     self.children={};self.meters={};self.meterLabels={};self.returnMeter=nil;self.playhead=nil;self.grid=nil
     local w,p=self.w,self.w.project;local content={label('OPENMW / STUDIO',20,13,245,21)}
     local tabs={{'Synth',self.cb.synth},{'Song',function() w.page='song';w.revision=w.revision+1 end},{'Mixer',function() w.page='mixer';w.revision=w.revision+1 end},
-        {'Piano',function() w.page='piano';w.revision=w.revision+1 end},{'Drums',function() w.page='drums';w.revision=w.revision+1 end},{'Band',function() w.page='band';if w.cb.refreshTargets then w.cb.refreshTargets() end;w.revision=w.revision+1 end}}
-    for n,tab in ipairs(tabs) do content[#content+1]=self:button(tab[1],275+(n-1)*70,12,65,tab[2],w.page==tab[1]:lower()) end
+        {'Piano',function() w.page='piano';w.revision=w.revision+1 end},{'Drums',function() w.page='drums';w.revision=w.revision+1 end},{'Band',function() w.page='band';if w.cb.refreshTargets then w.cb.refreshTargets() end;w.revision=w.revision+1 end},
+        {'Samples',function() w.page='samples';w.revision=w.revision+1 end}}
+    for n,tab in ipairs(tabs) do content[#content+1]=self:button(tab[1],275+(n-1)*61,12,56,tab[2],w.page==tab[1]:lower()) end
     content[#content+1]=self:button('Hide [F8]',self.width-198,12,104,self.cb.hide)
     content[#content+1]=self:button('Finish',self.width-84,12,64,self.cb.close)
     self.transport=self:element(label('',20,43,660,12,c.accent));content[#content+1]=self.transport
@@ -522,7 +591,7 @@ function S:render()
     end)
     content[#content+1]=self:button('MIDI >',726,112,65,function() self.cb.cycleMidi(1);w.revision=w.revision+1 end)
     content[#content+1]=self:button('Import',803,112,92,self.cb.import)
-    if w.page=='arrange' then self:arrange(content) elseif w.page=='newsong' then self:newSong(content) elseif w.page=='song' then self:song(content) elseif w.page=='record' then self:record(content) elseif w.page=='piano' then self:piano(content) elseif w.page=='drums' then self:drums(content) elseif w.page=='channel' then self:channel(content) elseif w.page=='returns' then self:returns(content) elseif w.page=='band' then self:band(content) else self:mixer(content) end
+    if w.page=='samples' then self:samplePage(content) elseif w.page=='arrange' then self:arrange(content) elseif w.page=='newsong' then self:newSong(content) elseif w.page=='song' then self:song(content) elseif w.page=='record' then self:record(content) elseif w.page=='piano' then self:piano(content) elseif w.page=='drums' then self:drums(content) elseif w.page=='channel' then self:channel(content) elseif w.page=='returns' then self:returns(content) elseif w.page=='band' then self:band(content) else self:mixer(content) end
     self.root=self.window:root(content);self.revision=w.revision
 end
 function S.new(workstation,callbacks)
@@ -574,11 +643,20 @@ function S:frame(now)
     if I.UI.getMode()~='Interface' then self.cb.hide();return end
     if self.roll then self.roll:frame() end
     if self.arranger then self.arranger:frame() end
+    if self.samples then self.samples:frame() end
     if self.mouseRecord and not input.isMouseButtonPressed(1) then self:recordKey(self.mouseRecord,false);self.mouseRecord=nil end
     if self.revision~=self.w.revision then self:render() end
     if now-self.lastFrame<0.1 then return end;self.lastFrame=now
     self.transport.layout.props.text=string.format('%s  |  %.1fs  |  Beat %.1f  |  %s%s',self.w.awaiting and 'BUFFER' or (self.w.playing and 'PLAY' or 'STOP'),self.w.time,self.w.beat+1,self.w.project.name,self.w.dirty and ' *' or '')
     self.window:update(self.transport)
+    if self.sampleStatus then
+        local info=self.samples:info();local t=self.w.project.tracks[self.w.selected]
+        local assigned=t and self.w.cb.sampleStatus(t.params.sample) or {status='No part selected'}
+        self.sampleStatus.layout.props.text=self.samples:scanStatus()..'  |  Preview: '..info.status
+            ..(info.duration and string.format(' / %.3fs',info.duration) or '')..'  |  Part: '..assigned.status
+            ..((info.error and info.error~='') and (' / '..info.error) or '')
+        self.window:update(self.sampleStatus)
+    end
     if self.recordText then self.recordText.layout.props.text=self.w:recordStatus();self.window:update(self.recordText) end
     for note,key in pairs(self.recordKeyboard or {}) do key.element.layout.props.color=self.recordHeld and self.recordHeld[note] and c.accent or key.color;self.window:update(key.element) end
     for lane,meter in pairs(self.meters) do meter.layout.props.size=v(math.max(1,220*math.max(0,math.min(1,(20*math.log(math.max(0.001,self.w.cb.meter(lane)))/math.log(10)+60)/60))),3);self.window:update(meter) end
@@ -603,6 +681,7 @@ function S:frame(now)
     end
 end
 function S:destroy()
+    if self.samples then self.samples:stop() end
     self:releaseAll()
     Dropdown.close(self)
     self.uiClosed=true

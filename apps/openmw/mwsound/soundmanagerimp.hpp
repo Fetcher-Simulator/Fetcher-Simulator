@@ -42,6 +42,7 @@ namespace MWSound
     class SoundBase;
     class Sound;
     class Stream;
+    class ProceduralSampleBank;
 
     using SoundPtr = Misc::ObjectPtr<Sound>;
     using StreamPtr = Misc::ObjectPtr<Stream>;
@@ -49,6 +50,7 @@ namespace MWSound
     class SoundManager : public MWBase::SoundManager
     {
         const VFS::Manager* mVFS;
+        std::unique_ptr<ProceduralSampleBank> mSampleBank;
 
         std::unique_ptr<SoundOutput> mOutput;
 
@@ -174,6 +176,7 @@ namespace MWSound
         std::shared_ptr<ProceduralSynth> createSynth(const MWWorld::ConstPtr& source) override;
         std::shared_ptr<ProceduralStudio> createStudio(const MWWorld::ConstPtr& source) override;
         unsigned synthUnits() const override;
+        std::shared_ptr<ProceduralSample> requestSample(std::string path, double offset, double duration) override;
         double synthDelay(const ProceduralAudio* audio) override;
 
         void processChangedSettings(const Settings::CategorySettingVector& settings) override;

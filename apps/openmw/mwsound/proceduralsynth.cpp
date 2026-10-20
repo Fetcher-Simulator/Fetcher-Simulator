@@ -199,15 +199,43 @@ namespace MWSound
         }
         return value;
     }
+    bool ProceduralSynth::sample(std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash)
+    {
+        if (root < 0 || root > 127 || (data && (hash.size() != 32
+            || hash.find_first_not_of("0123456789abcdef") != hash.npos))) return false;
+        std::lock_guard lock(mMutex);
+        SampleSettings next; next.data = data.get(); next.root = root; next.oneShot = oneShot;
+        if (data) std::copy(hash.begin(), hash.end(), next.hash.begin());
+        mSamplePins.erase(std::remove_if(mSamplePins.begin(), mSamplePins.end(), [this, &next](const auto& p) {
+            return p.get() != mSampleCurrent.data && p.get() != next.data;
+        }), mSamplePins.end());
+        if (next == mSampleTarget) return true;
+        if (data && std::none_of(mSamplePins.begin(), mSamplePins.end(), [&](const auto& p) { return p == data; }))
+            mSamplePins.push_back(std::move(data));
+        mSampleTarget = next; return true;
+    }
+    bool ProceduralSynth::sampleReady() const
+    {
+        const auto* data = mSampleCurrent.data;
+        return data && data->status.load(std::memory_order_acquire) == ProceduralSample::Ready
+            && data->pcm.size() > 1 && data->hash == std::string_view(mSampleCurrent.hash.data(), 32);
+    }
+    void ProceduralSynth::syncSample()
+    {
+        if (mSampleCurrent == mSampleTarget) return;
+        for (auto& voice : mVoices) voice = Voice{};
+        mSampleCurrent = mSampleTarget;
+    }
     void ProceduralSynth::apply(Command command)
     {
+        if (mSampleCurrent.data && command.velocity >= 0 && !sampleReady()) return;
         for (auto& voice : mVoices)
             if (voice.note == command.note)
             {
                 if (command.velocity < 0)
                 {
                     // Drum hits are one-shots. MIDI gate length must not cut their tails.
-                    if (voice.drumType == 0)
+                    if (voice.drumType == 0 && !(mSampleCurrent.data && mSampleCurrent.oneShot))
                     {
                         voice.amp.release();
                         voice.filter.release();
@@ -216,17 +244,19 @@ namespace MWSound
                 }
                 // Repeated drum hits overlap within the voice budget. Their note-off
                 // events do not own a shared gate, unlike melodic notes.
-                if (voice.drumType != 0 || mCurrent[DrumType] != 0)
+                if (voice.drumType != 0 || (!mSampleCurrent.data && mCurrent[DrumType] != 0)
+                    || (mSampleCurrent.data && mSampleCurrent.oneShot))
                     continue;
+                if (mSampleCurrent.data) { voice = Voice{}; voice.samplePosition = 0; }
                 // Melodic retriggers preserve phase and envelope amplitude.
                 voice.note = command.note;
-                voice.drumType = static_cast<int>(mCurrent[DrumType]);
+                voice.drumType = mSampleCurrent.data ? 0 : static_cast<int>(mCurrent[DrumType]);
                 voice.velocity = command.velocity;
                 voice.pitchEnvelope = 1;
                 voice.amp.stage = voice.filter.stage = 1;
                 voice.age = ++mAge;
                 voice.drumChoke = false;
-                voice.instrumentType = static_cast<int>(mCurrent[InstrumentType]);
+                voice.instrumentType = mSampleCurrent.data ? 0 : static_cast<int>(mCurrent[InstrumentType]);
                 if (voice.instrumentType != 0)
                     pluck(voice);
                 return;
@@ -242,13 +272,13 @@ namespace MWSound
         });
         // Retain the stolen voice's envelope/phase/filter state to avoid a hard
         // output step.
-        if (slot->drumType != 0 || mCurrent[DrumType] != 0)
+        if (slot->drumType != 0 || mCurrent[DrumType] != 0 || mSampleCurrent.data)
         {
             const double carry = slot->drumLast;
             *slot = Voice{};
             slot->drumCarry = carry;
         }
-        slot->drumType = static_cast<int>(mCurrent[DrumType]);
+        slot->drumType = mSampleCurrent.data ? 0 : static_cast<int>(mCurrent[DrumType]);
         slot->note = command.note;
         slot->velocity = command.velocity;
         slot->pitchEnvelope = 1;
@@ -256,7 +286,7 @@ namespace MWSound
         slot->amp.stage = slot->filter.stage = 1;
         slot->age = ++mAge;
         slot->drumChoke = false;
-        slot->instrumentType = static_cast<int>(mCurrent[InstrumentType]);
+        slot->instrumentType = mSampleCurrent.data ? 0 : static_cast<int>(mCurrent[InstrumentType]);
         if (slot->instrumentType != 0)
             pluck(*slot);
     }
@@ -306,6 +336,7 @@ namespace MWSound
             if (lock.owns_lock())
             {
                 target = mTarget;
+                syncSample();
                 mCurrent[25] = target[25];
                 mCurrent[DrumType] = target[DrumType];
                 mCurrent[InstrumentType] = target[InstrumentType];
@@ -321,6 +352,7 @@ namespace MWSound
                 mCommandCount = 0;
             }
         }
+        const bool sampleAvailable = sampleReady();
         float peakValue = 0;
         for (std::size_t frame = 0; frame < frames; ++frame)
         {
@@ -431,10 +463,25 @@ namespace MWSound
                     return std::min(
                         0.45, 440 * std::exp2((v.note - 69 + tune + fine / 100 + pitchLfo + pitchEnvelope) / 12) / SampleRate);
                 };
-                const double dt1 = increment(mCurrent[2], mCurrent[3]);
-                const double dt2 = increment(mCurrent[7], mCurrent[8]);
-                double sample = oscillator(v.phase1, dt1, mWave1, noise) * mCurrent[1];
-                if (v.instrumentType != 0)
+                const double dt1 = mSampleCurrent.data ? 0 : increment(mCurrent[2], mCurrent[3]);
+                const double dt2 = mSampleCurrent.data ? 0 : increment(mCurrent[7], mCurrent[8]);
+                double sample = 0;
+                if (mSampleCurrent.data)
+                {
+                    if (!sampleAvailable) { v = Voice{}; continue; }
+                    const auto& pcm = mSampleCurrent.data->pcm;
+                    const auto at = static_cast<std::size_t>(v.samplePosition);
+                    if (at + 1 >= pcm.size()) { v = Voice{}; continue; }
+                    const double fraction = v.samplePosition - at;
+                    const double step = std::exp2((v.note - mSampleCurrent.root + mCurrent[2]
+                        + mCurrent[3] / 100 + pitchLfo + pitchEnvelope) / 12);
+                    // Short edge fades protect arbitrary trims from hard steps.
+                    const double fade = std::min({1.0, v.samplePosition / 96,
+                        (pcm.size() - 1 - v.samplePosition) / std::max(96.0, 96 * step)});
+                    sample = (pcm[at] + (pcm[at + 1] - pcm[at]) * fraction) * fade;
+                    v.samplePosition += step;
+                }
+                else if (v.instrumentType != 0)
                 {
                     auto& buffer = (*mStrings)[i];
                     const double damping = 0.05 + 0.45 * std::clamp(
@@ -457,8 +504,12 @@ namespace MWSound
                     sample = v.stringLast * 2.5;
                     v.stringAge += 1.0 / SampleRate;
                 }
-                else if (mCurrent[4] > 0.0001f)
-                    sample += oscillator(v.phase2, dt2, mWave2, noise) * mCurrent[6] * mCurrent[4];
+                else
+                {
+                    sample = oscillator(v.phase1, dt1, mWave1, noise) * mCurrent[1];
+                    if (mCurrent[4] > 0.0001f)
+                        sample += oscillator(v.phase2, dt2, mWave2, noise) * mCurrent[6] * mCurrent[4];
+                }
                 v.phase1 = std::fmod(v.phase1 + dt1, 1);
                 v.phase2 = std::fmod(v.phase2 + dt2, 1);
                 const double cutoff = std::clamp(

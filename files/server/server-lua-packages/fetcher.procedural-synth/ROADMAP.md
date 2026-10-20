@@ -32,14 +32,13 @@ also discover installed effects and music beyond that command's MP3 voice-only
 filter. Keep chat speech playback/cooldowns separate from sample-accurate MIDI
 voices.
 
-## Next slice: installed-game sound browser and voice-line sample playback
+## Completed slice: installed-game sound browser and voice-line sample playback
 
-Priority revised 2026-10-20 at the user's request. This slice comes before MIDI
-export, project library/recovery and automation. Browser and playable voice-line
-instruments ship together with the minimum native sample engine they require;
-a browser that only previews speech does not complete the slice.
+Completed 2026-10-20 in package 18 / native synth API 12. Browser and playable
+voice-line instruments share the native Studio clock and physical band outputs.
+MIDI export is next, followed by library/recovery and automation.
 
-### First-pass scope
+### Shipped first pass
 
 - Add a searchable, scrollable Studio sample browser for installed voice lines,
   sound effects and music, resolving both archive-backed and loose VFS assets.
@@ -73,13 +72,13 @@ Also exercise installed effects and a bounded music excerpt, archive/loose asset
 resolution, missing-asset handling and repeated sample switching/Stop/Finish.
 Run in the established port-25567 fixture, preserving the latest user saves and
 settings. Existing synth projects, live audio timing and band routing must remain
-compatible. This is planned work; sample playback is not implemented yet.
+compatible. See TEST-REPORT.md for checks and first-pass limits.
 
 Later sample work: sustained sample loops, chopping, reverse, crossfades and
 more elaborate sampled instruments. These are not prerequisites for the first
 browser + voice-line playback slice.
 
-## Remaining roadmap after that slice
+## Remaining roadmap (next: MIDI export)
 
 1. MIDI export and round-trip checks: flatten linear notes and linked placements
    into MIDI, retaining timing, velocities, drum parts and tempo maps. Native

@@ -148,6 +148,28 @@ function W:configureAll()
     if self.cb.effects then self.cb.effects(self.project.effects,self.project.master) end
 end
 function W:setCatalog(entries) self.catalog=entries or {};self.revision=self.revision+1 end
+function W:setSample(index,reference)
+    local t=self.project.tracks[index];reference=schema.sample(reference)
+    if not t or not reference then return false end
+    if self.cb.sampleStatus then
+        local info=self.cb.sampleStatus(reference)
+        if info.status~='Ready' then self.cb.message(info.error or info.status);return false end
+    end
+    local params=t.params.sample and schema.state(t.params) or schema.state{attack=0.002,sustain=1,
+        release=0.08,cutoff=18000,resonance=0,polyphony=8}
+    params.sample=reference;t.params=params;t.presetId='';self.project.soundSet=''
+    self:configure(index);self:touch('sound:sample:'..index);return true
+end
+function W:prepareSamples(index)
+    if not self.cb.sampleStatus then return true end
+    for n,t in ipairs(self.project.tracks) do if (not index or index==n) and t.params.sample then
+        local info=self.cb.sampleStatus(t.params.sample)
+        if info.status=='Loading' then
+            self.cb.message('Part '..n..': '..info.status..'. '..(info.error or 'Wait for the sample, then Play again.'));return false
+        end
+    end end
+    return true
+end
 function W:preset(index,id)
     local t=self.project.tracks[index];if not t then return false end
     for _,p in ipairs(self.catalog) do
@@ -188,6 +210,7 @@ function W:cyclePreset(index,delta)
 end
 function W:presetName(t)
     for _,p in ipairs(self.catalog) do if p.id==t.presetId then return p.name end end
+    if t.params.sample then return 'Sample: '..(t.params.sample.path:match('([^/]+)$') or '') end
     return 'Custom sound'
 end
 function W:add(kind,presetId,name,note)
@@ -436,6 +459,7 @@ function W:stop(force)
 end
 function W:play(mode)
     self:stop(true)
+    if not self:prepareSamples() then return false end
     if mode=='song' and not self:hasSong() then self.cb.message('Load the original MIDI file for unedited parts first.');return false end
     if mode=='song' and not self.cb.schedule then
         for _,t in ipairs(self.project.tracks) do if t.edited then self.cb.message('Edited MIDI requires native Studio playback.');return false end end
@@ -471,6 +495,7 @@ function W:compilePlan()
 end
 function W:playClip()
     if not self:clipSource() or not self.cb.schedule then return false end
+    if not self:prepareSamples(self.selected) then return false end
     self:stop(true);self:configureAll();self.mode='pattern';self.time=0;self.beat=0;self.step=-1
     local ok,plan=pcall(self.compilePlan,self)
     if not ok then self.cb.message(tostring(plan));return false end

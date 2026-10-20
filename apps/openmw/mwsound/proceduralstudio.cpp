@@ -156,9 +156,9 @@ namespace MWSound
         auto track = std::atomic_load(&mTracks[note.track - 1]);
         if (!track) return;
         if (mOffCount >= MaxActive) { mFault = 1; mPlaying = false; clearVoices(); return; }
-        if (track->mCurrent[28] == 3)
+        if (!track->mSampleCurrent.data && track->mCurrent[28] == 3)
             for (unsigned n = 0; n < MaxTracks; ++n)
-                if (auto open = std::atomic_load(&mTracks[n]); open && open->mCurrent[28] == 4)
+                if (auto open = std::atomic_load(&mTracks[n]); open && !open->mSampleCurrent.data && open->mCurrent[28] == 4)
                 {
                     ++mGeneration[n]; mHeld[n].fill(0); mLiveHeld[n].fill(false); for (auto& bits : mNoteBits[n]) bits = 0;
                     for (auto& voice : open->mVoices) { voice.amp.release(); voice.filter.release(); voice.drumChoke = true; }
@@ -202,7 +202,10 @@ namespace MWSound
             {
                 std::unique_lock<std::mutex> lock(track->mMutex, std::try_to_lock);
                 if (lock.owns_lock())
+                {
+                    track->syncSample();
                     for (auto parameter : {std::size_t(25), std::size_t(28), std::size_t(41)}) track->mCurrent[parameter] = track->mTarget[parameter];
+                }
             }
         {
             std::unique_lock<std::mutex> lock(mControl, std::try_to_lock);

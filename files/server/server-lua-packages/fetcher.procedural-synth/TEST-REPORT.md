@@ -953,3 +953,57 @@ eight sources per track/64 placements per track/256 per project/64 quarter notes
 per source, existing note and thirty-minute/rate limits. No automation, source
 offsets, independent source copies, MIDI export, new sample instruments or
 hardware MIDI support is claimed.
+
+
+## 2026-10-20: installed-game sampler and browser
+
+Package 18 requires native openmw.synth API 12; I.ProceduralSynth is also 12.
+Client and server RelWithDebInfo builds passed. All 15 Lua test scripts passed,
+including the real MIDI parser fixture, the 9700-assertion client/UI harness,
+31 server tests / 310 assertions and 24 dedicated sampler assertions. Native
+CTest passed with sample loading/publication, missing/mismatched identity,
+root/octave frequency, independent chord cursors, overlapping one-shots, gated
+release, panic, end-of-file retirement, control-thread buffer reclamation,
+block-size-independent native Studio scheduling and Stop tests. Existing drum,
+guitar, mixer, returns, timing, concurrency and sound-change tests also passed.
+
+The established port-25567 Synth A/B fixture passed real native checks:
+/s-catalog MP3 voice, loose music excerpt starting at 30 seconds, and an
+archive-only WAV generated for QA. Both clients received package 18 afresh and
+resolved matching sample identities. Quantitative native voice/peak readings
+confirmed sample audio at a consenting player's lute and an owned NPC's drum.
+The owner played a pitched chord/repeated linked source, recorded a new note into
+that source, saved/loaded it with sample settings and band routes through SQLite,
+played imported Greensleeves MIDI through the sample, and closed/reopened Studio.
+Forty distinct excerpt loads/switches/local previews completed while the native
+band song continued. Finish removed remote outputs. A mismatched WAV and a
+missing path stayed silent while the matching player part continued. Both
+listeners reported affected-lane status; unrelated parts were not substituted.
+Personal sample presets and project references were verified in character 1001's
+actual SQLite storage; character 1002 retained its separate preset storage.
+
+Native UI was inspected at the saved 136% scale: 7183 installed sounds, 6447 voice
+entries; searching 'hello' matched 3880 catalog-tagged files even when filenames
+used 'hlo'. Dragging the selector scrollbar moved to matches 2125-2132. Mouse/UI
+editing changed the voice start to 0.1 seconds, applied a 1.1-second excerpt,
+switched to Gated, assigned it to the selected part and saved. Trim fields,
+metadata, status and all seven Studio tabs fit the shared window. The metadata
+catalog packs 9703 paths into 615 shared groups (~179 KB) to avoid a large
+bootstrap transfer; fresh two-client downloads passed with this representation.
+
+Latest pre-QA data was backed up in fixture evidence/samples/baseline-20261020-120833.
+After evidence collection, database, global storage, profiles and userdata were
+restored. All 13 database/settings/input hashes matched before normal startup.
+Normal fixture setup installs package 18 and the final executable, disables the
+probe and excludes the generated audio archive. Evidence is evidence/samples/
+live-A.log, live-B.log, live-server.log and qa-completed.db. No 25568 fixture,
+production change, push, deployment or game-audio redistribution was used.
+
+First-pass limits: mono excerpts, linear pitch/speed resampling, 0.01-30 seconds
+per excerpt starting at 0-600 seconds, 64 MiB source-file cap, one decoder worker,
+ten-second decode deadline, 16 queued loads, 32 cached excerpts / 176 MiB maximum
+PCM plus bounded scratch. Existing instance/lane/voice/score budgets still apply.
+A late listener joins on subsequent notes after loading. Advanced sample loops,
+chopping, crossfades, reverse, time stretch, stereo lanes and multisample zones
+remain future work. Broad long-session/device latency measurements remain
+separate from the bounded forty-switch check above.
