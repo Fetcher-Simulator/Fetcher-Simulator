@@ -38,6 +38,7 @@ function W:touch(key,quiet)
 end
 function W:restore(project)
     self:stop(true)
+    self.clipEdit=nil;self.regionIndex=nil
     if self.cb.documentChanged then self.cb.documentChanged() end
     if self.project.midi~=project.midi then self.song=nil end
     self.project=copy(project);self.checkpoint=copy(project);self.lastEditKey=nil
@@ -58,6 +59,7 @@ function W:newSong(bpm,numerator,denominator,bars)
     p=format.project(p);if not p then return false end
     self:stop(true);if self.cb.documentChanged then self.cb.documentChanged() end
     self.song=nil;self.spans={};self.project=p;self.noteCache={};self.noteSelection={};self.selected=1
+    self.clipEdit=nil;self.regionIndex=nil
     self.rollStart=0;self.bar=0;self.base=60;self.time=0;self.beat=0;self.step=-1;self.page='song'
     self.lastEditKey=nil;self:configureAll();self:touch();return true
 end
@@ -83,7 +85,7 @@ function W:addPart(role)
     if not self.project.timeline or #self.project.tracks>=format.maxTracks or self.recording then return false end
     local allowed={keys=true,bass=true,guitar=true,pad=true,kick=true,snare=true,hat=true,openhat=true,tom=true}
     if not allowed[role] then return false end
-    self:stop(true)
+    self:stop(true);self.clipEdit=nil
     local index=#self.project.tracks+1;local t=format.newTrack('midi',role..' '..index,self.project.length)
     t.part='';t.sourceRole=role;t.edited=format.encodeNotes({},960)
     t.note=({kick=36,snare=38,hat=42,openhat=46,tom=45})[role] or 60
@@ -190,7 +192,7 @@ function W:presetName(t)
 end
 function W:add(kind,presetId,name,note)
     if #self.project.tracks>=format.maxTracks then self.cb.message('Track limit: 16.');return false end
-    self:stop(true)
+    self:stop(true);self.clipEdit=nil
     local t=format.newTrack(kind,name or (kind=='drum' and 'Drum ' or 'Piano ')..(#self.project.tracks+1),self.project.length)
     local n=#self.project.tracks+1;self.project.tracks[n]=t;self.selected=n
     if kind=='drum' then
@@ -216,7 +218,7 @@ function W:addKit(kitIndex)
 end
 function W:remove(index)
     if not self.project.tracks[index] then return false end
-    self:stop(true);table.remove(self.project.tracks,index);self.selected=math.max(1,math.min(index,#self.project.tracks))
+    self:stop(true);self.clipEdit=nil;self.regionIndex=nil;table.remove(self.project.tracks,index);self.selected=math.max(1,math.min(index,#self.project.tracks))
     self:configureAll();self:touch();return true
 end
 function W:setTrack(index,name,value)
@@ -257,11 +259,26 @@ function W:needsMidi()
     return false
 end
 function W:hasSong() return self.song~=nil or self.project.timeline~=nil and not self:needsMidi() end
+function W:clipSource(index)
+    if not self.clipEdit then return end
+    return require(prefix..'client.arrangement').source(self,index or self.selected)
+end
+function W:newClip(index) return require(prefix..'client.arrangement').empty(self,index) end
+function W:captureClip(index) return require(prefix..'client.arrangement').capture(self,index) end
+function W:editClip(index,id) return require(prefix..'client.arrangement').edit(self,index,id) end
+function W:leaveClip() return require(prefix..'client.arrangement').leave(self) end
+function W:placeClip(index,id,step) return require(prefix..'client.arrangement').place(self,index,id,step) end
+function W:changeRegion(index,id,changes) return require(prefix..'client.arrangement').change(self,index,id,changes) end
+function W:duplicateRegion(index,id) return require(prefix..'client.arrangement').duplicate(self,index,id) end
+function W:removeRegion(index,id) return require(prefix..'client.arrangement').remove(self,index,id) end
+function W:setClip(index,id,changes) return require(prefix..'client.arrangement').clip(self,index,id,changes) end
+function W:deleteClip(index,id) return require(prefix..'client.arrangement').deleteClip(self,index,id) end
 function W:noteData(index)
     local t=self.project.tracks[index];if not t then return {} end
     if t.edited then
+        local clip=self:clipSource(index);local data=clip and clip.notes or t.edited
         self.noteCache=self.noteCache or {};local cached=self.noteCache[index]
-        if not cached or cached.data~=t.edited then cached={data=t.edited,notes=assert(format.decodeNotes(t.edited))};self.noteCache[index]=cached end
+        if not cached or cached.data~=data then cached={data=data,notes=assert(format.decodeNotes(data))};self.noteCache[index]=cached end
         return cached.notes
     end
     return t.kind=='midi' and self.spans and self.spans[t.part] or t.notes
@@ -278,7 +295,7 @@ function W:convertPart(index)
     timeline=self.project.timeline or format.timeline(timeline)
     if not timeline then self.cb.message('This MIDI tempo map exceeds the editable song limits.');return false end
     local notes=MIDI.editableSpans(self.song,t.part);local data=format.encodeNotes(notes,self.song.division)
-    local total=#notes;for _,track in ipairs(self.project.tracks) do if track.edited then total=total+#track.edited.bytes/10 end end
+    local total=#notes+format.savedNotes(self.project)
     if not data or total>format.maxEditedNotes then self.cb.message('Editing supports 4,096 notes per part and 8,192 per project. Original part preserved.');return false end
     self:stop(true);self.project.timeline=timeline;t.edited=data;self.noteCache={};self.noteSelection={};self.selectionTrack=index
     for _,part in ipairs(MIDI.parts(self.song)) do if part.id==t.part then t.sourceRole=SoundSets.role(part);t.note=part.note or t.note end end
@@ -301,12 +318,17 @@ function W:storeNotes(index,notes,key,quiet)
     if self.recording then self.cb.message('End or cancel the take before editing notes.');return false end
     local t=self.project.tracks[index];if not self:canEditNotes(index) then return false end
     if t.edited then
-        local data=format.encodeNotes(notes,t.edited.division);local total=#notes
-        for n,track in ipairs(self.project.tracks) do if n~=index and track.edited then total=total+#track.edited.bytes/10 end end
+        local clip=self:clipSource(index);local old=clip and clip.notes or t.edited
+        local data=format.encodeNotes(notes,old.division);local total=format.savedNotes(self.project)-#old.bytes/10+#notes
         if not data or total>format.maxEditedNotes then self.cb.message('Edited note limit reached; change cancelled.');return false end
         for _,n in ipairs(notes) do if format.seconds(self.project.timeline,(n.s+n.l)/4)>1800 then self.cb.message('Song limit: 30 minutes.');return false end end
-        if data.bytes==t.edited.bytes then return true end
-        t.edited=data
+        if data.bytes==old.bytes then return true end
+        if clip or t.arrangement then
+            local candidate=copy(self.project)
+            if clip then candidate.tracks[index].arrangement.clips[self.clipEdit.clip].notes=data else candidate.tracks[index].edited=data end
+            if not format.project(candidate) then self.cb.message('Notes exceed clip length, transposed pitch or expanded-score limits; edit cancelled.');return false end
+        end
+        if clip then clip.notes=data else t.edited=data end
     else
         local candidate=copy(t);candidate.notes=notes;local valid=format.track(candidate,self.project.length)
         local count=#notes;for n,track in ipairs(self.project.tracks) do if n~=index then count=count+#track.notes end end
@@ -377,6 +399,7 @@ function W:import(song,path)
     if self.project.midi~=path and not SoundSets.find(self.project.soundSet) then self.project.soundSet='balanced' end
     if self.project.midi~=path then self.project.timeline=nil;self.project.composition=nil end
     self.song=song;self:cacheSpans();self.project.midi=path;self.project.tracks=tracks;self.selected=1;self.noteSelection={};self.noteCache={}
+    self.clipEdit=nil;self.regionIndex=nil
     if song.tempos and song.tempos[1] and song.tempos[1].beat==0 then self.project.bpm=math.max(40,math.min(240,60000000/song.tempos[1].tempo)) end
     self:configureAll();self:touch();return true
 end
@@ -384,6 +407,7 @@ function W:cacheSpans() self.spans=self.song and MIDI.noteSpans(self.song) or {}
 function W:load(project)
     local valid=format.project(project);if not valid then return false end
     self:endTake(true);self:stop(true);if self.cb.documentChanged then self.cb.documentChanged() end;if self.project.midi~=valid.midi or valid.composition then self.song=nil end
+    self.clipEdit=nil;self.regionIndex=nil
     self.project=valid;self.checkpoint=copy(valid);self.undoStack={};self.redoStack={};self.lastEditKey=nil;self.noteSelection={};self.noteCache={};self:cacheSpans();self.selected=1;self.bar=0;self.rollStart=0;self.dirty=false;self.revision=self.revision+1;self.generation=self.generation+1;self:configureAll()
     if self:needsMidi() and not self.song then self.cb.importMidi(valid.midi) end
     return true
@@ -436,6 +460,24 @@ function W:play(mode)
     end
     return true
 end
+function W:compilePlan()
+    local Sequence=require(prefix..'shared.sequence')
+    if self.mode~='pattern' then return Sequence.compile(self.project,self.song,MIDI,self.mode,format) end
+    local clip=assert(self:clipSource(),'Select a clip source first.')
+    local p=copy(self.project);p.composition=nil;p.timeline=nil;p.length=clip.length;p.swing=0;p.loop=true
+    for _,t in ipairs(p.tracks) do t.kind='midi';t.arrangement=nil end
+    p.tracks[self.selected].kind='piano';p.tracks[self.selected].notes=format.decodeNotes(clip.notes)
+    return Sequence.compile(p,nil,MIDI,'clips',format)
+end
+function W:playClip()
+    if not self:clipSource() or not self.cb.schedule then return false end
+    self:stop(true);self:configureAll();self.mode='pattern';self.time=0;self.beat=0;self.step=-1
+    local ok,plan=pcall(self.compilePlan,self)
+    if not ok then self.cb.message(tostring(plan));return false end
+    self.playing=true;self.native=true;self.nativeStarted=false;self.awaiting=true;self.sequenceDirty=false
+    if self.cb.schedule(plan,false)==false then self:stop(true);return false end
+    return true
+end
 function W:beatAt(time,mode)
     if (mode or self.mode)~='song' then return time*self.project.bpm/60 end
     local beat,seconds,tempo=0,0,500000
@@ -469,17 +511,22 @@ function W:startTake(index)
     if self.playing and (not self.native or not self.cb.progress) then self.cb.message('Native playback is required for overdub.');return false end
     if self.recording or not self:canEditNotes(index) then self.cb.message('Choose a piano clip or convert the MIDI part with Edit MIDI first.');return false end
     local t=self.project.tracks[index]
+    local clip=self:clipSource(index)
+    if clip and self.playing then self.cb.message('Stop playback before recording into a shared clip source.');return false end
     if t.edited and self.playing and self.mode~='song' then self.cb.message('Play song, or stop playback before recording this MIDI part.');return false end
     self:configure(index)
     if self.cb.canMonitor and not self.cb.canMonitor(index) then self.cb.message('The assigned instrument must be Ready and loaded before recording.');return false end
     local capacity=t.edited and format.maxPartNotes-#self:noteData(index) or 128-#t.notes
     local remaining=t.edited and format.maxEditedNotes or format.maxNotes
-    for _,track in ipairs(self.project.tracks) do remaining=remaining-(t.edited and (track.edited and #track.edited.bytes/10 or 0) or #track.notes) end
+    if t.edited then remaining=remaining-format.savedNotes(self.project)
+    else for _,track in ipairs(self.project.tracks) do remaining=remaining-#track.notes end end
     capacity=math.min(capacity,remaining)
     if capacity<=0 then self.cb.message('No free note capacity for this take.');return false end
     local now=self.cb.now and self.cb.now() or self.wall
     local mode=self.playing and self.mode or (t.edited and 'song' or 'clips')
+    if clip then mode='clips' end
     local seconds=self.playing and self.time or (t.edited and format.seconds(self.project.timeline,(self.rollStart or self.bar*16)/4) or (self.rollStart or self.bar*16)/4*60/self.project.bpm)
+    if clip then seconds=(self.rollStart or 0)/4*60/self.project.bpm end
     local step=self:beatAt(seconds,mode)*4
     if self.playing and self.cb.progress then local _,time=self.cb.progress();step=self:playbackBeat(time)*4 end
     local origin=t.edited and 0 or (self.playing and math.floor(step/self.project.length)*self.project.length or 0)
@@ -489,9 +536,10 @@ function W:startTake(index)
         local first,last=format.songRange(self.project);limit=last*4;minimum=self.playing and first*4 or 0
         if not self.playing then limit=self.project.timeline.beats*4 end
     end
+    if clip then limit=clip.length;minimum=0 end
     if step>=limit then self.cb.message('Move the view inside the playback length before recording.');return false end
     local snap=math.min(self.snap>0 and self.snap or (t.edited and 4/t.edited.division or 1/240),limit-origin-minimum)
-    self.recording={index=index,track=t,mode=mode,overdub=self.playing,origin=origin,limit=limit,notes={},held={},capacity=capacity,
+    self.recording={index=index,track=t,clip=clip,mode=mode,overdub=self.playing,origin=origin,limit=limit,notes={},held={},capacity=capacity,
         starts=now+(t.edited and self.project.composition and format.barBeats(self.project) or 4)*60/self.project.bpm,seconds=seconds,snap=snap,minimum=minimum}
     self.revision=self.revision+1;return true
 end
@@ -528,15 +576,15 @@ function W:endTake(cancel,finish)
     for _,note in ipairs(held) do self:recordOff(note,step) end
     self.recording=nil;self.revision=self.revision+1
     if cancel or #r.notes==0 then return true end
-    if self.project.tracks[r.index]~=r.track then self.cb.message('Recording destination changed; take discarded.');return false end
+    if self.project.tracks[r.index]~=r.track or self:clipSource(r.index)~=r.clip then self.cb.message('Recording destination changed; take discarded.');return false end
     local notes=copy(self:noteData(r.index));local first=#notes+1
     for _,n in ipairs(r.notes) do notes[#notes+1]=n end
-    if not self:storeNotes(r.index,notes) then self.failedTake={index=r.index,track=r.track,notes=copy(r.notes)};self.cb.message('Take not committed. Free note capacity, then Retry take; Cancel discards recovery.');return false end
+    if not self:storeNotes(r.index,notes) then self.failedTake={index=r.index,track=r.track,clip=r.clip,notes=copy(r.notes)};self.cb.message('Take not committed. Free note capacity, then Retry take; Cancel discards recovery.');return false end
     self:selectNote(r.index);for id=first,#notes do self.noteSelection[id]=true end
     return true
 end
 function W:recoverTake()
-    local r=self.failedTake;if not r or self.recording or self.project.tracks[r.index]~=r.track or not self:canEditNotes(r.index) then return false end
+    local r=self.failedTake;if not r or self.recording or self.project.tracks[r.index]~=r.track or self:clipSource(r.index)~=r.clip or not self:canEditNotes(r.index) then return false end
     local notes=copy(self:noteData(r.index));for _,n in ipairs(r.notes) do notes[#notes+1]=copy(n) end
     if not self:storeNotes(r.index,notes) then return false end
     self.failedTake=nil;return true
@@ -575,8 +623,7 @@ function W:frame(dt)
         self.preview=preview
         if self.sequenceDirty and self.wall-(self.lastSequenceEdit or -10)>0.25 then
             self.sequenceDirty=false;self.lastSequenceEdit=self.wall
-            local Sequence=require(prefix..'shared.sequence')
-            local ok,plan=pcall(Sequence.compile,self.project,self.song,MIDI,self.mode,format)
+            local ok,plan=pcall(self.compilePlan,self)
             if not ok or self.cb.schedule(plan,true)==false then self:stop(true);self.cb.message(tostring(plan));return end
         end
         if not self.awaiting then

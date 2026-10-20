@@ -16,6 +16,7 @@ function R.new(owner,content)
     self.steps=w.rollSteps;self.cw=self.width/self.steps;self.rh=self.height/self.rows
     self.start=w.rollStart or w.bar*16;local notes=w:noteData(self.index) or {}
     local finish=t.kind=='midi' and math.max(w.project.timeline and w.project.timeline.beats*4 or w.song and w.song.beats*4 or 16,16) or Project.maxSteps
+    local clip=w:clipSource(self.index);if clip then finish=clip.length end
     for _,n in ipairs(notes) do finish=math.max(finish,n.s+n.l) end
     self.maximum=math.max(0,finish-self.steps);self.start=clamp(self.start,0,self.maximum)
     local grid=rect(self.x,self.y,self.width,self.height,colors.bg);local cells={}
@@ -77,13 +78,14 @@ function R:move(e)
     local d=self.drag;if not d then return end
     local point=self:point(e);local delta=round((point.x-d.x)/self.cw,self:quantum())
     local pitch=math.floor((d.y-point.y)/self.rh+0.5)
-    local minS,minP,maxP,minL,maxS,maxL=math.huge,127,0,math.huge,0,0
+    local minS,minP,maxP,minL,maxS,maxL,maxEnd=math.huge,127,0,math.huge,0,0,0
     for _,id in ipairs(d.ids) do local n=d.notes[id];minS=math.min(minS,n.s);maxS=math.max(maxS,n.s)
-        minP=math.min(minP,n.n);maxP=math.max(maxP,n.n);minL=math.min(minL,n.l);maxL=math.max(maxL,n.l) end
-    local limit=self.track.edited and Project.maxSongBeats*4 or Project.maxSteps
+        minP=math.min(minP,n.n);maxP=math.max(maxP,n.n);minL=math.min(minL,n.l);maxL=math.max(maxL,n.l);maxEnd=math.max(maxEnd,n.s+n.l) end
+    local clip=self.w:clipSource(self.index)
+    local limit=clip and clip.length or self.track.edited and Project.maxSongBeats*4 or Project.maxSteps
     local minimum=self.track.edited and 4/self.track.edited.division or 1/960
-    d.change=d.resize and {length=clamp(delta,minimum-minL,limit-maxL)}
-        or {step=clamp(delta,-minS,limit-self:quantum()-maxS),pitch=clamp(pitch,-minP,127-maxP)}
+    d.change=d.resize and {length=clamp(delta,minimum-minL,clip and limit-maxEnd or limit-maxL)}
+        or {step=clamp(delta,-minS,clip and limit-maxEnd or limit-self:quantum()-maxS),pitch=clamp(pitch,-minP,127-maxP)}
     self:draw()
 end
 function R:finish(cancel)

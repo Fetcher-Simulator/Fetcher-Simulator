@@ -726,3 +726,58 @@ and meter, not tempo/meter automation lanes. Arrangement clips, controller editi
 MIDI export, project library/recovery, hardware input and game-audio sampling are
 still planned. The optional -CompositionProbe setup flag runs disposable native
 A/B tests in the established fixture; back up current DB/profiles before QA.
+
+
+## Linked clips and arrangement timeline (package 17 / native synth API 11)
+
+In Piano, select notes and click Make clip. This moves the selected notes into a
+reusable source and places it at the same song position as one undo action.
+Unselected linear notes, sounds, channel processing and band routing remain.
+Capturing requires a song timeline; convert imported parts with Edit MIDI first.
+Drums > Capture lane can convert a step lane into an arranged song part, baking
+step swing and drum gates into notes and clearing that lane's old clip overlay.
+Stored later steps/notes are preserved, subject to the source-length limit.
+
+Open Song > Arrange clips. Choose a track and a source, then click an empty bar
+to place it. Drag a placement to move it by bars; drag its actual right edge to
+repeat or trim it. Duplicate placement adds a linked copy immediately after it.
+Pitch -/+ and Mute placement affect only that placement. Remove placement keeps
+the source. Overlapping placements layer their notes. The timeline has 4/8/16-bar
+views, track pages, a draggable time scrollbar and mouse-wheel time scrolling.
+
+Edit source opens the existing piano roll. All placements on that track reference
+these same saved notes; editing the source updates every linked copy, including
+scheduled native score replacement during song playback. Play source auditions
+just that source through the track's sound/mixer/band output. Record keyboard can
+record into a shared source while stopped, with the existing visual count-in;
+source length bounds the take. Stop the transport before recording a source.
+Recording into a full-song linear part still supports ordinary native overdub.
+
++ Empty clip starts a source with one bar. Rename it in the text field (Enter or
+leave the field to commit). The Source length dropdown sets its repeat period;
+shortening past existing notes is rejected instead of deleting them. Delete
+source also removes its placements, and Undo restores both. Source editing and
+all placement changes share Studio history and Save/Load per character.
+
+Sources keep their PPQ, velocities and note gates. Gates are clipped at the end
+of a trimmed placement. Repeated sources follow the song tempo map. Existing
+linear notes and independent piano/drum overlays continue to play alongside the
+arrangement; authored song bounds/loop regions still decide which bars play.
+Changing song length does not delete placements in later bars. Clip sources keep
+their quarter-note timing when meter changes, just as linear notes do.
+
+Bounds: eight sources and 64 placements per track, 256 placements per project;
+source length at most 64 quarter notes (sixteen 4/4 bars). Full-song linear and
+source notes share the existing 8192-note document budget, with 4096 per source.
+Compiled arrangements are bounded to 60000 expanded notes plus the existing
+shared note-rate/gate/duration validation. Invalid references, pitch overflow,
+malformed bytes or oversized repeats preserve the prior document. Source notes
+are stored once, not once per placement; native playback expands them off the
+audio callback into the existing score format. No engine binary upgrade is
+needed beyond API 11. Old projects without arrangements retain their behavior.
+
+This first arranger has linked, track-local sources and individual bar-snapped
+placements. Multi-selection, independent source copies/cross-track transfer,
+source offsets, automation/controller lanes, MIDI export and native samples are
+later work. The optional -ArrangementProbe setup flag runs disposable A/B tests;
+back up the latest fixture DB/profiles before running it.

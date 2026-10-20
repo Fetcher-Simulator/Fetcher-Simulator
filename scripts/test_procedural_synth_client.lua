@@ -71,6 +71,8 @@ package.loaded[prefix..'client.workstation']=dofile(root..'client/workstation.lu
 package.loaded[prefix..'client.controls']=dofile(root..'client/controls.lua')
 package.loaded[prefix..'client.piano-roll']=dofile(root..'client/piano-roll.lua')
 package.loaded[prefix..'client.dropdown']=dofile(root..'client/dropdown.lua')
+package.loaded[prefix..'client.arrangement']=dofile(root..'client/arrangement.lua')
+package.loaded[prefix..'client.arranger']=dofile(root..'client/arranger.lua')
 local Studio=dofile(root..'client/studio.lua')
 local lastStudio
 local newStudio=Studio.new
@@ -578,5 +580,55 @@ lastStudio.cb.playSong()
 check(w.project.composition and w.project.midi=='' and score.bytes:byte(10)==65,'load clears explicit file selection before authored-song Play')
 lastStudio.cb.midiSelect(paths[1]);lastStudio.cb.playSong();now=now+0.01;player.engineHandlers.onFrame(0.01)
 check(w.project.midi==paths[1] and not w.project.composition,'explicit file selection still replaces an authored song')
+-- Exercise real arranger widgets, mouse capture and shared-source navigation.
+w:newSong(120,4,4,16);w:addNote(1,60,0);w:addNote(1,64,4);w:selectAllNotes(1)
+button('Piano').events.mouseClick();now=now+0.01;player.engineHandlers.onFrame(0.01)
+button('Make clip').events.mouseClick();now=now+0.01;player.engineHandlers.onFrame(0.01)
+check(w.page=='arrange' and lastStudio.arranger and #w.project.tracks[1].arrangement.regions==1,'Make clip opens the timeline with a linked placement')
+local function dragRegion(resize,bars)
+    local arranger=lastStudio.arranger;local entry=arranger.pool[1];local props=entry.element.layout.props;local scale=lastStudio.window.scale
+    local offset=resize and props.size.x-1 or 2;local rootPosition=lastStudio.root.layout.props.position
+    local point=vector(rootPosition.x+props.position.x+offset,rootPosition.y+38*scale+props.position.y+5)
+    local history=#w.undoStack;local source=w.project.tracks[1].arrangement.regions[1];local old=source.s
+    mouseDown=true;entry.element.layout.events.mousePress{button=1,position=point,offset=vector(offset,5)}
+    entry.element.layout.events.mouseMove{button=1,position=vector(point.x+bars*arranger.bar*arranger.cw*scale,point.y),offset=vector(offset,5)}
+    check(#w.undoStack==history and source.s==old,'arrangement drag previews leave document/history untouched')
+    mouseDown=false;now=now+0.01;lastStudio:frame(now)
+    check(#w.undoStack==history+1,'placement drag commits once on release')
+end
+dragRegion(false,2)
+check(w.project.tracks[1].arrangement.regions[1].s==32,'timeline drag moves a placement by whole bars')
+viewport=vector(1920,1440);lastStudio.window:zoom(0.5);now=now+0.01;lastStudio:frame(now)
+dragRegion(true,2)
+check(w.project.tracks[1].arrangement.regions[1].l==48,'right-edge drag repeats the source at enlarged GUI scale')
+button('Duplicate placement').events.mouseClick();now=now+0.01;player.engineHandlers.onFrame(0.01)
+check(#w.project.tracks[1].arrangement.regions==2 and #w.project.tracks[1].arrangement.clips==1,'timeline duplicate links a single source')
+local gen=w.generation;local ar=lastStudio.arranger;local rootPosition=lastStudio.root.layout.props.position;local scale=lastStudio.window.scale
+local scrollPoint=vector(rootPosition.x+(ar.x+ar.width-2)*scale,rootPosition.y+(38+565)*scale)
+mouseDown=true;ar.thumb.layout.events.mousePress{button=1,position=scrollPoint,offset=vector(1,1)}
+check(w.arrangeBar==ar.maximum and w.generation==gen,'timeline scrollbar moves view without a project edit')
+mouseDown=false;now=now+0.01;lastStudio:frame(now)
+w.arrangeBar=0;w.revision=w.revision+1;now=now+0.01;lastStudio:frame(now)
+w:changeRegion(1,2,{l=160});now=now+0.01;lastStudio:frame(now)
+local clipped=lastStudio.arranger.pool[2];local props=clipped.element.layout.props;local scale=lastStudio.window.scale;local rootPosition=lastStudio.root.layout.props.position
+local point=vector(rootPosition.x+props.position.x+props.size.x-1,rootPosition.y+38*scale+props.position.y+5)
+mouseDown=true;clipped.element.layout.events.mousePress{button=1,position=point,offset=vector(props.size.x-1,5)}
+check(not lastStudio.arranger.drag.resize,'a placement clipped by the viewport does not expose a false resize handle')
+lastStudio.arranger:finish(true);mouseDown=false;w:undo();now=now+0.01;lastStudio:frame(now)
+button('Edit source').events.mouseClick();now=now+0.01;player.engineHandlers.onFrame(0.01)
+check(w:clipSource() and lastStudio.roll and button('Play source'),'source opens in the existing piano roll with a dedicated audition button')
+w:selectAllNotes(1);lastStudio.roll:draw()
+local roll=lastStudio.roll;local widget=roll.pool[1];local props=widget.layout.props;local scale=lastStudio.window.scale;local rootPosition=lastStudio.root.layout.props.position
+local point=vector(rootPosition.x+props.position.x+props.size.x-1,rootPosition.y+38*scale+props.position.y+5)
+mouseDown=true;widget.layout.events.mousePress{button=1,position=point,offset=vector(props.size.x-1,5)}
+widget.layout.events.mouseMove{button=1,position=vector(point.x+200*roll.cw*scale,point.y),offset=vector(1,5)}
+mouseDown=false;now=now+0.01;lastStudio:frame(now)
+local maxEnd=0;for _,note in ipairs(w:noteData(1)) do maxEnd=math.max(maxEnd,note.s+note.l) end
+check(maxEnd==w:clipSource().length,'source drag clamps group gates to the source boundary')
+w:undo();w:editClip(1,1);now=now+0.01;lastStudio:frame(now)
+w:selectAllNotes(1);w:editSelected(1,{pitch=2});button('Arrange clips').events.mouseClick();now=now+0.01;player.engineHandlers.onFrame(0.01)
+check(not w.clipEdit and w.project.tracks[1].arrangement.clips[1].notes.bytes~=composed.tracks[1].edited.bytes,'returning to arranger exits source editing')
+button('Save').events.mouseClick();check(sent[#sent].project.tracks[1].arrangement.regions[2].clip==1,'actual Save sends compact source references')
+viewport=vector(1024,768);lastStudio.window:zoom(-0.5)
 api.close()
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

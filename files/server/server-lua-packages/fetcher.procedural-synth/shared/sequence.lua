@@ -63,6 +63,7 @@ function M.compile(project,song,MIDI,mode,format)
     local beats=songMode and timeline.beats or project.length/4
     if songMode and not project.composition then for _,t in ipairs(project.tracks) do if t.edited then
         for _,n in ipairs(assert(format.decodeNotes(t.edited))) do beats=math.max(beats,(n.s+n.l)/4) end
+        for _,r in ipairs(t.arrangement and t.arrangement.regions or {}) do beats=math.max(beats,(r.s+r.l)/4) end
     end end end
     local total=songMode and math.max(project.timeline and 0 or song.duration,seconds(beats)) or seconds(beats)
     if songMode and song then
@@ -85,6 +86,9 @@ function M.compile(project,song,MIDI,mode,format)
         for _,n in ipairs(assert(format.decodeNotes(t.edited))) do
             local time=seconds(n.s/4);add(lane,n.n,n.v,time,seconds((n.s+n.l)/4)-time)
         end
+        if t.arrangement then format.eachRegionNote(t,function(pitch,step,length,velocity)
+            local time=seconds(step/4);add(lane,pitch,velocity,time,seconds((step+length)/4)-time)
+        end) end
     end end end
     local period=project.length/4
     local cycles=songMode and (project.loop and math.ceil(beats/period) or 1) or 1

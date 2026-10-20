@@ -908,3 +908,48 @@ Limits: constant tempo/meter for authored songs, one current project per charact
 subject to 30 minutes. Step clips remain independent 16-bar 4/4 overlays. No
 arrangement clips, automation, MIDI export, audible metronome, hardware MIDI,
 latency calibration, project library/recovery or game-audio sample instruments.
+
+
+## Linked clip arranger - 2026-10-20
+
+Package 17 uses the existing native API 11 binary; no C++/DSP change or engine
+rebuild is required. All fourteen Lua suites passed. New arrangement model: 52
+assertions; actual client/UI callbacks: 9698; server: 30 tests / 300 assertions.
+Existing composition, recording, editing, workstation, sequence, MIDI, sound-set,
+physical-band, performer, pose and transport tests pass. Shared server/client
+project and sequence files match. git diff --check passes.
+
+Model coverage includes selective capture without doubled notes, PPQ/leading
+silence, linked repetition and transposition, source edits reaching every copy,
+partial-repeat gates across a tempo map, placement mute/removal, source deletion
+and undo, stopped source recording, isolated source audition, saved routing,
+legacy drum swing capture, dangling/malformed references, 256-placement and
+8192-saved-note bounds, pitch overflow, empty-repeat fast paths and expanded-note
+budget rejection. Source notes and direct linear notes share the same saved cap.
+The UI harness checks bar-snapped drag preview/release, one undo action, resizing
+at enlarged scale, source gate clamping, linked duplicate, nonmusical scrollbar
+navigation, source editor/audition navigation and actual Save references.
+
+The existing isolated port-25567 fixture passed native Synth A/B tests for melodic
+and drum arrangements, consenting player-lute and local keyboard outputs, loop
+playback, shared-source edits replacing a running score, stopped source recording,
+8192 source notes plus linked placements and routing over the native event wire
+and SQLite, source-free replay and Finish cleanup on the observer. Evidence is
+fixture evidence/arrangement/live-*.log and qa-completed.db. No fixture on 25568,
+production change, push or deployment was used.
+
+The native UI was inspected at saved 136% scale. Mouse actions moved a placement
+from bar 1 to bar 2, resized another from two bars to three, opened the shared
+source editor, auditioned it, changed to a four-bar view and dragged the time
+scrollbar from bars 1-4 to 5-8. Controls fit the shared resizable window. Follow-up
+UI harness checks cover source end clamping and an offscreen placement end.
+
+The latest pre-QA database/profiles/userdata/global storage were backed up in
+fixture evidence/arrangement/baseline-20261020-114023, then restored. Database and
+settings/input hashes matched before normal startup. Normal setup installs
+package 17 and disables the disposable probe. Existing custom songs remain.
+Limits: track-local linked sources, individual bar-snapped placements, at most
+eight sources per track/64 placements per track/256 per project/64 quarter notes
+per source, existing note and thirty-minute/rate limits. No automation, source
+offsets, independent source copies, MIDI export, new sample instruments or
+hardware MIDI support is claimed.

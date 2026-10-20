@@ -2,6 +2,7 @@
 -- Kept as a factory so both runtimes supply their own synth schema module.
 return function(schema)
 local M={version=1,maxTracks=16,maxNotes=512,maxSteps=256,maxMembers=8,maxEditedNotes=8192,maxPartNotes=4096,maxSongBeats=65536}
+M.maxClips=8;M.maxRegions=64;M.maxProjectRegions=256;M.maxExpandedNotes=60000
 local function num(v,a,b) return type(v)=='number' and v==v and v>=a and v<=b end
 local function int(v,a,b) return num(v,a,b) and v%1==0 end
 local function text(v,n) return type(v)=='string' and #v<=n and not v:find('%c') end
@@ -158,9 +159,71 @@ function M.songRange(p)
     local bar=M.barBeats(p)
     return s.loop and (s.loopStart-1)*bar or 0,s.loop and s.loopEnd*bar or s.bars*bar
 end
-local trackKeys={name=true,kind=true,part=true,presetId=true,params=true,level=true,mute=true,solo=true,note=true,gate=true,steps=true,notes=true,output=true,mixer=true,edited=true,sourceRole=true}
+function M.arrangement(value)
+    if not keys(value,{clips=true,regions=true},2) or not array(value.clips,M.maxClips) or not array(value.regions,M.maxRegions) then return nil end
+    local out={clips={},regions={}};local pitches={}
+    for _,clip in ipairs(value.clips) do
+        if not keys(clip,{name=true,length=true,notes=true},3) or not text(clip.name,32) or not num(clip.length,0.25,M.maxSteps) then return nil end
+        local notes=M.decodeNotes(clip.notes);if not notes then return nil end
+        local low,high=127,0
+        for _,n in ipairs(notes) do
+            if n.s>=clip.length or n.s+n.l>clip.length+1e-8 then return nil end
+            low=math.min(low,n.n);high=math.max(high,n.n)
+        end
+        pitches[#pitches+1]={low,high}
+        out.clips[#out.clips+1]={name=clip.name,length=clip.length,notes={division=clip.notes.division,bytes=clip.notes.bytes}}
+    end
+    for _,r in ipairs(value.regions) do
+        if not keys(r,{clip=true,s=true,l=true,transpose=true,mute=true},5) or not int(r.clip,1,#out.clips)
+            or not num(r.s,0,M.maxSongBeats*4) or not num(r.l,0.25,M.maxSongBeats*4) or r.s+r.l>M.maxSongBeats*4
+            or not int(r.transpose,-48,48) or type(r.mute)~='boolean' then return nil end
+        local bounds=pitches[r.clip]
+        if bounds[1]+r.transpose<0 or bounds[2]+r.transpose>127 then return nil end
+        out.regions[#out.regions+1]={clip=r.clip,s=r.s,l=r.l,transpose=r.transpose,mute=r.mute}
+    end
+    return out
+end
+function M.savedNotes(p)
+    local count=0
+    for _,t in ipairs(p.tracks) do
+        count=count+(t.edited and #t.edited.bytes/10 or 0)
+        for _,clip in ipairs(t.arrangement and t.arrangement.clips or {}) do count=count+#clip.notes.bytes/10 end
+    end
+    return count
+end
+-- Count before expanding: a tiny source repeated over a long region must not
+-- create an unbounded compile loop, including for empty or muted sources.
+function M.regionNoteCount(t)
+    local a=t.arrangement;if not a then return 0 end
+    local count=0;local cache={}
+    for _,r in ipairs(a.regions) do if not r.mute then
+        local clip=a.clips[r.clip];local notes=cache[r.clip]
+        if not notes then notes=M.decodeNotes(clip.notes);cache[r.clip]=notes end
+        local cycles=math.floor(r.l/clip.length);count=count+cycles*#notes
+        local rest=r.l-cycles*clip.length
+        for _,n in ipairs(notes) do if n.s<rest-1e-8 then count=count+1 end end
+        if count>M.maxExpandedNotes then return nil end
+    end end
+    return count
+end
+function M.eachRegionNote(t,emit)
+    assert(M.regionNoteCount(t),'Arrangement exceeds 60,000 expanded notes.')
+    local a=t.arrangement;if not a then return end
+    local cache={}
+    for _,r in ipairs(a.regions) do if not r.mute then
+        local clip=a.clips[r.clip];local notes=cache[r.clip]
+        if not notes then notes=M.decodeNotes(clip.notes);cache[r.clip]=notes end
+        if #notes>0 then for cycle=0,math.ceil(r.l/clip.length)-1 do
+            local offset=cycle*clip.length
+            for _,n in ipairs(notes) do if offset+n.s<r.l-1e-8 then
+                emit(n.n+r.transpose,r.s+offset+n.s,math.min(n.l,r.l-offset-n.s),n.v)
+            end end
+        end end
+    end end
+end
+local trackKeys={name=true,kind=true,part=true,presetId=true,params=true,level=true,mute=true,solo=true,note=true,gate=true,steps=true,notes=true,output=true,mixer=true,edited=true,sourceRole=true,arrangement=true}
 function M.track(t,length)
-    if not keys(t,trackKeys,17) or not text(t.name,48) or (t.kind~='midi' and t.kind~='piano' and t.kind~='drum')
+    if not keys(t,trackKeys,18) or not text(t.name,48) or (t.kind~='midi' and t.kind~='piano' and t.kind~='drum')
         or not text(t.part or '',48) or not text(t.presetId or '',32) or not num(t.level,0,1)
         or type(t.mute)~='boolean' or type(t.solo)~='boolean' or not int(t.note,0,127) or not num(t.gate,0.01,1)
         or type(t.steps)~='string' or (#t.steps<length or #t.steps>M.maxSteps or #t.steps%16~=0) or t.steps:find('[^0-9]')
@@ -173,6 +236,10 @@ function M.track(t,length)
     if t.edited~=nil then
         if t.kind~='midi' or not M.decodeNotes(t.edited) then return nil end
         out.edited={division=t.edited.division,bytes=t.edited.bytes}
+    end
+    if t.arrangement~=nil then
+        if not out.edited then return nil end
+        out.arrangement=M.arrangement(t.arrangement);if not out.arrangement then return nil end
     end
     for _,n in ipairs(t.notes) do
         if not keys(n,{n=true,s=true,l=true,v=true},4) or not int(n.n,0,127) or not num(n.s,0,M.maxSteps-0.000001)
@@ -196,7 +263,7 @@ function M.project(p)
             or #out.timeline.tempos~=1 or out.timeline.tempos[1].beat~=0
             or out.timeline.tempos[1].tempo~=math.floor(60000000/p.bpm+0.5) then return nil end
     end
-    local notes,edited=0,0
+    local notes,edited,regions,expanded=0,0,0,0
     for _,t in ipairs(p.tracks) do
         local track=M.track(t,p.length);if not track then return nil end
         if out.composition and track.kind=='midi' and not track.edited then return nil end
@@ -205,7 +272,15 @@ function M.project(p)
             if not out.timeline then return nil end
             edited=edited+#track.edited.bytes/10;if edited>M.maxEditedNotes then return nil end
             for _,n in ipairs(M.decodeNotes(track.edited)) do if M.seconds(out.timeline,(n.s+n.l)/4)>1800 then return nil end end
+            expanded=expanded+#track.edited.bytes/10
         end
+        if track.arrangement then
+            for _,clip in ipairs(track.arrangement.clips) do edited=edited+#clip.notes.bytes/10 end
+            regions=regions+#track.arrangement.regions
+            local count=M.regionNoteCount(track);if not count then return nil end;expanded=expanded+count
+            for _,r in ipairs(track.arrangement.regions) do if M.seconds(out.timeline,(r.s+r.l)/4)>1800 then return nil end end
+        end
+        if edited>M.maxEditedNotes or regions>M.maxProjectRegions or expanded>M.maxExpandedNotes then return nil end
         out.tracks[#out.tracks+1]=track
     end
     return out

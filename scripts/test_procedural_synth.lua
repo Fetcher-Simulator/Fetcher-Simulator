@@ -425,4 +425,17 @@ test('authored song meter and loop markers survive private character reload',fun
     now=now+3;project.composition.loopEnd=257;request('dawSave',{project=project})
     check(storage['project:11'].composition.loopEnd==4,'invalid markers cannot overwrite the saved song')
 end)
+test('linked clip sources and placements persist privately with bounded references',function()
+    local f=require('procedural_synth_project')(schema);local project=f.new()
+    project.timeline={beats=32,tempos={{beat=0,tempo=500000}}}
+    project.tracks[1]=f.newTrack('midi','Arranged',16);project.tracks[1].edited=f.encodeNotes({},960)
+    project.tracks[1].arrangement={clips={{name='Verse',length=16,notes=f.encodeNotes({{n=60,s=0,l=2,v=1}},960)}},
+        regions={{clip=1,s=0,l=16,transpose=0,mute=false},{clip=1,s=32,l=32,transpose=12,mute=false}}}
+    acquire();request('dawSave',{project=project});reset(copy(storage));sequence=0;acquire();request('dawLoad')
+    local loaded=sent[#sent].data.project
+    check(#loaded.tracks[1].arrangement.clips==1 and #loaded.tracks[1].arrangement.regions==2,'linked sources/placements survive module reload')
+    check(loaded.tracks[1].arrangement.regions[2].transpose==12 and not storage['project:22'],'placement transforms stay private to the character')
+    now=now+3;project.tracks[1].arrangement.regions[1].clip=9;request('dawSave',{project=project})
+    check(storage['project:11'].tracks[1].arrangement.regions[1].clip==1,'invalid source reference cannot overwrite valid saved data')
+end)
 print(string.format('%d tests, %d assertions passed',tests,checks))

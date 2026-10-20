@@ -166,7 +166,7 @@ physical destination routing.
 
 ## Following slices
 
-1. Deeper song composition: arrangement clips, automation,
+1. Deeper song composition: automation,
    tempo/controller editing and edited MIDI export. The first imported-part note
    editor is complete below; existing piano/drum clips remain supported.
 2. Project library and autosave/recovery, followed by native sample instruments
@@ -268,3 +268,21 @@ This slice does not add sends/buses or change the mono keyboard emitter.
   extreme supported meters checked against bounded server score uploads.
 - Arrangement clips, automation, imported tempo/controller editing, MIDI export,
   library/recovery, sample instruments and hardware MIDI input remain follow-ups.
+
+
+## Completed slice: linked clips and arrangement timeline
+
+- Capture selected piano-roll notes into one reusable source and first placement;
+  capture legacy piano/drum lanes while retaining sound, mix and band output.
+- Track-local source library, shared note editing/recording, source audition,
+  individual placement move/repeat/trim/duplicate, transposition and mute.
+- Eight visible track rows, four/eight/sixteen-bar zoom, bar-snapped mouse capture,
+  draggable time scrollbar and wheel navigation. One undo step per drag release.
+- Compact optional saved sources/references, PPQ/tempo-map-aware expansion into
+  the existing native clock and band partitioning. Old projects stay compatible.
+- Bound stored notes, source/placement counts and expanded playback work; reject
+  invalid references, pitch overflow and destructive source-length truncation.
+- Native A/B source edits, stopped recording, spatial routing, SQLite/wire round
+  trip at the full 8192-note document budget, replay and Finish cleanup verified.
+- Automation/controller editing, MIDI export, multi-selection/independent source
+  copies, project library/recovery and game-audio samples remain follow-up slices.
