@@ -61,7 +61,7 @@ function M.compile(project,song,MIDI,mode,format)
         return t.time+(beat-t.beat)*t.tempo/1000000
     end
     local beats=songMode and timeline.beats or project.length/4
-    if songMode then for _,t in ipairs(project.tracks) do if t.edited then
+    if songMode and not project.composition then for _,t in ipairs(project.tracks) do if t.edited then
         for _,n in ipairs(assert(format.decodeNotes(t.edited))) do beats=math.max(beats,(n.s+n.l)/4) end
     end end end
     local total=songMode and math.max(project.timeline and 0 or song.duration,seconds(beats)) or seconds(beats)
@@ -105,15 +105,22 @@ function M.compile(project,song,MIDI,mode,format)
         end
     end
     table.sort(notes,function(a,b) return a.frame==b.frame and a.order<b.order or a.frame<b.frame end)
-    local length=math.max(1,math.floor(total*M.rate+0.5));local bytes={}
+    local first,last
+    if songMode and project.composition then first,last=format.songRange(project) end
+    local offset=first and math.floor(seconds(first)*M.rate+0.5) or 0
+    local length=math.max(1,math.floor((last and seconds(last) or total)*M.rate+0.5)-offset);local bytes={}
     for _,n in ipairs(notes) do
-        if n.frame<length then
+        if first then
+            local finish=n.frame+n.duration
+            n.frame=math.max(0,n.frame-offset);n.duration=math.min(length,finish-offset)-n.frame
+        end
+        if n.frame<length and n.duration>0 then
             if songMode or not project.loop then n.duration=math.min(n.duration,length-n.frame) end
             bytes[#bytes+1]=pack(n.frame)..pack(n.duration)..string.char(n.lane,n.note,n.velocity)
         end
     end
-    bytes=table.concat(bytes);assert(#bytes>0,'No notes to play. Add notes or choose another playback view.');local loop=not songMode and project.loop
+    bytes=table.concat(bytes);assert(#bytes>0,'No notes to play. Add notes or choose another playback view.');local loop=songMode and project.composition and project.composition.loop or not songMode and project.loop
     local ok,err=M.validate(bytes,length,loop);assert(ok,err)
-    return {bytes=bytes,length=length,loop=loop,quantum=math.floor(4*60/project.bpm*M.rate+0.5)}
+    return {bytes=bytes,length=length,loop=loop,quantum=math.floor((songMode and project.composition and format.barBeats(project) or 4)*60/project.bpm*M.rate+0.5)}
 end
 return M

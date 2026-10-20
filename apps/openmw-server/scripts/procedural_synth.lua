@@ -265,9 +265,10 @@ local function request(data)
         return
     end
     if data.op=='scoreBegin' then
+        -- One authored bar: 1/16 at 240 BPM through 12/2 at 40 BPM.
         if not integer(data.playId,1,2147483647) or data.playId<=(s.lastPlayId or 0)
             or not integer(data.count,1,sequenceFormat.maxNotes) or not integer(data.length,1,sequenceFormat.maxFrames)
-            or type(data.loop)~='boolean' or type(data.replace)~='boolean' or not integer(data.quantum,48000,288000)
+            or type(data.loop)~='boolean' or type(data.replace)~='boolean' or not integer(data.quantum,3000,1728000)
             or not budget(data.pid,now,'scoreBegins',4,4) then return end
         s.lastPlayId=data.playId
         s.upload={playId=data.playId,count=data.count,length=data.length,loop=data.loop,quantum=data.quantum,

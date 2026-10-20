@@ -250,3 +250,21 @@ This slice does not add sends/buses or change the mono keyboard emitter.
 - Native live/sequence pitch gating prevents premature same-pitch releases.
 - External MIDI devices, audible metronome and recording latency calibration
   remain follow-up work, alongside arrangement/automation/export.
+
+
+## Completed slice: source-free New Song and song regions
+
+- New Song settings and Song page: empty authored arrangement with starter piano,
+  melodic/drum parts, constant tempo, meter, 1-256 bars and explicit loop markers.
+- Reuse full-song PPQ editor and recording; existing patch/mixer/band routing and
+  private per-character persistence. No source MIDI file or conversion required.
+- Preserve later notes when shortening; native playback bounds/regions exclude
+  those notes until extended. Rebase region playhead and clip crossing gates.
+- Meter-aware bar captions/grid, count-in and bounded replacement quantum;
+  loop-boundary overdub cleanup, including regions smaller than the snap grid.
+- Cancel pending MIDI selection/parsers on document replacement/undo/load.
+  Explicit file selection still works, and old clip/imported projects migrate.
+- Native two-client loop/record/save/load and consenting-player playback tests;
+  extreme supported meters checked against bounded server score uploads.
+- Arrangement clips, automation, imported tempo/controller editing, MIDI export,
+  library/recovery, sample instruments and hardware MIDI input remain follow-ups.

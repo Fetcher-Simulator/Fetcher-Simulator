@@ -23,7 +23,12 @@ function R.new(owner,content)
         local note=w.base+11-row;local black=({[1]=true,[3]=true,[6]=true,[8]=true,[10]=true})[note%12]
         cells[#cells+1]=rect(0,row*self.rh,self.width,self.rh-1,black and colors.bg or colors.row)
     end
-    for step=0,self.steps-1 do cells[#cells+1]=rect(step*self.cw,0,step%4==0 and 2 or 1,self.height,colors.line) end
+    self.barSteps=w.project.composition and Project.barBeats(w.project)*4 or 16
+    self.lines={}
+    for step=0,self.steps-1 do
+        local line=owner:element(rect(step*self.cw,0,1,self.height,colors.line))
+        self.lines[#self.lines+1]=line;cells[#cells+1]=line
+    end
     grid.content=ui.content(cells)
     grid.events={mousePress=cb(function(e)
         if e.button~=1 then return end
@@ -97,6 +102,13 @@ function R:scroll(e)
 end
 function R:draw()
     local w=self.w;local slot,shown=0,0;self.visible={}
+    local first=math.ceil(self.start)
+    for index,line in ipairs(self.lines) do
+        local step=first+index-1;local props=line.layout.props
+        props.position=v((step-self.start)*self.cw,0)
+        props.size=v(step%self.barSteps==0 and 3 or step%4==0 and 2 or 1,self.height)
+        self.owner.window:update(line)
+    end
     for id,source in ipairs(w:noteData(self.index) or {}) do
         local n,s,l=source.n,source.s,source.l
         if self.drag and w.noteSelection[id] then local d=self.drag.change;n=n+(d.pitch or 0);s=s+(d.step or 0);l=l+(d.length or 0) end
@@ -116,7 +128,7 @@ function R:draw()
     self.thumbWidth=math.max(18,self.width*self.steps/(self.maximum+self.steps))
     self.thumb.layout.props.position=v(self.maximum>0 and (self.width-self.thumbWidth)*self.start/self.maximum or 0,0)
     self.thumb.layout.props.size=v(self.thumbWidth,12);self.owner.window:update(self.thumb)
-    self.caption.layout.props.text=string.format('Bars %.2f - %.2f  |  %d selected%s',self.start/16+1,(self.start+self.steps)/16+1,#w:selectedNotes(self.index),shown>512 and '  |  Zoom in to see remaining notes' or '')
+    self.caption.layout.props.text=string.format('Bars %.2f - %.2f  |  %d selected%s',self.start/self.barSteps+1,(self.start+self.steps)/self.barSteps+1,#w:selectedNotes(self.index),shown>512 and '  |  Zoom in to see remaining notes' or '')
     self.owner.window:update(self.caption)
     if not self.drag and self.owner.noteVelocityRefresh then self.owner.noteVelocityRefresh() end
 end

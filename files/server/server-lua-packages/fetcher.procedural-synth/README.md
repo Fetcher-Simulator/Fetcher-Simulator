@@ -679,3 +679,50 @@ The optional -RecordingProbe setup flag runs disposable two-client tests in the
 existing isolated fixture. It creates midi/qa/recording-a.mid and recording-b.mid
 (two test phrases with different pitches). Back up the DB/profiles before QA and
 rerun setup without the flag for normal use. No public-server grant is added.
+
+
+## New Song and full-song authoring (package 16 / native synth API 11)
+
+Open Studio > New Song. Set tempo, meter and initial length, then Create song.
+The default is eight bars of 4/4 at 120 BPM, with one empty piano part. No MIDI
+file is needed. New Song preserves the physical band roster while starting fresh
+notes, sounds and track routing; Undo immediately restores the previous document.
+Save before Finish. This remains one current Studio project per character.
+
+Song contains the song length, meter, inclusive From/To bar loop markers and
+Song loop. Add melodic parts (keys, bass, guitar, pad) or individual drum voices
+(kick, snare, closed/open hat, tom). Notes opens the existing piano roll; draw,
+move, resize, copy/paste or Record keyboard. Sound and Mixer choose/edit patches;
+Band routes any part to a placed keyboard or consenting player/owned NPC.
+Each drum part is its own synth voice; it is edited in Notes. The existing Drums
+page remains the independent step-clip overlay.
+
+Play song plays the authored arrangement rather than the selected installed MIDI
+file. Explicitly selecting a MIDI file and pressing Play still imports that file.
+Creating/loading/undoing a document cancels any pending file parse or selection.
+Full-song parts use saved PPQ notes immediately; Edit MIDI conversion is not
+needed. Saved projects reload/play without a source file. Drum sound roles,
+channel processing, patches and band destinations use the existing project data.
+
+Songs support 1-256 bars, 40-240 BPM and meters with numerator 1-12 and denominator
+2/4/8/16, subject to the existing 30-minute limit. Bar lengths, piano-roll captions
+and grid, visual count-in and native score replacement follow the chosen meter.
+BPM changes update the constant authored tempo map. Meter changes preserve notes'
+quarter-note timing. Shortening preserves later notes; they are excluded from
+playback until the song is extended. Note limits remain 4,096 per part and 8,192
+full-song notes per project. Up to sixteen total tracks and eight band slots.
+
+Song loop plays only its selected bars, with the playhead mapped to their actual
+song position. Gates crossing the region edges are clipped; an existing sustained
+note crossing the start is retriggered for its remaining gate. Overdub finishes
+at the next region boundary and releases held notes. Quantization stays within
+both bounds even when a selected region is shorter than the recording grid.
+Stopped recording starts at the piano-roll view with a meter-length visual
+count-in. No audible metronome or latency calibration is added.
+
+Clip bars and Clip loop remain separate four-quarter-note clips, capped at sixteen
+bars. They can overlay the song as before. Scratch songs have a constant tempo
+and meter, not tempo/meter automation lanes. Arrangement clips, controller editing,
+MIDI export, project library/recovery, hardware input and game-audio sampling are
+still planned. The optional -CompositionProbe setup flag runs disposable native
+A/B tests in the established fixture; back up current DB/profiles before QA.

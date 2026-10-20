@@ -141,6 +141,23 @@ function M.seconds(timeline,beat)
     local t=clock[low];return t.time+(beat-t.beat)*t.tempo/1000000
 end
 local roles={keys=true,mallet=true,organ=true,guitar=true,bass=true,strings=true,brass=true,reed=true,pipe=true,lead=true,pad=true,fx=true,pluck=true,kick=true,snare=true,hat=true,openhat=true,tom=true}
+-- Authored songs use the same saved PPQ notes as converted MIDI parts.
+-- Bars and loop markers are independent of the sixteen-bar clip overlay.
+function M.composition(value)
+    if not keys(value,{bars=true,numerator=true,denominator=true,loopStart=true,loopEnd=true,loop=true},6)
+        or not int(value.bars,1,256) or not int(value.numerator,1,12)
+        or (value.denominator~=2 and value.denominator~=4 and value.denominator~=8 and value.denominator~=16)
+        or not int(value.loopStart,1,value.bars) or not int(value.loopEnd,value.loopStart,value.bars)
+        or type(value.loop)~='boolean' then return nil end
+    return {bars=value.bars,numerator=value.numerator,denominator=value.denominator,
+        loopStart=value.loopStart,loopEnd=value.loopEnd,loop=value.loop}
+end
+function M.barBeats(p) local s=p.composition;return s and s.numerator*4/s.denominator or 4 end
+function M.songRange(p)
+    local s=p.composition;if not s then return end
+    local bar=M.barBeats(p)
+    return s.loop and (s.loopStart-1)*bar or 0,s.loop and s.loopEnd*bar or s.bars*bar
+end
 local trackKeys={name=true,kind=true,part=true,presetId=true,params=true,level=true,mute=true,solo=true,note=true,gate=true,steps=true,notes=true,output=true,mixer=true,edited=true,sourceRole=true}
 function M.track(t,length)
     if not keys(t,trackKeys,17) or not text(t.name,48) or (t.kind~='midi' and t.kind~='piano' and t.kind~='drum')
@@ -165,7 +182,7 @@ function M.track(t,length)
     return out
 end
 function M.project(p)
-    if not keys(p,{version=true,name=true,bpm=true,swing=true,length=true,loop=true,midi=true,tracks=true,master=true,effects=true,soundSet=true,band=true,timeline=true},13)
+    if not keys(p,{version=true,name=true,bpm=true,swing=true,length=true,loop=true,midi=true,tracks=true,master=true,effects=true,soundSet=true,band=true,timeline=true,composition=true},14)
         or not num(p.master or 0.7,0,1) or p.version~=1 or not text(p.name,64) or not num(p.bpm,40,240) or not num(p.swing,0,0.6)
         or not int(p.length,16,M.maxSteps) or p.length%16~=0 or type(p.loop)~='boolean' or not text(p.midi,192)
         or not text(p.soundSet or '',32) or not array(p.tracks,M.maxTracks) then return nil end
@@ -173,9 +190,16 @@ function M.project(p)
     local effects=M.effects(p.effects);local band=M.band(p.band);if not effects or not band then return nil end
     local out={band=band,soundSet=p.soundSet or '',effects=effects,version=1,name=p.name,bpm=p.bpm,swing=p.swing,length=p.length,loop=p.loop,midi=p.midi,master=p.master or 0.7,tracks={}}
     if p.timeline~=nil then out.timeline=M.timeline(p.timeline);if not out.timeline then return nil end end
+    if p.composition~=nil then
+        out.composition=M.composition(p.composition)
+        if not out.composition or p.midi~='' or not out.timeline or out.timeline.beats~=out.composition.bars*M.barBeats(out)
+            or #out.timeline.tempos~=1 or out.timeline.tempos[1].beat~=0
+            or out.timeline.tempos[1].tempo~=math.floor(60000000/p.bpm+0.5) then return nil end
+    end
     local notes,edited=0,0
     for _,t in ipairs(p.tracks) do
         local track=M.track(t,p.length);if not track then return nil end
+        if out.composition and track.kind=='midi' and not track.edited then return nil end
         notes=notes+#track.notes;if notes>M.maxNotes then return nil end
         if track.edited then
             if not out.timeline then return nil end

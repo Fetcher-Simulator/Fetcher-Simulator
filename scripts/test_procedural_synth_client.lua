@@ -550,5 +550,33 @@ button('Start take').events.mouseClick();now=now+2.13;player.engineHandlers.onFr
 lastStudio:key(input.KEY.Z,true);lastStudio:key(input.KEY.Z,true)
 now=now+0.38;lastStudio:key(input.KEY.Z,false);button('Keep take').events.mouseClick()
 check(#w:noteData(1)==1 and w:noteData(1)[1].n==60 and w:noteData(1)[1].s==1 and w:noteData(1)[1].l==3,'actual keyboard callback records a quantized gate without key-repeat duplication')
+-- New Song uses the real window callbacks and cancels a pending file parser.
+lastStudio.cb.midiSelect(paths[2]);lastStudio.cb.playSong();now=now+0.01;player.engineHandlers.onFrame(0.01)
+check(lastStudio.cb.midiLabel():find('Loading'),'file parser is pending before New Song')
+button('New Song').events.mouseClick();now=now+0.01;player.engineHandlers.onFrame(0.01)
+check(w.page=='newsong' and button('Create song'),'New Song opens settings before replacing the document')
+button('Create song').events.mouseClick()
+for n=1,12 do now=now+0.01;player.engineHandlers.onFrame(0.01) end
+check(w.project.composition and w.project.midi=='' and #w:noteData(1)==0 and not lastStudio.cb.midiLabel():find('Loading'),'Create cancels old file parse and leaves a blank source-free song')
+local score
+w.cb.schedule=function(plan) score=plan;return true end
+w:addNote(1,65,0);lastStudio.cb.playSong()
+check(score and score.bytes:byte(10)==65 and w.project.midi=='','Studio Play uses the authored arrangement despite an installed song selection')
+w:stop(true);w.page='piano';w.revision=w.revision+1;now=now+0.01;player.engineHandlers.onFrame(0.01)
+button('+ Piano').events.mouseClick();now=now+0.01;player.engineHandlers.onFrame(0.01)
+check(w.project.tracks[2].edited and w.project.tracks[2].kind=='midi','Piano plus button adds a full-song part inside authored songs')
+button('Song').events.mouseClick();now=now+0.01;player.engineHandlers.onFrame(0.01)
+check(w.page=='song' and button('+ Drum part v') and button('Song loop'),'Song page exposes parts and independent song loop settings')
+for _,element in ipairs(lastStudio.root.layout.content) do
+    local props=element.props or element.layout and element.layout.props
+    if props and props.position and props.size then check(props.position.x+props.size.x<=940 and props.position.y+props.size.y<=705,'Song controls fit the logical window') end
+end
+button('Save').events.mouseClick();local composed=sent[#sent].project
+check(composed.composition and composed.midi=='','window Save sends source-free composition metadata')
+api.selectMidi(paths[1]);handler{version=1,op='dawProject',id=7,epoch=20,project=composed}
+lastStudio.cb.playSong()
+check(w.project.composition and w.project.midi=='' and score.bytes:byte(10)==65,'load clears explicit file selection before authored-song Play')
+lastStudio.cb.midiSelect(paths[1]);lastStudio.cb.playSong();now=now+0.01;player.engineHandlers.onFrame(0.01)
+check(w.project.midi==paths[1] and not w.project.composition,'explicit file selection still replaces an authored song')
 api.close()
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

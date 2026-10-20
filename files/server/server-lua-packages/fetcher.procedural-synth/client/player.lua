@@ -153,6 +153,7 @@ end
 local function songLabel()
     local name=songs[selectedSong]
     if loading then return 'Loading MIDI…' end
+    if session and session.workstation.project.composition and not session.songSelection then return 'Song: '..session.workstation.project.name end
     local active=playback or session and session.workstation and session.workstation.playing and session.workstation
     if active then
         local path=session and session.workstation.project.midi
@@ -199,6 +200,7 @@ local function playSelected()
     local w=session.workstation
     local path=session.songSelection or (w.project.midi~='' and w.project.midi) or songs[selectedSong]
     stopPlayback()
+    if w.project.composition and not session.songSelection then return w:play('song') end
     if path==w.project.midi and w:hasSong() then return w:play('song') end
     return playSong(path,'play')
 end
@@ -216,6 +218,7 @@ makeWorkstation=function(i)
         end end
     end
     local w=Workstation.new{
+        documentChanged=function() loading=nil;if session and session.id==i.id then session.songSelection=nil end end,
         now=core.getRealTime,
         canMonitor=function(channel) return channelAudio(i,channel,true) and (not synth.createStudio or transport:laneStudio(i,channel,true))~=nil end,
         band=function(band,routes)
@@ -335,6 +338,7 @@ showEditor=function()
             synth=function() switchPage('synth',w.project.tracks[w.selected] and w.selected or 0) end,
             sound=function(index) w.selected=index;switchPage('synth',index) end,
             playSong=playSelected,
+            newSong=function(bpm,numerator,denominator,bars) if editor then editor:releaseAll() end;return w:newSong(bpm,numerator,denominator,bars) end,
             playClips=function() stopPlayback();w:play('clips') end,
             stop=function() stopPlayback(true) end,
             load=function() stopPlayback();send('dawLoad') end,

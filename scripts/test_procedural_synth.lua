@@ -391,4 +391,38 @@ test('edited MIDI and its tempo map save privately without resurrecting empty pa
     now=now+3;project.tracks[1].edited.bytes='bad';request('dawSave',{project=project})
     check(storage['project:11'].tracks[1].edited.bytes=='' and not storage['project:22'],'invalid binary cannot overwrite saved edits or another character')
 end)
+test('authored meters share bounded native replacement quanta',function()
+    local f=require('procedural_synth_project')(schema);local seq=require('procedural_synth_sequence')
+    acquire();request('channel',{channel=1,params={},level=1})
+    for index,quantum in ipairs{3000,1728000} do
+        now=now+3;sent={}
+        local p=f.new();p.tracks[1]=f.newTrack('piano','Hit',16);p.tracks[1].notes={{n=60,s=0,l=1,v=0.8}}
+        local score=seq.compile(p,nil,nil,'clips')
+        request('scoreBegin',{playId=index,count=1,length=score.length,loop=false,quantum=quantum,replace=false})
+        request('scoreChunk',{playId=index,index=1,bytes=score.bytes});request('scoreCommit',{playId=index})
+        local accepted=false;for _,event in ipairs(sent) do if event.data.op=='scoreReady' then accepted=true end end
+        check(accepted,'supported meter quantum accepted: '..quantum)
+        request('transportStop',{playId=index})
+    end
+    for index,quantum in ipairs{2999,1728001} do
+        now=now+3;sent={};request('scoreBegin',{playId=100+index,count=1,length=48000,loop=false,quantum=quantum,replace=false})
+        request('scoreCommit',{playId=100+index})
+        local accepted=false;for _,event in ipairs(sent) do if event.data.op=='scoreReady' then accepted=true end end
+        check(not accepted,'out-of-range quantum cannot create a transport')
+    end
+end)
+test('authored song meter and loop markers survive private character reload',function()
+    local f=require('procedural_synth_project')(schema);local project=f.new()
+    project.name='Blank song';project.composition={bars=8,numerator=6,denominator=8,loopStart=2,loopEnd=4,loop=true}
+    project.timeline={beats=24,tempos={{beat=0,tempo=500000}}}
+    project.tracks[1]=f.newTrack('midi','Keys',16);project.tracks[1].sourceRole='keys'
+    project.tracks[1].edited=assert(f.encodeNotes({{n=65,s=12,l=2,v=0.8}},960))
+    acquire();request('dawSave',{project=project});check(storage['project:11'].composition.numerator==6,'composition reaches character storage')
+    reset(copy(storage));sequence=0;acquire();request('dawLoad')
+    local loaded=sent[#sent].data.project
+    check(loaded.midi=='' and loaded.composition.loopEnd==4 and loaded.tracks[1].edited.bytes==project.tracks[1].edited.bytes,'authored song reloads after server module restart')
+    check(not storage['project:22'],'other character does not inherit the authored song')
+    now=now+3;project.composition.loopEnd=257;request('dawSave',{project=project})
+    check(storage['project:11'].composition.loopEnd==4,'invalid markers cannot overwrite the saved song')
+end)
 print(string.format('%d tests, %d assertions passed',tests,checks))

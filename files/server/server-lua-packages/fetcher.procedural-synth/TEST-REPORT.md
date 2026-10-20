@@ -863,3 +863,48 @@ state is transient; saved takes are normal project notes. No push/deployment.
 Limits: computer/mouse input, visual count-in, one clip pass, existing note caps;
 no hardware MIDI input, audible metronome, latency calibration, arrangement clips,
 automation, MIDI export or samples. This slice does not claim a full DAW recorder.
+
+
+## New Song / full-song authoring - 2026-10-20
+
+Package 16 uses the existing native synth API 11 binary. This slice changes Lua
+and project validation, not native C++/DSP code. All thirteen Lua suites passed:
+server 29 tests / 295 assertions; client/UI 8587 assertions; composition 86;
+recording 24; editing 40; workstation 82 plus mixer/returns/band checks; sequence
+21; MIDI 29; sound sets 273; physical band 37; performers 27; pose 16; transport
+passed. git diff --check passed. Client/server project and sequence mirrors match.
+
+Composition tests cover blank source-free authoring, all 48 meter choices,
+constant-tempo clock updates, shortening/extension without deleting later notes,
+region clipping/rebasing, sustain at region boundaries, loop-wrap overdub, coarse
+snap within a tiny region, input events arriving before a wrap frame, document
+undo/redo, save/load, validation and legacy clip behavior. Actual Studio callbacks
+cover New Song/Create, cancellation of a yielding MIDI parse, authored-song Play,
+full-song +Piano, Song-page bounds, Save, load clearing stale selection, and
+explicitly selecting a file again. Server tests check private reload, malformed
+metadata preserving saved data, and bounded score quanta (3000-1728000 frames).
+
+Native Synth A/B checks in the established port-25567 fixture reported PASS for:
+new 3/4 song, independent snare part, consenting player lute output, selected-bar
+loop playback, native-clock loop-wrap recording, preserving later notes through
+length changes, SQLite notes/meter/region/routing round trip, source-free replay,
+shortest meter (1/16 at 240 BPM), longest bar (12/2 at 40 BPM), and observer cleanup
+on Finish. The upload quantum bound previously assumed 4/4; it now covers exactly
+the supported meter/tempo extrema without removing score duration/rate limits.
+Evidence: fixture evidence/composition/live3-*.log and qa-completed.db. The first
+run also passed the main workflow and visual review. A second run waited on an
+expired invitation after B was launched late; the probe now retries invitations.
+
+Song and New Song pages plus the meter dropdown/scrollbar were visually checked
+in the native game at the user's saved 136% UI scale. The latest pre-QA baseline
+(evidence/composition/baseline-20261020-110639) contains the user's DB, profiles,
+userdata and global storage; these were restored. Database hash and five saved
+settings/input hashes matched before normal startup. Only the isolated fixture
+was used. Normal setup disables the disposable probe and installs package 16.
+No production action, push, or deployment was performed.
+
+Limits: constant tempo/meter for authored songs, one current project per character,
+16 total tracks, 4096 notes per full-song part / 8192 per project, 256 song bars
+subject to 30 minutes. Step clips remain independent 16-bar 4/4 overlays. No
+arrangement clips, automation, MIDI export, audible metronome, hardware MIDI,
+latency calibration, project library/recovery or game-audio sample instruments.

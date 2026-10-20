@@ -46,6 +46,87 @@ function S:barControls(content,y,maxBar)
     local velocity=Controls.slider(self,'velocity','Velocity',{min=0.1,max=1,unit='%',step=0.01},function() return w.velocity end,function(value) w.velocity=value end,292,y-6,180)
     content[#content+1]=velocity
 end
+local function choicesRange(first,last)
+    local out={};for n=first,last do out[#out+1]={id=n,label=tostring(n)} end;return out
+end
+local function meters()
+    local out={};for _,denominator in ipairs{2,4,8,16} do for numerator=1,12 do
+        out[#out+1]={id=numerator..'/'..denominator,label=numerator..'/'..denominator}
+    end end;return out
+end
+function S:newSong(content)
+    self.songDraft=self.songDraft or {bpm=120,numerator=4,denominator=4,bars=8}
+    local d=self.songDraft
+    content[#content+1]=label('CREATE A NEW SONG',20,175,870,20,c.accent)
+    content[#content+1]=label('Start with an empty piano part. Add melodic and drum parts on the Song page.',20,222,870,14)
+    content[#content+1]=label('Undo immediately after creation restores the current arrangement.',20,252,870,12,c.muted)
+    local tempo=Controls.slider(self,'newBpm','Tempo',{min=40,max=240,step=1},function() return d.bpm end,function(value) d.bpm=value end,20,310,270)
+    content[#content+1]=tempo
+    content[#content+1]=self:button('Meter: '..d.numerator..'/'..d.denominator..' v',320,316,200,function()
+        Dropdown.open(self,meters(),d.numerator..'/'..d.denominator,function(id)
+            local n,b=id:match('(%d+)/(%d+)');d.numerator=tonumber(n);d.denominator=tonumber(b);self.w.revision=self.w.revision+1
+        end,320,350,390)
+    end)
+    content[#content+1]=self:button('Length: '..d.bars..' bars v',550,316,220,function()
+        Dropdown.open(self,choicesRange(1,256),d.bars,function(value) d.bars=value;self.w.revision=self.w.revision+1 end,400,350,370)
+    end)
+    content[#content+1]=self:button('Create song',20,407,200,function() self.cb.newSong(d.bpm,d.numerator,d.denominator,d.bars) end)
+    content[#content+1]=self:button('Back',240,407,140,function() self.w.page='song';self.w.revision=self.w.revision+1 end)
+    content[#content+1]=label('Save stores this Studio project on your character. MIDI file export is a later slice.',20,473,880,12,c.muted)
+end
+function S:song(content)
+    local w,p=self.w,self.w.project;local s=p.composition
+    if not s then
+        content[#content+1]=label('Create a song from scratch',20,185,870,20,c.accent)
+        content[#content+1]=self:button('New Song',20,240,180,function() w.page='newsong';w.revision=w.revision+1 end)
+        content[#content+1]=label('Imported MIDI parts remain editable on Piano. New Song creates an independent arrangement.',20,300,880,13,c.muted)
+        return
+    end
+    content[#content+1]=label('SONG SETTINGS / '..s.numerator..'/'..s.denominator..' / '..s.bars..' bars',20,167,870,16,c.accent)
+    content[#content+1]=self:button('Length: '..s.bars..' bars v',20,204,190,function()
+        Dropdown.open(self,choicesRange(1,256),s.bars,function(value)
+            w:setComposition{bars=value,loopStart=math.min(s.loopStart,value),loopEnd=s.loopEnd==s.bars and value or math.min(s.loopEnd,value)}
+        end,20,237,380)
+    end)
+    content[#content+1]=self:button('Meter: '..s.numerator..'/'..s.denominator..' v',225,204,190,function()
+        Dropdown.open(self,meters(),s.numerator..'/'..s.denominator,function(id)
+            local n,d=id:match('(%d+)/(%d+)');w:setComposition{numerator=tonumber(n),denominator=tonumber(d)}
+        end,225,237,380)
+    end)
+    content[#content+1]=self:button('Song loop',430,204,120,function() w:setComposition{loop=not s.loop} end,s.loop)
+    content[#content+1]=self:button('From bar '..s.loopStart..' v',565,204,155,function()
+        Dropdown.open(self,choicesRange(1,s.loopEnd),s.loopStart,function(value) w:setComposition{loopStart=value} end,500,237,380)
+    end)
+    content[#content+1]=self:button('To bar '..s.loopEnd..' v',735,204,155,function()
+        Dropdown.open(self,choicesRange(s.loopStart,s.bars),s.loopEnd,function(value) w:setComposition{loopEnd=value} end,510,237,380)
+    end)
+    content[#content+1]=label('Play song uses these bounds. Shortening preserves later notes; extending reveals them again.',20,249,870,12,c.muted)
+    content[#content+1]=label('Meter changes bar lines and the count-in; note positions keep their quarter-note timing.',20,277,870,12,c.muted)
+    local page=w.songPage or 0
+    for row=1,8 do
+        local index=page*8+row;local t=p.tracks[index]
+        if t then
+            local y=316+(row-1)*33
+            content[#content+1]=self:button(index..'  '..t.name:sub(1,25),20,y,260,function() w.selected=index;w.revision=w.revision+1 end,w.selected==index)
+            content[#content+1]=label(w:presetName(t),295,y+5,220,12)
+            content[#content+1]=self:button('Notes',530,y,75,function() w.selected=index;w.base=math.floor(t.note/12)*12;w.page='piano';w.revision=w.revision+1 end)
+            content[#content+1]=self:button('Sound',620,y,75,function() self.cb.sound(index) end)
+            content[#content+1]=label((t.output.slot or 0)==0 and 'This keyboard' or p.band[t.output.slot].name,710,y+5,175,11,c.muted)
+        end
+    end
+    content[#content+1]=self:button('+ Melodic part v',20,602,200,function()
+        local choices={};for _,r in ipairs{'keys','bass','guitar','pad'} do choices[#choices+1]={id=r,label=r} end
+        Dropdown.open(self,choices,nil,function(role) w:addPart(role) end,20,385,390)
+    end)
+    content[#content+1]=self:button('+ Drum part v',235,602,200,function()
+        local choices={};for _,r in ipairs{'kick','snare','hat','openhat','tom'} do choices[#choices+1]={id=r,label=r} end
+        Dropdown.open(self,choices,nil,function(role) w:addPart(role) end,235,385,390)
+    end)
+    content[#content+1]=self:button('Parts 1-8',470,602,120,function() w.songPage=0;w.revision=w.revision+1 end,page==0)
+    content[#content+1]=self:button('Parts 9-16',605,602,120,function() w.songPage=1;w.revision=w.revision+1 end,page==1)
+    content[#content+1]=self:button('Route in Band',740,602,150,function() w.page='band';w.revision=w.revision+1 end)
+    content[#content+1]=label('Each drum part has its own synth voice. Draw or record its hits in Notes. Save before Finish.',20,656,880,12,c.muted)
+end
 function S:mixer(content)
     local w,p=self.w,self.w.project
     local page=w.mixerPage or 0
@@ -213,7 +294,7 @@ function S:piano(content)
     content[#content+1]=self:button('< track',20,169,70,function() self:select(-1) end)
     content[#content+1]=label(t and t.name or 'No track selected',104,174,450,15,c.accent)
     content[#content+1]=self:button('track >',575,169,70,function() self:select(1) end)
-    content[#content+1]=self:button('+ Piano',660,169,86,function() w:add('piano') end)
+    content[#content+1]=self:button('+ Piano',660,169,86,function() if p.composition then w:addPart('keys') else w:add('piano') end end)
     if not t then return end
     if t.kind=='drum' then content[#content+1]=label('Choose a piano or MIDI track, or use the Drums page for this lane.',20,250,880,15,c.muted);return end
     local snapNames={[0]='Off',[0.25]='1/64',[0.5]='1/32',[1]='1/16',[2]='1/8',[4]='1/4'}
@@ -223,8 +304,8 @@ function S:piano(content)
     end)
     content[#content+1]=self:button('Zoom -',140,207,78,function() self:zoomRoll(2) end)
     content[#content+1]=self:button('Zoom +',228,207,78,function() self:zoomRoll(0.5) end)
-    content[#content+1]=label(string.format('%.1f bars in view',w.rollSteps/16),320,212,180,12,c.muted)
-    if t.kind=='midi' then content[#content+1]=self:button(t.edited and 'Edited MIDI' or 'Edit MIDI',745,207,150,function() w:convertPart(w.selected) end,t.edited~=nil) end
+    content[#content+1]=label(string.format('%.2g bars in view',w.rollSteps/(p.composition and Project.barBeats(p)*4 or 16)),320,212,180,12,c.muted)
+    if t.kind=='midi' then content[#content+1]=self:button(p.composition and 'Song part' or t.edited and 'Edited MIDI' or 'Edit MIDI',745,207,150,function() w:convertPart(w.selected) end,t.edited~=nil) end
     for row=0,11 do content[#content+1]=label(pitch(w.base+11-row),20,260+row*22+3,52,12,c.muted) end
     self.roll=PianoRoll.new(self,content)
     self.playhead=self:element(rect(76,255,3,4,c.accent));content[#content+1]=self.playhead
@@ -263,7 +344,7 @@ function S:record(content)
     content[#content+1]=self:button('< track',20,169,70,function() self:select(-1) end)
     content[#content+1]=label(t and t.name or 'Add a piano track first',104,174,450,15,c.accent)
     content[#content+1]=self:button('track >',575,169,70,function() self:select(1) end)
-    content[#content+1]=self:button('+ Piano',660,169,86,function() self:releaseAll();w:add('piano') end)
+    content[#content+1]=self:button('+ Piano',660,169,86,function() self:releaseAll();if w.project.composition then w:addPart('keys') else w:add('piano') end end)
     content[#content+1]=self:button('Piano roll',755,169,140,function() w.page='piano';w.revision=w.revision+1 end)
     content[#content+1]=label('QUANTIZED KEYBOARD RECORDING',20,222,850,18,c.accent)
     content[#content+1]=self:button('Start take',20,265,150,function() w:startTake(w.selected) end)
@@ -349,10 +430,10 @@ function S:render()
     if self.root then self.root:destroy() end
     for _,e in ipairs(self.children) do e:destroy() end
     self.children={};self.meters={};self.meterLabels={};self.returnMeter=nil;self.playhead=nil;self.grid=nil
-    local w,p=self.w,self.w.project;local content={label('OPENMW / STUDIO',20,13,275,21)}
-    local tabs={{'Synth',self.cb.synth},{'Mixer',function() w.page='mixer';w.revision=w.revision+1 end},
+    local w,p=self.w,self.w.project;local content={label('OPENMW / STUDIO',20,13,245,21)}
+    local tabs={{'Synth',self.cb.synth},{'Song',function() w.page='song';w.revision=w.revision+1 end},{'Mixer',function() w.page='mixer';w.revision=w.revision+1 end},
         {'Piano',function() w.page='piano';w.revision=w.revision+1 end},{'Drums',function() w.page='drums';w.revision=w.revision+1 end},{'Band',function() w.page='band';if w.cb.refreshTargets then w.cb.refreshTargets() end;w.revision=w.revision+1 end}}
-    for n,tab in ipairs(tabs) do content[#content+1]=self:button(tab[1],330+(n-1)*77,12,70,tab[2],w.page==tab[1]:lower()) end
+    for n,tab in ipairs(tabs) do content[#content+1]=self:button(tab[1],275+(n-1)*70,12,65,tab[2],w.page==tab[1]:lower()) end
     content[#content+1]=self:button('Hide [F8]',self.width-198,12,104,self.cb.hide)
     content[#content+1]=self:button('Finish',self.width-84,12,64,self.cb.close)
     self.transport=self:element(label('',20,43,660,12,c.accent));content[#content+1]=self.transport
@@ -361,24 +442,25 @@ function S:render()
     content[#content+1]=self:button('Play song',20,70,96,function() self.cb.playSong() end)
     content[#content+1]=self:button('Play clips',125,70,96,function() self.cb.playClips() end)
     content[#content+1]=self:button('Stop',230,70,58,self.cb.stop)
-    local tempo=Controls.slider(self,'bpm','BPM',{min=40,max=240,step=1},function() return p.bpm end,function(value) if not w.playing then p.bpm=value;w:touch('bpm',true) end end,309,64,180)
+    local tempo=Controls.slider(self,'bpm','BPM',{min=40,max=240,step=1},function() return p.bpm end,function(value) w:setTempo(value) end,309,64,180)
     content[#content+1]=tempo
     local swing=Controls.slider(self,'swing','Swing',{min=0,max=0.6,unit='%',step=0.01},function() return p.swing end,function(value) p.swing=value;w:touch('swing',true) end,504,64,113)
     content[#content+1]=swing
-    content[#content+1]=self:button(p.length/16 ..' bars',630,70,70,function() w:length(p.length%256+16) end)
-    content[#content+1]=self:button('Loop',712,70,61,function() p.loop=not p.loop;w:touch() end,p.loop)
+    content[#content+1]=self:button(p.length/16 ..' clip bars',630,70,70,function() w:length(p.length%256+16) end)
+    content[#content+1]=self:button('Clip loop',712,70,61,function() p.loop=not p.loop;w:touch() end,p.loop)
     content[#content+1]=self:button('Save',784,70,54,function() w:save() end)
     content[#content+1]=self:button('Load',848,70,54,self.cb.load)
-    local name=self:element{type=ui.TYPE.TextEdit,props={position=v(20,112),size=v(260,28),text=p.name,textSize=14,textColor=c.text},
+    local name=self:element{type=ui.TYPE.TextEdit,props={position=v(20,112),size=v(170,28),text=p.name,textSize=14,textColor=c.text},
         events={textChanged=cb(function(text) p.name=text:gsub('%c',''):sub(1,64);w:touch('name',true) end),focusGain=cb(function() self.typing=true end),focusLoss=cb(function() self.typing=false end)}}
     content[#content+1]=name
+    content[#content+1]=self:button('New Song',200,112,88,function() self:releaseAll();w.page='newsong';w.revision=w.revision+1 end)
     content[#content+1]=self:button('< MIDI',299,112,65,function() self.cb.cycleMidi(-1);w.revision=w.revision+1 end)
     content[#content+1]=self:button(self.cb.midiLabel()..'  v',374,112,347,function()
         if self.cb.midiChoices then Dropdown.open(self,self.cb.midiChoices(),self.cb.midiSelected(),self.cb.midiSelect,30,145,850) end
     end)
     content[#content+1]=self:button('MIDI >',726,112,65,function() self.cb.cycleMidi(1);w.revision=w.revision+1 end)
     content[#content+1]=self:button('Import',803,112,92,self.cb.import)
-    if w.page=='record' then self:record(content) elseif w.page=='piano' then self:piano(content) elseif w.page=='drums' then self:drums(content) elseif w.page=='channel' then self:channel(content) elseif w.page=='returns' then self:returns(content) elseif w.page=='band' then self:band(content) else self:mixer(content) end
+    if w.page=='newsong' then self:newSong(content) elseif w.page=='song' then self:song(content) elseif w.page=='record' then self:record(content) elseif w.page=='piano' then self:piano(content) elseif w.page=='drums' then self:drums(content) elseif w.page=='channel' then self:channel(content) elseif w.page=='returns' then self:returns(content) elseif w.page=='band' then self:band(content) else self:mixer(content) end
     self.root=self.window:root(content);self.revision=w.revision
 end
 function S.new(workstation,callbacks)
