@@ -36,7 +36,7 @@ voices.
 
 Completed 2026-10-20 in package 18 / native synth API 12. Browser and playable
 voice-line instruments share the native Studio clock and physical band outputs.
-MIDI export is next, followed by library/recovery and automation.
+MIDI export and track renaming are next, followed by library/recovery and automation.
 
 ### Shipped first pass
 
@@ -78,10 +78,17 @@ Later sample work: sustained sample loops, chopping, reverse, crossfades and
 more elaborate sampled instruments. These are not prerequisites for the first
 browser + voice-line playback slice.
 
-## Remaining roadmap (next: MIDI export)
+## Remaining roadmap (next: MIDI export and track renaming)
 
-1. MIDI export and round-trip checks: flatten linear notes and linked placements
-   into MIDI, retaining timing, velocities, drum parts and tempo maps. Native
+1. MIDI export, track renaming and round-trip checks: flatten linear notes and
+   linked placements into MIDI, retaining timing, velocities, drum parts and
+   tempo maps. Add an explicit Rename track action in Studio, separate from
+   project and sound-preset naming. Names update consistently across track views,
+   support undo/redo and persist through project Save/Load. Retain imported track
+   names and write user-edited names as MIDI track-name metadata on export.
+   Renaming preserves notes, sound/sample settings, mixer and band routing.
+   Acceptance includes renaming a sample part, saving/reloading it and exporting
+   and reimporting its name alongside the unchanged musical data. Native
    sound/effect/band settings remain in the Studio project. Rendered audio export
    is a separate later feature.
 2. Project library and autosave/recovery: multiple named projects per character,
