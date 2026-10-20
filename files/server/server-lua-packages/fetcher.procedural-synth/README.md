@@ -2,6 +2,12 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
+Next planned slice: **installed-game sound browser and voice-line sample
+playback**, including the native sample voices needed to perform /s-catalog
+speech as MIDI instruments. This now precedes MIDI export, project-library work
+and automation. See [the roadmap](ROADMAP.md#next-slice-installed-game-sound-browser-and-voice-line-sample-playback)
+for the scope and acceptance checks. Sampling is planned, not available yet.
+
 ## Local use
 
 From the OpenMW repository in PowerShell:

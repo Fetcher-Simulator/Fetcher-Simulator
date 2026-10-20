@@ -32,18 +32,103 @@ also discover installed effects and music beyond that command's MP3 voice-only
 filter. Keep chat speech playback/cooldowns separate from sample-accurate MIDI
 voices.
 
+## Next slice: installed-game sound browser and voice-line sample playback
+
+Priority revised 2026-10-20 at the user's request. This slice comes before MIDI
+export, project library/recovery and automation. Browser and playable voice-line
+instruments ship together with the minimum native sample engine they require;
+a browser that only previews speech does not complete the slice.
+
+### First-pass scope
+
+- Add a searchable, scrollable Studio sample browser for installed voice lines,
+  sound effects and music, resolving both archive-backed and loose VFS assets.
+  Browse by category/path, audition a selection and show loading/unavailable
+  states. Long music files use bounded excerpts rather than loading entire songs.
+- Reuse speech_commands.lua and the speech_data.lua, starwind_speech_data.lua
+  and custom_speech_data.lua catalogs for voice identities/categories. Normalize
+  relative Vo paths into sound/vo VFS paths and show only locally resolvable
+  entries as available. The reference is the server /s and /speech system,
+  not Voice of the Mudcrab. Discover installed effects/music beyond that catalog.
+- Add native sample voices: root-note pitch tracking, velocity/gain, trim start
+  and end, one-shot and gated playback with a basic envelope/release. Prepare
+  and decode bounded sample data outside the audio callback, using bounded cache
+  and voice limits. The existing synthesizer remains available on other parts.
+- Assign the selected sample to a Studio part and play it with the keyboard,
+  recorded/drawn notes, imported MIDI and linked clip arrangements. In particular,
+  a voice line must function as a pitched MIDI instrument, not just chat speech.
+- Use the existing native score clock, track mixer/effects, local monitor volume
+  and player/NPC/placed-keyboard band outputs. Native sound changes require the
+  appropriate client API/package update and an isolated fixture rebuild/check.
+- Save VFS references, asset identity and sample settings in projects and sample
+  sound presets. Resolve/reload them on load; detect unavailable/mismatched
+  assets per listener and report the affected part without substituting a
+  different sound or interrupting unrelated parts. Do not redistribute game
+  audio or route musical notes through chat-speech cooldowns.
+
+Acceptance: select a real /s-catalog voice line in Studio, audition and trim it,
+play a pitched phrase/chord from MIDI and a reusable clip, route it to a player
+or owned NPC, then Save/Load and hear matching playback on the second client.
+Also exercise installed effects and a bounded music excerpt, archive/loose asset
+resolution, missing-asset handling and repeated sample switching/Stop/Finish.
+Run in the established port-25567 fixture, preserving the latest user saves and
+settings. Existing synth projects, live audio timing and band routing must remain
+compatible. This is planned work; sample playback is not implemented yet.
+
+Later sample work: sustained sample loops, chopping, reverse, crossfades and
+more elaborate sampled instruments. These are not prerequisites for the first
+browser + voice-line playback slice.
+
+## Remaining roadmap after that slice
+
+1. MIDI export and round-trip checks: flatten linear notes and linked placements
+   into MIDI, retaining timing, velocities, drum parts and tempo maps. Native
+   sound/effect/band settings remain in the Studio project. Rendered audio export
+   is a separate later feature.
+2. Project library and autosave/recovery: multiple named projects per character,
+   Save As/rename/delete, recovery snapshots and unsaved-work handling.
+3. Automation and MIDI-controller editing: saved/recorded parameter curves,
+   sustain, pitch bend, modulation, expression and supported controller/program
+   changes, with native-clock playback and multiplayer replication.
+4. Tempo/meter editing: changes within a song, editable maps and matching bar
+   displays. Imported tempo-map playback already exists; authored songs currently
+   have a constant tempo and meter.
+5. Arranger improvements: multi-selection/group moves, independent source
+   variations, cross-track source transfer and source offsets. Linked sources
+   and individual move/repeat/trim/transpose/mute are already implemented.
+6. Recording improvements: audible metronome, configurable count-in, measured
+   recording latency, hardware MIDI input and additional recording modes,
+   including shared-source overdub while the transport plays.
+7. Mixer/effects routing: stereo/panning, group buses and flexible effect chains.
+   Native EQ/compression, instrument drive/cabinet and shared delay/reverb exist.
+8. Band gameplay/presentation: NPC stage position/facing/follow behaviour and
+   better instrument-specific arm/hand/finger animation. Consent, held-instrument
+   readiness, owned NPCs and saved leader-controlled part routing already work.
+9. Multiplayer timing/scale: continuous device-drift correction, device latency,
+   richer late-join state and larger-band/long-session performance checks.
+10. Further sample tools and sound-library refinement: the advanced sampler
+    features above, acoustic/sample-based starting sounds and additional guitar
+    articulations. Continue preset listening/balance refinement as tools mature.
+
+This section is the current priority order. Completed-slice notes below describe
+what was available at each milestone; their older follow-up lists do not override
+this order. Long-session performance and compatibility checks apply throughout.
+
+
 ## Current baseline
 
-The native engine has two-oscillator subtractive synthesis, dedicated kick,
-snare and hat voices, precise sound controls, project undo, MIDI part assignment,
-16-bar clips and multiplayer positional playback. Fifty-one built-in sounds provide
-basic starting points. Personal patches and a working project save per character.
+Studio can create songs from scratch, import/edit MIDI, record quantized takes,
+and arrange linked melodic/drum clips. The native engine provides subtractive,
+drum and plucked-string synthesis, drive/cabinet processing, channel EQ and
+compression, shared delay/reverb and fifty-one built-in sound starting points.
+Personal patches and one working project save per character.
 
-Drum Drive saturates the dedicated drum voices. The final output also has a soft
-limiter. The guitar slice adds a physical string voice and independent instrument
-drive, amp tone and speaker filtering. Sampling and a general mixer effects rack
-remain planned. Studio sequencing now runs on a shared native sample clock;
-multiplayer starts use server-clock estimates and queued-audio compensation.
+Sixteen tracks route to placed keyboards or player/owned-NPC band performers,
+with native audio-clock sequencing, server-timed starts, spatial outputs and
+held-instrument presentation. The portable keyboard, inventory icon, scalable
+resizable windows and saved band routing are implemented. Runtime baseline is
+package 17 / native synth API 11. Installed-game sampling is the next slice,
+not an existing feature.
 
 ## Completed slice: native instrument effects and guitar sounds
 
@@ -163,19 +248,6 @@ physical destination routing.
   current-phase rejoin and Stop/Finish across every output.
 - Per-output delay/reverb tails with shared settings. Stereo, group buses and
   continuous drift correction remain planned.
-
-## Following slices
-
-1. Deeper song composition: automation,
-   tempo/controller editing and edited MIDI export. The first imported-part note
-   editor is complete below; existing piano/drum clips remain supported.
-2. Project library and autosave/recovery, followed by native sample instruments
-   and the installed-game-audio browser described above. Test spoken lines,
-   effects and trimmed music with single notes, chords, drums and band playback.
-   Distinguish MIDI export from rendered audio export.
-3. Broader multiplayer synchronization: continuous drift correction, measured
-   device latency, richer late-join state and further rate-budget work.
-
 
 ## Completed slice: native channel mixer
 
