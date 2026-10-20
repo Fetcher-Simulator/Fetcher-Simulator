@@ -29,16 +29,16 @@ function T:applyEffects(i)
         a:effects(i.effects or {},(i.master or 0.7)*(m and (m.mute and 0 or m.level) or 1))
     end)
 end
-function T:band(i,band,routes,availability)
+function T:band(i,band,routes,availability,performers)
     band=band or {};routes=routes or {};availability=availability or {}
     local structural=false
     for n=1,16 do if (routes[n] or 0)~=(i.routes and i.routes[n] or 0) then structural=true end end
     for n=1,8 do
         local a,b=band[n] and band[n].target,i.band and i.band[n] and i.band[n].target
-        if (a and a.mpNum)~=(b and b.mpNum) or (a and a.cell)~=(b and b.cell) then structural=true end
+        if (a and a.mpNum)~=(b and b.mpNum) or (a and a.characterId)~=(b and b.characterId) or (a and a.instrument)~=(b and b.instrument) or (a and a.cell)~=(b and b.cell) then structural=true end
     end
     if structural then self:close(i);i.transport=nil;i.lastScore=nil end
-    i.band=band;i.routes=routes;i.availability=availability
+    i.band=band;i.routes=routes;i.availability=availability;i.performers=performers or {}
     for slot,g in pairs(i.outputs or {}) do if availability[slot]~='Ready' then g.audio:close();i.outputs[slot]=nil end end
     self:applyEffects(i)
     for n in pairs(i.channels or {}) do self:configure(i,n) end
@@ -68,9 +68,9 @@ function T:studio(i,slot)
     if not i.availability or i.availability[slot]~='Ready' then return end
     i.outputs=i.outputs or {};local g=i.outputs[slot]
     if not g or g.audio.closed then
-        local target=i.band[slot].target;local source=self.resolve and self.resolve(target.mpNum)
+        local target=i.band[slot].target;local source=self.resolve and self.resolve(target.mpNum,i.performers and i.performers[slot])
         if not source then return end -- A missing source never falls back to the workstation.
-        g={source=source,audio=self.synth.createStudio(source),id=target.mpNum};i.outputs[slot]=g;self:applyEffects(i)
+        g={source=source,audio=self.synth.createStudio(source),id=target.mpNum or i.performers[slot].guid};i.outputs[slot]=g;self:applyEffects(i)
     end
     return g.audio
 end
@@ -208,6 +208,20 @@ function T:frame(instances)
         if now-i.seen<5 then self:each(i,function(a) a:keepAlive() end) end
         for slot,g in pairs(i.outputs or {}) do
             if not g.source:isValid() then g.audio:close();i.outputs[slot]=nil end
+        end
+        -- Actor snapshots can precede the actor's local scene insertion.
+        -- Retry unresolved Ready outputs only when their exact source is loaded.
+        if now-(i.sourceRetry or -10)>0.5 then
+            i.sourceRetry=now;local missing=false
+            for n in pairs(i.channels) do local slot=self:destination(i,n)
+                if slot and slot>0 and not (i.outputs and i.outputs[slot]) then
+                    local t=i.band[slot].target
+                    if self.resolve and self.resolve(t.mpNum,i.performers and i.performers[slot]) then missing=true end
+                end
+            end
+            if missing then local ok,err=pcall(self.band,self,i,i.band,i.routes,i.availability,i.performers)
+                if not ok then self:stop(i);self.message(tostring(err)) end
+            end
         end
         local u=i.upload
         -- Send channel settings ahead of the score: a fast edit/load can queue

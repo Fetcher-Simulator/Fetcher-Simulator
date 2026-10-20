@@ -937,6 +937,16 @@ float LuaServerContext::getWorldHour() const
     return mSnapshot.worldHour;
 }
 
+std::vector<LuaActorSnapshot> LuaServerContext::getActorsInCell(const std::string& cell) const
+{
+    std::lock_guard<std::mutex> lock(mActorsMutex);
+    std::vector<LuaActorSnapshot> result;
+    for (const auto& [id, snapshot] : mActorsByInstanceId)
+        if (snapshot.actor.cellId == cell) result.push_back(snapshot);
+    std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.actor.mpNum < b.actor.mpNum; });
+    return result;
+}
+
 std::optional<LuaActorSnapshot> LuaServerContext::getActor(uint32_t mpNum) const
 {
     return getActorByInstanceId(packActorInstanceKey({ ActorKeyKind::SpawnedMpNum, mpNum }));

@@ -43,20 +43,40 @@ function M.effects(t)
     end
     return out
 end
+M.instruments={keyboard='fetcher_procedural_keyboard_v1',lute='misc_de_lute_01',drum='misc_de_drum_01'}
+function M.target(value)
+    if type(value)~='table' then return nil end
+    local kind=value.kind or 'keyboard'
+    if kind=='keyboard' then
+        if not keys(value,{kind=true,mpNum=true,cell=true,refId=true},4) or not int(value.mpNum,1,4294967295)
+            or not text(value.cell,128) or #value.cell==0 or not text(value.refId,128)
+            or (value.refId~='fetcher_procedural_synth_v1' and value.refId~='fetcher_procedural_keyboard_v1') then return nil end
+        return {mpNum=value.mpNum,cell=value.cell,refId=value.refId}
+    elseif kind=='player' then
+        if not keys(value,{kind=true,characterId=true,instrument=true},3) or not int(value.characterId,1,9007199254740991)
+            or not M.instruments[value.instrument] then return nil end
+        return {kind='player',characterId=value.characterId,instrument=value.instrument}
+    elseif kind=='npc' then
+        if not keys(value,{kind=true,mpNum=true,refId=true,instrument=true},4) or not int(value.mpNum,1,4294967295)
+            or not text(value.refId,128) or not value.refId:match('^fetcher_synth_bard_%d+_%d+$') or not M.instruments[value.instrument] then return nil end
+        return {kind='npc',mpNum=value.mpNum,refId=value.refId,instrument=value.instrument}
+    end
+end
+function M.targetKey(t)
+    if not t then return '' end
+    return table.concat({t.kind or 'keyboard',t.characterId or t.mpNum or 0,t.refId or '',t.cell or '',t.instrument or ''},':')
+end
 function M.band(value)
     if value==nil then value={} end
     if not array(value,M.maxMembers) then return nil end
     local out={}
     for n=1,M.maxMembers do
-        local m=value[n] or {name='Keyboard '..n,level=1,mute=false}
+        local m=value[n] or {name='Member '..n,level=1,mute=false}
         if not keys(m,{name=true,level=true,mute=true,target=true},4) or not text(m.name,48)
             or not num(m.level,0,1) or type(m.mute)~='boolean' then return nil end
-        local target=m.target
-        if target and (not keys(target,{mpNum=true,cell=true,refId=true},3) or not int(target.mpNum,1,4294967295)
-            or not text(target.cell,128) or #target.cell==0 or not text(target.refId,128)
-            or (target.refId~='fetcher_procedural_synth_v1' and target.refId~='fetcher_procedural_keyboard_v1')) then return nil end
-        out[n]={name=m.name,level=m.level,mute=m.mute}
-        if target then out[n].target={mpNum=target.mpNum,cell=target.cell,refId=target.refId} end
+        local target=m.target and M.target(m.target)
+        if m.target and not target then return nil end
+        out[n]={name=m.name,level=m.level,mute=m.mute,target=target}
     end
     return out
 end

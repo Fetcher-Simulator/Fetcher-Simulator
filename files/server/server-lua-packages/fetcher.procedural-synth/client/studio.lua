@@ -92,7 +92,7 @@ function S:mixer(content)
 end
 function S:band(content)
     local w,p=self.w,self.w.project;local page=w.bandPage or 0
-    content[#content+1]=label('BAND MEMBERS / PLACED KEYBOARDS',20,158,500,13,c.accent)
+    content[#content+1]=label('BAND MEMBERS / INSTRUMENTS & PERFORMERS',20,158,500,13,c.accent)
     content[#content+1]=label('TRACK OUTPUTS',550,158,340,13,c.accent)
     content[#content+1]=label('Name                 Instrument                     Level        Mute',20,181,510,10,c.muted)
     local function update(slot,key,value)
@@ -105,17 +105,21 @@ function S:band(content)
             events={textChanged=cb(function(text) update(slot,'name',text:gsub('%c',''):sub(1,48)) end),
                 focusGain=cb(function() self.typing=true end),focusLoss=cb(function() self.typing=false end)}}
         content[#content+1]=name
-        content[#content+1]=self:button(m.target and ('Keyboard #'..m.target.mpNum..' v') or 'Bind keyboard v',128,y,180,function()
-            local choices={{id=0,label='Unbound (silent)'}};local targets={}
+        content[#content+1]=self:button(m.target and ((m.target.kind=='player' and 'Player #'..m.target.characterId or m.target.kind=='npc' and 'NPC #'..m.target.mpNum or 'Keyboard #'..m.target.mpNum)..(m.target.instrument and ' / '..m.target.instrument or '')..' v') or 'Bind performer v',128,y,180,function()
+            local choices={{id=0,label='Unbound (silent)'},{id=-1,label='Create owned NPC performer (up to 8)'}};local targets={}
+            if m.target and m.target.kind=='npc' then choices[#choices+1]={id=-2,label='Dismiss this owned NPC'} end
             for _,entry in ipairs(w.cb.instruments and w.cb.instruments() or {}) do
                 choices[#choices+1]={id=entry.id,label=entry.label};targets[entry.id]=entry.target
             end
-            Dropdown.open(self,choices,m.target and m.target.mpNum or 0,function(id)
+            Dropdown.open(self,choices,m.target and Project.targetKey(m.target) or 0,function(id)
+                if id==-1 then if w.cb.hire then w.cb.hire(slot) end;return end
+                if id==-2 then if w.cb.dismiss then w.cb.dismiss(slot) end;return end
                 update(slot,'target',targets[id]);w.revision=w.revision+1
             end,128,math.min(y+29,290),575)
         end)
         content[#content+1]=self:slider(320,y+6,110,m.level,function(value) update(slot,'level',value) end)
         content[#content+1]=self:button('M',440,y,32,function() update(slot,'mute',not m.mute);w.revision=w.revision+1 end,m.mute)
+        if m.target and m.target.kind=='player' then content[#content+1]=self:button('Invite',478,y,47,function() if w.cb.invite then w.cb.invite(slot) end end) end
         local status=w.cb.bandStatus and w.cb.bandStatus(slot) or 'Unbound'
         content[#content+1]=label(status,130,y+27,370,10,status=='Ready' and c.accent or c.muted)
         local index=page*8+slot;local track=p.tracks[index]
@@ -133,9 +137,9 @@ function S:band(content)
     content[#content+1]=self:button('Refresh instruments',20,566,190,function() if w.cb.refreshBand then w.cb.refreshBand() end;w.revision=w.revision+1 end)
     content[#content+1]=self:button('Tracks 1-8',550,566,140,function() w.bandPage=0;w.revision=w.revision+1 end,page==0)
     content[#content+1]=self:button('Tracks 9-16',705,566,150,function() w.bandPage=1;w.revision=w.revision+1 end,page==1)
-    content[#content+1]=label('Bind nearby placed keyboards. Assigned instruments are reserved while this Studio session is open.',20,609,880,12,c.muted)
+    content[#content+1]=label('Bind keyboards, invite players, or create owned NPCs. Players use F9 to ready an instrument and accept.',20,609,880,12,c.muted)
     content[#content+1]=label('Changing a binding or track output stops playback. Missing or busy members stay silent.',20,638,880,12,c.muted)
-    content[#content+1]=label('Save stores member slots and outputs with the song. Player / NPC performers are coming next.',20,667,880,12,c.accent)
+    content[#content+1]=label('Save stores routing. Consent is session-only. Leave / Not ready in F9 immediately silences your part.',20,667,880,12,c.accent)
 end
 local function db(value) return value>0.00001 and string.format('%.1f',20*math.log(value)/math.log(10)) or '-inf' end
 function S:addMasterMeter(content,y)
@@ -296,7 +300,7 @@ function S:render()
     self.children={};self.meters={};self.meterLabels={};self.returnMeter=nil;self.playhead=nil;self.grid=nil
     local w,p=self.w,self.w.project;local content={label('OPENMW / STUDIO',20,13,275,21)}
     local tabs={{'Synth',self.cb.synth},{'Mixer',function() w.page='mixer';w.revision=w.revision+1 end},
-        {'Piano',function() w.page='piano';w.revision=w.revision+1 end},{'Drums',function() w.page='drums';w.revision=w.revision+1 end},{'Band',function() w.page='band';w.revision=w.revision+1 end}}
+        {'Piano',function() w.page='piano';w.revision=w.revision+1 end},{'Drums',function() w.page='drums';w.revision=w.revision+1 end},{'Band',function() w.page='band';if w.cb.refreshTargets then w.cb.refreshTargets() end;w.revision=w.revision+1 end}}
     for n,tab in ipairs(tabs) do content[#content+1]=self:button(tab[1],330+(n-1)*77,12,70,tab[2],w.page==tab[1]:lower()) end
     content[#content+1]=self:button('Hide [F8]',self.width-198,12,104,self.cb.hide)
     content[#content+1]=self:button('Finish',self.width-84,12,64,self.cb.close)

@@ -322,5 +322,30 @@
 -- @param openmw.core#GameObject object
 -- @param #string bone
 
+--- Version of the optional expiring local visual attachment extension (1).
+-- @field [parent=#animation] #number visualAttachmentsVersion
+
+--- Adds or refreshes a presentation-only model on a loaded actor, including remote actors.
+-- Queued at the synchronized action boundary. Does not create an inventory item,
+-- change equipment, apply physics or replicate intent. Up to eight keys per actor.
+-- Call from a local/player script. Refresh while needed; expiry uses real time.
+-- @function [parent=#animation] setVisualAttachment
+-- @param openmw.core#GameObject actor
+-- @param #string key 1..64 ASCII letters/digits/underscore/hyphen; scoped separately from VFX IDs.
+-- @param #string model NIF path, at most 256 bytes.
+-- @param #table options `bone` (default Bip01 Spine2), `transform` (bone-local util.transform),
+--   `timeout` (0.05..2 seconds, default 0.5). Finite transform components must be within +/-1000.
+-- @return #boolean True if queued; missing models/bones are checked when the action runs.
+
+--- Removes only this API's attachment with the given key.
+-- @function [parent=#animation] clearVisualAttachment
+-- @param openmw.core#GameObject actor
+-- @param #string key
+
+--- Number of active attachments from this API; read from onFrame or an input callback.
+-- @function [parent=#animation] visualAttachmentCount
+-- @param openmw.core#GameObject actor
+-- @return #number
+
 return nil
 

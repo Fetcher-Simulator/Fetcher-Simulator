@@ -717,3 +717,58 @@ or deployment. Player/NPC held instruments, stereo/group buses and continuous
 output/device drift correction remain future work. Each output currently has
 its own native delay/reverb state with common settings; OUTPUT MAX meters show
 the loudest output rather than a summed master bus.
+
+
+## Player/NPC performers - 2026-10-19 (package 13, native synth API 10)
+
+Built openmw and openmw-server RelWithDebInfo successfully. Server release-file
+classification includes procedural_synth_performers.lua. Existing DSP scheduling
+was reused; no new DSP algorithm was introduced in this slice.
+
+Regression checks:
+- Server synth: 26 tests / 278 assertions, including authenticated non-leader
+  consent commands and a strict numeric native object lookup stub. This catches
+  the live-discovered eager getObjectByMpNum(nil) bug for player destinations.
+- Performer manager: 27 assertions covering native sender identity, inventory,
+  accept/decline, expiry, epoch replay, leave/death/reconnect, ownership, native
+  spawn completion, dismiss, monotonic NPC identity and saved target validation.
+- Client/editor: 6459 assertions, including explicit F9 panel open/close,
+  non-modal invitations, readiness, decline and leave.
+- Band transport: 37 assertions; workstation: 82 plus mixer/return/band cases;
+  arm IK: 16 assertions; native-clock/chunk/late-seek transport harness passed.
+- git diff --check passed. Native C++ client/server builds passed.
+
+Live integration used the existing isolated Synth A/B fixture on port 25567.
+The earlier disposable 25568 server was stopped; it was not used for final QA.
+Original fixture evidence/actor-performers contains live2/live3 and restart logs,
+qa-completed.db, and baseline-20261019-220314 with the user's latest pre-QA DB
+and profiles. Tests temporarily wrote disposable projects; that latest baseline
+was restored byte-for-byte before normal startup. Shared and profile settings
+were preserved, and normal setup now creates shared defaults only when absent.
+
+Both clients reported PASS for explicit decline, fresh accept, native player
+lute and owned-NPC drum emitters, six arm bones and one held prop per performer,
+real-time native prop expiry, holster without interrupting other parts,
+current-phase rejoin, NPC keyboard, Leave revocation, NPC removal without source
+fallback, and Finish cleanup. A subsequent graceful server restart resolved a
+new saved owned NPC and its saved band target. Consent remains transient.
+The observer's initial QA diagnostic could not see the runtime performers map;
+status() now exposes that map and the full probe passed after correction.
+
+A window inspection exposed a first-person self lute clipping through the
+camera; self props/poses now hide in first person while sound continues and
+other observers still render the performer. The probe explicitly selects third
+person for its self-attachment checks. UI automation was stopped when the user
+pressed physical Escape; no further UI actions were performed. Detailed artistic
+alignment of every race/outfit/instrument remains a manual calibration task.
+
+Normal fixture startup disables the automated probe and its QA-only removal
+handler. PerformerStage supplies vanilla lute/drum only to the isolated test
+characters; this is not a public-server item grant. Existing custom MIDI files
+remain installed. No production restart, push or deployment was performed.
+
+Limits: NPC props are stage presentation, not lootable equipment. NPCs keep
+ordinary AI; followers/stage positioning, combat behavior and finger animations
+are not implemented. Native prop limits/expiry are bounded; unavailable actor
+parts remain silent. Stereo/group buses and continuous drift correction remain
+planned. Created NPCs are opt-in, character-owned persistent world actors.

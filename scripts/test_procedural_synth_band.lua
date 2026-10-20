@@ -61,4 +61,13 @@ for n=1,24 do
 end
 transport:close(i);local alive=0;for _,a in ipairs(outputs) do if not a.closed then alive=alive+1 end end
 check(alive==0 and #errors==0,'Finish closes every routed stream')
+local performer={id=22,isValid=function() return true end}
+transport.resolve=function(id,runtime) return runtime and runtime.guid==22 and performer or id==8 and physical end
+local actorBand=format.band();actorBand[1].target={kind='player',characterId=222,instrument='lute'}
+transport:band(i,actorBand,{0,1},{'Ready'},{[1]={kind='player',guid=22,characterId=222,instrument='lute'}})
+transport:finish(i,d)
+check(i.outputs[1].audio.source==performer and i.outputs[1].id==22,'consenting player route creates its native stream on the actor rather than the workstation')
+transport:band(i,actorBand,{0,1},{'Invite required'},{})
+check(not i.outputs[1] and i.studio.playing,'revoked consent removes its native output without redirecting the part')
+transport:close(i)
 print('PASS physical band routing, exact partition, shared starts/replacement, missing/rejoin, gain/mute and bounded cleanup; '..checks..' assertions')

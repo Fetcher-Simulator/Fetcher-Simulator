@@ -22,13 +22,14 @@ local function relevant(player, cell)
     return false
 end
 local function emit(guid, data) data.version = 1; mp.send(guid, 'Synth_Message', data) end
+local performers=require('procedural_synth_performers')(mp,projectFormat,emit)
 local function broadcast(s, out, except)
     out.id, out.epoch, out.seq, out.revision, out.owner = s.id, s.epoch, s.outSeq, s.revision, s.owner
     for _, player in ipairs(mp.getPlayers()) do
         if player.guid ~= except and relevant(player, s.cell) then
             if out.op == 'state' then s.recipients[player.guid] = true end
             if out.op == 'on' and not s.recipients[player.guid] then
-                emit(player.guid, {op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq-1,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,routes=s.routes,availability=s.availability,cell=s.cell})
+                emit(player.guid, {op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq-1,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
                 if s.transport then sendTransport(player.guid,s,s.transport) end
                 s.recipients[player.guid] = true
             end
@@ -49,7 +50,7 @@ end
 local function nextEvent(s) s.outSeq = s.outSeq + 1 end
 local function release(s)
     nextEvent(s); broadcast(s, {op='close'})
-    sessions[s.id] = nil
+    sessions[s.id] = nil;performers:release(s)
     for id,owner in pairs(claims) do if owner==s.id then claims[id]=nil end end
 end
 local function objectFor(id)
@@ -57,12 +58,19 @@ local function objectFor(id)
     return obj and isKeyboard(obj.refId) and obj or nil
 end
 local function resolveBand(s)
-    local statuses={};local changed=false
+    local statuses={};local live={};local changed=false
     for id,owner in pairs(claims) do if owner==s.id then claims[id]=nil end end
     for n,m in ipairs(s.band) do
-        local t=m.target;local obj=t and objectFor(t.mpNum)
+        local t=m.target
         local status='Unbound'
-        if t then
+        if t and (t.kind=='player' or t.kind=='npc') then
+            local runtime,key
+            status,runtime,key=performers:resolve(s,n,t)
+            if status=='Ready' then
+                if claims[key] then status='Busy' else claims[key]=s.id;live[n]=runtime end
+            end
+        elseif t then
+            local obj=objectFor(t.mpNum)
             status='Missing'
             if obj and obj.cell==t.cell and obj.refId==t.refId then
                 local home=objectFor(s.id);local a,b=home and home.position,obj.position
@@ -74,10 +82,14 @@ local function resolveBand(s)
         end
         statuses[n]=status;if not s.availability or s.availability[n]~=status then changed=true end
     end
-    s.availability=statuses;return changed
+    for n,runtime in pairs(live) do
+        local old=s.performers and s.performers[n]
+        if not old or old.guid~=runtime.guid or old.mpNum~=runtime.mpNum or old.instrument~=runtime.instrument then changed=true end
+    end
+    s.availability=statuses;s.performers=live;return changed
 end
 local function sendBand(s)
-    nextEvent(s);broadcast(s,{op='band',band=s.band,routes=s.routes,availability=s.availability})
+    nextEvent(s);broadcast(s,{op='band',band=s.band,routes=s.routes,availability=s.availability,performers=s.performers})
 end
 local function near(player, obj)
     if not obj or player.cell ~= obj.cell then return false end
@@ -113,11 +125,11 @@ local function acquire(player, obj)
     for _ in pairs(sessions) do count = count + 1 end
     if count >= 8 then emit(player.guid, {op='error', message='All synthesizer sessions are in use.'}); return end
     epoch = epoch + 1
-    s = { id=obj.mpNum, cell=obj.cell, owner=player.guid, epoch=epoch, inSeq=0, outSeq=1,
-        revision=1, params=schema.state({}), expires=now+8, lastAlive=now, recipients={}, notes={}, channels={}, effects=projectFormat.effects(),master=0.7,band=projectFormat.band(),routes={},availability={} }
+    s = { id=obj.mpNum, cell=obj.cell, owner=player.guid, characterId=player.characterId, epoch=epoch, inSeq=0, outSeq=1,
+        revision=1, params=schema.state({}), expires=now+8, lastAlive=now, recipients={}, notes={}, channels={}, effects=projectFormat.effects(),master=0.7,band=projectFormat.band(),routes={},availability={},performers={} }
     sessions[s.id] = s;resolveBand(s)
-    broadcast(s, {op='state', params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,routes=s.routes,availability=s.availability,cell=s.cell}, player.guid)
-    emit(player.guid, {op='granted', owner=s.owner, id=s.id, epoch=s.epoch, seq=s.outSeq, revision=s.revision, params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,routes=s.routes,availability=s.availability,cell=s.cell})
+    broadcast(s, {op='state', params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell}, player.guid)
+    emit(player.guid, {op='granted', owner=s.owner, id=s.id, epoch=s.epoch, seq=s.outSeq, revision=s.revision, params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
 end
 policy.registerHandler('Activate', 'procedural-synth', function(context)
     local obj = context.object
@@ -161,6 +173,12 @@ local function request(data)
         end
         return
     end
+    if data.op=='performer' or data.op=='hold' or data.op=='respond' or data.op=='leaveBand' then
+        if not budget(data.pid,now,'performer',4,8) then return end
+        performers:request(data,player,sessions)
+        for _,session in pairs(sessions) do if resolveBand(session) then sendBand(session) end end
+        return
+    end
     if data.op == 'acquire' then
         if not integer(data.id,1,4294967295) or not budget(data.pid,now,'acquire',1,2) then return end
         local obj=objectFor(data.id)
@@ -172,7 +190,7 @@ local function request(data)
         if not budget(data.pid,now,'sync',0.5,2) then return end
         for _, s in pairs(sessions) do
             if relevant(player,s.cell) then
-                emit(data.pid,{op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,routes=s.routes,availability=s.availability,cell=s.cell})
+                emit(data.pid,{op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
                 if s.transport then sendTransport(data.pid,s,s.transport) end
                 s.recipients[data.pid]=true
             end
@@ -195,20 +213,29 @@ local function request(data)
         return
     end
     if s.pickup then return end
+    if data.op=='roster' or data.op=='hire' or data.op=='invite' or data.op=='dismiss' then
+        if not budget(data.pid,now,'roster',1,3) then return end
+        if data.op=='roster' then performers:roster(s)
+        elseif integer(data.slot,1,8) then
+            if data.op=='hire' then performers:hire(s,data.slot) elseif data.op=='dismiss' then performers:dismiss(s,data.slot) else performers:invite(s,data.slot) end
+        end
+        if resolveBand(s) then sendBand(s) end
+        return
+    end
     if data.op=='band' then
         local band,routes=projectFormat.band(data.band),projectFormat.routes(data.routes)
         if not band or not routes or not budget(data.pid,now,'band',4,8) then return end
         local structural=false
         for n,m in ipairs(band) do
             local a,b=m.target,s.band[n].target
-            if (a and a.mpNum)~=(b and b.mpNum) or (a and a.cell)~=(b and b.cell) or (a and a.refId)~=(b and b.refId) then structural=true end
+            if projectFormat.targetKey(a)~=projectFormat.targetKey(b) then structural=true end
         end
         for n=1,16 do if (routes[n] or 0)~=(s.routes[n] or 0) then structural=true end end
         if structural and (s.transport or s.upload) then
             s.transport=nil;s.upload=nil;s.notes={};s.drumPending=false
             nextEvent(s);broadcast(s,{op='transportStop',playId=s.lastPlayId or 0})
         end
-        s.band=band;s.routes=routes;resolveBand(s);sendBand(s);return
+        s.band=band;s.routes=routes;performers:bind(s);resolveBand(s);sendBand(s);return
     end
     if data.op=='pickup' then
         local function failed(message) emit(data.pid,{op='error',message=message,pickupFailed=true,id=s.id,epoch=s.epoch}) end
@@ -400,7 +427,7 @@ local function sweep()
             for _, p in ipairs(mp.getPlayers()) do
                 if relevant(p,s.cell) and p.guid ~= s.owner then
                     if not s.recipients[p.guid] then
-                        emit(p.guid,{op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,routes=s.routes,availability=s.availability,cell=s.cell})
+                        emit(p.guid,{op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
                         if s.transport then sendTransport(p.guid,s,s.transport) end
                         s.recipients[p.guid]=true
                     end
@@ -415,6 +442,7 @@ return {
     engineHandlers={onUpdate=sweep},
     eventHandlers={
         Synth_Request=request,
+        OnActorSpawned=function(data) performers:spawned(data,sessions) end,
         OnPlacedObjectPickup=function(data)
             -- Client events always have an injected pid. Only a native server
             -- completion may finish this transfer; never trust a claimed guid.
@@ -450,7 +478,7 @@ return {
             end
         end,
         OnPlayerDisconnect=function(data)
-            budgets[data.guid]=nil
+            budgets[data.guid]=nil;performers:disconnect(data.guid)
             for _,s in pairs(sessions) do if s.owner==data.guid then release(s) end end
         end,
         OnPlayerCellChange=function(data)

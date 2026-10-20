@@ -145,6 +145,7 @@ public:
     double getUptime() const;
     float getWorldHour() const;
     std::optional<LuaActorSnapshot> getActor(uint32_t mpNum) const;
+    std::vector<LuaActorSnapshot> getActorsInCell(const std::string& cell) const;
     std::optional<LuaActorSnapshot> getActorByInstanceId(ActorInstanceId actorId) const;
     std::vector<LuaActorSnapshot> getActorsByLocalRefNum(uint32_t refIndex) const;
     std::optional<PlacedObject> getPlacedObject(uint32_t mpNum) const;

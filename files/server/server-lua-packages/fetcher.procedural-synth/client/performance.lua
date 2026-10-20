@@ -47,9 +47,9 @@ function M.new(actor)
         end
         self.applied=0
     end
-    function p:frame(dt,source,notes,now,strikes)
+    function p:frame(dt,source,notes,now,strikes,profile)
         self.error=0
-        local record=source.recordId=='fetcher_procedural_keyboard_v1' and types.Miscellaneous.record(source) or types.Activator.record(source)
+        local record=not profile and source.recordId=='fetcher_procedural_keyboard_v1' and types.Miscellaneous.record(source) or (not profile and types.Activator.record(source))
         local staged=record and record.model:lower():gsub('\\','/'):find('keyboard%-stand%.nif$')~=nil
         local halfWidth,spacing,spread,front,height=8,0.65,5,-2,5
         if staged then halfWidth,spacing,spread,front,height=14,1.2,18,-18,91 end
@@ -91,7 +91,8 @@ function M.new(actor)
                     -- Configurable keyboard-space targets: this small model has
                     -- a narrow key bed. No actor teleport or root motion is used.
                     local x=sign*halfWidth+clamp((pitch-(side=='L' and 53 or 67))*spacing,-spread,spread)
-                    local target=toModel*(source.position+source.rotation*v(x,front,height+(#group>0 and -pulse or 0)))
+                    local point=profile and (profile.targets[side]+v(0,0,#group>0 and -pulse*profile.strike or 0)) or v(x,front,height+(#group>0 and -pulse or 0))
+                    local target=toModel*(source.position+source.rotation*point)
                     local a,b=(e-s):length(),(w-e):length()
                     if a>0.1 and b>0.1 then
                         local pole=toModel*(root*s+self.actor.rotation*v(sign,0,-0.6))-s

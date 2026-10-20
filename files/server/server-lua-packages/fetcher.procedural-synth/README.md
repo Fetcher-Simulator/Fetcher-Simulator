@@ -485,9 +485,9 @@ server Lua; a client-supplied event cannot forge that completion. Errors leave
 the keyboard/session available. The disposable fixture remembers a picked-up
 initial stage keyboard instead of restocking it on every server restart.
 
-This slice supplies a portable placed instrument. Actor-held attachments, band
-member/track routing and native sample voices remain the following roadmap
-slices; the inventory keyboard is not an equipped weapon or wearable yet.
+This slice supplies a portable placed instrument. Band routing and held stage
+props are described below. Native sample voices remain planned; the inventory
+keyboard is not an equipped weapon or wearable.
 
 
 ## Band outputs (package 12 / native synth API 9)
@@ -506,8 +506,8 @@ one that was picked up or removed. A reappearing original object rejoins at the
 current song phase. Refresh instruments retries reservations/status. Instruments
 are reserved to one Studio session; Finish/disconnect releases them.
 Changing bindings or track destinations stops playback. Gain and mute change
-while playing. Player/NPC held instruments and their consent/animation remain
-the next slice; this page currently binds placed keyboards only.
+while playing. Package 13 extends these slots to actor performers, as described
+below.
 
 Each physical output uses one native mono spatial stream with only its assigned
 lanes. Scores share the server timeline, tempo map, future start/replacement and
@@ -524,3 +524,57 @@ backs up before adding a stage object, and does not add another copy on repeat.
 -BandProbe implies -BandStage and enables a disposable automated A/B test,
 including a QA-only server removal script. Re-run setup without -BandProbe
 before normal play; the QA script is excluded from server.omwscripts.
+
+
+## Player and NPC performers (package 13 / native synth API 10)
+
+The Studio owner is the band leader: that player chooses parts, patches,
+outputs and transport. Band > member destination now lists nearby players and
+character-owned Studio NPCs alongside placed keyboards. Refresh instruments
+refreshes that roster. Bind a player/instrument, assign tracks to the slot,
+then use Invite if another invitation is needed.
+
+Each player presses F9 to open Band / Performer. Carry the portable keyboard,
+vanilla lute or vanilla drum in inventory, choose Ready for that instrument,
+and Accept the leader's invitation. The leader can bind their own character and
+choose Ready without a self-invitation. Decline, Not ready / holster and Leave band
+are always available. An invitation only displays a notification; it never
+opens a modal or takes over the observer's camera. F9/Escape closes the panel;
+F8 returns to a Studio the player already owns. Ordinary camera controls remain
+available with these windows closed. Self props/arm poses are hidden in first
+person to avoid clipping through the camera; third person shows the performer.
+
+Consent is connection/session scoped and expires with the session, disconnect,
+death or Leave. Invitations expire after 30 seconds. Saved player targets use
+native character IDs, never connection GUIDs or saved consent. Being ready
+requires an actual server inventory item. Ready only supplies a stage prop while
+that assigned actor output is playing; it does not equip an engine weapon.
+Holstering silences the part; readying again rejoins the current song phase.
+Leaving requires a fresh invitation. Unavailable destinations never fall back
+to another performer or the workstation.
+
+Create owned NPC performer makes a distinct persistent Studio NPC, owned by
+the leader's character. Bind that NPC to keyboard, lute or drum. Dismiss this
+owned NPC removes it and its roster entry. Other characters' performers and
+ordinary game NPCs cannot be claimed by choosing a multiplayer ID or having
+simulation authority. NPC ownership and stable band targets save in the server
+SQLite database. NPC instruments are visual stage props, not lootable equipment.
+This first pass retains ordinary NPC AI; it does not add followers, stage
+blocking, combat overrides, or finger animation. Dead, missing or distant NPCs
+stay silent. The compact keyboard is held; the standing keyboard remains placed.
+
+Audio stays inside the native synth/Studio DSP: each assigned actor gets its
+own spatial stream containing only its routed lanes on the common server song
+clock. Lua resolves authorized actors, renders expiring bone-attached props and
+runs two-link arm IK. New openmw.animation APIs setVisualAttachment,
+clearVisualAttachment and visualAttachmentCount support loaded local/remote
+actors with eight bounded keys and real-time expiry (0.05..2 seconds). Props
+refresh without rebuilding their model each frame. They do not alter physics,
+inventory, equipment or network state. Server bindings expose read-only native
+character identity/health and getActorsInCell for owned-spawn recovery.
+
+For local tests, stop the existing isolated fixture and run setup with
+-PerformerStage to supply one vanilla lute and drum to Synth A/B. Existing
+profiles, shared settings, projects and inventory are preserved. -PerformerProbe
+also enables the disposable automated test; rerun without that flag before
+normal play. Its QA removal script is never included in normal server scripts.

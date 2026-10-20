@@ -1512,6 +1512,7 @@ namespace MWRender
 
     osg::Vec3f Animation::runAnimation(float duration)
     {
+        expireScriptAttachments();
         osg::Vec3f movement(0.f, 0.f, 0.f);
         AnimStateMap::iterator stateiter = mStates.begin();
         while (stateiter != mStates.end())
@@ -1731,6 +1732,8 @@ namespace MWRender
     void Animation::setObjectRoot(const std::string& model, bool forceskeleton, bool baseonly, bool isCreature)
     {
         clearScriptBoneTransforms();
+        for (const auto& [key, value] : mScriptAttachments) removeEffect("__lua_prop_" + key);
+        mScriptAttachments.clear();
         osg::ref_ptr<osg::StateSet> previousStateset;
         if (mObjectRoot)
         {
@@ -2214,6 +2217,37 @@ namespace MWRender
             }
             ++it;
         }
+    }
+
+    void Animation::expireScriptAttachments()
+    {
+        const auto now=std::chrono::steady_clock::now();
+        for (auto it=mScriptAttachments.begin();it!=mScriptAttachments.end();)
+            if (now>=it->second.expires) { removeEffect("__lua_prop_"+it->first);it=mScriptAttachments.erase(it); }
+            else ++it;
+    }
+
+    bool Animation::setScriptAttachment(std::string_view key, std::string_view model, std::string_view bone,
+        const osg::Matrixf& transform, float timeout)
+    {
+        expireScriptAttachments();
+        if (getNodeMap().find(bone)==getNodeMap().end()) return false;
+        const std::string id(key), effect="__lua_prop_"+id;
+        auto it=mScriptAttachments.find(id);
+        if (it==mScriptAttachments.end() && mScriptAttachments.size()>=8) return false;
+        if (it==mScriptAttachments.end() || it->second.model!=model || it->second.bone!=bone || it->second.transform!=transform)
+        {
+            removeEffect(effect);
+            addEffect(model,effect,true,bone,{},false,false,transform);
+        }
+        auto& value=mScriptAttachments[id];value.model=model;value.bone=bone;value.transform=transform;
+        value.expires=std::chrono::steady_clock::now()+std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(timeout));
+        return true;
+    }
+
+    void Animation::clearScriptAttachment(std::string_view key)
+    {
+        const std::string id(key);removeEffect("__lua_prop_"+id);mScriptAttachments.erase(id);
     }
 
     bool Animation::setScriptBoneTransform(std::string_view name, const osg::Vec3f& position,

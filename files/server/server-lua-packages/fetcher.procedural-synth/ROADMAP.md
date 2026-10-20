@@ -149,7 +149,7 @@ physical destination routing.
   saved arrangement. Dirty projects save before pickup; untouched windows do
   not overwrite an existing song. Personal patches stay per character.
 - Two-client playback/cleanup, repeated pickup and server restart are tested.
-  Actor-held attachments and band routing are the next slice.
+  Band routing and actor-held props are covered by the completed slices below.
 
 ## Completed slice: placed-keyboard band routing
 
@@ -166,19 +166,15 @@ physical destination routing.
 
 ## Following slices
 
-1. Band gameplay: extend member slots to players/NPCs holding keyboards and
-   vanilla lute/drum models. Add player invite/consent, controlled NPC membership,
-   attachment/animation and physical actor emitters using the routing timeline.
-   Handle unequipped, dead and disconnected members without redirecting parts.
-2. Song editing: convert imported parts to editable note data, with selection,
+1. Song editing: convert imported parts to editable note data, with selection,
    drag/resize/copy, zoom/scroll, velocity/gate editing, quantized recording,
    arrangement clips and automation. Preserve tempo maps and export edited MIDI
    for the performance path. Existing click-to-create clips remain supported.
-3. Project library and autosave/recovery, followed by native sample instruments
+2. Project library and autosave/recovery, followed by native sample instruments
    and the installed-game-audio browser described above. Test spoken lines,
    effects and trimmed music with single notes, chords, drums and band playback.
    Distinguish MIDI export from rendered audio export.
-4. Broader multiplayer synchronization: continuous drift correction, measured
+3. Broader multiplayer synchronization: continuous drift correction, measured
    device latency, richer late-join state and further rate-budget work.
 
 
@@ -210,3 +206,18 @@ This slice does not add sends/buses or change the mono keyboard emitter.
   still available and mark the set Custom.
 - This does not implement samples, all GM percussion, mid-part program switching,
   or musical role inference from unlabeled notes.
+
+
+## Completed slice: player/NPC band performers
+
+- Native character identities, session-only invite/accept/decline/leave consent,
+  F9 performer panel and authoritative inventory readiness for keyboard/lute/drum.
+- Character-owned persistent Studio NPCs with create/dismiss and saved roster;
+  ordinary world NPCs and other characters' performers remain outside ownership.
+- Exact actor spatial emitters on the existing native song clock; holster/death/
+  leave/missing/out-of-range silences only those parts, with current-phase rejoin.
+- Expiring native visual props, reusable arm IK and first-person self-prop hiding.
+  Invitations do not open UI or force cameras. No NPC follower/stage AI or finger
+  animation yet. NPC instrument props are presentation, not inventory equipment.
+- Two-client integration and restart persistence checks in the original isolated
+  port-25567 fixture; latest user project/settings backed up and restored.

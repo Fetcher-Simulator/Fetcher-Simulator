@@ -5,9 +5,9 @@ local self = require('openmw.self')
 local ui = require('openmw.ui')
 local input = require('openmw.input')
 local supported, synth = pcall(require,'openmw.synth')
-if not supported or (synth.version and synth.version<9) then
+if not supported or (synth.version and synth.version<10) then
     return {eventHandlers={Synth_Activate=function()
-        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 9.')
+        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 10.')
     end}}
 end
 local schema = require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -20,7 +20,17 @@ local Performance = require('scripts.multiplayer.fetcher.procedural-synth.client
 local vfs = require('openmw.vfs')
 local NativeTransport=require('scripts.multiplayer.fetcher.procedural-synth.client.transport')
 local object
-local transport=NativeTransport.new(synth,mp,core,function(message) ui.showMessage(message);print('[SynthStudio] '..message) end,function(id) return object(id) end)
+local Actors=require('scripts.multiplayer.fetcher.procedural-synth.client.actors')
+local PerformerPanel=require('scripts.multiplayer.fetcher.procedural-synth.client.performer-panel')
+local actors=Actors.new(mp,nearby,self)
+local performerState={held='',available={}}
+local panel,lastPerformerRequest=nil,-10
+local function performerCommand(op,args)
+    local data={version=1,op=op};for k,value in pairs(args or {}) do data[k]=value end
+    mp.sendToServer('Synth_Request',data)
+end
+local function closePanel() if panel then panel:destroy();panel=nil end end
+local transport=NativeTransport.new(synth,mp,core,function(message) ui.showMessage(message);print('[SynthStudio] '..message) end,function(id,runtime) return runtime and actors:source(runtime) or (not runtime and object(id)) end)
 local instances, editor, session = {}, nil, nil
 local connected, lastSync, lastHeartbeat, lastEdit = false, -10, 0, 0
 local dirty
@@ -75,7 +85,7 @@ local function destroy(id)
         if i.pose and not i.pose.missing then pcall(i.pose.clear,i.pose) end
         i.audio:close()
         for _,channel in pairs(i.channels or {}) do if channel.audio then channel.audio:close() end end
-        transport:close(i)
+        transport:close(i);actors:clearInstance(i)
         transport.downloads[id]=nil
         instances[id]=nil
     end
@@ -194,7 +204,7 @@ makeWorkstation=function(i)
         band=function(band,routes)
             local values={}
             for n,m in ipairs(band) do
-                local t=m.target;values[#values+1]=m.name;values[#values+1]=t and t.mpNum or 0
+                local t=m.target;values[#values+1]=m.name;values[#values+1]=Project.targetKey(t)
                 values[#values+1]=t and t.cell or '';values[#values+1]=t and t.refId or ''
                 values[#values+1]=m.level;values[#values+1]=tostring(m.mute)
             end
@@ -203,16 +213,21 @@ makeWorkstation=function(i)
             if signature~=i.bandSignature then i.bandSignature=signature;i.pendingBand={band=Project.band(band),routes=Project.routes(routes)};flushChannels() end
         end,
         bandStatus=function(slot) return i.availability and i.availability[slot] or 'Unbound' end,
-        refreshBand=function() i.bandSignature=nil;i.workstation:configureBand() end,
+        refreshBand=function() i.bandSignature=nil;i.workstation:configureBand();send('roster') end,
+        refreshTargets=function() send('roster') end,
+        hire=function(slot) send('hire',{slot=slot}) end,
+        dismiss=function(slot) send('dismiss',{slot=slot}) end,
+        invite=function(slot) send('invite',{slot=slot}) end,
         instruments=function()
             local choices={}
             for _,list in ipairs{nearby.activators,nearby.items or {}} do for _,o in ipairs(list) do
                 local id=mp.getObjectMpNum(o)
                 if id and id~=i.id and (o.recordId=='fetcher_procedural_synth_v1' or o.recordId=='fetcher_procedural_keyboard_v1') then
-                    choices[#choices+1]={id=id,label='Keyboard #'..id,target={mpNum=id,cell=i.serverCell,refId=o.recordId}}
+                    local target={mpNum=id,cell=i.serverCell,refId=o.recordId};choices[#choices+1]={id=Project.targetKey(target),label='Keyboard #'..id,target=target}
                 end
             end end
-            table.sort(choices,function(a,b) return a.id<b.id end);return choices
+            for _,entry in ipairs(i.roster or {}) do choices[#choices+1]={id=Project.targetKey(entry.target),label=entry.label,target=entry.target} end
+            table.sort(choices,function(a,b) return a.label<b.label end);return choices
         end,
         flushChannels=flushChannels,
         effects=function(effects,master)
@@ -293,6 +308,7 @@ local function pickupKeyboard()
     return true
 end
 showEditor=function()
+    closePanel()
     if editor or not session or session.pickup then return false end
     local i=instances[session.id];if not i then return false end
     local w=session.workstation
@@ -366,6 +382,26 @@ showEditor=function()
 end
 local function message(data)
     if not mp.isConnected() or type(data)~='table' or data.version~=1 then return end
+    if data.op=='performer' then performerState=data;if panel then panel:update(data) end;return end
+    if data.op=='inviteNotice' then ui.showMessage(data.leader..' invites you to play '..data.instrument..'. Press F9 to accept or decline.');return end
+    if data.op=='roster' then
+        local current=instances[data.id];if current and current.epoch==data.epoch then current.roster=data.choices or {};if current.workstation then current.workstation.revision=current.workstation.revision+1 end end
+        return
+    end
+    if data.op=='npcDismissed' then
+        if session and session.id==data.id and session.epoch==data.epoch then
+            local w=session.workstation;local old=w.project.band[data.slot]
+            if old and old.target and old.target.mpNum==data.mpNum then w:setMember(data.slot,{name=old.name,level=old.level,mute=old.mute});w.revision=w.revision+1 end
+        end
+        return
+    end
+    if data.op=='npcCreated' then
+        if session and session.id==data.id and session.epoch==data.epoch then
+            local w=session.workstation;local old=w.project.band[data.slot]
+            if old then w:setMember(data.slot,{name=old.name,level=old.level,mute=old.mute,target=data.target});w.revision=w.revision+1 end
+        end
+        return
+    end
     if transport:receive(data,instances) then return end
     if data.op=='error' then
         ui.showMessage(data.message)
@@ -425,7 +461,7 @@ local function message(data)
         local ok,audio=pcall(synth.create,source)
         if not ok then ui.showMessage(tostring(audio)); return end
         i={id=data.id,audio=audio,source=source,cell=self.cell,owner=data.owner,notes={},channels={},epoch=data.epoch,seq=data.seq,seen=core.getRealTime(),serverCell=data.cell}
-        instances[data.id]=i;apply(i,params);applyEffects(i,data.effects,data.master);transport:band(i,data.band,data.routes,data.availability)
+        instances[data.id]=i;apply(i,params);applyEffects(i,data.effects,data.master);transport:band(i,data.band,data.routes,data.availability,data.performers)
         for n,channel in pairs(data.channels or {}) do
             local state=schema.state(channel.params)
             if type(n)=='number' and n>=1 and n<=16 and n%1==0 and state then applyChannel(i,n,state,channel.level or 1,channel.mixer) end
@@ -435,7 +471,7 @@ local function message(data)
             session={id=data.id,epoch=data.epoch,inSeq=0,editTrack=0,views={},page='synth',transportLast=core.getRealTime()}
             session.workstation=makeWorkstation(i)
             showEditor()
-            send('list'); lastHeartbeat=core.getRealTime()
+            send('roster');send('list'); lastHeartbeat=core.getRealTime()
         end
         return
     end
@@ -445,7 +481,7 @@ local function message(data)
     if data.op=='band' then
         local statusChanged=false
         for slot=1,8 do if (i.availability or {})[slot]~=(data.availability or {})[slot] then statusChanged=true end end
-        local ok,err=pcall(transport.band,transport,i,data.band,data.routes,data.availability)
+        local ok,err=pcall(transport.band,transport,i,data.band,data.routes,data.availability,data.performers)
         if not ok then transport:stop(i);ui.showMessage(tostring(err)) end
         if i.workstation and statusChanged then i.workstation.revision=i.workstation.revision+1 end
     elseif data.op=='channelRemove' then
@@ -485,12 +521,17 @@ local function frame(dt)
     if not mp.isConnected() then
         transport.offset=nil;transport.rtt=nil;transport.lastClock=-10;transport.downloads={};transport.pings={};transport.samples=0
         for id in pairs(instances) do destroy(id) end
-        closeEditor(false); connected=false; return
+        closeEditor(false);closePanel();actors:clearAll();performerState={held='',available={}};connected=false; return
     end
     if not connected or now-lastSync>5 then
         connected=true; lastSync=now
         -- Request only when there are no instances: a snapshot never restarts held notes.
         if next(instances)==nil then mp.sendToServer('Synth_Request',{version=1,op='sync'}) end
+    end
+    actors:frame(instances,dt,now)
+    if panel then
+        panel:frame()
+        if now-lastPerformerRequest>5 then performerCommand('performer');lastPerformerRequest=now end
     end
     if session and session.workstation.cb.flushChannels then session.workstation.cb.flushChannels() end
     if synth.createStudio then transport:frame(instances) end
@@ -501,7 +542,10 @@ local function frame(dt)
                 i.audio:keepAlive()
                 for _,channel in pairs(i.channels) do if channel.audio then channel.audio:keepAlive() end end
             end
-            if mp.getPlayerObject and i.owner then
+            local ownerHeld=false
+            for slot,r in pairs(i.performers or {}) do if r.kind=='player' and r.guid==i.owner and i.availability[slot]=='Ready' then ownerHeld=true end end
+            if ownerHeld and i.pose then if not i.pose.missing then pcall(i.pose.clear,i.pose) end;i.pose=nil end
+            if mp.getPlayerObject and i.owner and not ownerHeld then
                 local actor=mp.getPlayerObject(i.owner)
                 if i.pose and i.pose.actor~=actor then
                     if not i.pose.missing then pcall(i.pose.clear,i.pose) end
@@ -544,7 +588,7 @@ end
 return {
     interfaceName='ProceduralSynth',
     interface={
-        version=9,
+        version=10,
         status=function()
             local out={}
             for id,i in pairs(instances) do
@@ -554,7 +598,7 @@ return {
                 for n,channel in pairs(i.channels) do channels[#channels+1]={id=n,voices=channel.audio and channel.audio.voices or 0,peak=channel.audio and channel.audio.peak or 0,wave1=channel.params.wave1,cutoff=channel.params.cutoff,
                     instrumentType=channel.params.instrumentType,driveType=channel.params.driveType,drive=channel.params.drive,cabinet=channel.params.cabinet,stringMute=channel.params.stringMute,mixer=channel.mixer,output=i.routes and i.routes[n] or 0,rms=select(2,transport:metrics(i,n)),reduction=select(3,transport:metrics(i,n))} end
                 local outputs={}
-                transport:each(i,function(a,slot) outputs[#outputs+1]={slot=slot,id=slot==0 and i.id or i.band[slot].target.mpNum,
+                transport:each(i,function(a,slot) outputs[#outputs+1]={slot=slot,id=slot==0 and i.id or ((i.performers or {})[slot] and (i.performers[slot].guid or i.performers[slot].mpNum) or i.band[slot].target.mpNum),kind=(i.performers or {})[slot] and i.performers[slot].kind or 'keyboard',
                     playing=a.playing,voices=a.voices,position=a.audiblePosition,peak=a.peak} end)
                 local w=session and session.id==id and session.workstation
                 local phaseError=0
@@ -566,7 +610,7 @@ return {
                 editing=session~=nil and session.id==id,editorVisible=editor~=nil and session.id==id,epoch=i.epoch,seq=i.seq,
                 cutoff=i.params.cutoff,wave1=i.params.wave1,poseBones=i.pose and i.pose.applied or 0,
                 poseError=i.pose and i.pose.error or 0,midi=(playback~=nil and playback.playing) or (w and w.playing and w.mode=='song') or false,
-                channels=channels,outputs=outputs,band=i.band,availability=i.availability,tracks=w and #w.project.tracks or 0,transport=w and w.playing or false,transportTime=w and w.time or 0,
+                channels=channels,outputs=outputs,band=i.band,availability=i.availability,performers=i.performers,tracks=w and #w.project.tracks or 0,transport=w and w.playing or false,transportTime=w and w.time or 0,
                 nativePlaying=i.studio and i.studio.playing or false,nativePosition=i.studio and i.studio.position or 0,
                 nativeStrikes=i.studio and i.studio.strikes or 0,nativeFault=i.studio and i.studio.fault or 0,
                 phaseError=phaseError,clockRtt=transport.rtt or -1} end
@@ -587,6 +631,11 @@ return {
         presetCommand=function(op,args) if editor and editor.kind~='studio' then editor.cb.command(op,args) end end,
         close=function() closeEditor(true) end,
         pickupKeyboard=pickupKeyboard,
+        performer=function() return performerState end,
+        readyInstrument=function(instrument) performerCommand('hold',{instrument=instrument}) end,
+        respondToInvite=function(accept) if performerState.invitation then performerCommand('respond',{token=performerState.invitation.token,accept=accept}) end end,
+        leaveBand=function() performerCommand('leaveBand') end,
+        performers=function() return actors:status() end,
         hide=hideEditor,
         show=showEditor,
         midiSongs=function() local out={};for n,p in ipairs(songs) do out[n]=p end;return out end,
@@ -603,7 +652,10 @@ return {
         stopMidi=function() stopPlayback(true) end,
     },
     engineHandlers={onFrame=frame,onInit=scanSongs,onKeyPress=function(e)
-        if session and e.code==input.KEY.F8 then
+        if e.code==input.KEY.F9 then
+            if panel then closePanel() else hideEditor();panel=PerformerPanel.new(performerState,performerCommand,closePanel);performerCommand('performer') end
+        elseif panel and e.code==input.KEY.Escape then closePanel()
+        elseif session and e.code==input.KEY.F8 then
             if editor then hideEditor() else showEditor() end
         elseif editor then editor:key(e.code,true) end
     end,

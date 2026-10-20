@@ -304,6 +304,40 @@ namespace MWLua
                 "clearBoneTransform");
         };
 
+        api["visualAttachmentsVersion"] = 1;
+        api["setVisualAttachment"] = [context](const LObject& object, std::string key, std::string model, const sol::table& options) {
+            std::string bone=options.get_or<std::string>("bone","Bip01 Spine2");
+            const float timeout=options.get_or("timeout",0.5f);
+            osg::Matrixf transform;
+            sol::object value=options.get<sol::object>("transform");
+            if (value.is<LuaUtil::TransformM>()) transform=LuaUtil::cast<LuaUtil::TransformM>(value).mM;
+            else if (value.is<LuaUtil::TransformQ>()) transform=osg::Matrixf(LuaUtil::cast<LuaUtil::TransformQ>(value).mQ);
+            else if (value!=sol::nil) throw std::runtime_error("Invalid visual attachment transform");
+            bool valid=transform.valid();
+            for (unsigned i=0;i<16;++i) valid=valid && std::abs(transform.ptr()[i])<=1000;
+            if (key.empty() || key.size()>64 || key.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")!=std::string::npos
+                || model.empty() || model.size()>256 || bone.empty() || bone.size()>128 || !valid
+                || !std::isfinite(timeout) || timeout<0.05f || timeout>2.f)
+                throw std::runtime_error("Invalid visual attachment key, model, bone, transform or timeout");
+            context.mLuaManager->addAction([object=Object(object),key=std::move(key),model=std::move(model),bone=std::move(bone),transform,timeout] {
+                if (object.ptrOrEmpty().isEmpty() || !object.ptr().getRefData().isEnabled()) return;
+                if (auto* animation=MWBase::Environment::get().getWorld()->getAnimation(object.ptr()))
+                    animation->setScriptAttachment(key,model,bone,transform,timeout);
+            },"setVisualAttachment");
+            return true;
+        };
+        api["clearVisualAttachment"] = [context](const LObject& object,std::string key) {
+            if (key.empty() || key.size()>64) throw std::runtime_error("Invalid visual attachment key");
+            context.mLuaManager->addAction([object=Object(object),key=std::move(key)] {
+                if (object.ptrOrEmpty().isEmpty()) return;
+                if (auto* animation=MWBase::Environment::get().getWorld()->getAnimation(object.ptr())) animation->clearScriptAttachment(key);
+            },"clearVisualAttachment");
+        };
+        api["visualAttachmentCount"] = [context](const LObject& object) {
+            if (!context.mLuaManager->isSynchronizedUpdateRunning()) throw std::runtime_error("Read visual attachments from onFrame or input");
+            return getConstAnimationOrThrow(object)->scriptAttachmentCount();
+        };
+
         api["addVfx"] = [context](const Object& object, std::string_view model, sol::optional<sol::table> options) {
             if (!object.isGObject() && !object.isSelfObject())
                 throw std::runtime_error("Can only be used in global scripts or in local scripts on self.");

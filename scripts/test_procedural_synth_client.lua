@@ -17,7 +17,9 @@ package.loaded[prefix..'client.transport']=dofile(root..'client/transport.lua')
 package.loaded[prefix..'shared.project']=dofile(root..'shared/project.lua')
 package.loaded['openmw.util']={vector2=vector,color={rgb=function(...) return {...} end,rgba=function(...) return {...} end}}
 package.loaded['openmw.util'].vector3=function(x,y,z) return {x=x,y=y,z=z} end
+local dummyT=setmetatable({},{__mul=function(a) return a end});package.loaded['openmw.util'].transform={identity=dummyT,rotateX=function() return dummyT end,rotateZ=function() return dummyT end}
 package.loaded['openmw.animation']={}
+package.loaded['openmw.camera']={MODE={FirstPerson=1},getMode=function() return 2 end}
 package.loaded['openmw.types']={}
 package.loaded['openmw.vfs']={pathsWithPrefix=function() return function() end end}
 package.loaded[prefix..'client.midi']=dofile(root..'client/midi.lua')
@@ -35,7 +37,7 @@ function ui.create(layout)
 end
 package.loaded['openmw.ui']=ui
 package.loaded['openmw.async']={callback=function(_,fn) return fn end}
-local input={KEY={Escape=1,F8=100,Enter=101,NP_Enter=102},isMouseButtonPressed=function() return mouseDown end}
+local input={KEY={Escape=1,F8=100,F9=103,Enter=101,NP_Enter=102},isMouseButtonPressed=function() return mouseDown end}
 for i,name in ipairs({'Z','S','X','D','C','V','G','B','H','N','J','M','Comma'}) do input.KEY[name]=i+1 end
 package.loaded['openmw.input']=input
 package.loaded['openmw.interfaces']={UI={getMode=function() return mode end,
@@ -75,6 +77,8 @@ package.loaded[prefix..'client.editor']=Editor
 local lastEditor
 local newEditor=Editor.new
 Editor.new=function(...) lastEditor=newEditor(...);return lastEditor end
+package.loaded[prefix..'client.actors']=dofile(root..'client/actors.lua')
+package.loaded[prefix..'client.performer-panel']=dofile(root..'client/performer-panel.lua')
 local player=dofile(root..'client/player.lua')
 local api=player.interface
 local handler=player.eventHandlers.Synth_Message
@@ -468,4 +472,12 @@ connected=true
 package.loaded['openmw.synth'].version=5
 local oldClient=dofile(root..'client/player.lua')
 check(oldClient.interface==nil and oldClient.eventHandlers.Synth_Activate~=nil,'older engines receive an upgrade message before loading the new window controls')
+-- Performer panel never opens from a remote invitation; F9 is explicit.
+handler{version=1,op='performer',held='',available={lute=true},invitation={token='qa',leader='Leader',instrument='lute',slot=1}}
+check(mode==nil,'invitation state does not force a GUI or lock the camera')
+player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode=='Interface','F9 opens the performer panel')
+api.respondToInvite(false);check(sent[#sent].op=='respond' and sent[#sent].token=='qa' and sent[#sent].accept==false,'decline sends only the pending consent token')
+api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrument=='lute','ready requests a server inventory check')
+api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
+player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, sequence, listener cleanup; %d assertions',checks))

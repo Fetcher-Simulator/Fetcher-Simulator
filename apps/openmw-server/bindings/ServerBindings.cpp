@@ -489,6 +489,12 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
         return makePlacedObjectValue(ts, *object);
     });
 
+    mp.set_function("getActorsInCell", [context](const std::string& cell, sol::this_state ts) {
+        sol::state_view lua(ts); sol::table result(lua, sol::create);
+        if (context) { int index=1; for (const auto& actor : context->getActorsInCell(cell)) result[index++]=makeActorValue(ts,actor); }
+        return result;
+    });
+
     mp.set_function("getActorByMpNum", [context](uint32_t mpNum, sol::this_state ts) -> sol::object
     {
         if (!context)

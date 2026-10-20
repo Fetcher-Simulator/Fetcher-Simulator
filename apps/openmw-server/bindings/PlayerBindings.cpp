@@ -216,6 +216,8 @@ void initPlayerBindings(LuaUtil::LuaView& view, sol::table& mp, LuaServerContext
 
         "name",     sol::property(&scriptPlayer_getName),
         "guid",     sol::property(&scriptPlayer_getGuid),
+        "characterId", sol::property([](const ScriptPlayer& p) { return p.data.dbCharacterId; }),
+        "health", sol::property([](const ScriptPlayer& p) { return p.data.dynamicStats.health.current; }),
         "cell",     sol::property(&scriptPlayer_getCell),
         "loadedActorCells", sol::property(&scriptPlayer_getLoadedActorCells),
         "position", sol::property(&scriptPlayer_getPosition),

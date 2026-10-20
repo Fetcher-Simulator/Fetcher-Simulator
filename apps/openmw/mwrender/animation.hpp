@@ -23,6 +23,7 @@
 #include <osg/Quat>
 
 #include <array>
+#include <chrono>
 #include <map>
 #include <optional>
 #include <span>
@@ -233,6 +234,15 @@ namespace MWRender
         std::map<std::string, ScriptBonePose, std::less<>> mScriptBonePoses;
         void detachScriptBonePoses();
         void attachScriptBonePoses();
+
+        struct ScriptAttachment
+        {
+            std::string model, bone;
+            osg::Matrixf transform;
+            std::chrono::steady_clock::time_point expires;
+        };
+        std::map<std::string, ScriptAttachment, std::less<>> mScriptAttachments;
+        void expireScriptAttachments();
 
         MWWorld::Ptr mPtr;
 
@@ -506,6 +516,10 @@ namespace MWRender
             const osg::Quat& rotation, float weight, float timeout);
         void clearScriptBoneTransform(std::string_view name);
         void clearScriptBoneTransforms();
+        bool setScriptAttachment(std::string_view key, std::string_view model, std::string_view bone,
+            const osg::Matrixf& transform, float timeout);
+        void clearScriptAttachment(std::string_view key);
+        std::size_t scriptAttachmentCount() const { return mScriptAttachments.size(); }
 
         /// Finds the animation bone nearest a world-space transform and returns
         /// the transform converted into that bone's local space.

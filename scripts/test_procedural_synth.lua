@@ -1,6 +1,7 @@
 -- lua scripts/test_procedural_synth.lua (repository root)
 package.path='apps/openmw-server/scripts/?.lua;'..package.path
 local schema=require('procedural_synth_schema')
+package.loaded['openmw.types']={Actor={inventory=function(p) return p.inventory or {} end}}
 local now,sent,players,objects,storage,handler,module
 local pickups,records
 local checks,tests=0,0
@@ -11,9 +12,9 @@ local function copy(t)
 end
 local function reset(preserve)
     now,sent,pickups,records=100,{},{},{}
-    players={ [1]={guid=1,cell='INT:A',position={x=0,y=0,z=0}},
-        [2]={guid=2,cell='INT:A',position={x=0,y=0,z=0}},
-        [3]={guid=3,cell='INT:B',position={x=0,y=0,z=0}} }
+    players={ [1]={guid=1,characterId=11,health=100,cell='INT:A',position={x=0,y=0,z=0}},
+        [2]={guid=2,characterId=22,health=100,cell='INT:A',position={x=0,y=0,z=0}},
+        [3]={guid=3,characterId=33,health=100,cell='INT:B',position={x=0,y=0,z=0}} }
     objects={[7]={mpNum=7,refId='fetcher_procedural_synth_v1',cell='INT:A',position={x=0,y=0,z=0}}}
     storage=preserve or {}
     package.loaded.config={PROCEDURAL_SYNTH_ENABLED=true}
@@ -21,7 +22,7 @@ local function reset(preserve)
     package.loaded.mp={
         getUptime=function() return now end,getPlayer=function(id) return players[id] end,
         getPlayers=function() local t={}; for _,p in pairs(players) do t[#t+1]=p end; return t end,
-        getObjectByMpNum=function(id) return objects[id] end,
+        getObjectByMpNum=function(id) assert(type(id)=='number','native object lookup requires a numeric mpNum');return objects[id] end,
         send=function(guid,event,data) sent[#sent+1]={guid=guid,event=event,data=copy(data)} end,
         getCharacterStorageForCharacter=function(id,namespace,key) check(namespace=='ProceduralSynth'); return copy(storage[key=='project' and ('project:'..id) or id]) end,
         setCharacterStorageForCharacter=function(id,namespace,key,data) storage[key=='project' and ('project:'..id) or id]=copy(data); return true end,
@@ -361,5 +362,21 @@ test('member mix changes preserve native transport but structural routes cancel 
     sent={};request('band',{band=band,routes={1}})
     local stopped=false;for _,e in ipairs(sent) do if e.data.op=='transportStop' then stopped=true end end
     check(stopped,'structural route change stops old score before assigning a new destination')
+end)
+test('performer commands are authenticated outside leader-only Studio operations',function()
+    players[2].inventory={{refId='misc_de_lute_01',count=1}}
+    acquire();local f=require('procedural_synth_project')(schema);local band=f.band()
+    band[1].target={kind='player',characterId=22,instrument='lute'}
+    request('band',{band=band,routes={1}})
+    local token
+    for _,e in ipairs(sent) do if e.guid==2 and e.data.op=='performer' and e.data.invitation then token=e.data.invitation.token end end
+    check(token and sent[#sent].data.availability[1]=='Invitation pending','leader binding sends a consent request rather than acquiring another player')
+    request('respond',{pid=3,characterId=33,token=token,accept=true})
+    check(sent[#sent].data.op~='band' or sent[#sent].data.availability[1]~='Ready','observer cannot accept on behalf of member')
+    request('hold',{pid=2,characterId=22,instrument='lute'})
+    request('respond',{pid=2,characterId=22,token=token,accept=true})
+    check(sent[#sent].data.op=='band' and sent[#sent].data.availability[1]=='Ready' and sent[#sent].data.performers[1].guid==2,'native sender identity authorizes the member and broadcasts the actor source')
+    request('leaveBand',{pid=2,characterId=22})
+    check(sent[#sent].data.op=='band' and sent[#sent].data.availability[1]=='Invite required' and not sent[#sent].data.performers[1],'leaving silences the member without a leader command')
 end)
 print(string.format('%d tests, %d assertions passed',tests,checks))
