@@ -36,6 +36,7 @@ local instances, editor, session = {}, nil, nil
 local connected, lastSync, lastHeartbeat, lastEdit = false, -10, 0, 0
 local dirty
 local songs,selectedSong,playback,loading,scanned={},1,nil,nil,false
+local Library=require('scripts.multiplayer.fetcher.procedural-synth.client.library')
 local exportedSongs={}
 local function refreshExports()
     local selected=songs[selectedSong];local kept={}
@@ -191,19 +192,23 @@ local function startSong(song,request)
         if w.project.midi~=request.path then return false end
         w.song=song;w:cacheSpans();w.revision=w.revision+1;return true
     end
+    if request.generation and w.generation~=request.generation then ui.showMessage('Newer edits kept; import cancelled.');return false end
     if not w:import(song,request.path) then return false end
     session.songSelection=request.path
     if request.intent=='import' then return true end
     return w:play('song')
 end
-playSong=function(path,intent)
+playSong=function(path,intent,approved)
     if not session then return false end
     path=path or songs[selectedSong]
     local allowed=false
     for n,p in ipairs(songs) do if p==path then allowed=true;selectedSong=n;break end end
     if not allowed then return false end
+    if session.library and intent~='restore' and not approved then
+        return session.library:guard(function() playSong(path,intent,true) end,'replace notes with MIDI import')
+    end
     stopPlayback()
-    loading={path=path,intent=intent or 'play',session=session,co=coroutine.create(function()
+    loading={path=path,intent=intent or 'play',session=session,generation=intent~='restore' and session.workstation.generation or nil,co=coroutine.create(function()
         if exportedSongs[path] then return MIDI.parse(synth.readMidiExport(exportedSongs[path]),function() coroutine.yield() end) end
         local file,err=vfs.open(path)
         assert(file,err or 'Cannot open MIDI')
@@ -312,7 +317,9 @@ makeWorkstation=function(i)
         end,
         off=function(channel,note) releaseNote(i,channel,note);send('off',{channel=channel,note=note}) end,
         panic=function() silence(i);send('panic') end,
-        save=function(project,generation) send('dawSave',{project=project,saveRevision=generation}) end,
+        save=function(project,generation)
+            if session.library then return session.library:save(false) else send('dawSave',{project=project,saveRevision=generation}) end
+        end,
         importMidi=function(path) playSong(path,'restore') end,
         message=ui.showMessage,
         returnMeters=function()
@@ -361,14 +368,15 @@ showEditor=function()
     local w=session.workstation
     if session.page=='studio' then
         editor=Studio.new(w,{
-            hide=hideEditor,close=function() closeEditor(true) end,pickup=pickupKeyboard,
+            hide=hideEditor,close=function() session.library:guard(function() closeEditor(true) end,'finish the session') end,
+            pickup=function() session.library:guard(pickupKeyboard,'pick up the keyboard') end,
             synth=function() switchPage('synth',w.project.tracks[w.selected] and w.selected or 0) end,
             sound=function(index) w.selected=index;switchPage('synth',index) end,
             playSong=playSelected,
-            newSong=function(bpm,numerator,denominator,bars) if editor then editor:releaseAll() end;return w:newSong(bpm,numerator,denominator,bars) end,
+            newSong=function(bpm,numerator,denominator,bars) return session.library:guard(function() if editor then editor:releaseAll() end;w:newSong(bpm,numerator,denominator,bars) end,'create a new song') end,
             playClips=function() stopPlayback();w:play('clips') end,
             stop=function() stopPlayback(true) end,
-            load=function() stopPlayback();send('dawLoad') end,
+            load=function() w.page='projects';w.revision=w.revision+1;session.library:list() end,
             import=function() playSong(nil,'import') end,
             cycleMidi=function(step) if #songs>0 then midiSelect(songs[(selectedSong-1+step)%#songs+1]) end end,
             midiLabel=songLabel,midiChoices=midiChoices,midiSelected=function() return songs[selectedSong] end,midiSelect=midiSelect,
@@ -409,7 +417,8 @@ showEditor=function()
             args=args or {};args.channel=session.editTrack
             send(op,args)
         end,
-        hide=hideEditor,close=function() closeEditor(true) end,pickup=pickupKeyboard,
+        hide=hideEditor,close=function() session.library:guard(function() closeEditor(true) end,'finish the session') end,
+            pickup=function() session.library:guard(pickupKeyboard,'pick up the keyboard') end,
         studio=function() switchPage('studio') end,
         meter=function() local audio=channelAudio(i,session.editTrack,false);return audio and audio.peak or 0,audio and audio.voices or 0 end,
         midiLabel=songLabel,midiChoices=midiChoices,midiSelected=function() return songs[selectedSong] end,midiSelect=midiSelect,
@@ -456,6 +465,10 @@ local function message(data)
     end
     if data.op=='pickedUp' then
         if session and session.id==data.id and session.epoch==data.epoch then ui.showMessage('Keyboard added to inventory. Place it from inventory to perform again.');closeEditor(false) end
+        return
+    end
+    if data.op=='libResult' then
+        if session and data.id==session.id and data.epoch==session.epoch then session.library:receive(data) end
         return
     end
     if data.op=='dawSaved' then
@@ -520,7 +533,9 @@ local function message(data)
             closeEditor(true)
             session={id=data.id,epoch=data.epoch,inSeq=0,editTrack=0,views={},page='synth',transportLast=core.getRealTime()}
             session.workstation=makeWorkstation(i)
-            showEditor()
+            session.library=Library.new(session.workstation,{send=send,now=core.getRealTime,session=session.epoch,message=ui.showMessage,
+                show=function() if session.page~='studio' then switchPage('studio') end end})
+            showEditor();session.library:list()
             send('roster');send('list'); lastHeartbeat=core.getRealTime()
         end
         return
@@ -652,6 +667,7 @@ local function frame(dt)
     end
     local transportDt=math.max(0,now-session.transportLast);session.transportLast=now
     session.workstation:frame(transportDt)
+    session.library:frame(now)
     if editor then editor:frame(now) end
 end
 return {
@@ -708,16 +724,19 @@ return {
         hide=hideEditor,
         show=showEditor,
         midiSongs=function() local out={};for n,p in ipairs(songs) do out[n]=p end;return out end,
+        projectLibrary=function() return session and session.library end,
         saveProject=function() return session and session.workstation:save() end,
-        loadProject=function() if session then stopPlayback();send('dawLoad') end end,
+        loadProject=function() if session then
+            stopPlayback();if session.library.active>0 then return session.library:open(session.library.active,false,true) else send('dawLoad') end
+        end end,
         studio=function() switchPage('studio') end,
         sound=function(index)
             if session and type(index)=='number' and index%1==0 and index>=0 and index<=#session.workstation.project.tracks then switchPage('synth',index);return true end
             return false
         end,
         workstation=function() return session and session.workstation end,
-        importMidi=function(path) return playSong(path,'import') end,
-        playMidi=playSong,
+        importMidi=function(path) return playSong(path,'import',true) end,
+        playMidi=function(path) return playSong(path,'play',true) end,
         selectMidi=midiSelect,
         playSelected=playSelected,
         stopMidi=function() stopPlayback(true) end,

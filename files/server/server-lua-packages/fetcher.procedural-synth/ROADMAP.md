@@ -98,32 +98,41 @@ Package 20 keeps tabs clickable above fullscreen centered page containers. Piano
 has a dedicated expanded editor with Escape/Back restoring the prior Studio
 geometry, plus single-note right-click deletion with Undo. Studio temporarily
 owns the inventory/UI toggle so right-click edits do not close the interface.
-The next roadmap slice remains the project library and autosave/recovery.
+The project library and autosave/recovery shipped in package 21.
 
-## Remaining roadmap (next: project library and autosave/recovery)
+## Completed slice: project library and autosave/recovery
 
-1. Project library and autosave/recovery: multiple named projects per character,
-   Save As/rename/delete, recovery snapshots and unsaved-work handling.
-2. Automation and MIDI-controller editing: saved/recorded parameter curves,
+Completed 2026-10-20 in package 21; native synth API remains 13. Projects opens a
+private per-character library with up to 16 named saves, Save As, rename, explicit
+delete confirmation and safe migration of the previous working save. Separate
+server recovery snapshots update every 30 seconds while dirty, retain three recent
+drafts, and restore as unsaved copies. Unsaved document switches/Finish/pickup offer
+Save, Keep recovery or Cancel and wait for acknowledgements. Late replies, write
+failures and stale revisions preserve newer work. Two-client and restart checks
+passed; see TEST-REPORT.md for evidence and README.md for limits.
+
+## Remaining roadmap (next: automation and MIDI-controller editing)
+
+1. Automation and MIDI-controller editing: saved/recorded parameter curves,
    sustain, pitch bend, modulation, expression and supported controller/program
    changes, with native-clock playback and multiplayer replication.
-3. Tempo/meter editing: changes within a song, editable maps and matching bar
+2. Tempo/meter editing: changes within a song, editable maps and matching bar
    displays. Imported tempo-map playback already exists; authored songs currently
    have a constant tempo and meter.
-4. Arranger improvements: multi-selection/group moves, independent source
+3. Arranger improvements: multi-selection/group moves, independent source
    variations, cross-track source transfer and source offsets. Linked sources
    and individual move/repeat/trim/transpose/mute are already implemented.
-5. Recording improvements: audible metronome, configurable count-in, measured
+4. Recording improvements: audible metronome, configurable count-in, measured
    recording latency, hardware MIDI input and additional recording modes,
    including shared-source overdub while the transport plays.
-6. Mixer/effects routing: stereo/panning, group buses and flexible effect chains.
+5. Mixer/effects routing: stereo/panning, group buses and flexible effect chains.
    Native EQ/compression, instrument drive/cabinet and shared delay/reverb exist.
-7. Band gameplay/presentation: NPC stage position/facing/follow behaviour and
+6. Band gameplay/presentation: NPC stage position/facing/follow behaviour and
    better instrument-specific arm/hand/finger animation. Consent, held-instrument
    readiness, owned NPCs and saved leader-controlled part routing already work.
-8. Multiplayer timing/scale: continuous device-drift correction, device latency,
+7. Multiplayer timing/scale: continuous device-drift correction, device latency,
    richer late-join state and larger-band/long-session performance checks.
-9. Further sample tools and sound-library refinement: the advanced sampler
+8. Further sample tools and sound-library refinement: the advanced sampler
     features above, acoustic/sample-based starting sounds and additional guitar
     articulations. Continue preset listening/balance refinement as tools mature.
 
@@ -138,7 +147,7 @@ Studio can create songs from scratch, import/edit MIDI, record quantized takes,
 and arrange linked melodic/drum clips. The native engine provides subtractive,
 drum and plucked-string synthesis, drive/cabinet processing, channel EQ and
 compression, shared delay/reverb and fifty-one built-in sound starting points.
-Personal patches and one working project save per character.
+Personal patches, 16 named projects and three recovery snapshots save per character.
 
 Sixteen tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and

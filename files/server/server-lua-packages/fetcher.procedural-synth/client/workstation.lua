@@ -58,6 +58,7 @@ function W:newSong(bpm,numerator,denominator,bars)
     p.tracks[1].params,p.tracks[1].presetId=SoundSets.assignment('balanced','keys',true)
     p=format.project(p);if not p then return false end
     self:stop(true);if self.cb.documentChanged then self.cb.documentChanged() end
+    if self.library then self.library:detach() end
     self.song=nil;self.spans={};self.project=p;self.noteCache={};self.noteSelection={};self.selected=1
     self.clipEdit=nil;self.regionIndex=nil
     self.rollStart=0;self.bar=0;self.base=60;self.time=0;self.beat=0;self.step=-1;self.page='song'
@@ -437,6 +438,7 @@ function W:import(song,path)
     local found={};for _,p in ipairs(parts) do found[p.id]=true end
     for _,t in ipairs(self.project.tracks) do if t.edited and self.project.midi==path and not found[t.part] then extra[#extra+1]=t end end
     if #parts+#extra>format.maxTracks then self.cb.message('MIDI has '..#parts..' parts; at most 16 tracks fit. Remove clips or choose a smaller MIDI.');return false end
+    if self.library and self.project.midi~=path then self.library:detach() end
     self:stop(true);local tracks={}
     for _,p in ipairs(parts) do
         local t=old[p.id] or format.newTrack('midi',p.name:sub(1,48),self.project.length)
@@ -459,6 +461,7 @@ function W:load(project)
     local valid=format.project(project);if not valid then return false end
     self:endTake(true);self:stop(true);if self.cb.documentChanged then self.cb.documentChanged() end;if self.project.midi~=valid.midi or valid.composition then self.song=nil end
     self.clipEdit=nil;self.regionIndex=nil
+    if self.library then self.library:detach() end
     self.project=valid;self.checkpoint=copy(valid);self.undoStack={};self.redoStack={};self.lastEditKey=nil;self.noteSelection={};self.noteCache={};self:cacheSpans();self.selected=1;self.bar=0;self.rollStart=0;self.dirty=false;self.revision=self.revision+1;self.generation=self.generation+1;self:configureAll()
     if self:needsMidi() and not self.song then self.cb.importMidi(valid.midi) end
     return true
@@ -468,7 +471,7 @@ function W:save()
     self.lastEditKey=nil
     local p=format.project(self.project)
     if not p then self.cb.message('Project contains unsupported data; save cancelled.');return false end
-    self.cb.save(p,self.generation);return true
+    return self.cb.save(p,self.generation)~=false
 end
 function W:audition(index)
     local t=self.project.tracks[index];if not t or t.kind=='midi' then return false end

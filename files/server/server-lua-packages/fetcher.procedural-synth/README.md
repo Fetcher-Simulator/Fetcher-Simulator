@@ -2,9 +2,9 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current build: package 20 / native synth API 13. Installed-game voice, effect
+Current build: package 21 / native synth API 13. Installed-game voice, effect
 and music samples are available, along with MIDI export and track renaming.
-Next: multiple-project library and autosave/recovery. See [the roadmap](ROADMAP.md).
+Project library and autosave/recovery are available. Next: automation and MIDI controllers. See [the roadmap](ROADMAP.md).
 
 ## Local use
 
@@ -898,3 +898,50 @@ Fullscreen Mixer and other centered page containers no longer intercept header
 clicks. Tabs and header actions stay above the page body. Use setup -PianoProbe
 for a disposable two-note visual test without saving its generated song; restore
 the latest fixture state and rerun setup without that flag after QA.
+
+
+## Named project library and recovery (package 21)
+
+Click **Projects** in the Studio header (replaces the former Load button). Each
+character has up to 16 named Studio projects in the server database. Choose a name
+in the searchable picker and press **Open**; selecting a name alone does not load it.
+Your former single project is copied into the library automatically on first use.
+The original legacy project row remains intact. Sound presets have their own list.
+
+**Save** / **Save current** updates the currently opened named project; an unsaved
+new document becomes a new entry. **Save As new** opens a name field and creates
+an independent copy after **Create project copy**. To rename an existing entry,
+select it, edit the name field below the picker and press **Rename project**.
+**Delete project** requires **Confirm delete**; Cancel delete preserves the entry.
+Deleting the active named entry keeps the open document as an unsaved copy.
+Project names allow 1-64 bytes. Names may repeat; IDs distinguish picker entries.
+
+Every 30 seconds, dirty projects produce a server recovery snapshot, including
+when the editor is hidden. Autosave never replaces a named save, changes the score
+or clears the unsaved indicator. The latest snapshot of each draft is updated;
+only the three most recently updated drafts are retained. These snapshots may
+predate a later manual save. An unfinished take must first be kept or cancelled.
+At most the changes since the last acknowledged snapshot can be lost on a crash.
+Recovery cannot write while disconnected; this is not an offline backup system.
+
+Open **Projects** (or Refresh) to see recovery snapshots. **Restore draft** loads
+one as an unsaved copy. Save As gives it a named library entry. Recovery includes
+notes, sources/placements, sound/sample references, mixer/effects and band routes;
+original imported MIDI and installed sample files are still needed where referenced.
+Game audio is not copied into server storage, and MIDI exports still stay local.
+
+Creating/importing another song, opening/restoring a document, Finish and keyboard
+pickup protect unsaved work. Choose **Save and continue**, **Keep recovery and
+continue**, or **Cancel**. Continuation waits for the server acknowledgement; a
+failed/timed-out request retains the edits. Changes made during a pending save
+remain dirty. A delayed Open response cannot overwrite newly edited music. Hide
+and Escape keep the current draft/session and do not require a save choice.
+
+The library and recovery use separate versioned character-storage rows. Stale
+project revisions, unsupported stored versions and malformed documents are
+rejected without replacing those rows. Projects are private to the authenticated
+character, not tied to a particular keyboard or shared with listening band members.
+
+Optional setup -LibraryProbe exercises Save/Save As/rename/delete, autosave,
+guarded switching, recovery, observer isolation and restart persistence in the
+usual fixture. Back up its latest DB/profiles before QA; normal setup disables it.

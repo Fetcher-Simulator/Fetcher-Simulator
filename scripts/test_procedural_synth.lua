@@ -24,8 +24,8 @@ local function reset(preserve)
         getPlayers=function() local t={}; for _,p in pairs(players) do t[#t+1]=p end; return t end,
         getObjectByMpNum=function(id) assert(type(id)=='number','native object lookup requires a numeric mpNum');return objects[id] end,
         send=function(guid,event,data) sent[#sent+1]={guid=guid,event=event,data=copy(data)} end,
-        getCharacterStorageForCharacter=function(id,namespace,key) check(namespace=='ProceduralSynth'); return copy(storage[key=='project' and ('project:'..id) or id]) end,
-        setCharacterStorageForCharacter=function(id,namespace,key,data) storage[key=='project' and ('project:'..id) or id]=copy(data); return true end,
+        getCharacterStorageForCharacter=function(id,namespace,key) check(namespace=='ProceduralSynth'); return copy(storage[key=='presets' and id or (key..':'..id)]) end,
+        setCharacterStorageForCharacter=function(id,namespace,key,data) storage[key=='presets' and id or (key..':'..id)]=copy(data); return true end,
         upsertDynamicRecord=function(kind,id,data) records[id]={kind=kind,data=copy(data)};return true end,
         pickupPlacedObject=function(guid,id,ref) pickups[#pickups+1]={guid=guid,id=id,ref=ref};return true end,
         placeObject=function() return true end,log=function() end,
@@ -453,5 +453,19 @@ test('sample sounds persist privately and replicate references without file data
     check(sent[#sent].data.project.tracks[1].params.sample.offset==.125 and not storage['project:22'],'sample project reload remains per character')
     now=now+3;params.sample.path='sound/../secret.wav';project.tracks[1].params=params;request('dawSave',{project=project})
     check(storage['project:11'].tracks[1].params.sample.path==ref.path,'unsafe sample cannot overwrite saved project')
+end)
+test('project library requests stay private, versioned and bounded',function()
+    local f=require('procedural_synth_project')(schema);local p=f.new();p.name='Private library song'
+    acquire();request('libSave',{requestId=1,projectId=0,saveRevision=1,project=p})
+    check(sent[#sent].data.op=='libResult' and sent[#sent].data.projectId==1 and storage['library:11'].entries[1].project.name==p.name,'library save uses authenticated character storage')
+    local count=#sent
+    request('libList',{pid=2,characterId=22,requestId=2});request('libSave',{characterId=22,requestId=3,projectId=0,saveRevision=1,project=p})
+    check(#sent==count and not storage['library:22'],'observer and forged character cannot read or write owner library')
+    request('libSave',{requestId=4,projectId=1,projectRevision=0,saveRevision=2,project=p})
+    check(sent[#sent].data.message and storage['library:11'].entries[1].revision==1,'stale revision is rejected without replacing the project')
+    request('libSnapshot',{requestId=5,projectId=1,token='private',saveRevision=2,project=p})
+    check(storage['recovery:11'].entries[1].project.name==p.name and not storage['recovery:22'],'recovery stays private to owner')
+    local before=#sent;for n=1,1000 do request('libList',{requestId=10+n}) end
+    check(#sent-before<=4,'library rejection responses are bounded under a request flood')
 end)
 print(string.format('%d tests, %d assertions passed',tests,checks))

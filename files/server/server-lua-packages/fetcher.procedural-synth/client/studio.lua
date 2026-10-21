@@ -581,6 +581,62 @@ function S:renamePage(content)
     content[#content+1]=self:button('Apply name',20,350,180,apply)
     content[#content+1]=self:button('Cancel',220,350,140,cancel)
 end
+function S:projects(content)
+    local l=self.w.library
+    content[#content+1]=label('PROJECT LIBRARY / RECOVERY',20,177,880,20,c.accent)
+    if not l then return end
+    content[#content+1]=label(l.status,20,213,880,12,c.muted)
+    if l.action then
+        content[#content+1]=label('Keep your unsaved changes before you '..l.actionCaption..'.',20,260,880,15)
+        content[#content+1]=self:button('Save and continue',20,311,210,function() l:save(false) end)
+        content[#content+1]=self:button('Keep recovery and continue',245,311,280,function() l:snapshot(true) end)
+        content[#content+1]=self:button('Cancel',545,311,130,function() l:cancel() end)
+        content[#content+1]=label('Recovery preserves a draft without replacing the named save. Up to three recent drafts are retained.',20,365,880,12,c.muted)
+        return
+    end
+    if self.libraryMode=='saveAs' then
+        content[#content+1]=label('Name the new project copy:',20,263,880,15)
+        content[#content+1]=self:element{type=ui.TYPE.TextEdit,
+            template={content=ui.content{{type=ui.TYPE.Image,props={relativeSize=v(1,1),resource=white,color=c.track}}}},
+            props={position=v(20,306),size=v(680,32),text=self.saveAsDraft,textSize=15,textColor=c.text},events={
+                textChanged=cb(function(text) self.saveAsDraft=text end),focusGain=cb(function() self.typing=true end),focusLoss=cb(function() self.typing=false end)}}
+        content[#content+1]=self:button('Create project copy',20,365,240,function() if l:save(true,self.saveAsDraft) then self.libraryMode=nil;self.w.revision=self.w.revision+1 end end)
+        content[#content+1]=self:button('Cancel copy',280,365,180,function() self.libraryMode=nil;self.w.revision=self.w.revision+1 end)
+        return
+    end
+    content[#content+1]=self:button('Save current',20,250,155,function() l:save(false) end)
+    content[#content+1]=self:button('Save As new',190,250,155,function() self.libraryMode='saveAs';self.saveAsDraft=self.w.project.name;self.w.revision=self.w.revision+1 end)
+    content[#content+1]=self:button('Refresh',360,250,110,function() l:list() end)
+    content[#content+1]=self:button('Back to Song',485,250,155,function() self.w.page='song';self.w.revision=self.w.revision+1 end)
+    local selected
+    for _,e in ipairs(l.entries) do if e.id==(self.librarySelected or l.active) then selected=e end end
+    content[#content+1]=self:button(selected and selected.name..'  v' or 'Choose a saved project  v',20,292,680,function()
+        local entries={};for _,e in ipairs(l.entries) do entries[#entries+1]={id=e.id,label=e.name..' / ID '..e.id} end
+        Dropdown.open(self,entries,selected and selected.id,function(id)
+            self.librarySelected=id;for _,e in ipairs(l.entries) do if e.id==id then self.libraryDraft=e.name end end
+            self.deleteProject=nil;self.w.revision=self.w.revision+1
+        end,20,250,700)
+    end)
+    content[#content+1]=self:element{type=ui.TYPE.TextEdit,
+        template={content=ui.content{{type=ui.TYPE.Image,props={relativeSize=v(1,1),resource=white,color=c.track}}}},
+        props={position=v(20,333),size=v(680,30),text=self.libraryDraft or selected and selected.name or '',textSize=14,textColor=c.text},events={
+            textChanged=cb(function(text) self.libraryDraft=text end),focusGain=cb(function() self.typing=true end),focusLoss=cb(function() self.typing=false end)}}
+    content[#content+1]=self:button('Open',20,378,120,function() if selected then l:open(selected.id,false) end end)
+    content[#content+1]=self:button('Rename project',155,378,175,function() if selected then l:rename(selected,self.libraryDraft or selected.name) end end)
+    content[#content+1]=self:button('Delete project',345,378,175,function() if selected then self.deleteProject=selected;self.w.revision=self.w.revision+1 end end)
+    if self.deleteProject then
+        local entry=self.deleteProject
+        content[#content+1]=self:button('Confirm delete',535,378,165,function() self.deleteProject=nil;l:delete(entry) end)
+        content[#content+1]=self:button('Cancel delete',715,378,160,function() self.deleteProject=nil;self.w.revision=self.w.revision+1 end)
+    end
+    content[#content+1]=label('RECOVERY SNAPSHOTS / newest first / restored as unsaved copies',20,434,880,14,c.accent)
+    for n,e in ipairs(l.recoveries) do
+        content[#content+1]=label(e.name..' / draft '..e.id,20,468+(n-1)*39,575,13)
+        content[#content+1]=self:button('Restore draft',610,463+(n-1)*39,180,function() l:open(e.id,true) end)
+    end
+    content[#content+1]=label('Named saves: '..#l.entries..'/16. Autosave: every 30 seconds while dirty, including when Studio is hidden.',20,610,880,12,c.muted)
+    content[#content+1]=label('Projects and recovery drafts belong to this character in the server database. MIDI exports stay local.',20,644,880,12,c.muted)
+end
 function S:render()
     if self.pianoFocus and self.w.page~='piano' then self.pianoFocus=false;self.window.expanded=false;self.window.restoreExpanded=nil end
     self.window:bounds();self.width,self.height=self.window.canvasWidth,self.window.canvasHeight
@@ -628,7 +684,7 @@ function S:render()
     content[#content+1]=self:button(p.length/16 ..' clip bars',self.width-310,70,70,function() w:length(p.length%256+16) end)
     content[#content+1]=self:button('Clip loop',self.width-228,70,61,function() p.loop=not p.loop;w:touch() end,p.loop)
     content[#content+1]=self:button('Save',self.width-156,70,54,function() w:save() end)
-    content[#content+1]=self:button('Load',self.width-92,70,54,self.cb.load)
+    content[#content+1]=self:button('Projects',self.width-98,70,75,self.cb.load)
     local name=self:element{type=ui.TYPE.TextEdit,props={position=v(20,112),size=v(170,28),text=p.name,textSize=14,textColor=c.text},
         events={textChanged=cb(function(text) p.name=text:gsub('%c',''):sub(1,64);w:touch('name',true) end),focusGain=cb(function() self.typing=true end),focusLoss=cb(function() self.typing=false end)}}
     content[#content+1]=name
@@ -641,7 +697,7 @@ function S:render()
     content[#content+1]=self:button('Import',self.width-229,112,92,self.cb.import)
     content[#content+1]=self:button('Export MIDI',self.width-125,112,100,function() w:exportMidi() end)
     local body={};self.bodyOffset=(w.page=='piano' or w.page=='drums') and 0 or math.max(0,(self.width-940)/2)
-    if w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
+    if w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
     -- Keep the header above centered page containers in native hit testing.
     if self.bodyOffset>0.1 then table.insert(content,1,{type=ui.TYPE.Widget,props={position=v(self.bodyOffset,0),size=v(940,self.height)},content=ui.content(body)})
     else for _,item in ipairs(body) do content[#content+1]=item end end

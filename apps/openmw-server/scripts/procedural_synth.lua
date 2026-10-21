@@ -4,6 +4,7 @@ if config.PROCEDURAL_SYNTH_ENABLED ~= true then return {} end
 local schema = require('procedural_synth_schema')
 local projectFormat = require('procedural_synth_project')(schema)
 local sequenceFormat = require('procedural_synth_sequence')
+local projectLibrary = require('procedural_synth_library')(mp,projectFormat)
 local policy = require('intent_policy')
 local RECORD = 'fetcher_procedural_synth_v1'
 local PORTABLE = 'fetcher_procedural_keyboard_v1'
@@ -157,6 +158,7 @@ local function request(data)
             elseif k=='mixer' and data.op=='channel' then if not projectFormat.mixer(v) then return end
             elseif k=='band' and data.op=='band' then if not projectFormat.band(v) then return end
             elseif k=='routes' and data.op=='band' then if not projectFormat.routes(v) then return end
+            elseif k=='project' and (data.op=='libSave' or data.op=='libSnapshot') then -- Validate after ownership/rate checks below.
             elseif k=='project' and (data.op=='dawSave' or data.op=='pickup') then if not projectFormat.project(v) then return end
             else return end
         elseif type(v) == 'string' then
@@ -348,6 +350,16 @@ local function request(data)
         s.channels[channel]={params=params,level=data.level,mixer=mixer}
         s.revision=s.revision+1
         nextEvent(s);broadcast(s,{op='channel',channel=channel,params=params,level=data.level,mixer=mixer},s.owner);return
+    end
+    if type(data.op)=='string' and data.op:sub(1,3)=='lib' then
+        if data.characterId~=player.characterId or not integer(data.requestId,1,2147483647) then return end
+        local category=data.op=='libSnapshot' and 'recovery' or 'library'
+        if not budget(data.pid,now,category,data.op=='libSnapshot' and 0.2 or 2,4) then
+            if budget(data.pid,now,'libraryErrors',0.2,1) then emit(data.pid,{op='libResult',id=s.id,epoch=s.epoch,requestId=data.requestId,message='Please wait before another project request.'}) end;return
+        end
+        local ok,result=pcall(projectLibrary.handle,data.characterId,data)
+        if not ok then result={op='libResult',requestId=data.requestId,message=tostring(result):gsub('^.-:%d+: ',''):sub(1,180)} end
+        result.id=s.id;result.epoch=s.epoch;emit(data.pid,result);return
     end
     if data.op=='dawSave' or data.op=='dawLoad' then
         if not integer(data.characterId,1,9007199254740991) or not budget(data.pid,now,'projects',0.5,2) then return end

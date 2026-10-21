@@ -1063,3 +1063,45 @@ live-server.log, qa-completed.db and verification.txt. The user's freshly saved
 state was backed up to baseline-20261020-195505 before installation. All 13 DB,
 profile and settings hashes were restored before normal setup/startup. The probe
 was disabled afterward, and only the usual port-25567 fixture was used.
+
+
+## 2026-10-20: named project library, autosave and recovery
+
+Package 21, native synth API unchanged at 13. Lua-only client/server update; no
+engine executable change required. All 17 Lua regression scripts passed, including
+real Bardcraft Greensleeves import/export. Library tests cover legacy-copy migration,
+character isolation, malformed/future storage preservation, stale revisions, write
+failures, 16-project/3-draft bounds, same-draft update ordering, separate autosave,
+unsaved action cancellation/continuation, late save/load acknowledgements and request
+timeouts. The actual server handler rejects observer/forged-character library
+requests and bounds flood responses (32 server tests / 325 assertions). The client
+UI harness runs against the real library backend and checks Save As name entry,
+explicit delete confirmation/cancel, and unsaved Finish choices (12,712 assertions).
+The new isolated library test adds 29 assertions.
+
+-LibraryProbe passed in the usual port-25567 fixture. Synth A saved two distinct
+named projects, renamed/deleted a copy, wrote an autosave separately from named
+saves, switched through an acknowledged recovery guard, restored a recovery as an
+unsaved copy and saved that copy independently. Synth B heard native playback and
+could not retrieve the owner's library. SQLite contained library/recovery rows
+only for character 1001 (20,871 and 2,847 bytes in this QA document).
+
+Both clients were terminated and the server stopped/restarted. The second pass
+reopened the saved recovered project, verified its two notes and found its recovery
+snapshot, proving persistence beyond process memory. Sky visual inspection checked
+the Projects layout, named selector, actual Open action and Save As naming dialog.
+Project IDs use plain text rather than #, which MyGUI treats as color markup.
+
+Evidence is local in fixture/evidence/library/: phase1-A.log, phase1-B.log,
+phase1-server.log, phase1.db, live-A.log, live-B.log, live-server.log,
+qa-completed.db and verification.txt. The fresh baseline is
+baseline-20261020-201609. After QA all 13 recorded database/profile/settings hashes
+were restored before normal installation/startup; generated library/recovery data
+remains only in evidence. Normal setup disables the probe. No port-25568 fixture
+or production state was changed.
+
+Limits: one in-flight client library operation, 16 named entries, three recent
+per-document recovery snapshots, 30-second autosave while dirty and connected,
+and explicit Keep/Cancel of unfinished takes. Recovery may predate a later named
+save. Referenced MIDI/game-audio assets remain external. This does not claim
+cross-server project transfer, offline autosave, or collaborative document editing.

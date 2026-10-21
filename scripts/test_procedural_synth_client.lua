@@ -3,6 +3,7 @@ local root='files/server/server-lua-packages/fetcher.procedural-synth/'
 local prefix='scripts.multiplayer.fetcher.procedural-synth.'
 local schema=dofile(root..'shared/schema.lua')
 local now,connected,sent,audios,mode=100,true,{},{},nil
+local autoLibraryReply
 local checks=0
 local function check(value,message) checks=checks+1; assert(value,message) end
 local function sounding(note) for _,audio in ipairs(audios) do if not audio.closed and audio.notes[note] then return true end end;return false end
@@ -51,7 +52,7 @@ package.loaded['openmw.interfaces']={Controls={overrideUiControls=function(value
     addMode=function(m) mode=m end,removeMode=function() mode=nil end}}
 package.loaded['openmw.core']={getRealTime=function() return now end}
 package.loaded['openmw.mp']={isConnected=function() return connected end,
-    getObjectMpNum=function() return 7 end,sendToServer=function(event,data) sent[#sent+1]=data end}
+    getObjectMpNum=function() return 7 end,sendToServer=function(event,data) sent[#sent+1]=data;if autoLibraryReply and data.op:sub(1,3)=='lib' then autoLibraryReply(data) end end}
 package.loaded['openmw.self']=self
 package.loaded['openmw.nearby']={activators={source}}
 package.loaded['openmw.synth']={create=function(obj)
@@ -77,6 +78,7 @@ package.loaded[prefix..'client.piano-roll']=dofile(root..'client/piano-roll.lua'
 package.loaded[prefix..'client.dropdown']=dofile(root..'client/dropdown.lua')
 package.loaded[prefix..'client.arrangement']=dofile(root..'client/arrangement.lua')
 package.loaded[prefix..'client.arranger']=dofile(root..'client/arranger.lua')
+package.loaded[prefix..'client.library']=dofile(root..'client/library.lua')
 local Studio=dofile(root..'client/studio.lua')
 local lastStudio
 local newStudio=Studio.new
@@ -91,7 +93,21 @@ package.loaded[prefix..'client.actors']=dofile(root..'client/actors.lua')
 package.loaded[prefix..'client.performer-panel']=dofile(root..'client/performer-panel.lua')
 local player=dofile(root..'client/player.lua')
 local api=player.interface
-local handler=player.eventHandlers.Synth_Message
+local libraryStorage={}
+local libraryServer=dofile('apps/openmw-server/scripts/procedural_synth_library.lua')({
+    getCharacterStorageForCharacter=function(_,_,key) return libraryStorage[key] end,
+    setCharacterStorageForCharacter=function(_,_,key,value) libraryStorage[key]=value;return true end,
+},dofile(root..'shared/project.lua')(schema))
+autoLibraryReply=function(data)
+    local ok,response=pcall(libraryServer.handle,11,data)
+    if not ok then response={op='libResult',requestId=data.requestId,message=tostring(response)} end
+    response.version=1;response.id=data.id;response.epoch=data.epoch;player.eventHandlers.Synth_Message(response)
+end
+local function clientHandler(data) player.eventHandlers.Synth_Message(data) end
+local handler=clientHandler
+local function acceptRecovery()
+    local l=api.projectLibrary();if l and l.action then l:snapshot(true) end
+end
 handler{version=1,op='granted',id=7,epoch=1,seq=1,params=schema.state({})}
 check(mode=='Interface' and api.status()[1].editing,'editor opens')
 check(sent[#sent].op=='list','catalog requested')
@@ -267,7 +283,7 @@ end
 package.loaded['openmw.vfs'].open=function()
     return {read=function() return fileBytes end,close=function() end}
 end
-player=dofile(root..'client/player.lua');api=player.interface;handler=player.eventHandlers.Synth_Message
+player=dofile(root..'client/player.lua');api=player.interface;handler=clientHandler
 connected=true;now=200
 player.engineHandlers.onFrame(0)
 check(api.midiSongs()[1]==virtualPath,'resumed character discovers installed MIDI')
@@ -346,7 +362,7 @@ for _,element in ipairs(lastEditor.root.layout.content) do
     if element.content and element.content[1] and element.content[1].props and element.content[1].props.text=='Finish' then finish=element end
 end
 check(finish~=nil,'Finish control is available')
-finish.events.mouseClick()
+finish.events.mouseClick();acceptRecovery()
 check(not api.status()[1].editing and not api.status()[1].midi and sent[#sent].op=='close','Finish ends playback and releases lock')
 handler{version=1,op='close',id=7,epoch=5,seq=124}
 handler{version=1,op='granted',id=7,epoch=6,seq=1,params=schema.state({})}
@@ -452,7 +468,7 @@ api.setParameter('cutoff',2222);now=400.3;player.engineHandlers.onFrame(0.12)
 check(w.project.tracks[1].params.cutoff==2222 and sent[#sent].op=='channel' and sent[#sent].channel==1,'sound edits update one track instead of main/manual sound')
 api.studio();now=400.31;player.engineHandlers.onFrame(0.01)
 button('Save').events.mouseClick()
-check(sent[#sent].op=='dawSave' and sent[#sent].project.tracks[2].presetId=='b:snare','Save sends complete project to character storage')
+check(sent[#sent].op=='libSave' and sent[#sent].project.tracks[2].presetId=='b:snare','Save sends complete project to character storage')
 local saveRevision=sent[#sent].saveRevision
 w:setTrack(1,'level',0.1)
 handler{version=1,op='dawSaved',id=7,epoch=7,saveRevision=saveRevision}
@@ -479,7 +495,7 @@ for _,layout in ipairs(lastStudio.root.layout.template.content[2].content) do
     if layout.content and layout.content[1].props.text=='Pick up' then pickButton=layout end
 end
 check(pickButton~=nil,'Studio chrome exposes keyboard pickup')
-pickButton.events.mouseClick()
+pickButton.events.mouseClick();acceptRecovery()
 check(sent[#sent].op=='pickup' and sent[#sent].project.name=='Portable song' and not api.status()[1].editorVisible,
     'pickup sends a dirty project snapshot and hides the UI until the transaction completes')
 check(not api.show() and not api.pickupKeyboard(),'pending pickup cannot reopen or double-submit')
@@ -532,20 +548,20 @@ end
 files[paths[1]]=midiBytes(60);files[paths[2]]=midiBytes(72)
 package.loaded['openmw.vfs'].pathsWithPrefix=function() local at=0;return function() at=at+1;return paths[at] end end
 package.loaded['openmw.vfs'].open=function(path) return {read=function() return assert(files[path]) end,close=function() end} end
-now=600;player=dofile(root..'client/player.lua');api=player.interface;handler=player.eventHandlers.Synth_Message
+now=600;player=dofile(root..'client/player.lua');api=player.interface;handler=clientHandler
 player.engineHandlers.onFrame(0)
 handler{version=1,op='granted',id=7,epoch=20,seq=1,params=schema.state({})};api.studio();w=api.workstation()
-lastStudio.cb.playSong();now=now+0.01;player.engineHandlers.onFrame(0.01)
+lastStudio.cb.playSong();acceptRecovery();now=now+0.01;player.engineHandlers.onFrame(0.01)
 check(w.project.midi==paths[1] and w.song.events[1].note==60,'initial Studio Play uses selected song')
-lastStudio.cb.midiSelect(paths[2]);lastStudio.cb.playSong();now=now+0.01;player.engineHandlers.onFrame(0.01)
+lastStudio.cb.midiSelect(paths[2]);lastStudio.cb.playSong();acceptRecovery();now=now+0.01;player.engineHandlers.onFrame(0.01)
 check(w.project.midi==paths[2] and w.song.events[1].note==72,'new selection replaces loaded song without Finish')
 w.page='band';w.revision=w.revision+1;now=now+0.01;player.engineHandlers.onFrame(0.01)
-lastStudio.cb.cycleMidi(-1);lastStudio.cb.playSong();now=now+0.01;player.engineHandlers.onFrame(0.01)
+lastStudio.cb.cycleMidi(-1);lastStudio.cb.playSong();acceptRecovery();now=now+0.01;player.engineHandlers.onFrame(0.01)
 check(w.project.midi==paths[1] and w.song.events[1].note==60,'Band-page song cycling cannot replay previous selection')
 files[paths[2]]=midiBytes(72,140)
-lastStudio.cb.midiSelect(paths[2]);lastStudio.cb.playSong();now=now+0.01;player.engineHandlers.onFrame(0.01)
+lastStudio.cb.midiSelect(paths[2]);lastStudio.cb.playSong();acceptRecovery();now=now+0.01;player.engineHandlers.onFrame(0.01)
 check(lastStudio.cb.midiLabel():find('Loading'),'large parse yields instead of blocking')
-lastStudio.cb.midiSelect(paths[1]);lastStudio.cb.playSong()
+lastStudio.cb.midiSelect(paths[1]);lastStudio.cb.playSong();acceptRecovery()
 for n=1,10 do now=now+0.01;player.engineHandlers.onFrame(0.01) end
 check(w.project.midi==paths[1] and w.song.events[1].note==60,'cancelled asynchronous parse cannot overwrite newer selection')
 local Format=package.loaded[prefix..'shared.project'](schema)
@@ -557,16 +573,16 @@ lastStudio:key(input.KEY.Z,true);lastStudio:key(input.KEY.Z,true)
 now=now+0.38;lastStudio:key(input.KEY.Z,false);button('Keep take').events.mouseClick()
 check(#w:noteData(1)==1 and w:noteData(1)[1].n==60 and w:noteData(1)[1].s==1 and w:noteData(1)[1].l==3,'actual keyboard callback records a quantized gate without key-repeat duplication')
 -- New Song uses the real window callbacks and cancels a pending file parser.
-lastStudio.cb.midiSelect(paths[2]);lastStudio.cb.playSong();now=now+0.01;player.engineHandlers.onFrame(0.01)
+lastStudio.cb.midiSelect(paths[2]);lastStudio.cb.playSong();acceptRecovery();now=now+0.01;player.engineHandlers.onFrame(0.01)
 check(lastStudio.cb.midiLabel():find('Loading'),'file parser is pending before New Song')
 button('New Song').events.mouseClick();now=now+0.01;player.engineHandlers.onFrame(0.01)
 check(w.page=='newsong' and button('Create song'),'New Song opens settings before replacing the document')
-button('Create song').events.mouseClick()
+button('Create song').events.mouseClick();acceptRecovery()
 for n=1,12 do now=now+0.01;player.engineHandlers.onFrame(0.01) end
 check(w.project.composition and w.project.midi=='' and #w:noteData(1)==0 and not lastStudio.cb.midiLabel():find('Loading'),'Create cancels old file parse and leaves a blank source-free song')
 local score
 w.cb.schedule=function(plan) score=plan;return true end
-w:addNote(1,65,0);lastStudio.cb.playSong()
+w:addNote(1,65,0);lastStudio.cb.playSong();acceptRecovery()
 check(score and score.bytes:byte(10)==65 and w.project.midi=='','Studio Play uses the authored arrangement despite an installed song selection')
 w:stop(true);w.page='piano';w.revision=w.revision+1;now=now+0.01;player.engineHandlers.onFrame(0.01)
 button('+ Piano').events.mouseClick();now=now+0.01;player.engineHandlers.onFrame(0.01)
@@ -580,9 +596,9 @@ end
 button('Save').events.mouseClick();local composed=sent[#sent].project
 check(composed.composition and composed.midi=='','window Save sends source-free composition metadata')
 api.selectMidi(paths[1]);handler{version=1,op='dawProject',id=7,epoch=20,project=composed}
-lastStudio.cb.playSong()
+lastStudio.cb.playSong();acceptRecovery()
 check(w.project.composition and w.project.midi=='' and score.bytes:byte(10)==65,'load clears explicit file selection before authored-song Play')
-lastStudio.cb.midiSelect(paths[1]);lastStudio.cb.playSong();now=now+0.01;player.engineHandlers.onFrame(0.01)
+lastStudio.cb.midiSelect(paths[1]);lastStudio.cb.playSong();acceptRecovery();now=now+0.01;player.engineHandlers.onFrame(0.01)
 check(w.project.midi==paths[1] and not w.project.composition,'explicit file selection still replaces an authored song')
 -- Exercise real arranger widgets, mouse capture and shared-source navigation.
 w:newSong(120,4,4,16);w:addNote(1,60,0);w:addNote(1,64,4);w:selectAllNotes(1)
@@ -738,6 +754,24 @@ button('Back to Piano [Esc]').events.mouseClick();now=now+.01;lastStudio:frame(n
 check(lastStudio.root.layout.props.size.x==oldSize.x and lastStudio.root.layout.props.size.y==oldSize.y,'Back to Piano restores the windowed canvas')
 api.hide();check(not uiOverride,'hiding Studio restores game inventory controls')
 api.show();check(uiOverride,'reopening Studio reacquires UI controls')
+-- Real Projects controls exercise Save As naming, explicit deletion, and unsaved Finish.
+button('Projects').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(w.page=='projects' and button('Save As new'),'header opens named project library')
+button('Save As new').events.mouseClick();now=now+.01;lastStudio:frame(now)
+local field
+for _,e in ipairs(lastStudio.children) do if e.layout.type==ui.TYPE.TextEdit and e.layout.props.size.x>600*lastStudio.window.scale then field=e end end
+assert(field);field.layout.events.focusGain();field.layout.events.textChanged('UI project copy')
+button('Create project copy').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(w.project.name=='UI project copy' and not w.dirty and api.projectLibrary().active>0,'Save As dialog names and saves an independent copy')
+local l=api.projectLibrary();local total=#l.entries
+button('Delete project').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(#l.entries==total and button('Confirm delete'),'Delete requires explicit confirmation')
+button('Cancel delete').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(#l.entries==total,'cancel deletion keeps named project')
+w:addNote(1,67,8);button('Finish').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(l.action and button('Keep recovery and continue') and mode=='Interface','Finish with edits asks how to preserve the draft')
+button('Cancel').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(not l.action and w.dirty and mode=='Interface','Cancel Finish keeps editor and edits')
 viewport=vector(1024,768);lastStudio.window:zoom(-0.5)
 api.close();check(not uiOverride,'Finish restores game UI controls')
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))
