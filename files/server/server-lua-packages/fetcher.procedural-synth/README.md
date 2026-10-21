@@ -2,7 +2,7 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current build: package 26 / native synth API 15. Installed-game voice, effect
+Current build: package 27 / native synth API 15. Installed-game voice, effect
 and music samples are available, along with MIDI export and track renaming.
 Project library and autosave/recovery are available. Next: recording follow-ups. See [the roadmap](ROADMAP.md).
 
@@ -1110,9 +1110,8 @@ input/output delay; it is not automatic hardware round-trip latency measurement.
 On Windows, Refresh the MIDI input list, choose a device and Connect. Select All
 channels or one channel. Notes, velocity, velocity-zero note-off and sustain feed
 the existing keyboard monitoring and quantized take, using native event ages so
-frame polling delay is not added to capture timing. Input is active on Recording
-and Recording setup pages; leaving them or hiding/finishing Studio releases notes
-and disconnects the device. Reconnect explicitly after returning. Keep/Cancel,
+frame polling delay is not added to capture timing. Input stays connected across all visible Studio and Synth pages. Hide/Finish
+releases notes and disconnects the device; reconnect explicitly after returning. Keep/Cancel,
 Undo, project saving and physical band outputs use the existing recording path.
 One MIDI input is permitted per client process. Nothing connects automatically.
 
@@ -1137,3 +1136,16 @@ at most 4,096 bars and thin pulses closer than 50 ms at extreme tempos/meters.
 The Synth editor, Studio header and fullscreen title now display FETCHER STUDIO.
 Saved project/preset IDs, package identity and local preference sections retain
 their existing names so existing data remains compatible.
+
+## MIDI playing across editors (package 27 / native synth API 15)
+
+Connect the keyboard once under Piano -> Record keyboard -> Recording setup.
+Return to Piano, Drums, Mixer or another Studio page to play the selected track;
+click a drum lane name to select that lane. Drums uses that lane's current sound,
+with the played MIDI note supplying pitch; this is not a multi-lane GM drum map.
+Synth plays the track sound being edited, or the manual instrument when opened
+without a track. Changing the selected track/editor releases old hardware gates
+without closing the MIDI device. Velocity, channel filtering and sustain keep
+their existing behavior. Playing alone does not paint notes or modify the song;
+Start take explicitly arms capture. Calibration uses incoming keys as timing taps.
+Hide/Escape/F8, Finish and disconnect release held notes and close MIDI input.

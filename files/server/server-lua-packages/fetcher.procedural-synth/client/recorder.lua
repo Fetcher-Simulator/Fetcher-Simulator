@@ -105,6 +105,11 @@ function R:release(key,age)
         elseif not entry.take and self.inputTrack then self.w.cb.off(self.inputTrack,n) end
     end
 end
+function R:target()
+    if self.w.recording then return self.w.recording.index end
+    if self.monitorTrack~=nil then return self.monitorTrack end
+    return self.w.selected
+end
 function R:event(e)
     if not finite(e.age,0,2) or not finite(e.channel,1,16) or e.channel%1~=0 or not finite(e.a,0,127) or not finite(e.b,0,127) then return false end
     if self.settings.channel~=0 and self.settings.channel~=e.channel then return true end
@@ -112,14 +117,15 @@ function R:event(e)
     if e.status==144 and e.b>0 then
         if self.calibrating then self:tap(e.age);return true end
         if entry then return true end
-        local n=e.a;local take=self.w.recording
+        local n=e.a;local take=self.w.recording;local target=self:target()
+        if target~=0 and not self.w.project.tracks[target] then return true end
         if not self.counts[n] then
             local ok
             if take then ok=self.w:recordOn(n,e.b/127,e.age)
-            else self.w:configure(self.w.selected);ok=self.w.cb.on(self.w.selected,n,e.b/127)~=false end
+            else if target>0 then self.w:configure(target) end;ok=self.w.cb.on(target,n,e.b/127)~=false end
             if not ok then return true end
         end
-        self.inputTrack=take and take.index or self.w.selected
+        self.inputTrack=target
         self.counts[n]=(self.counts[n] or 0)+1;self.keys[key]={note=n,channel=e.channel,take=take,down=true}
     elseif e.status==128 or e.status==144 and e.b==0 then
         if entry then entry.down=false;if not self.pedal[e.channel] then self:release(key,e.age) end end
@@ -149,8 +155,9 @@ function R:applyCalibration()
     if not value or jitter>40 then self.message('Tap at least 8 times steadily; timing spread must be under 40 ms.');return false end
     return self:set('latency',math.floor(value+.5))
 end
-function R:frame(visible)
+function R:frame(visible,track)
     local w=self.w
+    self.monitorTrack=visible and track or nil
     if not visible then
         if self.input or next(self.keys) then self:disconnect() end
         if self.calibrating then self:stopClock() end
@@ -162,14 +169,14 @@ function R:frame(visible)
             if not complete then self.message('Recording clock stopped; partial take kept.') end
         end
     end
-    if self.inputTrack and self.inputTrack~=(w.recording and w.recording.index or w.selected) then self:releaseInput() end
+    if self.inputTrack and self.inputTrack~=self:target() then self:releaseInput() end
     if self.input then
         local input=self.input;local ok,batch=pcall(input.poll,input)
         if not ok or not batch.connected or batch.dropped>0 then
             if w.recording then w:endTake(false) end;self:disconnect();self.message('MIDI disconnected or input overflowed; held notes released and partial take kept.');w.revision=w.revision+1
         else for _,e in ipairs(batch.events) do
             if self.input~=input then break end
-            if visible=='record' or self.calibrating then if not self:event(e) then self:releaseInput() end end
+            if visible then if not self:event(e) then self:releaseInput() end end
         end end
     end
     if not self.calibrating and self.clockKind~='take' then

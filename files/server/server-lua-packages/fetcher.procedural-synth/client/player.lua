@@ -80,6 +80,7 @@ local function captureEditor()
 end
 local function hideEditor()
     if not editor then return end
+    if session.workstation.recorder then session.workstation.recorder:disconnect() end
     captureEditor()
     editor:destroy(); editor=nil
     ui.showMessage('Synth performance continues. Press F8 or activate the synth to reopen. Use Finish to end the session.')
@@ -340,6 +341,7 @@ makeWorkstation=function(i)
 end
 switchPage=function(page,track)
     if not session then return end
+    if session.workstation.recorder then session.workstation.recorder:releaseInput() end
     flushEdit();captureEditor()
     if editor then editor:destroy();editor=nil end
     session.page=page
@@ -673,7 +675,10 @@ local function frame(dt)
     end
     local transportDt=math.max(0,now-session.transportLast);session.transportLast=now
     local w=session.workstation
-    if w.recorder then w.recorder:frame(editor and editor.kind=='studio' and (w.page=='record' or w.page=='recordsetup') and w.page or false) end
+    if w.recorder then
+        local studio=editor and editor.kind=='studio'
+        w.recorder:frame(editor and (studio and w.page or 'synth') or false,studio and w.selected or session.editTrack)
+    end
     session.workstation:frame(transportDt)
     session.library:frame(now)
     if editor then editor:frame(now) end

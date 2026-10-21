@@ -69,6 +69,24 @@ assert(r:connect(0));event(144,1,67,127);before=#offs;r:frame('record')
 check(closed and not r.input and not r.counts[67] and #offs==before+1,'overflow closes port and releases held notes')
 engine.openMidiInput=function() return {close=function() closed=true end,poll=function() return {connected=true,dropped=0,events={}} end} end
 assert(r:connect(0));event(144,1,68,127);r:frame(false);check(not r.input and not r.counts[68],'Hide closes input and releases monitoring')
+-- A connected device remains playable across normal pages, with explicit Synth targets.
+local batch={};closed=false
+engine.openMidiInput=function() return {close=function() closed=true end,poll=function()
+    local events=batch;batch={};return {connected=true,dropped=0,events=events}
+end} end
+assert(r:connect(0));local input=r.input;local generation=w.generation
+for _,page in ipairs{'piano','drums','mixer','recordsetup','record','song','samples'} do
+    batch={{status=144,channel=1,a=60,b=90,age=0}};before=#ons;r:frame(page,1)
+    check(r.input==input and not closed and #ons==before+1 and ons[#ons][1]==1,'normal '..page..' page retains MIDI connection and monitors selected track')
+    batch={{status=144,channel=1,a=60,b=0,age=0}};r:frame(page,1)
+    check(not r.counts[60],'normal '..page..' page handles velocity-zero release')
+end
+batch={{status=144,channel=1,a=61,b=100,age=0}};r:frame('synth',0)
+check(ons[#ons][1]==0 and r.inputTrack==0,'manual Synth monitors channel zero rather than the selected project part')
+before=#offs;r:frame('piano',1)
+check(#offs==before+1 and offs[#offs][1]==0 and not r.counts[61] and r.input==input,'destination switch releases manual gate without disconnecting')
+check(w.generation==generation,'unarmed playing does not insert notes or edit history')
+r:frame(false);check(closed and not r.input,'Hide still closes device after normal-page monitoring')
 -- Tap calibration computes timing bias robustly, with explicit Apply and local persistence.
 local bias,jitter=R.calculation{80,81,79,82,80,81,79,190};check(bias==80.5 and jitter==1,'median/MAD calibration resists an isolated bad tap')
 check(not R.calculation{10,11},'too few calibration taps cannot produce a result')

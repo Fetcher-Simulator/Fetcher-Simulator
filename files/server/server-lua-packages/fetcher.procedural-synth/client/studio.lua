@@ -583,7 +583,7 @@ function S:recordSetup(content)
         local choices={{id=0,label='All channels'}};for n=1,16 do choices[#choices+1]={id=n,label='Channel '..n} end
         Dropdown.open(self,choices,o.channel,function(value) r:set('channel',value) end,20,350,450)
     end)
-    content[#content+1]=label('Input: '..r.inputStatus..' | Notes/velocity + sustain. Active on Recording; closes when hidden.',300,407,590,12,c.accent)
+    content[#content+1]=label('Input: '..r.inputStatus..' | Notes/velocity + sustain. Works across Studio tabs; Hide disconnects.',300,407,590,12,c.accent)
     content[#content+1]=self:button('Start tap calibration',20,464,245,function() r:beginCalibration() end)
     content[#content+1]=self:button('Tap / Space',280,464,180,function() r:tap() end,r.calibrating)
     content[#content+1]=self:button('Apply timing',475,464,180,function() r:applyCalibration() end)

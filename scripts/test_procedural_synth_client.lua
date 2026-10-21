@@ -607,6 +607,35 @@ check(w.recorder.settings.metronome and button('Metronome: On'),'metronome toggl
 w.recorder:set('countIn',1);w.recorder:set('metronome',false);now=now+.01;lastStudio:frame(now)
 button('< Recording').events.mouseClick();now=now+.01;lastStudio:frame(now)
 check(w.page=='record','setup returns to recording keyboard')
+-- Physical MIDI polling follows the real visible editor, not just Recording.
+do
+    local native=package.loaded['openmw.synth'];local previous=native.openMidiInput
+    local batch,closed={},false
+    native.openMidiInput=function() return {close=function() closed=true end,poll=function()
+        local events=batch;batch={};return {connected=true,dropped=0,events=events}
+    end} end
+    assert(w.recorder:connect(0));local port=w.recorder.input
+    local function midi(status,n,v)
+        batch={{status=status,channel=1,a=n,b=v,age=0}};now=now+.01;player.engineHandlers.onFrame(.01)
+    end
+    w.selected=1;w.page='piano';w.revision=w.revision+1;local generation=w.generation
+    midi(144,60,100)
+    check(sounding(60) and w.recorder.input==port and not closed and sent[#sent].channel==1,'Piano page polls MIDI and plays selected part without disconnecting')
+    midi(144,60,0);check(not sounding(60) and w.generation==generation,'unarmed Piano MIDI releases without modifying the song')
+    assert(w:add('drum'));w.page='drums';w.revision=w.revision+1;midi(144,38,90)
+    check(sounding(38) and sent[#sent].channel==w.selected and w.recorder.input==port,'Drums page plays selected lane through the MIDI port')
+    api.sound(1)
+    check(not sounding(38) and w.recorder.input==port,'opening another sound releases old MIDI gate while retaining device')
+    midi(144,64,110)
+    check(sounding(64) and sent[#sent].channel==1 and w.recorder.input==port,'track Synth editor monitors the sound being edited')
+    api.sound(0);check(not sounding(64),'switching to manual Synth releases track gate')
+    midi(144,65,80)
+    check(sounding(65) and sent[#sent].channel==0 and w.recorder.inputTrack==0,'main manual Synth uses channel zero instead of selected drum lane')
+    api.studio();check(not sounding(65) and w.recorder.input==port,'returning to Studio releases manual voice and keeps device')
+    w.selected=1;w.page='piano';w.revision=w.revision+1;midi(144,67,100)
+    api.hide();check(closed and not w.recorder.input and not sounding(67),'Hide immediately closes MIDI port and releases physical held note')
+    api.show();native.openMidiInput=previous
+end
 -- New Song uses the real window callbacks and cancels a pending file parser.
 lastStudio.cb.midiSelect(paths[2]);lastStudio.cb.playSong();acceptRecovery();now=now+0.01;player.engineHandlers.onFrame(0.01)
 check(lastStudio.cb.midiLabel():find('Loading'),'file parser is pending before New Song')

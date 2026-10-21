@@ -1299,3 +1299,21 @@ received six note-ons and six velocity-zero note-offs on channel 1, velocities
 were also observed. This verifies the native hardware callback path; it is not a
 claim of physical in-game record/replay or measured end-to-end audio latency.
 No sustain pedal was available. Evidence is evidence/axiom-branding/live-input.log.
+
+## MIDI monitoring across normal editors (package 27 / API 15)
+
+Fixed two gates: the player frame disconnected MIDI outside Recording/Setup, and
+the recorder polled notes only on Recording. A connected device now stays active
+across visible Studio/Synth pages. Studio monitors the selected part/lane; Synth
+uses the edited track or channel-zero manual instrument. Destination changes
+release existing gates while retaining the input handle. Hide closes it promptly.
+Unarmed playing does not modify notes/history. No native API/build changes.
+
+All 21 Lua suites passed. The recording-tools suite now has 58 assertions, with
+normal-page polling/release, connection retention, manual channel zero and target
+changes. The real player/editor callback suite passed 15,578 assertions, including
+Piano and Drums note routing, edited/manual Synth, editor switches and immediate
+Hide cleanup. Physical Axiom callback input was verified in package 26; a physical
+key performance through the updated in-game pages remains a manual acceptance
+check. No sustain pedal is available. The port-25567 fixture is used, with no new
+fixture, production deployment or remote push.
