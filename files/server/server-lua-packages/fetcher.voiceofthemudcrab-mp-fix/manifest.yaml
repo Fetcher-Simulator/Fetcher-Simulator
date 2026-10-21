@@ -1,0 +1,14 @@
+manifestVersion: 3
+packageId: fetcher.voiceofthemudcrab-mp-fix
+packageVersion: 1
+requiredOpenMWLuaApi: 141
+requiredMultiplayerLuaApi: 12
+dependencies: []
+files:
+  - overrides/actor.lua
+overrides:
+  - target: scripts/voiceofthemudcrab/actor.lua
+    source: overrides/actor.lua
+    targetPolicy: required
+    acceptedBaseHashes:
+      - 6b93739f6f1d5b9eb0d04761c7d0a99e859b8cbaab328a9238891d85c0214b17
