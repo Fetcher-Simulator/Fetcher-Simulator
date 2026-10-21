@@ -1,10 +1,10 @@
-# Procedural synthesizer and Studio
+# FETCHER STUDIO
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current build: package 25 / native synth API 15. Installed-game voice, effect
+Current build: package 26 / native synth API 15. Installed-game voice, effect
 and music samples are available, along with MIDI export and track renaming.
-Project library and autosave/recovery are available. Next: automation and MIDI controllers. See [the roadmap](ROADMAP.md).
+Project library and autosave/recovery are available. Next: recording follow-ups. See [the roadmap](ROADMAP.md).
 
 ## Local use
 
@@ -1131,3 +1131,9 @@ unavailable. MIDI controller/program/bend capture, clock/transport messages,
 shared-source playback overdub and additional record modes remain follow-ups.
 Native clock duration stays at 30 minutes including count-in; click plans allow
 at most 4,096 bars and thin pulses closer than 50 ms at extreme tempos/meters.
+
+## FETCHER STUDIO branding (package 26 / native synth API 15)
+
+The Synth editor, Studio header and fullscreen title now display FETCHER STUDIO.
+Saved project/preset IDs, package identity and local preference sections retain
+their existing names so existing data remains compatible.

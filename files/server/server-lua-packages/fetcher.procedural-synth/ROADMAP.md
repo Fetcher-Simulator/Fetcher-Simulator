@@ -1,4 +1,4 @@
-# Procedural Synth / Studio roadmap
+# FETCHER STUDIO roadmap
 
 Updated 2026-10-21. Completed work and subsequent planned slices are identified below.
 
@@ -192,7 +192,7 @@ Sixteen tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 25 / native synth API 15. Installed-game sampling, library/recovery,
+package 26 / native synth API 15. Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented; recording follow-ups are next.
 

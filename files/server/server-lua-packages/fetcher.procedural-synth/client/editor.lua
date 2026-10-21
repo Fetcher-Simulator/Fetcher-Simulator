@@ -172,7 +172,7 @@ function E:render()
     -- Window scales the logical canvas to the current viewport.
     self.width=940
     local w=self.width
-    local content={label('OPENMW  /  SYNTH',20,14,260,22),label(cb.subtitle or 'PROCEDURAL / POLYPHONIC / SPATIAL',20,42,350,12,colors.muted)}
+    local content={label('FETCHER STUDIO',20,14,260,22),label(cb.subtitle or 'PROCEDURAL / POLYPHONIC / SPATIAL',20,42,350,12,colors.muted)}
     if cb.studio then content[#content+1]=self:button('Studio',w-284,15,76,cb.studio) end
     content[#content+1]=self:button('Hide [F8]',w-198,15,104,cb.hide or cb.close)
     content[#content+1]=self:button('Finish',w-84,15,64,cb.close)

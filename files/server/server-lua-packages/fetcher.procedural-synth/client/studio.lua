@@ -814,7 +814,7 @@ function S:render()
     if self.root then self.root:destroy() end
     for _,e in ipairs(self.children) do e:destroy() end
     self.children={};self.meters={};self.meterLabels={};self.returnMeter=nil;self.playhead=nil;self.grid=nil
-    local w,p=self.w,self.w.project;local content={label('OPENMW / STUDIO',20,15,215,18)}
+    local w,p=self.w,self.w.project;local content={label('FETCHER STUDIO',20,15,215,18)}
     if self.pianoFocus then
         content={label('PIANO EDITOR',20,13,200,21,c.accent)}
         content[#content+1]=self:button('Play song',230,12,96,self.cb.playSong)

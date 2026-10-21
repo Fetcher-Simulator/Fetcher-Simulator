@@ -1282,3 +1282,20 @@ database/profile/settings/input hashes were restored after QA. Ordinary package
 25 is installed with the probe disabled. Lua results and restoration hashes are
 in lua-tests.json and restoration.json. No port-25568 fixture, production deploy
 or remote push was used. Existing user saves/settings were retained.
+
+## FETCHER STUDIO branding and Axiom 61 input check (package 26 / API 15)
+
+Synth/Studio headers and the fullscreen title now display FETCHER STUDIO. Package
+version advances to 26 for distribution; native API and all data identities stay
+unchanged. The client/editor callback suite passed 14,562 assertions, including
+recording setup. Installed Lua/manifest files match source; the ordinary port-25567
+server was restarted with clients closed and existing data/settings preserved.
+
+Windows detects Axiom 61, MIDIIN2 (Axiom 61), and MIDIIN3 (Axiom 61). A diagnostic
+compiled against the exact native StudioMidiInput header successfully enumerated,
+opened and closed the main Axiom 61 input. With the user playing the hardware it
+received six note-ons and six velocity-zero note-offs on channel 1, velocities
+29-79, with zero dropped events and connection intact. Controller messages 116/117
+were also observed. This verifies the native hardware callback path; it is not a
+claim of physical in-game record/replay or measured end-to-end audio latency.
+No sustain pedal was available. Evidence is evidence/axiom-branding/live-input.log.

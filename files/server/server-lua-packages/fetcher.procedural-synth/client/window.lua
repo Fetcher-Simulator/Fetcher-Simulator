@@ -98,7 +98,7 @@ function W:root(content)
     local s=self.scale
     local bar=rect(0,0,self.actualWidth/s,chrome,track)
     local title={type=ui.TYPE.Text,external={action=true},props={position=v(10,9),size=v(160,24),
-        text=self:isFullscreen() and 'STUDIO / MONITOR' or 'Drag to move',textSize=13,textColor=accent}}
+        text=self:isFullscreen() and 'FETCHER STUDIO' or 'Drag to move',textSize=13,textColor=accent}}
     local volume=synth.getMonitorVolume and synth.getMonitorVolume() or 1
     local monitor=rect(654,12,110,12,bg)
     monitor.content=ui.content{rect(0,0,110*volume,12,accent)}
