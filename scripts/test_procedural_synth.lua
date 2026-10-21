@@ -235,6 +235,21 @@ test('native scores are validated, timestamped and included in late sync',functi
     now=now+3;sent={};request('sync',{pid=3})
     check(sent[#sent].data.op=='state','stopped scores are absent from snapshots')
 end)
+test('native automation uploads replicate with the shared clock and remain owner controlled',function()
+    local f=require('procedural_synth_project')(schema);local p=f.new();p.tracks[1]=f.newTrack('piano','Curve',16)
+    p.tracks[1].notes={{n=60,s=0,l=2,v=1}};p.tracks[1].automation={expression={{s=0,v=0,linear=true},{s=8,v=1,linear=false}}}
+    local score=require('procedural_synth_sequence').compile(p,nil,nil,'clips',f)
+    acquire();request('channel',{channel=1,params={},level=1});sent={}
+    request('scoreBegin',{playId=1,count=#score.bytes/11,length=score.length,loop=score.loop,quantum=score.quantum,replace=false})
+    request('scoreChunk',{playId=1,index=1,bytes=score.bytes});request('scoreCommit',{playId=1})
+    check(sent[#sent].data.op=='scoreReady','validated curves are relayed with notes')
+    local before=#sent;request('scoreBegin',{pid=2,playId=2,count=3,length=score.length,loop=true,quantum=score.quantum,replace=false})
+    check(#sent==before,'observer cannot replace owner automation')
+    now=now+3;players[3].cell='INT:A';sent={};request('sync',{pid=3})
+    local bytes='';for _,e in ipairs(sent) do if e.data.op=='scoreChunk' then bytes=bytes..e.data.bytes end end
+    check(bytes==score.bytes,'late observer receives identical curve bytes for native chase')
+    request('dawSave',{project=p});check(storage['project:11'].tracks[1].automation.expression[2].v==1,'saved curves stay with character project')
+end)
 test('malformed and unauthorized native uploads preserve the running score',function()
     acquire();request('channel',{channel=1,params={},level=1});sent={}
     request('scoreBegin',{pid=2,playId=1,count=1,length=48000,loop=true,quantum=48000,replace=false})

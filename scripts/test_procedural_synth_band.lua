@@ -70,4 +70,13 @@ check(i.outputs[1].audio.source==performer and i.outputs[1].id==22,'consenting p
 transport:band(i,actorBand,{0,1},{'Invite required'},{})
 check(not i.outputs[1] and i.studio.playing,'revoked consent removes its native output without redirecting the part')
 transport:close(i)
+p.tracks[1].automation={cutoff={{s=0,v=900,linear=false}}};p.tracks[2].automation={pitchBend={{s=0,v=1,linear=false}}}
+local curves=Sequence.compile(p,nil,nil,'clips',format)
+transport:band(i,band,{0,1},{'Ready'});transport:finish(i,{bytes=curves.bytes,chunks={curves.bytes},length=curves.length,loop=true,started=101,activate=101,playId=4})
+for slot,audio in pairs{[1]=i.studio,[2]=i.outputs[1].audio} do
+    local notes,controls=0,0
+    for at=1,#audio.bytes,11 do check(audio.bytes:byte(at+8)==slot,'control lane stays with its physical output');if audio.bytes:byte(at+9)>=128 then controls=controls+1 else notes=notes+1 end end
+    check(notes==1 and controls==1,'each output receives exactly its own note and automation')
+end
+transport:close(i)
 print('PASS physical band routing, exact partition, shared starts/replacement, missing/rejoin, gain/mute and bounded cleanup; '..checks..' assertions')

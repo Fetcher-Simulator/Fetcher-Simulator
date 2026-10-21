@@ -2395,6 +2395,7 @@ void MPServer::run()
             }
         }
         tick(dt);
+        pumpServerLuaPackages();
         mLua.drainOutbound();
         flushLuaActorChanges();
         syncLuaPlayerSnapshot();
@@ -4314,6 +4315,7 @@ void MPServer::onClientDisconnected(HSteamNetConnection conn, const std::string&
     mInterface->CloseConnection(conn, 0, nullptr, false);
     mLua.clearPlayerMarks(client.guid);
     mLua.clearPlayerData(client.guid);
+    mPackageSendQueues.erase(conn);
     mClients.erase(it);
     for (const auto& [cellId, record] : revokedActorLeases)
     {
@@ -8020,6 +8022,7 @@ void MPServer::sendServerLuaPackages(HSteamNetConnection connection)
     if (!mServerLuaPackageRegistry)
         throw std::logic_error("Server Lua package registry is unavailable");
     const serverlua::PackageSet& packageSet = mServerLuaPackageRegistry->packageSet();
+    mPackageSendQueues[connection] = ServerLuaPackageSendQueue{};
     PacketServerLuaPackageManifest manifest;
     manifest.packageSet = packageSet;
     sendTo(connection, manifest.encode());
@@ -8046,8 +8049,28 @@ void MPServer::sendServerLuaPackages(HSteamNetConnection connection)
     complete.generation = packageSet.generation;
     complete.packageSetHash = packageSet.packageSetHash;
     sendTo(connection, complete.encode());
-    Log(Debug::Verbose) << "[ServerLuaPackages] Sent package set generation=" << packageSet.generation
+    Log(Debug::Verbose) << "[ServerLuaPackages] Queued package set generation=" << packageSet.generation
                         << " packages=" << packageSet.packages.size() << " to connection=" << connection;
+}
+
+void MPServer::pumpServerLuaPackages()
+{
+    for (auto it=mPackageSendQueues.begin(); it!=mPackageSendQueues.end();)
+    {
+        if (!mClients.count(it->first)) { it=mPackageSendQueues.erase(it); continue; }
+        EResult result=k_EResultOK;
+        const bool done=it->second.pump([&](const auto& packet) {
+            result=sendPacketOnConfiguredLane(it->first,packet,k_nSteamNetworkingSend_Reliable);
+            return result==k_EResultOK;
+        });
+        if (result!=k_EResultOK && result!=k_EResultLimitExceeded)
+        {
+            mInterface->CloseConnection(it->first,0,"Server Lua package transfer failed",false);
+            it=mPackageSendQueues.erase(it);
+        }
+        else if (done) it=mPackageSendQueues.erase(it);
+        else ++it;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -22990,6 +23013,10 @@ void MPServer::broadcastToAll(const std::vector<uint8_t>& data,
 void MPServer::sendTo(HSteamNetConnection conn,
                       const std::vector<uint8_t>& data, bool reliable)
 {
+    if (reliable) if (auto pending=mPackageSendQueues.find(conn); pending!=mPackageSendQueues.end())
+    {
+        pending->second.push(data); return;
+    }
     int flags = reliable ? k_nSteamNetworkingSend_Reliable
                          : k_nSteamNetworkingSend_UnreliableNoDelay;
     sendPacketOnConfiguredLane(conn, data, flags);

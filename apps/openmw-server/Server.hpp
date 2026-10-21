@@ -1,6 +1,7 @@
 #ifndef OPENMW_SERVER_SERVER_HPP
 #define OPENMW_SERVER_SERVER_HPP
 
+#include "ServerLuaPackageSendQueue.hpp"
 #include <components/openmw-mp/Base/ActorAttackHandoff.hpp>
 #include <components/openmw-mp/Base/ActorAuthorityTransfer.hpp>
 #include <algorithm>
@@ -341,6 +342,7 @@ private:
     void handleHandshake          (ConnectedClient& c, const uint8_t* data, size_t size);
     void populateRuntimeManifest  (PacketHandshakeResponse& response) const;
     void sendServerLuaPackages(HSteamNetConnection connection);
+    void pumpServerLuaPackages();
     void handleCharacterSelect    (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleChallengeResponse  (ConnectedClient& c, const uint8_t* data, size_t size);
     void handleLinkKeyRequest     (ConnectedClient& c, const uint8_t* data, size_t size);
@@ -923,6 +925,7 @@ private:
     bool mObservationDiagnosticsEnabled = false;
     std::filesystem::path mServerLuaPackageRoot;
     std::unique_ptr<ServerLuaPackageRegistry> mServerLuaPackageRegistry;
+    std::unordered_map<HSteamNetConnection, ServerLuaPackageSendQueue> mPackageSendQueues;
     std::string                   mDbPath            = "playerdata.db";
     std::string                   mDefaultSpawnCell  = "toddtest";
     Position                      mDefaultSpawnPosition;

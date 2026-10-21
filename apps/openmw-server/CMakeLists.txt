@@ -35,6 +35,7 @@ set(OPENMW_SERVER_SOURCES
 set(OPENMW_SERVER_HEADERS
     AdminHttpServer.hpp
     Server.hpp
+    ServerLuaPackageSendQueue.hpp
     LuaServerContext.hpp
     MpEventQueue.hpp
     OutboundQueue.hpp

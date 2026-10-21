@@ -9,6 +9,7 @@ local SoundSets=require('scripts.multiplayer.fetcher.procedural-synth.client.sou
 local Project=require('scripts.multiplayer.fetcher.procedural-synth.shared.project')(schema)
 local Dropdown=require('scripts.multiplayer.fetcher.procedural-synth.client.dropdown')
 local Window=require('scripts.multiplayer.fetcher.procedural-synth.client.window')
+local AutomationRoll=require('scripts.multiplayer.fetcher.procedural-synth.client.automation-roll')
 local PianoRoll=require('scripts.multiplayer.fetcher.procedural-synth.client.piano-roll')
 local Arranger=require('scripts.multiplayer.fetcher.procedural-synth.client.arranger')
 local S={};S.__index=S
@@ -177,6 +178,52 @@ function S:arrange(content)
     content[#content+1]=self:button('Song settings',760,592,130,function() w.page='song';w.revision=w.revision+1 end)
     content[#content+1]=label('Drag placements to move by bars; drag their right edge to repeat/trim. Source edits update all linked copies.',20,635,880,12,c.muted)
     content[#content+1]=label('Capture selected Piano notes with Make clip. Delete source also removes its placements; Undo restores both.',20,664,880,12,c.muted)
+end
+function S:automation(content)
+    local w,p=self.w,self.w.project;local t=p.tracks[w.selected]
+    if not t then content[#content+1]=label('Add a part on Song or Mixer first.',20,175,880,16,c.accent);return end
+    local name=w.automationName or 'cutoff';local spec=Project.automationSpecs[name]
+    local step=w.automationStep or 0;w.automationDraft=w.automationDraft or w:automationValue(w.selected,name,step)
+    content[#content+1]=self:button(t.name..' v',20,163,225,function()
+        local choices={};for n,track in ipairs(p.tracks) do choices[#choices+1]={id=n,label=n..'  '..track.name} end
+        Dropdown.open(self,choices,w.selected,function(index) w:endAutomationWrite();w.selected=index;w.automationDraft=nil;w.automationPoint=nil;w.revision=w.revision+1 end,20,196,480)
+    end)
+    content[#content+1]=self:button(name..' v',260,163,225,function()
+        local choices={};for _,key in ipairs(Project.automationOrder) do choices[#choices+1]={id=key,label=key} end
+        Dropdown.open(self,choices,name,function(key) w:endAutomationWrite();w.automationName=key;w.automationDraft=nil;w.automationPoint=nil;w.revision=w.revision+1 end,260,196,480)
+    end)
+    content[#content+1]=self:button('Import MIDI controls',500,163,185,function() w:importControls(w.selected) end)
+    content[#content+1]=self:button('Follow programs',700,163,185,function() w:followPrograms(w.selected,not t.followPrograms) end,t.followPrograms)
+    content[#content+1]=Controls.slider(self,'automationValue',name,spec,function() return w.automationDraft end,function(value)
+        w.automationDraft=value;if w.automationWriting then w:recordAutomation(w.selected,name,value) end
+    end,20,206,360)
+    content[#content+1]=self:button(w.automationLinear==false and 'Step' or 'Linear',400,215,110,function() w.automationLinear=not (w.automationLinear~=false);w.revision=w.revision+1 end)
+    content[#content+1]=self:button(w.automationWriting and 'End write' or 'Write while playing',525,215,175,function()
+        if w.automationWriting then w:endAutomationWrite() else w:beginAutomationWrite() end;w.revision=w.revision+1
+    end,w.automationWriting)
+    content[#content+1]=self:button('Add / update point',715,215,170,function()
+        w:setAutomation(w.selected,name,w.automationStep or 0,w.automationDraft,w.automationLinear~=false);w.revision=w.revision+1
+    end)
+    local start=w.automationStart or 0;local steps=w.automationSteps or 64
+    content[#content+1]=self:button('< time',20,263,75,function() w.automationStart=math.max(0,start-steps);w.revision=w.revision+1 end)
+    content[#content+1]=self:button('time >',105,263,75,function() w.automationStart=math.min(Project.maxSongBeats*4-steps,start+steps);w.revision=w.revision+1 end)
+    content[#content+1]=self:button(steps/16 ..' x 4/4 bars v',195,263,155,function()
+        local choices={};for _,n in ipairs{16,32,64,128,256} do choices[#choices+1]={id=n,label=n/16 ..' x 4/4 bars'} end
+        Dropdown.open(self,choices,steps,function(n) w.automationSteps=n;w.revision=w.revision+1 end,195,296,390)
+    end)
+    content[#content+1]=label(string.format('Quarter notes %.2f - %.2f | %s',start/4,(start+steps)/4,name),370,270,self.width-400,12,c.accent)
+    self.automationRoll=AutomationRoll.new(self,content)
+    content[#content+1]=label(string.format('%.4g',spec.max),20,304,52,12,c.muted)
+    content[#content+1]=label(string.format('%.4g',spec.min),20,304+self.automationRoll.height-18,52,12,c.muted)
+    local footer=self.height-157
+    content[#content+1]=Controls.slider(self,'automationTime','Point at quarter note',{min=0,max=Project.maxSongBeats,step=.0625},function() return (w.automationStep or 0)/4 end,function(value) w.automationStep=value*4 end,20,footer,340)
+    content[#content+1]=self:button('Delete selected',385,footer+9,160,function()
+        if w.automationPoint then w:setAutomation(w.selected,name,w.automationPoint,nil,false,true);w.automationPoint=nil;w.revision=w.revision+1 end
+    end)
+    content[#content+1]=self:button('Back to Piano',565,footer+9,155,function() w:endAutomationWrite();w.page='piano';w.revision=w.revision+1 end)
+    content[#content+1]=label('Click adds; drag a point moves it; right-click deletes. Time snaps to 1/64 notes. Undo restores edits.',20,self.height-91,self.width-50,12,c.muted)
+    content[#content+1]=label('Write captures slider changes at the native playhead as one take. End write applies the take at the next bar.',20,self.height-64,self.width-50,12,c.muted)
+    content[#content+1]=label('Import MIDI controls replaces performance lanes. Program changes use sound-set families; sample parts keep their sample.',20,self.height-37,self.width-50,11,c.muted)
 end
 function S:mixer(content)
     local w,p=self.w,self.w.project
@@ -646,6 +693,7 @@ function S:render()
     self.recordText=nil;self.recordKeyboard=nil
     self.controlEpoch=(self.controlEpoch or 0)+1;self.noteVelocityRefresh=nil
     if self.roll then self.roll:finish(true);self.roll=nil end
+    if self.automationRoll then self.automationRoll:finish(true);self.automationRoll=nil end
     if self.arranger then self.arranger:finish(true);self.arranger=nil end
     Dropdown.close(self)
     self.controlEpoch=(self.controlEpoch or 0)+1
@@ -653,7 +701,7 @@ function S:render()
     if self.root then self.root:destroy() end
     for _,e in ipairs(self.children) do e:destroy() end
     self.children={};self.meters={};self.meterLabels={};self.returnMeter=nil;self.playhead=nil;self.grid=nil
-    local w,p=self.w,self.w.project;local content={label('OPENMW / STUDIO',20,13,245,21)}
+    local w,p=self.w,self.w.project;local content={label('OPENMW / STUDIO',20,15,215,18)}
     if self.pianoFocus then
         content={label('PIANO EDITOR',20,13,200,21,c.accent)}
         content[#content+1]=self:button('Play song',230,12,96,self.cb.playSong)
@@ -667,8 +715,8 @@ function S:render()
     end
     local tabs={{'Synth',self.cb.synth},{'Song',function() w.page='song';w.revision=w.revision+1 end},{'Mixer',function() w.page='mixer';w.revision=w.revision+1 end},
         {'Piano',function() w.page='piano';w.revision=w.revision+1 end},{'Drums',function() w.page='drums';w.revision=w.revision+1 end},{'Band',function() w.page='band';if w.cb.refreshTargets then w.cb.refreshTargets() end;w.revision=w.revision+1 end},
-        {'Samples',function() w.page='samples';w.revision=w.revision+1 end}}
-    for n,tab in ipairs(tabs) do content[#content+1]=self:button(tab[1],275+(n-1)*61,12,56,tab[2],w.page==tab[1]:lower()) end
+        {'Auto',function() w.page='auto';w.revision=w.revision+1 end},{'Samples',function() w.page='samples';w.revision=w.revision+1 end}}
+    for n,tab in ipairs(tabs) do content[#content+1]=self:button(tab[1],245+(n-1)*60,12,56,function() w:endAutomationWrite();tab[2]() end,w.page==tab[1]:lower()) end
     content[#content+1]=self:button('Hide [F8]',self.width-198,12,104,self.cb.hide)
     content[#content+1]=self:button('Finish',self.width-84,12,64,self.cb.close)
     self.transport=self:element(label('',20,43,self.width-280,12,c.accent));content[#content+1]=self.transport
@@ -696,8 +744,8 @@ function S:render()
     content[#content+1]=self:button('MIDI >',self.width-306,112,65,function() self.cb.cycleMidi(1);w.revision=w.revision+1 end)
     content[#content+1]=self:button('Import',self.width-229,112,92,self.cb.import)
     content[#content+1]=self:button('Export MIDI',self.width-125,112,100,function() w:exportMidi() end)
-    local body={};self.bodyOffset=(w.page=='piano' or w.page=='drums') and 0 or math.max(0,(self.width-940)/2)
-    if w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
+    local body={};self.bodyOffset=(w.page=='piano' or w.page=='drums' or w.page=='auto') and 0 or math.max(0,(self.width-940)/2)
+    if w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
     -- Keep the header above centered page containers in native hit testing.
     if self.bodyOffset>0.1 then table.insert(content,1,{type=ui.TYPE.Widget,props={position=v(self.bodyOffset,0),size=v(940,self.height)},content=ui.content(body)})
     else for _,item in ipairs(body) do content[#content+1]=item end end
@@ -712,7 +760,9 @@ function S.new(workstation,callbacks)
     return self
 end
 function S:releaseAll()
+    self.w:endAutomationWrite()
     if self.roll then self.roll:finish(true) end
+    if self.automationRoll then self.automationRoll:finish(true) end
     if self.arranger then self.arranger:finish(true) end
     for note in pairs(self.recordHeld or {}) do self.w:recordOff(note) end
     self.recordHeld={};self.recordKeys={};self.mouseRecord=nil;self.w:endTake(false)
@@ -739,6 +789,7 @@ function S:key(code,on)
     end
     if ctrl then
         if self.roll then self.roll:finish(true) end
+    if self.automationRoll then self.automationRoll:finish(true) end
         if code==input.KEY.Z then if input.isShiftPressed and input.isShiftPressed() then self.w:redo() else self.w:undo() end
         elseif code==input.KEY.Y then self.w:redo()
         elseif self.roll then
@@ -769,6 +820,7 @@ function S:frame(now)
     end
     if I.UI.getMode()~='Interface' then self.cb.hide();return end
     if self.roll then self.roll:frame() end
+    if self.automationRoll then self.automationRoll:frame() end
     if self.arranger then self.arranger:frame() end
     if self.samples then self.samples:frame() end
     if self.mouseRecord and not input.isMouseButtonPressed(1) then self:recordKey(self.mouseRecord,false);self.mouseRecord=nil end

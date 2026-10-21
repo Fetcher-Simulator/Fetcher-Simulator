@@ -61,7 +61,8 @@ function M.parse(bytes, checkpoint)
                 if kind==8 then event(tick,'off',channel,a)
                 elseif kind==9 then event(tick,b==0 and 'off' or 'on',channel,a,b/127)
                 elseif kind==11 then event(tick,'control',channel,a,b)
-                elseif kind==12 then event(tick,'program',channel,a) end
+                elseif kind==12 then event(tick,'program',channel,a)
+                elseif kind==14 then event(tick,'bend',channel,a+b*128) end
             elseif status==255 then
                 running=nil
                 local kind=number(1)
@@ -87,11 +88,13 @@ function M.parse(bytes, checkpoint)
     end)
     local tick,seconds,tempo=0,0,500000
     local tempos={}
-    local playable={}
+    local playable,controllers={},{}
     local channelPrograms,assigned={},{}
     for _,e in ipairs(events) do
         step()
-        if e.kind=='program' then channelPrograms[e.channel]=e.note
+        if e.kind=='program' or e.kind=='bend' then
+            if e.kind=='program' then channelPrograms[e.channel]=e.note end
+            e.time=seconds+(e.tick-tick)*tempo/(division*1000000);controllers[#controllers+1]=e
         else
             -- Metadata must not split the clock's floating-point accumulation:
             -- preserve the exact note/tempo timing of the existing reader.
@@ -101,12 +104,13 @@ function M.parse(bytes, checkpoint)
             else
                 if e.kind=='on' and not assigned[e.part] then programs[e.part]=channelPrograms[e.channel];assigned[e.part]=true end
                 e.time=seconds;playable[#playable+1]=e
+                if e.kind=='control' then controllers[#controllers+1]=e end
             end
         end
     end
     seconds=seconds+(lastTick-tick)*tempo/(division*1000000)
     assert(seconds<=1800,'MIDI exceeds 30 minutes')
-    return {events=playable,duration=seconds,division=division,tracks=tracks,names=names,programs=programs,tempos=tempos,beats=lastTick/division}
+    return {events=playable,controllers=controllers,duration=seconds,division=division,tracks=tracks,names=names,programs=programs,tempos=tempos,beats=lastTick/division}
 end
 
 -- Each (SMF track, MIDI channel) is a part. Preserve track names even when
@@ -121,6 +125,30 @@ function M.parts(song)
         end
     end
     return list
+end
+-- Explicit import keeps existing projects' baked sustain gates compatible.
+function M.automation(song,part)
+    local lanes={};local count=0
+    local function add(name,step,value)
+        lanes[name]=lanes[name] or {};local points=lanes[name]
+        local p={s=step,v=value,linear=false}
+        if points[#points] and points[#points].s==step then points[#points]=p
+        else points[#points+1]=p;count=count+1 end
+        assert(#points<=1024 and count<=8192,'MIDI controls exceed the editable automation budget.')
+    end
+    for _,e in ipairs(song.controllers or song.events) do if e.channel==part.channel then
+        local step=e.tick/song.division*4
+        -- Channel controls apply across SMF tracks, including setup tracks.
+        if e.kind=='bend' then add('pitchBend',step,(e.note-8192)/8192*2)
+        elseif e.kind=='program' and e.channel~=9 then add('program',step,e.note)
+        elseif e.kind=='control' then
+            local name=({[1]='modulation',[7]='midiVolume',[11]='expression',[64]='pedal'})[e.note]
+            if name then add(name,step,name=='pedal' and (e.velocity>=64 and 1 or 0) or e.velocity/127)
+            elseif e.note==121 then for key,value in pairs{pitchBend=0,modulation=0,expression=1,midiVolume=1,pedal=0} do add(key,step,value) end
+            elseif e.note==120 or e.note==123 then add('pedal',step,0) end
+        end
+    end end
+    return lanes
 end
 function M.noteSpans(song)
     local spans,held={},{}
@@ -202,7 +230,7 @@ function M.player(song,callbacks,options)
 end
 -- Bake the same effective gates used by native playback, including sustain,
 -- overlapping same-pitch notes and all-notes-off controls, into editable ticks.
-function M.editableSpans(song,part)
+function M.editableSpans(song,part,rawPedal)
     local notes,pending,at={},{},0
     local player=M.player(song,{on=function(note,velocity,_,id)
         if id~=part or at>=song.beats*song.division then return end
@@ -213,7 +241,7 @@ function M.editableSpans(song,part)
         for _,n in ipairs(pending[note] or {}) do n.l=math.max(0,at/song.division*4-n.s) end
         pending[note]=nil
     end,panic=function() end},{multitimbral=true,percussion=true})
-    for _,e in ipairs(song.events) do at=e.tick;player:event(e) end
+    for _,e in ipairs(song.events) do at=e.tick;if not (rawPedal and e.kind=='control' and e.note==64) then player:event(e) end end
     return notes
 end
 return M

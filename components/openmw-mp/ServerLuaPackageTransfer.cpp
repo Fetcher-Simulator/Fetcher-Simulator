@@ -116,7 +116,7 @@ namespace mwmp::serverlua
                 File& file = mPackageSet.packages[packageIndex].files[fileIndex];
                 FileReceipt& receipt = mReceipts[packageIndex][fileIndex];
                 if (receipt.receivedCount != file.sourceSize)
-                    return fail("Package completion arrived with an incomplete file: " + file.path);
+                    return fail("Package completion arrived with an incomplete file: " + file.path + " (" + std::to_string(receipt.receivedCount) + "/" + std::to_string(file.sourceSize) + " bytes)");
                 file.source = std::move(receipt.bytes);
             }
         }

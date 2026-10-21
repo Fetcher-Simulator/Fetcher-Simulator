@@ -320,6 +320,16 @@ namespace MWSound
         voice.stringCarry = voice.stringLast;
         voice.stringPosition = 0; voice.stringPrevious = 0; voice.stringAge = 0;
     }
+    void ProceduralSynth::resetAutomation()
+    {
+        mAutomated.fill(false); mProgrammed.fill(false); mAutomationSlope.fill(0);
+    }
+    void ProceduralSynth::automationDiscrete()
+    {
+        for (auto i : {std::size_t(25), std::size_t(28), std::size_t(41)})
+            if (mAutomated[i] || mProgrammed[i])
+                mCurrent[i] = static_cast<float>(mAutomated[i] ? mAutomation[i] : mProgram[i]);
+    }
     void ProceduralSynth::render(float* output, std::size_t frames)
     {
         if (closed() || expired())
@@ -356,12 +366,27 @@ namespace MWSound
         float peakValue = 0;
         for (std::size_t frame = 0; frame < frames; ++frame)
         {
+            State effective = target;
             for (std::size_t i = 0; i < ParameterCount; ++i)
-                mCurrent[i] = ProceduralDsp::smooth(mCurrent[i], target[i], 0.004f);
+            {
+                if (mProgrammed[i]) effective[i] = mProgram[i];
+                if (mAutomated[i]) effective[i] = static_cast<float>(mAutomation[i]);
+                if (Parameters[i].discrete) effective[i] = std::round(effective[i]);
+                if (i == 25 && (mAutomated[i] || mProgrammed[i])) effective[i] = std::min(8.f, effective[i]);
+                mCurrent[i] = Parameters[i].discrete ? effective[i] : ProceduralDsp::smooth(mCurrent[i], effective[i], 0.004f);
+            }
+            for (unsigned i = 0; i < 4; ++i)
+            {
+                const double value = mAutomated[ParameterCount+i] ? mAutomation[ParameterCount+i] : (i<2 ? 0.0 : 1.0);
+                mPerformance[i] = ProceduralDsp::smooth(mPerformance[i], value, 0.004);
+            }
+            for (unsigned i = 0; i < ControlCount; ++i) if (mAutomated[i]) mAutomation[i] += mAutomationSlope[i];
+            mModPhase += 6.0 / SampleRate; mModPhase -= std::floor(mModPhase);
+            const double performancePitch = mPerformance[0] + std::sin(2*Pi*mModPhase)*mPerformance[1]*0.5;
             for (std::size_t w = 0; w < 5; ++w)
             {
-                mWave1[w] = ProceduralDsp::smooth(mWave1[w], w == static_cast<std::size_t>(target[0]) ? 1.f : 0.f, 0.004f);
-                mWave2[w] = ProceduralDsp::smooth(mWave2[w], w == static_cast<std::size_t>(target[5]) ? 1.f : 0.f, 0.004f);
+                mWave1[w] = ProceduralDsp::smooth(mWave1[w], w == static_cast<std::size_t>(effective[0]) ? 1.f : 0.f, 0.004f);
+                mWave2[w] = ProceduralDsp::smooth(mWave2[w], w == static_cast<std::size_t>(effective[5]) ? 1.f : 0.f, 0.004f);
             }
             const double lfo = std::sin(2 * Pi * mLfoPhase) * mCurrent[21];
             mLfoPhase += mCurrent[20] / SampleRate;
@@ -377,7 +402,7 @@ namespace MWSound
             for (std::size_t i = 0; i < mVoices.size(); ++i)
             {
                 auto& v = mVoices[i];
-                if (i >= static_cast<std::size_t>(target[25]) && v.amp.stage != 4)
+                if (i >= static_cast<std::size_t>(effective[25]) && v.amp.stage != 4)
                 {
                     v.amp.release();
                     v.filter.release();
@@ -454,7 +479,7 @@ namespace MWSound
                     continue;
                 }
                 const float env = v.filter.next(mCurrent[16], mCurrent[17], mCurrent[18], mCurrent[19]);
-                const double pitchLfo = target[22] == 0 ? lfo * 2 : 0;
+                const double pitchLfo = performancePitch + (effective[22] == 0 ? lfo * 2 : 0);
                 const double pitchEnvelope = v.pitchEnvelope * mCurrent[26];
                 v.pitchEnvelope = ProceduralDsp::silence(v.pitchEnvelope * std::exp(-1.0 / (SampleRate * mCurrent[27])));
                 v.noise ^= v.noise << 13; v.noise ^= v.noise >> 17; v.noise ^= v.noise << 5;
@@ -513,7 +538,7 @@ namespace MWSound
                 v.phase1 = std::fmod(v.phase1 + dt1, 1);
                 v.phase2 = std::fmod(v.phase2 + dt2, 1);
                 const double cutoff = std::clamp(
-                    mCurrent[13] * std::exp2(env * mCurrent[15] + (target[22] == 1 ? lfo * 4 : 0)), 20.0, 18000.0);
+                    mCurrent[13] * std::exp2(env * mCurrent[15] + (effective[22] == 1 ? lfo * 4 : 0)), 20.0, 18000.0);
                 const double g = std::tan(Pi * cutoff / SampleRate);
                 const double k = 2 - 1.9 * mCurrent[14];
                 const double a = 1 / (1 + g * (g + k));
@@ -525,15 +550,15 @@ namespace MWSound
                     v.filter1 = 0;
                 if (std::abs(v.filter2) < 1e-20)
                     v.filter2 = 0;
-                mixed += low * std::pow(std::max(0.f, amp), mCurrent[AmpCurve]) * v.velocity * (target[22] == 2 ? 1 - mCurrent[21] * 0.5 + lfo * 0.5 : 1);
+                mixed += low * std::pow(std::max(0.f, amp), mCurrent[AmpCurve]) * v.velocity * (effective[22] == 2 ? 1 - mCurrent[21] * 0.5 + lfo * 0.5 : 1);
             }
             ProceduralSynthEffects::Settings fx;
-            fx.mode = static_cast<int>(target[DriveType]); fx.cabinet = static_cast<int>(target[Cabinet]);
+            fx.mode = static_cast<int>(effective[DriveType]); fx.cabinet = static_cast<int>(effective[Cabinet]);
             fx.drive = mCurrent[Drive]; fx.tone = mCurrent[DriveTone]; fx.mix = mCurrent[FxMix]; fx.output = mCurrent[FxOutput];
             fx.bass = mCurrent[AmpBass]; fx.mid = mCurrent[AmpMid]; fx.treble = mCurrent[AmpTreble];
             // Preserve legacy multiplication order when the insert is bypassed.
             const double signal = mEffects.process(mixed, fx);
-            output[frame] = static_cast<float>(std::tanh(signal * mCurrent[23] * mCurrent[24] * 0.18));
+            output[frame] = static_cast<float>(std::tanh(signal * mCurrent[23] * mCurrent[24] * 0.18 * mPerformance[2] * mPerformance[3]));
             peakValue = std::max(peakValue, std::abs(output[frame]));
         }
         unsigned count = 0;

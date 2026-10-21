@@ -94,7 +94,7 @@ namespace MWSound
     bool ProceduralStudio::loadScore(std::string_view bytes, std::uint32_t length, bool loop)
     {
         // A routed output may have no notes while retaining the song clock.
-        if (closed() || bytes.size() % 11 || bytes.size() / 11 > MaxNotes || !length || length > MaxFrames) return false;
+        if (closed() || bytes.size() % 11 || bytes.size() / 11 > MaxNotes + MaxControls || !length || length > MaxFrames) return false;
         auto score = std::make_shared<Score>(); score->length = length; score->loop = loop;
         score->notes.reserve(bytes.size() / 11);
         auto u32 = [&](std::size_t offset) {
@@ -102,17 +102,37 @@ namespace MWSound
             for (unsigned i = 0; i < 4; ++i) value |= static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[offset + i])) << (8 * i);
             return value;
         };
-        double tokens = 80; std::uint32_t previous = 0;
+        double tokens = 80; std::uint32_t previous = 0, previousNote = 0; unsigned controls = 0;
         for (std::size_t at = 0; at < bytes.size(); at += 11)
         {
             Note note{ u32(at), u32(at + 4), static_cast<unsigned char>(bytes[at + 8]),
                 static_cast<unsigned char>(bytes[at + 9]), static_cast<unsigned char>(bytes[at + 10]) };
-            if (note.frame < previous || note.frame >= length || !note.duration || note.duration > MaxFrames
-                || note.track < 1 || note.track > MaxTracks || note.pitch > 127 || !note.velocity || note.velocity > 127
-                || (!loop && static_cast<std::uint64_t>(note.frame) + note.duration > length) || !hasTrack(note.track)) return false;
-            tokens = std::min(80.0, tokens + (note.frame - previous) * (40.0 / 48000));
+            if (note.frame < previous || note.frame >= length || note.track < 1 || note.track > MaxTracks || !hasTrack(note.track)) return false;
+            previous = note.frame;
+            if (note.pitch >= 128)
+            {
+                const unsigned code = note.pitch - 128;
+                const bool program = note.velocity == 129;
+                if (++controls > MaxControls || code >= ProceduralSynth::ControlCount || note.duration > 65535
+                    || (note.velocity != 0 && note.velocity != 128 && !program)
+                    || (program && code >= ProceduralSynth::ParameterCount)
+                    || (note.velocity == 128 && (code == 59 || (code < 55 && ProceduralSynth::Parameters[code].discrete)))) return false;
+                auto curve = std::find_if(score->curves.begin(), score->curves.end(), [&](const auto& c) {
+                    return c.track == note.track-1u && c.code == code && c.program == program;
+                });
+                if (curve == score->curves.end())
+                {
+                    score->curves.push_back({note.track-1u, code, program, {}}); curve = score->curves.end()-1;
+                }
+                if (!curve->points.empty() && curve->points.back().frame >= note.frame) return false;
+                curve->points.push_back({note.frame, note.duration, note.velocity == 128});
+                continue;
+            }
+            if (!note.duration || note.duration > MaxFrames || !note.velocity || note.velocity > 127
+                || (!loop && static_cast<std::uint64_t>(note.frame) + note.duration > length) || score->notes.size() >= MaxNotes) return false;
+            tokens = std::min(80.0, tokens + (note.frame - previousNote) * (40.0 / 48000));
             if (tokens < 1 - 1e-9) return false;
-            --tokens; previous = note.frame; score->notes.push_back(note);
+            --tokens; previousNote = note.frame; score->notes.push_back(note);
         }
         if (loop && score->notes.size() * 48000.0 > 40.0 * length) return false;
         std::lock_guard<std::mutex> lock(mControl);
@@ -143,9 +163,10 @@ namespace MWSound
     void ProceduralStudio::clearVoices()
     {
         mOffCount = 0;
+        resetControls();
         for (unsigned n = 0; n < MaxTracks; ++n)
         {
-            mHeld[n].fill(0); mLiveHeld[n].fill(false); ++mGeneration[n];
+            mHeld[n].fill(0); mLiveHeld[n].fill(false); mPedalHeld[n].fill(false); ++mGeneration[n];
             for (auto& bits : mNoteBits[n]) bits = 0;
             if (auto track = std::atomic_load(&mTracks[n]))
                 for (auto& voice : track->mVoices) { voice.amp.release(); voice.filter.release(); voice.drumChoke = true; }
@@ -177,10 +198,85 @@ namespace MWSound
             if (off.generation != mGeneration[off.track] || !mHeld[off.track][off.pitch]) continue;
             if (--mHeld[off.track][off.pitch] == 0 && !mLiveHeld[off.track][off.pitch])
             {
+                if (mPedal[off.track]) { mPedalHeld[off.track][off.pitch] = true; continue; }
                 mNoteBits[off.track][off.pitch / 64].fetch_and(~(std::uint64_t(1) << (off.pitch % 64)));
                 if (auto track = std::atomic_load(&mTracks[off.track])) track->apply({ static_cast<int>(off.pitch), -1 });
             }
         }
+    }
+    void ProceduralStudio::pedal(unsigned n, bool down)
+    {
+        mPedal[n] = down;
+        if (!down) for (unsigned pitch=0; pitch<128; ++pitch) if (mPedalHeld[n][pitch])
+        {
+            mPedalHeld[n][pitch] = false;
+            if (!mHeld[n][pitch] && !mLiveHeld[n][pitch])
+            {
+                mNoteBits[n][pitch/64].fetch_and(~(std::uint64_t(1) << (pitch%64)));
+                if (auto track = std::atomic_load(&mTracks[n])) track->apply({static_cast<int>(pitch), -1});
+            }
+        }
+    }
+    void ProceduralStudio::resetControls()
+    {
+        for (unsigned n=0; n<MaxTracks; ++n)
+        {
+            pedal(n, false);
+            if (auto track = std::atomic_load(&mTracks[n])) track->resetAutomation();
+        }
+    }
+    void ProceduralStudio::chaseControls()
+    {
+        resetControls(); mCurveApplied.fill(false); mChasingControls=true;
+        const auto phase = mActive->loop ? mTime % mActive->length : std::min<std::uint64_t>(mTime,mActive->length);
+        for (std::size_t c=0; c<mActive->curves.size(); ++c)
+        {
+            const auto& points = mActive->curves[c].points;
+            mCurveIndices[c] = std::upper_bound(points.begin(), points.end(), phase,
+                [](std::uint64_t f, const Point& p) {return f < p.frame;}) - points.begin();
+        }
+    }
+    std::uint64_t ProceduralStudio::applyControls()
+    {
+        const auto phase = mActive->loop ? mTime % mActive->length : std::min<std::uint64_t>(mTime,mActive->length);
+        std::uint64_t next = (mCycle+1)*mActive->length;
+        for (std::size_t c=0; c<mActive->curves.size(); ++c)
+        {
+            const auto& curve = mActive->curves[c]; const auto& points = curve.points;
+            auto& index = mCurveIndices[c]; const auto previousIndex = index;
+            while (index < points.size() && points[index].frame <= phase) ++index;
+            if (index < points.size()) next = std::min(next, mCycle*mActive->length+points[index].frame);
+            if (!index || (mCurveApplied[c] && previousIndex == index)) continue;
+            mCurveApplied[c] = true;
+            auto track = std::atomic_load(&mTracks[curve.track]); if (!track) continue;
+            const auto& p = points[index-1]; double value=p.value, slope=0;
+            if (p.linear && index<points.size())
+            {
+                slope = (static_cast<double>(points[index].value)-p.value)/(points[index].frame-p.frame);
+                value += slope*(phase-p.frame);
+            }
+            const auto code=curve.code;
+            const double low = code<55 ? ProceduralSynth::Parameters[code].min : code==55 ? -2 : 0;
+            const double high = code<55 ? ProceduralSynth::Parameters[code].max : code==55 ? 2 : 1;
+            value=low+(high-low)*value/65535; slope *= (high-low)/65535;
+            if (code==55 && std::abs(value)<0.00004) value=0;
+            if (code<55 && ProceduralSynth::Parameters[code].discrete) value=std::round(value);
+            if (code==25) value=std::min(8.0,value);
+            if (curve.program) { track->mProgrammed[code]=true; track->mProgram[code]=static_cast<float>(value); }
+            else { track->mAutomated[code]=true; track->mAutomation[code]=value; track->mAutomationSlope[code]=slope; }
+            if (code==59) pedal(curve.track, value>=0.5);
+        }
+        for (const auto& slot : mTracks) if (auto track=std::atomic_load(&slot))
+        {
+            if (mChasingControls)
+            {
+                for (unsigned i=0; i<55; ++i) if (track->mAutomated[i] || track->mProgrammed[i])
+                    track->mCurrent[i]=static_cast<float>(track->mAutomated[i] ? track->mAutomation[i] : track->mProgram[i]);
+                for (unsigned i=0; i<4; ++i) track->mPerformance[i]=track->mAutomated[55+i] ? track->mAutomation[55+i] : (i<2 ? 0.0 : 1.0);
+            }
+            track->automationDiscrete();
+        }
+        mChasingControls=false; return next;
     }
     std::vector<unsigned> ProceduralStudio::activeNotes() const
     {
@@ -230,7 +326,7 @@ namespace MWSound
                     const auto frame = mTime % mActive->length;
                     mIndex = std::lower_bound(mActive->notes.begin(), mActive->notes.end(), frame,
                         [](const Note& note, std::uint64_t f) { return note.frame < f; }) - mActive->notes.begin();
-                    mPlaying = true; mStartPending = false;
+                    chaseControls(); mPlaying = true; mStartPending = false;
                 }
                 if (mReplacePending) { mReplacement = mLoaded; mReplaceDelay = mPendingDelay > mRendered.load() ? mPendingDelay - mRendered.load() : 0; mReplacePending = false; }
                 for (std::size_t c = 0; c < mLiveCount; ++c)
@@ -255,6 +351,7 @@ namespace MWSound
                             }
                             else if (!mHeld[command.track][command.pitch])
                             {
+                                if (mPedal[command.track]) { mPedalHeld[command.track][command.pitch]=true; continue; }
                                 mNoteBits[command.track][command.pitch/64].fetch_and(~mask);
                                 track->apply({command.pitch,command.velocity});
                             }
@@ -274,22 +371,25 @@ namespace MWSound
                 mActive = mReplacement; mReplacement.reset(); mCycle = mTime / mActive->length;
                 mIndex = std::lower_bound(mActive->notes.begin(), mActive->notes.end(), mTime % mActive->length,
                     [](const Note& note, std::uint64_t frame) {return note.frame < frame;}) - mActive->notes.begin();
+                chaseControls();
             }
             std::size_t count = std::min(frames - done, mixed.size());
-            releaseDue();
+            if (!mPlaying || mDelay) releaseDue();
             if (!mPlaying && mOffCount) count = static_cast<std::size_t>(std::min<std::uint64_t>(count, mOffs[0].frame - mTime));
             if (mReplacement) count = static_cast<std::size_t>(std::min<std::uint64_t>(count, mReplaceDelay));
             if (mPlaying && mDelay) count = static_cast<std::size_t>(std::min<std::uint64_t>(count, mDelay));
             else if (mPlaying)
             {
-                if (mIndex == mActive->notes.size() && mActive->loop && mTime >= (mCycle + 1) * mActive->length) { ++mCycle; mIndex = 0; }
+                if (mIndex == mActive->notes.size() && mActive->loop && mTime >= (mCycle + 1) * mActive->length) { ++mCycle; mIndex = 0; chaseControls(); }
+                const auto nextControl = applyControls();
+                releaseDue();
                 while (mPlaying && mIndex < mActive->notes.size()
                     && mCycle * mActive->length + mActive->notes[mIndex].frame <= mTime) trigger(mActive->notes[mIndex++]);
-                if (!mActive->loop && mTime >= mActive->length) mPlaying = false;
+                if (!mActive->loop && mTime >= mActive->length) { mPlaying = false; resetControls(); }
                 if (mPlaying)
                 {
-                    std::uint64_t next = (mCycle + 1) * mActive->length;
-                    if (mIndex < mActive->notes.size()) next = mCycle * mActive->length + mActive->notes[mIndex].frame;
+                    std::uint64_t next = std::min((mCycle + 1) * mActive->length, nextControl);
+                    if (mIndex < mActive->notes.size()) next = std::min(next, mCycle * mActive->length + mActive->notes[mIndex].frame);
                     if (mOffCount) next = std::min(next, mOffs[0].frame);
                     count = static_cast<std::size_t>(std::min<std::uint64_t>(count, next - mTime));
                 }

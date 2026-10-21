@@ -20,16 +20,19 @@ namespace MWSound
             for (unsigned n=0;n<MaxTracks;++n) { mLanePeak[n]=0; mRms[n]=0; mReduction[n]=0; }
             keepAlive();
         }
-        static constexpr unsigned MaxTracks = 16, MaxNotes = 60000, MaxActive = 4096;
+        static constexpr unsigned MaxTracks = 16, MaxNotes = 60000, MaxControls = 8192, MaxCurves = 16 * 115, MaxActive = 4096;
         static constexpr std::uint32_t MaxFrames = 48000 * 1800;
         struct Note
         {
             std::uint32_t frame, duration;
             unsigned char track, pitch, velocity;
         };
+        struct Point { std::uint32_t frame, value; bool linear; };
+        struct Curve { unsigned track, code; bool program; std::vector<Point> points; };
         struct Score
         {
             std::vector<Note> notes;
+            std::vector<Curve> curves;
             std::uint32_t length;
             bool loop;
         };
@@ -83,7 +86,15 @@ namespace MWSound
         std::array<std::unique_ptr<ProceduralSynth>, MaxTracks> mOwnedTracks{};
         std::array<std::atomic<ProceduralSynth*>, MaxTracks> mTracks{};
         std::array<std::array<unsigned, 128>, MaxTracks> mHeld{};
-        std::array<std::array<bool, 128>, MaxTracks> mLiveHeld{};
+        std::array<std::array<bool, 128>, MaxTracks> mLiveHeld{}, mPedalHeld{};
+        std::array<bool, MaxTracks> mPedal{};
+        std::array<std::size_t, MaxCurves> mCurveIndices{};
+        std::array<bool, MaxCurves> mCurveApplied{};
+        bool mChasingControls = false;
+        void resetControls();
+        void chaseControls();
+        std::uint64_t applyControls();
+        void pedal(unsigned track, bool down);
         std::array<std::array<std::atomic<std::uint64_t>, 2>, MaxTracks> mNoteBits{};
         std::array<unsigned, MaxTracks> mGeneration{};
         std::array<ProceduralMixer, MaxTracks> mMixer{};

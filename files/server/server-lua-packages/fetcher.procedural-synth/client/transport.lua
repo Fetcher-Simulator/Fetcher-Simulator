@@ -154,7 +154,7 @@ function T:receive(data,instances)
     elseif data.op=='scoreBegin' then
         if type(data.playId)~='number' or data.playId%1~=0 or data.playId<1 or type(data.epoch)~='number' then return true end
         if i and i.transport and i.transport.playId==data.playId then return true end
-        if type(data.count)~='number' or data.count<1 or data.count>Sequence.maxNotes then return true end
+        if type(data.count)~='number' or data.count<1 or data.count>Sequence.maxEvents then return true end
         if old and old.epoch==data.epoch and old.playId>data.playId then return true end
         data.chunks={};data.size=0;data.next=1;data.received=self.core.getRealTime();self.downloads[data.id]=data
     elseif old and old.playId==data.playId and old.epoch==data.epoch then

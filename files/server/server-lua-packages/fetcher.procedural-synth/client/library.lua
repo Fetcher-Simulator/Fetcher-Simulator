@@ -19,6 +19,7 @@ function L:request(op,data,done)
 end
 function L:list() return self:request('libList') end
 function L:guard(action,caption)
+    self.w:endAutomationWrite()
     if self.pending then self:changed('Please wait for the current project request.');return false end
     if self.w.recording or self.w.failedTake then self:changed('Keep or cancel the take first.');self.cb.message(self.status);return false end
     if not self.w.dirty then action();return true end
@@ -29,6 +30,7 @@ function L:continue(saved)
     if saved and self.action then local action=self.action;self.action=nil;self.w.page=self.returnPage or 'song';action() end
 end
 function L:save(asNew,name)
+    self.w:endAutomationWrite()
     if self.w.recording or self.w.failedTake then self:changed('Keep or cancel the take before saving.');return false end
     local project=format.project(self.w.project);if not project then self:changed('Invalid project; save cancelled.');return false end
     if name then project.name=name end
@@ -44,7 +46,7 @@ function L:save(asNew,name)
     end)
 end
 function L:snapshot(continue)
-    if self.w.recording or self.w.failedTake then return false end
+    if self.w.recording or self.w.failedTake or self.w.automationWriting then return false end
     local project=format.project(self.w.project);if not project then self:changed('Invalid project; recovery not written.');return false end
     return self:request('libSnapshot',{project=project,projectId=self.active,token=self.token,saveRevision=self.w.generation},function(data,p)
         self.autosaved=p.generation;self:changed('Recovery draft stored; named save unchanged.')

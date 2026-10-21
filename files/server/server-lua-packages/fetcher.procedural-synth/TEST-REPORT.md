@@ -1105,3 +1105,48 @@ per-document recovery snapshots, 30-second autosave while dirty and connected,
 and explicit Keep/Cancel of unfinished takes. Recovery may predate a later named
 save. Referenced MIDI/game-audio assets remain external. This does not claim
 cross-server project transfer, offline autosave, or collaborative document editing.
+
+
+## Automation/controller editing and bootstrap backpressure (2026-10-20)
+
+Package 22 / native synth API 14. Windows RelWithDebInfo openmw and openmw-server
+build successfully. All 18 Lua test scripts pass, including the new 36-assertion
+automation suite, server ownership/late-join relay, exact physical-output curve
+partitioning, and actual Studio graph paint/drag/delete/history at GUI scale.
+The standalone C++ DSP suite passes. It verifies step/linear curves, exact PCM
+across 480/137-frame blocks and repeated loops, positive two-semitone pitch bend,
+controller chase, sustain and same-frame pedal-on/gate-off ordering, program
+precedence, Stop/manual-patch restoration and malformed control rejection.
+
+The larger package crossed the socket send-buffer budget and initially failed
+bootstrap with incomplete source files. The fix pumps at most four packets with a
+128 KiB target budget, retries rejected sends, and preserves source/completion/character
+list order. A deterministic queue test sends more than the socket-buffer size
+with repeated simulated backpressure; both native clients then bootstrap cleanly.
+The previously added library module is also included in the server release file
+manifest so a clean CMake configure succeeds.
+
+Disposable native probes ran in the existing port-25567 fixture, with the user
+clients closed. Synth A exported and parsed bend/program/CC data, played the score,
+captured a curve take, exercised Undo/Redo and named saves, then saved/reloaded the
+full 8,192-point project over the real Lua wire and SQLite and played its score.
+Synth B joined during playback and reported native voices, strikes and fault=0.
+A full server/client restart retained curves and the program policy and replayed
+on both clients. Native UI checks at windowed 160% / fullscreen 186% verified the
+expanded graph, point painting, point dragging, the parameter picker and switching
+Mixer -> Auto in fullscreen. Right-click deletion is covered by the actual UI
+regression harness; it was not claimed as a live GUI deletion test.
+
+Evidence is retained under the fixture's evidence/automation/first-run and
+restart-ui directories. The fresh baseline is baseline-20261020-205434; all 15
+saved-data/settings/input/database hashes were restored after the disposable QA.
+The ordinary package is installed with the QA probe disabled. Saved user projects
+and profiles are preserved. Only the existing local fixture is changed; no push,
+production deployment or new port-25568 fixture is involved.
+
+First-pass limits: recording captures Auto slider edits for the next bar-boundary
+replacement, rather than monitoring an incoming hardware controller. Controller
+import is explicit for compatibility with older baked sustain gates. Program
+changes use current sound-set family patches and remain off for sample parts.
+Mixer/return automation, external MIDI input, variable bend/RPN maps and richer
+recording modes remain roadmap items; README.md documents behavior and bounds.

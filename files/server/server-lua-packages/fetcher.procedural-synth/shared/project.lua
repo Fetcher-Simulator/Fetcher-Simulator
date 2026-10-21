@@ -16,6 +16,35 @@ local function array(t,max)
     local n=0;for k in pairs(t) do if not int(k,1,max) then return false end;n=n+1 end
     return n==#t and n<=max
 end
+-- Times are Studio steps (four per quarter note); absent lanes leave the patch alone.
+M.automationOrder={};M.automationSpecs={};M.maxAutomation=8192
+for i,name in ipairs(schema.order) do
+    local source=schema.specs[name];local spec={min=source.min,max=source.max,default=source.default,discrete=source.discrete,code=127+i}
+    if name=='polyphony' then spec.max=8;spec.default=8 end
+    M.automationOrder[#M.automationOrder+1]=name;M.automationSpecs[name]=spec
+end
+for _,entry in ipairs{{'pitchBend',-2,2,0,183},{'modulation',0,1,0,184},{'expression',0,1,1,185},
+    {'midiVolume',0,1,1,186},{'pedal',0,1,0,187,true},{'program',0,127,0,nil,true}} do
+    local name=entry[1];M.automationOrder[#M.automationOrder+1]=name
+    M.automationSpecs[name]={min=entry[2],max=entry[3],default=entry[4],code=entry[5],discrete=entry[6]}
+end
+function M.automation(input)
+    if input==nil then return {} end
+    if not keys(input,M.automationSpecs,61) then return nil end
+    local out={};local count=0
+    for name,points in pairs(input) do
+        local spec=M.automationSpecs[name];if not array(points,1024) then return nil end
+        local previous=-1;out[name]={}
+        for _,point in ipairs(points) do
+            if not keys(point,{s=true,v=true,linear=true},3) or not num(point.s,0,M.maxSongBeats*4) or point.s<=previous
+                or not num(point.v,spec.min,spec.max) or spec.discrete and point.v%1~=0
+                or type(point.linear)~='boolean' or spec.discrete and point.linear then return nil end
+            previous=point.s;count=count+1;if count>M.maxAutomation then return nil end
+            out[name][#out[name]+1]={s=point.s,v=point.v,linear=point.linear}
+        end
+    end
+    return out,count
+end
 M.mixerSpecs={eqEnabled={0,1,0},highpass={20,1000,20},bass={-18,18,0},mid={-18,18,0},midFrequency={200,6000,1000},treble={-18,18,0},
     compEnabled={0,1,0},threshold={-60,0,-18},ratio={1,20,4},attack={0.1,200,10},release={10,2000,150},makeup={0,24,0},delaySend={0,1,0},reverbSend={0,1,0}}
 M.mixerOrder={'eqEnabled','highpass','bass','mid','midFrequency','treble','compEnabled','threshold','ratio','attack','release','makeup','delaySend','reverbSend'}
@@ -221,9 +250,9 @@ function M.eachRegionNote(t,emit)
         end end
     end end
 end
-local trackKeys={name=true,kind=true,part=true,presetId=true,params=true,level=true,mute=true,solo=true,note=true,gate=true,steps=true,notes=true,output=true,mixer=true,edited=true,sourceRole=true,arrangement=true}
+local trackKeys={name=true,kind=true,part=true,presetId=true,params=true,level=true,mute=true,solo=true,note=true,gate=true,steps=true,notes=true,output=true,mixer=true,edited=true,sourceRole=true,arrangement=true,automation=true,followPrograms=true}
 function M.track(t,length)
-    if not keys(t,trackKeys,18) or not text(t.name,48) or (t.kind~='midi' and t.kind~='piano' and t.kind~='drum')
+    if not keys(t,trackKeys,20) or not text(t.name,48) or (t.kind~='midi' and t.kind~='piano' and t.kind~='drum')
         or not text(t.part or '',48) or not text(t.presetId or '',32) or not num(t.level,0,1)
         or type(t.mute)~='boolean' or type(t.solo)~='boolean' or not int(t.note,0,127) or not num(t.gate,0.01,1)
         or type(t.steps)~='string' or (#t.steps<length or #t.steps>M.maxSteps or #t.steps%16~=0) or t.steps:find('[^0-9]')
@@ -240,6 +269,11 @@ function M.track(t,length)
     if t.arrangement~=nil then
         if not out.edited then return nil end
         out.arrangement=M.arrangement(t.arrangement);if not out.arrangement then return nil end
+    end
+    if t.automation~=nil then out.automation=M.automation(t.automation);if not out.automation then return nil end end
+    if t.followPrograms~=nil then
+        if type(t.followPrograms)~='boolean' or t.followPrograms and params.sample then return nil end
+        out.followPrograms=t.followPrograms
     end
     for _,n in ipairs(t.notes) do
         if not keys(n,{n=true,s=true,l=true,v=true},4) or not int(n.n,0,127) or not num(n.s,0,M.maxSteps-0.000001)
@@ -263,7 +297,7 @@ function M.project(p)
             or #out.timeline.tempos~=1 or out.timeline.tempos[1].beat~=0
             or out.timeline.tempos[1].tempo~=math.floor(60000000/p.bpm+0.5) then return nil end
     end
-    local notes,edited,regions,expanded=0,0,0,0
+    local notes,edited,regions,expanded,automation=0,0,0,0,0
     for _,t in ipairs(p.tracks) do
         local track=M.track(t,p.length);if not track then return nil end
         if out.composition and track.kind=='midi' and not track.edited then return nil end
@@ -281,6 +315,13 @@ function M.project(p)
             for _,r in ipairs(track.arrangement.regions) do if M.seconds(out.timeline,(r.s+r.l)/4)>1800 then return nil end end
         end
         if edited>M.maxEditedNotes or regions>M.maxProjectRegions or expanded>M.maxExpandedNotes then return nil end
+        for _,points in pairs(track.automation or {}) do
+            automation=automation+#points;if automation>M.maxAutomation then return nil end
+            for _,point in ipairs(points) do
+                local seconds=out.timeline and M.seconds(out.timeline,point.s/4) or point.s/4*60/out.bpm
+                if seconds>1800 then return nil end
+            end
+        end
         out.tracks[#out.tracks+1]=track
     end
     return out

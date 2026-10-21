@@ -95,11 +95,13 @@ function W:addPart(role)
     self.base=math.max(0,math.min(116,math.floor(t.note/12)*12));self:configureAll();self:touch();return true
 end
 function W:undo()
+    self:endAutomationWrite()
     if self.recording then self.cb.message('End or cancel the take before undo.');return false end
     local project=table.remove(self.undoStack);if not project then return false end
     self.redoStack[#self.redoStack+1]=copy(self.project);self:restore(project);return true
 end
 function W:redo()
+    self:endAutomationWrite()
     if self.recording then self.cb.message('End or cancel the take before redo.');return false end
     local project=table.remove(self.redoStack);if not project then return false end
     self.undoStack[#self.undoStack+1]=copy(self.project);self:restore(project);return true
@@ -124,6 +126,66 @@ function W:setEffect(name,value)
     state=format.effects(state);if not state then return false end
     self.project.effects=state;if self.cb.effects then self.cb.effects(state,self.project.master) end
     self:touch('effects:'..name,true);return true
+end
+function W:automationValue(index,name,step)
+    local t=self.project.tracks[index];local spec=format.automationSpecs[name];if not t or not spec then return end
+    local value=t.params[name] or spec.default;local points=t.automation and t.automation[name] or {}
+    for i,p in ipairs(points) do
+        if p.s>step then break end
+        value=p.v;local next=points[i+1]
+        if p.linear and next and step<next.s then return value+(next.v-value)*(step-p.s)/(next.s-p.s) end
+    end
+    return value
+end
+function W:setAutomation(index,name,step,value,linear,remove,from)
+    if self.recording then self.cb.message('End the keyboard take before editing automation.');return false end
+    local t=self.project.tracks[index];local spec=format.automationSpecs[name]
+    if not t or not spec or type(step)~='number' or step~=step or step<0 then return false end
+    local lanes=copy(t.automation or {});local points=lanes[name] or {};lanes[name]=points
+    for i=#points,1,-1 do if math.abs(points[i].s-step)<1e-7 or from and math.abs(points[i].s-from)<1e-7 then table.remove(points,i) end end
+    if not remove then points[#points+1]={s=step,v=value,linear=not spec.discrete and linear==true} end
+    table.sort(points,function(a,b) return a.s<b.s end)
+    if #points==0 then lanes[name]=nil end
+    local candidate=copy(self.project);candidate.tracks[index].automation=lanes
+    if not format.project(candidate) then self.cb.message('Automation value, time or point budget exceeded.');return false end
+    t.automation=lanes;self:touch(nil,true);return true
+end
+function W:followPrograms(index,enabled)
+    local t=self.project.tracks[index];if not t or t.params.sample or type(enabled)~='boolean' then return false end
+    t.followPrograms=enabled;self:touch('sequence');return true
+end
+function W:importControls(index)
+    local t=self.project.tracks[index];if not t or not self.song or t.kind~='midi' then return false end
+    local part;for _,p in ipairs(MIDI.parts(self.song)) do if p.id==t.part then part=p end end
+    if not part then return false end
+    local ok,lanes=pcall(MIDI.automation,self.song,part);if not ok then self.cb.message(tostring(lanes));return false end
+    -- Replace only MIDI performance lanes, preserving all synth-parameter curves.
+    local automation=copy(t.automation or {})
+    for _,name in ipairs{'pitchBend','modulation','expression','midiVolume','pedal','program'} do automation[name]=lanes[name] end
+    local candidate=copy(self.project);candidate.tracks[index].automation=automation
+    if not candidate.timeline then
+        local tempos={};for _,tempo in ipairs(self.song.tempos or {}) do tempos[#tempos+1]={beat=tempo.beat,tempo=tempo.tempo} end
+        candidate.timeline=format.timeline{beats=self.song.beats,tempos=tempos}
+        if not candidate.timeline then self.cb.message('MIDI tempo map exceeds editable limits.');return false end
+    end
+    if not format.project(candidate) then self.cb.message('Imported controls exceed the project budget.');return false end
+    self:stop(true);self.project.timeline=candidate.timeline;t.automation=automation;self:touch('sequence');return true
+end
+function W:endAutomationWrite()
+    if not self.automationWriting then return end
+    self.automationWriting=false;self.editDepth=math.max(0,(self.editDepth or 1)-1)
+    if self.editDepth==0 and self.transactionTouched then self.transactionTouched=false;self:touch('sequence') end
+end
+function W:beginAutomationWrite()
+    if not self.native or not self.playing or self.awaiting or self.recording or self.mode=='pattern' then return false end
+    if not self.automationWriting then self.lastEditKey=nil;self.automationWriting=true;self.editDepth=(self.editDepth or 0)+1 end
+    return true
+end
+function W:recordAutomation(index,name,value)
+    if not self.native or not self.playing or self.awaiting then return false end
+    local step=math.max(0,math.floor(self.beat*4*4+0.5)/4)
+    if self.mode~='song' then step=step%self.project.length end
+    return self:setAutomation(index,name,step,value,self.automationLinear~=false)
 end
 function W:configureBand()
     if self.cb.band then
@@ -158,7 +220,7 @@ function W:setSample(index,reference)
     end
     local params=t.params.sample and schema.state(t.params) or schema.state{attack=0.002,sustain=1,
         release=0.08,cutoff=18000,resonance=0,polyphony=8}
-    params.sample=reference;t.params=params;t.presetId='';self.project.soundSet=''
+    params.sample=reference;t.followPrograms=false;t.params=params;t.presetId='';self.project.soundSet=''
     self:configure(index);self:touch('sound:sample:'..index);return true
 end
 function W:prepareSamples(index)
@@ -197,7 +259,9 @@ function W:applySoundSet(id)
         changes[n]={state,presetId}
     end
     for n,t in ipairs(self.project.tracks) do t.params=changes[n][1];t.presetId=changes[n][2] end
-    self.project.soundSet=id;self:configureAll();self:touch('soundset:'..self.generation);return true
+    self.project.soundSet=id;self:configureAll();self:touch('soundset:'..self.generation)
+    if self.native and self.playing then for _,t in ipairs(self.project.tracks) do if t.followPrograms then self.sequenceDirty=true end end end
+    return true
 end
 function W:cycleSoundSet(delta)
     local at=0;for n,s in ipairs(SoundSets.entries) do if s.id==self.project.soundSet then at=n end end
@@ -346,7 +410,7 @@ function W:convertPart(index)
     for _,tempo in ipairs(self.song.tempos or {}) do timeline.tempos[#timeline.tempos+1]={beat=tempo.beat,tempo=tempo.tempo} end
     timeline=self.project.timeline or format.timeline(timeline)
     if not timeline then self.cb.message('This MIDI tempo map exceeds the editable song limits.');return false end
-    local notes=MIDI.editableSpans(self.song,t.part);local data=format.encodeNotes(notes,self.song.division)
+    local notes=t.automation and t.automation.pedal and MIDI.editableSpans(self.song,t.part,true) or MIDI.editableSpans(self.song,t.part);local data=format.encodeNotes(notes,self.song.division)
     local total=#notes+format.savedNotes(self.project)
     if not data or total>format.maxEditedNotes then self.cb.message('Editing supports 4,096 notes per part and 8,192 per project. Original part preserved.');return false end
     self:stop(true);self.project.timeline=timeline;t.edited=data;self.noteCache={};self.noteSelection={};self.selectionTrack=index
@@ -467,6 +531,7 @@ function W:load(project)
     return true
 end
 function W:save()
+    self:endAutomationWrite()
     if self.recording then self.cb.message('Keep or cancel the take before saving.');return false end
     self.lastEditKey=nil
     local p=format.project(self.project)
@@ -481,6 +546,7 @@ function W:audition(index)
     return true
 end
 function W:stop(force)
+    self:endAutomationWrite()
     self:endTake(false)
     if self.cb.stopSequence and (self.native or force) then self.cb.stopSequence() end
     if self.native then self.native=false;self.awaiting=false;self.sequenceDirty=false end
@@ -498,7 +564,7 @@ function W:play(mode)
     self:configureAll();self.time=0;self.beat=0;self.step=-1;self.pending={};self.counts={};self.playing=true;self.mode=mode
     if self.cb.schedule then
         local Sequence=require(prefix..'shared.sequence')
-        local ok,plan=pcall(Sequence.compile,self.project,self.song,MIDI,mode,format)
+        local ok,plan=pcall(Sequence.compile,self.project,self.song,MIDI,mode,format,SoundSets.programPatch)
         if not ok then self.playing=false;self.cb.message(tostring(plan));return false end
         self.native=true;self.nativeStarted=false;self.awaiting=true;self.sequenceDirty=false
         if self.cb.schedule(plan,false)==false then self:stop(true);return false end
@@ -517,12 +583,12 @@ function W:play(mode)
 end
 function W:compilePlan()
     local Sequence=require(prefix..'shared.sequence')
-    if self.mode~='pattern' then return Sequence.compile(self.project,self.song,MIDI,self.mode,format) end
+    if self.mode~='pattern' then return Sequence.compile(self.project,self.song,MIDI,self.mode,format,SoundSets.programPatch) end
     local clip=assert(self:clipSource(),'Select a clip source first.')
     local p=copy(self.project);p.composition=nil;p.timeline=nil;p.length=clip.length;p.swing=0;p.loop=true
-    for _,t in ipairs(p.tracks) do t.kind='midi';t.arrangement=nil end
+    for _,t in ipairs(p.tracks) do t.kind='midi';t.arrangement=nil;t.automation=nil;t.followPrograms=false end
     p.tracks[self.selected].kind='piano';p.tracks[self.selected].notes=format.decodeNotes(clip.notes)
-    return Sequence.compile(p,nil,MIDI,'clips',format)
+    return Sequence.compile(p,nil,MIDI,'clips',format,SoundSets.programPatch)
 end
 function W:playClip()
     if not self:clipSource() or not self.cb.schedule then return false end
@@ -563,6 +629,7 @@ function W:recordClock()
     return self:beatAt(r.seconds+now-r.starts,r.mode)*4
 end
 function W:startTake(index)
+    self:endAutomationWrite()
     if self.failedTake then self.cb.message('Retry or cancel the recovered take before recording again.');return false end
     if self.playing and (not self.native or not self.cb.progress) then self.cb.message('Native playback is required for overdub.');return false end
     if self.recording or not self:canEditNotes(index) then self.cb.message('Choose a piano clip or convert the MIDI part with Edit MIDI first.');return false end
@@ -677,7 +744,7 @@ function W:frame(dt)
             else preview[#preview+1]=n end
         end
         self.preview=preview
-        if self.sequenceDirty and self.wall-(self.lastSequenceEdit or -10)>0.25 then
+        if self.sequenceDirty and not self.automationWriting and self.wall-(self.lastSequenceEdit or -10)>0.25 then
             self.sequenceDirty=false;self.lastSequenceEdit=self.wall
             local ok,plan=pcall(self.compilePlan,self)
             if not ok or self.cb.schedule(plan,true)==false then self:stop(true);self.cb.message(tostring(plan));return end
@@ -686,7 +753,7 @@ function W:frame(dt)
             local playing,time,fault,complete=self.cb.progress()
             if playing then self.nativeStarted=true end
             self.time=time;self.beat=self:playbackBeat(time);self.step=math.floor(self.beat*4)
-            if not playing and (self.nativeStarted or complete or fault and fault~=0) then self.playing=false;self.native=false;if fault and fault~=0 then self.cb.message('Native transport stopped: active-note limit.');self.cb.stopSequence() end end
+            if not playing and (self.nativeStarted or complete or fault and fault~=0) then self:endAutomationWrite();self.playing=false;self.native=false;if fault and fault~=0 then self.cb.message('Native transport stopped: active-note limit.');self.cb.stopSequence() end end
         end
         return
     end

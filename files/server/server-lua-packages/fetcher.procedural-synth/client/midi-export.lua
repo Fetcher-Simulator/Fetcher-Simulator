@@ -10,8 +10,9 @@ function M.encode(project,song,MIDI,format,mode)
     local Sequence=require('scripts.multiplayer.fetcher.procedural-synth.shared.sequence')
     local p=assert(format.project(project),'Invalid Studio project');mode=mode or ((p.timeline or song) and 'song' or 'clips')
     if p.composition then p.composition.loop=false;p.composition.loopStart=1;p.composition.loopEnd=p.composition.bars end
-    local plan=Sequence.compile(p,song,MIDI,mode,format)
-    assert(#plan.bytes/11<=M.maxNotes,'MIDI export supports at most 29000 expanded notes')
+    local plan=Sequence.compile(p,song,MIDI,mode,format,require('scripts.multiplayer.fetcher.procedural-synth.client.soundsets').programPatch)
+    local noteCount=0;for at=1,#plan.bytes,11 do if plan.bytes:byte(at+9)<128 then noteCount=noteCount+1 end end
+    assert(noteCount<=M.maxNotes,'MIDI export supports at most 29000 expanded notes')
     local tempos=mode=='song' and ((p.timeline or song).tempos or {}) or {{beat=0,tempo=60000000/p.bpm}}
     local map={};local seconds,beat,tempo=0,0,500000
     for _,entry in ipairs(tempos) do
@@ -26,7 +27,7 @@ function M.encode(project,song,MIDI,format,mode)
     end
     local finish=tick(plan.length/Sequence.rate);local tracks={{}};local order=0
     local function event(track,at,bytes,priority)
-        order=order+1;tracks[track][#tracks[track]+1]={at=at,bytes=bytes,priority=priority or 0,order=order}
+        order=order+1;assert(order<=60000,'MIDI export controller/event budget exceeded');tracks[track][#tracks[track]+1]={at=at,bytes=bytes,priority=priority or 0,order=order}
     end
     event(1,0,string.char(255,3)..vlq(#p.name)..p.name,-3)
     for _,t in ipairs(map) do event(1,math.floor(t.beat*M.division+.5),string.char(255,81,3)..be(math.floor(t.tempo+.5),3),-2) end
@@ -44,14 +45,36 @@ function M.encode(project,song,MIDI,format,mode)
         event(n+1,0,string.char(255,3)..vlq(#t.name)..t.name,-3)
         event(n+1,0,string.char(255,33,1,port),-2)
         local program=song and song.programs and song.programs[t.part]
-        if program then event(n+1,0,string.char(192+channel,program),-1) end
+        if program and not (t.automation and t.automation.program and #t.automation.program>0) then event(n+1,0,string.char(192+channel,program),-1) end
+        local function controller(name,step,value)
+            local at=math.floor(step/4*M.division+0.5);local bytes
+            if name=='pitchBend' then local v=math.max(0,math.min(16383,math.floor(value/2*8192+8192+0.5)));bytes=string.char(224+channel,v%128,math.floor(v/128))
+            elseif name=='program' then bytes=string.char(192+channel,value)
+            else local cc=({modulation=1,midiVolume=7,expression=11,pedal=64})[name]
+                if cc then bytes=string.char(176+channel,cc,math.floor(value*127+0.5)) end
+            end
+            if bytes then event(n+1,at,bytes,-1) end
+        end
+        for _,name in ipairs{'pitchBend','modulation','expression','midiVolume','pedal','program'} do
+            local points=t.automation and t.automation[name] or {}
+            for i,point in ipairs(points) do if point.s/4*M.division<=finish then
+                controller(name,point.s,point.v)
+                local next=points[i+1]
+                if point.linear and next then
+                    local last=math.min(next.s,finish/M.division*4)
+                    for step=point.s+.25,last-.000001,.25 do controller(name,step,point.v+(next.v-point.v)*(step-point.s)/(next.s-point.s)) end
+                end
+            end end
+        end
     end
     local function le(at) local a,b,c,d=plan.bytes:byte(at,at+3);return a+b*256+c*65536+d*16777216 end
     for at=1,#plan.bytes,11 do
         local frame,gate=le(at),le(at+4);local lane,note,velocity=plan.bytes:byte(at+8,at+10)
+        if note<128 then
         local first,last=tick(frame/Sequence.rate),tick((frame+gate)/Sequence.rate);last=math.max(first+1,last);finish=math.max(finish,last)
         event(lane+1,first,string.char(144+channels[lane],note,velocity),1)
         event(lane+1,last,string.char(128+channels[lane],note,0),0)
+        end
     end
     local chunks={'MThd'..be(6,4)..be(1,2)..be(#tracks,2)..be(M.division,2)}
     for _,events in ipairs(tracks) do

@@ -55,4 +55,7 @@ function M.trackRole(track,part)
     local p=builtins[track.presetId];local tag=p and p.role
     return ({Bass='bass',Guitar='guitar',Pad='pad',Lead='lead',Bell='mallet',Pluck='pluck'})[tag] or (track.presetId=='b:bass' and 'bass' or 'keys')
 end
+function M.programPatch(project,track,program)
+    return M.assignment(M.find(project.soundSet) and project.soundSet or 'balanced',M.role{program=program},true)
+end
 return M

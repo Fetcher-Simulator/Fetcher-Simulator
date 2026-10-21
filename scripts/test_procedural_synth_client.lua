@@ -74,6 +74,7 @@ package.loaded['openmw.synth'].setMonitorVolume=function(value) monitor=value en
 package.loaded[prefix..'client.window']=dofile(root..'client/window.lua')
 package.loaded[prefix..'client.workstation']=dofile(root..'client/workstation.lua')
 package.loaded[prefix..'client.controls']=dofile(root..'client/controls.lua')
+package.loaded[prefix..'client.automation-roll']=dofile(root..'client/automation-roll.lua')
 package.loaded[prefix..'client.piano-roll']=dofile(root..'client/piano-roll.lua')
 package.loaded[prefix..'client.dropdown']=dofile(root..'client/dropdown.lua')
 package.loaded[prefix..'client.arrangement']=dofile(root..'client/arrangement.lua')
@@ -410,6 +411,28 @@ viewport=vector(1920,1440);lastStudio.window:zoom(0.5);now=now+0.001;lastStudio:
 dragNote(true,2)
 check(w.project.tracks[1].notes[1].l==3,'resize uses physical coordinates correctly at enlarged GUI scale')
 check(w:undo() and w.project.tracks[1].notes[1].l==1,'resize undo restores gate')
+-- Automation uses the expanded workspace and the same native header hit testing.
+w.page='auto';w.selected=1;w.automationName='cutoff';w.automationDraft=nil;w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
+check(lastStudio.automationRoll and button('Import MIDI controls') and button('Follow programs'),'automation page exposes lane import and program policy')
+local ar=lastStudio.automationRoll;local count=#(w.project.tracks[1].automation and w.project.tracks[1].automation.cutoff or {})
+local pos=lastStudio.root.layout.props.position;local scale=lastStudio.window.scale
+ar.element.layout.events.mousePress{button=1,position=vector(pos.x+(ar.x+ar.width*.23)*scale,pos.y+(38+ar.y+ar.height*.4)*scale)}
+now=now+.01;lastStudio:frame(now);ar=lastStudio.automationRoll
+local points=w.project.tracks[1].automation.cutoff;check(#points==count+1,'scaled fullscreen automation graph paints point')
+local point=points[#points];local px=(point.s-ar.start)/ar.steps*ar.width;local py=(1-(point.v-ar.spec.min)/(ar.spec.max-ar.spec.min))*ar.height
+local handle;for _,child in ipairs(ar.element.layout.content) do if child.events and child.events.mousePress then handle=child end end
+assert(handle);local before=#w.undoStack;mouseDown=true
+handle.events.mousePress{button=1,position=vector(pos.x+(ar.x+px)*scale,pos.y+(38+ar.y+py)*scale),offset=vector(5*scale,5*scale)}
+handle.events.mouseMove{button=1,position=vector(pos.x+(ar.x+px+ar.width/16)*scale,pos.y+(38+ar.y+py-20)*scale),offset=vector(5*scale,5*scale)}
+mouseDown=false;now=now+.01;lastStudio:frame(now)
+check(#w.undoStack==before+1 and w.project.tracks[1].automation.cutoff[#points].s~=point.s,'automation drag commits once on release')
+check(w:undo() and w.project.tracks[1].automation.cutoff[#points].s==point.s,'automation drag Undo restores authored point')
+now=now+.01;lastStudio:frame(now);ar=lastStudio.automationRoll
+for _,child in ipairs(ar.element.layout.content) do if child.events and child.events.mousePress then handle=child end end
+handle.events.mousePress{button=3,offset=vector(5,5)};now=now+.01;lastStudio:frame(now)
+check(#(w.project.tracks[1].automation.cutoff or {})==count and mode=='Interface','automation right-click deletes point and retains editor')
+check(w:undo(),'automation deletion Undo')
+w.page='piano';w.revision=w.revision+1
 viewport=vector(1024,768);lastStudio.window:zoom(-0.5);now=now+0.001;lastStudio:frame(now)
 w:selectNote(1,1);ctrl=true;lastStudio:key(input.KEY.D,true);ctrl=false
 check(#w.project.tracks[1].notes==2 and w.project.tracks[1].notes[2].s==1,'Ctrl+D duplicates selected notes without changing their sound')
@@ -538,7 +561,7 @@ api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrum
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
 -- Reproduce loaded-song reuse from the actual Studio callbacks, including Band.
-package.loaded['openmw.synth'].version=13
+package.loaded['openmw.synth'].version=14
 local paths={'midi/a.mid','midi/b.mid'};local files={}
 local function midiBytes(pitch,count)
     local events={};for n=1,count or 1 do events[#events+1]=string.char(0,144,pitch,100,96,128,pitch,0) end

@@ -1,3 +1,4 @@
+#include "../../apps/openmw-server/ServerLuaPackageSendQueue.hpp"
 #include "../../apps/openmw/mwsound/proceduralstudio.hpp"
 using NativeStudio=MWSound::ProceduralStudio;
 std::string scoreNote(std::uint32_t frame,std::uint32_t gate,int lane,int pitch,int velocity=100)
@@ -21,6 +22,57 @@ std::vector<float> studioRender(NativeStudio& studio,unsigned frames,unsigned bl
 }
 void studioTests()
 {
+    {
+        mwmp::ServerLuaPackageSendQueue queue;
+        for (unsigned i=0;i<20;++i) queue.push(std::vector<std::uint8_t>(48000,static_cast<std::uint8_t>(i)));
+        unsigned expected=0, attempts=0;
+        while (!queue.pump([&](const auto& packet) {
+            if (++attempts%3==0) return false;
+            check(packet.front()==expected++,"package retry preserves source/marker/character-list order");return true;
+        })) {}
+        check(expected==20,"package source larger than the socket buffer retries without dropping chunks");
+    }
+    {
+        auto a=std::make_unique<NativeStudio>();auto b=std::make_unique<NativeStudio>();setupStudio(*a);setupStudio(*b);
+        const auto score=scoreNote(0,24000,1,60)+scoreNote(0,65535,1,141,128)+scoreNote(0,0,1,185,128)
+            +scoreNote(10000,1000,1,141,0)+scoreNote(10000,65535,1,185,0)+scoreNote(12000,65535,1,183,128)
+            +scoreNote(23999,0,1,183,0);
+        check(a->loadScore(score,24000,true) && b->loadScore(score,24000,true),"parameter/controller curves accepted");
+        a->start(0,0);b->start(0,0);
+        const auto expected=studioRender(*a,96000,480), irregular=studioRender(*b,96000,137);
+        check(expected==irregular,"linear automation/controller PCM is block invariant across loops");
+        check(energy(expected)>0 && a->strikes()==4,"controllers do not create attacks");
+        a->stop();studioRender(*a,24000);a->noteOn(1,60,1);check(energy(studioRender(*a,24000))>0,"Stop removes automation and restores manual patch");
+        check(!a->loadScore(scoreNote(0,65536,1,141,0),24000,true)
+            && !a->loadScore(scoreNote(0,1,1,188,0),24000,true)
+            && !a->loadScore(scoreNote(0,1,1,128,128),24000,true)
+            && !a->loadScore(scoreNote(0,1,1,185,129),24000,true)
+            && !a->loadScore(scoreNote(0,1,1,141,0)+scoreNote(0,2,1,141,128),24000,true),"malformed controls and duplicate curve times rejected");
+        const auto pedalScore=scoreNote(0,65535,1,187,0)+scoreNote(100,1000,1,60)+scoreNote(6000,0,1,187,0);
+        check(a->loadScore(pedalScore,12000,false) && a->start(0,0),"native sustain setup");
+        studioRender(*a,4000);check(!a->activeNotes().empty(),"pedal defers scheduled note release");
+        studioRender(*a,3000);check(a->activeNotes().empty(),"pedal-up releases deferred pitch");
+        a->stop();studioRender(*a,24000);
+        const auto mute=scoreNote(0,0,1,185,0)+scoreNote(12000,1000,1,60);
+        check(a->loadScore(mute,24000,false) && a->start(0,.2),"controller chase seek setup");
+        check(energy(studioRender(*a,20000))==0,"late listener chases expression before next onset");
+        a->stop();studioRender(*a,24000);a->noteOn(1,60,1);
+        check(energy(studioRender(*a,10000))>0,"finite end/Stop restores controller gain");
+        const auto program=scoreNote(0,65535,1,151,129)+scoreNote(0,0,1,151,0)+scoreNote(100,1000,1,60);
+        a->stop();studioRender(*a,24000);a->loadScore(program,24000,false);a->start(0,0);
+        check(energy(studioRender(*a,12000))==0,"explicit automation overrides program snapshot");
+        a->stop();studioRender(*a,24000);
+        const auto bend=scoreNote(0,65535,1,183,0)+scoreNote(0,48000,1,69);
+        a->loadScore(bend,48001,false);a->start(0,0);const auto bent=studioRender(*a,48000);
+        unsigned crossings=0;for (unsigned i=24001;i<bent.size();++i) if (bent[i-1]<=0 && bent[i]>0) ++crossings;
+        check(crossings>=246 && crossings<=247,"native pitch bend raises A4 by two semitones");
+        a->stop();studioRender(*a,24000);
+        const auto pedalEdge=scoreNote(0,1000,1,60)+scoreNote(1000,65535,1,187,0)+scoreNote(6000,0,1,187,0);
+        a->loadScore(pedalEdge,12000,false);a->start(0,0);studioRender(*a,3000);
+        check(!a->activeNotes().empty(),"same-frame pedal down precedes score release");
+        a->stop();studioRender(*a,24000);
+        std::cout<<"PASS automation ramps, controller chase/sustain, loop/reset, program precedence, bounded validation and block-invariant PCM\n";
+    }
     {
         auto overdub=std::make_unique<NativeStudio>();setupStudio(*overdub);
         overdub->loadScore(scoreNote(0,4800,1,60),12000,false);overdub->start(0,0);studioRender(*overdub,1000);

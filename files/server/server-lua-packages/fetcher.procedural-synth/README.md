@@ -2,7 +2,7 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current build: package 21 / native synth API 13. Installed-game voice, effect
+Current build: package 22 / native synth API 14. Installed-game voice, effect
 and music samples are available, along with MIDI export and track renaming.
 Project library and autosave/recovery are available. Next: automation and MIDI controllers. See [the roadmap](ROADMAP.md).
 
@@ -945,3 +945,69 @@ character, not tied to a particular keyboard or shared with listening band membe
 Optional setup -LibraryProbe exercises Save/Save As/rename/delete, autosave,
 guarded switching, recovery, observer isolation and restart persistence in the
 usual fixture. Back up its latest DB/profiles before QA; normal setup disables it.
+
+
+## Automation and MIDI controllers (package 22 / native synth API 14)
+
+Open **Auto**, choose a part, then choose a parameter from the searchable picker.
+All 55 synth parameters have lanes, including sample gain/filter/envelope settings
+where applicable. Performance lanes are pitchBend (fixed +/-2 semitones), modulation
+(CC1, independent 6 Hz vibrato), expression (CC11), midiVolume (CC7), pedal (CC64)
+and program (zero-based 0-127). Expression and MIDI volume multiply the signal;
+they do not overwrite the patch volume, track fader or local monitor setting.
+
+- Click the graph to add a point. Drag its square to move it; right-click it to
+  delete. Editing commits on release and supports Undo/Redo. The graph expands
+  with the Studio window/fullscreen view.
+- Linear/Step controls the interpolation leaving a point. Switches, instrument
+  types and programs always step. Select a point, choose a value/time and use
+  Add / update point; a different time adds another point. Delete selected removes
+  that point. Values are in native parameter units; time is in quarter notes.
+- Navigate with < time / time > and the one-to-sixteen 4/4-bar view picker. This
+  first graph uses quarter-note timing even when the song has another meter.
+  Mouse edits and captured slider changes snap to 1/64 notes. Point times imported
+  from MIDI retain source PPQ timing.
+- Play song/clips, choose Write while playing, and move the Auto value slider to
+  capture changes at the native audible playhead. End write commits the take as
+  one Undo action and queues one bar-boundary score replacement. The pass is
+  heard after that replacement; this is curve capture, not live hardware MIDI
+  monitoring. Stopping, changing pages/parts/parameters or saving ends the write.
+  Autosave waits until a write finishes.
+- Import MIDI controls explicitly replaces the selected part's supported MIDI
+  lanes while preserving its synth-parameter curves. Existing projects keep their
+  prior playback unless controls are imported. Channel controls include setup
+  tracks; reset-all-controllers resets the supported performance lanes.
+- Import controls before converting an original MIDI part if you want editable
+  pedal timing: conversion then retains raw gates and the native pedal supplies
+  sustain. Already edited notes keep their authored gates; importing controllers
+  never rewrites those notes or shortens previously baked sustain durations.
+- Follow programs is off by default. Turn it on to map program changes to the
+  selected whole-song sound set's instrument families (Custom uses Balanced).
+  These are the existing synth patches, not 128 sampled GM instruments. Explicit
+  parameter curves override program snapshots. Sample parts keep their assigned
+  sample and cannot enable program following; assigning a sample turns it off.
+
+Curves save with each track in named projects/recovery snapshots, keeping the
+existing character privacy and band output assignments. Notes, controller points
+and program snapshots share the immutable native score and spatial band routing.
+Audio-thread interpolation does not depend on Lua frame rate. Seek/late join,
+loop/crop and live replacements chase curve values; Stop/natural completion
+release deferred pedal notes and restore the editable/manual patch.
+
+Budgets: 1,024 authored points per lane, 8,192 per project, and 8,192 compiled
+control records in addition to the existing 60,000-note budget. A followed program
+expands to 55 bounded patch records, so program-heavy files can reach the compiled
+budget sooner. Invalid/oversized plans fail explicitly before playback.
+Automation is track/song-relative; source-clip audition omits song automation.
+Mixer/return automation, controller learn, external MIDI devices, variable bend
+ranges and additional CC/RPN mappings remain follow-ups.
+
+MIDI export retains supported controller/program lanes and samples linear MIDI
+ramps every 1/64 note. Synth-parameter curves and sound patches stay in the Studio
+project because ordinary SMF has no portable representation for those parameters.
+Export still enforces its existing note/file/event budgets.
+
+The larger Lua package also exposed socket send-buffer backpressure during
+bootstrap. The server now queues bounded batches and retries refused sends, keeping
+all source chunks ahead of the completion marker and character list. This fixes
+package downloads without changing the multiplayer wire protocol.

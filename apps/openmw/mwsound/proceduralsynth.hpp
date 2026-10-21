@@ -111,6 +111,16 @@ namespace MWSound
         bool sampleReady() const;
         void syncSample(); // mMutex held, audio thread only
         State mTarget{}, mCurrent{};
+        // Score-owned overrides are audio-thread state, separate from the editable patch.
+        static constexpr unsigned ControlCount = ParameterCount + 5;
+        std::array<bool, ControlCount> mAutomated{};
+        std::array<double, ControlCount> mAutomation{}, mAutomationSlope{};
+        std::array<bool, ParameterCount> mProgrammed{};
+        State mProgram{};
+        std::array<double, 4> mPerformance{0, 0, 1, 1};
+        double mModPhase = 0;
+        void resetAutomation();
+        void automationDiscrete();
         std::array<Command, 256> mCommands{};
         std::size_t mCommandCount = 0;
         std::array<Voice, 32> mVoices{};
