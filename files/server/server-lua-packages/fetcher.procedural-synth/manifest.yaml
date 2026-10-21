@@ -1,6 +1,6 @@
 manifestVersion: 3
 packageId: fetcher.procedural-synth
-packageVersion: 19
+packageVersion: 20
 requiredOpenMWLuaApi: 141
 requiredMultiplayerLuaApi: 12
 dependencies: []

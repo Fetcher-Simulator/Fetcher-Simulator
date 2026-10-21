@@ -2,7 +2,7 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current build: package 19 / native synth API 13. Installed-game voice, effect
+Current build: package 20 / native synth API 13. Installed-game voice, effect
 and music samples are available, along with MIDI export and track renaming.
 Next: multiple-project library and autosave/recovery. See [the roadmap](ROADMAP.md).
 
@@ -877,3 +877,24 @@ previous window geometry. The Synth sound editor retains its existing fixed layo
 For disposable two-client export/rename/duplicate-bar QA use setup's -ExportProbe;
 back up the latest fixture database/profiles first. Setup without that flag restores
 normal interactive mode. It never needs a second fixture or a different port.
+
+
+## Focused piano editor and mouse controls (package 20)
+
+On Piano, press **Expand editor** to fill the game viewport with the piano editor.
+It removes the main Studio header, retains transport, Undo/Redo and piano tools,
+and uses the extra height for more pitch rows. **Escape** or **Back to Piano [Esc]**
+returns to the normal Piano page, preserving the prior Studio window/fullscreen
+geometry and musical document. The monitor toolbar also provides Back to Piano.
+Leaving Piano for another page exits the focused view.
+
+Right-click an editable note to delete only that note, even when other notes are
+selected. Undo restores it. Unconverted imported MIDI stays read-only. Right-click
+empty grid space does nothing; it no longer closes Studio via the inventory toggle.
+Studio releases its UI-control override on Hide/Finish so normal gameplay bindings
+resume. Escape in the normal Studio view still hides it; F8 reopens it.
+
+Fullscreen Mixer and other centered page containers no longer intercept header
+clicks. Tabs and header actions stay above the page body. Use setup -PianoProbe
+for a disposable two-note visual test without saving its generated song; restore
+the latest fixture state and rerun setup without that flag after QA.

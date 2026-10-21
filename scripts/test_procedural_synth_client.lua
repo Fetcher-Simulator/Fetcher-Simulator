@@ -46,7 +46,8 @@ local ctrl,shift=false,false
 input.isCtrlPressed=function() return ctrl end;input.isShiftPressed=function() return shift end
 for n,name in ipairs{'A','Delete','LeftArrow','RightArrow','UpArrow','DownArrow','Y'} do input.KEY[name]=200+n end
 package.loaded['openmw.input']=input
-package.loaded['openmw.interfaces']={UI={getMode=function() return mode end,
+local uiOverride=false
+package.loaded['openmw.interfaces']={Controls={overrideUiControls=function(value) uiOverride=value end},UI={getMode=function() return mode end,
     addMode=function(m) mode=m end,removeMode=function() mode=nil end}}
 package.loaded['openmw.core']={getRealTime=function() return now end}
 package.loaded['openmw.mp']={isConnected=function() return connected end,
@@ -686,6 +687,57 @@ local present=false;for _,path in ipairs(api.midiSongs()) do if path=='midi/__st
 check(present and api.importMidi('midi/__studio_exports__/roundtrip.mid'),'new export is immediately eligible for the MIDI selector')
 now=now+.01;player.engineHandlers.onFrame(.01)
 check(w.project.midi=='midi/__studio_exports__/roundtrip.mid' and w.song,'export imports through the native bounded reader')
+assert(w:newSong(120,4,4,8));assert(w:addNote(1,60,0))
+-- Native hit testing chooses the last overlapping sibling, including empty Widgets.
+local function topHit(content,x,y)
+    for n=#content,1,-1 do
+        local e=content[n].layout or content[n];local p=e.props or {};local at,size=p.position,p.size
+        if p.visible~=false and at and size and x>=at.x and x<at.x+size.x and y>=at.y and y<at.y+size.y then
+            return e
+        end
+    end
+end
+viewport=vector(2560,1440);local win=lastStudio.window;win.preferred=1.3;win.full=true;win:bounds();win.changed=true
+w.page='mixer';w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
+check(uiOverride,'Studio owns inventory/UI toggle while visible')
+for _,caption in ipairs{'Song','Piano','Drums','Band','Samples','Synth'} do
+    local tab=button(caption);local at,size=tab.props.position,tab.props.size
+    check(topHit(lastStudio.root.layout.content,at.x+size.x/2,at.y+size.y/2)==tab,'fullscreen Mixer leaves '..caption..' tab clickable')
+end
+button('Piano').events.mouseClick();now=now+.01;lastStudio:frame(now)
+w.base=60;w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
+local normalY,normalHeight=lastStudio.roll.y,lastStudio.roll.height
+local geometry={win.x,win.y,win.width,win.height,win.full,win.preferred,preferences.fullscreen};local gen=w.generation
+button('Expand editor').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(lastStudio.pianoFocus and win.expanded and lastStudio.roll.y<normalY and lastStudio.roll.height>normalHeight,'dedicated editor gives piano the header space')
+check(w.generation==gen and win.full==geometry[5] and preferences.fullscreen==geometry[7],'expanded editor is a transient view, not saved geometry or a song edit')
+-- Paint in the newly available upper rows and right-click only one selected note.
+local roll=lastStudio.roll;local grid
+for _,item in ipairs(lastStudio.root.layout.content) do if item.events and item.props and item.props.position and math.abs(item.props.position.x-roll.x*win.scale)<.01 and math.abs(item.props.position.y-roll.y*win.scale)<.01 then grid=item end end
+local pos=lastStudio.root.layout.props.position
+local pt=vector(pos.x+(roll.x+roll.cw*3)*win.scale,pos.y+(38+roll.y+roll.rh*2.5)*win.scale)
+local count=#w:noteData(w.selected)
+grid.events.mousePress{button=1,position=pt,offset=vector(roll.cw*3*win.scale,roll.rh*2.5*win.scale)}
+now=now+.01;lastStudio:frame(now);roll=lastStudio.roll
+check(#w:noteData(w.selected)==count+1,'expanded editor paints notes at its own grid origin')
+w:selectAllNotes(w.selected);roll:draw();local selectedCount=#w:selectedNotes(w.selected);local slot
+for n in pairs(roll.visible) do slot=n;break end
+assert(slot and selectedCount>1);local history=#w.undoStack
+roll.pool[slot].layout.events.mousePress{button=3,offset=vector(5,5)}
+check(#w:noteData(w.selected)==count and #w.undoStack==history+1 and mode=='Interface' and uiOverride,'right click deletes only the clicked note and keeps Studio open')
+check(w:undo() and #w:noteData(w.selected)==count+1,'right-click delete supports Undo')
+-- Native Escape may already have removed Interface when the Lua key arrives.
+mode=nil;lastStudio.root.layout.events.keyPress{code=input.KEY.Escape};player.engineHandlers.onKeyPress{code=input.KEY.Escape};player.engineHandlers.onKeyRelease{code=input.KEY.Escape};now=now+.01;lastStudio:frame(now)
+now=now+.01;lastStudio:frame(now)
+check(not lastStudio.pianoFocus and not win.expanded and mode=='Interface' and lastStudio.roll.y==normalY,'Escape returns to normal Piano after native mode pop')
+check(win.x==geometry[1] and win.y==geometry[2] and win.width==geometry[3] and win.height==geometry[4] and win.full==geometry[5],'Escape preserves original fullscreen/window geometry')
+win.full=false;win:bounds();win.changed=true;now=now+.01;lastStudio:frame(now)
+local oldSize=lastStudio.root.layout.props.size;button('Expand editor').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(lastStudio.root.layout.props.size.x==viewport.x and lastStudio.root.layout.props.size.y==viewport.y and not win.full,'piano expansion fills viewport from a windowed Studio')
+button('Back to Piano [Esc]').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(lastStudio.root.layout.props.size.x==oldSize.x and lastStudio.root.layout.props.size.y==oldSize.y,'Back to Piano restores the windowed canvas')
+api.hide();check(not uiOverride,'hiding Studio restores game inventory controls')
+api.show();check(uiOverride,'reopening Studio reacquires UI controls')
 viewport=vector(1024,768);lastStudio.window:zoom(-0.5)
-api.close()
+api.close();check(not uiOverride,'Finish restores game UI controls')
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

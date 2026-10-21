@@ -30,15 +30,16 @@ function W.new()
         originals=setmetatable({},{__mode='k'}),changed=true},W)
     self:bounds();return self
 end
+function W:isFullscreen() return self.full or self.expanded end
 function W:bounds()
     local screen=ui.screenSize();self.screen=screen
-    if not self.full then
+    if not self:isFullscreen() then
         self.width=clamp(self.width,math.min(screen.x,width*0.75),screen.x)
         self.height=clamp(self.height,math.min(screen.y,(height+chrome)*0.75),screen.y)
         self.x=clamp(self.x,0,screen.x-self.width);self.y=clamp(self.y,0,screen.y-self.height)
     end
     local w,h=self.width,self.height
-    if self.full then w,h=screen.x,screen.y end
+    if self:isFullscreen() then w,h=screen.x,screen.y end
     self.scale=math.min(self.preferred,w/width,h/(height+chrome))
     self.actualWidth,self.actualHeight=w,h
     self.canvasWidth,self.canvasHeight=w/self.scale,h/self.scale-chrome
@@ -49,14 +50,14 @@ function W:save()
 end
 function W:zoom(delta)
     self.preferred=clamp(math.floor((self.preferred+delta)*100+0.5)/100,0.75,2)
-    if not self.full then self.width=width*self.preferred;self.height=(height+chrome)*self.preferred end
+    if not self:isFullscreen() then self.width=width*self.preferred;self.height=(height+chrome)*self.preferred end
     self:bounds();self:save();self.changed=true
 end
 function W:fullscreen()
     self.full=not self.full;self:bounds();self:save();self.changed=true
 end
 function W:drag(e)
-    if self.full then return end
+    if self:isFullscreen() then return end
     local resized=math.abs(e.size.x-self.width)>1 or math.abs(e.size.y-self.height)>1
     self.x,self.y=e.position.x,e.position.y;self.width,self.height=e.size.x,e.size.y
     if resized then self.preferred=clamp(math.min(self.width/width,self.height/(height+chrome)),0.75,2) end
@@ -97,7 +98,7 @@ function W:root(content)
     local s=self.scale
     local bar=rect(0,0,self.actualWidth/s,chrome,track)
     local title={type=ui.TYPE.Text,external={action=true},props={position=v(10,9),size=v(160,24),
-        text=self.full and 'STUDIO / MONITOR' or 'Drag to move',textSize=13,textColor=accent}}
+        text=self:isFullscreen() and 'STUDIO / MONITOR' or 'Drag to move',textSize=13,textColor=accent}}
     local volume=synth.getMonitorVolume and synth.getMonitorVolume() or 1
     local monitor=rect(654,12,110,12,bg)
     monitor.content=ui.content{rect(0,0,110*volume,12,accent)}
@@ -106,22 +107,22 @@ function W:root(content)
     bar.content=ui.content{title,self:button('Scale -',178,62,function() self:zoom(-0.1) end),
         {type=ui.TYPE.Text,props={position=v(248,10),size=v(58,22),text=string.format('%.0f%%',s*100),textSize=13,textColor=text}},
         self:button('+',307,28,function() self:zoom(0.1) end),
-        self:button(self.full and 'Restore' or 'Fullscreen',345,103,function() self:fullscreen() end),
+        self:button(self.expanded and 'Back to Piano' or self.full and 'Restore' or 'Fullscreen',345,103,function() if self.expanded then self.restoreExpanded() else self:fullscreen() end end),
         {type=ui.TYPE.Text,props={position=v(470,10),size=v(181,22),text='Monitor Volume (local)',textSize=13,textColor=text}},monitor,
         {type=ui.TYPE.Text,props={position=v(775,9),size=v(62,24),text=string.format('%.0f%%',volume*100),textSize=13,textColor=accent}}}
     -- Action widgets must be in a Window template for native dragging/resizing.
     if self.pickup then bar.content[#bar.content+1]=self:button('Pick up',842,88,self.pickup) end
-    if not self.full then title.external={action=true} else title.external={} end
+    if not self:isFullscreen() then title.external={action=true} else title.external={} end
     self:layout(bar)
     local slot={type=ui.TYPE.Widget,external={slot=true},props={position=v(0,chrome*s),size=v(self.actualWidth,self.actualHeight-chrome*s)}}
     local template={rect(0,0,self.actualWidth,self.actualHeight,bg),bar,slot}
-    if not self.full then
+    if not self:isFullscreen() then
         local grip=rect(self.actualWidth-20,self.actualHeight-20,20,20,accent)
         grip.external={action=true,move=v(0,0),resize=v(1,1)};template[#template+1]=grip
     end
-    local root={type=ui.TYPE.Window,layer='Windows',props={position=v(self.full and 0 or self.x,self.full and 0 or self.y),
+    local root={type=ui.TYPE.Window,layer='Windows',props={position=v(self:isFullscreen() and 0 or self.x,self:isFullscreen() and 0 or self.y),
         size=v(self.actualWidth,self.actualHeight)},template={content=ui.content(template)},content=ui.content(content),
-        events={windowDrag=cb(function(e) self:drag(e) end)}}
+        events={windowDrag=cb(function(e) self:drag(e) end),keyPress=self.keyPress}}
     self.changed=false;self.monitor=volume
     return ui.create(root)
 end

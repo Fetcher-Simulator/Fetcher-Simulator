@@ -1037,3 +1037,29 @@ its DB, global storage and profiles/userdata were restored with all 13 recorded
 SHA-256 checks matching before normal fixture startup. QA exports are retained
 only in evidence. Normal package installation disables the probe. Port 25568 and
 production binaries/databases were not used.
+
+
+## 2026-10-20: focused Piano, right-click delete and fullscreen tab regression
+
+Package 20, native synth API unchanged at 13; Lua-only update. All 16 Lua test
+scripts passed, including 12,506 client assertions at this revision. Tests cover
+native sibling hit order above the centered Mixer body; transient editor expansion
+from windowed/fullscreen Studio; piano hit testing at its new origin; single-note
+right-click deletion while multiple notes are selected, Undo and UI-mode retention;
+Escape through UI and engine paths without double handling, including a native
+Interface pop; prior geometry restoration; and UI-control release on Hide/Finish.
+
+In the established port-25567 fixture, Sky mouse checks verified Mixer -> Piano
+without Restore, expanded Piano layout, right-click deletion in expanded and
+normal views, Undo restoring the deleted note, and Back to Piano restoring the
+normal header/layout. Synth B remained connected. No generated QA project was saved.
+The injected Escape key produced neither a UI transition nor a probe onKeyPress
+log in this SDL client. Live physical Escape is therefore not claimed verified;
+UI/engine dispatch and Interface recovery are covered by regression tests. The
+preexisting automation limitation also affected other SDL key shortcuts earlier.
+
+Evidence is local in fixture/evidence/piano-focus/: live-A.log, live-B.log,
+live-server.log, qa-completed.db and verification.txt. The user's freshly saved
+state was backed up to baseline-20261020-195505 before installation. All 13 DB,
+profile and settings hashes were restored before normal setup/startup. The probe
+was disabled afterward, and only the usual port-25567 fixture was used.

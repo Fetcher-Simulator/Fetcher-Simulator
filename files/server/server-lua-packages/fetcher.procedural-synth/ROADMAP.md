@@ -92,6 +92,14 @@ current bar across all lanes into the next bar, extending up to 16 bars with Und
 Offline regressions and native two-client export/reimport/playback checks passed.
 See README.md for usage/limits and TEST-REPORT.md for evidence.
 
+## Completed follow-up: focused Piano editor and fullscreen navigation
+
+Package 20 keeps tabs clickable above fullscreen centered page containers. Piano
+has a dedicated expanded editor with Escape/Back restoring the prior Studio
+geometry, plus single-note right-click deletion with Undo. Studio temporarily
+owns the inventory/UI toggle so right-click edits do not close the interface.
+The next roadmap slice remains the project library and autosave/recovery.
+
 ## Remaining roadmap (next: project library and autosave/recovery)
 
 1. Project library and autosave/recovery: multiple named projects per character,

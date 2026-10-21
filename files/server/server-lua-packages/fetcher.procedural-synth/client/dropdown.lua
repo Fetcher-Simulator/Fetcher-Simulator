@@ -53,7 +53,7 @@ function D.open(owner,entries,selected,choose,x,y,width)
     self.bar=self:element(bar);content[#content+1]=self.bar
     self.footer=self:element(label('',x+12,y+331,w-24));content[#content+1]=self.footer
     for _,item in ipairs(content) do if item.layout then owner.window:update(item) else owner.window:layout(item) end end
-    self.element=ui.create{type=ui.TYPE.Widget,layer='Popup',props={position=v(p.position.x,p.position.y+38*s),size=v(canvasWidth*s,canvasHeight*s)},content=ui.content(content)}
+    self.element=ui.create{type=ui.TYPE.Widget,layer='Popup',events={keyPress=cb(function(e) if e.code==require('openmw.input').KEY.Escape then if owner.kind=='studio' then owner:key(e.code,true) else D.close(owner) end end end)},props={position=v(p.position.x,p.position.y+38*s),size=v(canvasWidth*s,canvasHeight*s)},content=ui.content(content)}
     self:draw();return self
 end
 function D.close(owner)

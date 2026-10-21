@@ -12,8 +12,8 @@ local function round(n,q) return math.floor(n/q+0.5)*q end
 local function shift() return input.isShiftPressed and input.isShiftPressed() end
 function R.new(owner,content)
     local w=owner.w;local t=w.project.tracks[w.selected]
-    local self=setmetatable({owner=owner,w=w,index=w.selected,track=t,x=76,y=260,width=owner.width-106,
-        height=math.max(264,(owner.height or 695)-431),pool={},visible={}},R)
+    local self=setmetatable({owner=owner,w=w,index=w.selected,track=t,x=76,y=owner.pianoFocus and 141 or 260,width=owner.width-106,
+        height=math.max(264,(owner.height or 695)-(owner.pianoFocus and 312 or 431)),pool={},visible={}},R)
     self.rows=math.min(128,math.max(12,math.floor(self.height/22)))
     self.base=math.min(w.base,128-self.rows)
     -- Keep approximately the same musical zoom as the viewport grows. The
@@ -53,7 +53,7 @@ function R.new(owner,content)
         r.events={mousePress=cb(function(e) self:press(slot,e) end),mouseMove=cb(function(e) self:move(e) end)}
         self.pool[slot]=owner:element(r);content[#content+1]=self.pool[slot]
     end
-    self.caption=owner:element{type=ui.TYPE.Text,props={position=v(76,237),size=v(self.width,20),text='',textSize=11,textColor=colors.selected}}
+    self.caption=owner:element{type=ui.TYPE.Text,props={position=v(76,self.y-23),size=v(self.width,20),text='',textSize=11,textColor=colors.selected}}
     content[#content+1]=self.caption
     self.thumb=owner:element(rect(0,0,20,12,colors.selected))
     local events={mousePress=cb(function(e) if e.button==1 then self.scrollDrag=true;self:scroll(e) end end),mouseMove=cb(function(e) if self.scrollDrag then self:scroll(e) end end)}
@@ -69,9 +69,16 @@ function R:point(e)
     return v(e.offset.x/scale,e.offset.y/scale)
 end
 function R:press(slot,e)
-    if e.button~=1 then return end
     local id=self.visible[slot];if not id then return end
     local w=self.w
+    if e.button==3 then
+        self:finish(true)
+        if w:canEditNotes(self.index) then
+            w:selectNote(self.index,id);w:deleteNotes(self.index);self:draw()
+        end
+        return
+    end
+    if e.button~=1 then return end
     if shift() then w:selectNote(self.index,id,true)
     elseif w.selectionTrack~=self.index or not w.noteSelection[id] then w:selectNote(self.index,id) end
     self:draw()

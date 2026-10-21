@@ -159,7 +159,7 @@ function S:arrange(content)
         local function rename() self.typing=false;if draft~=clip.name then w:setClip(index,id,{name=draft}) end end
         content[#content+1]=self:element{type=ui.TYPE.TextEdit,props={position=v(20,241),size=v(190,25),text=clip.name,textSize=12,textColor=c.text},events={
             textChanged=cb(function(text) draft=text:gsub('%c',''):sub(1,32) end),focusGain=cb(function() self.typing=true end),focusLoss=cb(rename),
-            keyPress=cb(function(e) if e.code==input.KEY.Enter or e.code==input.KEY.NP_Enter then rename() end end)}}
+            keyPress=cb(function(e) if e.code==input.KEY.Escape then self:key(e.code,true) elseif e.code==input.KEY.Enter or e.code==input.KEY.NP_Enter then rename() end end)}}
         content[#content+1]=self:button(string.format('Source: %.2g bars v',clip.length/(Project.barBeats(p)*4)),225,240,175,function()
             local choices={};local bar=Project.barBeats(p)*4
             for n=1,math.floor(Project.maxSteps/bar) do choices[#choices+1]={id=n*bar,label=n..' bars'} end
@@ -341,32 +341,39 @@ function S:returns(content)
     self.returnMeter=self:element(label('',20,626,890,13,c.accent));content[#content+1]=self.returnMeter
     self:addMasterMeter(content,650)
 end
+function S:setPianoFocus(active)
+    self.pianoFocus=active;self.window.expanded=active
+    self.window.restoreExpanded=active and function() self:setPianoFocus(false) end or nil
+    self.window:bounds();self.window.changed=true;self.w.revision=self.w.revision+1
+end
 function S:piano(content)
     local w,p=self.w,self.w.project;local t=p.tracks[w.selected]
-    content[#content+1]=self:button('< track',20,169,70,function() self:select(-1) end)
+    local top=self.pianoFocus and 50 or 169;local tools=top+38
+    content[#content+1]=self:button('< track',20,top,70,function() self:select(-1) end)
     local source=w:clipSource()
-    content[#content+1]=label(source and (t.name..' / '..source.name) or t and t.name or 'No track selected',104,174,self.width-600,15,c.accent)
-    content[#content+1]=self:button('Rename',self.width-480,169,100,function() if t then self:renameTrack(w.selected) end end)
-    content[#content+1]=self:button('track >',self.width-365,169,70,function() self:select(1) end)
-    content[#content+1]=self:button('+ Piano',self.width-280,169,86,function() if p.composition then w:addPart('keys') else w:add('piano') end end)
-    content[#content+1]=self:button(source and 'Arrange clips' or 'Make clip',self.width-185,169,140,function()
+    content[#content+1]=label(source and (t.name..' / '..source.name) or t and t.name or 'No track selected',104,top+5,self.width-600,15,c.accent)
+    content[#content+1]=self:button('Rename',self.width-480,top,100,function() if t then self:renameTrack(w.selected) end end)
+    content[#content+1]=self:button('track >',self.width-365,top,70,function() self:select(1) end)
+    content[#content+1]=self:button('+ Piano',self.width-280,top,86,function() if p.composition then w:addPart('keys') else w:add('piano') end end)
+    content[#content+1]=self:button(source and 'Arrange clips' or 'Make clip',self.width-185,top,140,function()
         self:releaseAll();if source then self:openArranger() elseif w:captureClip(w.selected) then self:openArranger() end
     end)
     if not t then return end
     if t.kind=='drum' then content[#content+1]=label('Choose a piano or MIDI track, or use the Drums page for this lane.',20,250,880,15,c.muted);return end
     local snapNames={[0]='Off',[0.25]='1/64',[0.5]='1/32',[1]='1/16',[2]='1/8',[4]='1/4'}
-    content[#content+1]=self:button('Snap: '..snapNames[w.snap],20,207,110,function()
+    content[#content+1]=self:button('Snap: '..snapNames[w.snap],20,tools,110,function()
         local values={0.25,0.5,1,2,4,0};local at=1;for n,q in ipairs(values) do if q==w.snap then at=n end end
         w.snap=values[at%#values+1];w.revision=w.revision+1
     end)
-    content[#content+1]=self:button('Zoom -',140,207,78,function() self:zoomRoll(2) end)
-    content[#content+1]=self:button('Zoom +',228,207,78,function() self:zoomRoll(0.5) end)
-    if t.kind=='midi' and not source then content[#content+1]=self:button(p.composition and 'Song part' or t.edited and 'Edited MIDI' or 'Edit MIDI',self.width-195,207,150,function() w:convertPart(w.selected) end,t.edited~=nil) end
+    content[#content+1]=self:button('Zoom -',140,tools,78,function() self:zoomRoll(2) end)
+    content[#content+1]=self:button('Zoom +',228,tools,78,function() self:zoomRoll(0.5) end)
+    if t.kind=='midi' and not source then content[#content+1]=self:button(p.composition and 'Song part' or t.edited and 'Edited MIDI' or 'Edit MIDI',self.width-195,tools,150,function() w:convertPart(w.selected) end,t.edited~=nil) end
+    content[#content+1]=self:button(self.pianoFocus and 'Back to Piano [Esc]' or 'Expand editor',self.width-370,tools,165,function() self:setPianoFocus(not self.pianoFocus) end)
     self.roll=PianoRoll.new(self,content)
     local roll=self.roll;local footer=self.height-137
-    content[#content+1]=label(string.format('%.2g bars in view',roll.steps/(p.composition and Project.barBeats(p)*4 or 16)),320,212,180,12,c.muted)
+    content[#content+1]=label(string.format('%.2g bars in view',roll.steps/(p.composition and Project.barBeats(p)*4 or 16)),320,tools+5,180,12,c.muted)
     for row=0,roll.rows-1 do content[#content+1]=label(pitch(roll.base+roll.rows-1-row),20,roll.y+row*roll.rh+3,52,12,c.muted) end
-    self.playhead=self:element(rect(76,255,3,4,c.accent));content[#content+1]=self.playhead
+    self.playhead=self:element(rect(76,roll.y-5,3,4,c.accent));content[#content+1]=self.playhead
     content[#content+1]=self:button('Oct -',20,footer,62,function() w.base=math.max(0,roll.base-12);w.revision=w.revision+1 end)
     content[#content+1]=self:button('Oct +',90,footer,62,function() w.base=math.min(128-roll.rows,roll.base+12);w.revision=w.revision+1 end)
     content[#content+1]=self:button('< time',175,footer,70,function() self.roll:pan(-roll.steps) end)
@@ -387,8 +394,8 @@ function S:piano(content)
         content[#content+1]=self:button(entry[1],20+(n-1)*116,self.height-93,106,entry[2])
     end
     content[#content+1]=self:button('Record keyboard >',self.width-330,self.height-93,285,function() w.page='record';w.revision=w.revision+1 end)
-    content[#content+1]=label(source and 'Shared source: edits update all linked placements. Record while stopped; Play source auditions this clip.' or t.kind=='midi' and not t.edited and 'Read only: Edit MIDI creates saved notes; the original file stays intact.' or 'Click adds. Shift-click selects. Drag moves; drag the right edge resizes. Edits keep routing.',20,self.height-51,self.width-45,12,c.muted)
-    if source then content[#content+1]=self:button('Play source',self.width-195,207,150,function() w:playClip() end) end
+    content[#content+1]=label(source and 'Shared source: edits update all linked placements. Record while stopped; Play source auditions this clip.' or t.kind=='midi' and not t.edited and 'Read only: Edit MIDI creates saved notes; the original file stays intact.' or 'Click adds. Right-click deletes. Shift-click selects. Drag moves; drag the right edge resizes.',20,self.height-51,self.width-45,12,c.muted)
+    if source then content[#content+1]=self:button('Play source',self.width-195,tools,150,function() w:playClip() end) end
     content[#content+1]=label('Ctrl+A/C/V/D, Delete, arrow keys. Wheel: pitch; Shift-wheel: time; Ctrl-wheel: zoom.',20,self.height-25,self.width-45,12,c.muted)
 end
 function S:recordKey(note,on,velocity)
@@ -570,11 +577,12 @@ function S:renamePage(content)
         template={content=ui.content{{type=ui.TYPE.Image,props={relativeSize=v(1,1),resource=white,color=c.track}}}},
         props={position=v(20,285),size=v(660,32),text=self.renameDraft or '',textSize=16,textColor=c.text},events={
             textChanged=cb(function(text) self.renameDraft=text end),focusGain=cb(function() self.typing=true end),focusLoss=cb(function() self.typing=false end),
-            keyPress=cb(function(e) if e.code==input.KEY.Enter or e.code==input.KEY.NP_Enter then apply() end end)}}
+            keyPress=cb(function(e) if e.code==input.KEY.Escape then self:key(e.code,true) elseif e.code==input.KEY.Enter or e.code==input.KEY.NP_Enter then apply() end end)}}
     content[#content+1]=self:button('Apply name',20,350,180,apply)
     content[#content+1]=self:button('Cancel',220,350,140,cancel)
 end
 function S:render()
+    if self.pianoFocus and self.w.page~='piano' then self.pianoFocus=false;self.window.expanded=false;self.window.restoreExpanded=nil end
     self.window:bounds();self.width,self.height=self.window.canvasWidth,self.window.canvasHeight
     if self.samples and self.w.page~='samples' then self.samples:stop() end
     self.sampleStatus=nil
@@ -590,6 +598,17 @@ function S:render()
     for _,e in ipairs(self.children) do e:destroy() end
     self.children={};self.meters={};self.meterLabels={};self.returnMeter=nil;self.playhead=nil;self.grid=nil
     local w,p=self.w,self.w.project;local content={label('OPENMW / STUDIO',20,13,245,21)}
+    if self.pianoFocus then
+        content={label('PIANO EDITOR',20,13,200,21,c.accent)}
+        content[#content+1]=self:button('Play song',230,12,96,self.cb.playSong)
+        content[#content+1]=self:button('Play clips',335,12,96,self.cb.playClips)
+        content[#content+1]=self:button('Stop',440,12,58,self.cb.stop)
+        self.transport=self:element(label('',515,18,self.width-755,12,c.accent));content[#content+1]=self.transport
+        content[#content+1]=self:button('Undo',self.width-226,12,80,function() w:undo() end,#w.undoStack>0)
+        content[#content+1]=self:button('Redo',self.width-133,12,80,function() w:redo() end,#w.redoStack>0)
+        self.bodyOffset=0;self:piano(content)
+        self.root=self.window:root(content);self.revision=w.revision;return
+    end
     local tabs={{'Synth',self.cb.synth},{'Song',function() w.page='song';w.revision=w.revision+1 end},{'Mixer',function() w.page='mixer';w.revision=w.revision+1 end},
         {'Piano',function() w.page='piano';w.revision=w.revision+1 end},{'Drums',function() w.page='drums';w.revision=w.revision+1 end},{'Band',function() w.page='band';if w.cb.refreshTargets then w.cb.refreshTargets() end;w.revision=w.revision+1 end},
         {'Samples',function() w.page='samples';w.revision=w.revision+1 end}}
@@ -623,14 +642,18 @@ function S:render()
     content[#content+1]=self:button('Export MIDI',self.width-125,112,100,function() w:exportMidi() end)
     local body={};self.bodyOffset=(w.page=='piano' or w.page=='drums') and 0 or math.max(0,(self.width-940)/2)
     if w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
-    if self.bodyOffset>0.1 then content[#content+1]={type=ui.TYPE.Widget,props={position=v(self.bodyOffset,0),size=v(940,self.height)},content=ui.content(body)}
+    -- Keep the header above centered page containers in native hit testing.
+    if self.bodyOffset>0.1 then table.insert(content,1,{type=ui.TYPE.Widget,props={position=v(self.bodyOffset,0),size=v(940,self.height)},content=ui.content(body)})
     else for _,item in ipairs(body) do content[#content+1]=item end end
     self.root=self.window:root(content);self.revision=w.revision
 end
 function S:resize() self:render() end
 function S.new(workstation,callbacks)
     local self=setmetatable({kind='studio',w=workstation,cb=callbacks,window=Window.new(),children={},width=940,lastFrame=-1},S)
-    self.window.pickup=callbacks.pickup;self:render();I.UI.addMode('Interface',{windows={}});return self
+    self.window.keyPress=cb(function(e) if e.code==input.KEY.Escape then self:key(e.code,true) end end)
+    self.window.pickup=callbacks.pickup;self:render();I.UI.addMode('Interface',{windows={}})
+    if I.Controls and I.Controls.overrideUiControls then I.Controls.overrideUiControls(true) end
+    return self
 end
 function S:releaseAll()
     if self.roll then self.roll:finish(true) end
@@ -639,10 +662,17 @@ function S:releaseAll()
     self.recordHeld={};self.recordKeys={};self.mouseRecord=nil;self.w:endTake(false)
 end
 function S:key(code,on)
+    -- Focused native Lua widgets can consume key presses before onKeyPress.
+    -- Root key events and engine events share one press/release latch.
+    if code==input.KEY.Escape then
+        if not on then self.escapeHeld=false;return end
+        if self.escapeHeld then return end;self.escapeHeld=true
+    end
     self.recordKeys=self.recordKeys or {}
     if not on and self.recordKeys[code] then self:recordKey(self.recordKeys[code],false);self.recordKeys[code]=nil;return end
-    if self.dropdown then if on and code==input.KEY.Escape then Dropdown.close(self) end;return end
-    if on and code==input.KEY.Escape then if self.w.page=='rename' and self.cancelRename then self.cancelRename() else self.cb.hide() end;return end
+    if self.dropdown then if on and code==input.KEY.Escape then Dropdown.close(self);self.restoreInterfaceFrames=2 end;return end
+    if on and code==input.KEY.Escape and self.pianoFocus then self:setPianoFocus(false);self.restoreInterfaceFrames=2;return end
+    if on and code==input.KEY.Escape then if self.w.page=='rename' and self.cancelRename then self.cancelRename();self.restoreInterfaceFrames=2 else self.cb.hide() end;return end
     if not on or self.typing then return end
     local ctrl=input.isCtrlPressed and input.isCtrlPressed()
     if self.w.page=='record' and not ctrl then
@@ -674,6 +704,13 @@ end
 function S:frame(now)
     self.window:frame(self)
     Dropdown.frame(self)
+    -- Native Escape can pop Interface before Lua receives the key. Consuming
+    -- it to leave the expanded editor must retain Studio's mouse/input mode.
+    if self.restoreInterfaceFrames then
+        local frames=self.restoreInterfaceFrames
+        self.restoreInterfaceFrames=frames>1 and frames-1 or nil
+        if I.UI.getMode()==nil then I.UI.addMode('Interface',{windows={}});return end
+    end
     if I.UI.getMode()~='Interface' then self.cb.hide();return end
     if self.roll then self.roll:frame() end
     if self.arranger then self.arranger:frame() end
@@ -719,6 +756,7 @@ function S:destroy()
     self:releaseAll()
     Dropdown.close(self)
     self.uiClosed=true
+    if I.Controls and I.Controls.overrideUiControls then I.Controls.overrideUiControls(false) end
     self.root:destroy();for _,e in ipairs(self.children) do e:destroy() end
     if I.UI.getMode()=='Interface' then I.UI.removeMode('Interface') end
 end
