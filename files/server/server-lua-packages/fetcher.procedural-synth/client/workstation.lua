@@ -38,7 +38,7 @@ function W:touch(key,quiet)
 end
 function W:restore(project)
     self:stop(true)
-    self.clipEdit=nil;self.regionIndex=nil
+    self.clipEdit=nil;self.regionIndex=nil;self.regionSelection=nil
     if self.cb.documentChanged then self.cb.documentChanged() end
     if self.project.midi~=project.midi then self.song=nil end
     self.project=copy(project);self.checkpoint=copy(project);self.lastEditKey=nil
@@ -60,7 +60,7 @@ function W:newSong(bpm,numerator,denominator,bars)
     self:stop(true);if self.cb.documentChanged then self.cb.documentChanged() end
     if self.library then self.library:detach() end
     self.song=nil;self.spans={};self.project=p;self.noteCache={};self.noteSelection={};self.selected=1
-    self.clipEdit=nil;self.regionIndex=nil
+    self.clipEdit=nil;self.regionIndex=nil;self.regionSelection=nil
     self.rollStart=0;self.bar=0;self.base=60;self.time=0;self.beat=0;self.step=-1;self.page='song'
     self.lastEditKey=nil;self:configureAll();self:touch();return true
 end
@@ -345,7 +345,7 @@ function W:addKit(kitIndex)
 end
 function W:remove(index)
     if not self.project.tracks[index] then return false end
-    self:stop(true);self.clipEdit=nil;self.regionIndex=nil;table.remove(self.project.tracks,index);self.selected=math.max(1,math.min(index,#self.project.tracks))
+    self:stop(true);self.clipEdit=nil;self.regionIndex=nil;self.regionSelection=nil;table.remove(self.project.tracks,index);self.selected=math.max(1,math.min(index,#self.project.tracks))
     self:configureAll();self:touch();return true
 end
 function W:setTrack(index,name,value)
@@ -428,6 +428,12 @@ function W:duplicateRegion(index,id) return require(prefix..'client.arrangement'
 function W:removeRegion(index,id) return require(prefix..'client.arrangement').remove(self,index,id) end
 function W:setClip(index,id,changes) return require(prefix..'client.arrangement').clip(self,index,id,changes) end
 function W:deleteClip(index,id) return require(prefix..'client.arrangement').deleteClip(self,index,id) end
+function W:selectRegion(index,id,toggle) return require(prefix..'client.arrangement').select(self,index,id,toggle) end
+function W:selectedRegions() return require(prefix..'client.arrangement').selection(self) end
+function W:selectAllRegions() return require(prefix..'client.arrangement').selectAll(self) end
+function W:batchRegions(action,value) return require(prefix..'client.arrangement').batch(self,action,value) end
+function W:moveRegions(bars) return require(prefix..'client.arrangement').moveBars(self,bars) end
+function W:copyClip(index,id,target) return require(prefix..'client.arrangement').copyTo(self,index,id,target) end
 function W:noteData(index)
     local t=self.project.tracks[index];if not t then return {} end
     if t.edited then
@@ -563,7 +569,7 @@ function W:import(song,path)
     self.song=song
     self.project.timeline=timeline
     self:cacheSpans();self.project.midi=path;self.project.tracks=tracks;self.selected=1;self.noteSelection={};self.noteCache={}
-    self.clipEdit=nil;self.regionIndex=nil
+    self.clipEdit=nil;self.regionIndex=nil;self.regionSelection=nil
     if song.tempos and song.tempos[1] and song.tempos[1].beat==0 then self.project.bpm=math.max(40,math.min(240,60000000/song.tempos[1].tempo)) end
     self:configureAll();self:touch();return true
 end
@@ -571,7 +577,7 @@ function W:cacheSpans() self.spans=self.song and MIDI.noteSpans(self.song) or {}
 function W:load(project)
     local valid=format.project(project);if not valid then return false end
     self:endTake(true);self:stop(true);if self.cb.documentChanged then self.cb.documentChanged() end;if self.project.midi~=valid.midi or valid.composition then self.song=nil end
-    self.clipEdit=nil;self.regionIndex=nil
+    self.clipEdit=nil;self.regionIndex=nil;self.regionSelection=nil
     if self.library then self.library:detach() end
     self.project=valid;self.checkpoint=copy(valid);self.undoStack={};self.redoStack={};self.lastEditKey=nil;self.noteSelection={};self.noteCache={};self:cacheSpans();self.selected=1;self.bar=0;self.rollStart=0;self.dirty=false;self.revision=self.revision+1;self.generation=self.generation+1;self:configureAll()
     if self:needsMidi() and not self.song then self.cb.importMidi(valid.midi) end

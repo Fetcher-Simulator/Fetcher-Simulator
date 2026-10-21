@@ -135,23 +135,32 @@ two-client playback, late listener, UI painting/dragging and restart checks pass
 in the original port-25567 fixture. All saved user settings/data were restored.
 See README.md for limits and TEST-REPORT.md for evidence.
 
-## Remaining roadmap (next: arranger improvements)
+## Completed slice: arrangement groups, variations, transfers and offsets
 
-1. Arranger improvements: multi-selection/group moves, independent source
-   variations, cross-track source transfer and source offsets. Linked sources
-   and individual move/repeat/trim/transpose/mute are already implemented.
-2. Recording improvements: audible metronome, configurable count-in, measured
+Completed 2026-10-21 in package 24; native synth API remains 14. Shift-click and
+Select all work across track pages; group move/duplicate/delete/transpose/mute
+validate atomically and commit as one Undo. Make unique detaches each selected
+source, and Copy source to creates an independent snapshot in another edited part
+while preserving destination sound/mix/routing. Per-placement source phase offsets
+chase/crop/repeat through the same native/MIDI expansion. Legacy offsets migrate
+to zero. Native two-client replacement, save/load/restart and fullscreen UI checks
+passed in port 25567 with user saves/settings restored. See README.md for controls,
+source/placement budgets and horizontal group/source-copy behavior.
+
+## Remaining roadmap (next: recording improvements)
+
+1. Recording improvements: audible metronome, configurable count-in, measured
    recording latency, hardware MIDI input and additional recording modes,
    including live controller monitoring and shared-source overdub during playback.
-3. Mixer/effects routing: stereo/panning, group buses and flexible effect chains.
+2. Mixer/effects routing: stereo/panning, group buses and flexible effect chains.
    Native EQ/compression, instrument drive/cabinet and shared delay/reverb exist;
    mixer/return automation is still planned.
-4. Band gameplay/presentation: NPC stage position/facing/follow behaviour and
+3. Band gameplay/presentation: NPC stage position/facing/follow behaviour and
    better instrument-specific arm/hand/finger animation. Consent, held-instrument
    readiness, owned NPCs and saved leader-controlled part routing already work.
-5. Multiplayer timing/scale: continuous device-drift correction, device latency,
+4. Multiplayer timing/scale: continuous device-drift correction, device latency,
    richer late-join state and larger-band/long-session performance checks.
-6. Further sample tools and sound-library refinement: the advanced sampler
+5. Further sample tools and sound-library refinement: the advanced sampler
     features above, acoustic/sample-based starting sounds and additional guitar
     articulations. Continue preset listening/balance refinement as tools mature.
 
@@ -172,9 +181,9 @@ Sixteen tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 23 / native synth API 14. Installed-game sampling, library/recovery,
-automation/controller and tempo/meter editing are implemented; arranger improvements
-are next.
+package 24 / native synth API 14. Installed-game sampling, library/recovery,
+automation/controller, tempo/meter and arrangement tools are implemented; recording
+improvements are next.
 
 ## Completed slice: native instrument effects and guitar sounds
 

@@ -9,13 +9,104 @@ function M.source(w,index)
     local e=w.clipEdit;local t=w.project.tracks[index]
     return e and e.track==index and t and t.arrangement and t.arrangement.clips[e.clip]
 end
-function M.commit(w,index,candidate)
+function M.commitProject(w,p,key)
     if w.recording or w.failedTake then w.cb.message('Keep, retry or cancel the take before arranging.');return false end
-    local p=copy(w.project);p.tracks[index]=candidate
     local valid=Format.project(p)
     if not valid then w.cb.message('Arrangement change exceeds note, time, pitch or clip limits; previous data kept.');return false end
     if w.mode=='pattern' and w.playing then w:stop(true) end
-    w.project.tracks[index]=valid.tracks[index];w.noteCache={};w.noteSelection={};w:touch();return true
+    w.project=valid;w.noteCache={};w.noteSelection={};w:touch(key);return true
+end
+function M.commit(w,index,candidate,key)
+    local p=copy(w.project);p.tracks[index]=candidate
+    return M.commitProject(w,p,key)
+end
+-- Selection is transient. Stable track/region indices are reset on reindexing.
+function M.selection(w)
+    local out={}
+    if w.regionSelection==nil and w.regionTrack and w.regionIndex then
+        local t=w.project.tracks[w.regionTrack];local r=t and t.arrangement and t.arrangement.regions[w.regionIndex]
+        if r then return {{track=w.regionTrack,id=w.regionIndex,region=r}} end
+    end
+    for track,t in ipairs(w.project.tracks) do
+        for id,r in ipairs(t.arrangement and t.arrangement.regions or {}) do
+            if w.regionSelection and w.regionSelection[track] and w.regionSelection[track][id] then out[#out+1]={track=track,id=id,region=r} end
+        end
+    end
+    return out
+end
+function M.select(w,track,id,toggle)
+    local t=w.project.tracks[track];if not (t and t.arrangement and t.arrangement.regions[id]) then return false end
+    local old=M.selection(w);w.regionSelection={}
+    if toggle then for _,e in ipairs(old) do w.regionSelection[e.track]=w.regionSelection[e.track] or {};w.regionSelection[e.track][e.id]=true end end
+    local lane=w.regionSelection[track] or {};w.regionSelection[track]=lane
+    lane[id]=not lane[id]
+    local selected=M.selection(w);local primary=lane[id] and {track=track,id=id} or selected[1]
+    w.regionTrack=primary and primary.track;w.regionIndex=primary and primary.id
+    if primary then w.selected=primary.track;w.arrangeClip=w.project.tracks[primary.track].arrangement.regions[primary.id].clip end
+    return true
+end
+function M.selectAll(w)
+    w.regionSelection={}
+    for track,t in ipairs(w.project.tracks) do for id in ipairs(t.arrangement and t.arrangement.regions or {}) do
+        w.regionSelection[track]=w.regionSelection[track] or {};w.regionSelection[track][id]=true
+    end end
+    local first=M.selection(w)[1];w.regionTrack=first and first.track;w.regionIndex=first and first.id
+    if first then w.selected=first.track;w.arrangeClip=w.project.tracks[first.track].arrangement.regions[first.id].clip end
+    w.revision=w.revision+1;return first~=nil
+end
+local function selectEntries(w,list)
+    w.regionSelection={}
+    for _,e in ipairs(list) do w.regionSelection[e.track]=w.regionSelection[e.track] or {};w.regionSelection[e.track][e.id]=true end
+    local first=list[1];w.regionTrack=first and first.track;w.regionIndex=first and first.id
+    if first then w.selected=first.track;w.arrangeClip=w.project.tracks[first.track].arrangement.regions[first.id].clip end
+end
+local function finite(value) return type(value)=='number' and value==value and math.abs(value)<math.huge end
+function M.batch(w,action,value)
+    local selected=M.selection(w);if #selected==0 then return false end
+    local p=copy(w.project);local result={};local first,last=math.huge,0
+    for _,e in ipairs(selected) do first=math.min(first,e.region.s);last=math.max(last,e.region.s+e.region.l) end
+    if action=='move' then if not finite(value) then return false end;value=math.max(-first,value);if value==0 then return false end end
+    if action=='pitch' and (not finite(value) or value%1~=0 or value==0) then return false end
+    if action=='mute' and type(value)~='boolean' then return false end
+    if action~='move' and action~='pitch' and action~='mute' and action~='duplicate' and action~='unique' and action~='remove' then return false end
+    for _,e in ipairs(selected) do
+        local a=p.tracks[e.track].arrangement;local r=a.regions[e.id];local id=e.id
+        if action=='move' then r.s=r.s+value
+        elseif action=='pitch' then r.transpose=r.transpose+value
+        elseif action=='mute' then r.mute=value
+        elseif action=='duplicate' then r=copy(r);r.s=r.s+last-first;a.regions[#a.regions+1]=r;id=#a.regions
+        elseif action=='unique' then
+            if #a.clips>=Format.maxClips then w.cb.message('Make unique needs a free source slot for each selected placement (8 per track).');return false end
+            local source=copy(a.clips[r.clip]);source.name=source.name:sub(1,23)..' copy '..(#a.clips+1)
+            a.clips[#a.clips+1]=source;r.clip=#a.clips
+        end
+        result[#result+1]={track=e.track,id=id}
+    end
+    if action=='remove' then
+        for n=#selected,1,-1 do local e=selected[n];table.remove(p.tracks[e.track].arrangement.regions,e.id) end
+        result={}
+    end
+    if not M.commitProject(w,p) then return false end
+    selectEntries(w,result);return true
+end
+function M.moveBars(w,bars)
+    if not finite(bars) or bars%1~=0 then return false end
+    local selected=M.selection(w);local anchor=selected[1]
+    for _,e in ipairs(selected) do if e.track==w.regionTrack and e.id==w.regionIndex then anchor=e end end
+    if not anchor then return false end
+    local bar=Format.barAt(w.project,anchor.region.s/4)
+    local delta=(Format.barStart(w.project,math.max(1,bar+bars))-Format.barStart(w.project,bar))*4
+    return M.batch(w,'move',delta)
+end
+function M.copyTo(w,index,id,target)
+    local t=w.project.tracks[index];local source=t and t.arrangement and t.arrangement.clips[id];local destination=w.project.tracks[target]
+    if not source or not destination or not destination.edited or index==target then return false end
+    local candidate=copy(destination);candidate.arrangement=candidate.arrangement or {clips={},regions={}}
+    if #candidate.arrangement.clips>=Format.maxClips then w.cb.message('Destination source library is full (8 per track).');return false end
+    local clip=copy(source);candidate.arrangement.clips[#candidate.arrangement.clips+1]=clip
+    if not M.commit(w,target,candidate) then return false end
+    selectEntries(w,{});w.selected=target;w.arrangeClip=#candidate.arrangement.clips
+    w.arrangePage=math.floor((target-1)/8);return true
 end
 function M.edit(w,index,id)
     if w.recording or w.failedTake then w.cb.message('Keep, retry or cancel the take first.');return false end
@@ -74,7 +165,7 @@ function M.capture(w,index)
     a.clips[#a.clips+1]={name='Clip '..(#a.clips+1),length=length,notes=assert(Format.encodeNotes(notes,division))}
     a.regions[#a.regions+1]={clip=#a.clips,s=first,l=length,transpose=0,mute=false}
     if not M.commit(w,index,candidate) then return false end
-    w.arrangeClip=#a.clips;w.regionTrack=index;w.regionIndex=#a.regions;return true
+    w.arrangeClip=#a.clips;M.select(w,index,#a.regions,false);return true
 end
 function M.place(w,index,id,step)
     local t=w.project.tracks[index];local clip=t and t.arrangement and t.arrangement.clips[id]
@@ -82,24 +173,24 @@ function M.place(w,index,id,step)
     local candidate=copy(t);local regions=candidate.arrangement.regions
     regions[#regions+1]={clip=id,s=step,l=clip.length,transpose=0,mute=false}
     if not M.commit(w,index,candidate) then return false end
-    w.regionTrack=index;w.regionIndex=#regions;return true
+    M.select(w,index,#regions,false);return true
 end
 function M.change(w,index,id,changes)
     local t=w.project.tracks[index];if not (t and t.arrangement and t.arrangement.regions[id]) then return false end
     local candidate=copy(t);for k,value in pairs(changes) do candidate.arrangement.regions[id][k]=value end
-    return M.commit(w,index,candidate)
+    return M.commit(w,index,candidate,changes.offset~=nil and 'note:regionOffset:'..index..':'..id or nil)
 end
 function M.duplicate(w,index,id)
     local t=w.project.tracks[index];local r=t and t.arrangement and t.arrangement.regions[id];if not r then return false end
     local candidate=copy(t);local regions=candidate.arrangement.regions;local next=copy(r);next.s=r.s+r.l;regions[#regions+1]=next
     if not M.commit(w,index,candidate) then return false end
-    w.regionTrack=index;w.regionIndex=#regions;return true
+    M.select(w,index,#regions,false);return true
 end
 function M.remove(w,index,id)
     local t=w.project.tracks[index];if not (t and t.arrangement and t.arrangement.regions[id]) then return false end
     local candidate=copy(t);table.remove(candidate.arrangement.regions,id)
     if not M.commit(w,index,candidate) then return false end
-    w.regionIndex=nil;return true
+    selectEntries(w,{});return true
 end
 function M.clip(w,index,id,changes)
     local t=w.project.tracks[index];if not (t and t.arrangement and t.arrangement.clips[id]) then return false end
@@ -112,6 +203,6 @@ function M.deleteClip(w,index,id)
     for _,r in ipairs(a.regions) do if r.clip~=id then if r.clip>id then r.clip=r.clip-1 end;regions[#regions+1]=r end end
     table.remove(a.clips,id);a.regions=regions
     if not M.commit(w,index,candidate) then return false end
-    w.clipEdit=nil;w.arrangeClip=1;w.regionIndex=nil;return true
+    w.clipEdit=nil;w.arrangeClip=1;selectEntries(w,{});return true
 end
 return M

@@ -2,7 +2,7 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current build: package 23 / native synth API 14. Installed-game voice, effect
+Current build: package 24 / native synth API 14. Installed-game voice, effect
 and music samples are available, along with MIDI export and track renaming.
 Project library and autosave/recovery are available. Next: automation and MIDI controllers. See [the roadmap](ROADMAP.md).
 
@@ -1047,3 +1047,43 @@ power-of-two denominators 1-64, 40-240 BPM for authored changes, 256 authored ba
 original values. Future points must also stay within time/event budgets. Unsupported
 maps fail without replacing the current song. Tempo events are stepped; tempo
 ramps, metronome/count-in preferences and hardware MIDI input remain follow-ups.
+
+
+## Arrangement selection, variations and source offsets (package 24 / API 14)
+
+Open Song -> Arrange clips. Click a placement to select it; Shift-click adds or
+removes placements on other tracks. Drag a selected body to move the selected
+group in time. The same quarter-note displacement applies to every member, so
+relative timing survives mixed meters; the grabbed/primary placement supplies the
+bar nudge. Movement clamps together at the song origin. Right-edge dragging still
+resizes only that placement. Selection is transient and clears on document/history
+replacement and index-changing deletion, without altering musical data.
+
+Selection / Tools provides Select all (both track pages), Clear, and one-bar left/
+right moves. Ctrl+A selects all, Ctrl+D duplicates the selection, Delete removes
+it, Left/Right nudges time and Up/Down transposes. Duplicate placement, Remove
+placement, Pitch +/- and Mute placement apply to the whole selection. Duplicates
+keep linked sources and appear after the entire selected span, retaining spacing.
+Each group operation validates the complete project and commits as one Undo step;
+capacity, pitch/time overflow and active-take failures retain the previous project.
+
+Make unique creates a separate source for EACH selected placement, so editing a
+variation in the Piano editor no longer changes its original linked copies. It
+needs one free source slot per selected placement and shares the existing saved-
+note budget. Copy source to selects another edited song part and copies the source
+into that track's library as an independent snapshot. Then click an empty bar to
+place it. The destination keeps its own sound, sample, automation, mixer and band
+output. This copies note data; it does not move whole placements vertically or
+create a link between different tracks. Convert unedited MIDI parts before using
+them as destinations. Sources remain capped at 8 per track.
+
+Source offset (quarters) changes where the PRIMARY placement starts within its
+source, without moving the placement or changing its duration. It wraps through
+that source, chases a note held at the offset with its remaining gate, and crops
+at the placement end. Zero preserves the previous behavior. This is a MIDI phrase
+phase control; audio sample trim remains in Samples. Offsets must stay below the
+source length, so shortening a source past an existing offset is rejected.
+Offsets/unique sources save in projects, named library saves and recovery; MIDI
+export flattens them through the same expansion as native playback. Offset and
+group edits during song playback queue the existing native bar-boundary replacement.
+Legacy placements migrate to offset zero. Native synth API stays at 14.

@@ -452,6 +452,18 @@ test('authored meters share bounded native replacement quanta',function()
         check(not accepted,'out-of-range quantum cannot create a transport')
     end
 end)
+test('source variations and placement offsets retain private persistence and validation',function()
+    local f=require('procedural_synth_project')(schema);local p=f.new();p.timeline={beats=64,tempos={{beat=0,tempo=500000}}}
+    local t=f.newTrack('midi','Offset copy',16);t.edited=f.encodeNotes({},960)
+    t.arrangement={clips={{name='Original',length=16,notes=f.encodeNotes({{n=60,s=0,l=4,v=1}},960)},
+        {name='Variation',length=16,notes=f.encodeNotes({{n=64,s=0,l=4,v=1}},960)}},
+        regions={{clip=2,s=16,l=24,offset=2,transpose=0,mute=false}}};p.tracks[1]=t
+    acquire();request('dawSave',{project=p});now=now+3;request('dawLoad')
+    check(sent[#sent].data.project.tracks[1].arrangement.regions[1].offset==2,'source offset and independent variation survive storage')
+    now=now+3;request('dawLoad',{pid=2,characterId=22});check(not storage['project:22'],'copied sources remain character private')
+    t.arrangement.regions[1].offset=16;request('dawSave',{project=p})
+    check(storage['project:11'].tracks[1].arrangement.regions[1].offset==2,'invalid offset cannot overwrite saved source phase')
+end)
 test('authored song meter and loop markers survive private character reload',function()
     local f=require('procedural_synth_project')(schema);local project=f.new()
     project.name='Blank song';project.composition={bars=8,numerator=6,denominator=8,loopStart=2,loopEnd=4,loop=true}

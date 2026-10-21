@@ -17,7 +17,7 @@ function R.new(owner,content)
         local index=self.page*8+row;local t=w.project.tracks[index]
         if t then
             content[#content+1]=owner:button(index..' '..t.name:sub(1,17),20,self.y+(row-1)*33,160,function()
-                if not w:leaveClip() then return end;w.selected=index;w.arrangeClip=1;w.regionIndex=nil;w.revision=w.revision+1
+                if not w:leaveClip() then return end;w.selected=index;w.arrangeClip=1;w.regionIndex=nil;w.regionSelection={};w.revision=w.revision+1
             end,w.selected==index)
             local grid=rect(self.x,self.y+(row-1)*33,self.width,30,c.bg);local cells={}
             for b=0,self.bars-1 do
@@ -59,9 +59,15 @@ end
 function R:press(slot,e)
     if e.button~=1 then return end
     local entry=self.pool[slot];local r=entry.track.arrangement.regions[entry.id]
-    local w=self.w;w.regionTrack=entry.index;w.regionIndex=entry.id;w.selected=entry.index;w.arrangeClip=r.clip
+    local w=self.w;local selected=false
+    for _,e in ipairs(w:selectedRegions()) do if e.track==entry.index and e.id==entry.id then selected=true end end
+    if input.isShiftPressed and input.isShiftPressed() then
+        w:selectRegion(entry.index,entry.id,true);w.revision=w.revision+1;self:draw();return
+    end
+    if not selected then w:selectRegion(entry.index,entry.id,false) end
+    w.regionTrack=entry.index;w.regionIndex=entry.id;w.selected=entry.index;w.arrangeClip=r.clip
     local width=entry.element.layout.props.size.x
-    self.drag={entry=entry,x=self:point(e).x,source=r,s=r.s,l=r.l,resize=e.offset and e.offset.x>=width-math.min(width*0.3,8*self.owner.window.scale) and r.s+r.l<=self.start+self.steps}
+    self.drag={entry=entry,x=self:point(e).x,source=r,s=r.s,l=r.l,delta=0,selected=w:selectedRegions(),resize=e.offset and e.offset.x>=width-math.min(width*0.3,8*self.owner.window.scale) and r.s+r.l<=self.start+self.steps}
     self:draw()
 end
 function R:move(e)
@@ -70,18 +76,24 @@ function R:move(e)
     local current=Format.barPosition(p,(self.start+self:point(e).x/self.cw)/4)
     local origin=Format.barPosition(p,(self.start+d.x/self.cw)/4)
     local delta=math.floor(current-origin+0.5)
-    if delta==0 then d.s,d.l=d.source.s,d.source.l;self:draw();return end
+    if delta==0 then d.delta=0;d.s,d.l=d.source.s,d.source.l;self:draw();return end
     if d.resize then
         local startBar=Format.barAt(p,d.source.s/4);local endBar=Format.barAt(p,(d.source.s+d.source.l)/4)
         d.l=math.max((Format.barStart(p,startBar+1)-Format.barStart(p,startBar))*4,Format.barStart(p,math.max(startBar+1,endBar+delta))*4-d.source.s)
-    else d.s=Format.barStart(p,math.max(1,Format.barAt(p,d.source.s/4)+delta))*4 end
+    else
+        local bar=Format.barAt(p,d.source.s/4);local first=d.source.s
+        for _,e in ipairs(d.selected) do first=math.min(first,e.region.s) end
+        d.delta=math.max(-first,(Format.barStart(p,math.max(1,bar+delta))-Format.barStart(p,bar))*4)
+        d.s=d.source.s+d.delta
+    end
     self:draw()
 end
 function R:finish(cancel)
     local d=self.drag;self.drag=nil
     if self.scrolling then self.scrolling=nil;if not cancel then self.w.revision=self.w.revision+1 end end
     if d and not cancel and self.w.project.tracks[d.entry.index]==d.entry.track then
-        if d.s~=d.source.s or d.l~=d.source.l then self.w:changeRegion(d.entry.index,d.entry.id,{s=d.s,l=d.l})
+        if d.resize and d.l~=d.source.l then self.w:changeRegion(d.entry.index,d.entry.id,{l=d.l})
+        elseif not d.resize and d.delta~=0 then self.w:batchRegions('move',d.delta)
         else self.w.revision=self.w.revision+1 end
     end
 end
@@ -104,15 +116,19 @@ function R:draw()
         cells[#cells+1]=rect(at,0,1,30,c.line)
     end
     for _,grid in ipairs(self.grids) do grid.layout.content=ui.content(cells);self.owner.window:update(grid) end
+    local selected={};for _,e in ipairs(self.w:selectedRegions()) do selected[e.track..':'..e.id]=true end
     for _,entry in ipairs(self.pool) do
         local r=entry.track.arrangement.regions[entry.id];local s,l=r.s,r.l
-        if self.drag and self.drag.entry==entry then s,l=self.drag.s,self.drag.l end
+        if self.drag then
+            if self.drag.resize and self.drag.entry==entry then l=self.drag.l
+            elseif not self.drag.resize and selected[entry.index..':'..entry.id] then s=s+self.drag.delta end
+        end
         local left,right=math.max(s,self.start),math.min(s+l,self.start+self.steps);local props=entry.element.layout.props
         props.visible=right>left;props.position=v(self.x+(left-self.start)*self.cw,self.y+(entry.row-1)*33)
         props.size=v(math.max(3,(right-left)*self.cw-2),29)
-        props.color=self.w.regionTrack==entry.index and self.w.regionIndex==entry.id and c.selected or r.mute and c.line or c.clip
+        props.color=selected[entry.index..':'..entry.id] and c.selected or r.mute and c.line or c.clip
         local clip=entry.track.arrangement.clips[r.clip]
-        entry.text.layout.props.text=clip.name..(r.transpose~=0 and string.format(' %+d',r.transpose) or '')..(r.mute and ' [M]' or '')
+        entry.text.layout.props.text=clip.name..((r.offset or 0)>0 and string.format(' @%.3gQ',r.offset/4) or '')..(r.transpose~=0 and string.format(' %+d',r.transpose) or '')..(r.mute and ' [M]' or '')
         entry.text.layout.props.size=v(math.max(1,props.size.x-8),22)
         self.owner.window:update(entry.text);self.owner.window:update(entry.element)
     end

@@ -1191,3 +1191,52 @@ power-of-two meters, 40-240 authored BPM and existing time/note budgets. Mid-bar
 meter changes start a new bar. Song edits retain quarter-note positions rather
 than rescaling notes/placements. Legacy clips keep their independent pattern grid.
 Metronome, tempo ramps, recording latency and hardware MIDI remain follow-ups.
+
+
+## Arrangement groups, source variations/transfers and phase offsets (2026-10-21)
+
+Package 24 / unchanged native synth API 14. All 20 Lua suites pass. The new
+1,012-assertion arranger-tools suite covers cross-track selection and toggling,
+group move/duplicate/delete/transpose, origin clamp, mixed-meter displacement,
+atomic history/overflow/capacity/active-take rejection, independent source edits,
+destination sound/mixer/band preservation, copied-source isolation and phase offsets.
+A 976-case offset/partial-length sweep verifies preflight count versus actual
+chase/crop/repeat expansion. Native score and MIDI export share that expansion.
+Old offsets migrate to zero; malformed/nonfinite/out-of-source offsets reject.
+Server tests cover private source/offset storage and invalid-write preservation.
+Actual Studio callback tests exercise Shift-selection, nonmutating group drag
+previews/release, Make unique, destination picker, offset numeric entry, Ctrl+A/D,
+Delete and history. The unchanged standalone native DSP suite passes.
+
+The disposable port-25567 probe created linked sources on two tracks, duplicated
+and moved a selection, detached variations, edited a unique source, copied it to
+another part, assigned an offset, exported/read MIDI and saved/reloaded through
+the real Lua wire and SQLite. Native playback on A and late-joining B reported
+strikes/voices with fault=0. Group Undo/Redo/replay and live group replacement passed.
+A full server/client restart retained sources and offsets and replayed on both
+clients. A live offset edit then queued and completed a native score replacement.
+The offset history key explicitly marks musical changes for native recompilation.
+
+Native fullscreen UI at 186% verified group dragging across tracks, six-placement
+Select all, selected-region highlighting, the Tools dropdown, independent-source/
+transfer buttons and the offset control. Shift-click, Delete and numeric offset
+entry are covered by the actual callback harness rather than claimed as physical
+GUI key/deletion checks. The initial native probe used cached pre-fix probe source
+and stopped after Undo/Redo cleared selection; the corrected probe reselects before
+its next live edit. The failed diagnostic is retained in probe-recovery; the fresh
+successful run and restart evidence are in first-run and restart-ui.
+
+The fresh baseline is evidence/arranger-tools/baseline-20261021-115528 in the
+existing fixture. All 15 recorded database/profile/settings/input hashes were
+restored after QA; the ordinary package is installed with the probe disabled.
+See evidence/arranger-tools/lua-tests.json and restoration.json. No new fixture on
+port 25568, production deployment or remote push was used.
+
+Limits: 8 track-local sources, 64 placements per track / 256 per document, existing
+8,192 stored-note and 60,000 expanded-note budgets. Make unique needs a source slot
+for every selected instance. Groups move horizontally with fixed quarter-note
+spacing; cross-track source transfer is an explicit independent library copy.
+Resizing and phase offset affect one primary placement. Automation, sound and mix
+stay with tracks. Selection is local/transient. Lasso selection, vertical placement
+dragging, cross-track shared source identities and grouped edge resizing are not
+part of this first pass; recording improvements remain next in the roadmap.

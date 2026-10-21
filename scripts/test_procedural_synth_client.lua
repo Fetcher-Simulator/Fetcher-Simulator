@@ -695,6 +695,45 @@ w:undo();w:editClip(1,1);now=now+0.01;lastStudio:frame(now)
 w:selectAllNotes(1);w:editSelected(1,{pitch=2});button('Arrange clips').events.mouseClick();now=now+0.01;player.engineHandlers.onFrame(0.01)
 check(not w.clipEdit and w.project.tracks[1].arrangement.clips[1].notes.bytes~=composed.tracks[1].edited.bytes,'returning to arranger exits source editing')
 button('Save').events.mouseClick();check(sent[#sent].project.tracks[1].arrangement.regions[2].clip==1,'actual Save sends compact source references')
+-- Real multi-selection, preview/release, unique/copy/offset controls and shortcuts.
+w:newSong(120,4,4,16);w:addNote(1,60,0);w:selectAllNotes(1);w:captureClip(1);w:duplicateRegion(1,1)
+w:addPart('bass');w:addNote(2,36,32);w:selectAllNotes(2);w:captureClip(2)
+w.page='arrange';w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
+local function pressPlacement(slot,modifier)
+    local a=lastStudio.arranger;local entry=a.pool[slot];local p=entry.element.layout.props;local scale=lastStudio.window.scale;local root=lastStudio.root.layout.props.position
+    local point=vector(root.x+p.position.x+3,root.y+38*scale+p.position.y+5)
+    input.isShiftPressed=function() return modifier end
+    entry.element.layout.events.mousePress{button=1,position=point,offset=vector(3,5)}
+    return point
+end
+pressPlacement(1,false);lastStudio.arranger:finish(false);pressPlacement(3,true)
+check(#w:selectedRegions()==2 and not lastStudio.arranger.drag,'Shift-click selects placements across tracks without moving')
+now=now+.01;lastStudio:frame(now);local gen=w.generation;local history=#w.undoStack
+local point=pressPlacement(1,false);local a=lastStudio.arranger;local scale=lastStudio.window.scale;mouseDown=true
+a:move{position=vector(point.x+a.bar*a.cw*scale,point.y)}
+check(w.generation==gen and w.project.tracks[1].arrangement.regions[1].s==0,'group drag remains a nonmutating preview')
+local x1=a.pool[1].element.layout.props.position.x;local x2=a.pool[3].element.layout.props.position.x
+check(math.abs((x2-x1)/scale-32*a.cw)<.01,'group preview preserves cross-track spacing')
+mouseDown=false;now=now+.01;lastStudio:frame(now)
+check(w.project.tracks[1].arrangement.regions[1].s==16 and w.project.tracks[2].arrangement.regions[1].s==48 and #w.undoStack==history+1,'group release commits both tracks once')
+button('Make unique').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(#w.project.tracks[1].arrangement.clips==2 and #w.project.tracks[2].arrangement.clips==2,'Make unique button detaches each selected source')
+button('Copy source to v').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(lastStudio.dropdown,'source transfer opens destination picker')
+check(lastStudio.dropdown.visibleEntries[1].id==2,'destination list targets the other part');lastStudio.dropdown.rows[1].layout.events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(w.selected==2 and #w.project.tracks[2].arrangement.clips==3,'destination picker copies source without changing destination instrument')
+w:selectRegion(2,1,false);w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
+local offsetField
+for _,e in ipairs(lastStudio.children) do if e.layout.type==ui.TYPE.TextEdit then
+    local p=e.layout.props;if p.position and math.abs(p.position.x-215*lastStudio.window.scale)<.1 and p.text=='0' then offsetField=e end
+end end
+assert(offsetField);offsetField.layout.events.focusGain();offsetField.layout.events.textChanged('0.5');offsetField.layout.events.keyPress{code=input.KEY.Enter}
+check(w.project.tracks[2].arrangement.regions[1].offset==2,'offset text field stores quarter units in placement phase')
+now=now+.01;lastStudio:frame(now);ctrl=true;lastStudio:key(input.KEY.A,true);ctrl=false
+check(#w:selectedRegions()==3,'Ctrl+A selects all arrangement placements')
+ctrl=true;lastStudio:key(input.KEY.D,true);ctrl=false;check(#w.project.tracks[1].arrangement.regions==4,'Ctrl+D duplicates selected group')
+lastStudio:key(input.KEY.Delete,true);check(#w.project.tracks[1].arrangement.regions==2 and #w:selectedRegions()==0,'Delete removes only selected duplicates')
+input.isShiftPressed=function() return false end
 -- Fullscreen grows the musical viewport without stretching fonts or editing notes.
 assert(w:newSong(120,4,4,8));assert(w:addNote(1,60,0));w.page='piano';w.rollSteps=16;w.rollStart=0
 viewport=vector(2560,1440);lastStudio.window.preferred=1.3;lastStudio.window.full=false

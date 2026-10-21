@@ -27,6 +27,7 @@ param(
     [switch] $LibraryProbe,
     [switch] $AutomationProbe,
     [switch] $TempoMapProbe,
+    [switch] $ArrangerToolsProbe,
     [switch] $VanillaSynth,
     [switch] $ResetStage,
     [string] $BardcraftDataDirectory
@@ -39,6 +40,7 @@ if ($RecordingProbe) { $PerformerStage = $true; $LiveProbe = $true }
 if ($CompositionProbe) { $PerformerStage = $true; $LiveProbe = $true }
 if ($ArrangementProbe) { $PerformerStage = $true; $LiveProbe = $true }
 if ($SampleProbe) { $PerformerStage = $true; $LiveProbe = $true }
+if ($ArrangerToolsProbe) { $PerformerStage = $true; $LiveProbe = $true }
 if ($TempoMapProbe) { $PerformerStage = $true; $LiveProbe = $true }
 if ($AutomationProbe) { $PerformerStage = $true; $LiveProbe = $true }
 if ($LibraryProbe) { $PerformerStage = $true; $LiveProbe = $true }
@@ -137,7 +139,7 @@ Copy-Item -LiteralPath "$repo\files\server\server-lua-packages\fetcher.procedura
 $probe = Join-Path $fixture 'server-lua-packages\fetcher.synth-live-test'
 if ($LiveProbe) {
     New-Item -ItemType Directory -Force -Path $probe | Out-Null
-    $probeFile = if ($TempoMapProbe) { 'tempo-map-player.lua' } elseif ($AutomationProbe) { 'automation-player.lua' } elseif ($LibraryProbe) { 'library-player.lua' } elseif ($PianoProbe) { 'piano-player.lua' } elseif ($ExportProbe) { 'export-player.lua' } elseif ($SampleProbe) { 'samples-player.lua' } elseif ($ArrangementProbe) { 'arrangement-player.lua' } elseif ($CompositionProbe) { 'composition-player.lua' } elseif ($RecordingProbe) { 'recording-player.lua' } elseif ($EditingProbe) { 'editing-player.lua' } elseif ($PerformerProbe) { 'performers-player.lua' } elseif ($BandProbe) { 'band-player.lua' } elseif ($PickupProbe) { 'pickup-player.lua' } elseif ($SoundSetProbe) { 'soundsets-player.lua' } elseif ($ReturnsProbe) { 'returns-player.lua' } elseif ($MixerProbe) { 'mixer-player.lua' } elseif ($TimingProbe) { 'timing-player.lua' } elseif ($GuitarProbe) { 'guitar-player.lua' } elseif ($DrumProbe) { 'drum-player.lua' } elseif ($DawProbe) { 'daw-player.lua' } elseif ($MidiProbe) { 'midi-player.lua' } else { 'live-player.lua' }
+    $probeFile = if ($ArrangerToolsProbe) { 'arranger-tools-player.lua' } elseif ($TempoMapProbe) { 'tempo-map-player.lua' } elseif ($AutomationProbe) { 'automation-player.lua' } elseif ($LibraryProbe) { 'library-player.lua' } elseif ($PianoProbe) { 'piano-player.lua' } elseif ($ExportProbe) { 'export-player.lua' } elseif ($SampleProbe) { 'samples-player.lua' } elseif ($ArrangementProbe) { 'arrangement-player.lua' } elseif ($CompositionProbe) { 'composition-player.lua' } elseif ($RecordingProbe) { 'recording-player.lua' } elseif ($EditingProbe) { 'editing-player.lua' } elseif ($PerformerProbe) { 'performers-player.lua' } elseif ($BandProbe) { 'band-player.lua' } elseif ($PickupProbe) { 'pickup-player.lua' } elseif ($SoundSetProbe) { 'soundsets-player.lua' } elseif ($ReturnsProbe) { 'returns-player.lua' } elseif ($MixerProbe) { 'mixer-player.lua' } elseif ($TimingProbe) { 'timing-player.lua' } elseif ($GuitarProbe) { 'guitar-player.lua' } elseif ($DrumProbe) { 'drum-player.lua' } elseif ($DawProbe) { 'daw-player.lua' } elseif ($MidiProbe) { 'midi-player.lua' } else { 'live-player.lua' }
     Copy-Item -LiteralPath "$PSScriptRoot\procedural-synth-tests\$probeFile" -Destination "$probe\player.lua" -Force
     Write-Utf8 -Path "$probe\manifest.yaml" -Value @'
 manifestVersion: 3

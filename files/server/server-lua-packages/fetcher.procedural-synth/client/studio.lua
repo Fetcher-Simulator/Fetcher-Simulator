@@ -205,7 +205,7 @@ function S:arrange(content)
     local id=w.arrangeClip or 1;local clips=t and t.arrangement and t.arrangement.clips or {};local clip=clips[id]
     content[#content+1]=self:button((clip and clip.name or 'Choose source clip')..' v',240,205,240,function()
         local choices={};for n,source in ipairs(clips) do choices[#choices+1]={id=n,label=source.name} end
-        Dropdown.open(self,choices,id,function(value) w.arrangeClip=value;w.revision=w.revision+1 end,240,237,470)
+        Dropdown.open(self,choices,id,function(value) w.arrangeClip=value;w.regionSelection={};w.regionIndex=nil;w.revision=w.revision+1 end,240,237,470)
     end)
     content[#content+1]=self:button('Edit source',495,205,110,function() if clip then self:releaseAll();w:editClip(index,id) end end)
     content[#content+1]=self:button('+ Empty clip',620,205,125,function() if w:newClip(index) then w.revision=w.revision+1 end end)
@@ -225,14 +225,31 @@ function S:arrange(content)
     local selected=p.tracks[w.regionTrack or 0];local region=selected and selected.arrangement and selected.arrangement.regions[w.regionIndex or 0]
     content[#content+1]=label(region and string.format('Placement: bar %.2f, %.2f bars, %+d semitones',Project.barPosition(p,region.s/4),Project.barPosition(p,(region.s+region.l)/4)-Project.barPosition(p,region.s/4),region.transpose) or 'Click an empty bar to place the selected source.',420,246,470,11,c.muted)
     self.arranger=Arranger.new(self,content)
-    content[#content+1]=self:button('Duplicate placement',20,592,170,function() w:duplicateRegion(w.regionTrack,w.regionIndex) end)
-    content[#content+1]=self:button('Remove placement',205,592,165,function() w:removeRegion(w.regionTrack,w.regionIndex) end)
-    content[#content+1]=self:button('Pitch -',390,592,90,function() if region then w:changeRegion(w.regionTrack,w.regionIndex,{transpose=region.transpose-1}) end end)
-    content[#content+1]=self:button('Pitch +',495,592,90,function() if region then w:changeRegion(w.regionTrack,w.regionIndex,{transpose=region.transpose+1}) end end)
-    content[#content+1]=self:button('Mute placement',605,592,140,function() if region then w:changeRegion(w.regionTrack,w.regionIndex,{mute=not region.mute}) end end,region and region.mute)
+    content[#content+1]=self:button('Duplicate placement',20,592,170,function() w:batchRegions('duplicate') end)
+    content[#content+1]=self:button('Remove placement',205,592,165,function() w:batchRegions('remove') end)
+    content[#content+1]=self:button('Pitch -',390,592,90,function() if region then w:batchRegions('pitch',-1) end end)
+    content[#content+1]=self:button('Pitch +',495,592,90,function() if region then w:batchRegions('pitch',1) end end)
+    content[#content+1]=self:button('Mute placement',605,592,140,function() if region then w:batchRegions('mute',not region.mute) end end,region and region.mute)
     content[#content+1]=self:button('Song settings',760,592,130,function() w.page='song';w.revision=w.revision+1 end)
-    content[#content+1]=label('Drag placements to move by bars; drag their right edge to repeat/trim. Source edits update all linked copies.',20,635,880,12,c.muted)
-    content[#content+1]=label('Capture selected Piano notes with Make clip. Delete source also removes its placements; Undo restores both.',20,664,880,12,c.muted)
+    content[#content+1]=self:button('Selection: '..#w:selectedRegions()..' / Tools v',20,635,220,function()
+        Dropdown.open(self,{{id='all',label='Select all placements (all tracks)'},{id='clear',label='Clear selection'},
+            {id='left',label='Move selection one bar earlier'},{id='right',label='Move selection one bar later'}},nil,function(action)
+            if action=='all' then w:selectAllRegions()
+            elseif action=='clear' then w.regionSelection={};w.regionIndex=nil;w.revision=w.revision+1
+            else w:moveRegions(action=='left' and -1 or 1) end
+        end,20,355,540)
+    end)
+    content[#content+1]=self:button('Make unique',255,635,135,function() w:batchRegions('unique') end)
+    content[#content+1]=self:button('Copy source to v',405,635,180,function()
+        if not clip then return end
+        local choices={};for n,track in ipairs(p.tracks) do if n~=index and track.edited then choices[#choices+1]={id=n,label=n..'  '..track.name} end end
+        Dropdown.open(self,choices,nil,function(target) w:copyClip(index,id,target) end,400,355,490)
+    end)
+    if region then local source=selected.arrangement.clips[region.clip];local offsetTrack,offsetRegion=w.regionTrack,w.regionIndex
+        content[#content+1]=Controls.slider(self,'regionOffset','Source offset (quarters)',{min=0,max=math.max(0,source.length/4-1/960),step=.0625},
+            function() return (w.project.tracks[offsetTrack].arrangement.regions[offsetRegion].offset or 0)/4 end,function(value) w:changeRegion(offsetTrack,offsetRegion,{offset=value*4}) end,605,628,285)
+    end
+    content[#content+1]=label('Shift-click selects; drag moves the group in time. Right edge resizes one. Unique separates sources. Ctrl+A/D, Delete, arrows.',20,679,880,10,c.muted)
 end
 function S:automation(content)
     local w,p=self.w,self.w.project;local t=p.tracks[w.selected]
@@ -844,9 +861,13 @@ function S:key(code,on)
     end
     if ctrl then
         if self.roll then self.roll:finish(true) end
-    if self.automationRoll then self.automationRoll:finish(true) end
+        if self.automationRoll then self.automationRoll:finish(true) end
+        if self.arranger then self.arranger:finish(true) end
         if code==input.KEY.Z then if input.isShiftPressed and input.isShiftPressed() then self.w:redo() else self.w:undo() end
         elseif code==input.KEY.Y then self.w:redo()
+        elseif self.arranger then
+            if code==input.KEY.A then self.w:selectAllRegions()
+            elseif code==input.KEY.D then self.w:batchRegions('duplicate') end
         elseif self.roll then
             local w=self.w;local n=w.selected
             if code==input.KEY.A then w:selectAllNotes(n);self.roll:draw()
@@ -854,6 +875,13 @@ function S:key(code,on)
             elseif code==input.KEY.V then w:pasteNotes(n,self.roll.start)
             elseif code==input.KEY.D then w:duplicateNotes(n) end
         end
+    elseif self.arranger then
+        self.arranger:finish(true)
+        if code==input.KEY.Delete then self.w:batchRegions('remove')
+        elseif code==input.KEY.LeftArrow then self.w:moveRegions(-1)
+        elseif code==input.KEY.RightArrow then self.w:moveRegions(1)
+        elseif code==input.KEY.UpArrow then self.w:batchRegions('pitch',1)
+        elseif code==input.KEY.DownArrow then self.w:batchRegions('pitch',-1) end
     elseif self.roll then
         local w=self.w
         if code==input.KEY.Delete then w:deleteNotes(w.selected)

@@ -257,12 +257,14 @@ function M.arrangement(value)
         out.clips[#out.clips+1]={name=clip.name,length=clip.length,notes={division=clip.notes.division,bytes=clip.notes.bytes}}
     end
     for _,r in ipairs(value.regions) do
-        if not keys(r,{clip=true,s=true,l=true,transpose=true,mute=true},5) or not int(r.clip,1,#out.clips)
+        if not keys(r,{clip=true,s=true,l=true,transpose=true,mute=true,offset=true},6) or not int(r.clip,1,#out.clips)
             or not num(r.s,0,M.maxSongBeats*4) or not num(r.l,0.25,M.maxSongBeats*4) or r.s+r.l>M.maxSongBeats*4
             or not int(r.transpose,-48,48) or type(r.mute)~='boolean' then return nil end
+        local offset=r.offset==nil and 0 or r.offset
+        if not num(offset,0,out.clips[r.clip].length) or offset>=out.clips[r.clip].length then return nil end
         local bounds=pitches[r.clip]
         if bounds[1]+r.transpose<0 or bounds[2]+r.transpose>127 then return nil end
-        out.regions[#out.regions+1]={clip=r.clip,s=r.s,l=r.l,transpose=r.transpose,mute=r.mute}
+        out.regions[#out.regions+1]={clip=r.clip,s=r.s,l=r.l,transpose=r.transpose,mute=r.mute,offset=offset}
     end
     return out
 end
@@ -282,9 +284,12 @@ function M.regionNoteCount(t)
     for _,r in ipairs(a.regions) do if not r.mute then
         local clip=a.clips[r.clip];local notes=cache[r.clip]
         if not notes then notes=M.decodeNotes(clip.notes);cache[r.clip]=notes end
-        local cycles=math.floor(r.l/clip.length);count=count+cycles*#notes
-        local rest=r.l-cycles*clip.length
-        for _,n in ipairs(notes) do if n.s<rest-1e-8 then count=count+1 end end
+        local offset=r.offset or 0
+        for _,n in ipairs(notes) do
+            local phase=(n.s-offset)%clip.length
+            count=count+math.max(0,math.ceil((r.l-phase-1e-8)/clip.length))
+            if n.s<offset and n.s+n.l>offset then count=count+1 end
+        end
         if count>M.maxExpandedNotes then return nil end
     end end
     return count
@@ -296,11 +301,15 @@ function M.eachRegionNote(t,emit)
     for _,r in ipairs(a.regions) do if not r.mute then
         local clip=a.clips[r.clip];local notes=cache[r.clip]
         if not notes then notes=M.decodeNotes(clip.notes);cache[r.clip]=notes end
-        if #notes>0 then for cycle=0,math.ceil(r.l/clip.length)-1 do
-            local offset=cycle*clip.length
-            for _,n in ipairs(notes) do if offset+n.s<r.l-1e-8 then
-                emit(n.n+r.transpose,r.s+offset+n.s,math.min(n.l,r.l-offset-n.s),n.v)
-            end end
+        local offset=r.offset or 0
+        if #notes>0 then for cycle=0,math.ceil((r.l+offset)/clip.length)-1 do
+            local base=cycle*clip.length-offset
+            for _,n in ipairs(notes) do local at=base+n.s
+                if at<r.l-1e-8 and (at>=0 or at+n.l>0) then
+                    local start=math.max(0,at)
+                    emit(n.n+r.transpose,r.s+start,math.min(at+n.l,r.l)-start,n.v)
+                end
+            end
         end end
     end end
 end
