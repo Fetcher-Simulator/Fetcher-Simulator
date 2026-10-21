@@ -228,7 +228,7 @@ function T:frame(instances)
         -- more settings than one network burst permits.
         if u and not i.pendingBand and not next(i.pendingChannels or {}) then
             if not u.began then
-                u.send('scoreBegin',{playId=u.playId,count=#u.plan.bytes/11,length=u.plan.length,loop=u.plan.loop,quantum=u.plan.quantum,replace=u.replace})
+                u.send('scoreBegin',{playId=u.playId,count=#u.plan.bytes/11,length=u.plan.length,loop=u.plan.loop,quantum=u.plan.quantum,barGrid=u.plan.barGrid,replace=u.replace})
                 u.began=true
             end
             u.budget=math.min(8,u.budget+math.max(0,now-u.last)*32);u.last=now

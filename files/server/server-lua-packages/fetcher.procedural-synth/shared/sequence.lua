@@ -54,6 +54,23 @@ function M.validate(bytes,length,loop,channels)
     for _,event in ipairs(intervals) do base=base+event[2];if base>4096 then return nil,'Too many overlapping gates.' end end
     return true
 end
+-- Optional musical bar grid for server-side live-edit activation, in score frames.
+function M.validateBarGrid(bytes,length)
+    if bytes==nil then return true end
+    if not integer(length,1,M.maxFrames) or type(bytes)~='string' or #bytes<8 or #bytes%4~=0 or #bytes>4097*4 then return nil,'Invalid bar grid size.' end
+    local frames={};local previous=-1
+    for at=1,#bytes,4 do local frame=u32(bytes,at)
+        if frame<=previous or frame>length then return nil,'Invalid bar grid order.' end
+        frames[#frames+1]=frame;previous=frame
+    end
+    if frames[1]~=0 or frames[#frames]~=length then return nil,'Bar grid must cover the score.' end
+    return true,frames
+end
+function M.nextBoundary(frames,length,loop,elapsed,lead)
+    local target=math.max(0,elapsed+(lead or 0.25))*M.rate
+    local cycle=loop and math.floor(target/length) or 0;local phase=target-cycle*length
+    for _,frame in ipairs(frames) do if frame>phase+1e-7 then return (cycle*length+frame)/M.rate end end
+end
 function M.compile(project,song,MIDI,mode,format,programPatch)
     local notes={};local function add(lane,pitch,velocity,time,gate)
         local frame=math.max(0,math.floor(time*M.rate+0.5))
@@ -182,6 +199,16 @@ function M.compile(project,song,MIDI,mode,format,programPatch)
     for _,n in ipairs(events) do bytes[#bytes+1]=pack(n.frame)..pack(n.duration)..string.char(n.lane,n.note,n.velocity) end
     bytes=table.concat(bytes);assert(#bytes>0,'No notes to play. Add notes or choose another playback view.');local loop=songMode and project.composition and project.composition.loop or not songMode and project.loop
     local ok,err=M.validate(bytes,length,loop);assert(ok,err)
-    return {bytes=bytes,length=length,loop=loop,quantum=math.floor((songMode and project.composition and format.barBeats(project) or 4)*60/project.bpm*M.rate+0.5)}
+    local grid
+    if songMode and format then
+        local markers=assert(format.barBoundaries(project,first or 0,last or beats,4097),'Playback supports at most 4096 bars per song.')
+        local frames={0};local previous=0
+        for _,marker in ipairs(markers) do local frame=math.floor(seconds(marker.beat)*M.rate+0.5)-offset
+            if frame>previous and frame<length then frames[#frames+1]=frame;previous=frame end
+        end
+        frames[#frames+1]=length;assert(#frames<=4097,'Playback supports at most 4096 bars per song.');local packed={};for _,frame in ipairs(frames) do packed[#packed+1]=pack(frame) end;grid=table.concat(packed)
+    end
+    return {bytes=bytes,length=length,loop=loop,barGrid=grid,
+        quantum=math.max(3000,math.min(1728000,math.floor((songMode and project.composition and format.barBeats(project) or 4)*60/project.bpm*M.rate+0.5)))}
 end
 return M

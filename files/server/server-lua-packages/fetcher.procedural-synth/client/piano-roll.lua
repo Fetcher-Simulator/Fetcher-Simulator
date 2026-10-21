@@ -30,7 +30,8 @@ function R.new(owner,content)
         local note=self.base+self.rows-1-row;local black=({[1]=true,[3]=true,[6]=true,[8]=true,[10]=true})[note%12]
         cells[#cells+1]=rect(0,row*self.rh,self.width,self.rh-1,black and colors.bg or colors.row)
     end
-    self.barSteps=w.project.composition and Project.barBeats(w.project)*4 or 16
+    self.songGrid=t.kind=='midi' and not clip
+    self.barSteps=self.songGrid and Project.barBeats(w.project,self.start/4)*4 or 16
     self.lines={}
     for step=0,self.steps-1 do
         local line=owner:element(rect(step*self.cw,0,1,self.height,colors.line))
@@ -48,6 +49,9 @@ function R.new(owner,content)
         self:draw()
     end),mouseMove=cb(function(e) self:move(e) end)}
     content[#content+1]=grid
+    self.barGrid=owner:element{type=ui.TYPE.Widget,props={position=v(self.x,self.y),size=v(self.width,self.height)},content=ui.content{}}
+    self.barGrid.layout.events=grid.events
+    content[#content+1]=self.barGrid
     for slot=1,math.min(512,#notes) do
         local r=rect(0,0,1,1,colors.note);r.props.visible=false
         r.events={mousePress=cb(function(e) self:press(slot,e) end),mouseMove=cb(function(e) self:move(e) end)}
@@ -121,9 +125,16 @@ function R:draw()
     for index,line in ipairs(self.lines) do
         local step=first+index-1;local props=line.layout.props
         props.position=v((step-self.start)*self.cw,0)
-        props.size=v(step%self.barSteps==0 and 3 or step%4==0 and 2 or 1,self.height)
+        props.size=v(not self.songGrid and step%self.barSteps==0 and 3 or step%4==0 and 2 or 1,self.height)
         self.owner.window:update(line)
     end
+    local bars={}
+    if self.songGrid then
+        for _,marker in ipairs(Project.barBoundaries(w.project,self.start/4,(self.start+self.steps)/4,1030) or {}) do
+            bars[#bars+1]=rect((marker.beat*4-self.start)*self.cw,0,3,self.height,colors.line)
+        end
+    end
+    self.barGrid.layout.content=ui.content(bars);self.owner.window:update(self.barGrid)
     for id,source in ipairs(w:noteData(self.index) or {}) do
         local n,s,l=source.n,source.s,source.l
         if self.drag and w.noteSelection[id] then local d=self.drag.change;n=n+(d.pitch or 0);s=s+(d.step or 0);l=l+(d.length or 0) end
@@ -143,7 +154,7 @@ function R:draw()
     self.thumbWidth=math.max(18,self.width*self.steps/(self.maximum+self.steps))
     self.thumb.layout.props.position=v(self.maximum>0 and (self.width-self.thumbWidth)*self.start/self.maximum or 0,0)
     self.thumb.layout.props.size=v(self.thumbWidth,12);self.owner.window:update(self.thumb)
-    self.caption.layout.props.text=string.format('Bars %.2f - %.2f  |  %d selected%s',self.start/self.barSteps+1,(self.start+self.steps)/self.barSteps+1,#w:selectedNotes(self.index),shown>512 and '  |  Zoom in to see remaining notes' or '')
+    self.caption.layout.props.text=string.format('Bars %.2f - %.2f  |  %d selected%s',self.songGrid and Project.barPosition(w.project,self.start/4) or self.start/16+1,self.songGrid and Project.barPosition(w.project,(self.start+self.steps)/4) or (self.start+self.steps)/16+1,#w:selectedNotes(self.index),shown>512 and '  |  Zoom in to see remaining notes' or '')
     self.owner.window:update(self.caption)
     if not self.drag and self.owner.noteVelocityRefresh then self.owner.noteVelocityRefresh() end
 end

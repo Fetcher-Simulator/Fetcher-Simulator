@@ -2,7 +2,7 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current build: package 22 / native synth API 14. Installed-game voice, effect
+Current build: package 23 / native synth API 14. Installed-game voice, effect
 and music samples are available, along with MIDI export and track renaming.
 Project library and autosave/recovery are available. Next: automation and MIDI controllers. See [the roadmap](ROADMAP.md).
 
@@ -1011,3 +1011,39 @@ The larger Lua package also exposed socket send-buffer backpressure during
 bootstrap. The server now queues bounded batches and retries refused sends, keeping
 all source chunks ahead of the completion marker and character list. This fixes
 package downloads without changing the multiplayer wire protocol.
+
+
+## Tempo and meter maps (package 23 / native synth API 14)
+
+Open Song -> Timing map. Choose Position by bar, or enter the zero-based quarter
+note position. Set tempo adds/replaces a BPM event; Set meter adds/replaces a time
+signature. The searchable Tempo points and Meter points lists select saved events
+for editing/removal and fill the local tempo/meter controls. The initial effective
+point cannot be removed. Applying a timing edit stops playback; press Play song
+to restart. Undo/Redo restores the complete map. The main BPM control changes only
+the initial tempo and preserves later changes.
+
+Piano bar captions/lines, Arrange labels/bar snapping, song length/loop markers,
+transport bar/meter/BPM and stopped-recording count-in follow the map. Meter changes
+start a new bar; a change inside a bar truncates that previous bar. Notes, linked
+sources/placements and automation retain their quarter-note positions; this is
+not an audio time-stretch or automatic musical re-quantization. Clip source and
+legacy drum/piano pattern lengths remain in quarter-note/16-step units; their
+independent clip playback does not use the song map. The piano zoom caption uses
+quarter notes because the number of visible bars can change as you pan.
+
+Maps save in the existing private character project/library/recovery database.
+Shortening a song retains later notes and map points for re-extension. MIDI import
+reads time-signature metadata along with tempo; MIDI export writes the conductor
+map through the exported song end. Complete converted/created parts can play
+without their source file; unconverted source parts still need the original MIDI.
+Live note/automation edits use actual tempo/meter-derived bar frames for native
+replacement; a finite song too near its end keeps the previous playing score and
+asks for a restart. Older clip clients retain their fixed-bar fallback.
+
+Limits: 1,024 tempo points, 128 explicit meter changes, 1-32 beats per meter with
+power-of-two denominators 1-64, 40-240 BPM for authored changes, 256 authored bars,
+4,096 playback bar intervals and 30 minutes. Imported MIDI tempos retain their
+original values. Future points must also stay within time/event budgets. Unsupported
+maps fail without replacing the current song. Tempo events are stepped; tempo
+ramps, metronome/count-in preferences and hardware MIDI input remain follow-ups.

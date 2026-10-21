@@ -6,12 +6,13 @@ local function rect(x,y,w,h,color) return {type=ui.TYPE.Image,props={position=v(
 local function cb(fn) return async:callback(function(e) fn(e);return false end) end
 local function clamp(n,a,b) return math.max(a,math.min(b,n)) end
 function R.new(owner,content)
-    local w=owner.w;local bar=Format.barBeats(w.project)*4
-    local self=setmetatable({owner=owner,w=w,x=190,y=292,width=700,height=264,bar=bar,pool={},labels={},page=w.arrangePage or 0},R)
-    self.bars=w.arrangeBars or 8;self.steps=self.bars*bar;self.cw=self.width/self.steps
-    local finish=w.project.timeline and w.project.timeline.beats*4 or self.steps
+    local w=owner.w
+    local self=setmetatable({owner=owner,w=w,x=190,y=292,width=700,height=264,pool={},labels={},grids={},page=w.arrangePage or 0},R)
+    self.bars=w.arrangeBars or 8
+    local finish=w.project.timeline and w.project.timeline.beats*4 or Format.barStart(w.project,self.bars+1)*4
     for _,t in ipairs(w.project.tracks) do for _,r in ipairs(t.arrangement and t.arrangement.regions or {}) do finish=math.max(finish,r.s+r.l) end end
-    self.maximum=math.max(0,math.ceil(finish/bar)-self.bars);w.arrangeBar=clamp(w.arrangeBar or 0,0,self.maximum);self.start=w.arrangeBar*bar
+    self.maximum=math.max(0,Format.barAt(w.project,math.max(0,finish/4-1e-8))-self.bars)
+    w.arrangeBar=clamp(w.arrangeBar or 0,0,self.maximum);self:view()
     for row=1,8 do
         local index=self.page*8+row;local t=w.project.tracks[index]
         if t then
@@ -20,15 +21,15 @@ function R.new(owner,content)
             end,w.selected==index)
             local grid=rect(self.x,self.y+(row-1)*33,self.width,30,c.bg);local cells={}
             for b=0,self.bars-1 do
-                cells[#cells+1]=rect(b*self.width/self.bars,0,1,30,c.line)
                 if row==1 then local label=owner:element{type=ui.TYPE.Text,props={position=v(self.x+b*self.width/self.bars,269),size=v(50,20),text=tostring(w.arrangeBar+b+1),textSize=11,textColor=c.selected}};self.labels[#self.labels+1]=label;content[#content+1]=label end
             end
+            self.grids[#self.grids+1]=owner:element(grid);grid=self.grids[#self.grids].layout
             grid.content=ui.content(cells);grid.events={mousePress=cb(function(e)
                 if e.button~=1 then return end
-                local point=self:point(e);local step=math.floor((self.start+point.x/self.cw)/self.bar)*self.bar
+                local point=self:point(e);local step=Format.barStart(w.project,Format.barAt(w.project,(self.start+point.x/self.cw)/4))*4
                 w:placeClip(index,w.selected==index and (w.arrangeClip or 1) or 1,math.max(0,step))
                 w.selected=index
-            end)};content[#content+1]=grid
+            end)};content[#content+1]=self.grids[#self.grids]
             for id,r in ipairs(t.arrangement and t.arrangement.regions or {}) do
                 local slot=#self.pool+1;local layout=rect(0,0,1,1,c.clip)
                 local text=owner:element{type=ui.TYPE.Text,props={position=v(5,5),size=v(1,22),text='',textSize=10,textColor=c.text}}
@@ -42,7 +43,7 @@ function R.new(owner,content)
     local function scroll(e)
         local point=self:point(e);local width=self.width-self.thumbWidth
         local start=width>0 and clamp((point.x-self.thumbWidth/2)/width,0,1)*self.maximum or 0
-        w.arrangeBar=math.floor(start+0.5);self.start=w.arrangeBar*self.bar;self:draw()
+        w.arrangeBar=math.floor(start+0.5);self:draw()
     end
     local events={mousePress=cb(function(e) if e.button==1 then self.scrolling=true;scroll(e) end end),mouseMove=cb(function(e) if self.scrolling then scroll(e) end end)}
     local barLayout=rect(self.x,565,self.width,12,c.line);barLayout.content=ui.content{self.thumb};barLayout.events=events
@@ -65,8 +66,15 @@ function R:press(slot,e)
 end
 function R:move(e)
     local d=self.drag;if not d then return end
-    local delta=math.floor((self:point(e).x-d.x)/self.cw/self.bar+0.5)*self.bar
-    if d.resize then d.l=math.max(self.bar,d.source.l+delta) else d.s=math.max(0,d.source.s+delta) end
+    local p=self.w.project
+    local current=Format.barPosition(p,(self.start+self:point(e).x/self.cw)/4)
+    local origin=Format.barPosition(p,(self.start+d.x/self.cw)/4)
+    local delta=math.floor(current-origin+0.5)
+    if delta==0 then d.s,d.l=d.source.s,d.source.l;self:draw();return end
+    if d.resize then
+        local startBar=Format.barAt(p,d.source.s/4);local endBar=Format.barAt(p,(d.source.s+d.source.l)/4)
+        d.l=math.max((Format.barStart(p,startBar+1)-Format.barStart(p,startBar))*4,Format.barStart(p,math.max(startBar+1,endBar+delta))*4-d.source.s)
+    else d.s=Format.barStart(p,math.max(1,Format.barAt(p,d.source.s/4)+delta))*4 end
     self:draw()
 end
 function R:finish(cancel)
@@ -83,8 +91,19 @@ function R:frame()
     self.playhead.layout.props.visible=visible
     self.playhead.layout.props.position=v(self.x+(step-self.start)*self.cw,self.y);self.owner.window:update(self.playhead)
 end
+function R:view()
+    self.start=Format.barStart(self.w.project,self.w.arrangeBar+1)*4
+    self.bar=Format.barBeats(self.w.project,self.start/4)*4
+    self.steps=Format.barStart(self.w.project,self.w.arrangeBar+self.bars+1)*4-self.start;self.cw=self.width/self.steps
+end
 function R:draw()
-    for index,label in ipairs(self.labels) do label.layout.props.text=tostring(self.w.arrangeBar+index);self.owner.window:update(label) end
+    self:view();local cells={}
+    for index,label in ipairs(self.labels) do
+        local bar=self.w.arrangeBar+index;local at=(Format.barStart(self.w.project,bar)*4-self.start)*self.cw
+        label.layout.props.text=tostring(bar);label.layout.props.position=v(self.x+at,269);self.owner.window:update(label)
+        cells[#cells+1]=rect(at,0,1,30,c.line)
+    end
+    for _,grid in ipairs(self.grids) do grid.layout.content=ui.content(cells);self.owner.window:update(grid) end
     for _,entry in ipairs(self.pool) do
         local r=entry.track.arrangement.regions[entry.id];local s,l=r.s,r.l
         if self.drag and self.drag.entry==entry then s,l=self.drag.s,self.drag.l end

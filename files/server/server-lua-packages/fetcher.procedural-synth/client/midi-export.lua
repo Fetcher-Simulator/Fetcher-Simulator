@@ -30,10 +30,12 @@ function M.encode(project,song,MIDI,format,mode)
         order=order+1;assert(order<=60000,'MIDI export controller/event budget exceeded');tracks[track][#tracks[track]+1]={at=at,bytes=bytes,priority=priority or 0,order=order}
     end
     event(1,0,string.char(255,3)..vlq(#p.name)..p.name,-3)
-    for _,t in ipairs(map) do event(1,math.floor(t.beat*M.division+.5),string.char(255,81,3)..be(math.floor(t.tempo+.5),3),-2) end
-    if p.composition then
-        local power=0;local d=p.composition.denominator;while d>1 do d=d/2;power=power+1 end
-        event(1,0,string.char(255,88,4,p.composition.numerator,power,24,8),-1)
+    for _,t in ipairs(map) do if t.beat*M.division<=finish then event(1,math.floor(t.beat*M.division+.5),string.char(255,81,3)..be(math.floor(t.tempo+.5),3),-2) end end
+    for _,m in ipairs(format.meterMap(p)) do
+        local at=math.floor(m.beat*M.division+0.5)
+        if at<=finish then local power=0;local d=m.denominator;while d>1 do d=d/2;power=power+1 end
+            event(1,at,string.char(255,88,4,m.numerator,power,24,8),-1)
+        end
     end
     local channels={};local melodic=0
     for n,t in ipairs(p.tracks) do

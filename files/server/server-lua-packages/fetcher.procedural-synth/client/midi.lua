@@ -68,6 +68,10 @@ function M.parse(bytes, checkpoint)
                 local kind=number(1)
                 local n=vlq()
                 if kind==3 then names[track]=take(n):gsub('%c',' '):sub(1,48)
+                elseif kind==88 then
+                    assert(n==4,'Invalid MIDI meter');local numerator,power=number(1),number(1);take(2)
+                    assert(numerator>=1 and numerator<=32 and power<=6,'Unsupported MIDI meter (1-32 over 1-64)')
+                    event(tick,'meter',nil,numerator,2^power)
                 elseif kind==81 then
                     assert(n==3,'Invalid MIDI tempo')
                     local tempo=number(3);assert(tempo>0,'Invalid MIDI tempo')
@@ -88,11 +92,15 @@ function M.parse(bytes, checkpoint)
     end)
     local tick,seconds,tempo=0,0,500000
     local tempos={}
-    local playable,controllers={},{}
+    local playable,controllers,meters={},{},{}
     local channelPrograms,assigned={},{}
     for _,e in ipairs(events) do
         step()
-        if e.kind=='program' or e.kind=='bend' then
+        if e.kind=='meter' then
+            local m={beat=e.tick/division,numerator=e.note,denominator=e.velocity}
+            if meters[#meters] and meters[#meters].beat==m.beat then meters[#meters]=m else meters[#meters+1]=m end
+            assert(#meters<=128,'MIDI meter map exceeds 128 entries')
+        elseif e.kind=='program' or e.kind=='bend' then
             if e.kind=='program' then channelPrograms[e.channel]=e.note end
             e.time=seconds+(e.tick-tick)*tempo/(division*1000000);controllers[#controllers+1]=e
         else
@@ -110,7 +118,7 @@ function M.parse(bytes, checkpoint)
     end
     seconds=seconds+(lastTick-tick)*tempo/(division*1000000)
     assert(seconds<=1800,'MIDI exceeds 30 minutes')
-    return {events=playable,controllers=controllers,duration=seconds,division=division,tracks=tracks,names=names,programs=programs,tempos=tempos,beats=lastTick/division}
+    return {events=playable,controllers=controllers,meters=meters,duration=seconds,division=division,tracks=tracks,names=names,programs=programs,tempos=tempos,beats=lastTick/division}
 end
 
 -- Each (SMF track, MIDI channel) is a part. Preserve track names even when

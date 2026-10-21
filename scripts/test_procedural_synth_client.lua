@@ -623,6 +623,24 @@ lastStudio.cb.playSong();acceptRecovery()
 check(w.project.composition and w.project.midi=='' and score.bytes:byte(10)==65,'load clears explicit file selection before authored-song Play')
 lastStudio.cb.midiSelect(paths[1]);lastStudio.cb.playSong();acceptRecovery();now=now+0.01;player.engineHandlers.onFrame(0.01)
 check(w.project.midi==paths[1] and not w.project.composition,'explicit file selection still replaces an authored song')
+-- Exercise Timing map controls and actual song ruler widget geometry.
+w:newSong(120,4,4,8);w.page='song';now=now+.01;lastStudio:frame(now)
+button('Timing map >').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(w.page=='timing' and button('Set tempo') and button('Set meter'),'Song opens dedicated timing editor')
+w.timingBeat=8;w.timingBpm=60;button('Set tempo').events.mouseClick();now=now+.01;lastStudio:frame(now)
+w.timingNumerator=3;w.timingDenominator=4;button('Set meter').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(w.project.timeline.tempos[2].tempo==1000000 and Format.barStart(w.project,4)==11,'Timing callbacks commit tempo/meter map')
+w.timingBeat=14;w.timingNumerator=7;w.timingDenominator=8;button('Set meter').events.mouseClick();now=now+.01;lastStudio:frame(now)
+w:addNote(1,60,32);w.rollStart=32;w.rollSteps=32;w.page='piano';w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
+local roll=lastStudio.roll;check(roll.songGrid and #roll.barGrid.layout.content>=3,'Piano uses mapped song bar grid')
+check(math.abs(roll.barGrid.layout.content[2].props.position.x-12*roll.cw)<.001,'3/4 passage has twelve sixteenth steps per bar')
+local count=#w:noteData(1);local scale=lastStudio.window.scale
+roll.barGrid.layout.events.mousePress{button=1,offset=vector(roll.cw*2*scale,roll.rh*.5*scale)}
+check(#w:noteData(1)==count+1,'bar overlay forwards empty-grid painting')
+w.page='song';w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
+button('Timing map >').events.mouseClick();now=now+.01;lastStudio:frame(now)
+button('Remove meter').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(#w.project.timeline.meters==1 and w:undo(),'Timing removal has one undo action')
 -- Exercise real arranger widgets, mouse capture and shared-source navigation.
 w:newSong(120,4,4,16);w:addNote(1,60,0);w:addNote(1,64,4);w:selectAllNotes(1)
 button('Piano').events.mouseClick();now=now+0.01;player.engineHandlers.onFrame(0.01)
@@ -639,6 +657,11 @@ local function dragRegion(resize,bars)
     mouseDown=false;now=now+0.01;lastStudio:frame(now)
     check(#w.undoStack==history+1,'placement drag commits once on release')
 end
+local ar=lastStudio.arranger;local entry=ar.pool[1];local props=entry.element.layout.props;local scale=lastStudio.window.scale;local rootPosition=lastStudio.root.layout.props.position
+local point=vector(rootPosition.x+props.position.x+props.size.x-1,rootPosition.y+38*scale+props.position.y+5)
+local gen=w.generation
+ar:press(1,{button=1,position=point,offset=vector(props.size.x-1,5)});ar:move{position=point};ar:finish(false)
+check(w.generation==gen,'stationary placement drag does not change history or snap an existing endpoint')
 dragRegion(false,2)
 check(w.project.tracks[1].arrangement.regions[1].s==32,'timeline drag moves a placement by whole bars')
 viewport=vector(1920,1440);lastStudio.window:zoom(0.5);now=now+0.01;lastStudio:frame(now)

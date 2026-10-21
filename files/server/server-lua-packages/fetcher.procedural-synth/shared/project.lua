@@ -146,13 +146,24 @@ function M.encodeNotes(notes,division)
     return M.decodeNotes(data) and data or nil
 end
 function M.timeline(value)
-    if not keys(value,{beats=true,tempos=true},2) or not num(value.beats,0,M.maxSongBeats) or not array(value.tempos,1024) then return nil end
+    if not keys(value,{beats=true,tempos=true,meters=true},3) or not num(value.beats,0,M.maxSongBeats) or not array(value.tempos,1024) then return nil end
     local out={beats=value.beats,tempos={}};local previous=-1
     for _,t in ipairs(value.tempos) do
-        if not keys(t,{beat=true,tempo=true},2) or not num(t.beat,0,value.beats) or t.beat<previous or not int(t.tempo,1,16777215) then return nil end
+        if not keys(t,{beat=true,tempo=true},2) or not num(t.beat,0,M.maxSongBeats) or t.beat<previous or not int(t.tempo,1,16777215) then return nil end
         out.tempos[#out.tempos+1]={beat=t.beat,tempo=t.tempo};previous=t.beat
     end
+    if value.meters~=nil then
+        if not array(value.meters,128) then return nil end
+        out.meters={};local previous=-1
+        for _,m in ipairs(value.meters) do
+            if not keys(m,{beat=true,numerator=true,denominator=true},3) or not num(m.beat,0,M.maxSongBeats)
+                or m.beat<=previous or previous>=0 and m.beat-previous<1e-7 or m.beat>0 and m.beat<1e-7 or not M.validMeter(m.numerator,m.denominator) then return nil end
+            out.meters[#out.meters+1]={beat=m.beat,numerator=m.numerator,denominator=m.denominator};previous=m.beat
+        end
+    end
     if M.seconds(out,out.beats)>1800 then return nil end
+    for _,t in ipairs(out.tempos) do if M.seconds(out,t.beat)>1800 then return nil end end
+    for _,m in ipairs(out.meters or {}) do if M.seconds(out,m.beat)>1800 then return nil end end
     return out
 end
 local clocks=setmetatable({},{__mode='k'})
@@ -175,18 +186,61 @@ local roles={keys=true,mallet=true,organ=true,guitar=true,bass=true,strings=true
 -- Bars and loop markers are independent of the sixteen-bar clip overlay.
 function M.composition(value)
     if not keys(value,{bars=true,numerator=true,denominator=true,loopStart=true,loopEnd=true,loop=true},6)
-        or not int(value.bars,1,256) or not int(value.numerator,1,12)
-        or (value.denominator~=2 and value.denominator~=4 and value.denominator~=8 and value.denominator~=16)
+        or not int(value.bars,1,256) or not M.validMeter(value.numerator,value.denominator)
         or not int(value.loopStart,1,value.bars) or not int(value.loopEnd,value.loopStart,value.bars)
         or type(value.loop)~='boolean' then return nil end
     return {bars=value.bars,numerator=value.numerator,denominator=value.denominator,
         loopStart=value.loopStart,loopEnd=value.loopEnd,loop=value.loop}
 end
-function M.barBeats(p) local s=p.composition;return s and s.numerator*4/s.denominator or 4 end
+-- A meter change starts a new bar, including changes inside a source MIDI bar.
+-- Notes/automation keep quarter-note positions. Cache only immutable map objects.
+function M.validMeter(n,d) return int(n,1,32) and ({[1]=true,[2]=true,[4]=true,[8]=true,[16]=true,[32]=true,[64]=true})[d]==true end
+local grids=setmetatable({},{__mode='k'})
+function M.meterMap(p)
+    local key=p.timeline or p.composition or p;local cached=grids[key];if cached then return cached end
+    local s=p.composition;local n,d=s and s.numerator or 4,s and s.denominator or 4
+    local out={{beat=0,bar=1,numerator=n,denominator=d,length=n*4/d}}
+    for _,m in ipairs(p.timeline and p.timeline.meters or {}) do
+        local previous=out[#out]
+        local bar=previous.bar+math.ceil((m.beat-previous.beat)/previous.length-1e-9)
+        local entry={beat=m.beat,bar=bar,numerator=m.numerator,denominator=m.denominator,length=m.numerator*4/m.denominator}
+        if m.beat==0 then out[1]=entry else out[#out+1]=entry end
+    end
+    grids[key]=out;return out
+end
+local function segment(map,key,value)
+    local low,high=1,#map
+    while low<high do local mid=math.floor((low+high+1)/2);if map[mid][key]<=value+1e-9 then low=mid else high=mid-1 end end
+    return map[low]
+end
+function M.barBeats(p,beat) return segment(M.meterMap(p),'beat',beat or 0).length end
+function M.barStart(p,bar)
+    local m=segment(M.meterMap(p),'bar',bar);return m.beat+(bar-m.bar)*m.length
+end
+function M.barAt(p,beat)
+    local m=segment(M.meterMap(p),'beat',math.max(0,beat));return m.bar+math.floor((math.max(0,beat)-m.beat)/m.length+1e-9)
+end
+function M.barPosition(p,beat)
+    local bar=M.barAt(p,beat);local first,last=M.barStart(p,bar),M.barStart(p,bar+1)
+    return bar+(beat-first)/(last-first)
+end
+function M.meterAt(p,beat) local m=segment(M.meterMap(p),'beat',beat or 0);return m.numerator,m.denominator end
+function M.tempoAt(p,beat)
+    local tempo=500000;for _,t in ipairs(p.timeline and p.timeline.tempos or {}) do if t.beat>beat then break end;tempo=t.tempo end
+    return tempo
+end
 function M.songRange(p)
     local s=p.composition;if not s then return end
-    local bar=M.barBeats(p)
-    return s.loop and (s.loopStart-1)*bar or 0,s.loop and s.loopEnd*bar or s.bars*bar
+    return M.barStart(p,s.loop and s.loopStart or 1),M.barStart(p,(s.loop and s.loopEnd or s.bars)+1)
+end
+function M.barBoundaries(p,first,last,maximum)
+    local out={};local bar=M.barAt(p,first)
+    if M.barStart(p,bar)<first-1e-8 then bar=bar+1 end
+    while M.barStart(p,bar)<=last+1e-8 do
+        if #out>=(maximum or 4096) then return nil end
+        out[#out+1]={beat=M.barStart(p,bar),bar=bar};bar=bar+1
+    end
+    return out
 end
 function M.arrangement(value)
     if not keys(value,{clips=true,regions=true},2) or not array(value.clips,M.maxClips) or not array(value.regions,M.maxRegions) then return nil end
@@ -293,9 +347,10 @@ function M.project(p)
     if p.timeline~=nil then out.timeline=M.timeline(p.timeline);if not out.timeline then return nil end end
     if p.composition~=nil then
         out.composition=M.composition(p.composition)
-        if not out.composition or p.midi~='' or not out.timeline or out.timeline.beats~=out.composition.bars*M.barBeats(out)
-            or #out.timeline.tempos~=1 or out.timeline.tempos[1].beat~=0
-            or out.timeline.tempos[1].tempo~=math.floor(60000000/p.bpm+0.5) then return nil end
+        if not out.composition or p.midi~='' or not out.timeline or math.abs(out.timeline.beats-M.barStart(out,out.composition.bars+1))>1e-7
+            or not out.timeline.tempos[1] or out.timeline.tempos[1].beat~=0
+            or out.timeline.tempos[1].tempo~=math.floor(60000000/p.bpm+0.5)
+            or out.composition.numerator~=select(1,M.meterAt(out,0)) or out.composition.denominator~=select(2,M.meterAt(out,0)) then return nil end
     end
     local notes,edited,regions,expanded,automation=0,0,0,0,0
     for _,t in ipairs(p.tracks) do

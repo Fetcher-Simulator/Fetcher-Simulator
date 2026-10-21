@@ -53,7 +53,7 @@ local function choicesRange(first,last)
     local out={};for n=first,last do out[#out+1]={id=n,label=tostring(n)} end;return out
 end
 local function meters()
-    local out={};for _,denominator in ipairs{2,4,8,16} do for numerator=1,12 do
+    local out={};for _,denominator in ipairs{1,2,4,8,16,32,64} do for numerator=1,32 do
         out[#out+1]={id=numerator..'/'..denominator,label=numerator..'/'..denominator}
     end end;return out
 end
@@ -79,9 +79,10 @@ function S:newSong(content)
 end
 function S:song(content)
     local w,p=self.w,self.w.project;local s=p.composition
+    if p.timeline or w.song then content[#content+1]=self:button('Timing map >',550,157,175,function() self:openTiming() end) end
     if p.timeline then content[#content+1]=self:button('Arrange clips >',740,157,150,function() self:openArranger() end) end
     if not s then
-        content[#content+1]=label('Create a song from scratch',20,185,870,20,c.accent)
+        content[#content+1]=label(w.song and 'Imported MIDI song / timing map' or 'Create a song from scratch',20,185,870,20,c.accent)
         content[#content+1]=self:button('New Song',20,240,180,function() w.page='newsong';w.revision=w.revision+1 end)
         content[#content+1]=label('Imported MIDI parts remain editable on Piano. New Song creates an independent arrangement.',20,300,880,13,c.muted)
         return
@@ -105,7 +106,7 @@ function S:song(content)
         Dropdown.open(self,choicesRange(s.loopStart,s.bars),s.loopEnd,function(value) w:setComposition{loopEnd=value} end,510,237,380)
     end)
     content[#content+1]=label('Play song uses these bounds. Shortening preserves later notes; extending reveals them again.',20,249,870,12,c.muted)
-    content[#content+1]=label('Meter changes bar lines and the count-in; note positions keep their quarter-note timing.',20,277,870,12,c.muted)
+    content[#content+1]=label('Timing map adds tempo/meter changes. Notes keep quarter-note positions; each meter change starts a bar.',20,277,870,12,c.muted)
     local page=w.songPage or 0
     for row=1,8 do
         local index=page*8+row;local t=p.tracks[index]
@@ -131,6 +132,60 @@ function S:song(content)
     content[#content+1]=self:button('Parts 9-16',605,602,120,function() w.songPage=1;w.revision=w.revision+1 end,page==1)
     content[#content+1]=self:button('Route in Band',740,602,150,function() w.page='band';w.revision=w.revision+1 end)
     content[#content+1]=label('Each drum part has its own synth voice. Draw or record its hits in Notes. Save before Finish.',20,656,880,12,c.muted)
+end
+function S:openTiming()
+    self:releaseAll();if self.w.clipEdit and not self.w:leaveClip() then return end
+    self.w.page='timing';self.w.revision=self.w.revision+1
+end
+function S:timing(content)
+    local w=self.w;local p=w:timingProject()
+    if not p then content[#content+1]=label('Create or import a song first.',20,180,870,16,c.accent);return end
+    local beat=w.timingBeat or 0
+    local function position(value)
+        w.timingBeat=value;w.timingBpm=math.max(40,math.min(240,60000000/Project.tempoAt(p,value)))
+        w.timingNumerator,w.timingDenominator=Project.meterAt(p,value);w.revision=w.revision+1
+    end
+    w.timingBpm=w.timingBpm or math.max(40,math.min(240,60000000/Project.tempoAt(p,beat)))
+    if not w.timingNumerator then w.timingNumerator,w.timingDenominator=Project.meterAt(p,beat) end
+    content[#content+1]=self:button('< Song',20,163,110,function() w.page='song';w.revision=w.revision+1 end)
+    content[#content+1]=label('TEMPO / METER MAP  |  Applying an edit stops the old playback clock.',150,169,740,14,c.accent)
+    content[#content+1]=Controls.slider(self,'mapBeat','Quarter note (from 0)',{min=0,max=Project.maxSongBeats,step=.25},function() return w.timingBeat or 0 end,function(value) w.timingBeat=value end,20,211,270)
+    content[#content+1]=self:button('Position by bar v',310,220,160,function()
+        local choices={};local last=p.composition and p.composition.bars+1 or math.min(4096,Project.barAt(p,p.timeline.beats)+1)
+        for bar=1,last do choices[#choices+1]={id=bar,label='Bar '..bar..' / Q '..string.format('%.4g',Project.barStart(p,bar))} end
+        Dropdown.open(self,choices,Project.barAt(p,beat),function(bar) position(Project.barStart(p,bar)) end,310,252,500)
+    end)
+    local function apply(ok) if not ok then ui.showMessage('Choose a supported value or an existing point. The initial map point cannot be removed.') end end
+    content[#content+1]=Controls.slider(self,'mapTempo','Tempo (BPM)',{min=40,max=240,step=1},function() return w.timingBpm end,function(value) w.timingBpm=value end,20,278,270)
+    content[#content+1]=self:button('Set tempo',310,287,160,function() apply(w:editTempo(w.timingBeat or 0,w.timingBpm)) end)
+    content[#content+1]=self:button('Remove tempo',485,287,160,function() apply(w:editTempo(w.timingBeat or 0,nil,true)) end)
+    content[#content+1]=self:button('Meter: '..w.timingNumerator..'/'..w.timingDenominator..' v',20,352,270,function()
+        Dropdown.open(self,meters(),w.timingNumerator..'/'..w.timingDenominator,function(id)
+            local n,d=id:match('(%d+)/(%d+)');w.timingNumerator=tonumber(n);w.timingDenominator=tonumber(d);w.revision=w.revision+1
+        end,20,384,450)
+    end)
+    content[#content+1]=self:button('Set meter',310,352,160,function() apply(w:editMeter(w.timingBeat or 0,w.timingNumerator,w.timingDenominator)) end)
+    content[#content+1]=self:button('Remove meter',485,352,160,function() apply(w:editMeter(w.timingBeat or 0,nil,nil,true)) end)
+    local tempoChoices,meterChoices={},{}
+    for _,t in ipairs(p.timeline.tempos) do tempoChoices[#tempoChoices+1]={id=t.beat,label=string.format('Bar %.3g / Q %.5g / %.5g BPM',Project.barPosition(p,t.beat),t.beat,60000000/t.tempo)} end
+    for _,m in ipairs(Project.meterMap(p)) do meterChoices[#meterChoices+1]={id=m.beat,label=string.format('Bar %d / Q %.5g / %d/%d',m.bar,m.beat,m.numerator,m.denominator)} end
+    content[#content+1]=self:button('Tempo points: '..#tempoChoices..' v',20,415,410,function()
+        Dropdown.open(self,tempoChoices,w.timingBeat,function(value)
+            position(value)
+        end,20,447,600)
+    end)
+    content[#content+1]=self:button('Meter points: '..#meterChoices..' v',475,415,410,function()
+        Dropdown.open(self,meterChoices,w.timingBeat,function(value)
+            position(value)
+        end,290,447,600)
+    end)
+    for i=1,5 do
+        content[#content+1]=label(tempoChoices[i] and tempoChoices[i].label or '',20,466+(i-1)*27,420,12)
+        content[#content+1]=label(meterChoices[i] and meterChoices[i].label or '',475,466+(i-1)*27,410,12)
+    end
+    content[#content+1]=label('Pick any event in the scrollable lists to edit/remove it. Set adds or replaces a point at this position.',20,612,870,12,c.muted)
+    content[#content+1]=label('Meters start a new bar; notes, clips and automation retain quarter-note positions. Undo restores timing.',20,639,870,12,c.muted)
+    content[#content+1]=label('Shortening a song preserves later map points. Imported tempo values are retained; authored changes use 40-240 BPM.',20,666,870,11,c.muted)
 end
 function S:openArranger()
     self:releaseAll();if not self.w:leaveClip() then return end
@@ -161,14 +216,14 @@ function S:arrange(content)
         content[#content+1]=self:element{type=ui.TYPE.TextEdit,props={position=v(20,241),size=v(190,25),text=clip.name,textSize=12,textColor=c.text},events={
             textChanged=cb(function(text) draft=text:gsub('%c',''):sub(1,32) end),focusGain=cb(function() self.typing=true end),focusLoss=cb(rename),
             keyPress=cb(function(e) if e.code==input.KEY.Escape then self:key(e.code,true) elseif e.code==input.KEY.Enter or e.code==input.KEY.NP_Enter then rename() end end)}}
-        content[#content+1]=self:button(string.format('Source: %.2g bars v',clip.length/(Project.barBeats(p)*4)),225,240,175,function()
-            local choices={};local bar=Project.barBeats(p)*4
-            for n=1,math.floor(Project.maxSteps/bar) do choices[#choices+1]={id=n*bar,label=n..' bars'} end
+        content[#content+1]=self:button(string.format('Source: %.2g quarters v',clip.length/4),225,240,175,function()
+            local choices={};local bar=4
+            for n=1,math.floor(Project.maxSteps/bar) do choices[#choices+1]={id=n*bar,label=n..' quarters'} end
             Dropdown.open(self,choices,clip.length,function(length) w:setClip(index,id,{length=length}) end,225,272,430)
         end)
     end
     local selected=p.tracks[w.regionTrack or 0];local region=selected and selected.arrangement and selected.arrangement.regions[w.regionIndex or 0]
-    content[#content+1]=label(region and string.format('Placement: bar %.2f, %.2f bars, %+d semitones',region.s/(Project.barBeats(p)*4)+1,region.l/(Project.barBeats(p)*4),region.transpose) or 'Click an empty bar to place the selected source.',420,246,470,11,c.muted)
+    content[#content+1]=label(region and string.format('Placement: bar %.2f, %.2f bars, %+d semitones',Project.barPosition(p,region.s/4),Project.barPosition(p,(region.s+region.l)/4)-Project.barPosition(p,region.s/4),region.transpose) or 'Click an empty bar to place the selected source.',420,246,470,11,c.muted)
     self.arranger=Arranger.new(self,content)
     content[#content+1]=self:button('Duplicate placement',20,592,170,function() w:duplicateRegion(w.regionTrack,w.regionIndex) end)
     content[#content+1]=self:button('Remove placement',205,592,165,function() w:removeRegion(w.regionTrack,w.regionIndex) end)
@@ -418,7 +473,7 @@ function S:piano(content)
     content[#content+1]=self:button(self.pianoFocus and 'Back to Piano [Esc]' or 'Expand editor',self.width-370,tools,165,function() self:setPianoFocus(not self.pianoFocus) end)
     self.roll=PianoRoll.new(self,content)
     local roll=self.roll;local footer=self.height-137
-    content[#content+1]=label(string.format('%.2g bars in view',roll.steps/(p.composition and Project.barBeats(p)*4 or 16)),320,tools+5,180,12,c.muted)
+    content[#content+1]=label(string.format('%.2g quarters in view',roll.steps/4),320,tools+5,180,12,c.muted)
     for row=0,roll.rows-1 do content[#content+1]=label(pitch(roll.base+roll.rows-1-row),20,roll.y+row*roll.rh+3,52,12,c.muted) end
     self.playhead=self:element(rect(76,roll.y-5,3,4,c.accent));content[#content+1]=self.playhead
     content[#content+1]=self:button('Oct -',20,footer,62,function() w.base=math.max(0,roll.base-12);w.revision=w.revision+1 end)
@@ -745,7 +800,7 @@ function S:render()
     content[#content+1]=self:button('Import',self.width-229,112,92,self.cb.import)
     content[#content+1]=self:button('Export MIDI',self.width-125,112,100,function() w:exportMidi() end)
     local body={};self.bodyOffset=(w.page=='piano' or w.page=='drums' or w.page=='auto') and 0 or math.max(0,(self.width-940)/2)
-    if w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
+    if w.page=='timing' then self:timing(body) elseif w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
     -- Keep the header above centered page containers in native hit testing.
     if self.bodyOffset>0.1 then table.insert(content,1,{type=ui.TYPE.Widget,props={position=v(self.bodyOffset,0),size=v(940,self.height)},content=ui.content(body)})
     else for _,item in ipairs(body) do content[#content+1]=item end end
@@ -827,6 +882,11 @@ function S:frame(now)
     if self.revision~=self.w.revision then self:render() end
     if now-self.lastFrame<0.1 then return end;self.lastFrame=now
     self.transport.layout.props.text=string.format('%s  |  %.1fs  |  Beat %.1f  |  %s%s',self.w.awaiting and 'BUFFER' or (self.w.playing and 'PLAY' or 'STOP'),self.w.time,self.w.beat+1,self.w.project.name,self.w.dirty and ' *' or '')
+    if self.w.mode=='song' and (self.w.project.timeline or self.w.song) then
+        local view={timeline=self.w.project.timeline or self.w.song,composition=self.w.project.composition}
+        local n,d=Project.meterAt(view,self.w.beat)
+        self.transport.layout.props.text=self.transport.layout.props.text..string.format('  |  Bar %.2f  %d/%d  %.3g BPM',Project.barPosition(view,self.w.beat),n,d,60000000/Project.tempoAt(view,self.w.beat))
+    end
     self.window:update(self.transport)
     if self.sampleStatus then
         local info=self.samples:info();local t=self.w.project.tracks[self.w.selected]

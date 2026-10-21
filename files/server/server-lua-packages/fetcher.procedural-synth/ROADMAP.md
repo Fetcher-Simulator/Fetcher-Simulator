@@ -1,6 +1,6 @@
 # Procedural Synth / Studio roadmap
 
-Updated 2026-10-20. Completed work and subsequent planned slices are identified below.
+Updated 2026-10-21. Completed work and subsequent planned slices are identified below.
 
 ## Product goal
 
@@ -83,7 +83,7 @@ browser + voice-line playback slice.
 Completed 2026-10-20 in package 19 / native synth API 13. Studio exports complete
 songs or one legacy pattern cycle as format-1 MIDI, flattening linked arrangements
 and retaining notes, gates, velocities, tempo maps, percussion and track names.
-Authored meter is written for other DAWs; applying imported meter is later work.
+Authored meter is written for other DAWs; imported meter support shipped in package 23.
 Exports stay in the owner's local character profile and immediately join the MIDI
 picker. Sound/sample/effect/band settings remain in server-saved Studio projects.
 Track renaming has explicit Apply/Cancel, Undo/Redo and project persistence.
@@ -122,26 +122,36 @@ late observers, SQLite persistence and restart checks passed at the full 8,192
 point budget. MIDI export retains supported CC/bend/program lanes. See README.md
 for capture timing, existing baked-gate compatibility, bounds and follow-ups.
 
-## Remaining roadmap (next: tempo/meter editing)
+## Completed slice: tempo/meter editing and musical bar maps
 
-1. Tempo/meter editing: changes within a song, editable maps and matching bar
-   displays. Imported tempo-map playback already exists; authored songs currently
-   have a constant tempo and meter.
-2. Arranger improvements: multi-selection/group moves, independent source
+Completed 2026-10-21 in package 23; native synth API remains 14. Song -> Timing map
+adds/removes tempo and meter events with bar-position selection, searchable event
+lists and full-map Undo/Redo. Song regions, Piano/Arrange rulers/snapping, stopped
+recording count-in and native live-edit replacement follow changing bars/tempos.
+MIDI imports/exports time-signature and tempo conductor maps; named saves, recovery
+and restart playback retain them. Notes, linked clips and automation keep their
+quarter-note positions. Timing changes stop the old clock before restart. Native
+two-client playback, late listener, UI painting/dragging and restart checks passed
+in the original port-25567 fixture. All saved user settings/data were restored.
+See README.md for limits and TEST-REPORT.md for evidence.
+
+## Remaining roadmap (next: arranger improvements)
+
+1. Arranger improvements: multi-selection/group moves, independent source
    variations, cross-track source transfer and source offsets. Linked sources
    and individual move/repeat/trim/transpose/mute are already implemented.
-3. Recording improvements: audible metronome, configurable count-in, measured
+2. Recording improvements: audible metronome, configurable count-in, measured
    recording latency, hardware MIDI input and additional recording modes,
    including live controller monitoring and shared-source overdub during playback.
-4. Mixer/effects routing: stereo/panning, group buses and flexible effect chains.
+3. Mixer/effects routing: stereo/panning, group buses and flexible effect chains.
    Native EQ/compression, instrument drive/cabinet and shared delay/reverb exist;
    mixer/return automation is still planned.
-5. Band gameplay/presentation: NPC stage position/facing/follow behaviour and
+4. Band gameplay/presentation: NPC stage position/facing/follow behaviour and
    better instrument-specific arm/hand/finger animation. Consent, held-instrument
    readiness, owned NPCs and saved leader-controlled part routing already work.
-6. Multiplayer timing/scale: continuous device-drift correction, device latency,
+5. Multiplayer timing/scale: continuous device-drift correction, device latency,
    richer late-join state and larger-band/long-session performance checks.
-7. Further sample tools and sound-library refinement: the advanced sampler
+6. Further sample tools and sound-library refinement: the advanced sampler
     features above, acoustic/sample-based starting sounds and additional guitar
     articulations. Continue preset listening/balance refinement as tools mature.
 
@@ -162,8 +172,9 @@ Sixteen tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 22 / native synth API 14. Installed-game sampling, library/recovery and
-automation/controller editing are implemented; tempo/meter editing is next.
+package 23 / native synth API 14. Installed-game sampling, library/recovery,
+automation/controller and tempo/meter editing are implemented; arranger improvements
+are next.
 
 ## Completed slice: native instrument effects and guitar sounds
 

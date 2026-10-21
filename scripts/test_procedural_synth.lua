@@ -250,6 +250,32 @@ test('native automation uploads replicate with the shared clock and remain owner
     check(bytes==score.bytes,'late observer receives identical curve bytes for native chase')
     request('dawSave',{project=p});check(storage['project:11'].tracks[1].automation.expression[2].v==1,'saved curves stay with character project')
 end)
+test('tempo/meter bar grids schedule replacements and persist privately',function()
+    local f=require('procedural_synth_project')(schema);local seq=require('procedural_synth_sequence')
+    local p=f.new();p.composition={bars=8,numerator=4,denominator=4,loopStart=1,loopEnd=8,loop=false}
+    p.timeline={beats=28,tempos={{beat=0,tempo=500000},{beat=8,tempo=1000000},{beat=14,tempo=750000}},
+        meters={{beat=8,numerator=3,denominator=4},{beat=14,numerator=7,denominator=8}}}
+    p.tracks[1]=f.newTrack('midi','Timing',16);p.tracks[1].edited=f.encodeNotes({{n=60,s=32,l=4,v=1}},960)
+    local score=seq.compile(p,nil,nil,'song',f)
+    acquire();request('channel',{channel=1,params={},level=1})
+    local function upload(id,replace,grid,pid)
+        request('scoreBegin',{pid=pid or 1,playId=id,count=#score.bytes/11,length=score.length,loop=false,quantum=score.quantum,replace=replace,barGrid=grid})
+        request('scoreChunk',{pid=pid or 1,playId=id,index=1,bytes=score.bytes});request('scoreCommit',{pid=pid or 1,playId=id})
+    end
+    local function meta() for _,e in ipairs(sent) do if e.data.op=='scoreBegin' then return e.data end end end
+    sent={};upload(1,false,score.barGrid);local first=assert(meta())
+    now=first.started+4.1;sent={};upload(2,true,score.barGrid);local edit=assert(meta())
+    check(edit.started==first.started and edit.activate==first.started+7,'replacement follows 3/4 bar at changed tempo, not fixed seconds')
+    now=now+1;sent={};upload(3,true,score.barGrid,2);check(not meta(),'observer cannot dictate timing map')
+    now=now+1;sent={};upload(4,true,'bad');check(not meta(),'malformed bar grid cannot replace running score')
+    request('heartbeat')
+    while now<first.started+20.4 do now=math.min(now+4,first.started+20.4);request('heartbeat') end
+    sent={};upload(5,true,score.barGrid)
+    check(not meta() and sent[#sent].data.op=='scoreError','ending finite score rejects replacement without inventing a bar')
+    sent={};request('sync',{pid=2});check(meta().playId==2,'invalid/ending edit preserves previous transport')
+    now=now+3;request('dawSave',{project=p});now=now+3;request('dawLoad')
+    check(sent[#sent].data.project.timeline.meters[2].denominator==8 and storage['project:11'].timeline.tempos[3].tempo==750000,'maps survive owner SQLite contract')
+end)
 test('malformed and unauthorized native uploads preserve the running score',function()
     acquire();request('channel',{channel=1,params={},level=1});sent={}
     request('scoreBegin',{pid=2,playId=1,count=1,length=48000,loop=true,quantum=48000,replace=false})

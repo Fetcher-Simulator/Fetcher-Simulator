@@ -64,23 +64,62 @@ function W:newSong(bpm,numerator,denominator,bars)
     self.rollStart=0;self.bar=0;self.base=60;self.time=0;self.beat=0;self.step=-1;self.page='song'
     self.lastEditKey=nil;self:configureAll();self:touch();return true
 end
+function W:timingProject()
+    local p=copy(self.project)
+    if not p.timeline then
+        if not self.song then return end
+        local tempos={};for _,t in ipairs(self.song.tempos or {}) do tempos[#tempos+1]={beat=t.beat,tempo=t.tempo} end
+        p.timeline={beats=self.song.beats,tempos=tempos,meters=copy(self.song.meters or {})}
+    end
+    return p
+end
+function W:commitTiming(candidate)
+    if self.recording or self.failedTake then self.cb.message('Keep or cancel the take before editing timing.');return false end
+    if candidate.composition then
+        candidate.timeline.beats=format.barStart(candidate,candidate.composition.bars+1)
+        candidate.composition.numerator,candidate.composition.denominator=format.meterAt(candidate,0)
+    end
+    candidate.bpm=math.max(40,math.min(240,60000000/format.tempoAt(candidate,0)))
+    local valid=format.project(candidate)
+    if not valid then self.cb.message('Timing map exceeds supported meter, event or 30-minute limits; previous map kept.');return false end
+    self:stop(true);self.project=valid;self.noteCache={};self.lastEditKey=nil;self:touch();return true
+end
 function W:setComposition(changes)
     if not self.project.composition or self.recording or self.failedTake then return false end
-    local candidate=copy(self.project);for k,value in pairs(changes) do candidate.composition[k]=value end
-    local s=format.composition(candidate.composition);if not s then return false end
-    candidate.timeline={beats=s.bars*s.numerator*4/s.denominator,tempos={{beat=0,tempo=math.floor(60000000/candidate.bpm+0.5)}}}
-    local valid=format.project(candidate);if not valid then self.cb.message('Song settings exceed the 30-minute project limit.');return false end
-    self:stop(true);self.project=valid;self.noteCache={};self:touch();return true
+    local p=copy(self.project);for k,value in pairs(changes) do p.composition[k]=value end
+    if not format.composition(p.composition) then return false end
+    if changes.numerator or changes.denominator then
+        local meters=copy(p.timeline.meters or {})
+        for i=#meters,1,-1 do if meters[i].beat==0 then table.remove(meters,i) end end
+        table.insert(meters,1,{beat=0,numerator=p.composition.numerator,denominator=p.composition.denominator});p.timeline.meters=meters
+    end
+    return self:commitTiming(p)
+end
+function W:editTempo(beat,bpm,remove)
+    local p=self:timingProject();if not p or type(beat)~='number' or beat~=beat or beat<0 or beat>format.maxSongBeats then return false end
+    if remove and beat==0 or not remove and (type(bpm)~='number' or bpm~=bpm or bpm<40 or bpm>240) then return false end
+    local found=false;for _,t in ipairs(p.timeline.tempos) do if math.abs(t.beat-beat)<1e-7 then found=true end end
+    if remove and not found then return false end
+    local points={};for _,t in ipairs(p.timeline.tempos) do if math.abs(t.beat-beat)>1e-7 then points[#points+1]=t end end
+    if not remove then points[#points+1]={beat=beat,tempo=math.floor(60000000/bpm+0.5)} end
+    table.sort(points,function(a,b) return a.beat<b.beat end)
+    if not points[1] or points[1].beat>0 then table.insert(points,1,{beat=0,tempo=500000}) end
+    p.timeline.tempos=points;return self:commitTiming(p)
+end
+function W:editMeter(beat,n,d,remove)
+    local p=self:timingProject();if not p or type(beat)~='number' or beat~=beat or beat<0 or beat>format.maxSongBeats then return false end
+    if remove and beat==0 or not remove and not format.validMeter(n,d) then return false end
+    local found=false;for _,m in ipairs(p.timeline.meters or {}) do if math.abs(m.beat-beat)<1e-7 then found=true end end
+    if remove and not found then return false end
+    local points={};for _,m in ipairs(p.timeline.meters or {}) do if math.abs(m.beat-beat)>1e-7 then points[#points+1]=m end end
+    if not remove then points[#points+1]={beat=beat,numerator=n,denominator=d} end
+    table.sort(points,function(a,b) return a.beat<b.beat end);p.timeline.meters=points
+    return self:commitTiming(p)
 end
 function W:setTempo(value)
     if self.playing or self.recording or type(value)~='number' or value~=value or value<40 or value>240 then return false end
-    if self.project.composition then
-        local candidate=copy(self.project);candidate.bpm=value
-        candidate.timeline.tempos={{beat=0,tempo=math.floor(60000000/value+0.5)}}
-        if not format.project(candidate) then self.cb.message('Tempo would exceed the 30-minute song limit.');return false end
-        self.project.bpm=value;self.project.timeline=candidate.timeline
-    else self.project.bpm=value end
-    self:touch('bpm',true);return true
+    if self.project.timeline or self.song then return self:editTempo(0,value) end
+    self.project.bpm=value;self:touch('bpm',true);return true
 end
 function W:addPart(role)
     if not self.project.timeline or #self.project.tracks>=format.maxTracks or self.recording then return false end
@@ -165,7 +204,7 @@ function W:importControls(index)
     local candidate=copy(self.project);candidate.tracks[index].automation=automation
     if not candidate.timeline then
         local tempos={};for _,tempo in ipairs(self.song.tempos or {}) do tempos[#tempos+1]={beat=tempo.beat,tempo=tempo.tempo} end
-        candidate.timeline=format.timeline{beats=self.song.beats,tempos=tempos}
+        candidate.timeline=format.timeline{beats=self.song.beats,tempos=tempos,meters=copy(self.song.meters or {})}
         if not candidate.timeline then self.cb.message('MIDI tempo map exceeds editable limits.');return false end
     end
     if not format.project(candidate) then self.cb.message('Imported controls exceed the project budget.');return false end
@@ -406,7 +445,7 @@ function W:convertPart(index)
     local t=self.project.tracks[index]
     if not t or t.kind~='midi' or t.edited then return false end
     if not self.song then self.cb.message('Load the original MIDI before editing this part.');return false end
-    local timeline={beats=self.song.beats,tempos={}}
+    local timeline={beats=self.song.beats,tempos={},meters=copy(self.song.meters or {})}
     for _,tempo in ipairs(self.song.tempos or {}) do timeline.tempos[#timeline.tempos+1]={beat=tempo.beat,tempo=tempo.tempo} end
     timeline=self.project.timeline or format.timeline(timeline)
     if not timeline then self.cb.message('This MIDI tempo map exceeds the editable song limits.');return false end
@@ -502,6 +541,12 @@ function W:import(song,path)
     local found={};for _,p in ipairs(parts) do found[p.id]=true end
     for _,t in ipairs(self.project.tracks) do if t.edited and self.project.midi==path and not found[t.part] then extra[#extra+1]=t end end
     if #parts+#extra>format.maxTracks then self.cb.message('MIDI has '..#parts..' parts; at most 16 tracks fit. Remove clips or choose a smaller MIDI.');return false end
+    local timeline=self.project.midi==path and self.project.timeline or nil
+    if not timeline and song.meters and #song.meters>0 then
+        local tempos={};for _,t in ipairs(song.tempos or {}) do tempos[#tempos+1]={beat=t.beat,tempo=t.tempo} end
+        timeline=format.timeline{beats=song.beats,tempos=tempos,meters=copy(song.meters)}
+        if not timeline then self.cb.message('MIDI timing map exceeds supported event or 30-minute limits; previous song kept.');return false end
+    end
     if self.library and self.project.midi~=path then self.library:detach() end
     self:stop(true);local tracks={}
     for _,p in ipairs(parts) do
@@ -515,7 +560,9 @@ function W:import(song,path)
     for _,t in ipairs(extra) do tracks[#tracks+1]=t end
     if self.project.midi~=path and not SoundSets.find(self.project.soundSet) then self.project.soundSet='balanced' end
     if self.project.midi~=path then self.project.timeline=nil;self.project.composition=nil end
-    self.song=song;self:cacheSpans();self.project.midi=path;self.project.tracks=tracks;self.selected=1;self.noteSelection={};self.noteCache={}
+    self.song=song
+    self.project.timeline=timeline
+    self:cacheSpans();self.project.midi=path;self.project.tracks=tracks;self.selected=1;self.noteSelection={};self.noteCache={}
     self.clipEdit=nil;self.regionIndex=nil
     if song.tempos and song.tempos[1] and song.tempos[1].beat==0 then self.project.bpm=math.max(40,math.min(240,60000000/song.tempos[1].tempo)) end
     self:configureAll();self:touch();return true
@@ -662,8 +709,10 @@ function W:startTake(index)
     if clip then limit=clip.length;minimum=0 end
     if step>=limit then self.cb.message('Move the view inside the playback length before recording.');return false end
     local snap=math.min(self.snap>0 and self.snap or (t.edited and 4/t.edited.division or 1/240),limit-origin-minimum)
+    local countBeats=t.edited and not clip and format.barBeats(self.project,step/4) or 4
+    local countTempo=t.edited and not clip and format.tempoAt(self.project,step/4)/1000000 or 60/self.project.bpm
     self.recording={index=index,track=t,clip=clip,mode=mode,overdub=self.playing,origin=origin,limit=limit,notes={},held={},capacity=capacity,
-        starts=now+(t.edited and self.project.composition and format.barBeats(self.project) or 4)*60/self.project.bpm,seconds=seconds,snap=snap,minimum=minimum}
+        starts=now+countBeats*countTempo,countTempo=countTempo,seconds=seconds,snap=snap,minimum=minimum}
     self.revision=self.revision+1;return true
 end
 function W:recordOn(note,velocity)
@@ -727,7 +776,7 @@ function W:recordStatus()
     if not step then
         if r.overdub then return 'Waiting for native playback...' end
         local now=self.cb.now and self.cb.now() or self.wall
-        return 'Count in: '..math.max(1,math.ceil((r.starts-now)*self.project.bpm/60))
+        return 'Count in: '..math.max(1,math.ceil((r.starts-now)/r.countTempo))
     end
     local held=0;for _ in pairs(r.held) do held=held+1 end
     return string.format('RECORD  |  Beat %.2f  |  %d notes + %d held',step/4+1,#r.notes,held)

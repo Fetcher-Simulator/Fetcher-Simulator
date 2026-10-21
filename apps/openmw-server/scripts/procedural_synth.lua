@@ -162,7 +162,8 @@ local function request(data)
             elseif k=='project' and (data.op=='dawSave' or data.op=='pickup') then if not projectFormat.project(v) then return end
             else return end
         elseif type(v) == 'string' then
-            if k=='bytes' and data.op=='scoreChunk' then if #v<11 or #v>sequenceFormat.chunkSize or #v%11~=0 then return end
+            if k=='barGrid' and data.op=='scoreBegin' then if not sequenceFormat.validateBarGrid(v,data.length) then return end
+            elseif k=='bytes' and data.op=='scoreChunk' then if #v<11 or #v>sequenceFormat.chunkSize or #v%11~=0 then return end
             elseif not text(v,96) then return end
         elseif type(v) ~= 'number' and type(v) ~= 'boolean' then return end
     end
@@ -272,9 +273,11 @@ local function request(data)
             or not integer(data.count,1,sequenceFormat.maxEvents) or not integer(data.length,1,sequenceFormat.maxFrames)
             or type(data.loop)~='boolean' or type(data.replace)~='boolean' or not integer(data.quantum,3000,1728000)
             or not budget(data.pid,now,'scoreBegins',4,4) then return end
+        local gridOK,barFrames=sequenceFormat.validateBarGrid(data.barGrid,data.length)
+        if not gridOK then return end
         s.lastPlayId=data.playId
         s.upload={playId=data.playId,count=data.count,length=data.length,loop=data.loop,quantum=data.quantum,
-            replace=data.replace,chunks={},size=0,next=1,expires=now+20}
+            replace=data.replace,barFrames=barFrames,chunks={},size=0,next=1,expires=now+20}
         return
     end
     if data.op=='scoreChunk' then
@@ -296,6 +299,15 @@ local function request(data)
         u.replace=u.replace and old~=nil
         u.started=u.replace and old.started or now+0.75
         u.activate=u.replace and (u.started+(math.floor((now-u.started+0.25)/(u.quantum/48000))+1)*u.quantum/48000) or u.started
+        if u.replace and u.barFrames then
+            local boundary=sequenceFormat.nextBoundary(u.barFrames,u.length,u.loop,now-u.started,0.25)
+            if not boundary then
+                emit(data.pid,{op='scoreError',id=s.id,epoch=s.epoch,playId=u.playId,
+                    message='Song is ending; restart playback to hear this edit.'})
+                return
+            end
+            u.activate=u.started+boundary
+        end
         s.transport=u
         for _,p in ipairs(mp.getPlayers()) do if relevant(p,s.cell) then sendTransport(p.guid,s,u);s.recipients[p.guid]=true end end
         return

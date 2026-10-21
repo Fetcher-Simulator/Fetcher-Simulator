@@ -58,9 +58,11 @@ function M.capture(w,index)
         end
     end
     if #notes==0 then w.cb.message('Select piano-roll notes, or choose a nonempty piano/drum clip.');return false end
-    local first,finish=math.huge,0;local bar=Format.barBeats(w.project)*4
+    local first,finish=math.huge,0
     for _,n in ipairs(notes) do first=math.min(first,n.s);finish=math.max(finish,n.s+math.max(n.l,1/960)) end
-    first=math.floor(first/bar)*bar;local length=math.max(bar,math.ceil((finish-first)/bar-1e-9)*bar)
+    local startBar=Format.barAt(w.project,first/4);first=Format.barStart(w.project,startBar)*4
+    local endBar=Format.barAt(w.project,math.max(0,finish/4-1e-8))+1
+    local length=math.max(Format.barStart(w.project,startBar+1)*4-first,Format.barStart(w.project,endBar)*4-first)
     if not t.edited then first=0;length=math.max(w.project.length,finish) end
     if length>Format.maxSteps then w.cb.message('A reusable clip can span at most 64 quarter notes. Select a shorter phrase.');return false end
     for _,n in ipairs(notes) do n.s=n.s-first end

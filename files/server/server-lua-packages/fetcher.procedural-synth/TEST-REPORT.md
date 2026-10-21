@@ -1150,3 +1150,44 @@ import is explicit for compatibility with older baked sustain gates. Program
 changes use current sound-set family patches and remain off for sample parts.
 Mixer/return automation, external MIDI input, variable bend/RPN maps and richer
 recording modes remain roadmap items; README.md documents behavior and bounds.
+
+
+## Tempo/meter maps and native bar-boundary activation (2026-10-21)
+
+Package 23 / unchanged native synth API 14. All 19 Lua suites pass, including a new
+47-assertion timing suite, server ownership/persistence/malformed-grid/finite-end
+checks and actual Timing/Piano/Arrange callback tests. Forward/inverse clocks,
+partial bars, crop/loop, map-preserving shortening/header edits, PPQ preservation,
+Undo/Redo, atomic import rejection, MIDI conductor round trip and local tempo/meter
+recording count-in are covered. Server/client project and sequence mirrors match.
+The standalone C++ DSP suite passes; no native engine/API changes were needed.
+
+Native probes ran on the existing port-25567 fixture. Synth A authored 120/60/80 BPM
+segments with 4/4, 3/4 and 7/8 passages, PPQ notes, expression automation and a linked
+bass source. It wrote/read the MIDI conductor map, saved/reopened through the real
+Lua wire/SQLite library, and queued a live note edit after the first tempo change.
+Playback continued past the mapped bar boundary without a native fault. Synth B
+joined during playback and reported voices/strikes and fault=0. Both clients and
+the server restarted; saved maps and arrangement replayed on both clients.
+The deterministic server test verifies the exact 7-second activation at the mapped
+bar rather than the old fixed 6-second boundary.
+
+Native fullscreen UI review at 186% verified readable Timing controls, searchable
+point selection, Piano bar captions across the 4/4-to-3/4 transition, empty-grid note
+painting through the new bar overlay, and dragging an Arrange clip from bar 1 to
+bar 3 with unequal bar widths. Deletion is covered by the UI regression harness,
+not claimed as a live GUI deletion check. The piano zoom caption uses stable
+quarter-note units; its live bar-range caption follows panning.
+
+Evidence is under evidence/tempo-map/first-run and restart-ui in the fixture,
+with lua-tests.json and restoration.json. The fresh user baseline is
+baseline-20261021-114032; all 15 database/profile/settings hashes were restored.
+The normal package is installed with the disposable probe disabled. Existing
+user projects, recovery state, input bindings and GUI settings are preserved.
+No new port-25568 fixture, production deployment or remote push was used.
+
+First-pass limits: step tempo changes, 1,024 tempo/128 meter events, supported
+power-of-two meters, 40-240 authored BPM and existing time/note budgets. Mid-bar
+meter changes start a new bar. Song edits retain quarter-note positions rather
+than rescaling notes/placements. Legacy clips keep their independent pattern grid.
+Metronome, tempo ramps, recording latency and hardware MIDI remain follow-ups.

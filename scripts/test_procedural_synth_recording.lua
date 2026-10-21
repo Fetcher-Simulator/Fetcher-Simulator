@@ -38,7 +38,7 @@ check(not w.recording and not w.playing and #w:noteData(1)==3,'Stop keeps and re
 local p=format.new();p.midi='midi/record.mid';p.timeline={beats=80,tempos={{beat=0,tempo=500000},{beat=4,tempo=1000000}}}
 p.tracks[1]=format.newTrack('midi','Edited',16);p.tracks[1].edited=assert(format.encodeNotes({},96));w:load(p)
 w.rollStart=20;now=300;check(w:startTake(1),'edited MIDI can record beyond clip loop')
-now=302.3;w:recordOn(60,0.8);now=303.1;w:recordOff(60);w:endTake(false)
+now=304.3;w:recordOn(60,0.8);now=305.1;w:recordOff(60);w:endTake(false)
 check(w:noteData(1)[1].s==21 and w:noteData(1)[1].l==3.5,'stopped song take follows saved tempo map from view start')
 check(format.project(w.project).tracks[1].edited.bytes==w.project.tracks[1].edited.bytes,'recorded song serializes through existing project validation')
 local q=make();q:add('piano');now=400;q:startTake(1);now=403;q:recordOn(60,1)
