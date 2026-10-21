@@ -1,4 +1,5 @@
 #include "../../apps/openmw/mwsound/proceduralsynth.hpp"
+#include "../../apps/openmw/mwlua/studiomidi.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -87,10 +88,22 @@ void writePreview(const std::string& path)
 #include "soak-tests.hpp"
 #include "sample-tests.hpp"
 
+void testMidiQueue()
+{
+    MWLua::StudioMidiQueue q;unsigned lost=0;
+    q.push(0x007f3c90,0.125);q.push(0x00003c90,0.375);q.push(0x80,0.5);
+    q.push(0x00ff3c90,0);q.push(0xf8,0);
+    auto events=q.drain(lost);check(events.size()==3 && !lost && events[0].a==60 && events[0].b==127 && events[1].time==0.375,"MIDI short-message queue and timestamps");
+    for (int n=0;n<1100;++n) q.push(0x007f3c90,n*.001);
+    check(q.drain(lost).empty() && lost==76,"MIDI overflow discards batch for panic recovery");
+    q.push(0x00403c82,1);events=q.drain(lost);check(events.size()==1 && !lost && events[0].status==0x82,"MIDI queue recovers after overflow");
+    std::cout << "PASS bounded native MIDI callback queue, malformed events and overflow recovery\n";
+}
 int main(int argc, char** argv)
 {
     try
     {
+        testMidiQueue();
         guitarTests();
         studioTests();
         mixerTests();

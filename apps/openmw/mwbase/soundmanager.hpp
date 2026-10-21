@@ -120,7 +120,7 @@ namespace MWBase
         SoundManager() {}
         virtual ~SoundManager() {}
         virtual std::shared_ptr<MWSound::ProceduralSynth> createSynth(const MWWorld::ConstPtr& source) = 0;
-        virtual std::shared_ptr<MWSound::ProceduralStudio> createStudio(const MWWorld::ConstPtr& source) = 0;
+        virtual std::shared_ptr<MWSound::ProceduralStudio> createStudio(const MWWorld::ConstPtr& source, bool local = false) = 0;
         virtual unsigned synthUnits() const = 0;
         virtual std::shared_ptr<MWSound::ProceduralSample> requestSample(std::string path, double offset, double duration) = 0;
         virtual double synthDelay(const MWSound::ProceduralAudio* audio) = 0;

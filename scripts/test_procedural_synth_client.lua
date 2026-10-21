@@ -72,6 +72,7 @@ local monitor=1
 package.loaded['openmw.synth'].getMonitorVolume=function() return monitor end
 package.loaded['openmw.synth'].setMonitorVolume=function(value) monitor=value end
 package.loaded[prefix..'client.window']=dofile(root..'client/window.lua')
+package.loaded[prefix..'client.recorder']=dofile(root..'client/recorder.lua')
 package.loaded[prefix..'client.workstation']=dofile(root..'client/workstation.lua')
 package.loaded[prefix..'client.controls']=dofile(root..'client/controls.lua')
 package.loaded[prefix..'client.automation-roll']=dofile(root..'client/automation-roll.lua')
@@ -561,7 +562,7 @@ api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrum
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
 -- Reproduce loaded-song reuse from the actual Studio callbacks, including Band.
-package.loaded['openmw.synth'].version=14
+package.loaded['openmw.synth'].version=15
 local paths={'midi/a.mid','midi/b.mid'};local files={}
 local function midiBytes(pitch,count)
     local events={};for n=1,count or 1 do events[#events+1]=string.char(0,144,pitch,100,96,128,pitch,0) end
@@ -595,6 +596,17 @@ button('Start take').events.mouseClick();now=now+2.13;player.engineHandlers.onFr
 lastStudio:key(input.KEY.Z,true);lastStudio:key(input.KEY.Z,true)
 now=now+0.38;lastStudio:key(input.KEY.Z,false);button('Keep take').events.mouseClick()
 check(#w:noteData(1)==1 and w:noteData(1)[1].n==60 and w:noteData(1)[1].s==1 and w:noteData(1)[1].l==3,'actual keyboard callback records a quantized gate without key-repeat duplication')
+-- Recording setup uses local preferences, with real picker/field callbacks.
+button('Recording setup >').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(w.page=='recordsetup' and button('Count-in: 1 bars v'),'Recording exposes setup without replacing the project')
+local gen=w.generation
+button('Count-in: 1 bars v').events.mouseClick();lastStudio.dropdown.rows[3].layout.events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(w.recorder.settings.countIn==2 and w.generation==gen,'count-in picker is a local two-bar preference')
+button('Metronome: Off').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(w.recorder.settings.metronome and button('Metronome: On'),'metronome toggle updates local state')
+w.recorder:set('countIn',1);w.recorder:set('metronome',false);now=now+.01;lastStudio:frame(now)
+button('< Recording').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(w.page=='record','setup returns to recording keyboard')
 -- New Song uses the real window callbacks and cancels a pending file parser.
 lastStudio.cb.midiSelect(paths[2]);lastStudio.cb.playSong();acceptRecovery();now=now+0.01;player.engineHandlers.onFrame(0.01)
 check(lastStudio.cb.midiLabel():find('Loading'),'file parser is pending before New Song')

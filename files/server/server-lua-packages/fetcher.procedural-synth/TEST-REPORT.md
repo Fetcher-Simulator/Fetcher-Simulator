@@ -1240,3 +1240,45 @@ Resizing and phase offset affect one primary placement. Automation, sound and mi
 stay with tracks. Selection is local/transient. Lasso selection, vertical placement
 dragging, cross-track shared source identities and grouped edge resizing are not
 part of this first pass; recording improvements remain next in the roadmap.
+
+## Recording tools: package 25 / native synth API 15 (2026-10-21)
+
+Built openmw and openmw-server RelWithDebInfo with MSVC2022_64. Native Release
+synth tests passed, including bounded MIDI callback queue acceptance, invalid
+short-message rejection, overflow/discard and recovery. All 21 Lua suites passed;
+the new recording-tools suite has 40 assertions covering frozen settings/native
+lead/count-in, click scores and tempo/loop phase, event age/compensation, sustain,
+channel filtering, stale/overflow cleanup, local persistence and robust median/
+MAD calibration. The real UI callback harness exercises setup controls without
+changing the musical document/history. A stopped converted-MIDI take reserves
+native clock room for its count-in; count status respects denominator pulses.
+
+Native QA ran in the existing port-25567 fixture, with a fresh baseline captured
+before QA clients. Synth A used a native two-bar count-in, captured and kept one
+note, saved it privately, exported/read back exactly one MIDI note (no click
+events), and played it on the native song clock. Synth B received the musical
+part and reported fault=0. Calibration clock and local playback click start/stop
+passed. A full server/client restart retained the musical take and local count-in,
+compensation and click preferences; playback resumed on both clients with fault=0.
+
+The initial cold diagnostic did not finish its count-in before shutdown; the
+fresh native run passed. A forced-exit restart skipped the engine's player-storage
+save and therefore failed the preference assertion. The corrected test used
+core.quit(), verified player_storage.bin was written, then restarted and passed.
+This establishes normal-exit persistence, not crash-proof preference storage.
+
+The fullscreen Recording setup layout was visually inspected at 186% scale.
+Injected mouse/key input did not reliably trigger the game controls, so physical
+GUI interaction is not claimed; setup callback coverage is automated. WinMM was
+available and device enumeration returned zero devices; invalid-device open failed
+safely. No physical MIDI keyboard, real unplug/error driver, human tap timing or
+audio loopback latency measurement was tested. Hardware playing and listening
+acceptance remain follow-ups. Observer evidence is native score/voice counters,
+not a captured audio loopback recording.
+
+Evidence: evidence/record-tools/{first-run,clean-exit,restart-ui}, with diagnostic
+runs retained separately. Baseline is baseline-20261021-125232; all 15 recorded
+database/profile/settings/input hashes were restored after QA. Ordinary package
+25 is installed with the probe disabled. Lua results and restoration hashes are
+in lua-tests.json and restoration.json. No port-25568 fixture, production deploy
+or remote push was used. Existing user saves/settings were retained.

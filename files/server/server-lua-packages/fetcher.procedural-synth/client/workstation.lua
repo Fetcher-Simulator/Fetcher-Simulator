@@ -670,16 +670,20 @@ function W:playbackBeat(time)
     if self.project.composition.loop then time=time%(format.seconds(self.project.timeline,last)-offset) end
     return self:beatAt(time+offset,'song')
 end
-function W:recordClock()
+function W:recordClock(age)
     local r=self.recording;if not r then return end
+    age=type(age)=='number' and math.max(0,math.min(2,age)) or 0
+    local latency=r.options and r.options.latency/1000 or 0
     if r.overdub then
         local playing,time=self.cb.progress()
         if not playing or self.awaiting then return nil end
-        return self:playbackBeat(time)*4
+        return self:playbackBeat(math.max(0,time-age-latency))*4
     end
     local now=self.cb.now and self.cb.now() or self.wall
-    if now<r.starts then return nil end
-    return self:beatAt(r.seconds+now-r.starts,r.mode)*4
+    if now-age<r.starts then return nil end
+    local elapsed;if r.clock then elapsed=r.clock() else elapsed=now-r.starts end
+    if elapsed==nil or elapsed-age<0 then return nil end
+    return self:beatAt(r.seconds+math.max(0,elapsed-age-latency),r.mode)*4
 end
 function W:startTake(index)
     self:endAutomationWrite()
@@ -717,12 +721,17 @@ function W:startTake(index)
     local snap=math.min(self.snap>0 and self.snap or (t.edited and 4/t.edited.division or 1/240),limit-origin-minimum)
     local countBeats=t.edited and not clip and format.barBeats(self.project,step/4) or 4
     local countTempo=t.edited and not clip and format.tempoAt(self.project,step/4)/1000000 or 60/self.project.bpm
+    local options=self.cb.recordOptions and self.cb.recordOptions() or {countIn=1,latency=0,metronome=false}
+    local _,denominator=4,4
+    if t.edited and not clip then _,denominator=format.meterAt(self.project,step/4) end
     self.recording={index=index,track=t,clip=clip,mode=mode,overdub=self.playing,origin=origin,limit=limit,notes={},held={},capacity=capacity,
-        starts=now+countBeats*countTempo,countTempo=countTempo,seconds=seconds,snap=snap,minimum=minimum}
+        starts=now+countBeats*countTempo*options.countIn,countTempo=countTempo,countBeats=countBeats,countDenominator=denominator,
+        countDuration=countBeats*countTempo*options.countIn,startStep=step,options=options,seconds=seconds,snap=snap,minimum=minimum}
+    if self.cb.recordStart and self.cb.recordStart(self.recording)==false then self.recording=nil;return false end
     self.revision=self.revision+1;return true
 end
-function W:recordOn(note,velocity)
-    local r=self.recording;local step=self:recordClock()
+function W:recordOn(note,velocity,age)
+    local r=self.recording;local step=self:recordClock(age)
     if r and step and r.overdub and self.project.composition and self.project.composition.loop and r.last and step<r.last then self:endTake(false,r.limit);return false end
     if not r or not step or step>=r.limit or type(note)~='number' or note%1~=0 or note<0 or note>127 or r.held[note] then return false end
     velocity=velocity or self.velocity
@@ -733,9 +742,9 @@ function W:recordOn(note,velocity)
     if self.recording~=r then return false end
     r.held[note]={n=note,raw=step,v=velocity};r.last=step;return true
 end
-function W:recordOff(note,step)
+function W:recordOff(note,step,age)
     local r=self.recording;local held=r and r.held[note];if not held then return false end
-    step=math.min(step or self:recordClock() or r.last or held.raw,r.limit)
+    step=math.min(step or self:recordClock(age) or r.last or held.raw,r.limit)
     if r.overdub and self.project.composition and self.project.composition.loop and step<held.raw then step=r.limit end
     self.cb.off(r.index,note);r.held[note]=nil
     local s=math.floor((held.raw-r.origin)/r.snap+0.5)*r.snap
@@ -752,7 +761,7 @@ function W:endTake(cancel,finish)
     if step and r.overdub and self.project.composition and self.project.composition.loop and r.last and step<r.last then step=r.limit end
     local held={};for note in pairs(r.held) do held[#held+1]=note end
     for _,note in ipairs(held) do self:recordOff(note,step) end
-    self.recording=nil;self.revision=self.revision+1
+    self.recording=nil;if self.cb.recordEnd then self.cb.recordEnd(r) end;self.revision=self.revision+1
     if cancel or #r.notes==0 then return true end
     if self.project.tracks[r.index]~=r.track or self:clipSource(r.index)~=r.clip then self.cb.message('Recording destination changed; take discarded.');return false end
     local notes=copy(self:noteData(r.index));local first=#notes+1
@@ -774,7 +783,7 @@ function W:recordFrame()
     local step=self:recordClock()
     if step and r.overdub and self.project.composition and self.project.composition.loop and r.last and step<r.last then self:endTake(false,r.limit);return end
     if step then r.started=true;r.last=step;if step>=r.limit then self:endTake(false) end
-    elseif r.overdub and r.started and not self.awaiting then self:endTake(false) end
+    elseif (r.overdub or r.clock) and r.started and not self.awaiting then self:endTake(false,r.limit) end
 end
 function W:recordStatus()
     local r=self.recording;if not r then return 'No active take' end
@@ -782,7 +791,7 @@ function W:recordStatus()
     if not step then
         if r.overdub then return 'Waiting for native playback...' end
         local now=self.cb.now and self.cb.now() or self.wall
-        return 'Count in: '..math.max(1,math.ceil((r.starts-now)/r.countTempo))
+        return 'Count in: '..math.max(1,math.ceil((r.starts-now)/(r.countTempo*4/(r.countDenominator or 4))))
     end
     local held=0;for _ in pairs(r.held) do held=held+1 end
     return string.format('RECORD  |  Beat %.2f  |  %d notes + %d held',step/4+1,#r.notes,held)

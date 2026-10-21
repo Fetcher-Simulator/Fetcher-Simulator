@@ -2,7 +2,7 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current build: package 24 / native synth API 14. Installed-game voice, effect
+Current build: package 25 / native synth API 15. Installed-game voice, effect
 and music samples are available, along with MIDI export and track renaming.
 Project library and autosave/recovery are available. Next: automation and MIDI controllers. See [the roadmap](ROADMAP.md).
 
@@ -1087,3 +1087,47 @@ Offsets/unique sources save in projects, named library saves and recovery; MIDI
 export flattens them through the same expansion as native playback. Offset and
 group edits during song playback queue the existing native bar-boundary replacement.
 Legacy placements migrate to offset zero. Native synth API stays at 14.
+
+## Recording setup and Windows MIDI (package 25 / native synth API 15)
+
+Open Piano -> Record keyboard -> Recording setup. Choose 0, 1, 2 or 4 bars of
+count-in and optionally enable Metronome with its own click level. The default is
+one visual count-in bar with the click off. The native Studio clock now drives
+stopped takes as well as audible clicks; count-in follows the starting meter and
+tempo. Playback clicks follow the saved tempo/meter map and loop region. They
+are local monitor audio, absent from the song, exported MIDI and band network.
+Existing Studio monitor volume also controls this audio.
+
+Input compensation shifts newly recorded timestamps before grid quantization;
+positive milliseconds move late input earlier. It does not delay live monitoring
+or change existing notes. The setting ranges from -250 to +250 ms and freezes for
+the duration of a take. Start tap calibration, listen to the 120 BPM click, then
+tap the Tap button or Space on successive beats. The first two beats are ignored.
+Apply timing requires at least eight accepted taps and a median absolute
+deviation no greater than 40 ms. The estimate measures your tapping bias plus
+input/output delay; it is not automatic hardware round-trip latency measurement.
+
+On Windows, Refresh the MIDI input list, choose a device and Connect. Select All
+channels or one channel. Notes, velocity, velocity-zero note-off and sustain feed
+the existing keyboard monitoring and quantized take, using native event ages so
+frame polling delay is not added to capture timing. Input is active on Recording
+and Recording setup pages; leaving them or hiding/finishing Studio releases notes
+and disconnects the device. Reconnect explicitly after returning. Keep/Cancel,
+Undo, project saving and physical band outputs use the existing recording path.
+One MIDI input is permitted per client process. Nothing connects automatically.
+
+Count-in, click enable/level, input compensation and channel filter are local
+character-profile preferences, not server musical project data. They persist
+when the client exits normally; forcibly terminating the process can skip the
+engine's player-storage write. Device handles, pressed keys, pedal state and
+calibration sessions never persist.
+
+The WinMM callback only copies short messages into a bounded 1,024-event queue.
+Overflow, driver error, disconnect or stale input releases held notes and keeps
+a partial take where possible. No audio decoding, Lua, network or disk work runs
+in that callback. A driver that cannot close safely requires a client restart.
+Non-Windows builds retain recording/click tools but report hardware input as
+unavailable. MIDI controller/program/bend capture, clock/transport messages,
+shared-source playback overdub and additional record modes remain follow-ups.
+Native clock duration stays at 30 minutes including count-in; click plans allow
+at most 4,096 bars and thin pulses closer than 50 ms at extreme tempos/meters.

@@ -97,7 +97,7 @@ namespace MWSound
             std::shared_ptr<ProceduralAudio> synth;
         };
         std::vector<SynthSound> mSynthSounds;
-        void startProcedural(const MWWorld::ConstPtr& source, std::shared_ptr<ProceduralAudio> audio);
+        void startProcedural(const MWWorld::ConstPtr& source, std::shared_ptr<ProceduralAudio> audio, bool local = false);
         MusicType mMusicType;
 
         bool mListenerUnderwater;
@@ -174,7 +174,7 @@ namespace MWSound
         SoundManager(const VFS::Manager* vfs, bool useSound);
         ~SoundManager() override;
         std::shared_ptr<ProceduralSynth> createSynth(const MWWorld::ConstPtr& source) override;
-        std::shared_ptr<ProceduralStudio> createStudio(const MWWorld::ConstPtr& source) override;
+        std::shared_ptr<ProceduralStudio> createStudio(const MWWorld::ConstPtr& source, bool local = false) override;
         unsigned synthUnits() const override;
         std::shared_ptr<ProceduralSample> requestSample(std::string path, double offset, double duration) override;
         double synthDelay(const ProceduralAudio* audio) override;

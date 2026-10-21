@@ -5,9 +5,9 @@ local self = require('openmw.self')
 local ui = require('openmw.ui')
 local input = require('openmw.input')
 local supported, synth = pcall(require,'openmw.synth')
-if not supported or (synth.version and synth.version<14) then
+if not supported or (synth.version and synth.version<15) then
     return {eventHandlers={Synth_Activate=function()
-        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 14.')
+        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 15.')
     end}}
 end
 local schema = require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -18,6 +18,7 @@ local Workstation = require('scripts.multiplayer.fetcher.procedural-synth.client
 local Studio = require('scripts.multiplayer.fetcher.procedural-synth.client.studio')
 local Performance = require('scripts.multiplayer.fetcher.procedural-synth.client.performance')
 local vfs = require('openmw.vfs')
+local Recorder=require('scripts.multiplayer.fetcher.procedural-synth.client.recorder')
 local Samples=require('scripts.multiplayer.fetcher.procedural-synth.client.samples')
 local NativeTransport=require('scripts.multiplayer.fetcher.procedural-synth.client.transport')
 local object
@@ -87,6 +88,7 @@ local function closeEditor(notify)
     if stopPlayback then stopPlayback() end
     if editor then editor:destroy(); editor=nil end
     if session then
+        if session.workstation and session.workstation.recorder then session.workstation.recorder:close() end
         local instance=instances[session.id]
         if instance then silence(instance) end
         if notify then send('close') end
@@ -330,6 +332,10 @@ makeWorkstation=function(i)
         meters=function(n) return transport:metrics(i,n) end,
         meter=function(n) local audio=channelAudio(i,n,false);return audio and audio.peak or 0 end,
     }
+    w.recorder=Recorder.new(w,synth,core,self,require('openmw.storage').playerSection('ProceduralSynthRecording'),ui.showMessage)
+    w.cb.recordOptions=function() return Recorder.options(w.recorder.settings) end
+    w.cb.recordStart=function(r) return w.recorder:start(r) end
+    w.cb.recordEnd=function() w.recorder:ended() end
     i.workstation=w;return w
 end
 switchPage=function(page,track)
@@ -666,6 +672,8 @@ local function frame(dt)
         if not current.playing and playback==current then playback=nil end
     end
     local transportDt=math.max(0,now-session.transportLast);session.transportLast=now
+    local w=session.workstation
+    if w.recorder then w.recorder:frame(editor and editor.kind=='studio' and (w.page=='record' or w.page=='recordsetup') and w.page or false) end
     session.workstation:frame(transportDt)
     session.library:frame(now)
     if editor then editor:frame(now) end
@@ -673,7 +681,7 @@ end
 return {
     interfaceName='ProceduralSynth',
     interface={
-        version=14,
+        version=15,
         status=function()
             local out={}
             for id,i in pairs(instances) do

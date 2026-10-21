@@ -1,4 +1,5 @@
 #include "synthbindings.hpp"
+#include "studiomidi.hpp"
 #include "../mwbase/environment.hpp"
 #include "../mwbase/soundmanager.hpp"
 #include "../mwsound/proceduralsynth.hpp"
@@ -53,7 +54,7 @@ namespace MWLua
                     auto s = readSample(value); return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 14;
+            api["version"] = 15;
             api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
                 const auto path = manager->exportStudioMidi(name, bytes);
                 sol::table result(lua, sol::create);
@@ -84,6 +85,7 @@ namespace MWLua
                 "audiblePosition", sol::property([](const Studio& studio) {
                     return std::max(0.0, studio.position() - MWBase::Environment::get().getSoundManager()->synthDelay(&studio));
                 }),
+                "outputDelay", sol::property([](const Studio& studio) { return MWBase::Environment::get().getSoundManager()->synthDelay(&studio); }),
                 "fault", sol::property(&Studio::fault), "peak", sol::property(&Studio::peak),
                 "voices", sol::property(&Studio::voices), "strikes", sol::property(&Studio::strikes),
                 "noteOn", &Studio::noteOn, "noteOff", &Studio::noteOff,
@@ -130,6 +132,34 @@ namespace MWLua
             api["createStudio"] = [](const sol::object& object) {
                 return MWBase::Environment::get().getSoundManager()->createStudio(ObjectVariant(object).ptr());
             };
+            api["createMonitor"] = [](const sol::object& object) {
+                return MWBase::Environment::get().getSoundManager()->createStudio(ObjectVariant(object).ptr(), true);
+            };
+            lua.new_usertype<StudioMidiInput>("StudioMidiInput", sol::no_constructor,
+                "close", &StudioMidiInput::close, "connected", sol::property(&StudioMidiInput::connected),
+                "poll", [lua](StudioMidiInput& input) {
+                    sol::table result(lua, sol::create), events(lua, sol::create);
+                    unsigned lost=0;
+                    const bool connected=input.connected();
+                    if (input.queue) {
+                        const auto batch=input.queue->drain(lost);const double elapsed=StudioMidiInput::now()-input.started;
+                        int index=1;
+                        for (const auto& e : batch) {
+                            sol::table event(lua, sol::create);event["status"]=e.status & 0xf0;event["channel"]=(e.status & 15)+1;
+                            event["a"]=e.a;event["b"]=e.b;event["age"]=std::max(0.0,elapsed-e.time);events[index++]=event;
+                        }
+                    }
+                    result["events"]=events;result["dropped"]=lost;result["connected"]=connected;return result;
+                });
+            api["midiAvailable"] = StudioMidiInput::available();
+            api["midiDevices"] = [lua] {
+                sol::table result(lua, sol::create);int index=1;
+                for (const auto& device : StudioMidiInput::devices()) {
+                    sol::table item(lua, sol::create);item["id"]=device.id;item["name"]=device.name;result[index++]=item;
+                }
+                return result;
+            };
+            api["openMidiInput"] = &StudioMidiInput::open;
             api["getMonitorVolume"] = []() -> float { return Settings::sound().mInstrumentVolume; };
             api["setMonitorVolume"] = [manager = context.mLuaManager](float value) {
                 if (!std::isfinite(value) || value < 0 || value > 1)

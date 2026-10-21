@@ -269,10 +269,10 @@ namespace MWSound
         auto synth = std::make_shared<ProceduralSynth>();
         startProcedural(source, synth); return synth;
     }
-    std::shared_ptr<ProceduralStudio> SoundManager::createStudio(const MWWorld::ConstPtr& source)
+    std::shared_ptr<ProceduralStudio> SoundManager::createStudio(const MWWorld::ConstPtr& source, bool local)
     {
         auto studio = std::make_shared<ProceduralStudio>();
-        startProcedural(source, studio); return studio;
+        startProcedural(source, studio, local); return studio;
     }
     unsigned SoundManager::synthUnits() const
     {
@@ -285,7 +285,7 @@ namespace MWSound
         for (const auto& sound : mSynthSounds) if (sound.synth.get() == audio) return std::max(0.0, mOutput->getStreamDelay(sound.stream.get()));
         return 0;
     }
-    void SoundManager::startProcedural(const MWWorld::ConstPtr& source, std::shared_ptr<ProceduralAudio> synth)
+    void SoundManager::startProcedural(const MWWorld::ConstPtr& source, std::shared_ptr<ProceduralAudio> synth, bool local)
     {
         if (!isEnabled() || source.isEmpty() || !source.isInCell() || synthUnits() >= 32)
             throw std::runtime_error("Cannot create synthesizer: audio disabled, source unavailable or instance limit reached");
@@ -296,9 +296,10 @@ namespace MWSound
         params.mBaseVolume = volumeFromType(Type::Instrument);
         params.mMinDistance = 100;
         params.mMaxDistance = 3000;
-        params.mFlags = PlayMode::NoScaling | Type::Instrument | Play_3D;
+        params.mFlags = (local ? PlayMode::NoEnvNoScaling : PlayMode::NoScaling) | Type::Instrument | (local ? Play_2D : Play_3D);
         stream->init(params);
-        if (!mOutput->streamSound3D(std::make_shared<SynthDecoder>(synth), stream.get(), false))
+        if (!(local ? mOutput->streamSound(std::make_shared<SynthDecoder>(synth), stream.get(), false)
+                    : mOutput->streamSound3D(std::make_shared<SynthDecoder>(synth), stream.get(), false)))
             throw std::runtime_error("No audio source available for synthesizer");
         mSynthSounds.push_back({ source, source.getCell(), std::move(stream), synth });
     }
@@ -1127,7 +1128,7 @@ namespace MWSound
             else
             {
                 sound->setPosition(synth.source.getRefData().getPosition().asVec3());
-                cull3DSound(sound);
+                if (sound->getIs3D()) cull3DSound(sound);
                 mOutput->updateStream(sound);
                 ++it;
             }

@@ -147,11 +147,22 @@ to zero. Native two-client replacement, save/load/restart and fullscreen UI chec
 passed in port 25567 with user saves/settings restored. See README.md for controls,
 source/placement budgets and horizontal group/source-copy behavior.
 
-## Remaining roadmap (next: recording improvements)
+## Completed slice: recording tools (package 25 / API 15)
 
-1. Recording improvements: audible metronome, configurable count-in, measured
-   recording latency, hardware MIDI input and additional recording modes,
-   including live controller monitoring and shared-source overdub during playback.
+Native local metronome, configurable 0/1/2/4-bar count-in, input compensation and
+robust tap calibration are implemented. Windows MIDI note/velocity/sustain input
+uses a bounded callback queue and explicit device/channel controls. Two-client
+count-in, take capture, click-free MIDI export, native playback and clean-exit
+preference/project persistence checks passed in the port-25567 fixture. Physical
+MIDI hardware acceptance and listening/tapping remain unverified here. Tap
+calibration estimates timing bias, not automatic hardware round-trip latency.
+
+## Remaining roadmap (next: recording follow-ups)
+
+1. Recording follow-ups: physical MIDI controller acceptance, live controller
+   monitoring/capture, shared-source overdub during playback and additional record
+   modes. Automatic hardware round-trip measurement and non-Windows MIDI input
+   remain planned; tap-based timing compensation is available now.
 2. Mixer/effects routing: stereo/panning, group buses and flexible effect chains.
    Native EQ/compression, instrument drive/cabinet and shared delay/reverb exist;
    mixer/return automation is still planned.
@@ -181,9 +192,9 @@ Sixteen tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 24 / native synth API 14. Installed-game sampling, library/recovery,
-automation/controller, tempo/meter and arrangement tools are implemented; recording
-improvements are next.
+package 25 / native synth API 15. Installed-game sampling, library/recovery,
+automation/controller, tempo/meter, arrangement and first-pass recording tools are
+implemented; recording follow-ups are next.
 
 ## Completed slice: native instrument effects and guitar sounds
 

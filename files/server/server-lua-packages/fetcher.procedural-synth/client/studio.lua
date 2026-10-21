@@ -536,9 +536,10 @@ function S:record(content)
     content[#content+1]=self:button('Start take',20,265,150,function() w:startTake(w.selected) end)
     content[#content+1]=self:button('Keep take',185,265,150,function() w:endTake(false) end)
     content[#content+1]=self:button('Cancel take',350,265,150,function() w:endTake(true) end)
-    if w.failedTake then content[#content+1]=self:button('Retry take',515,265,150,function() w:recoverTake() end) end
+    content[#content+1]=self:button('Recording setup >',515,265,220,function() self:releaseAll();w.page='recordsetup';w.revision=w.revision+1 end)
+    if w.failedTake then content[#content+1]=self:button('Retry take',750,265,145,function() w:recoverTake() end) end
     self.recordText=self:element(label(w:recordStatus(),20,320,875,17,c.accent));content[#content+1]=self.recordText
-    content[#content+1]=label('Stopped: one-bar visual count-in from the current piano-roll view. Playing: overdub the audible clock.',20,365,880,12,c.muted)
+    content[#content+1]=label('Stopped: configured count-in from the piano view. Setup controls click, MIDI input and timing compensation.',20,365,880,12,c.muted)
     content[#content+1]=label(source and 'Shared source: record while stopped. The take ends at source length and updates all linked placements.' or 'Piano clips record to the next loop boundary. Edited MIDI records on the full song timeline.',20,393,880,12,c.muted)
     content[#content+1]=self:button('Oct -',20,430,80,function() w.recordBase=math.max(0,base-12);w.revision=w.revision+1 end)
     content[#content+1]=self:button('Oct +',110,430,80,function() w.recordBase=math.min(103,base+12);w.revision=w.revision+1 end)
@@ -554,6 +555,45 @@ function S:record(content)
     end
     content[#content+1]=label('Play after count-in: Z S X D C V G B H N J M ,  |  mouse keys span two octaves.',20,628,880,12,c.muted)
     content[#content+1]=label('Keep commits one undo action. Cancel discards the take. Stop/Hide keep notes; Save before Finish.',20,660,880,12,c.muted)
+end
+function S:recordSetup(content)
+    local w=self.w;local r=w.recorder
+    content[#content+1]=self:button('< Recording',20,163,165,function() if r then r:stopClock() end;w.page='record';w.revision=w.revision+1 end)
+    content[#content+1]=label('RECORDING SETUP / local player preferences',210,171,680,16,c.accent)
+    if not r then content[#content+1]=label('Recording setup requires native synth API 15.',20,218,870,16);return end
+    local o=r.settings
+    content[#content+1]=self:button('Count-in: '..o.countIn..' bars v',20,217,240,function()
+        Dropdown.open(self,{{id=0,label='No count-in'},{id=1,label='1 bar'},{id=2,label='2 bars'},{id=4,label='4 bars'}},o.countIn,function(n) r:set('countIn',n) end,20,249,470)
+    end)
+    content[#content+1]=self:button(o.metronome and 'Metronome: On' or 'Metronome: Off',280,217,240,function() r:set('metronome',not o.metronome) end,o.metronome)
+    content[#content+1]=Controls.slider(self,'clickVolume','Click volume',{min=0,max=1,unit='%',step=.01},function() return r.settings.clickVolume end,function(value) r:set('clickVolume',value) end,545,210,345)
+    content[#content+1]=Controls.slider(self,'recordLatency','Input compensation (ms)',{min=-250,max=250,unit='ms',step=1},function() return r.settings.latency end,function(value) r:set('latency',value) end,20,278,400)
+    content[#content+1]=label('Positive shifts captured notes earlier; negative later. Monitoring remains immediate.',445,291,445,12,c.muted)
+    content[#content+1]=self:button((r.deviceName or 'Choose MIDI input')..' v',20,347,385,function()
+        local choices={};for _,d in ipairs(r:devices()) do choices[#choices+1]={id=d.id,label=d.name} end
+        if #choices==0 then ui.showMessage('No MIDI inputs detected. Connect a Windows MIDI device, then refresh.');return end
+        Dropdown.open(self,choices,r.deviceId,function(id)
+            for _,d in ipairs(r:devices()) do if d.id==id then r.deviceId=id;r.deviceName=d.name;w.revision=w.revision+1;return end end
+        end,20,379,660)
+    end)
+    content[#content+1]=self:button('Connect',420,347,120,function() if r.deviceId~=nil then r:connect(r.deviceId) else ui.showMessage('Choose a MIDI input first.') end end)
+    content[#content+1]=self:button('Disconnect',555,347,145,function() r:disconnect();w.revision=w.revision+1 end)
+    content[#content+1]=self:button('Refresh devices',715,347,175,function() r:devices();w.revision=w.revision+1 end)
+    content[#content+1]=self:button(o.channel==0 and 'MIDI: All channels v' or ('MIDI channel '..o.channel..' v'),20,395,260,function()
+        local choices={{id=0,label='All channels'}};for n=1,16 do choices[#choices+1]={id=n,label='Channel '..n} end
+        Dropdown.open(self,choices,o.channel,function(value) r:set('channel',value) end,20,350,450)
+    end)
+    content[#content+1]=label('Input: '..r.inputStatus..' | Notes/velocity + sustain. Active on Recording; closes when hidden.',300,407,590,12,c.accent)
+    content[#content+1]=self:button('Start tap calibration',20,464,245,function() r:beginCalibration() end)
+    content[#content+1]=self:button('Tap / Space',280,464,180,function() r:tap() end,r.calibrating)
+    content[#content+1]=self:button('Apply timing',475,464,180,function() r:applyCalibration() end)
+    content[#content+1]=self:button('Stop click',675,464,180,function() r:stopClock();w.revision=w.revision+1 end)
+    local value,jitter=r.calculation(r.taps)
+    content[#content+1]=label('Taps: '..#r.taps..(value and string.format(' | median %+.0f ms | spread %.0f ms',value,jitter) or ' | 8 steady taps required'),20,521,870,15,c.accent)
+    content[#content+1]=label('Calibration stops song playback. Listen for 2 beats, then tap with the 120 BPM click (or MIDI keys).',20,563,870,12,c.muted)
+    content[#content+1]=label('This measures your tap/input timing bias, not automatic hardware round-trip latency. Apply only a steady result.',20,593,870,12,c.muted)
+    content[#content+1]=label('Count-in uses the local meter/tempo. Metronome is local, follows the song map and is never exported or relayed.',20,633,870,12,c.muted)
+    content[#content+1]=label('Settings stay on this player profile. Keep/Cancel a take before changing them. MIDI controllers/clock are later work.',20,665,870,11,c.muted)
 end
 function S:zoomRoll(factor)
     local source=self.w:clipSource();local minimum=source and math.min(8,source.length) or 8
@@ -761,6 +801,7 @@ function S:render()
     self.window:bounds();self.width,self.height=self.window.canvasWidth,self.window.canvasHeight
     if self.samples and self.w.page~='samples' then self.samples:stop() end
     self.sampleStatus=nil
+    if self.lastPage=='recordsetup' and self.w.page~='recordsetup' and self.w.recorder and self.w.recorder.calibrating then self.w.recorder:stopClock() end
     if self.lastPage=='record' and self.w.page~='record' then self:releaseAll() end;self.lastPage=self.w.page
     self.recordText=nil;self.recordKeyboard=nil
     self.controlEpoch=(self.controlEpoch or 0)+1;self.noteVelocityRefresh=nil
@@ -817,7 +858,7 @@ function S:render()
     content[#content+1]=self:button('Import',self.width-229,112,92,self.cb.import)
     content[#content+1]=self:button('Export MIDI',self.width-125,112,100,function() w:exportMidi() end)
     local body={};self.bodyOffset=(w.page=='piano' or w.page=='drums' or w.page=='auto') and 0 or math.max(0,(self.width-940)/2)
-    if w.page=='timing' then self:timing(body) elseif w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
+    if w.page=='timing' then self:timing(body) elseif w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='recordsetup' then self:recordSetup(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
     -- Keep the header above centered page containers in native hit testing.
     if self.bodyOffset>0.1 then table.insert(content,1,{type=ui.TYPE.Widget,props={position=v(self.bodyOffset,0),size=v(940,self.height)},content=ui.content(body)})
     else for _,item in ipairs(body) do content[#content+1]=item end end
@@ -853,6 +894,7 @@ function S:key(code,on)
     if on and code==input.KEY.Escape then if self.w.page=='rename' and self.cancelRename then self.cancelRename();self.restoreInterfaceFrames=2 else self.cb.hide() end;return end
     if not on or self.typing then return end
     local ctrl=input.isCtrlPressed and input.isCtrlPressed()
+    if self.w.page=='recordsetup' and not ctrl and code==input.KEY.Space then if self.w.recorder then self.w.recorder:tap() end;return end
     if self.w.page=='record' and not ctrl then
         for n,key in ipairs{input.KEY.Z,input.KEY.S,input.KEY.X,input.KEY.D,input.KEY.C,input.KEY.V,input.KEY.G,input.KEY.B,input.KEY.H,input.KEY.N,input.KEY.J,input.KEY.M,input.KEY.Comma} do
             if key==code and not self.recordKeys[code] then local note=(self.w.recordBase or 60)+n-1;self:recordKey(note,true);self.recordKeys[code]=note end
