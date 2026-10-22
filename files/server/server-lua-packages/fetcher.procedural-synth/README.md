@@ -2,7 +2,7 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current build: package 27 / native synth API 15. Installed-game voice, effect
+Current build: package 28 / native synth API 15. Installed-game voice, effect
 and music samples are available, along with MIDI export and track renaming.
 Project library and autosave/recovery are available. Next: recording follow-ups. See [the roadmap](ROADMAP.md).
 
@@ -1149,3 +1149,10 @@ without closing the MIDI device. Velocity, channel filtering and sustain keep
 their existing behavior. Playing alone does not paint notes or modify the song;
 Start take explicitly arms capture. Calibration uses incoming keys as timing taps.
 Hide/Escape/F8, Finish and disconnect release held notes and close MIDI input.
+
+## Larger installed MIDI libraries (package 28 / native synth API 15)
+
+The song picker discovers up to 1,024 installed MIDI files, plus local exports.
+The scrollable/filterable picker retains its existing behavior. Per-file import
+limits are unchanged. User-provided MIDI archives remain in the local test
+fixture; they are not added to the source repository or redistributed.

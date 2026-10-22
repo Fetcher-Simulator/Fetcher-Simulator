@@ -900,4 +900,12 @@ button('Cancel').events.mouseClick();now=now+.01;lastStudio:frame(now)
 check(not l.action and w.dirty and mode=='Interface','Cancel Finish keeps editor and edits')
 viewport=vector(1024,768);lastStudio.window:zoom(-0.5)
 api.close();check(not uiOverride,'Finish restores game UI controls')
+-- Large installed libraries retain songs beyond the previous 512-item cutoff.
+package.loaded['openmw.synth'].listMidiExports=nil
+package.loaded['openmw.vfs'].pathsWithPrefix=function()
+    local at=0;return function() at=at+1;if at<=1030 then return string.format('midi/large/%04d.mid',at) end end
+end
+player=dofile(root..'client/player.lua');api=player.interface;now=now+.01;player.engineHandlers.onFrame(.01)
+local catalog=api.midiSongs()
+check(#catalog==1024 and catalog[600]=='midi/large/0600.mid' and catalog[1024]=='midi/large/1024.mid','discovery includes 600-song test library and retains bounded 1024-song ceiling')
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

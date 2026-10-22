@@ -55,7 +55,7 @@ end
 local function scanSongs()
     songs={};selectedSong=1;scanned=true
     for path in vfs.pathsWithPrefix('midi/') do
-        if path:lower():match('%.mid[i]?$') then songs[#songs+1]=path;if #songs>=512 then break end end
+        if path:lower():match('%.mid[i]?$') then songs[#songs+1]=path;if #songs>=1024 then break end end
     end
     refreshExports()
 end

@@ -1317,3 +1317,18 @@ Hide cleanup. Physical Axiom callback input was verified in package 26; a physic
 key performance through the updated in-game pages remains a manual acceptance
 check. No sustain pedal is available. The port-25567 fixture is used, with no new
 fixture, production deployment or remote push.
+
+## Installed MIDI archive import and larger catalog (package 28 / API 15)
+
+Added user-provided df_mid.zip (12 files) and DF-patch-Dfmusics2.zip (131 files)
+to distinct Bardcraft/custom archive folders in the port-25567 fixture midi-data.
+All 143 files passed the actual Studio MIDI parser and SHA-256 copy verification.
+Existing 457 MIDI files were preserved; the installed library totals 600. Archive
+contents remain local fixture assets, outside the repository.
+
+Raised installed-song discovery from 512 to 1,024; virtualized scroll/filter
+behavior is unchanged. The real client harness verifies song 600 is discoverable
+and that enumeration stops at 1,024 installed songs. Local exports remain added
+separately. All 21 Lua suites pass; the client suite has 15,579 assertions. This
+checks file parsing/discovery, not full performance of every imported song.
+See evidence/daggerfall-midi/import.json and lua-tests.json.
