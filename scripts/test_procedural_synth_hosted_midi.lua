@@ -9,6 +9,7 @@ local function add(name,data,hash)
     entries[#entries+1]=entry;bytes[name]=data;return entry
 end
 for n=1,600 do add(string.format('Bardcraft/custom/%04d.mid',n),'MThd'..string.rep(string.char(n%127),n==1 and 40000 or 10)) end
+add('unsupported..name.mid','MThdDATA') -- saved-project paths reject consecutive dots
 local native={getUptime=function() return now end,getPlayer=function(id) return clients[id] end,
     listStudioMidiFiles=function() scans=scans+1;return entries end,
     readStudioMidiFile=function(name,hash)
@@ -32,7 +33,7 @@ local function ticks(n)
 end
 a:list();b:list();ticks(50)
 local count=0;for _ in pairs(a.catalog) do count=count+1 end
-check(count==600 and changed==2 and scans==1 and reads==0,'600 songs advertised to both clients without downloading file bodies')
+check(count==600 and changed==2 and scans==1 and reads==0,'600 songs advertised without file downloads; unsupported names cannot poison the catalogue')
 check(events[1].id~=events[2].id,'receivers get fair rotation')
 local path='midi/bardcraft/custom/0001.mid'
 local result

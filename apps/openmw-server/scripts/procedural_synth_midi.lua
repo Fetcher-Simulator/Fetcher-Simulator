@@ -16,6 +16,7 @@ return function(mp, emit)
         for _,entry in ipairs(entries) do
             local name=entry.name
             if type(name)=='string' and #name>0 and #name<=187 and not name:find('%c')
+                and not name:find('..',1,true)
                 and integer(entry.size,4,512*1024) and hash(entry.hash) then
                 local path='midi/'..name:lower()
                 if not byPath[path] then

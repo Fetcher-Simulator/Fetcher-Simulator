@@ -16,8 +16,9 @@ can supply an arbitrary filesystem root to the native MIDI bindings.
 The native catalogue includes names, byte sizes and SHA-256 content revisions.
 Reads must match the advertised revision. Files may be at most 512 KiB, paths at
 most 187 UTF-8 bytes before the `midi/` prefix, and a catalogue at most 1024 songs.
-Directory traversal and non-MIDI extensions are rejected. RIFF/RMID containers
-are unwrapped into standard MIDI during reads without modifying original files.
+Directory traversal and non-MIDI extensions are rejected. Names containing
+consecutive dots are omitted to match Studio's saved-path rules. RIFF/RMID
+containers are unwrapped during reads without modifying original files.
 The SMF parser still enforces its event, track and timing limits.
 
 The server sends one bounded packet per update, round-robin across receivers.
