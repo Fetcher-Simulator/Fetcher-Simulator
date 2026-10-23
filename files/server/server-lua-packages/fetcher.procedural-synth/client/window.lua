@@ -15,12 +15,20 @@ local text=util.color.rgb(0.85,0.89,0.94)
 local accent=util.color.rgb(0.2,0.85,0.72)
 local function clamp(x,a,b) return math.max(a,math.min(b,x)) end
 local function number(x,fallback) return type(x)=='number' and x==x and math.abs(x)<100000 and x or fallback end
+local function viewport()
+    -- Widget coordinates use the scaled MyGUI layer, while screenSize returns
+    -- physical pixels. Mixing them clips fullscreen controls above 100% GUI scale.
+    local layers=ui.layers
+    local index=layers and layers.indexOf('Windows')
+    if index then return layers[index].size end
+    return ui.screenSize()
+end
 local function rect(x,y,w,h,color)
     return {type=ui.TYPE.Image,props={position=v(x,y),size=v(w,h),resource=white,color=color}}
 end
 local function cb(fn) return async:callback(function(...) fn(...);return false end) end
 function W.new()
-    local screen=ui.screenSize()
+    local screen=viewport()
     local defaultScale=math.min(math.max(1,screen.y/900),screen.x/width,screen.y/(height+chrome))
     local scale=clamp(number(storage:get('scale'),defaultScale),0.75,2)
     local saved=storage:get('geometry') or {}
@@ -32,7 +40,7 @@ function W.new()
 end
 function W:isFullscreen() return self.full or self.expanded end
 function W:bounds()
-    local screen=ui.screenSize();self.screen=screen
+    local screen=viewport();self.screen=screen
     if not self:isFullscreen() then
         self.width=clamp(self.width,math.min(screen.x,width*0.75),screen.x)
         self.height=clamp(self.height,math.min(screen.y,(height+chrome)*0.75),screen.y)
@@ -127,7 +135,7 @@ function W:root(content)
     return ui.create(root)
 end
 function W:frame(owner)
-    local screen=ui.screenSize()
+    local screen=viewport()
     if screen.x~=self.screen.x or screen.y~=self.screen.y then self:bounds();self.changed=true end
     if synth.getMonitorVolume and synth.getMonitorVolume()~=self.monitor then self.changed=true end
     if not self.changed or input.isMouseButtonPressed(1) then return end

@@ -22,6 +22,12 @@ else
     exit 1
 fi
 
+built_defaults="$(dirname "$built_binary")/defaults.bin"
+if [[ ! -f "$built_defaults" ]]; then
+    echo "ERROR: could not locate matching defaults.bin beside server binary" >&2
+    exit 1
+fi
+
 # Validate/update master-server protocol admission only after the build succeeds,
 # but before staging the new game-server binary. A master configuration failure
 # therefore aborts the deployment without changing the installed server binary.
@@ -29,6 +35,10 @@ fi
 
 mkdir -p "$dist_root/logs" "$dist_root/server-scripts" "$dist_root/server-lua-packages"
 install -m 0755 "$built_binary" "$dist_root/openmw-server.next"
+install -m 0644 "$built_defaults" "$dist_root/defaults.bin.next"
+# New binaries may require settings absent from older defaults (e.g. Studio's
+# instrument volume). Stage both before replacing either installed file.
+mv -f "$dist_root/defaults.bin.next" "$dist_root/defaults.bin"
 mv -f "$dist_root/openmw-server.next" "$dist_root/openmw-server"
 
 if [[ -d "$repo_root/build-linux/server-scripts" ]]; then

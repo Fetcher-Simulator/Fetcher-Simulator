@@ -900,6 +900,21 @@ button('Cancel').events.mouseClick();now=now+.01;lastStudio:frame(now)
 check(not l.action and w.dirty and mode=='Interface','Cancel Finish keeps editor and edits')
 viewport=vector(1024,768);lastStudio.window:zoom(-0.5)
 api.close();check(not uiOverride,'Finish restores game UI controls')
+-- The normal installation can have a non-default global GUI scale. Native
+-- screenSize remains physical pixels; Window layouts must use layer coordinates.
+viewport=vector(2560,1440)
+local guiViewport=vector(2133,1200)
+ui.layers={indexOf=function(name) if name=='Windows' then return 1 end end,
+    [1]={size=guiViewport}}
+local scaledWindow=package.loaded[prefix..'client.window'].new()
+scaledWindow.full=true;scaledWindow:bounds()
+check(scaledWindow.actualWidth==2133 and scaledWindow.actualHeight==1200,'fullscreen fits the scaled GUI layer instead of physical resolution')
+check(scaledWindow.canvasWidth*scaledWindow.scale==2133,'fullscreen canvas preserves the scaled layer width')
+local layout=scaledWindow:root({})
+check(layout.layout.props.size.x==2133 and layout.layout.props.size.y==1200,'root hit area stays within scaled viewport')
+guiViewport=vector(1706,960);ui.layers[1].size=guiViewport;scaledWindow:bounds()
+check(scaledWindow.actualWidth==1706 and scaledWindow.actualHeight==960,'GUI scale changes update fullscreen bounds')
+layout:destroy();ui.layers=nil
 -- Large installed libraries retain songs beyond the previous 512-item cutoff.
 package.loaded['openmw.synth'].listMidiExports=nil
 package.loaded['openmw.vfs'].pathsWithPrefix=function()
