@@ -21,6 +21,7 @@ local vfs = require('openmw.vfs')
 local Recorder=require('scripts.multiplayer.fetcher.procedural-synth.client.recorder')
 local Samples=require('scripts.multiplayer.fetcher.procedural-synth.client.samples')
 local NativeTransport=require('scripts.multiplayer.fetcher.procedural-synth.client.transport')
+local HostedMidi=require('scripts.multiplayer.fetcher.procedural-synth.client.hosted-midi')
 local object
 local Actors=require('scripts.multiplayer.fetcher.procedural-synth.client.actors')
 local PerformerPanel=require('scripts.multiplayer.fetcher.procedural-synth.client.performer-panel')
@@ -39,23 +40,25 @@ local dirty
 local songs,selectedSong,playback,loading,scanned={},1,nil,nil,false
 local Library=require('scripts.multiplayer.fetcher.procedural-synth.client.library')
 local exportedSongs={}
+local installedSongs,hosted={}
 local function refreshExports()
-    local selected=songs[selectedSong];local kept={}
-    for _,path in ipairs(songs) do if not exportedSongs[path] then kept[#kept+1]=path end end
-    songs=kept;exportedSongs={}
+    local selected=loading and loading.path or songs[selectedSong];local seen={};songs={};exportedSongs={}
+    local function add(path) if not seen[path] then songs[#songs+1]=path;seen[path]=true end end
+    for _,path in ipairs(installedSongs) do add(path) end
+    if hosted then for path in pairs(hosted.catalog) do add(path) end end
     if synth.listMidiExports then
         local ok,names=pcall(synth.listMidiExports)
         if ok then for _,name in ipairs(names) do
-            local path='midi/__studio_exports__/'..name;exportedSongs[path]=name;songs[#songs+1]=path
+            local path='midi/__studio_exports__/'..name;exportedSongs[path]=name;add(path)
         end end
     end
     table.sort(songs);selectedSong=1
     for n,path in ipairs(songs) do if path==selected then selectedSong=n;break end end
 end
 local function scanSongs()
-    songs={};selectedSong=1;scanned=true
+    installedSongs={};selectedSong=1;scanned=true
     for path in vfs.pathsWithPrefix('midi/') do
-        if path:lower():match('%.mid[i]?$') then songs[#songs+1]=path;if #songs>=1024 then break end end
+        if path:lower():match('%.mid[i]?$') then installedSongs[#installedSongs+1]=path;if #installedSongs>=1024 then break end end
     end
     refreshExports()
 end
@@ -72,6 +75,7 @@ local function send(op, extra)
     for k,v in pairs(extra or {}) do out[k]=v end
     mp.sendToServer('Synth_Request',out)
 end
+hosted=HostedMidi.new{send=send,now=core.getRealTime,changed=refreshExports}
 local function captureEditor()
     if not editor or editor.kind=='studio' then return end
     local view={name=editor.name,selected=editor.selected,entries=editor.entries,page=editor.page,bank=editor.bank,browserPage=editor.browserPage}
@@ -93,6 +97,7 @@ local function closeEditor(notify)
         local instance=instances[session.id]
         if instance then silence(instance) end
         if notify then send('close') end
+        hosted:bind(nil,nil)
         session=nil; dirty=nil
     end
 end
@@ -172,7 +177,12 @@ local function flushEdit()
 end
 local function songLabel()
     local name=songs[selectedSong]
-    if loading then return 'Loading MIDI…' end
+    if loading then
+        local transfer=hosted.pending
+        if transfer then return string.format('Downloading server MIDI… %d%%',math.floor(100*(transfer.offset or 0)/transfer.entry.size)) end
+        return 'Loading MIDI…'
+    end
+    if #songs==0 and hosted.listing then return 'Loading server MIDI list…' end
     if session and session.workstation.project.composition and not session.songSelection then return 'Song: '..session.workstation.project.name end
     local active=playback or session and session.workstation and session.workstation.playing and session.workstation
     if active then
@@ -183,6 +193,7 @@ local function songLabel()
     return name and name:match('([^/]+)$'):gsub('%.mid[i]?$','') or 'No MIDI files installed'
 end
 stopPlayback=function(force)
+    hosted:cancel()
     loading=nil
     if playback then local old=playback;playback=nil;old:stop() end
     if session and session.workstation then session.workstation:stop(force) end
@@ -206,13 +217,18 @@ playSong=function(path,intent,approved)
     path=path or songs[selectedSong]
     local allowed=false
     for n,p in ipairs(songs) do if p==path then allowed=true;selectedSong=n;break end end
+    -- Project replies can arrive before the paged server catalogue. Preserve
+    -- that trusted restore request instead of permanently losing its source.
+    if not allowed and intent=='restore' and session.workstation.project.midi==path and hosted.listing then allowed=true end
     if not allowed then return false end
     if session.library and intent~='restore' and not approved then
         return session.library:guard(function() playSong(path,intent,true) end,'replace notes with MIDI import')
     end
     stopPlayback()
     loading={path=path,intent=intent or 'play',session=session,generation=intent~='restore' and session.workstation.generation or nil,co=coroutine.create(function()
+        while intent=='restore' and hosted.listing do coroutine.yield() end
         if exportedSongs[path] then return MIDI.parse(synth.readMidiExport(exportedSongs[path]),function() coroutine.yield() end) end
+        if hosted:has(path) then return MIDI.parse(hosted:load(path),function() coroutine.yield() end) end
         local file,err=vfs.open(path)
         assert(file,err or 'Cannot open MIDI')
         local bytes=file:read(512*1024+1);file:close()
@@ -350,7 +366,8 @@ switchPage=function(page,track)
 end
 local function midiChoices()
     local choices={};for _,path in ipairs(songs) do
-        choices[#choices+1]={id=path,label=(path:match('([^/]+)$') or path):gsub('%.mid[i]?$',''),search=path}
+        local label=(path:match('([^/]+)$') or path):gsub('%.mid[i]?$','')
+        choices[#choices+1]={id=path,label=label..(hosted:has(path) and ' [Server]' or ''),search=path}
     end;return choices
 end
 local function midiSelect(path)
@@ -444,6 +461,7 @@ showEditor=function()
 end
 local function message(data)
     if not mp.isConnected() or type(data)~='table' or data.version~=1 then return end
+    if hosted:receive(data) then return end
     if data.op=='performer' then performerState=data;if panel then panel:update(data) end;return end
     if data.op=='inviteNotice' then ui.showMessage(data.leader..' invites you to play '..data.instrument..'. Press F9 to accept or decline.');return end
     if data.op=='roster' then
@@ -540,6 +558,7 @@ local function message(data)
             refreshExports()
             closeEditor(true)
             session={id=data.id,epoch=data.epoch,inSeq=0,editTrack=0,views={},page='synth',transportLast=core.getRealTime()}
+            hosted:bind(session.id,session.epoch);hosted:list()
             session.workstation=makeWorkstation(i)
             session.library=Library.new(session.workstation,{send=send,now=core.getRealTime,session=session.epoch,message=ui.showMessage,
                 show=function() if session.page~='studio' then switchPage('studio') end end})
@@ -592,10 +611,12 @@ local function frame(dt)
     if not scanned then scanSongs() end
     local now=core.getRealTime()
     if not mp.isConnected() then
+        if connected or hosted.scope then hosted:clear();refreshExports() end
         transport.offset=nil;transport.rtt=nil;transport.lastClock=-10;transport.downloads={};transport.pings={};transport.samples=0
         for id in pairs(instances) do destroy(id) end
         closeEditor(false);closePanel();actors:clearAll();performerState={held='',available={}};connected=false; return
     end
+    hosted:frame()
     if not connected or now-lastSync>5 then
         connected=true; lastSync=now
         -- Request only when there are no instances: a snapshot never restarts held notes.

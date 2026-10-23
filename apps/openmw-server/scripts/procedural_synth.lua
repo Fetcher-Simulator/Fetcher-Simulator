@@ -23,6 +23,7 @@ local function relevant(player, cell)
     return false
 end
 local function emit(guid, data) data.version = 1; mp.send(guid, 'Synth_Message', data) end
+local hostedMidi=require('procedural_synth_midi')(mp,emit)
 local performers=require('procedural_synth_performers')(mp,projectFormat,emit)
 local function broadcast(s, out, except)
     out.id, out.epoch, out.seq, out.revision, out.owner = s.id, s.epoch, s.outSeq, s.revision, s.owner
@@ -50,6 +51,7 @@ sendTransport=function(guid,s,t)
 end
 local function nextEvent(s) s.outSeq = s.outSeq + 1 end
 local function release(s)
+    hostedMidi.cancel(s.owner)
     nextEvent(s); broadcast(s, {op='close'})
     sessions[s.id] = nil;performers:release(s)
     for id,owner in pairs(claims) do if owner==s.id then claims[id]=nil end end
@@ -164,6 +166,7 @@ local function request(data)
         elseif type(v) == 'string' then
             if k=='barGrid' and data.op=='scoreBegin' then if not sequenceFormat.validateBarGrid(v,data.length) then return end
             elseif k=='bytes' and data.op=='scoreChunk' then if #v<11 or #v>sequenceFormat.chunkSize or #v%11~=0 then return end
+            elseif k=='path' and data.op=='midiFile' then if not text(v,192) then return end
             elseif not text(v,96) then return end
         elseif type(v) ~= 'number' and type(v) ~= 'boolean' then return end
     end
@@ -216,6 +219,13 @@ local function request(data)
         return
     end
     if s.pickup then return end
+    if data.op=='midiCancel' then hostedMidi.cancel(data.pid);return end
+    if data.op=='midiCatalog' or data.op=='midiFile' then
+        if budget(data.pid,now,data.op,data.op=='midiCatalog' and .1 or 2,data.op=='midiCatalog' and 1 or 3) then
+            hostedMidi.request(data.pid,data)
+        end
+        return
+    end
     if data.op=='roster' or data.op=='hire' or data.op=='invite' or data.op=='dismiss' then
         if not budget(data.pid,now,'roster',1,3) then return end
         if data.op=='roster' then performers:roster(s)
@@ -438,6 +448,7 @@ local function request(data)
     sendCatalog(data.pid,library)
 end
 local function sweep()
+    hostedMidi.tick()
     local now = mp.getUptime()
     if now-lastSweep < 0.5 then return end
     lastSweep=now
@@ -484,6 +495,7 @@ return {
             else emit(s.owner,{op='error',message='Keyboard pickup failed ('..tostring(data.error or 'unknown')..'); it was left in place. Please try again.',pickupFailed=true,id=s.id,epoch=s.epoch}) end
         end,
         OnServerInit=function()
+            hostedMidi.prepare()
             -- Runtime record with a vanilla mesh; no client ESP and no asset transfer.
             local ok=mp.upsertDynamicRecord('activator',RECORD,
                 {name='OpenMW Synthesizer',model=config.PROCEDURAL_SYNTH_MODEL or 'meshes/m/Misc_de_lute_01.nif'},
@@ -503,6 +515,7 @@ return {
             end
         end,
         OnPlayerDisconnect=function(data)
+            hostedMidi.cancel(data.guid)
             budgets[data.guid]=nil;performers:disconnect(data.guid)
             for _,s in pairs(sessions) do if s.owner==data.guid then release(s) end end
         end,

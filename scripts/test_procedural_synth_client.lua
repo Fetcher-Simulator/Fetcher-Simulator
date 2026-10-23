@@ -26,6 +26,7 @@ package.loaded['openmw.camera']={MODE={FirstPerson=1},getMode=function() return 
 package.loaded['openmw.types']={}
 package.loaded['openmw.vfs']={pathsWithPrefix=function() return function() end end}
 package.loaded[prefix..'client.midi']=dofile(root..'client/midi.lua')
+package.loaded[prefix..'client.hosted-midi']=dofile(root..'client/hosted-midi.lua')
 package.loaded[prefix..'client.midi-export']=dofile(root..'client/midi-export.lua')
 package.loaded[prefix..'client.performance']=dofile(root..'client/performance.lua')
 local viewport=vector(1024,768)
@@ -923,4 +924,54 @@ end
 player=dofile(root..'client/player.lua');api=player.interface;now=now+.01;player.engineHandlers.onFrame(.01)
 local catalog=api.midiSongs()
 check(#catalog==1024 and catalog[600]=='midi/large/0600.mid' and catalog[1024]=='midi/large/1024.mid','discovery includes 600-song test library and retains bounded 1024-song ceiling')
+-- A fresh client has no local MIDI installation: catalogue, download, import,
+-- local coexistence, and stale selection handling all run through the real player.
+do
+local function testHostedMidi()
+api.close();connected=true;now=now+1
+local localPath='midi/personal/local.mid'
+package.loaded['openmw.vfs'].pathsWithPrefix=function()
+    local done=false;return function() if not done then done=true;return localPath end end
+end
+local localReads=0
+package.loaded['openmw.vfs'].open=function(path)
+    check(path==localPath,'server MIDI never requires local VFS files');localReads=localReads+1
+    return {read=function() return fileBytes end,close=function() end}
+end
+player=dofile(root..'client/player.lua');api=player.interface;handler=player.eventHandlers.Synth_Message
+player.engineHandlers.onFrame(.01)
+handler{version=1,op='granted',id=7,epoch=500,seq=1,params=schema.state({})}
+local listId
+for n=#sent,1,-1 do if sent[n].op=='midiCatalog' then listId=sent[n].requestId;break end end
+check(listId~=nil,'Studio requests server catalogue on acquisition')
+local remotePath='midi/server/remote.mid';local remoteHash=string.rep('a',64)
+local function hostedMessage(op,data)
+    data=data or {};data.version=1;data.op=op;data.id=7;data.epoch=data.epoch or 500
+    handler(data)
+end
+local pf=package.loaded[prefix..'shared.project'](schema)
+local saved=pf.new();saved.midi=remotePath;saved.tracks[1]=pf.newTrack('midi','Saved source',16)
+hostedMessage('dawProject',{project=saved})
+player.engineHandlers.onFrame(.01)
+check(api.workstation().project.midi==remotePath and not api.workstation():hasSong(),'saved project waits for server catalogue instead of losing its source')
+hostedMessage('midiCatalogBegin',{requestId=listId,count=1})
+hostedMessage('midiCatalogPage',{requestId=listId,offset=0,entries={{path=remotePath,size=#fileBytes,hash=remoteHash}}})
+hostedMessage('midiCatalogEnd',{requestId=listId})
+check(#api.midiSongs()==2 and api.midiSongs()[1]==localPath,'server library merges with personal files')
+player.engineHandlers.onFrame(.01)
+local fileId
+for n=#sent,1,-1 do if sent[n].op=='midiFile' then fileId=sent[n].requestId;break end end
+hostedMessage('midiFileBegin',{requestId=fileId,path=remotePath,size=#fileBytes,hash=remoteHash})
+hostedMessage('midiFileChunk',{requestId=fileId,offset=0,bytes=fileBytes})
+hostedMessage('midiFileEnd',{requestId=fileId})
+for _=1,10 do player.engineHandlers.onFrame(.01) end
+check(api.workstation().project.midi==remotePath and api.workstation():hasSong() and localReads==0,'downloaded MIDI imports with no local file')
+check(api.importMidi(localPath),'personal MIDI remains selectable');player.engineHandlers.onFrame(.01)
+check(api.workstation().project.midi==localPath and localReads==1,'local MIDI uses its original reader')
+api.close();hostedMessage('midiFileEnd',{requestId=fileId})
+connected=false;player.engineHandlers.onFrame(.01)
+check(#api.midiSongs()==1 and api.midiSongs()[1]==localPath,'disconnect removes prior server library but preserves personal songs')
+end
+testHostedMidi()
+end
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

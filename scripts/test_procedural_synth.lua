@@ -521,4 +521,15 @@ test('project library requests stay private, versioned and bounded',function()
     local before=#sent;for n=1,1000 do request('libList',{requestId=10+n}) end
     check(#sent-before<=4,'library rejection responses are bounded under a request flood')
 end)
+test('server MIDI requests require the current nearby keyboard owner',function()
+    local scans=0
+    package.loaded.mp.listStudioMidiFiles=function() scans=scans+1;return {} end
+    acquire();sent={}
+    request('midiCatalog',{pid=2,requestId=1});module.engineHandlers.onUpdate()
+    check(scans==0 and #sent==0,'observer cannot request library')
+    request('midiCatalog',{requestId=1});module.engineHandlers.onUpdate()
+    check(scans==1 and sent[#sent].data.op=='midiCatalogBegin','owner requests hosted catalogue')
+    request('close');sent={};now=now+.05;module.engineHandlers.onUpdate()
+    check(#sent==0,'closing Studio cancels queued delivery')
+end)
 print(string.format('%d tests, %d assertions passed',tests,checks))

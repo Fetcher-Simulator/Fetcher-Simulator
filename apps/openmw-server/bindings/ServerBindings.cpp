@@ -6,6 +6,7 @@
 #include <components/lua/luastate.hpp>
 #include <components/debug/debuglog.hpp>
 #include <components/openmw-mp/Base/DynamicRecord.hpp>
+#include <components/openmw-mp/StudioMidiLibrary.hpp>
 #include <sol/sol.hpp>
 
 #ifdef _WIN32
@@ -457,6 +458,32 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
         if (!bytes)
             return sol::make_object(ts, sol::nil);
 
+        return sol::make_object(ts, *bytes);
+    });
+
+    // Per-instance Studio library. Shared binaries must not merge the song
+    // libraries of different servers through their executable directory.
+    mp.set_function("listStudioMidiFiles", [](sol::this_state ts) -> sol::object
+    {
+        sol::state_view lua(ts);
+        sol::table list(lua, sol::create);
+        int index = 1;
+        for (const auto& entry : studiomidi::scan(std::filesystem::current_path() / "studio-midi"))
+        {
+            sol::table item(lua, sol::create);
+            item["name"] = entry.name;
+            item["size"] = static_cast<double>(entry.size);
+            item["hash"] = entry.hash;
+            list[index++] = item;
+        }
+        return sol::make_object(ts, LuaUtil::makeReadOnly(list));
+    });
+    mp.set_function("readStudioMidiFile", [](const std::string& name, const std::string& hash,
+                                             sol::this_state ts) -> sol::object
+    {
+        auto bytes = studiomidi::read(std::filesystem::current_path() / "studio-midi", name);
+        if (!bytes || crypto::sha256hex(*bytes) != hash)
+            return sol::make_object(ts, sol::nil);
         return sol::make_object(ts, *bytes);
     });
 

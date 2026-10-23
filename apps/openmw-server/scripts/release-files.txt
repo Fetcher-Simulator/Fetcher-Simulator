@@ -22,6 +22,7 @@ extended_speech_commands.lua
 intent_policy.lua
 consuming_animated_relay.lua
 procedural_synth.lua
+procedural_synth_midi.lua
 procedural_synth_schema.lua
 procedural_synth_project.lua
 procedural_synth_sequence.lua
