@@ -9,7 +9,8 @@ local recordStore = require("recordstore")
 ------------------------------------------------------------------------
 -- Config
 ------------------------------------------------------------------------
-local ADMIN_PASSWORD = Config.ADMIN_PASSWORD or "changeme"
+local ADMIN_PASSWORD = type(Config.ADMIN_PASSWORD) == "string" and Config.ADMIN_PASSWORD ~= ""
+    and Config.ADMIN_PASSWORD or nil
 local MAX_PLAYERS = 32
 local MOTD = Config.MOTD or "Welcome to the server!  Type /help for commands."
 local COMMAND_PREFIX = Config.COMMAND_PREFIX or "/"
@@ -87,6 +88,15 @@ local function requireAdmin(player)
 
     player:sendMessage("Permission denied.")
     return false
+end
+
+-- Minimal server profiles can reuse common commands without loading every
+-- experimental feature. Full profiles still dispatch all configured modules.
+local function callOptional(moduleName, method, ...)
+    local module = customScripts[moduleName]
+    if module and module[method] then
+        return module[method](...)
+    end
 end
 
 local function nextLuaTestSeq()
@@ -963,12 +973,21 @@ end
 local function handleChat(player, data)
     local msg = data.message or ""
 
+    local allowed = customScripts.commandAllowlist
+    if allowed and msg:sub(1, #COMMAND_PREFIX) == COMMAND_PREFIX then
+        local name = msg:sub(#COMMAND_PREFIX + 1):match("^(%S+)")
+        if not allowed[name or ""] then
+            player:sendMessage("Unknown command.  Type /help for a list.")
+            return false
+        end
+    end
+
     if LOG_CHAT then
         mp.log("[core] Chat [" .. player.name .. "] " .. msg)
     end
 
     if msg == COMMAND_PREFIX .. "help" then
-        commandRegistry.sendHelp(player, COMMAND_PREFIX, isAdmin(player))
+        commandRegistry.sendHelp(player, COMMAND_PREFIX, isAdmin(player), allowed)
         return false
     end
 
@@ -1013,7 +1032,9 @@ local function handleChat(player, data)
 
     if msg:sub(1, #LOGIN_PREFIX) == LOGIN_PREFIX then
         local pw = msg:sub(#LOGIN_PREFIX + 1)
-        if pw == ADMIN_PASSWORD then
+        if not ADMIN_PASSWORD then
+            player:sendMessage("Admin login is not configured on this server.")
+        elseif pw == ADMIN_PASSWORD then
             setRuntimeAdmin(player.guid, true)
             player:sendMessage("You are now an admin.")
             mp.log("[core] Admin login: " .. player.name)
@@ -1753,7 +1774,7 @@ local function handleChat(player, data)
         return false
     end
 
-    local markRecallHandled = customScripts.markRecallCommands.handleChat(player, data, {
+    local markRecallHandled = callOptional("markRecallCommands", "handleChat", player, data, {
         commandPrefix = COMMAND_PREFIX,
         normalizeCellId = normalizeCellId,
     })
@@ -1785,7 +1806,7 @@ local function handleChat(player, data)
     end
 
     if msg:sub(1, #COMMAND_PREFIX) == COMMAND_PREFIX then
-        local speechHandled = customScripts.speechCommands.handleChat(player, data, {
+        local speechHandled = callOptional("speechCommands", "handleChat", player, data, {
             commandPrefix = COMMAND_PREFIX,
             parseCommandArgs = parseCommandArgs,
         })
@@ -1794,7 +1815,7 @@ local function handleChat(player, data)
         end
 
         -- All optional feature modules share the single customScripts upvalue.
-        local extendedSpeechHandled = customScripts.extendedSpeechCommands.handleChat(player, data, {
+        local extendedSpeechHandled = callOptional("extendedSpeechCommands", "handleChat", player, data, {
             commandPrefix = COMMAND_PREFIX,
             parseCommandArgs = parseCommandArgs,
         })
@@ -1802,7 +1823,7 @@ local function handleChat(player, data)
             return extendedSpeechHandled
         end
 
-        local surfHandled = customScripts.surfCommands.handleChat(player, data, {
+        local surfHandled = callOptional("surfCommands", "handleChat", player, data, {
             commandPrefix = COMMAND_PREFIX,
             findPlayerByName = findPlayerByName,
             isAdmin = isAdmin,
@@ -1813,7 +1834,7 @@ local function handleChat(player, data)
             return surfHandled
         end
 
-        local vehicleHandled = customScripts.vehicleCommands.handleChat(player, data, {
+        local vehicleHandled = callOptional("vehicleCommands", "handleChat", player, data, {
             commandPrefix = COMMAND_PREFIX,
             normalizeCellId = normalizeCellId,
             placeAtPosition = placeAtPosition,
@@ -1822,7 +1843,7 @@ local function handleChat(player, data)
             return vehicleHandled
         end
 
-        local recordDynamicHandled = customScripts.recordDynamicTest.handleChat(player, data, {
+        local recordDynamicHandled = callOptional("recordDynamicTest", "handleChat", player, data, {
             commandPrefix = COMMAND_PREFIX,
             parseCommandArgs = parseCommandArgs,
             requireAdmin = requireAdmin,
@@ -1840,7 +1861,7 @@ local function handleChat(player, data)
             return recordStoreHandled
         end
 
-        local spawnerHandled = customScripts.destructibleSpawners.handleChat(player, data, {
+        local spawnerHandled = callOptional("destructibleSpawners", "handleChat", player, data, {
             commandPrefix = COMMAND_PREFIX,
             parseCommandArgs = parseCommandArgs,
             requireAdmin = requireAdmin,
@@ -1851,7 +1872,7 @@ local function handleChat(player, data)
             return spawnerHandled
         end
 
-        local adminUiHandled = customScripts.adminUiService.handleChat(player, data, {
+        local adminUiHandled = callOptional("adminUiService", "handleChat", player, data, {
             commandPrefix = COMMAND_PREFIX,
             requireAdmin = requireAdmin,
             isAdmin = isAdmin,
@@ -1908,10 +1929,10 @@ return {
         OnServerInit = function(_)
             admins = {}
             adminRuntimeStorage:reset()
-            customScripts.markRecallCommands.onServerInit()
+            callOptional("markRecallCommands", "onServerInit")
             recordStore.onServerInit()
-            customScripts.recordDynamicTest.onServerInit()
-            customScripts.destructibleSpawners.onServerInit()
+            callOptional("recordDynamicTest", "onServerInit")
+            callOptional("destructibleSpawners", "onServerInit")
             mp.log("[core] Server ready — " .. mp.getPlayerCount() .. " player(s) connected.")
         end,
 
@@ -1931,9 +1952,9 @@ return {
 
         OnPlayerDisconnect = function(data)
             setRuntimeAdmin(data.guid, false)
-            customScripts.markRecallCommands.onPlayerDisconnect(data)
-            customScripts.surfCommands.onPlayerDisconnect(data)
-            customScripts.surfTimer.onPlayerDisconnect(data)
+            callOptional("markRecallCommands", "onPlayerDisconnect", data)
+            callOptional("surfCommands", "onPlayerDisconnect", data)
+            callOptional("surfTimer", "onPlayerDisconnect", data)
             if ANNOUNCE_JOIN_LEAVE then
                 mp.broadcast("<< " .. data.name .. " has left.  (" .. (data.reason or "Disconnected") .. ")")
             end

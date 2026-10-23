@@ -352,11 +352,11 @@ local function formatUsage(prefix, usage)
     return usage
 end
 
-function M.getCatalog(prefix, includeAdmin)
+function M.getCatalog(prefix, includeAdmin, allowedCommands)
     local catalog = {}
 
     for _, entry in ipairs(COMMANDS) do
-        if includeAdmin or not entry.adminOnly then
+        if (includeAdmin or not entry.adminOnly) and (not allowedCommands or allowedCommands[entry.id]) then
             catalog[#catalog + 1] = {
                 id = entry.id,
                 category = entry.category,
@@ -370,11 +370,11 @@ function M.getCatalog(prefix, includeAdmin)
     return catalog
 end
 
-function M.getSections(prefix, includeAdmin)
+function M.getSections(prefix, includeAdmin, allowedCommands)
     local grouped = {}
     local indexByCategory = {}
 
-    for _, entry in ipairs(M.getCatalog(prefix, includeAdmin)) do
+    for _, entry in ipairs(M.getCatalog(prefix, includeAdmin, allowedCommands)) do
         local sectionIndex = indexByCategory[entry.category]
         if not sectionIndex then
             sectionIndex = #grouped + 1
@@ -411,8 +411,8 @@ function M.getSections(prefix, includeAdmin)
     return grouped
 end
 
-function M.sendHelp(player, prefix, includeAdmin)
-    for _, section in ipairs(M.getSections(prefix, includeAdmin)) do
+function M.sendHelp(player, prefix, includeAdmin, allowedCommands)
+    for _, section in ipairs(M.getSections(prefix, includeAdmin, allowedCommands)) do
         local usages = {}
         for _, entry in ipairs(section.entries) do
             usages[#usages + 1] = entry.usage
