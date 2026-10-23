@@ -63,6 +63,8 @@ namespace mwmp
                    << jsonEscape(config.gameMode) << "\"";
             if (!config.lanAddress.empty())
                 stream << ",\"lan_address\":\"" << jsonEscape(config.lanAddress) << "\"";
+            if (!config.launcherProfile.empty())
+                stream << ",\"launcher_profile\":\"" << jsonEscape(config.launcherProfile) << "\"";
             stream << '}';
             return stream.str();
         }

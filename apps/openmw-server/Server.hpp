@@ -299,6 +299,7 @@ public:
     // ── Master server configuration (call before run()) ───────────────────
     void setServerName       (const std::string& n) { mServerName        = n; }
     void setMasterUrl        (const std::string& u) { mMasterUrl         = u; }
+    void setLauncherProfile(const std::string& value) { mLauncherProfile = value; }
     void setGameMode         (const std::string& m) { mGameMode          = m; }
     void setLanAddress       (const std::string& a) { mLanAddress        = a; }
     void setPasswordProtected(bool v)               { mPasswordProtected = v; }
@@ -909,6 +910,7 @@ private:
     MasterServerClient mMasterClient;
     std::string        mServerName   = "OpenMW Multiplayer Server";
     std::string        mMasterUrl;   ///< empty → do not register
+    std::string        mLauncherProfile;
     std::string        mGameMode     = "Co-op";
     std::string        mLanAddress;
     bool               mPasswordProtected = false;

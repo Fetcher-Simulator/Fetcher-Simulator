@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import hashlib
 import json
 import logging
 import os
@@ -29,6 +30,54 @@ TOKEN_PATTERN = re.compile(
 DIAGNOSTIC_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 BUILD_COMMIT_PATTERN = re.compile(r"^(?:[0-9a-f]{10,40}|unknown)$")
 TLS_DIAGNOSTIC_LOGGER = logging.getLogger("openmw_master.tls_diagnostics")
+PROFILE_LIMIT = 256 * 1024
+REGISTRATION_LIMIT = 600 * 1024
+
+
+def validate_launcher_profile(value: str) -> str:
+    if len(value.encode("utf-8")) > PROFILE_LIMIT:
+        raise ValueError("launcher_profile exceeds 256 KiB")
+
+    def unique_object(pairs):
+        result = {}
+        for key, item in pairs:
+            if key in result:
+                raise ValueError("duplicate profile key")
+            result[key] = item
+        return result
+
+    def invalid_constant(_):
+        raise ValueError("non-finite JSON number")
+
+    try:
+        profile = json.loads(value, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+        stack = [(profile, 0)]
+        while stack:
+            node, depth = stack.pop()
+            if depth > 32:
+                raise ValueError("profile nesting exceeds 32")
+            if isinstance(node, dict):
+                stack.extend((child, depth + 1) for child in node.values())
+            elif isinstance(node, list):
+                stack.extend((child, depth + 1) for child in node)
+    except (RecursionError, json.JSONDecodeError) as error:
+        raise ValueError("invalid profile JSON") from error
+    allowed = {"schemaVersion", "id", "name", "version", "mode", "description", "host", "port",
+               "packages", "umoMods", "content", "requiredFiles", "groundcover", "fallbackArchives"}
+    if not isinstance(profile, dict) or set(profile) - allowed:
+        raise ValueError("unsupported profile fields; embed the mod list, not a manifest URL")
+    if profile.get("schemaVersion", 1) != 1 or profile.get("mode", "managed") != "managed":
+        raise ValueError("unsupported profile schema or mode")
+    for key in ("id", "name", "version"):
+        if not isinstance(profile.get(key), str) or not 1 <= len(profile[key]) <= 160:
+            raise ValueError(f"profile needs a bounded {key}")
+    for key, limit in (("packages", 128), ("umoMods", 512), ("content", 1024),
+                       ("requiredFiles", 4096), ("groundcover", 4096), ("fallbackArchives", 4096)):
+        if key in profile and (not isinstance(profile[key], list) or len(profile[key]) > limit):
+            raise ValueError(f"invalid profile {key}")
+    # The master stores declarative data only. Package/path/hash validation remains
+    # mandatory in the launcher, even when this document came from our HTTPS API.
+    return value
 
 
 def _env_int(name: str, default: int, minimum: int = 0) -> int:
@@ -93,6 +142,12 @@ class RegisterRequest(StrictModel):
     protocol_version: int = Field(gt=0)
     game_mode: str = Field(min_length=1, max_length=32)
     lan_address: str | None = Field(default=None, min_length=2, max_length=45)
+    launcher_profile: str | None = Field(default=None, max_length=PROFILE_LIMIT)
+
+    @field_validator("launcher_profile")
+    @classmethod
+    def valid_launcher_profile(cls, value: str | None) -> str | None:
+        return validate_launcher_profile(value) if value is not None else None
 
     @field_validator("name", "build_version", "game_mode")
     @classmethod
@@ -148,6 +203,7 @@ class PublicServerEntry(StrictModel):
     protocol_version: int
     game_mode: str
     country: str
+    mod_profile_sha256: str | None = None
 
 
 class HealthResponse(StrictModel):
@@ -209,6 +265,7 @@ class ServerRecord:
     country: str
     lan_address: str | None
     last_heartbeat: float
+    launcher_profile: str | None = None
 
     def public(self, requester_ip: str | None = None) -> PublicServerEntry:
         return PublicServerEntry(
@@ -226,6 +283,8 @@ class ServerRecord:
             protocol_version=self.protocol_version,
             game_mode=self.game_mode,
             country=self.country,
+            mod_profile_sha256=(hashlib.sha256(self.launcher_profile.encode("utf-8")).hexdigest()
+                                if self.launcher_profile is not None else None),
         )
 
 
@@ -323,6 +382,13 @@ class Registry:
                 )
 
             old_token = self._endpoint_tokens.get(endpoint)
+            remaining = [record for token, record in self._servers.items() if token != old_token]
+            if len(remaining) >= 2048 or sum(record.host == source_ip for record in remaining) >= 16:
+                raise HTTPException(429, "server registry capacity reached")
+            profile_bytes = sum(len(record.launcher_profile.encode("utf-8"))
+                                for record in remaining if record.launcher_profile is not None)
+            if profile_bytes + len((request.launcher_profile or "").encode("utf-8")) > 64 * 1024 * 1024:
+                raise HTTPException(429, "profile registry capacity reached")
             if old_token is not None:
                 self._servers.pop(old_token, None)
 
@@ -341,6 +407,7 @@ class Registry:
                 country=self._country_lookup(source_ip),
                 lan_address=request.lan_address,
                 last_heartbeat=now,
+                launcher_profile=request.launcher_profile,
             )
             self._servers[token] = record
             self._endpoint_tokens[endpoint] = token
@@ -389,6 +456,14 @@ class Registry:
     def count(self) -> int:
         return len(self.list())
 
+    def profile(self, server_id: str) -> str:
+        with self._lock:
+            self._expire_locked(self._clock())
+            for record in self._servers.values():
+                if record.id == server_id and record.launcher_profile is not None:
+                    return record.launcher_profile
+        raise HTTPException(404, "server profile is no longer advertised")
+
 
 def _socket_ip(request: Request) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
     host = request.client.host if request.client else "0.0.0.0"
@@ -425,9 +500,22 @@ def create_app(
     app.state.registry = registry
     app.state.settings = settings
 
+    @app.middleware("http")
+    async def bounded_requests(request: Request, call_next):
+        if request.method == "POST":
+            body = bytearray()
+            async for chunk in request.stream():
+                if len(body) + len(chunk) > REGISTRATION_LIMIT:
+                    return Response(status_code=413)
+                body.extend(chunk)
+            # Starlette's cached body is replayed to the route parser.
+            request._body = bytes(body)
+        return await call_next(request)
+
     @app.get(
         "/v1/servers",
         response_model=list[PublicServerEntry],
+        response_model_exclude_none=True,
         name="list_servers_v1",
     )
     def list_servers(
@@ -439,6 +527,14 @@ def create_app(
             f"private, max-age={settings.list_cache_seconds}"
         )
         return registry.list(protocol_version, client_ip(request, settings))
+
+    @app.get("/v1/servers/{server_id}/profile")
+    def server_profile(server_id: uuid.UUID) -> Response:
+        text = registry.profile(str(server_id))
+        return Response(text, media_type="application/json", headers={
+            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        })
 
     @app.post(
         "/v1/servers/register",
@@ -506,6 +602,7 @@ def create_app(
         list_servers,
         methods=["GET"],
         response_model=list[PublicServerEntry],
+        response_model_exclude_none=True,
         include_in_schema=False,
     )
     app.add_api_route(

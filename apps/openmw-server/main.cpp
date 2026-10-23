@@ -16,6 +16,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -297,6 +298,7 @@ int main(int argc, char* argv[])
     std::string serverName    = cfgStr (cfg, "master.server_name",   "My OpenMW Server");
     std::string gameMode      = cfgStr (cfg, "master.game_mode",     "Co-op");
     std::string lanAddress    = cfgStr (cfg, "master.lan_address",   "");
+    std::filesystem::path launcherProfilePath = cfgStr(cfg, "master.launcher_profile", "");
 
     // CLI overrides
     for (int i = 1; i < argc; ++i)
@@ -369,6 +371,22 @@ int main(int argc, char* argv[])
         server.setServerLuaPackageRoot(std::move(serverLuaPackages));
         if (publicListing && !masterUrl.empty())
         {
+            if (!launcherProfilePath.empty())
+            {
+                if (launcherProfilePath.is_relative())
+                    launcherProfilePath = cfgDir / launcherProfilePath;
+                constexpr std::uintmax_t limit = 256 * 1024;
+                if (!std::filesystem::is_regular_file(launcherProfilePath)
+                    || std::filesystem::file_size(launcherProfilePath) > limit)
+                    throw std::runtime_error("Launcher profile must be a local JSON file of at most 256 KiB");
+                std::ifstream file(launcherProfilePath, std::ios::binary);
+                std::string profile(std::istreambuf_iterator<char>{file}, {});
+                if (file.bad() || profile.empty() || profile.size() > limit)
+                    throw std::runtime_error("Cannot read launcher profile");
+                if (profile.compare(0, 3, "\xef\xbb\xbf") == 0)
+                    profile.erase(0, 3);
+                server.setLauncherProfile(profile);
+            }
             server.setMasterUrl(masterUrl);
             server.setServerName(serverName);
             server.setGameMode(gameMode);

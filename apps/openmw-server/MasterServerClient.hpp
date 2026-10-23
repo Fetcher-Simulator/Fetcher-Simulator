@@ -35,6 +35,7 @@ namespace mwmp
             int protocolVersion = 1;
             std::string gameMode = "Co-op";
             std::string lanAddress;
+            std::string launcherProfile;
         };
 
         MasterServerClient() = default;

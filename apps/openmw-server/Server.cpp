@@ -2359,6 +2359,7 @@ void MPServer::run()
         cfg.protocolVersion   = MultiplayerProtocolVersion;
         cfg.gameMode          = mGameMode;
         cfg.lanAddress        = mLanAddress;
+        cfg.launcherProfile   = mLauncherProfile;
         mMasterClient.registerAsync(cfg);
     }
 

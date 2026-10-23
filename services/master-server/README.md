@@ -3,6 +3,30 @@
 The master server is a lightweight public server registry for the multiplayer
 server browser. It requires Python 3.11 or newer.
 
+## Launcher profiles
+
+Dedicated servers can set `launcher_profile = launcher-profile.json` in `[master]` in
+`server.cfg`. The filename is local to the server, relative to that configuration file;
+restart the server to publish changes. It uploads the JSON text as optional `launcher_profile`
+in registration. The master performs bounded structural validation without fetching any URL.
+Existing registrations without the field and game clients remain compatible.
+
+`GET /v1/servers` adds `mod_profile_sha256` only for servers with a profile.
+`GET /v1/servers/{id}/profile` serves its exact UTF-8 bytes as JSON, with no-store/nosniff/CSP
+headers. Profiles disappear on unregister, replacement or heartbeat expiry. Registration tokens
+and private server paths never appear in the public listing or the generated retrieval path.
+The launcher constructs that path on its trusted master origin, checks the digest and its own
+declarative schema, binds Play to the listed endpoint and prepares pinned content automatically.
+
+Documents are limited to 256 KiB and depth 32; POST bodies to 600 KiB before model parsing.
+Duplicate keys, non-finite numbers, external manifest references and unknown top-level fields
+are rejected. Registry limits are 2048 servers, 16 per source IP and 64 MiB of profile data.
+The reverse proxy must permit 600 KiB registrations; the tracked nginx example includes this.
+Profiles contain public mod requirements only, never passwords or API keys. Registration binds
+to the observed source IP and port; this is discovery, not operator identity certification or
+a security audit of the supplied game assets. Package-level validation remains mandatory in
+the launcher. See Fetcher-Updater's `launcher/PROFILE-FORMAT.md` for the owner JSON format.
+
 ## Run locally
 
 ```bash

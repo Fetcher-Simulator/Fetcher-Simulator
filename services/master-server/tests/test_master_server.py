@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import hashlib
 import json
 import logging
 import time
@@ -10,6 +11,65 @@ import pytest
 from fastapi.testclient import TestClient
 
 from master_server import Registry, Settings, create_app
+
+
+def profile_text(**changes):
+    profile = {"id": "community", "name": "Community", "version": "1", "packages": [],
+               "content": ["Morrowind.esm"]}
+    profile.update(changes)
+    return json.dumps(profile, ensure_ascii=False)
+
+
+def test_profile_discovery_digest_lifecycle_and_no_token_leak(api):
+    client, clock = api
+    text = profile_text(name="Community Ω", host="malicious.example", port=1)
+    registered = register(client, launcher_profile=text)
+    listing = client.get("/v1/servers").json()[0]
+    assert listing["mod_profile_sha256"] == hashlib.sha256(text.encode()).hexdigest()
+    assert listing["host"] == "198.51.100.10" and listing["port"] == 25565
+    assert "launcher_profile" not in listing and "token" not in listing
+    url = f'/v1/servers/{registered["id"]}/profile'
+    response = client.get(url)
+    assert response.text == text
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["cache-control"] == "no-store"
+    assert registered["token"] not in response.text
+    clock.advance(11)
+    assert client.get(url).status_code == 404
+
+
+@pytest.mark.parametrize("text", [
+    "[]", '{"id":"x","id":"y"}', '{"id":NaN}',
+    profile_text(umo={"url": "https://evil.example/list.json"}),
+    profile_text(command="powershell"), profile_text(mode="installed"),
+    profile_text(packages=[{}] * 129), profile_text(description="x" * (256 * 1024)),
+    profile_text(description="Ω" * (150 * 1024)),
+    profile_text(packages=[[[[[[]]]]]] * 129),
+    '{"id":"x","name":"x","version":"1","packages":' + '[' * 100 + '0' + ']' * 100 + '}',
+], ids=["array", "duplicate", "nonfinite", "external-list", "command", "installed", "package-count", "size", "utf8-size", "nested-count", "depth"])
+def test_untrusted_profiles_rejected(api, text):
+    client, _ = api
+    assert client.post("/v1/servers/register", content=json.dumps(registration(launcher_profile=text), ensure_ascii=False).encode(), headers={"Content-Type": "application/json"}).status_code == 422
+    assert client.get("/v1/servers").json() == []
+
+
+def test_profile_replacement_unregister_and_body_limit(api):
+    client, _ = api
+    old = register(client, launcher_profile=profile_text())
+    new = register(client, launcher_profile=profile_text(version="2"))
+    assert client.get(f'/v1/servers/{old["id"]}/profile').status_code == 404
+    assert client.get(f'/v1/servers/{new["id"]}/profile').json()["version"] == "2"
+    client.post("/v1/servers/unregister", json={"token": new["token"]})
+    assert client.get(f'/v1/servers/{new["id"]}/profile').status_code == 404
+    assert client.post("/v1/servers/register", content=b" " * (600 * 1024 + 1)).status_code == 413
+
+
+def test_registry_per_address_capacity(api):
+    client, _ = api
+    for i in range(16):
+        register(client, port=26000 + i)
+    assert client.post("/v1/servers/register", json=registration(port=26017)).status_code == 429
 
 
 class FakeClock:
