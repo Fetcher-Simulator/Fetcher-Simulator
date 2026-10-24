@@ -141,6 +141,17 @@ unnamed_string:
         LuaUtil::ScriptsConfiguration mCfg;
     };
 
+    TEST_F(LuaL10nTest, MissingManagerRaisesLuaError)
+    {
+        LuaUtil::LuaState lua{ mVFS.get(), &mCfg };
+        lua.protectedCall([&](LuaUtil::LuaView& view) {
+            sol::state_view& l = view.sol();
+            l["l10n"] = LuaUtil::initL10nLoader(l, nullptr);
+            auto result = l.safe_script("l10n('Test1')", sol::script_pass_on_error);
+            EXPECT_FALSE(result.valid());
+        });
+    }
+
     TEST_F(LuaL10nTest, L10n)
     {
         LuaUtil::LuaState lua{ mVFS.get(), &mCfg };

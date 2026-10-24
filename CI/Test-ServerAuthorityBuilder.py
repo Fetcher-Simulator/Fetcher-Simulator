@@ -173,6 +173,28 @@ class BuildOpenMWServerAuthorityTests(unittest.TestCase):
             self.assertEqual(manifest["collision_model_refs"], 1)
             self.assertEqual(manifest["unresolved_collision_model_count"], 0)
 
+    def test_localization_preserves_override_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            client, _ = self.make_client(root)
+            for data in ("Data A", "Data B"):
+                (client / data / "l10n" / "Fixture").mkdir(parents=True)
+            (client / "Data A" / "l10n" / "Fixture" / "en.yaml").write_bytes(b"label: old\n")
+            expected = b"\xef\xbb\xbflabel: new\r\n"
+            (client / "Data B" / "l10n" / "Fixture" / "en.yaml").write_bytes(expected)
+            (client / "Data B" / "l10n" / "Fixture" / "ignored.txt").write_bytes(b"not localization")
+            output = root / "content-authority"
+
+            result = self.run_builder(client, output)
+            self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
+            self.assertEqual((output / "content-data/l10n/Fixture/en.yaml").read_bytes(), expected)
+            self.assertFalse((output / "content-data/l10n/Fixture/ignored.txt").exists())
+            manifest = json.loads((output / "bundle-manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["l10n_files"], 1)
+            entry = next(item for item in manifest["files"] if item["path"].casefold() == "l10n/fixture/en.yaml")
+            self.assertEqual(entry["sha256"], sha256(expected))
+            self.assertIn("l10n", entry["categories"])
+
     def test_plan_only_does_not_require_output(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

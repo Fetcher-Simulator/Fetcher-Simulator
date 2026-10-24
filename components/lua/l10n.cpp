@@ -3,6 +3,7 @@
 #include <components/debug/debuglog.hpp>
 #include <components/l10n/manager.hpp>
 #include <components/lua/luastate.hpp>
+#include <stdexcept>
 
 namespace
 {
@@ -67,6 +68,8 @@ namespace LuaUtil
 
         return sol::make_object(
             lua, [manager](std::string_view contextName, sol::optional<std::string> fallbackLocale) {
+                if (!manager)
+                    throw std::runtime_error("Localization manager is unavailable in this runtime");
                 if (fallbackLocale)
                     return L10nContext{ manager->getContext(contextName, *fallbackLocale) };
                 else

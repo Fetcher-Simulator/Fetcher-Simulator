@@ -642,6 +642,8 @@ def main() -> int:
                 resolved_collision_models[resolved.logical_path.casefold()] = resolved
 
         lua_files = index.effective_by_suffix(".lua")
+        l10n_files = [entry for entry in index.effective_under("l10n")
+                      if Path(entry.logical_path).suffix.casefold() == ".yaml"]
         sound_files = index.effective_under("sound") if args.include_sounds else []
 
         copy_plan: dict[str, tuple[str, VfsFile, set[str]]] = {}
@@ -674,6 +676,8 @@ def main() -> int:
             plan_file(entry, "archive", configured_name)
         for entry in lua_files:
             plan_file(entry, "lua")
+        for entry in l10n_files:
+            plan_file(entry, "l10n")
         for entry in resolved_models.values():
             plan_file(entry, "model")
         for entry in resolved_icons.values():
@@ -688,6 +692,7 @@ def main() -> int:
             "configured_content": len(parsed.content_files),
             "configured_archives": len(parsed.fallback_archives),
             "effective_lua_files": len(lua_files),
+            "effective_l10n_files": len(l10n_files),
             "external_resource_lua_files": external_lua,
             "model_refs": len(model_refs),
             "resolved_loose_models": len(resolved_models),
@@ -770,6 +775,7 @@ def main() -> int:
                 if record.categories.intersection({"model", "icon", "collision-model", "sound"})
             ),
             "lua_files": len(lua_files),
+            "l10n_files": len(l10n_files),
             "copied_lua_files": sum(
                 1 for record in copied_records.values() if "lua" in record.categories
             ),

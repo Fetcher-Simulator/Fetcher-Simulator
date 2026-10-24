@@ -35,6 +35,7 @@
 #include <components/esm3/loaddoor.hpp>
 #include <components/esm3/loadench.hpp>
 #include <components/esm3/loadglob.hpp>
+#include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadingr.hpp>
 #include <components/esm3/loadligh.hpp>
 #include <components/esm3/loadlevlist.hpp>
@@ -51,6 +52,7 @@
 #include <components/misc/resourcehelpers.hpp>
 #include <components/files/collections.hpp>
 #include <components/files/configurationmanager.hpp>
+#include <components/l10n/manager.hpp>
 #include <components/openmw-mp/Sha256.hpp>
 #include <components/openmw-mp/Records/EsmDynamicRecordConversion.hpp>
 #include <components/resource/resourcesystem.hpp>
@@ -218,6 +220,7 @@ struct mwmp::ServerContentRegistry::Runtime
     std::unique_ptr<VFS::Manager> vfs;
     std::unique_ptr<Resource::ResourceSystem> resources;
     std::unique_ptr<MWWorld::World> world;
+    std::unique_ptr<L10n::Manager> l10n;
     std::unique_ptr<MWLua::LuaManager> lua;
     Compiler::Extensions scriptExtensions;
     std::unique_ptr<MWScript::CompilerContext> scriptCompilerContext;
@@ -256,6 +259,16 @@ mwmp::ServerContentRegistry::loadRuntime(const Config& config)
     runtime->environment->setWorld(*runtime->world);
     runtime->environment->setWorldModel(runtime->world->getWorldModel());
     runtime->environment->setESMStore(runtime->world->getStore());
+    runtime->l10n = std::make_unique<L10n::Manager>(runtime->vfs.get());
+    runtime->l10n->setPreferredLocales(
+        Settings::general().mPreferredLocales, Settings::general().mGmstOverridesL10n);
+    runtime->environment->setL10nManager(*runtime->l10n);
+    const auto* gmst = &runtime->world->getStore().get<ESM::GameSetting>();
+    runtime->l10n->setGmstLoader([gmst](std::string_view name) -> const std::string* {
+        const auto* setting = gmst->search(name);
+        return setting && setting->mValue.getType() == ESM::VT_String
+            ? &setting->mValue.getString() : nullptr;
+    });
     runtime->lua = std::make_unique<MWLua::LuaManager>(
         runtime->vfs.get(), config.resources / "lua_libs", true);
     runtime->environment->setLuaManager(*runtime->lua);
