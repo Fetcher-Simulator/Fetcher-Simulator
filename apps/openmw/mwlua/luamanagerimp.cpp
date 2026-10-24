@@ -627,6 +627,10 @@ namespace MWLua
 
     void LuaManager::initPreLoad()
     {
+        // Headless content loading has no player profile or permanent storage.
+        // LOAD scripts still need read-only sections to resolve their defaults.
+        if (mStrictHeadlessContent)
+            mPlayerStorage.setActive(true);
         mLua.protectedCall([&](LuaUtil::LuaView& view) {
             Context context;
             context.mType = Context::Load;
