@@ -338,7 +338,7 @@ and the [manifest reference](https://github.com/Skooma-Breath/Fetcher-Updater/bl
 are maintained with the launcher.
 
 Automatic profiles must embed their requirements; external `umo` list URLs are refused.
-Keep the UTF-8 document at or below 256 KiB/depth 32 and include no credentials or temporary
+Keep the UTF-8 document at or below 2 MiB/depth 32 and include no credentials or temporary
 authorised URLs. This file distributes client requirements; it does not build server
 authority. Keep the generated `content-authority/` and the advertised client requirements
 consistent, and test an actual join before announcing a mod update.

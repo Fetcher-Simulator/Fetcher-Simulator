@@ -18,10 +18,10 @@ and private server paths never appear in the public listing or the generated ret
 The launcher constructs that path on its trusted master origin, checks the digest and its own
 declarative schema, binds Play to the listed endpoint and prepares pinned content automatically.
 
-Documents are limited to 256 KiB and depth 32; POST bodies to 600 KiB before model parsing.
+Documents are limited to 2 MiB and depth 32; POST bodies to 8 MiB before model parsing.
 Duplicate keys, non-finite numbers, external manifest references and unknown top-level fields
 are rejected. Registry limits are 2048 servers, 16 per source IP and 64 MiB of profile data.
-The reverse proxy must permit 600 KiB registrations; the tracked nginx example includes this.
+The reverse proxy must permit 8 MiB registrations; the tracked nginx example includes this.
 Profiles contain public mod requirements only, never passwords or API keys. Registration binds
 to the observed source IP and port; this is discovery, not operator identity certification or
 a security audit of the supplied game assets. Package-level validation remains mandatory in

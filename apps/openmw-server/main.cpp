@@ -375,10 +375,10 @@ int main(int argc, char* argv[])
             {
                 if (launcherProfilePath.is_relative())
                     launcherProfilePath = cfgDir / launcherProfilePath;
-                constexpr std::uintmax_t limit = 256 * 1024;
+                constexpr std::uintmax_t limit = 2 * 1024 * 1024;
                 if (!std::filesystem::is_regular_file(launcherProfilePath)
                     || std::filesystem::file_size(launcherProfilePath) > limit)
-                    throw std::runtime_error("Launcher profile must be a local JSON file of at most 256 KiB");
+                    throw std::runtime_error("Launcher profile must be a local JSON file of at most 2 MiB");
                 std::ifstream file(launcherProfilePath, std::ios::binary);
                 std::string profile(std::istreambuf_iterator<char>{file}, {});
                 if (file.bad() || profile.empty() || profile.size() > limit)

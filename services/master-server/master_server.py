@@ -30,13 +30,13 @@ TOKEN_PATTERN = re.compile(
 DIAGNOSTIC_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 BUILD_COMMIT_PATTERN = re.compile(r"^(?:[0-9a-f]{10,40}|unknown)$")
 TLS_DIAGNOSTIC_LOGGER = logging.getLogger("openmw_master.tls_diagnostics")
-PROFILE_LIMIT = 256 * 1024
-REGISTRATION_LIMIT = 600 * 1024
+PROFILE_LIMIT = 2 * 1024 * 1024
+REGISTRATION_LIMIT = 8 * 1024 * 1024
 
 
 def validate_launcher_profile(value: str) -> str:
     if len(value.encode("utf-8")) > PROFILE_LIMIT:
-        raise ValueError("launcher_profile exceeds 256 KiB")
+        raise ValueError("launcher_profile exceeds 2 MiB")
 
     def unique_object(pairs):
         result = {}

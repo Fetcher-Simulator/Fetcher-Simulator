@@ -10,7 +10,7 @@ from dataclasses import replace
 import pytest
 from fastapi.testclient import TestClient
 
-from master_server import Registry, Settings, create_app
+from master_server import Registry, Settings, create_app, PROFILE_LIMIT, REGISTRATION_LIMIT
 
 
 def profile_text(**changes):
@@ -43,8 +43,8 @@ def test_profile_discovery_digest_lifecycle_and_no_token_leak(api):
     "[]", '{"id":"x","id":"y"}', '{"id":NaN}',
     profile_text(umo={"url": "https://evil.example/list.json"}),
     profile_text(command="powershell"), profile_text(mode="installed"),
-    profile_text(packages=[{}] * 129), profile_text(description="x" * (256 * 1024)),
-    profile_text(description="Ω" * (150 * 1024)),
+    profile_text(packages=[{}] * 129), profile_text(description="x" * PROFILE_LIMIT),
+    profile_text(description="Ω" * (PROFILE_LIMIT // 2 + 1)),
     profile_text(packages=[[[[[[]]]]]] * 129),
     '{"id":"x","name":"x","version":"1","packages":' + '[' * 100 + '0' + ']' * 100 + '}',
 ], ids=["array", "duplicate", "nonfinite", "external-list", "command", "installed", "package-count", "size", "utf8-size", "nested-count", "depth"])
@@ -62,7 +62,17 @@ def test_profile_replacement_unregister_and_body_limit(api):
     assert client.get(f'/v1/servers/{new["id"]}/profile').json()["version"] == "2"
     client.post("/v1/servers/unregister", json={"token": new["token"]})
     assert client.get(f'/v1/servers/{new["id"]}/profile').status_code == 404
-    assert client.post("/v1/servers/register", content=b" " * (600 * 1024 + 1)).status_code == 413
+    assert client.post("/v1/servers/register", content=b" " * (REGISTRATION_LIMIT + 1)).status_code == 413
+
+
+def test_large_profile_round_trip_remains_bounded(api):
+    client, _ = api
+    text = profile_text(packages=[{"actions": [{"data": "A" * (1024 * 1024)}]}])
+    registered = register(client, launcher_profile=text)
+    response = client.get(f'/v1/servers/{registered["id"]}/profile')
+    assert response.status_code == 200 and response.text == text
+    listed = client.get('/v1/servers').json()[0]
+    assert listed["mod_profile_sha256"] == hashlib.sha256(text.encode()).hexdigest()
 
 
 def test_registry_per_address_capacity(api):
