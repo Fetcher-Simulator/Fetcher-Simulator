@@ -304,6 +304,45 @@ Keep the `master_url` value supplied by the server distribution unless you inten
 
 `lan_address` can be set to the server's private address when the master/listing implementation needs to tell clients on the same NAT which LAN address to use.
 
+### Publish the mod list to Fetcher Launcher
+
+With a compatible server/master build (engine commit `0f1aa3c5c5`, tag
+`Fetcher-Server-Profiles-1`, or newer), put `launcher-profile.json` beside the
+`server.cfg` you actually use and add this to its existing `[master]` section:
+
+```ini
+launcher_profile = launcher-profile.json
+```
+
+Keep `public_listing = true` and restart after changing the file. Relative paths are
+resolved against `server.cfg`, including when supplied with `--config`; absolute paths
+also work. The server uploads the local JSON during registration. The master advertises
+its SHA-256, and Fetcher Launcher obtains the requirements automatically when players
+select the server. Players do not paste a JSON file or URL. Play prepares the pinned
+client content; Nexus account/download approval can still be required.
+
+For an existing UMO JSON list, embed its array as `umoMods` inside an owner profile
+containing `schemaVersion`, `id`, `name`, `version`, `host`, `port` and the exact `content`
+load order. Each `download_info` entry needs `pinned: true`, the original archive's
+SHA-256, an exact `nexus_file_id` (or a permanent HTTPS `direct_download`) and the correct
+archive-relative `dataDirs`. Hash the original ZIP/7z/RAR, not an extracted plugin.
+On Windows, use `Get-FileHash -LiteralPath 'C:\ModArchives\Mod.zip' -Algorithm SHA256`.
+Nexus mod-page IDs and downloadable-file IDs are different; keep both tied to the
+chosen version. An installed `openmw.cfg` cannot reconstruct missing Nexus links.
+
+See the [server-owner walkthrough](https://github.com/Skooma-Breath/Fetcher-Updater/blob/main/launcher/SERVER-OWNER-GUIDE.md)
+for creating the list by hand, wrapping an existing list, folder priorities, hashing,
+publication and a fresh-client join check. A complete
+[one-mod embedded UMO example](https://github.com/Skooma-Breath/Fetcher-Updater/blob/main/launcher/examples/community-umo.json)
+and the [manifest reference](https://github.com/Skooma-Breath/Fetcher-Updater/blob/main/launcher/PROFILE-FORMAT.md)
+are maintained with the launcher.
+
+Automatic profiles must embed their requirements; external `umo` list URLs are refused.
+Keep the UTF-8 document at or below 256 KiB/depth 32 and include no credentials or temporary
+authorised URLs. This file distributes client requirements; it does not build server
+authority. Keep the generated `content-authority/` and the advertised client requirements
+consistent, and test an actual join before announcing a mod update.
+
 ## 13. Local development authority versus production authority
 
 For development, the server may point directly at a local client's configuration:
