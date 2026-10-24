@@ -172,6 +172,10 @@ namespace mwmp
                 return orderedLess(left.name, right.name, ascending);
             case ServerSortColumn::Players:
                 return orderedLess(left.currentPlayers, right.currentPlayers, ascending);
+            case ServerSortColumn::Ping:
+                if ((left.pingMs < 0) != (right.pingMs < 0))
+                    return left.pingMs >= 0;
+                return orderedLess(left.pingMs, right.pingMs, ascending);
             case ServerSortColumn::BuildVersion:
                 return orderedLess(left.buildVersion, right.buildVersion, ascending);
             case ServerSortColumn::GameMode:

@@ -1,5 +1,6 @@
 #include <components/openmw-mp/MasterServerProtocol.hpp>
 #include <components/openmw-mp/Packets/System/PacketHandshake.hpp>
+#include <components/openmw-mp/ServerPing.hpp>
 
 #include <gtest/gtest.h>
 
@@ -33,6 +34,7 @@ TEST(MasterServerProtocol, ParsesEscapedAndUnicodePublicEntry)
     ASSERT_TRUE(parsed.error.empty()) << parsed.error;
     ASSERT_EQ(parsed.entries.size(), 1);
     EXPECT_EQ(parsed.entries[0].name, "A \"quoted\" {server} \\ \xce\xa9");
+    EXPECT_EQ(parsed.entries[0].pingMs, -1);
     EXPECT_EQ(parsed.entries[0].currentPlayers, 7);
     EXPECT_EQ(parsed.entries[0].protocolVersion, 1);
 }
@@ -97,6 +99,20 @@ TEST(MasterServerProtocol, DeterminesCompatibility)
     incompatible.protocolVersion += 1;
     EXPECT_TRUE(mwmp::isProtocolCompatible(compatible));
     EXPECT_FALSE(mwmp::isProtocolCompatible(incompatible));
+}
+
+TEST(MasterServerProtocol, SortsMeasuredPingWithUnavailableAlwaysLast)
+{
+    std::vector entries{ entry("unknown", 0), entry("slow", 0), entry("fast", 0) };
+    entries[1].pingMs = 120;
+    entries[2].pingMs = 15;
+    EXPECT_EQ(
+        mwmp::sortedServerIndices(entries, mwmp::ServerSortColumn::Ping, true), (std::vector<std::size_t>{ 2, 1, 0 }));
+    EXPECT_EQ(
+        mwmp::sortedServerIndices(entries, mwmp::ServerSortColumn::Ping, false), (std::vector<std::size_t>{ 1, 2, 0 }));
+    const auto cancelled = FetcherNet::measureServerPings({ "127.0.0.1" }, [] { return true; });
+    ASSERT_EQ(cancelled.size(), 1);
+    EXPECT_EQ(cancelled[0].milliseconds, -1);
 }
 
 TEST(MasterServerProtocol, EllipsizesOnlyAtUtf8CodePointBoundaries)

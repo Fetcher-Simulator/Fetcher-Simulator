@@ -532,7 +532,7 @@ add_component_dir(testing
 
 if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
     add_component_dir (openmw-mp
-        MasterServerProtocol ContentManifest ServerLuaPackage ServerLuaPackageTransfer PlayerCrimeState PlayerTopicState PlayerFactionState WorldItemTake InventoryTake InventoryPut InventoryTransferSound Barter CrimeInteraction CrimeReaction GuardArrest
+        MasterServerProtocol ServerPing ContentManifest ServerLuaPackage ServerLuaPackageTransfer PlayerCrimeState PlayerTopicState PlayerFactionState WorldItemTake InventoryTake InventoryPut InventoryTransferSound Barter CrimeInteraction CrimeReaction GuardArrest
     )
     add_component_dir (openmw-mp/Base
         BaseStructs BasePlayer BaseActor
@@ -693,7 +693,7 @@ if (OSG_STATIC AND CMAKE_SYSTEM_NAME MATCHES "Linux")
 endif()
 
 if (WIN32)
-    target_link_libraries(components shlwapi)
+    target_link_libraries(components shlwapi iphlpapi ws2_32)
 endif()
 
 # Fix for not visible pthreads functions for linker with glibc 2.15

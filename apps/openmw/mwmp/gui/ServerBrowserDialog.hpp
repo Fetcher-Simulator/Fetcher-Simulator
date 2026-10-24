@@ -20,6 +20,7 @@
 #include <MyGUI_Window.h>
 
 #include <components/openmw-mp/MasterServerProtocol.hpp>
+#include <components/openmw-mp/ServerPing.hpp>
 
 #include "../../mwgui/windowbase.hpp"
 
@@ -115,6 +116,13 @@ namespace mwmp
         bool mRequestPending = false;
         std::string mRequestedUrl;
         std::optional<FetchResult> mCompletedRequest;
+        struct PingResult
+        {
+            std::uint64_t generation;
+            std::vector<FetcherNet::ServerPingResult> values;
+        };
+        std::optional<PingResult> mCompletedPings;
+        MyGUI::TextBox* mColumnPing = nullptr;
     };
 }
 

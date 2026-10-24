@@ -56,6 +56,10 @@ namespace mwmp
         std::string country;
         int currentPlayers = 0;
         int maxPlayers = 0;
+        // Local network measurement only; never trusted from master JSON. -1 =
+        // unavailable.
+        int pingMs = -1;
+        bool pingTcp = false;
     };
 
     struct ServerListParseResult
@@ -82,6 +86,7 @@ namespace mwmp
     {
         Name,
         Players,
+        Ping,
         BuildVersion,
         GameMode,
         Country,

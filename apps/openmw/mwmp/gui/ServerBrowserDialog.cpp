@@ -12,6 +12,7 @@
 
 #include <components/debug/debuglog.hpp>
 #include <components/misc/strings/lower.hpp>
+#include <components/openmw-mp/ServerPing.hpp>
 #include <components/settings/values.hpp>
 #include <components/version/version.hpp>
 
@@ -141,7 +142,8 @@ namespace mwmp
             if (normalizedAuthority != "master.fetchers.org" && normalizedAuthority != "master.fetchers.org:443")
             {
                 Log(Debug::Info) << "[ServerBrowser] TLS diagnostic " << report.requestId
-                                 << " retained locally because the configured master is not the official service";
+                                 << " retained locally because the configured master is "
+                                    "not the official service";
                 return;
             }
 
@@ -185,6 +187,7 @@ namespace mwmp
         getWidget(mColumnBuildVersion, "ColVersion");
         getWidget(mColumnMode, "ColMode");
         getWidget(mColumnCountry, "ColCountry");
+        getWidget(mColumnPing, "ColPing");
 
         mList->addColumn("", 36);
         mList->addColumn("", 400);
@@ -192,8 +195,10 @@ namespace mwmp
         mList->addColumn("", 70);
         mList->addColumn("", 200);
         mList->addColumn("", 60);
+        mList->addColumn("", 70);
 
-        for (MyGUI::TextBox* header : { mColumnName, mColumnPlayers, mColumnBuildVersion, mColumnMode, mColumnCountry })
+        for (MyGUI::TextBox* header :
+            { mColumnName, mColumnPlayers, mColumnBuildVersion, mColumnMode, mColumnCountry, mColumnPing })
         {
             header->setNeedMouseFocus(true);
             header->eventMouseButtonClick += MyGUI::newDelegate(this, &ServerBrowserDialog::onColumnClicked);
@@ -237,6 +242,7 @@ namespace mwmp
     void ServerBrowserDialog::onFrame(float)
     {
         std::optional<FetchResult> completed;
+        std::optional<PingResult> pings;
         {
             std::lock_guard lock(mRequestMutex);
             if (mCompletedRequest)
@@ -244,9 +250,31 @@ namespace mwmp
                 completed = std::move(mCompletedRequest);
                 mCompletedRequest.reset();
             }
+            if (mCompletedPings)
+            {
+                pings = std::move(mCompletedPings);
+                mCompletedPings.reset();
+            }
         }
         if (completed)
             consumeFetchResult(std::move(*completed));
+        if (pings && pings->generation == mRequestedGeneration && pings->values.size() == mServers.size())
+        {
+            const auto selected = mSelected < mFiltered.size() ? mFiltered[mSelected] : MyGUI::ITEM_NONE;
+            for (std::size_t i = 0; i < mServers.size(); ++i)
+            {
+                mServers[i].pingMs = pings->values[i].milliseconds;
+                mServers[i].pingTcp = pings->values[i].tcp;
+            }
+            applyFilter();
+            const auto found = std::find(mFiltered.begin(), mFiltered.end(), selected);
+            if (selected != MyGUI::ITEM_NONE && found != mFiltered.end())
+            {
+                mSelected = static_cast<std::size_t>(found - mFiltered.begin());
+                mList->setIndexSelected(mSelected);
+                updateConnectAvailability();
+            }
+        }
     }
 
     void ServerBrowserDialog::refresh()
@@ -273,6 +301,7 @@ namespace mwmp
             mRequestedUrl = mMasterUrl;
             mRequestPending = true;
             mCompletedRequest.reset();
+            mCompletedPings.reset();
         }
         mRequestCondition.notify_all();
     }
@@ -305,9 +334,24 @@ namespace mwmp
             }
 
             FetchResult result = fetchServerList(url, generation);
+            const auto parsed
+                = result.error == FetchError::None ? parsePublicServerList(result.body) : ServerListParseResult{};
+            {
+                std::lock_guard lock(mRequestMutex);
+                if (generation != mRequestedGeneration)
+                    continue;
+                mCompletedRequest = std::move(result);
+            }
+            std::vector<std::string> hosts;
+            for (const auto& entry : parsed.entries)
+                hosts.push_back(entry.host);
+            auto values = FetcherNet::measureServerPings(hosts, [this, generation, stopToken] {
+                std::lock_guard lock(mRequestMutex);
+                return stopToken.stop_requested() || generation != mRequestedGeneration;
+            });
             std::lock_guard lock(mRequestMutex);
             if (generation == mRequestedGeneration)
-                mCompletedRequest = std::move(result);
+                mCompletedPings = PingResult{ generation, std::move(values) };
         }
     }
 
@@ -453,6 +497,8 @@ namespace mwmp
             mList->setSubItemNameAt(3, row, entry.buildVersion);
             mList->setSubItemNameAt(4, row, entry.gameMode);
             mList->setSubItemNameAt(5, row, entry.country);
+            mList->setSubItemNameAt(
+                6, row, entry.pingMs < 0 ? "—" : std::to_string(entry.pingMs) + (entry.pingTcp ? " TCP" : " ICMP"));
         }
 
         if (mState == State::Loaded)
@@ -467,12 +513,13 @@ namespace mwmp
         constexpr int compatibilityWidth = 36;
         constexpr int playersWidth = 90;
         constexpr int buildWidth = 70;
-        constexpr int modeWidth = 200;
+        constexpr int modeWidth = 160;
         constexpr int countryWidth = 60;
+        constexpr int pingWidth = 90;
         constexpr int frameInset = 3;
 
         const int availableWidth = std::max(0, mList->getWidth() - frameInset * 2);
-        const int fixedWidth = compatibilityWidth + playersWidth + buildWidth + modeWidth + countryWidth;
+        const int fixedWidth = compatibilityWidth + playersWidth + buildWidth + modeWidth + countryWidth + pingWidth;
         const int nameWidth = std::max(220, availableWidth - fixedWidth);
         const int widths[] = {
             compatibilityWidth,
@@ -481,6 +528,7 @@ namespace mwmp
             buildWidth,
             modeWidth,
             countryWidth,
+            pingWidth,
         };
 
         for (std::size_t column = 0; column < std::size(widths); ++column)
@@ -493,6 +541,7 @@ namespace mwmp
             mColumnBuildVersion,
             mColumnMode,
             mColumnCountry,
+            mColumnPing,
         };
         int left = mList->getLeft() + frameInset;
         for (std::size_t column = 0; column < std::size(headers); ++column)
@@ -582,6 +631,8 @@ namespace mwmp
             column = ServerSortColumn::GameMode;
         else if (sender == mColumnCountry)
             column = ServerSortColumn::Country;
+        else if (sender == mColumnPing)
+            column = ServerSortColumn::Ping;
         else
             return;
 
@@ -600,6 +651,7 @@ namespace mwmp
             { mColumnBuildVersion, { ServerSortColumn::BuildVersion, "Build" } },
             { mColumnMode, { ServerSortColumn::GameMode, "Mode" } },
             { mColumnCountry, { ServerSortColumn::Country, "CC" } },
+            { mColumnPing, { ServerSortColumn::Ping, "Ping (ms)" } },
         };
         for (const auto& [widget, description] : headers)
             widget->setCaption(description.second + (description.first == mSortColumn ? indicator : ""));

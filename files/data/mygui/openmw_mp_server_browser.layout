@@ -10,6 +10,7 @@
             ColVersion    TextBox   - "Version" column header
             ColMode       TextBox   - "Mode" column header
             ColCountry    TextBox   - "CC" column header
+            ColPing       TextBox   - measured host RTT (ICMP / TCP 443 fallback)
             ServerList    MultiListBox - scrollable multi-column server rows
             StatusLabel   TextBox   - "Loading…" / "N servers" / error text
             RefreshButton Button    - re-fetch the list
@@ -60,6 +61,9 @@
         </Widget>
 
         <!-- Server list - fills the bulk of the dialog -->
+        <Widget type="TextBox" skin="SandText" position="678 44 70 18" name="ColPing">
+            <Property key="Caption" value="Ping (ms)"/>
+        </Widget>
         <Widget type="MultiListBox" skin="MW_MultiList"
                 position="16 64 872 486" name="ServerList" align="Left Top HStretch VStretch">
         </Widget>
