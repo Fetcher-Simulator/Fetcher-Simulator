@@ -7,7 +7,8 @@ F6 retains its normal chat-display binding.
 The character faces the camera beside a panel styled with Morrowind's MWUI borders,
 text colours and original button textures. Each selector has a searchable dropdown
 and left/right cycling arrows. **Left-drag the model view** to orbit horizontally or
-vertically around the character's head/upper-body pivot; **mouse wheel** zooms toward
+vertically around the character's head/upper-body pivot, opposite to the drag
+direction on both axes; **mouse wheel** zooms toward
 or away from that pivot. The camera derives its look-at direction from the head's
 actual position throughout the orbit. Its drag surface ends at the menu's left
 edge, so raising that surface cannot cover any controls. Wheel over a dropdown scrolls its list instead. Panel/list
