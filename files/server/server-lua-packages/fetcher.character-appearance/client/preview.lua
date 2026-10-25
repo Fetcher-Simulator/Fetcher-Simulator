@@ -17,7 +17,9 @@ end
 function P:apply(selection) types.Player.previewAppearance(player,selection) end
 function P:rotate(dx,dy)
     self.orbit=(self.orbit-dx*.008+math.pi)%(2*math.pi)-math.pi
-    self.elevation=math.max(-.65,math.min(1,self.elevation-dy*.006))
+    -- Screen Y increases downward, while camera elevation increases upward.
+    -- A downward drag therefore raises the camera: the opposite screen direction.
+    self.elevation=math.max(-.65,math.min(1,self.elevation+dy*.006))
 end
 function P:zoomBy(delta)
     self.zoom=math.max(.35,math.min(2.5,self.zoom*math.exp(-delta*.12)))
