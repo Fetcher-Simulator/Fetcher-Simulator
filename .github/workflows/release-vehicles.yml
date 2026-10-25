@@ -20,7 +20,7 @@ jobs:
       package: true
       release: true
       release-tag: Fetcher-Simulator-Vehicles
-      release-name: Fetcher Simulator Vehicles Public Test
+      release-name: Fetcher Simulator Experimental
       release-zip-name: fetcher-simulator.zip
       release-include-installer: false
       embed-fetcher-tester-tools: true

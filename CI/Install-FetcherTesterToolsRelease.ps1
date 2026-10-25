@@ -213,12 +213,14 @@ function Validate-TesterToolsPayload {
     }
 
     $channel = Get-Content -LiteralPath (Join-Path $ExtractRoot "fetcher-update-channel.json") -Raw | ConvertFrom-Json
+    $publishedChannels = @{ vehicles = "Fetcher-Simulator-Vehicles"; studio = "Fetcher-Simulator-Studio" }
+    $channelName = [string]$channel.channel
     if ([int]$channel.schemaVersion -ne 1 -or
-        [string]$channel.channel -ne "vehicles" -or
+        -not $publishedChannels.ContainsKey($channelName) -or
         [string]$channel.clientRepository -ne "Fetcher-Simulator/Fetcher-Simulator" -or
-        [string]$channel.clientReleaseTag -ne "Fetcher-Simulator-Vehicles" -or
+        [string]$channel.clientReleaseTag -ne $publishedChannels[$channelName] -or
         [string]$channel.clientAssetName -ne "fetcher-simulator.zip") {
-        throw "Tester-tools archive does not contain the required Vehicles update channel."
+        throw "Tester-tools archive does not contain an approved public-test update channel."
     }
 
     $policy = Get-Content -LiteralPath (Join-Path $ExtractRoot "fetcher-client-protection-policy.json") -Raw | ConvertFrom-Json

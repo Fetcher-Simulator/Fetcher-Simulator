@@ -65,7 +65,9 @@ function Add-ZipFile {
 function New-TestToolsArchive {
     param(
         [Parameter(Mandatory = $true)][string] $ArchivePath,
-        [string] $UnsafeEntry = ""
+        [string] $UnsafeEntry = "",
+        [string] $ClientChannel = "vehicles",
+        [string] $ClientReleaseTag = "Fetcher-Simulator-Vehicles"
     )
 
     $sourceRoot = Join-Path (Split-Path -Parent $ArchivePath) ("source-" + [Guid]::NewGuid().ToString("N"))
@@ -99,9 +101,9 @@ function New-TestToolsArchive {
 
         $channel = [ordered]@{
             schemaVersion = 1
-            channel = "vehicles"
+            channel = $ClientChannel
             clientRepository = "Fetcher-Simulator/Fetcher-Simulator"
-            clientReleaseTag = "Fetcher-Simulator-Vehicles"
+            clientReleaseTag = $ClientReleaseTag
             clientAssetName = "fetcher-simulator.zip"
         }
         $channel | ConvertTo-Json -Depth 5 |
@@ -235,6 +237,25 @@ try {
     Assert-True -Condition ([bool]$receipt.digestValidated) -Message "Successful embedding did not record digest validation."
     Assert-True -Condition ([string]$receipt.expectedDigest -eq $archive.Digest) -Message "Verification receipt expected digest mismatch."
     Assert-True -Condition ([string]$receipt.actualSha256 -eq $archive.Digest.Substring(7)) -Message "Verification receipt actual hash mismatch."
+
+    foreach ($case in @(
+        @{ Name = "studio"; Channel = "studio"; Tag = "Fetcher-Simulator-Studio"; Accepted = $true },
+        @{ Name = "mismatched"; Channel = "studio"; Tag = "Fetcher-Simulator-Vehicles"; Accepted = $false },
+        @{ Name = "unknown"; Channel = "unknown"; Tag = "Fetcher-Simulator-Studio"; Accepted = $false }
+    )) {
+        $candidate = New-TestToolsArchive -ArchivePath (Join-Path $workRoot "$($case.Name).zip") `
+            -ClientChannel $case.Channel -ClientReleaseTag $case.Tag
+        $candidateMetadata = Join-Path $workRoot "$($case.Name).json"
+        Write-ReleaseMetadata -Path $candidateMetadata -Assets @([pscustomobject]@{
+            name = "fetcher-tester-tools.zip"; size = $candidate.Size; digest = $candidate.Digest
+            browser_download_url = "https://example.invalid/fetcher-tester-tools.zip"
+        })
+        $embed = {
+            & $scriptPath -InstallDir $installRoot -ReleaseMetadataPath $candidateMetadata -AssetArchivePath $candidate.Path
+        }
+        if ($case.Accepted) { & $embed }
+        else { Assert-Throws -Message "Embedding accepted $($case.Name) update channel." -Action $embed }
+    }
 
     $missingMetadata = Join-Path $workRoot "release-missing.json"
     Write-ReleaseMetadata -Path $missingMetadata -Assets @()

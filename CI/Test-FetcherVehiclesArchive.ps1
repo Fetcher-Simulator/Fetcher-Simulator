@@ -152,11 +152,14 @@ try {
     }
 
     $channel = Get-Content -LiteralPath (Join-Path $extractRoot "fetcher-update-channel.json") -Raw | ConvertFrom-Json
+    $publishedChannels = @{ vehicles = "Fetcher-Simulator-Vehicles"; studio = "Fetcher-Simulator-Studio" }
+    $channelName = [string]$channel.channel
+    $expectedClientTag = [string]$channel.clientReleaseTag
     Assert-True -Condition (
         [int]$channel.schemaVersion -eq 1 -and
-        [string]$channel.channel -eq "vehicles" -and
+        $publishedChannels.ContainsKey($channelName) -and
         [string]$channel.clientRepository -eq "Fetcher-Simulator/Fetcher-Simulator" -and
-        [string]$channel.clientReleaseTag -eq "Fetcher-Simulator-Vehicles" -and
+        $expectedClientTag -eq $publishedChannels[$channelName] -and
         [string]$channel.clientAssetName -eq "fetcher-simulator.zip"
     ) -Message "Vehicles archive contains an invalid update channel."
 
@@ -278,8 +281,8 @@ try {
     Assert-True -Condition ([string]$refreshedManifest.sourceCommit -eq ("f" * 40)) `
         -Message "Bundled updater did not install the refreshed tester-tools manifest."
     $refreshedChannel = Get-Content -LiteralPath (Join-Path $extractRoot "fetcher-update-channel.json") -Raw | ConvertFrom-Json
-    Assert-True -Condition ([string]$refreshedChannel.clientReleaseTag -eq "Fetcher-Simulator-Vehicles") `
-        -Message "Tester-tools refresh changed the Vehicles client channel."
+    Assert-True -Condition ([string]$refreshedChannel.clientReleaseTag -eq $expectedClientTag) `
+        -Message "Tester-tools refresh changed the bundled client channel."
     $inventoryHashAfter = (Get-FileHash -LiteralPath (Join-Path $extractRoot "fetcher-client-files.json") -Algorithm SHA256).Hash
     Assert-True -Condition ($inventoryHashAfter -eq $inventoryHashBefore) `
         -Message "Tester-tools refresh unexpectedly modified managed-client inventory."
