@@ -399,7 +399,7 @@ jobs:
           )
 
     - name: Generate Fetcher client update inventory
-      if: ${{ inputs.package && inputs.release && (inputs.release-tag == 'Fetcher-Simulator' || inputs.release-tag == 'Fetcher-Simulator-Vehicles') }}
+      if: ${{ inputs.package && inputs.release && (inputs.release-tag == 'Fetcher-Simulator' || inputs.release-tag == 'Fetcher-Simulator-Vehicles' || inputs.release-tag == 'Fetcher-Simulator-Experimental') }}
       uses: Skooma-Breath/Fetcher-Updater/.github/actions/build-client-inventory@22b71d280f4ceda58642e7214e07a1ebd2dd5c7d
       with:
         install-dir: ${{ github.workspace }}\portable-install
@@ -532,7 +532,7 @@ jobs:
         Compress-Archive -Path "$portableRoot\*" -DestinationPath $zip -CompressionLevel Optimal -Force
 
     - name: Validate Fetcher Vehicles release archive
-      if: ${{ inputs.package && inputs.release && inputs.embed-fetcher-tester-tools && inputs.release-tag == 'Fetcher-Simulator-Vehicles' }}
+      if: ${{ inputs.package && inputs.release && inputs.embed-fetcher-tester-tools && (inputs.release-tag == 'Fetcher-Simulator-Vehicles' || inputs.release-tag == 'Fetcher-Simulator-Experimental') }}
       shell: pwsh
       run: |
         $zipName = "${{ inputs.release-zip-name }}"

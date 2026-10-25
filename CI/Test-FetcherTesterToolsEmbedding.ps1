@@ -239,7 +239,9 @@ try {
     Assert-True -Condition ([string]$receipt.actualSha256 -eq $archive.Digest.Substring(7)) -Message "Verification receipt actual hash mismatch."
 
     foreach ($case in @(
+        @{ Name = "experimental"; Channel = "experimental"; Tag = "Fetcher-Simulator-Experimental"; Accepted = $true },
         @{ Name = "studio"; Channel = "studio"; Tag = "Fetcher-Simulator-Studio"; Accepted = $true },
+        @{ Name = "experimental-mismatched"; Channel = "experimental"; Tag = "Fetcher-Simulator-Studio"; Accepted = $false },
         @{ Name = "mismatched"; Channel = "studio"; Tag = "Fetcher-Simulator-Vehicles"; Accepted = $false },
         @{ Name = "unknown"; Channel = "unknown"; Tag = "Fetcher-Simulator-Studio"; Accepted = $false }
     )) {

@@ -152,7 +152,11 @@ try {
     }
 
     $channel = Get-Content -LiteralPath (Join-Path $extractRoot "fetcher-update-channel.json") -Raw | ConvertFrom-Json
-    $publishedChannels = @{ vehicles = "Fetcher-Simulator-Vehicles"; studio = "Fetcher-Simulator-Studio" }
+    $publishedChannels = @{
+        experimental = "Fetcher-Simulator-Experimental"
+        vehicles = "Fetcher-Simulator-Vehicles"
+        studio = "Fetcher-Simulator-Studio"
+    }
     $channelName = [string]$channel.channel
     $expectedClientTag = [string]$channel.clientReleaseTag
     Assert-True -Condition (

@@ -213,7 +213,11 @@ function Validate-TesterToolsPayload {
     }
 
     $channel = Get-Content -LiteralPath (Join-Path $ExtractRoot "fetcher-update-channel.json") -Raw | ConvertFrom-Json
-    $publishedChannels = @{ vehicles = "Fetcher-Simulator-Vehicles"; studio = "Fetcher-Simulator-Studio" }
+    $publishedChannels = @{
+        experimental = "Fetcher-Simulator-Experimental"
+        vehicles = "Fetcher-Simulator-Vehicles"
+        studio = "Fetcher-Simulator-Studio"
+    }
     $channelName = [string]$channel.channel
     if ([int]$channel.schemaVersion -ne 1 -or
         -not $publishedChannels.ContainsKey($channelName) -or

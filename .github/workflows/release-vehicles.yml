@@ -1,4 +1,4 @@
-name: Fetcher Simulator Vehicles prerelease
+name: Fetcher Simulator Experimental prerelease
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ jobs:
       build-type: RelWithDebInfo
       package: true
       release: true
-      release-tag: Fetcher-Simulator-Vehicles
+      release-tag: Fetcher-Simulator-Experimental
       release-name: Fetcher Simulator Experimental
       release-zip-name: fetcher-simulator.zip
       release-include-installer: false
