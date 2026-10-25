@@ -338,6 +338,13 @@ jobs:
         ${{ github.workspace }}\CI\Configure-FetcherPortableClient.ps1 `
           -InstallDir $clientInstallDir
 
+    - name: Verify Windows setup wizard payload
+      if: ${{ inputs.package }}
+      shell: pwsh
+      run: |
+        cmake "-DCLIENT_DIR=${{ github.workspace }}\portable-install" -P "${{ github.workspace }}\CI\Verify-WindowsWizard.cmake"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
     - name: Generate CI-ID.txt
       shell: bash
       env:

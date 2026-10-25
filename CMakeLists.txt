@@ -986,6 +986,9 @@ elseif(NOT APPLE)
     endif ()
 
     if(WIN32)
+        if(BUILD_WIZARD OR BUILD_LAUNCHER OR BUILD_OPENCS)
+            INSTALL(FILES "${OpenMW_SOURCE_DIR}/files/windows/qt.conf" DESTINATION ".")
+        endif()
         INSTALL(DIRECTORY "${INSTALL_SOURCE}/" DESTINATION "." FILES_MATCHING PATTERN "*.dll"
                                                                               PATTERN ".cmake" EXCLUDE
                                                                               PATTERN ".qt" EXCLUDE

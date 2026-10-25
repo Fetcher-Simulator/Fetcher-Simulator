@@ -1,4 +1,5 @@
 #include <QDir>
+#include <QTimer>
 
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/variables_map.hpp>
@@ -54,6 +55,7 @@ int runWizard(int argc, char* argv[])
     Wizard::MainWizard wizard(std::move(configurationManager));
 
     wizard.show();
+    QTimer::singleShot(0, &app, [] { Log(Debug::Info) << "OpenMW Wizard ready"; });
     return app.exec();
 }
 
