@@ -24,6 +24,13 @@ local heads,hair=catalogue:choices('MODDED_DRAGON',true)
 check(#heads==2000 and #hair==2,'all custom heads indexed without fixed cap; hair has bald option')
 check(catalogue:contains(original),'original playable selection resolves')
 check(not catalogue:contains({race=original.race,head='female_head',hair='',isMale=true}),'wrong sex rejected')
+catalogue.allRaces=true
+check(catalogue:contains({race=original.race,head='elf_head',hair='male_hair',isMale=false}),'all-races mode mixes head/hair independently of body race and sex')
+check(#catalogue.all.heads==2002,'all-races catalogue excludes vampire and hidden parts')
+check(catalogue.all.heads[1].label:find('Female',1,true)~=nil,'mixed choices identify their source race and sex')
+local mixed=C.new(races,parts,{Head=0,Hair=1},{race='elf',head='female_head',hair='male_hair',isMale=true})
+check(mixed.allRaces and mixed:contains({race='elf',head='female_head',hair='male_hair',isMale=true}),'saved mixed appearance reopens without losing its parts')
+catalogue.allRaces=false
 local female=catalogue:choose(original,original.race,false)
 check(female.head=='female_head' and female.hair=='','race/sex changes select compatible parts')
 local elf=catalogue:choose(original,'elf',true)
@@ -98,7 +105,7 @@ vector.__mul=function(a,n) return setmetatable({x=a.x*n,y=a.y*n,z=(a.z or 0)*n},
 local function v(x,y,z) return setmetatable({x=x,y=y,z=z},vector) end
 local uiCount=0
 local ui={TYPE={Image='Image',Widget='Widget',Text='Text',TextEdit='TextEdit'},
-    texture=function() return {} end,content=function(value) return value end,
+    ALIGNMENT={Center='Center'},texture=function(value) return value end,content=function(value) return value end,
     screenSize=function() return v(1920,1080) end,layers={[1]={size=v(1920,1080)},indexOf=function() return 1 end}}
 function ui.create(layout)
     uiCount=uiCount+1
@@ -106,7 +113,11 @@ function ui.create(layout)
 end
 local mode
 local I={UI={getMode=function() return mode end,addMode=function(value) mode=value end,removeMode=function() mode=nil end}}
-local cameraMode='ThirdPerson';local yaw,pitch=.2,.3;local position=v(1,2,3)
+I.MWUI={templates={textNormal={props={textColor='vanilla-normal'}},textHeader={props={textColor='vanilla-header'}},
+    borders={},bordersThick={},textEditLine={}}}
+local mouseDown=false
+package.loaded['openmw.input']={KEY={F6=6,Escape=27},isMouseButtonPressed=function(button) return button==1 and mouseDown end}
+local cameraMode='ThirdPerson';local yaw,pitch=.2,.3;local position=v(1,2,3);local tracked=v(0,0,128)
 local switches={look=true,view=true,vanity=false}
 local previews={}
 local player={position=v(0,0,0),rotation={getYaw=function() return 0 end}}
@@ -120,23 +131,87 @@ package.loaded['openmw.async']={callback=function(_,fn) return fn end}
 package.loaded['openmw.interfaces']=I;package.loaded['openmw.self']=player;package.loaded['openmw.types']=types
 package.loaded['openmw.camera']={MODE={Static='Static',ThirdPerson='ThirdPerson'},
     getMode=function() return cameraMode end,getPosition=function() return position end,
-    getYaw=function() return yaw end,getPitch=function() return pitch end,getTrackedPosition=function() return v(0,0,128) end,
+    getYaw=function() return yaw end,getPitch=function() return pitch end,getTrackedPosition=function() return tracked end,
     setMode=function(value) cameraMode=value end,setStaticPosition=function(value) position=value end,
     setYaw=function(value) yaw=value end,setPitch=function(value) pitch=value end}
 local preview=load(base..'client/preview.lua')
 package.loaded['scripts.multiplayer.fetcher.character-appearance.shared.catalogue']=C
 package.loaded['scripts.multiplayer.fetcher.character-appearance.client.preview']=preview
+local style=load(base..'client/style.lua')
+package.loaded['scripts.multiplayer.fetcher.character-appearance.client.style']=style
 local dropdown=load(base..'client/dropdown.lua')
 package.loaded['scripts.multiplayer.fetcher.character-appearance.client.dropdown']=dropdown
 local editorType=load(base..'client/editor.lua')
 local editor=editorType.new(catalogue,original,function() end,function() end)
 check(mode=='Interface' and switches.look==false and switches.view==false,'editor captures input without changing unrelated switches')
 editor:frame();check(cameraMode=='Static' and math.abs(yaw-math.pi)<.0001,'camera faces editing player')
+check(editor.root.layout.content[1].content[2].template==I.MWUI.templates.bordersThick,'panel uses the vanilla window border template')
+check(editor.fields.head.layout.content[1].template==I.MWUI.templates.textNormal,'selector uses vanilla text styling')
+check(editor.apply.layout.content[2].props.resource.path=='textures/menu_button_frame_top.dds','buttons use original Morrowind button textures')
+local function radius(p,pivot) return math.sqrt((p.x-pivot.x)^2+(p.y-pivot.y)^2+(p.z-pivot.z)^2) end
+local radiusBefore=radius(position,tracked);local start=v(position.x,position.y,position.z)
+editor.view:rotate(math.pi/.008,0);editor:frame()
+check(math.abs(radius(position,tracked)-radiusBefore)<.001,'half orbit preserves radius around model pivot')
+check(math.abs(position.x+start.x)<.001 and math.abs(position.y+start.y)<.001,'half orbit moves camera to the other side of the model')
+editor.view:rotate(math.pi/.008,0);editor:frame()
+check(math.abs(position.x-start.x)<.001 and math.abs(position.y-start.y)<.001,'full orbit returns to the same model-relative position')
+tracked=v(25,40,150);player.position=v(25,40,22);editor:frame()
+check(math.abs(position.x-start.x-25)<.001 and math.abs(position.y-start.y-40)<.001,'orbit follows the edited model instead of accumulating camera displacement')
+tracked=v(0,0,128);player.position=v(0,0,0);editor:frame()
+mouseDown=true
+editor.scene.layout.events.mousePress({button=1,position=v(120,200)})
+editor.scene.layout.events.mouseMove({button=1,position=v(165,230)})
+editor:frame()
+check(editor.view.orbit~=0 and editor.view.elevation>0,'left drag rotates horizontally and vertically')
+check(math.abs(radius(position,tracked)-radiusBefore)<.001,'vertical drag keeps a stable model-centred orbit radius')
+editor.scene.layout.events.mouseRelease();mouseDown=false
+check(editor.drag==nil,'release ends the gesture')
+local beforeOrbit=editor.view.orbit
+editor.scene.layout.events.mousePress({button=3,position=v(120,200)})
+editor.scene.layout.events.mouseMove({button=3,position=v(220,200)})
+check(editor.view.orbit==beforeOrbit,'other mouse buttons cannot rotate the preview')
+local beforeZoom=editor.view.zoom;editor:area('preview');editor:wheel(1)
+check(editor.view.zoom<beforeZoom,'wheel up zooms toward the model')
+editor:wheel(-1);check(math.abs(editor.view.zoom-beforeZoom)<.001,'wheel down zooms out smoothly')
+editor.view:zoomBy(1000);check(editor.view.zoom==.35,'zoom has a near limit')
+editor.view:zoomBy(-1000);check(editor.view.zoom==2.5,'zoom has a far limit')
+editor.view.zoom=1
+editor.root.layout.events.mousePress({button=1,position=v(editor.x+20,editor.y+20)})
+editor:wheel(1)
+check(editor.drag==nil and editor.view.zoom==1,'panel clicks and wheel cannot start camera gestures')
+editor.view:rotate(0,10000);check(editor.view.elevation==1,'orbit elevation is bounded above')
+editor.view:rotate(0,-10000);check(editor.view.elevation==-.65,'orbit elevation is bounded below')
+editor.cycles.head[1].layout.events.mouseClick()
+check(editor.selection.head==heads[#heads].id,'left arrow wraps to the last compatible head')
+editor.cycles.head[2].layout.events.mouseClick()
+check(editor.selection.head==heads[1].id,'right arrow wraps to the first compatible head')
+editor.cycles.hair[2].layout.events.mouseClick()
+check(editor.selection.hair=='','hair arrows include the bald choice')
+editor.cycles.isMale[2].layout.events.mouseClick()
+check(not editor.selection.isMale and editor.selection.head=='female_head','sex cycling replaces incompatible body parts')
+editor.cycles.isMale[1].layout.events.mouseClick()
+editor.cycles.race[2].layout.events.mouseClick()
+check(editor.selection.race=='elf' and editor.selection.head=='elf_head','race arrows select matching body parts')
+editor.cycles.race[2].layout.events.mouseClick()
+check(editor.selection.race==original.race,'race arrows wrap through available races')
+editor.partsMode.layout.events.mouseClick()
+check(editor.catalogue.allRaces and editor.partsMode.layout.content[1].props.text=='Heads / hair: All races','parts-mode control exposes the shared head/hair catalogue')
+editor.selection.head='elf_head';editor.selection.hair='male_hair';editor:preview()
+check(previews[#previews].value.head=='elf_head','mixed head previews on another race')
+editor.partsMode.layout.events.mouseClick()
+check(not editor.catalogue.allRaces and editor.selection.head==heads[1].id,'returning to matching mode chooses a compatible head')
 editor:choose(original.race,false)
 check(previews[#previews].value.head=='female_head','compatible choice previews through native API')
 local beforeWidgets=uiCount
 dropdown.open(editor,heads,original.head,function() end,250)
 check(#editor.dropdown.rows==8 and uiCount-beforeWidgets==12,'2000 choices create only eight reusable rows')
+editor.dropdown.root.layout.events.mouseMove()
+local zoomBefore=editor.view.zoom;editor:wheel(-1)
+check(editor.dropdown.offset>0 and editor.view.zoom==zoomBefore,'wheel over a selector scrolls without zooming')
+editor:area('preview');editor:wheel(1)
+check(editor.view.zoom<zoomBefore,'wheel in the model view zooms even when a selector is open')
+editor.dropdown.rows[1].layout.events.focusGain()
+check(editor.dropdown.rows[1].layout.content[1].props.textColor==style.header,'hover uses a colour instead of a boolean')
 editor.dropdown.search.layout.events.textChanged('dragon_head_1999')
 check(#editor.dropdown.matches==1 and editor.dropdown.rows[1].layout.props.visible,'search reaches late custom records')
 editor.dropdown:wheel(-30);check(editor.dropdown.offset==0,'filtered scrolling stays in bounds')
@@ -144,13 +219,20 @@ editor:close()
 check(mode==nil and cameraMode=='ThirdPerson' and yaw==.2 and pitch==.3,'closing restores original mode and camera angles')
 check(switches.look==true and switches.view==true and switches.vanity==false,'closing restores each original control switch')
 check(previews[#previews].value==nil,'cancel restores authoritative appearance baseline')
-local countPreviews=#previews;editor:close();check(#previews==countPreviews,'closing twice is harmless')
+local countPreviews=#previews;local zoomClosed=editor.view.zoom;local orbitClosed=editor.view.orbit
+editor:wheel(1);editor:dragStart({button=1,position=v(0,0)});editor:dragMove({button=1,position=v(100,100)})
+check(editor.view.zoom==zoomClosed and editor.view.orbit==orbitClosed,'closed editor cannot change the camera')
+editor:close();check(#previews==countPreviews,'closing twice is harmless')
+local saving=editorType.new(catalogue,original,function() end,function() end)
+saving:submit();local savedHead=saving.selection.head;local savedMode=saving.catalogue.allRaces
+saving.cycles.head[2].layout.events.mouseClick();saving.partsMode.layout.events.mouseClick()
+check(saving.selection.head==savedHead and saving.catalogue.allRaces==savedMode,'pending saves freeze cycling and part-mode changes')
+saving:close()
 local clientRequests,notices={},{}
 ui.showMessage=function(text) notices[#notices+1]=text end
 package.loaded['openmw.mp']={isConnected=function() return true end,
     sendToServer=function(event,data) clientRequests[#clientRequests+1]={event=event,data=data} end}
 package.loaded['openmw.core']={}
-package.loaded['openmw.input']={KEY={F6=6,Escape=27}}
 types.NPC={races={records=races},isWerewolf=function() return false end}
 types.BodyPart={records=parts,PART={Head=0,Hair=1}}
 types.Actor={isOnGround=function() return true end}
@@ -163,6 +245,9 @@ controller.eventHandlers.AppearanceEditor_Message({version=1,op='open',request=1
 check(controller.interface.state() and mode=='Interface','matching server response opens the side panel')
 controller.interface.preview(female)
 check(controller.interface.state().selection.head=='female_head','mod interface uses the same validated preview path')
+check(controller.interface.setAllRaces(true) and controller.interface.state().allRaces,'mod interface can opt into mixed parts')
+controller.interface.preview({race=original.race,head='elf_head',hair='male_hair',isMale=true})
+check(controller.interface.state().selection.head=='elf_head','mod interface previews mixed-race parts through the same UI path')
 controller.interface.close()
 check(mode==nil and clientRequests[#clientRequests].data.op=='cancel','close cancels the session and restores UI')
 controller.eventHandlers.AppearanceEditor_Message({version=1,op='open',request=1,token='late-token',selection=original})
@@ -170,6 +255,7 @@ check(controller.interface.state()==nil,'late open response cannot reopen a clos
 controller.engineHandlers.onKeyPress({code=6})
 controller.eventHandlers.AppearanceEditor_Message({version=1,op='open',request=2,token='save-token',selection=original})
 check(controller.interface.apply() and controller.interface.state().pending,'apply waits for native server completion')
+check(not controller.interface.setAllRaces(true),'mod interface cannot change part filters during a pending save')
 controller.eventHandlers.AppearanceEditor_Message({version=1,op='saved',token='save-token',ok=false,error='Not permitted'})
 check(not controller.interface.state().pending and mode=='Interface','save rejection keeps editing available')
 controller.interface.preview(female);controller.interface.apply()

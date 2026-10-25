@@ -32,16 +32,16 @@ namespace mwmp
                     && race->mId != ESM::RefId::deserializeText(client->player.race)))
                 return reject("This race is not playable on this server.");
             const auto* head = store.get<ESM::BodyPart>().search(ESM::RefId::deserializeText(value.head));
-            if (!head || !appearancePartMatches(*head, race->mId, value.isMale, ESM::BodyPart::MP_Head)
+            if (!head || !validAppearancePart(*head, ESM::BodyPart::MP_Head)
                 || !mContentRegistry->hasModel(head->mModel.getOriginal()))
-                return reject("Select a playable head for this race and sex.");
+                return reject("Select a playable head available on this server.");
             const ESM::BodyPart* hair = nullptr;
             if (!value.hair.empty())
             {
                 hair = store.get<ESM::BodyPart>().search(ESM::RefId::deserializeText(value.hair));
-                if (!hair || !appearancePartMatches(*hair, race->mId, value.isMale, ESM::BodyPart::MP_Hair)
+                if (!hair || !validAppearancePart(*hair, ESM::BodyPart::MP_Hair)
                     || !mContentRegistry->hasModel(hair->mModel.getOriginal()))
-                    return reject("Select playable hair for this race and sex.");
+                    return reject("Select playable hair available on this server.");
             }
             const std::string raceId = race->mId.serializeText();
             const std::string headId = head->mId.serializeText();

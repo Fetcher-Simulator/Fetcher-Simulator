@@ -2,12 +2,20 @@
 
 A server-distributed Lua package for changing an existing character's race, sex,
 head and hair. Press **F6** while standing on solid ground and outside other menus.
-The character faces the camera beside a panel with searchable, scrollable selectors.
-Rotate and zoom buttons adjust the preview. **Cancel / Escape** restores the original
+The character faces the camera beside a panel styled with Morrowind's MWUI borders,
+text colours and original button textures. Each selector has a searchable dropdown
+and left/right cycling arrows. **Left-drag the model view** to orbit horizontally or
+vertically around the character's head/upper-body pivot; **mouse wheel** zooms toward
+or away from that pivot. Wheel over a dropdown scrolls its list instead. Panel/list
+interactions do not start camera gestures. **Cancel / Escape** restores the original
 appearance, camera and control switches. **Apply** waits for a server-confirmed save.
 
 The editor reads the effective installed race/body-part records. It lists playable
-races and matching playable, non-vampire skin heads/hair, filtered by race and sex.
+races and playable, non-vampire skin heads/hair. **Heads / hair: Matching race**
+filters parts by race and sex. Switch it to **All races** to freely combine any
+playable head and hair, regardless of their source race or sex; those choices show
+their source race/sex in the list. Returning to matching mode chooses compatible
+parts. Saved mixed combinations reopen in All races mode and keep their parts.
 The current race is retained even when a mod marks it non-playable. There is no
 hardcoded race/mod list and no fixed number of choices. Dropdowns virtualize eight
 rows, rather than creating one widget per record. Mods must provide normal TES3
@@ -58,7 +66,8 @@ No Bardcraft or Studio dependency is required. Set
 
 Other player scripts can use `openmw.interfaces.FetcherAppearance.open()` and
 `.close()`. `.state()` returns a copy of the current draft plus its `pending` flag,
-or nil when closed. `.preview(selection)` validates and changes that draft locally;
+and the `allRaces` filter flag, or nil when closed. `.setAllRaces(boolean)` selects
+the same matching/all-races filter as the UI. `.preview(selection)` validates and changes that draft locally;
 `.apply()` submits it through the same server session. Closing is disabled while
 a save is awaiting confirmation.
 
@@ -71,3 +80,5 @@ SQLite persistence alongside the existing inventory/spellbook persistence tests.
 
 Local client/server integration also checks preview/cancel, apply and reconnect,
 unchanged base attributes/skills, restored camera state and a 2,000-entry selector.
+The Lua checks cover model-centred horizontal/vertical orbit geometry, bounded zoom,
+mouse input isolation, cycling/wraparound and mixed-part catalogue persistence.

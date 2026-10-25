@@ -2,19 +2,13 @@
 local ui=require('openmw.ui')
 local util=require('openmw.util')
 local async=require('openmw.async')
+local Style=require('scripts.multiplayer.fetcher.character-appearance.client.style')
 local D={};D.__index=D
 local v=util.vector2
-local white=ui.texture{path='white'}
-local text=util.color.rgb(.9,.91,.93)
-local bg=util.color.rgb(.07,.075,.085)
-local row=util.color.rgb(.16,.17,.19)
-local accent=util.color.rgb(.18,.8,.69)
+local row=util.color.rgb(0,0,0)
 local function callback(fn) return async:callback(function(...) fn(...);return false end) end
-local function image(x,y,w,h,color)
-    return {type=ui.TYPE.Image,props={position=v(x,y),size=v(w,h),resource=white,color=color}}
-end
 local function label(caption,x,y,w)
-    return {type=ui.TYPE.Text,props={position=v(x,y),size=v(w,23),text=caption,textSize=15,textColor=text}}
+    return Style.label(caption,x,y,w,15)
 end
 function D.filter(entries,query)
     local result={};query=query:lower()
@@ -37,18 +31,26 @@ function D.open(owner,entries,selected,choose,y)
     local width=owner.width-32
     local height=340
     self.y=math.max(12,math.min(y,owner.height-height-12))
-    local content={image(0,0,width,height,bg),label('Search / scroll to select',12,8,width-24)}
-    self.search=element{type=ui.TYPE.TextEdit,props={position=v(12,35),size=v(width-24,28),text='',textSize=15,textColor=text},
-        template={content=ui.content{image(0,0,width-24,28,row)}},
+    local content={Style.frame(0,0,width,height,true),label('Search / scroll to select',12,8,width-24),
+        Style.frame(12,35,width-24,28)}
+    self.search=element{template=Style.templates.textEditLine,
+        props={position=v(17,39),size=v(width-34,21),text='',textSize=15,autoSize=false},
         events={textChanged=callback(function(value)
             if not self.active then return end
             self.query=value;self.offset=0;self.matches=D.filter(entries,value);self:draw()
         end)}}
     content[#content+1]=self.search
     for i=1,8 do
-        local layout=image(12,72+(i-1)*28,width-52,26,row)
+        local layout=Style.image(12,72+(i-1)*28,width-52,26,row)
         layout.content=ui.content{label('',6,2,width-66)}
-        layout.events={mouseClick=callback(function()
+        local function highlight(hover)
+            if not self.active then return end
+            local entry=self.visible and self.visible[i]
+            self.rows[i].layout.content[1].props.textColor=(hover or entry and entry.id==self.selected) and Style.header or Style.normal
+            self.rows[i]:update()
+        end
+        layout.events={focusGain=callback(function() highlight(true) end),focusLoss=callback(function() highlight(false) end),
+            mouseClick=callback(function()
             local entry=self.visible and self.visible[i]
             if self.active and entry then D.close(owner);choose(entry.id) end
         end)}
@@ -64,14 +66,18 @@ function D.open(owner,entries,selected,choose,y)
     end
     local events={mousePress=callback(function(e) if e.button==1 then drag(e,true) end end),
         mouseMove=callback(function(e) if e.button==1 then drag(e,false) end end)}
-    local thumb=image(0,0,15,30,accent);thumb.events=events;self.thumb=element(thumb)
-    local bar=image(width-29,72,15,224,row);bar.events=events;bar.content=ui.content{self.thumb}
+    local thumb={type=ui.TYPE.Widget,template=Style.templates.borders,props={position=v(0,0),size=v(15,30)},events=events}
+    self.thumb=element(thumb)
+    local bar=Style.image(width-29,72,15,224,row);bar.events=events;bar.content=ui.content{self.thumb}
     content[#content+1]=bar
     self.footer=element(label('',12,309,width-24));content[#content+1]=self.footer
     for _,item in ipairs(content) do if not item.layout then owner:scaleLayout(item) end end
     self.screenY=owner.y+(self.y+72)*owner.scale
     self.root=ui.create{type=ui.TYPE.Widget,layer='Windows',props={position=v(owner.x+16*owner.scale,owner.y+self.y*owner.scale),
-        size=v(width*owner.scale,height*owner.scale)},content=ui.content(content)}
+        size=v(width*owner.scale,height*owner.scale)},content=ui.content(content),events={
+            mouseMove=callback(function() owner:area('dropdown') end),
+            mousePress=callback(function() owner:area('dropdown');owner:dragEnd() end),
+            focusGain=callback(function() owner:area('dropdown') end)}}
     self.matches=D.filter(entries,'')
     for i,entry in ipairs(self.matches) do if entry.id==selected then self.offset=math.max(0,i-4);break end end
     self:draw();return self
@@ -86,7 +92,7 @@ function D:draw()
     for i,element in ipairs(self.rows) do
         local entry=self.matches[self.offset+i];self.visible[i]=entry
         element.layout.props.visible=entry~=nil
-        element.layout.props.color=entry and entry.id==self.selected and accent or row
+        element.layout.content[1].props.textColor=entry and entry.id==self.selected and Style.header or Style.normal
         element.layout.content[1].props.text=entry and ((entry.id==self.selected and '> ' or '')..entry.label) or ''
         element:update()
     end

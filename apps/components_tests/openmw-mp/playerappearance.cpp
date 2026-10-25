@@ -6,7 +6,7 @@
 
 namespace
 {
-    TEST(PlayerAppearance, FiltersBodyPartsByRecordMetadata)
+    TEST(PlayerAppearance, AllowsMixedRaceAndSexWhileValidatingBodyPartMetadata)
     {
         const auto race = ESM::RefId::stringRefId("custom_mod_race_001");
         ESM::BodyPart part;
@@ -15,24 +15,23 @@ namespace
         part.mData.mPart = ESM::BodyPart::MP_Head;
         part.mData.mType = ESM::BodyPart::MT_Skin;
         part.mModel = "custom/head.nif";
-        EXPECT_TRUE(mwmp::appearancePartMatches(part, race, true, ESM::BodyPart::MP_Head));
-        EXPECT_FALSE(mwmp::appearancePartMatches(part, race, false, ESM::BodyPart::MP_Head));
-        EXPECT_FALSE(mwmp::appearancePartMatches(
-            part, ESM::RefId::stringRefId("another_mod_race"), true, ESM::BodyPart::MP_Head));
-        EXPECT_FALSE(mwmp::appearancePartMatches(part, race, true, ESM::BodyPart::MP_Hair));
+        EXPECT_TRUE(mwmp::validAppearancePart(part, ESM::BodyPart::MP_Head));
+        part.mRace = ESM::RefId::stringRefId("another_mod_race");
+        EXPECT_TRUE(mwmp::validAppearancePart(part, ESM::BodyPart::MP_Head));
+        EXPECT_FALSE(mwmp::validAppearancePart(part, ESM::BodyPart::MP_Hair));
         part.mData.mFlags = ESM::BodyPart::BPF_Female;
-        EXPECT_TRUE(mwmp::appearancePartMatches(part, race, false, ESM::BodyPart::MP_Head));
+        EXPECT_TRUE(mwmp::validAppearancePart(part, ESM::BodyPart::MP_Head));
         part.mData.mFlags |= ESM::BodyPart::BPF_NotPlayable;
-        EXPECT_FALSE(mwmp::appearancePartMatches(part, race, false, ESM::BodyPart::MP_Head));
+        EXPECT_FALSE(mwmp::validAppearancePart(part, ESM::BodyPart::MP_Head));
         part.mData.mFlags = ESM::BodyPart::BPF_Female;
         part.mData.mVampire = 1;
-        EXPECT_FALSE(mwmp::appearancePartMatches(part, race, false, ESM::BodyPart::MP_Head));
+        EXPECT_FALSE(mwmp::validAppearancePart(part, ESM::BodyPart::MP_Head));
         part.mData.mVampire = 0;
         part.mData.mType = ESM::BodyPart::MT_Armor;
-        EXPECT_FALSE(mwmp::appearancePartMatches(part, race, false, ESM::BodyPart::MP_Head));
+        EXPECT_FALSE(mwmp::validAppearancePart(part, ESM::BodyPart::MP_Head));
         part.mData.mType = ESM::BodyPart::MT_Skin;
         part.mModel.clear();
-        EXPECT_FALSE(mwmp::appearancePartMatches(part, race, false, ESM::BodyPart::MP_Head));
+        EXPECT_FALSE(mwmp::validAppearancePart(part, ESM::BodyPart::MP_Head));
     }
 
     TEST(PlayerAppearance, BoundsIdentifiersAndAllowsBald)

@@ -5,7 +5,7 @@ local util=require('openmw.util')
 local P={};P.__index=P
 function P.new()
     local p=setmetatable({mode=camera.getMode(),yaw=camera.getYaw(),pitch=camera.getPitch(),
-        position=camera.getPosition(),orbit=0,zoom=1,switches={}},P)
+        position=camera.getPosition(),orbit=0,elevation=0,zoom=1,switches={}},P)
     for _,name in ipairs({'Looking','ViewMode','VanityMode'}) do
         local key=types.Player.CONTROL_SWITCH[name]
         p.switches[key]=types.Player.getControlSwitch(player,key)
@@ -14,16 +14,26 @@ function P.new()
     return p
 end
 function P:apply(selection) types.Player.previewAppearance(player,selection) end
+function P:rotate(dx,dy)
+    self.orbit=(self.orbit+dx*.008+math.pi)%(2*math.pi)-math.pi
+    self.elevation=math.max(-.65,math.min(1,self.elevation+dy*.006))
+end
+function P:zoomBy(delta)
+    self.zoom=math.max(.35,math.min(2.5,self.zoom*math.exp(-delta*.12)))
+end
 function P:frame()
     local head=camera.getTrackedPosition()
     local height=math.max(24,head.z-player.position.z)
     local distance=math.max(36,math.min(600,height*1.35))*self.zoom
     local yaw=player.rotation:getYaw()+self.orbit
-    local forward=util.vector3(-math.sin(yaw),math.cos(yaw),0)
+    -- Recompute the camera from the model's pivot every frame. Dragging changes
+    -- spherical coordinates around that pivot, never the camera's own position.
+    local c=math.cos(self.elevation)
+    local forward=util.vector3(-math.sin(yaw)*c,math.cos(yaw)*c,math.sin(self.elevation))
     local right=util.vector3(math.cos(yaw),math.sin(yaw),0)
     camera.setMode(camera.MODE.Static,true)
     camera.setStaticPosition(head+forward*distance-right*(distance*0.23))
-    camera.setYaw(yaw+math.pi);camera.setPitch(0)
+    camera.setYaw(yaw+math.pi);camera.setPitch(self.elevation)
 end
 function P:close()
     if self.closed then return end

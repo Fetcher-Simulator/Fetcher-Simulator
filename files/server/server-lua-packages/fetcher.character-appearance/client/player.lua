@@ -52,7 +52,13 @@ end
 return {interfaceName='FetcherAppearance',interface={
     open=open,
     close=function() if not editor or not editor.pending then close(true) end end,
-    state=function() return editor and {selection=Catalogue.copy(editor.selection),pending=editor.pending==true} or nil end,
+    state=function() return editor and {selection=Catalogue.copy(editor.selection),pending=editor.pending==true,
+        allRaces=editor.catalogue.allRaces} or nil end,
+    setAllRaces=function(enabled)
+        if not editor or editor.pending or type(enabled)~='boolean' then return false end
+        if editor.catalogue.allRaces~=enabled then return editor:toggleParts() end
+        return true
+    end,
     preview=function(selection)
         if not editor or editor.pending or not editor.catalogue:contains(selection) then return false end
         editor.selection=Catalogue.copy(selection);editor:preview();return true
@@ -64,6 +70,7 @@ return {interfaceName='FetcherAppearance',interface={
         elseif event.code==input.KEY.Escape and editor and not editor.pending then close(true) end
     end,
     onMouseWheel=function(delta) if editor then editor:wheel(delta) end end,
+    onMouseButtonRelease=function(button) if button==1 and editor then editor:dragEnd() end end,
     onFrame=function(dt)
         clock=clock+dt
         if opening and clock-heartbeat>10 then opening=nil;ui.showMessage('Appearance editor did not respond. Check that its server script is installed.') end

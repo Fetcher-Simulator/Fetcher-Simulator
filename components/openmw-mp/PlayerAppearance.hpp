@@ -14,11 +14,11 @@ namespace mwmp
         bool isMale = true;
     };
 
-    inline bool appearancePartMatches(
-        const ESM::BodyPart& part, const ESM::RefId& race, bool isMale, ESM::BodyPart::MeshPart kind)
+    inline bool validAppearancePart(const ESM::BodyPart& part, ESM::BodyPart::MeshPart kind)
     {
-        return part.mRace == race && part.mData.mPart == kind && part.mData.mType == ESM::BodyPart::MT_Skin
-            && bool(part.mData.mFlags & ESM::BodyPart::BPF_Female) != isMale
+        // Deliberately allow mixing race/sex metadata. The chosen records must
+        // still be real, playable, non-vampire skin parts of the correct slot.
+        return part.mData.mPart == kind && part.mData.mType == ESM::BodyPart::MT_Skin
             && !(part.mData.mFlags & ESM::BodyPart::BPF_NotPlayable) && !part.mData.mVampire && !part.mModel.empty();
     }
 
