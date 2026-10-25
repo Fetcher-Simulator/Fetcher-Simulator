@@ -111,6 +111,7 @@ if (BUILD_MULTIPLAYER OR BUILD_DEDICATED_SERVER)
         openmw-mp/playerinventory.cpp
         openmw-mp/inventorysync.cpp
         openmw-mp/playerinventorydatabase.cpp
+        openmw-mp/playerappearance.cpp
         openmw-mp/playerspellbook.cpp
         openmw-mp/playerspellbookdatabase.cpp
         openmw-mp/masterserverprotocol.cpp

@@ -1344,6 +1344,21 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                          << " class=" << classId << " birthSign=" << birthSign;
     }
 
+    bool PlayerDatabase::saveCharacterAppearance(
+        int64_t characterId, const std::string& race, const std::string& head, const std::string& hair, bool isMale)
+    {
+        sqlite3_stmt* s = prepare("UPDATE characters SET race=?1, head_mesh=?2, hair_mesh=?3, is_male=?4 WHERE id=?5");
+        sqlite3_bind_text(s, 1, race.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(s, 2, head.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(s, 3, hair.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(s, 4, isMale ? 1 : 0);
+        sqlite3_bind_int64(s, 5, characterId);
+        const int rc = sqlite3_step(s);
+        sqlite3_finalize(s);
+        checkSqlite(rc, mDb, "saveCharacterAppearance");
+        return sqlite3_changes(mDb) == 1;
+    }
+
     void PlayerDatabase::markChargenComplete(int64_t characterId)
     {
         sqlite3_stmt* s = prepare("UPDATE characters SET is_new=0, last_seen=?1 WHERE id=?2");

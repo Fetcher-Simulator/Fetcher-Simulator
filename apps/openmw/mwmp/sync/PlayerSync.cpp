@@ -540,7 +540,8 @@ void PlayerSync::forceFullSync(bool includeInventoryAndEquipment, bool includeSp
 
             // Snapshot appearance — read directly from the player's ESM::NPC record
             // so remote clients can construct a unique-looking NPC for this player.
-            if (const auto* npcRef = player.get<ESM::NPC>())
+            if (const auto* npcRef = player.get<ESM::NPC>();
+                npcRef && !(Main::isInitialised() && Main::get().hasAppearancePreview()))
             {
                 const ESM::NPC* npcBase = npcRef->mBase;
                 mLocal.race     = npcBase->mRace.serializeText();

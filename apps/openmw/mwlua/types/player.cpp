@@ -2,9 +2,12 @@
 
 #include <algorithm>
 
+#include <components/esm3/loadbody.hpp>
 #include <components/esm3/loadbsgn.hpp>
 #include <components/esm3/loadfact.hpp>
+#include <components/esm3/loadrace.hpp>
 #include <components/lua/util.hpp>
+#include <components/openmw-mp/PlayerAppearance.hpp>
 
 #include "../birthsignbindings.hpp"
 #include "../luamanagerimp.hpp"
@@ -379,6 +382,45 @@ namespace MWLua
                     MWBase::Environment::get().getJournal()->addEntry(q.mQuestId, stage, actorPtr);
                 },
                 "addJournalEntryAction");
+        };
+
+        player["previewAppearance"] = [context](const Object& object, const sol::object& selection) {
+            verifyPlayer(object);
+            if (object.isLObject() && !object.isSelfObject())
+                throw std::runtime_error("Only self or global scripts can preview player appearance");
+#ifdef BUILD_MULTIPLAYER
+            if (!mwmp::Main::isInitialised() || (selection != sol::nil && !mwmp::Main::isConnected()))
+                throw std::runtime_error("Appearance previews require an active multiplayer connection");
+            std::optional<mwmp::PlayerAppearance> value;
+            if (selection != sol::nil)
+            {
+                const sol::table table = selection.as<sol::table>();
+                value = mwmp::PlayerAppearance{ table["race"].get<std::string>(), table["head"].get<std::string>(),
+                    table["hair"].get<std::string>(), table["isMale"].get<bool>() };
+                if (!mwmp::validAppearanceId(value->race) || !mwmp::validAppearanceId(value->head)
+                    || !mwmp::validAppearanceId(value->hair, true))
+                    throw std::runtime_error("Invalid appearance record ID");
+                const auto store = MWBase::Environment::get().getESMStore();
+                store->get<ESM::Race>().find(ESM::RefId::deserializeText(value->race));
+                const auto* head = store->get<ESM::BodyPart>().find(ESM::RefId::deserializeText(value->head));
+                if (head->mData.mPart != ESM::BodyPart::MP_Head)
+                    throw std::runtime_error("Appearance head must reference a head body part");
+                if (!value->hair.empty())
+                {
+                    const auto* hair = store->get<ESM::BodyPart>().find(ESM::RefId::deserializeText(value->hair));
+                    if (hair->mData.mPart != ESM::BodyPart::MP_Hair)
+                        throw std::runtime_error("Appearance hair must reference a hair body part");
+                }
+            }
+            context.mLuaManager->addAction(
+                [value] {
+                    if (mwmp::Main::isInitialised())
+                        mwmp::Main::get().previewAppearance(value);
+                },
+                "previewPlayerAppearance");
+#else
+            throw std::runtime_error("Appearance previews require a multiplayer client");
+#endif
         };
 
         player["CONTROL_SWITCH"]

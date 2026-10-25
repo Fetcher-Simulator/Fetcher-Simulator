@@ -10,6 +10,7 @@
 #include <components/openmw-mp/Base/BaseStructs.hpp>
 #include <components/openmw-mp/Base/DynamicRecord.hpp>
 #include <components/openmw-mp/Packets/Lua/PacketLuaStorage.hpp>
+#include <components/openmw-mp/PlayerAppearance.hpp>
 #include <components/openmw-mp/PlayerFactionState.hpp>
 
 #include "PlayerMark.hpp"
@@ -33,6 +34,7 @@ enum class OutboundLuaActionType
     DeletePlayerMark,
     KickClient,
     SetPlayerNickname,
+    SetPlayerAppearance,
     SetWorldHour,
     BroadcastLuaEvent,
     BroadcastLuaEventToCell,
@@ -78,6 +80,8 @@ struct OutboundLuaAction
     std::uint64_t actorInstanceId = 0;
     Position position;
     PlayerMark playerMark;
+    PlayerAppearance appearance;
+    std::int64_t appearanceCharacterId = 0;
     std::string text;
     std::string semanticRequestId;
     std::string semanticFactionId;

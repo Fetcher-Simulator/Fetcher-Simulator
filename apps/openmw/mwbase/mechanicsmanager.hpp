@@ -75,6 +75,11 @@ namespace MWBase
         virtual void setPlayerRace(const ESM::RefId& id, bool male, const ESM::RefId& head, const ESM::RefId& hair) = 0;
         ///< Set player race.
 
+        /// Change the rendered appearance without rebuilding skills, spells or attributes.
+        virtual void setPlayerAppearance(
+            const ESM::RefId& id, bool male, const ESM::RefId& head, const ESM::RefId& hair)
+            = 0;
+
         virtual void setPlayerBirthsign(const ESM::RefId& id) = 0;
         ///< Set player birthsign.
 

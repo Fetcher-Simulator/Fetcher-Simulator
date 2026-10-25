@@ -224,6 +224,9 @@ void initPlayerBindings(LuaUtil::LuaView& view, sol::table& mp, LuaServerContext
         "crimeState", sol::property(&scriptPlayer_getCrimeState),
         "factionState", sol::property(&scriptPlayer_getFactionState),
         "race",     sol::property(&scriptPlayer_getRace),
+        "head", sol::property([](const ScriptPlayer& p) { return p.data.head; }),
+        "hair", sol::property([](const ScriptPlayer& p) { return p.data.hair; }),
+        "charGenComplete", sol::property([](const ScriptPlayer& p) { return p.data.charGenComplete; }),
         "isMale",   sol::property(&scriptPlayer_getIsMale),
         "gender",   sol::property(&scriptPlayer_getGender),
 
@@ -252,6 +255,18 @@ void initPlayerBindings(LuaUtil::LuaView& view, sol::table& mp, LuaServerContext
         if (!player) return sol::nullopt;
         return ScriptPlayer{ std::move(*player), context };
     });
+
+    lua["Player"]["setAppearance"]
+        = [](const ScriptPlayer& player, const sol::table& selection, const std::string& requestId) {
+              PlayerAppearance value{ selection["race"].get<std::string>(), selection["head"].get<std::string>(),
+                  selection["hair"].get<std::string>(), selection["isMale"].get<bool>() };
+              if (!player.context || player.data.dbCharacterId <= 0 || !player.data.charGenComplete || requestId.empty()
+                  || requestId.size() > 64 || !validAppearanceId(value.race) || !validAppearanceId(value.head)
+                  || !validAppearanceId(value.hair, true))
+                  return false;
+              player.context->queueSetPlayerAppearance(player.data.guid, player.data.dbCharacterId, value, requestId);
+              return true;
+          };
 
     mp.set_function("getPlayers", [context](sol::this_state ts) -> sol::table
     {

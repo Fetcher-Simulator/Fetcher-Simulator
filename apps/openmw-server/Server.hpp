@@ -238,6 +238,8 @@ public:
     /// Set (or clear with "") the cosmetic nickname for a connected player.
     /// Updates c.name, c.player.name, persists to DB, broadcasts PacketPlayerBaseInfo.
     void setPlayerNickname(uint32_t guid, const std::string& nickname);
+    bool setPlayerAppearance(
+        uint32_t guid, int64_t characterId, const PlayerAppearance& appearance, std::string& error);
 
     // World time accessors.
     float getWorldHour() const  { return mWorld.gameHour; }

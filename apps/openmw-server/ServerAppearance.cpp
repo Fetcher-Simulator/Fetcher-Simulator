@@ -1,0 +1,68 @@
+#include "Server.hpp"
+#include "ServerContentRegistry.hpp"
+
+#include <apps/openmw/mwworld/esmstore.hpp>
+#include <components/esm3/loadrace.hpp>
+#include <components/openmw-mp/Packets/Player/PacketPlayerBaseInfo.hpp>
+
+namespace mwmp
+{
+    bool MPServer::setPlayerAppearance(
+        uint32_t guid, int64_t characterId, const PlayerAppearance& value, std::string& error)
+    {
+        auto reject = [&](const char* message) {
+            error = message;
+            return false;
+        };
+        auto* client = findClientByGuid(guid);
+        if (!client || client->dbCharacterId != characterId || characterId <= 0 || !client->charSelectComplete
+            || !client->player.charGenComplete || client->dbChargenCompletePending || !mPlayerDb || !mContentRegistry)
+            return reject("Character is not ready for an appearance edit.");
+        if (client->player.dynamicStats.health.current <= 0)
+            return reject("You cannot edit appearance while dead.");
+        if (!validAppearanceId(value.race) || !validAppearanceId(value.head) || !validAppearanceId(value.hair, true))
+            return reject("Invalid appearance record ID.");
+
+        try
+        {
+            const auto& store = mContentRegistry->store();
+            const auto* race = store.get<ESM::Race>().search(ESM::RefId::deserializeText(value.race));
+            if (!race
+                || (!(race->mData.mFlags & ESM::Race::Playable)
+                    && race->mId != ESM::RefId::deserializeText(client->player.race)))
+                return reject("This race is not playable on this server.");
+            const auto* head = store.get<ESM::BodyPart>().search(ESM::RefId::deserializeText(value.head));
+            if (!head || !appearancePartMatches(*head, race->mId, value.isMale, ESM::BodyPart::MP_Head)
+                || !mContentRegistry->hasModel(head->mModel.getOriginal()))
+                return reject("Select a playable head for this race and sex.");
+            const ESM::BodyPart* hair = nullptr;
+            if (!value.hair.empty())
+            {
+                hair = store.get<ESM::BodyPart>().search(ESM::RefId::deserializeText(value.hair));
+                if (!hair || !appearancePartMatches(*hair, race->mId, value.isMale, ESM::BodyPart::MP_Hair)
+                    || !mContentRegistry->hasModel(hair->mModel.getOriginal()))
+                    return reject("Select playable hair for this race and sex.");
+            }
+            const std::string raceId = race->mId.serializeText();
+            const std::string headId = head->mId.serializeText();
+            const std::string hairId = hair ? hair->mId.serializeText() : std::string();
+            // One UPDATE changes only cosmetic columns. Never call chargen or
+            // rebuild the character's stats, learned spells, class or birthsign.
+            if (!mPlayerDb->saveCharacterAppearance(characterId, raceId, headId, hairId, value.isMale))
+                return reject("Character appearance could not be saved.");
+            client->player.race = raceId;
+            client->player.headMesh = headId;
+            client->player.hairMesh = hairId;
+            client->player.isMale = value.isMale;
+            PacketPlayerBaseInfo packet;
+            packet.setPlayer(&client->player);
+            broadcastToAll(packet.encode());
+            error.clear();
+            return true;
+        }
+        catch (const std::exception&)
+        {
+            return reject("The server could not validate or save this appearance.");
+        }
+    }
+}

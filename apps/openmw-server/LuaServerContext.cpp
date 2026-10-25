@@ -365,6 +365,20 @@ void LuaServerContext::drainOutbound()
             case OutboundLuaActionType::SetPlayerNickname:
                 mServer->setPlayerNickname(action.guid, action.text);
                 break;
+            case OutboundLuaActionType::SetPlayerAppearance:
+            {
+                std::string error;
+                const bool ok
+                    = mServer->setPlayerAppearance(action.guid, action.appearanceCharacterId, action.appearance, error);
+                enqueueEvent(0, "AppearanceEditorApplyResult", makeMainThreadSerializedTable([&](sol::table result) {
+                    result["guid"] = action.guid;
+                    result["characterId"] = action.appearanceCharacterId;
+                    result["requestId"] = action.semanticRequestId;
+                    result["ok"] = ok;
+                    result["error"] = error;
+                }));
+                break;
+            }
             case OutboundLuaActionType::SetWorldHour:
                 mServer->setWorldHour(action.worldHour);
                 break;
@@ -1417,6 +1431,18 @@ void LuaServerContext::queueSetPlayerNickname(uint32_t guid, const std::string& 
     action.type = OutboundLuaActionType::SetPlayerNickname;
     action.guid = guid;
     action.text = nickname;
+    mOutboundQueue.push(std::move(action));
+}
+
+void LuaServerContext::queueSetPlayerAppearance(
+    uint32_t guid, int64_t characterId, const PlayerAppearance& appearance, const std::string& requestId)
+{
+    OutboundLuaAction action;
+    action.type = OutboundLuaActionType::SetPlayerAppearance;
+    action.guid = guid;
+    action.appearanceCharacterId = characterId;
+    action.appearance = appearance;
+    action.semanticRequestId = requestId;
     mOutboundQueue.push(std::move(action));
 }
 

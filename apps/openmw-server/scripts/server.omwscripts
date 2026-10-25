@@ -1,4 +1,5 @@
 GLOBAL: core.lua
+GLOBAL: character_appearance.lua
 GLOBAL: procedural_synth.lua
 GLOBAL: bardcraft_persistence.lua
 GLOBAL: consuming_animated_relay.lua

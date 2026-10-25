@@ -390,6 +390,14 @@ namespace MWMechanics
     void MechanicsManager::setPlayerRace(
         const ESM::RefId& race, bool male, const ESM::RefId& head, const ESM::RefId& hair)
     {
+        setPlayerAppearance(race, male, head, hair);
+        mRaceSelected = true;
+        buildPlayer();
+    }
+
+    void MechanicsManager::setPlayerAppearance(
+        const ESM::RefId& race, bool male, const ESM::RefId& head, const ESM::RefId& hair)
+    {
         MWBase::World* world = MWBase::Environment::get().getWorld();
 
         ESM::NPC player = *world->getPlayerPtr().get<ESM::NPC>()->mBase;
@@ -405,8 +413,6 @@ namespace MWMechanics
             world->renderPlayer();
         }
 
-        mRaceSelected = true;
-        buildPlayer();
         mUpdatePlayer = true;
     }
 

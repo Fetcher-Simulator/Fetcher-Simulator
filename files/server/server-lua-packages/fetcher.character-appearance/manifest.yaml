@@ -1,0 +1,18 @@
+manifestVersion: 3
+packageId: fetcher.character-appearance
+packageVersion: 1
+requiredOpenMWLuaApi: 142
+requiredMultiplayerLuaApi: 12
+dependencies: []
+files:
+  - shared/catalogue.lua
+  - client/global.lua
+  - client/player.lua
+  - client/editor.lua
+  - client/dropdown.lua
+  - client/preview.lua
+scripts:
+  - path: client/global.lua
+    flags: [global]
+  - path: client/player.lua
+    flags: [player]

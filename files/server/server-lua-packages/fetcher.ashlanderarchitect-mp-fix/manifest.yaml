@@ -1,7 +1,7 @@
 manifestVersion: 3
 packageId: fetcher.ashlanderarchitect-mp-fix
 packageVersion: 3
-requiredOpenMWLuaApi: 141
+requiredOpenMWLuaApi: 142
 requiredMultiplayerLuaApi: 6
 dependencies: []
 files:

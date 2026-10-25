@@ -1230,6 +1230,15 @@
 -- @{#PLAYER} functions
 -- @field [parent=#types] #PLAYER Player
 
+--- Queue a local multiplayer appearance preview without recalculating skills,
+-- attributes, class, spells, birthsign or progression. Only self or global scripts
+-- can call this for the local player after character creation. Preview fields are
+-- excluded from outgoing full syncs; this function never saves on the server.
+-- Pass nil to restore the latest server-confirmed appearance and end the preview.
+-- @function [parent=#PLAYER] previewAppearance
+-- @param openmw.core#GameObject player
+-- @param #table selection `{race=string, head=string, hair=string, isMale=boolean}` or nil. Hair may be empty.
+
 ---
 -- @type PLAYER
 -- @extends #NPC
@@ -1551,6 +1560,7 @@
 -- A read-only list of all @{#BodyPartRecord}s in the world database.
 -- Implements [iterables#List](iterables.html#List) of #BodyPartRecord.
 -- @field [parent=#BodyPart] #list<#BodyPartRecord> records
+-- @field [parent=#BodyPart] #map<#string,#number> PART Named `Head` and `Hair` body-part slots.
 -- @usage local record = types.BodyPart.records['example_recordid']
 -- @usage local record = types.BodyPart.records[1]
 
@@ -1565,6 +1575,7 @@
 -- @field #string id The record ID of the body part
 -- @field #string race The id of the race of the body part
 -- @field #string model VFS path to the model
+-- @field #number part Body-part slot; use `types.BodyPart.PART.Head` and `.Hair` for appearance selection.
 -- @field #boolean isFemale Whether the body part only applies to female characters
 -- @field #boolean isPlayable Whether the player can choose this part
 -- @field #boolean isVampire Whether this body part is meant for vampires

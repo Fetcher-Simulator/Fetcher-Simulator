@@ -1002,6 +1002,7 @@ void Main::onConnected()
 // ---------------------------------------------------------------------------
 void Main::onDisconnected()
 {
+    previewAppearance(std::nullopt);
     Log(Debug::Warning) << "[MP] Disconnected from server";
     if (mRecordCreationManager)
         mRecordCreationManager->cancelAll();
@@ -1094,6 +1095,7 @@ bool Main::isConnected()
 // ---------------------------------------------------------------------------
 void Main::disconnect(const std::string& reason)
 {
+    previewAppearance(std::nullopt);
     if (mClient && mClient->isConnected())
     {
         if (mPlayerSync)
@@ -1101,6 +1103,26 @@ void Main::disconnect(const std::string& reason)
         MWBase::Environment::get().getLuaManager()->requestMultiplayerPlayerScriptsCheckpoint();
         mClient->disconnect(reason);
     }
+}
+
+// ---------------------------------------------------------------------------
+void Main::previewAppearance(const std::optional<PlayerAppearance>& appearance)
+{
+    if (!appearance && !mAppearancePreview)
+        return;
+    if (appearance && mIsNewCharacter)
+        throw std::runtime_error("Finish character creation before editing appearance");
+    auto world = MWBase::Environment::get().getWorld();
+    const auto* base = world->getPlayerPtr().get<ESM::NPC>()->mBase;
+    if (!mAppearancePreview)
+        mAppearancePreview = PlayerAppearance{ base->mRace.serializeText(), base->mHead.serializeText(),
+            base->mHair.serializeText(), base->isMale() };
+    const PlayerAppearance value = appearance ? *appearance : *mAppearancePreview;
+    if (!appearance)
+        mAppearancePreview.reset();
+    MWBase::Environment::get().getMechanicsManager()->setPlayerAppearance(ESM::RefId::deserializeText(value.race),
+        value.isMale, ESM::RefId::deserializeText(value.head), ESM::RefId::deserializeText(value.hair));
+    MWBase::Environment::get().getWindowManager()->getInventoryWindow()->rebuildAvatar();
 }
 
 // ---------------------------------------------------------------------------
@@ -1841,7 +1863,23 @@ void Main::registerProtocolHandlers()
             // chat and base-info broadcasts use the current nickname.
             if (tmp.guid == mPlayerSync->localPlayer().guid)
             {
-                mPlayerSync->localPlayer().name = tmp.name;
+                auto& local = mPlayerSync->localPlayer();
+                const bool changed = local.race != tmp.race || local.headMesh != tmp.headMesh
+                    || local.hairMesh != tmp.hairMesh || local.isMale != tmp.isMale;
+                local.name = tmp.name;
+                local.race = tmp.race;
+                local.headMesh = tmp.headMesh;
+                local.hairMesh = tmp.hairMesh;
+                local.isMale = tmp.isMale;
+                if (changed && !tmp.race.empty() && !tmp.headMesh.empty())
+                {
+                    if (mAppearancePreview)
+                        mAppearancePreview = PlayerAppearance{ tmp.race, tmp.headMesh, tmp.hairMesh, tmp.isMale };
+                    MWBase::Environment::get().getMechanicsManager()->setPlayerAppearance(
+                        ESM::RefId::deserializeText(tmp.race), tmp.isMale, ESM::RefId::deserializeText(tmp.headMesh),
+                        ESM::RefId::deserializeText(tmp.hairMesh));
+                    MWBase::Environment::get().getWindowManager()->getInventoryWindow()->rebuildAvatar();
+                }
                 return;
             }
 

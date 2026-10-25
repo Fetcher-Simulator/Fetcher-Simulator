@@ -1,7 +1,7 @@
 manifestVersion: 3
 packageId: fetcher.arrowstick-mp-fix
 packageVersion: 2
-requiredOpenMWLuaApi: 141
+requiredOpenMWLuaApi: 142
 requiredMultiplayerLuaApi: 8
 dependencies: []
 files:

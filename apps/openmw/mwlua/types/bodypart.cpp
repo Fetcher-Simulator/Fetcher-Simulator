@@ -4,6 +4,7 @@
 
 #include <components/esm3/loadbody.hpp>
 #include <components/lua/luastate.hpp>
+#include <components/lua/util.hpp>
 
 namespace sol
 {
@@ -26,6 +27,11 @@ namespace MWLua
         record["id"] = sol::readonly_property([](const ESM::BodyPart& rec) -> ESM::RefId { return rec.mId; });
         record["race"] = sol::readonly_property([](const ESM::BodyPart& rec) -> ESM::RefId { return rec.mRace; });
         addModelProperty(record);
+        record["part"] = sol::readonly_property([](const ESM::BodyPart& rec) -> int { return rec.mData.mPart; });
+        sol::table parts = lua.create_table();
+        parts["Head"] = ESM::BodyPart::MP_Head;
+        parts["Hair"] = ESM::BodyPart::MP_Hair;
+        bodypart["PART"] = LuaUtil::makeStrictReadOnly(parts);
         record["isFemale"] = sol::readonly_property(
             [](const ESM::BodyPart& rec) -> bool { return rec.mData.mFlags & ESM::BodyPart::BPF_Female; });
         record["isPlayable"] = sol::readonly_property(

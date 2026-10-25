@@ -67,6 +67,8 @@ namespace MWMechanics
         ///< Set player name.
 
         void setPlayerRace(const ESM::RefId& id, bool male, const ESM::RefId& head, const ESM::RefId& hair) override;
+        void setPlayerAppearance(
+            const ESM::RefId& id, bool male, const ESM::RefId& head, const ESM::RefId& hair) override;
         ///< Set player race.
 
         void setPlayerBirthsign(const ESM::RefId& id) override;

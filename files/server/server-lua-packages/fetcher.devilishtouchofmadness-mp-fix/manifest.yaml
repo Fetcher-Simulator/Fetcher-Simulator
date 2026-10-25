@@ -1,7 +1,7 @@
 ﻿manifestVersion: 3
 packageId: fetcher.devilishtouchofmadness-mp-fix
 packageVersion: 1
-requiredOpenMWLuaApi: 141
+requiredOpenMWLuaApi: 142
 requiredMultiplayerLuaApi: 7
 dependencies: []
 files:

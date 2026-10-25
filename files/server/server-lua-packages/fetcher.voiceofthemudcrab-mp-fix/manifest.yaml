@@ -1,7 +1,7 @@
 manifestVersion: 3
 packageId: fetcher.voiceofthemudcrab-mp-fix
 packageVersion: 1
-requiredOpenMWLuaApi: 141
+requiredOpenMWLuaApi: 142
 requiredMultiplayerLuaApi: 12
 dependencies: []
 files:

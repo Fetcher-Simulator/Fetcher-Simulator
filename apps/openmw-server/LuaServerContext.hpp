@@ -44,6 +44,9 @@ struct LuaPlayerSnapshot
     std::vector<std::string> loadedActorCells;
     std::string nickname;
     std::string race;
+    std::string head;
+    std::string hair;
+    bool charGenComplete = false;
     bool isMale = true;
     float x = 0.f;
     float y = 0.f;
@@ -191,6 +194,8 @@ public:
     void queueDeletePlayerMark(uint32_t guid, const std::string& name);
     void queueKickClient(uint32_t guid, const std::string& reason);
     void queueSetPlayerNickname(uint32_t guid, const std::string& nickname);
+    void queueSetPlayerAppearance(
+        uint32_t guid, int64_t characterId, const PlayerAppearance& appearance, const std::string& requestId);
     void queueSetWorldHour(float hour);
     void queueBroadcastLuaEvent(const std::string& eventName, const LuaUtil::BinaryData& data);
     void queueBroadcastLuaEventToCell(

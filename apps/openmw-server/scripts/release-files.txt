@@ -12,6 +12,7 @@ bardcraft_hosted_midi.lua
 bardcraft_network_policy.lua
 bardcraft_persistence.lua
 command_registry.lua
+character_appearance.lua
 config.lua
 core.lua
 custom_scripts.lua

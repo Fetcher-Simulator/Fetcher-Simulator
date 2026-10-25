@@ -565,6 +565,9 @@ namespace mwmp
 
         /// Mark the character as no longer new (chargen complete).
         void markChargenComplete(int64_t characterId);
+        /// Cosmetic edit only: preserve class, birthsign, stats and all other character data.
+        bool saveCharacterAppearance(int64_t characterId, const std::string& race, const std::string& head,
+            const std::string& hair, bool isMale);
 
         /// Update last_seen timestamp.
         void touch(int64_t characterId);

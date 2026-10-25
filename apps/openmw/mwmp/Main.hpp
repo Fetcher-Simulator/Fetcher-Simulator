@@ -5,6 +5,8 @@
 #include <deque>
 #include <filesystem>
 #include <memory>
+#include <optional>
+#include <components/openmw-mp/PlayerAppearance.hpp>
 #include <osg/Vec3f>
 #include <string>
 #include <string_view>
@@ -131,6 +133,8 @@ namespace mwmp
         bool               isNetworkDisconnected()  const;
         // Returns true while a GNS connection is alive (in-lobby or in-world)
         static bool        isConnected();
+        void previewAppearance(const std::optional<PlayerAppearance>& appearance);
+        bool hasAppearancePreview() const { return mAppearancePreview.has_value(); }
         // Gracefully disconnect; safe to call from any thread context
         void               disconnect(const std::string& reason = "Client disconnect");
         void               sendCharacterSelect(const std::string& charName, bool isNew);
@@ -208,6 +212,7 @@ namespace mwmp
         std::string mResolvedContentFingerprint;
         bool        mWorldReady           = false;
         bool        mIsNewCharacter       = true;
+        std::optional<PlayerAppearance> mAppearancePreview;
         bool        mHasSavedSpellbook     = false;
         int64_t     mCharacterId          = 0;
         std::string mCharacterName;       ///< selected character slot name (may differ from login name)

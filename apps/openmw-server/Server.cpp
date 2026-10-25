@@ -8562,6 +8562,7 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
                 c.dbCharacterId      = rec.characterId;
                 cdPkt.isNewCharacter = true;
                 c.dbChargenCompletePending = true;
+                c.player.charGenComplete = false;
                 applyDefaultSpawn(cdPkt);
                 cdPkt.characterName  = sel.charName;
                 for (const auto& mark : mDefaultPlayerMarks)
@@ -8991,6 +8992,10 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
 // ---------------------------------------------------------------------------
 void MPServer::handlePlayerCharGen(ConnectedClient& c, const uint8_t* data, size_t size)
 {
+    // Completed characters use the validated appearance API; late chargen
+    // packets must not overwrite a confirmed cosmetic edit or progression.
+    if (c.player.charGenComplete && !c.dbChargenCompletePending)
+        return;
     // Decode the packet - it now carries the full chargen result.
     PacketPlayerCharGen pkt;
     pkt.setPlayer(&c.player);
@@ -9038,9 +9043,24 @@ void MPServer::handlePlayerCharGen(ConnectedClient& c, const uint8_t* data, size
 
 void MPServer::handlePlayerBaseInfo(ConnectedClient& c, const uint8_t* data, size_t size)
 {
+    BasePlayer proposed = c.player;
     PacketPlayerBaseInfo pkt;
-    pkt.setPlayer(&c.player);
+    pkt.setPlayer(&proposed);
     if (!pkt.decode(data, size)) return;
+    const bool locked = c.player.charGenComplete && !c.dbChargenCompletePending;
+    const bool stale = locked
+        && (proposed.race != c.player.race || proposed.headMesh != c.player.headMesh
+            || proposed.hairMesh != c.player.hairMesh || proposed.isMale != c.player.isMale);
+    if (locked)
+    {
+        proposed.race = c.player.race;
+        proposed.headMesh = c.player.headMesh;
+        proposed.hairMesh = c.player.hairMesh;
+        proposed.isMale = c.player.isMale;
+    }
+    proposed.guid = c.guid;
+    c.player = std::move(proposed);
+    pkt.setPlayer(&c.player);
 
     // Stamp the server-authoritative display name (nickname if set, else character
     // name) before rebroadcasting.  The client sends its raw character name in its
@@ -9051,6 +9071,8 @@ void MPServer::handlePlayerBaseInfo(ConnectedClient& c, const uint8_t* data, siz
 
     // Re-encode with the corrected name so all receivers get the nickname.
     broadcastToAll(pkt.encode(), c.conn);
+    if (stale)
+        sendTo(c.conn, pkt.encode());
 
     // Returning players do not include inventory/equipment in their first
     // client full sync; the server has the saved equipment snapshot.
@@ -22203,6 +22225,9 @@ void MPServer::syncLuaPlayerSnapshot()
         std::sort(snapshot.loadedActorCells.begin(), snapshot.loadedActorCells.end());
         snapshot.nickname = client.nickname;
         snapshot.race = client.player.race;
+        snapshot.head = client.player.headMesh;
+        snapshot.hair = client.player.hairMesh;
+        snapshot.charGenComplete = client.player.charGenComplete;
         snapshot.isMale = client.player.isMale;
         snapshot.x = client.player.position.pos[0];
         snapshot.y = client.player.position.pos[1];

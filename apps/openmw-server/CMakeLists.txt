@@ -2,6 +2,7 @@ set(OPENMW_SERVER_SOURCES
     AdminHttpServer.cpp
     main.cpp
     Server.cpp
+    ServerAppearance.cpp
     LuaServerContext.cpp
     MasterServerClient.cpp
     PlayerDatabase.cpp
