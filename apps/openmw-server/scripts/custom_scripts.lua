@@ -6,6 +6,7 @@
 
 return {
     adminUiService = require("admin_ui_service"),
+    characterAppearanceCommands = require("appearance_commands"),
     bardcraftNetworkPolicy = require("bardcraft_network_policy"),
     destructibleSpawners = require("destructible_spawners"),
     extendedSpeechCommands = require("extended_speech_commands"),

@@ -13,6 +13,12 @@ local CATEGORY_ORDER = {
 
 local COMMANDS = {
     {
+        id = "appearance",
+        category = "General",
+        usage = "/appearance",
+        summary = "Open or close the race, head and hair editor.",
+    },
+    {
         id = "help",
         category = "General",
         usage = "/help",

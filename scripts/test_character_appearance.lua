@@ -97,6 +97,23 @@ players[1].health=100;now=627;request(1,'open');token=messages[#messages].data.t
 server.OnPlayerCellChange({guid=1});request(1,'apply',token,elf)
 check(#queued==2 and messages[#messages].data.op=='closed','cell change closes session')
 
+local commandNotices={}
+players[1].sendMessage=function(_,text) commandNotices[#commandNotices+1]=text end
+local commands=load(root..'/apps/openmw-server/scripts/appearance_commands.lua')
+check(commands.handleChat(players[1],{message='/appearance'},{commandPrefix='/'})==false,'appearance command is consumed instead of broadcast as chat')
+check(messages[#messages].guid==1 and messages[#messages].data.op=='toggle','command targets only the authenticated player')
+check(commands.handleChat(players[1],{message='/appearance-extra'},{commandPrefix='/'})==nil,'similar commands are not intercepted')
+check(commands.handleChat(players[1],{message='/who'},{commandPrefix='/'})==nil,'unrelated commands remain untouched')
+local before=#messages
+commands.handleChat(players[1],{message='/appearance anything'},{commandPrefix='/'})
+check(#messages==before and commandNotices[#commandNotices]=='Usage: /appearance','unexpected arguments show command usage')
+commands.handleChat(players[1],{message='!appearance  '},{commandPrefix='!'})
+check(#messages==before+1,'custom command prefixes and trailing spaces work')
+package.loaded.config.CHARACTER_APPEARANCE_ENABLED=false;before=#messages
+commands.handleChat(players[1],{message='/appearance'},{commandPrefix='/'})
+check(#messages==before and commandNotices[#commandNotices]:find('disabled',1,true),'server-disabled editors do not toggle')
+package.loaded.config.CHARACTER_APPEARANCE_ENABLED=nil
+
 -- Camera and virtualized UI use the real modules against a small engine stub.
 local vector={};vector.__index=vector
 vector.__add=function(a,b) return setmetatable({x=a.x+b.x,y=a.y+b.y,z=(a.z or 0)+(b.z or 0)},vector) end
@@ -284,7 +301,11 @@ types.Player.isInVehicle=function() return false end
 package.loaded['scripts.multiplayer.fetcher.character-appearance.client.editor']=editorType
 local controller=load(base..'client/player.lua')
 controller.engineHandlers.onKeyPress({code=6})
-check(clientRequests[#clientRequests].data.op=='open','F6 requests a server-owned session before opening')
+check(#clientRequests==0,'F6 remains available exclusively to the normal chat binding')
+local function chatToggle() controller.eventHandlers.AppearanceEditor_Message({version=1,op='toggle'}) end
+chatToggle()
+check(clientRequests[#clientRequests].data.op=='open','chat command requests a server-owned session before opening')
+chatToggle();check(#clientRequests==1,'duplicate command while opening does not replace the pending request')
 controller.eventHandlers.AppearanceEditor_Message({version=1,op='open',request=1,token='client-token',selection=original})
 check(controller.interface.state() and mode=='Interface','matching server response opens the side panel')
 controller.interface.preview(female)
@@ -292,11 +313,11 @@ check(controller.interface.state().selection.head=='female_head','mod interface 
 check(controller.interface.setAllRaces(true) and controller.interface.state().allRaces,'mod interface can opt into mixed parts')
 controller.interface.preview({race=original.race,head='elf_head',hair='male_hair',isMale=true})
 check(controller.interface.state().selection.head=='elf_head','mod interface previews mixed-race parts through the same UI path')
-controller.interface.close()
+chatToggle()
 check(mode==nil and clientRequests[#clientRequests].data.op=='cancel','close cancels the session and restores UI')
 controller.eventHandlers.AppearanceEditor_Message({version=1,op='open',request=1,token='late-token',selection=original})
 check(controller.interface.state()==nil,'late open response cannot reopen a closed editor')
-controller.engineHandlers.onKeyPress({code=6})
+chatToggle()
 controller.eventHandlers.AppearanceEditor_Message({version=1,op='open',request=2,token='save-token',selection=original})
 check(controller.interface.apply() and controller.interface.state().pending,'apply waits for native server completion')
 check(not controller.interface.setAllRaces(true),'mod interface cannot change part filters during a pending save')
@@ -305,7 +326,7 @@ check(not controller.interface.state().pending and mode=='Interface','save rejec
 controller.interface.preview(female);controller.interface.apply()
 controller.eventHandlers.AppearanceEditor_Message({version=1,op='saved',token='save-token',ok=true})
 check(controller.interface.state()==nil and mode==nil and notices[#notices]=='Appearance saved to your character.','successful save closes and restores camera')
-controller.engineHandlers.onKeyPress({code=6})
+chatToggle()
 local create=ui.create
 ui.create=function(layout) if layout.layer then error('simulated layout failure') end;return create(layout) end
 controller.eventHandlers.AppearanceEditor_Message({version=1,op='open',request=3,token='failure-token',selection=original})

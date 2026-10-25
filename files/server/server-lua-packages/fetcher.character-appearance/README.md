@@ -1,7 +1,9 @@
 # Character appearance editor
 
 A server-distributed Lua package for changing an existing character's race, sex,
-head and hair. Press **F6** while standing on solid ground and outside other menus.
+head and hair. Type **`/appearance`** in chat while standing on solid ground and
+outside other menus. The same command closes an open editor; **Escape** also cancels.
+F6 retains its normal chat-display binding.
 The character faces the camera beside a panel styled with Morrowind's MWUI borders,
 text colours and original button textures. Each selector has a searchable dropdown
 and left/right cycling arrows. **Left-drag the model view** to orbit horizontally or
@@ -40,6 +42,9 @@ needs the new player preview API, body-part slot metadata and server appearance 
 2. Install `apps/openmw-server/scripts/character_appearance.lua` in `server-scripts`.
 3. Add `GLOBAL: character_appearance.lua` to the server's `server.omwscripts`, retaining
    its existing globals. The stock server manifest already includes that entry.
+   The bundled `core.lua`/`custom_scripts.lua` command router registers
+   `appearance_commands.lua` and `/help` lists `/appearance`. For a custom router,
+   dispatch the command to that module's `handleChat(player, data, {commandPrefix='/'})`.
 4. Restart the server after players save, then reconnect matching clients. The server
    delivers the package automatically; players do not install a separate Lua mod.
 

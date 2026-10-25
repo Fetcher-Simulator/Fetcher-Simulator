@@ -1806,6 +1806,13 @@ local function handleChat(player, data)
     end
 
     if msg:sub(1, #COMMAND_PREFIX) == COMMAND_PREFIX then
+        local appearanceHandled = callOptional("characterAppearanceCommands", "handleChat", player, data, {
+            commandPrefix = COMMAND_PREFIX,
+        })
+        if appearanceHandled ~= nil then
+            return appearanceHandled
+        end
+
         local speechHandled = callOptional("speechCommands", "handleChat", player, data, {
             commandPrefix = COMMAND_PREFIX,
             parseCommandArgs = parseCommandArgs,

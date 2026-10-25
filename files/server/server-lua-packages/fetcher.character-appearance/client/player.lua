@@ -20,6 +20,7 @@ local function close(notify)
 end
 local function open()
     if editor then if not editor.pending then close(true) end;return end
+    if opening then return end
     if not mp.isConnected() or I.UI.getMode()~=nil then return end
     if types.NPC.isWerewolf(player) or types.Player.isInVehicle(player) or not types.Actor.isOnGround(player) then
         ui.showMessage('Stand on solid ground, outside a vehicle or werewolf form, to edit appearance.');return
@@ -28,6 +29,7 @@ local function open()
 end
 local function message(data)
     if type(data)~='table' or data.version~=1 then return end
+    if data.op=='toggle' then open();return end
     if data.op=='open' then
         if data.request~=opening or editor or not Catalogue.valid(data.selection) then return end
         if I.UI.getMode()~=nil then token=data.token;close(true);return end
@@ -66,8 +68,7 @@ return {interfaceName='FetcherAppearance',interface={
     apply=function() return editor and editor:submit() or false end,
 },eventHandlers={AppearanceEditor_Message=message},engineHandlers={
     onKeyPress=function(event)
-        if event.code==input.KEY.F6 then open()
-        elseif event.code==input.KEY.Escape and editor and not editor.pending then close(true) end
+        if event.code==input.KEY.Escape and editor and not editor.pending then close(true) end
     end,
     onMouseWheel=function(delta) if editor then editor:wheel(delta) end end,
     onMouseButtonRelease=function(button) if button==1 and editor then editor:dragEnd() end end,

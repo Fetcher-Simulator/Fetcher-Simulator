@@ -6,6 +6,7 @@ CLIENT_LUA_MULTIPLAYER.md
 README.html
 README.md
 admin_ui_service.lua
+appearance_commands.lua
 bardcraft_content_overrides.lua
 bardcraft_generated_bards.lua
 bardcraft_hosted_midi.lua
