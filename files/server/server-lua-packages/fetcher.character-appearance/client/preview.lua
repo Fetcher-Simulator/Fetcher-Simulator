@@ -5,6 +5,7 @@ local util=require('openmw.util')
 local P={};P.__index=P
 function P.new()
     local p=setmetatable({mode=camera.getMode(),yaw=camera.getYaw(),pitch=camera.getPitch(),
+        roll=camera.getRoll(),extraYaw=camera.getExtraYaw(),extraPitch=camera.getExtraPitch(),extraRoll=camera.getExtraRoll(),
         position=camera.getPosition(),orbit=0,elevation=0,zoom=1,switches={}},P)
     for _,name in ipairs({'Looking','ViewMode','VanityMode'}) do
         local key=types.Player.CONTROL_SWITCH[name]
@@ -30,10 +31,16 @@ function P:frame()
     -- spherical coordinates around that pivot, never the camera's own position.
     local c=math.cos(self.elevation)
     local forward=util.vector3(-math.sin(yaw)*c,math.cos(yaw)*c,math.sin(self.elevation))
-    local right=util.vector3(math.cos(yaw),math.sin(yaw),0)
+    local position=head+forward*distance
+    local aim=head-position
+    -- Lua camera yaw is clockwise from +Y (the native camera negates it).
+    -- Derive both angles from the actual look-at vector, not the orbit angle.
+    local aimYaw=math.atan2(aim.x,aim.y)
+    local aimPitch=math.atan2(-aim.z,math.sqrt(aim.x*aim.x+aim.y*aim.y))
     camera.setMode(camera.MODE.Static,true)
-    camera.setStaticPosition(head+forward*distance-right*(distance*0.23))
-    camera.setYaw(yaw+math.pi);camera.setPitch(self.elevation)
+    camera.setStaticPosition(position)
+    camera.setExtraYaw(0);camera.setExtraPitch(0);camera.setExtraRoll(0)
+    camera.setYaw(aimYaw);camera.setPitch(aimPitch);camera.setRoll(0)
 end
 function P:close()
     if self.closed then return end
@@ -45,5 +52,7 @@ function P:close()
     pcall(camera.setMode,self.mode,true)
     if self.mode==camera.MODE.Static then pcall(camera.setStaticPosition,self.position) end
     pcall(camera.setYaw,self.yaw);pcall(camera.setPitch,self.pitch)
+    pcall(camera.setRoll,self.roll)
+    pcall(camera.setExtraYaw,self.extraYaw);pcall(camera.setExtraPitch,self.extraPitch);pcall(camera.setExtraRoll,self.extraRoll)
 end
 return P

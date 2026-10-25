@@ -50,14 +50,21 @@ end
 function E:area(area)
     if not self.closed then self.pointerArea=area end
 end
+function E:inPreview(position)
+    return position and position.x>=0 and position.x<self.x and position.y>=0 and position.y<viewport().y
+end
 function E:dragStart(event)
+    if self.closed then return end
+    if not self:inPreview(event.position) then self:area('panel');self:dragEnd();return end
     self:area('preview')
-    if self.closed or event.button~=1 or not event.position then return end
+    if event.button~=1 then return end
     Dropdown.close(self);self.drag=event.position
 end
 function E:dragMove(event)
+    if self.closed then return end
+    if not self:inPreview(event.position) then self:area('panel');self:dragEnd();return end
     self:area('preview')
-    if self.closed or not self.drag or not event.position then return end
+    if not self.drag then return end
     if event.button~=1 then self.drag=nil;return end
     local delta=event.position-self.drag;self.drag=event.position
     self.view:rotate(delta.x/self.scale,delta.y/self.scale)
@@ -68,12 +75,12 @@ function E.new(catalogue,selection,save,cancel)
     local self=setmetatable({catalogue=catalogue,selection=Catalogue.copy(selection),save=save,cancel=cancel,
         children={},fields={},cycles={},choices={},buttons={},width=410,height=610,pointerArea='preview',
         scale=math.max(.65,math.min(1.5,screen.y/780)),view=Preview.new()},E)
-    self.scale=math.min(self.scale,(screen.x-20)/self.width,(screen.y-20)/self.height)
+    self.scale=math.min(self.scale,(screen.x*.44-20)/self.width,(screen.y-20)/self.height)
     self.x=math.max(10,screen.x-self.width*self.scale-20);self.y=(screen.y-self.height*self.scale)/2
     local ok,problem=pcall(function()
-        -- The transparent input surface sits behind the panel and dropdowns.
-        -- Only a press in the model view can begin an orbit gesture.
-        self.scene=ui.create{type=ui.TYPE.Widget,layer='Windows',props={relativeSize=v(1,1)},events={
+        -- Never place a drag widget underneath the controls. MyGUI can raise
+        -- a focused root above later windows; disjoint rectangles stay safe.
+        self.scene=ui.create{type=ui.TYPE.Widget,layer='Windows',props={size=v(self.x,screen.y)},events={
             mousePress=callback(function(e) self:dragStart(e) end),
             mouseMove=callback(function(e) self:dragMove(e) end),
             mouseRelease=callback(function() self:dragEnd() end),
@@ -176,6 +183,15 @@ function E:submit()
 end
 function E:frame()
     if self.closed then return end
+    local screen=viewport()
+    local x=math.max(10,screen.x-self.width*self.scale-20)
+    local y=math.max(0,(screen.y-self.height*self.scale)/2)
+    if x~=self.x or y~=self.y or self.scene.layout.props.size.y~=screen.y then
+        self:dragEnd();Dropdown.close(self)
+        self.x=x;self.y=y
+        self.root.layout.props.position=v(x,y);self.root:update()
+        self.scene.layout.props.size=v(x,screen.y);self.scene:update()
+    end
     if self.drag and not input.isMouseButtonPressed(1) then self:dragEnd() end
     self.view:frame()
 end

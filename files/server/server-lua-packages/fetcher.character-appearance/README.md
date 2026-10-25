@@ -6,7 +6,9 @@ The character faces the camera beside a panel styled with Morrowind's MWUI borde
 text colours and original button textures. Each selector has a searchable dropdown
 and left/right cycling arrows. **Left-drag the model view** to orbit horizontally or
 vertically around the character's head/upper-body pivot; **mouse wheel** zooms toward
-or away from that pivot. Wheel over a dropdown scrolls its list instead. Panel/list
+or away from that pivot. The camera derives its look-at direction from the head's
+actual position throughout the orbit. Its drag surface ends at the menu's left
+edge, so raising that surface cannot cover any controls. Wheel over a dropdown scrolls its list instead. Panel/list
 interactions do not start camera gestures. **Cancel / Escape** restores the original
 appearance, camera and control switches. **Apply** waits for a server-confirmed save.
 
@@ -81,4 +83,5 @@ SQLite persistence alongside the existing inventory/spellbook persistence tests.
 Local client/server integration also checks preview/cancel, apply and reconnect,
 unchanged base attributes/skills, restored camera state and a 2,000-entry selector.
 The Lua checks cover model-centred horizontal/vertical orbit geometry, bounded zoom,
-mouse input isolation, cycling/wraparound and mixed-part catalogue persistence.
+rendered facing direction at different actor headings, disjoint menu/drag bounds,
+camera-offset restoration, cycling/wraparound and mixed-part catalogue persistence.

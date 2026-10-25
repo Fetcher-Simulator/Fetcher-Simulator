@@ -118,9 +118,11 @@ I.MWUI={templates={textNormal={props={textColor='vanilla-normal'}},textHeader={p
 local mouseDown=false
 package.loaded['openmw.input']={KEY={F6=6,Escape=27},isMouseButtonPressed=function(button) return button==1 and mouseDown end}
 local cameraMode='ThirdPerson';local yaw,pitch=.2,.3;local position=v(1,2,3);local tracked=v(0,0,128)
+local roll,extraYaw,extraPitch,extraRoll=.1,.07,-.04,.03
 local switches={look=true,view=true,vanity=false}
 local previews={}
-local player={position=v(0,0,0),rotation={getYaw=function() return 0 end}}
+local playerYaw=0
+local player={position=v(0,0,0),rotation={getYaw=function() return playerYaw end}}
 local types={Player={CONTROL_SWITCH={Looking='look',ViewMode='view',VanityMode='vanity'},
     getControlSwitch=function(p,key) check(p==player,'control switch targets self');return switches[key] end,
     setControlSwitch=function(p,key,value) check(p==player,'control mutation targets self');switches[key]=value end,
@@ -132,6 +134,10 @@ package.loaded['openmw.interfaces']=I;package.loaded['openmw.self']=player;packa
 package.loaded['openmw.camera']={MODE={Static='Static',ThirdPerson='ThirdPerson'},
     getMode=function() return cameraMode end,getPosition=function() return position end,
     getYaw=function() return yaw end,getPitch=function() return pitch end,getTrackedPosition=function() return tracked end,
+    getRoll=function() return roll end,getExtraYaw=function() return extraYaw end,
+    getExtraPitch=function() return extraPitch end,getExtraRoll=function() return extraRoll end,
+    setRoll=function(value) roll=value end,setExtraYaw=function(value) extraYaw=value end,
+    setExtraPitch=function(value) extraPitch=value end,setExtraRoll=function(value) extraRoll=value end,
     setMode=function(value) cameraMode=value end,setStaticPosition=function(value) position=value end,
     setYaw=function(value) yaw=value end,setPitch=function(value) pitch=value end}
 local preview=load(base..'client/preview.lua')
@@ -145,11 +151,42 @@ local editorType=load(base..'client/editor.lua')
 local editor=editorType.new(catalogue,original,function() end,function() end)
 check(mode=='Interface' and switches.look==false and switches.view==false,'editor captures input without changing unrelated switches')
 editor:frame();check(cameraMode=='Static' and math.abs(yaw-math.pi)<.0001,'camera faces editing player')
+local function facesPivot()
+    -- Reconstruct the renderer's forward vector using the Lua camera's angle
+    -- convention, independently of the orbit-position formula.
+    local a,b=yaw+extraYaw,pitch+extraPitch
+    local forward=v(math.sin(a)*math.cos(b),math.cos(a)*math.cos(b),-math.sin(b))
+    local d=tracked-position
+    local length=math.sqrt(d.x*d.x+d.y*d.y+d.z*d.z)
+    return (d.x*forward.x+d.y*forward.y+d.z*forward.z)/length>1-1e-9
+end
+for _,heading in ipairs({0,.7,-1.2}) do
+    playerYaw=heading
+    for _,azimuth in ipairs({0,.3,math.pi/2,math.pi,math.pi*1.5,math.pi*1.9}) do
+        for _,elevation in ipairs({-.65,0,.4,1}) do
+            editor.view.orbit=azimuth;editor.view.elevation=elevation;editor:frame()
+            check(facesPivot(),'rendered camera direction must point at the model for every orbit angle and actor heading')
+        end
+    end
+end
+playerYaw=0
+check(roll==0 and extraYaw==0 and extraPitch==0 and extraRoll==0,'preview suppresses inherited camera roll and extra offsets')
+editor.view.orbit=0;editor.view.elevation=0;editor:frame()
 check(editor.root.layout.content[1].content[2].template==I.MWUI.templates.bordersThick,'panel uses the vanilla window border template')
 check(editor.fields.head.layout.content[1].template==I.MWUI.templates.textNormal,'selector uses vanilla text styling')
 check(editor.apply.layout.content[2].props.resource.path=='textures/menu_button_frame_top.dds','buttons use original Morrowind button textures')
 local function radius(p,pivot) return math.sqrt((p.x-pivot.x)^2+(p.y-pivot.y)^2+(p.z-pivot.z)^2) end
 local radiusBefore=radius(position,tracked);local start=v(position.x,position.y,position.z)
+check(editor.scene.layout.props.relativeSize==nil and editor.scene.layout.props.size.x<=editor.root.layout.props.position.x,
+    'drag surface ends before the menu, regardless of root stacking order')
+for key,field in pairs(editor.fields) do
+    local x=editor.x+field.layout.props.position.x+field.layout.props.size.x/2
+    check(x>=editor.scene.layout.props.size.x and not editor:inPreview(v(x,editor.y+50)),key..' selector cannot be hit by the drag surface')
+    for _,button in ipairs(editor.cycles[key]) do
+        local at=editor.x+button.layout.props.position.x+button.layout.props.size.x/2
+        check(not editor:inPreview(v(at,editor.y+50)),key..' cycle buttons cannot be hit by the drag surface')
+    end
+end
 editor.view:rotate(math.pi/.008,0);editor:frame()
 check(math.abs(radius(position,tracked)-radiusBefore)<.001,'half orbit preserves radius around model pivot')
 check(math.abs(position.x+start.x)<.001 and math.abs(position.y+start.y)<.001,'half orbit moves camera to the other side of the model')
@@ -179,6 +216,11 @@ editor.view.zoom=1
 editor.root.layout.events.mousePress({button=1,position=v(editor.x+20,editor.y+20)})
 editor:wheel(1)
 check(editor.drag==nil and editor.view.zoom==1,'panel clicks and wheel cannot start camera gestures')
+editor:dragStart({button=1,position=v(editor.x+1,200)})
+check(editor.drag==nil,'even a misrouted panel press cannot start camera drag')
+editor:dragStart({button=1,position=v(100,200)})
+editor:dragMove({button=1,position=v(editor.x+1,210)})
+check(editor.drag==nil and editor.pointerArea=='panel','drag stops when crossing into menu space')
 editor.view:rotate(0,10000);check(editor.view.elevation==1,'orbit elevation is bounded above')
 editor.view:rotate(0,-10000);check(editor.view.elevation==-.65,'orbit elevation is bounded below')
 editor.cycles.head[1].layout.events.mouseClick()
@@ -205,6 +247,7 @@ check(previews[#previews].value.head=='female_head','compatible choice previews 
 local beforeWidgets=uiCount
 dropdown.open(editor,heads,original.head,function() end,250)
 check(#editor.dropdown.rows==8 and uiCount-beforeWidgets==12,'2000 choices create only eight reusable rows')
+check(editor.dropdown.root.layout.props.position.x>=editor.scene.layout.props.size.x,'dropdown and scrollbar cannot overlap the drag surface')
 editor.dropdown.root.layout.events.mouseMove()
 local zoomBefore=editor.view.zoom;editor:wheel(-1)
 check(editor.dropdown.offset>0 and editor.view.zoom==zoomBefore,'wheel over a selector scrolls without zooming')
@@ -217,6 +260,7 @@ check(#editor.dropdown.matches==1 and editor.dropdown.rows[1].layout.props.visib
 editor.dropdown:wheel(-30);check(editor.dropdown.offset==0,'filtered scrolling stays in bounds')
 editor:close()
 check(mode==nil and cameraMode=='ThirdPerson' and yaw==.2 and pitch==.3,'closing restores original mode and camera angles')
+check(roll==.1 and extraYaw==.07 and extraPitch==-.04 and extraRoll==.03,'closing restores original camera roll and extra offsets')
 check(switches.look==true and switches.view==true and switches.vanity==false,'closing restores each original control switch')
 check(previews[#previews].value==nil,'cancel restores authoritative appearance baseline')
 local countPreviews=#previews;local zoomClosed=editor.view.zoom;local orbitClosed=editor.view.orbit
