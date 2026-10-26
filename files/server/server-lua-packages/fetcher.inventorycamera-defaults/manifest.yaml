@@ -1,7 +1,7 @@
 manifestVersion: 3
 packageId: fetcher.inventorycamera-defaults
 packageVersion: 2
-requiredOpenMWLuaApi: 142
+requiredOpenMWLuaApi: 143
 requiredMultiplayerLuaApi: 1
 dependencies: []
 files:

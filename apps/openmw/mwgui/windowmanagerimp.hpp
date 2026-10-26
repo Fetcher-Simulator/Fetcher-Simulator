@@ -236,6 +236,9 @@ namespace MWGui
 
         /// activate selected quick key
         void activateQuickKey(int index) override;
+        MWWorld::Ptr getDraggedItem() const override;
+        void cancelItemDrag(const MWWorld::Ptr& expected) override;
+        void setQuickKeysEnabled(bool enabled) override { mQuickKeysEnabled = enabled; }
         /// update activated quick key state (if action executing was delayed for some reason)
         void updateActivatedQuickKey() override;
 
@@ -462,6 +465,7 @@ namespace MWGui
         ConfirmationDialog* mConfirmationDialog;
         SpellWindow* mSpellWindow;
         QuickKeysMenu* mQuickKeysMenu;
+        bool mQuickKeysEnabled = true;
         LoadingScreen* mLoadingScreen;
         WaitDialog* mWaitDialog;
         std::unique_ptr<SoulgemDialog> mSoulgemDialog;

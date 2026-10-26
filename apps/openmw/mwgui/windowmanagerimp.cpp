@@ -1849,7 +1849,26 @@ namespace MWGui
 
     void WindowManager::activateQuickKey(int index)
     {
-        mQuickKeysMenu->activateQuickKey(index);
+        if (mQuickKeysEnabled)
+            mQuickKeysMenu->activateQuickKey(index);
+    }
+
+    MWWorld::Ptr WindowManager::getDraggedItem() const
+    {
+        if (!mDragAndDrop || !mDragAndDrop->mIsOnDragAndDrop)
+            return {};
+        const auto& item = mDragAndDrop->mItem.mBase;
+        const auto player = MWBase::Environment::get().getWorld()->getPlayerPtr();
+        if (item.isEmpty() || item.getCellRef().getCount() <= 0
+            || item.getContainerStore() != &player.getClass().getContainerStore(player))
+            return {};
+        return item;
+    }
+
+    void WindowManager::cancelItemDrag(const MWWorld::Ptr& expected)
+    {
+        if (!expected.isEmpty() && getDraggedItem() == expected)
+            mDragAndDrop->finish();
     }
 
     bool WindowManager::setHudVisibility(bool show)
@@ -2055,6 +2074,7 @@ namespace MWGui
 
     void WindowManager::clear()
     {
+        mQuickKeysEnabled = true;
         mPlayerBounty = -1;
 
         for (const auto& window : mWindows)

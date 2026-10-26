@@ -226,6 +226,10 @@ namespace MWBase
 
         /// activate selected quick key
         virtual void activateQuickKey(int index) = 0;
+        // Lua hotbars can assign a shortcut without transferring the dragged stack.
+        virtual MWWorld::Ptr getDraggedItem() const = 0;
+        virtual void cancelItemDrag(const MWWorld::Ptr& expected) = 0;
+        virtual void setQuickKeysEnabled(bool enabled) = 0;
         /// update activated quick key state (if action executing was delayed for some reason)
         virtual void updateActivatedQuickKey() = 0;
 

@@ -12,6 +12,8 @@ local CATEGORY_ORDER = {
 }
 
 local COMMANDS = {
+    {id="hotbar",category="General",usage="/hotbar",summary="Open the item palette and assign hotbar shortcuts."},
+    {id="voicelines",category="Voice",usage="/voicelines",summary="Browse, preview and bind your available /s voice lines."},
     {
         id = "appearance",
         category = "General",

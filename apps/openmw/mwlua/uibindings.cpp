@@ -85,7 +85,25 @@ namespace MWLua
             luaManager->addAction([state] { MWBase::Environment::get().getWindowManager()->setHudVisibility(state); });
         };
         api["_isHudVisible"] = []() -> bool { return MWBase::Environment::get().getWindowManager()->isHudVisible(); };
+        if (!menu)
+        {
+            api["getDraggedItem"] = [windowManager]() -> sol::optional<LObject> {
+                const auto item = windowManager->getDraggedItem();
+                return item.isEmpty() ? sol::nullopt : sol::optional<LObject>(LObject(item));
+            };
+            api["cancelItemDrag"] = [windowManager, luaManager = context.mLuaManager](LObject expected) {
+                luaManager->addAction([windowManager, expected] { windowManager->cancelItemDrag(expected.ptr()); });
+            };
+            api["setQuickKeysEnabled"] = [windowManager, luaManager = context.mLuaManager](bool enabled) {
+                luaManager->addAction([windowManager, enabled] { windowManager->setQuickKeysEnabled(enabled); });
+            };
+        }
         api["_getDefaultFontSize"] = []() -> int { return Settings::gui().mFontSize; };
+        api["getMousePosition"] = [windowManager]() {
+            int x = 0, y = 0;
+            windowManager->getMousePosition(x, y);
+            return osg::Vec2f(x, y);
+        };
         api["showMessage"]
             = [luaManager = context.mLuaManager](std::string_view message, const sol::optional<sol::table>& options) {
                   MWGui::ShowInDialogueMode mode = MWGui::ShowInDialogueMode_IfPossible;

@@ -20,6 +20,7 @@ API.VERSION = 1
 
 function API.resolveInventoryDropTarget(windowType, target, position)
     if not mp.isConnected() then return target end
+    if I.FetcherHotkeys and I.FetcherHotkeys.acceptItemDrop(position) then return nil end
     local pickpocket = windowManager.ctx.pickpocket
     return resolveDropTarget(I.UI.getMode(), pickpocket and pickpocket.active,
         windowManager.windows, windowType, target, position)

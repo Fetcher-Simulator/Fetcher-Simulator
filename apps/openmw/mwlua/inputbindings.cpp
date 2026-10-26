@@ -231,6 +231,7 @@ namespace MWLua
             else
                 return false;
         };
+        api["isTextInputActive"] = []() -> bool { return SDL_IsTextInputActive() == SDL_TRUE; };
         api["isShiftPressed"] = []() -> bool { return SDL_GetModState() & KMOD_SHIFT; };
         api["isCtrlPressed"] = []() -> bool { return SDL_GetModState() & KMOD_CTRL; };
         api["isAltPressed"] = []() -> bool { return SDL_GetModState() & KMOD_ALT; };

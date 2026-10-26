@@ -2,6 +2,12 @@
 -- Controls user interface.
 -- @context menu|player
 -- @module ui
+--
+-- Multiplayer hotbar helpers (API 143): player scripts can read
+-- `getDraggedItem()` and call `cancelItemDrag(expectedItem)` to assign an owned
+-- inventory stack without transferring it. `setQuickKeysEnabled(false)` suppresses
+-- native quick-key activation until re-enabled or the world is cleared.
+-- `getMousePosition()` returns the pointer in GUI pixels, including captured drags.
 -- @usage
 -- local ui = require('openmw.ui')
 

@@ -5,6 +5,9 @@
 -- Prefer to use built-in methods of binding actions, such as the [inputBinding setting renderer](setting_renderers.html#inputbinding)
 -- @context menu|player
 -- @module input
+--
+-- `isTextInputActive()` reports native chat/text entry (API 143). Direct-key
+-- gameplay bindings should check this as well as the current Lua UI mode.
 -- @usage local input = require('openmw.input')
 -- -- Example of Action usage
 -- input.registerAction {

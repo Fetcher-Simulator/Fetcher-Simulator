@@ -468,6 +468,40 @@ local function sendSpeechHelp(player)
     player:sendMessage("Valid speech: " .. printableValidList(player))
 end
 
+-- The GUI and hotbar use exactly the same resolver as /s, including fallback
+-- races and duplicate-ID precedence. No client-supplied path is trusted.
+function M.catalogue(player)
+    local result, seen = {}, {}
+    local function add(kind, index, path)
+        local resolved = resolveSpeechPath(player, kind, tostring(index))
+        if not resolved or resolved ~= path then return end
+        local id = clientVoicePath(path):gsub('\\', '/'):lower()
+        if seen[id] then return end
+        seen[id] = true
+        result[#result + 1] = {id=id, path=id, label=kind .. ' ' .. tostring(index),
+            category=kind, command='/s ' .. kind .. ' ' .. tostring(index)}
+    end
+    local race, gender = playerRace(player), playerGender(player)
+    local raceData = speechData.races[race] or {}
+    for collection, genders in pairs(raceData) do
+        for kind, entries in pairs(genders[gender] or {}) do
+            for _, entry in ipairs(entries) do
+                add(collection == 'default' and kind or collection .. '_' .. kind, entry[1], entry[2])
+            end
+        end
+    end
+    for _, data in ipairs(EXTENDED_SPEECH_DATA) do
+        for kind, entries in pairs((data.races[race] or {})[gender] or {}) do
+            for _, entry in ipairs(entries) do add(kind, entry[1], entry[2]) end
+        end
+    end
+    for kind, entries in pairs(speechData.global or {}) do
+        for index, entry in ipairs(entries) do add(kind, index, entry[2]) end
+    end
+    table.sort(result, function(a,b) return a.label < b.label end)
+    return result
+end
+
 function M.handleChat(player, data, env)
     local commandPrefix = env.commandPrefix or "/"
     local msg = data.message or ""

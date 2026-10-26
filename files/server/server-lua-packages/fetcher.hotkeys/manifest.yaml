@@ -1,0 +1,18 @@
+manifestVersion: 3
+packageId: fetcher.hotkeys
+packageVersion: 1
+requiredOpenMWLuaApi: 143
+requiredMultiplayerLuaApi: 12
+dependencies: []
+files:
+  - shared/model.lua
+  - client/global.lua
+  - client/player.lua
+  - client/style.lua
+  - client/view.lua
+  - client/settings.lua
+scripts:
+  - path: client/global.lua
+    flags: [global]
+  - path: client/player.lua
+    flags: [player]

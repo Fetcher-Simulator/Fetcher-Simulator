@@ -1,7 +1,7 @@
 manifestVersion: 3
 packageId: fetcher.character-appearance
 packageVersion: 6
-requiredOpenMWLuaApi: 142
+requiredOpenMWLuaApi: 143
 requiredMultiplayerLuaApi: 12
 dependencies: []
 files:

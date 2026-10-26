@@ -36,7 +36,7 @@ cannot overwrite a confirmed edit. Camera/UI changes affect only the editing cli
 
 ## Installation
 
-Use matching native client/server builds with OpenMW Lua API **142**. This package
+Use matching native client/server builds with OpenMW Lua API **143**. This package
 needs the new player preview API, body-part slot metadata and server appearance API.
 
 1. Install this folder as `server-lua-packages/fetcher.character-appearance`.
@@ -50,7 +50,7 @@ needs the new player preview API, body-part slot metadata and server appearance 
    delivers the package automatically; players do not install a separate Lua mod.
 
 Existing server packages pin the exact OpenMW Lua revision. Update their
-`requiredOpenMWLuaApi` to 142 when upgrading the matching client/server build;
+`requiredOpenMWLuaApi` to 143 when upgrading the matching client/server build;
 the bundled package manifests already use that revision.
 
 The dedicated-server script owns sessions and saves. The automatically delivered

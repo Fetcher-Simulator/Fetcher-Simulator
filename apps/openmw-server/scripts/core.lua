@@ -1813,6 +1813,11 @@ local function handleChat(player, data)
             return appearanceHandled
         end
 
+        local hotkeysHandled = callOptional("hotkeysCommands", "handleChat", player, data, {
+            commandPrefix = COMMAND_PREFIX,
+        })
+        if hotkeysHandled ~= nil then return hotkeysHandled end
+
         local speechHandled = callOptional("speechCommands", "handleChat", player, data, {
             commandPrefix = COMMAND_PREFIX,
             parseCommandArgs = parseCommandArgs,
