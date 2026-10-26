@@ -36,7 +36,10 @@ function E:button(caption,x,y,width,fn)
     local function colour(hover)
         if self.closed then return end
         state.hover=hover
-        state.element.layout.content[1].props.textColor=not state.enabled and Style.disabled or hover and Style.header or Style.normal
+        local props=state.element.layout.content[1].props
+        if caption=='<' or caption=='>' then
+            props.color=util.color.rgb(1,1,1);props.alpha=state.enabled and (hover and 1 or .85) or .35
+        else props.textColor=not state.enabled and Style.disabled or hover and Style.header or Style.normal end
         state.element:update()
     end
     layout.events={mouseClick=callback(function() if not self.closed and state.enabled then fn() end end),
@@ -86,7 +89,7 @@ function E.new(catalogue,selection,save,cancel)
             mouseRelease=callback(function() self:dragEnd() end),
             focusGain=callback(function() self:area('preview') end)}}
         local content={Style.frame(0,0,self.width,self.height,true),
-            Style.label('Character Appearance',16,16,self.width-32,19,true),
+            Style.title('Character Appearance',8,8,self.width-16,28,19),
             Style.label('Preview your changes, then Apply to save.',16,49,self.width-32,14)}
         local function field(key,title,y,entries,choose)
             self.choices[key]={entries=entries,choose=choose}

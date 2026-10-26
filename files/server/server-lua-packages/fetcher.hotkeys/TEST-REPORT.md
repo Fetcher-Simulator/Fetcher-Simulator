@@ -28,3 +28,13 @@
   `fetcher.hotkeys`. Public client releases and both VPS servers were unchanged.
 
 Detailed local logs and JSON results are under `build/hotkeys-qa/` (ignored).
+
+## Window texture update — 2026-10-26
+
+Hotkeys v2 adds inventory/chat title blocks to browser windows, matching filled
+scrollbar handles and options-menu arrow icons. The HUD retains its plain label
+without a textured title bar. Appearance v7 uses the same window/scrollbar/arrow
+assets. All 473 hotkey and 255 appearance checks pass. Native integration opened
+both browsers and the appearance editor without Lua or missing-texture errors;
+the final HUD-only title-bar removal also passed the existing hotbar checks.
+One unrelated RigGeometry/skeleton warning occurred during character loading.

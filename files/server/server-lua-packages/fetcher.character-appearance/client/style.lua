@@ -26,9 +26,39 @@ local textures={}
 for _,name in ipairs({'top','bottom','left','right','top_left_corner','top_right_corner','bottom_left_corner','bottom_right_corner'}) do
     textures[name]=ui.texture{path='textures/menu_button_frame_'..name..'.dds'}
 end
+local head={}
+for _,name in ipairs({'middle','top','bottom','left','right','top_left_corner','top_right_corner','bottom_left_corner','bottom_right_corner'}) do
+    head[name]=ui.texture{path='textures/menu_head_block_'..name..'.dds'}
+end
+-- The inventory/chat caption's filled head blocks, with fixed edges and tiled
+-- centres. Relative pieces also follow scrollbar handles as their height changes.
+function S.filled(x,y,w,h)
+    local pieces={{'middle',2,2,-4,-4,0,0,1,1,true,true},
+        {'top',2,0,-4,2,0,0,1,0,true,false},{'bottom',2,-2,-4,2,0,1,1,0,true,false},
+        {'left',0,2,2,-4,0,0,0,1,false,true},{'right',-2,2,2,-4,1,0,0,1,false,true},
+        {'top_left_corner',0,0,2,2,0,0,0,0},{'top_right_corner',-2,0,2,2,1,0,0,0},
+        {'bottom_left_corner',0,-2,2,2,0,1,0,0},{'bottom_right_corner',-2,-2,2,2,1,1,0,0}}
+    local content={}
+    for _,p in ipairs(pieces) do content[#content+1]={type=ui.TYPE.Image,props={
+        position=v(p[2],p[3]),size=v(p[4],p[5]),relativePosition=v(p[6],p[7]),relativeSize=v(p[8],p[9]),
+        resource=head[p[1]],tileH=p[10] or false,tileV=p[11] or false}} end
+    return {type=ui.TYPE.Widget,props={position=v(x,y),size=v(w,h)},content=ui.content(content)}
+end
+function S.title(caption,x,y,w,h,textSize)
+    local left,right=S.filled(0,0,4,h),S.filled(0,0,4,h)
+    left.external={grow=1};right.external={grow=1}
+    local gap={type=ui.TYPE.Widget,props={size=v(8,h)}}
+    local text={template=S.templates.textHeader,props={text=caption,textSize=textSize or 18,autoSize=true}}
+    return {type=ui.TYPE.Flex,props={position=v(x,y),size=v(w,h),horizontal=true,autoSize=false,arrange=ui.ALIGNMENT.Center},
+        content=ui.content{left,gap,text,{type=ui.TYPE.Widget,props={size=v(8,h)}},right}}
+end
+local arrows={['<']=ui.texture{path='textures/omw_menu_scroll_left.dds'},
+    ['>']=ui.texture{path='textures/omw_menu_scroll_right.dds'}}
 function S.button(caption,x,y,w,h)
     local text=S.label(caption,6,math.floor((h-20)/2),w-12,16)
     text.props.textAlignH=ui.ALIGNMENT.Center
+    if arrows[caption] then text={type=ui.TYPE.Image,props={position=v(math.floor((w-12)/2),math.floor((h-12)/2)),
+        size=v(12,12),resource=arrows[caption]}} end
     local content={text}
     local pieces={{'top',4,0,w-8,4,true,false},{'bottom',4,h-4,w-8,4,true,false},
         {'left',0,4,4,h-8,false,true},{'right',w-4,4,4,h-8,false,true},

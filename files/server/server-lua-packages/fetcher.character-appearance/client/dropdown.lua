@@ -31,7 +31,7 @@ function D.open(owner,entries,selected,choose,y)
     local width=owner.width-32
     local height=340
     self.y=math.max(12,math.min(y,owner.height-height-12))
-    local content={Style.frame(0,0,width,height,true),label('Search / scroll to select',12,8,width-24),
+    local content={Style.frame(0,0,width,height,true),Style.title('Search / scroll to select',8,6,width-16,24,15),
         Style.frame(12,35,width-24,28)}
     self.search=element{template=Style.templates.textEditLine,
         props={position=v(17,39),size=v(width-34,21),text='',textSize=15,autoSize=false},
@@ -66,7 +66,7 @@ function D.open(owner,entries,selected,choose,y)
     end
     local events={mousePress=callback(function(e) if e.button==1 then drag(e,true) end end),
         mouseMove=callback(function(e) if e.button==1 then drag(e,false) end end)}
-    local thumb={type=ui.TYPE.Widget,template=Style.templates.borders,props={position=v(0,0),size=v(15,30)},events=events}
+    local thumb=Style.filled(0,0,15,30);thumb.events=events
     self.thumb=element(thumb)
     local bar=Style.image(width-29,72,15,224,row);bar.events=events;bar.content=ui.content{self.thumb}
     content[#content+1]=bar

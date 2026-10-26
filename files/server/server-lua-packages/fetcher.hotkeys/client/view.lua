@@ -76,7 +76,7 @@ function V:buildBrowser()
     local height=math.min(640,screen.y-145)
     self.rowCount=math.max(3,math.floor((height-205)/30))
     self.bx=math.floor((screen.x-width)/2);self.by=math.max(10,math.floor((screen.y-height-105)/2))
-    local content={S.frame(0,0,width,height,true),S.label(self.mode=='voices' and 'Voice lines' or 'Hotbar items',18,12,width-36,22,true),
+    local content={S.frame(0,0,width,height,true),S.title(self.mode=='voices' and 'Voice lines' or 'Hotbar items',8,8,width-16,28,20),
         S.label('Drag an entry to a slot. Click its x to clear it.',18,46,width-36),S.frame(18,75,width-36,29)}
     local function element(layout)
         local e=ui.create(layout);self.children[#self.children+1]=e;return e
@@ -116,7 +116,7 @@ function V:buildBrowser()
     end
     local events={mousePress=cb(function(e) scroll(e,true) end),mouseMove=cb(function(e) scroll(e,false) end),
         focusGain=cb(function() self.overList=true end),focusLoss=cb(function() self.overList=false end)}
-    self.thumb=element{template=S.templates.borders,type=ui.TYPE.Widget,props={size=v(15,22)},events=events}
+    local thumb=S.filled(0,0,15,22);thumb.events=events;self.thumb=element(thumb)
     local track=S.image(width-35,116,15,trackHeight,util.color.rgb(0,0,0));track.events=events;track.content=ui.content{self.thumb};content[#content+1]=track
     local y=116+trackHeight+5
     self.detail=element(S.label('',18,y,width-36,14));self.detail.layout.props.size=v(width-36,44);content[#content+1]=self.detail

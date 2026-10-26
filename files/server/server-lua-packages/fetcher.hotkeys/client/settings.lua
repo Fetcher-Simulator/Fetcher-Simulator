@@ -25,7 +25,7 @@ function M:save()
 end
 function M:draw()
     local c=self.config
-    local content={S.label('Fetcher Hotkeys',10,6,660,20,true),
+    local content={S.title('Fetcher Hotkeys',10,6,660,25,20),
         S.label('Assignments are saved per character on this server.',10,37,660),
         S.label('Hold a two-key combination to show base page +1 or +2.',10,64,660),
         S.label('Release it to return. Pages wrap; +2 wins if both are held.',10,89,660)}
