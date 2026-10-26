@@ -546,6 +546,7 @@ void PlayerSync::forceFullSync(bool includeInventoryAndEquipment, bool includeSp
                 const ESM::NPC* npcBase = npcRef->mBase;
                 mLocal.race     = npcBase->mRace.serializeText();
                 mLocal.headMesh = npcBase->mHead.serializeText();
+                mLocal.appearance = npcBase->mAppearance;
                 mLocal.hairMesh = npcBase->mHair.serializeText();
                 mLocal.isMale   = npcBase->isMale();
             }

@@ -31,6 +31,11 @@ namespace MWLua
         sol::table parts = lua.create_table();
         parts["Head"] = ESM::BodyPart::MP_Head;
         parts["Hair"] = ESM::BodyPart::MP_Hair;
+        const char* names[] = { "Head", "Hair", "Neck", "Chest", "Groin", "Hand", "Wrist", "Forearm", "Upperarm",
+            "Foot", "Ankle", "Knee", "Upperleg", "Clavicle", "Tail" };
+        for (int i = 2; i < ESM::BodyPart::MP_Count; ++i)
+            parts[names[i]] = i;
+        record["isFirstPerson"] = sol::readonly_property(&ESM::isFirstPersonBodyPart);
         bodypart["PART"] = LuaUtil::makeStrictReadOnly(parts);
         record["isFemale"] = sol::readonly_property(
             [](const ESM::BodyPart& rec) -> bool { return rec.mData.mFlags & ESM::BodyPart::BPF_Female; });

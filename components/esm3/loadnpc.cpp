@@ -33,6 +33,7 @@ namespace ESM
 
     void NPC::load(ESMReader& esm, bool& isDeleted)
     {
+        mAppearance = {};
         isDeleted = false;
         mRecordFlags = esm.getRecordFlags();
 
@@ -202,6 +203,7 @@ namespace ESM
 
     void NPC::blank()
     {
+        mAppearance = {};
         mRecordFlags = 0;
         mNpdtType = NPC_DEFAULT;
         blankNpdt();

@@ -5,6 +5,9 @@
 #include <cctype>
 #include <components/debug/debuglog.hpp>
 #include <components/openmw-mp/SpellbookSync.hpp>
+#include <iomanip>
+#include <sstream>
+#include <components/openmw-mp/PlayerAppearance.hpp>
 #include <sqlite3.h>
 
 #include <ctime>
@@ -550,6 +553,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
         "  label TEXT NOT NULL DEFAULT '',"
         "  created_at INTEGER NOT NULL DEFAULT 0)",
         "CREATE INDEX IF NOT EXISTS idx_keypairs_account ON account_keypairs(account_id)",
+        "ALTER TABLE characters ADD COLUMN appearance TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE characters ADD COLUMN nickname TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE characters ADD COLUMN inventory_saved INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE characters ADD COLUMN equipment_saved INTEGER NOT NULL DEFAULT 0",
@@ -1224,7 +1228,7 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
             "SELECT id, name, cell, pos_x, pos_y, pos_z, rot_x, rot_y, rot_z, is_new,"
             " race, head_mesh, hair_mesh, is_male, class_id, class_name, birth_sign, class_data, nickname,"
             " inventory_saved, equipment_saved, stats_saved,"
-            " spellbook_saved"
+            " spellbook_saved, appearance"
             " FROM characters WHERE account_id = ?1 AND name = ?2 LIMIT 1");
         sqlite3_bind_int64(s, 1, accountId);
         sqlite3_bind_text(s, 2, charName.data(), static_cast<int>(charName.size()), SQLITE_STATIC);
@@ -1264,7 +1268,36 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
         rec.hasSavedEquipment = sqlite3_column_int(s, 20) != 0;
         rec.hasSavedStats = sqlite3_column_int(s, 21) != 0;
         rec.hasSavedSpellbook = sqlite3_column_int(s, 22) != 0;
+        const std::string encodedAppearance = col(23);
         sqlite3_finalize(s);
+        if (!encodedAppearance.empty())
+        {
+            std::istringstream input(encodedAppearance);
+            int version = 0, rig = 0, tail = 0;
+            ESM::NpcAppearance appearance;
+            std::string partId;
+            bool valid = encodedAppearance.size() <= 9000 && bool(input >> version >> rig >> tail) && version == 1
+                && rig >= 0 && rig <= 2 && (tail == 0 || tail == 1);
+            auto readId = [&]() {
+                if (!(input >> std::quoted(partId)) || !validAppearanceId(partId, true))
+                    valid = false;
+                return valid ? ESM::RefId::deserializeText(partId) : ESM::RefId();
+            };
+            if (valid)
+            {
+                appearance.animationRig = static_cast<uint8_t>(rig);
+                appearance.tail = tail != 0;
+                appearance.bodyRace = readId();
+                for (auto& part : appearance.parts)
+                    part = readId();
+                input >> std::ws;
+                valid = valid && input.eof();
+            }
+            if (valid)
+                rec.appearance = std::move(appearance);
+            else
+                Log(Debug::Warning) << "[PlayerDB] Ignoring invalid appearance for character " << rec.characterId;
+        }
         return rec;
     }
 
@@ -1344,15 +1377,23 @@ CREATE TABLE IF NOT EXISTS character_werewolf_state (
                          << " class=" << classId << " birthSign=" << birthSign;
     }
 
-    bool PlayerDatabase::saveCharacterAppearance(
-        int64_t characterId, const std::string& race, const std::string& head, const std::string& hair, bool isMale)
+    bool PlayerDatabase::saveCharacterAppearance(int64_t characterId, const std::string& race, const std::string& head,
+        const std::string& hair, bool isMale, const ESM::NpcAppearance& appearance)
     {
-        sqlite3_stmt* s = prepare("UPDATE characters SET race=?1, head_mesh=?2, hair_mesh=?3, is_male=?4 WHERE id=?5");
+        sqlite3_stmt* s = prepare(
+            "UPDATE characters SET race=?1, head_mesh=?2, hair_mesh=?3, is_male=?4, appearance=?6 WHERE id=?5");
         sqlite3_bind_text(s, 1, race.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(s, 2, head.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(s, 3, hair.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_int(s, 4, isMale ? 1 : 0);
         sqlite3_bind_int64(s, 5, characterId);
+        std::ostringstream data;
+        data << "1 " << static_cast<int>(appearance.animationRig) << ' ' << (appearance.tail ? 1 : 0) << ' '
+             << std::quoted(appearance.bodyRace.serializeText());
+        for (const auto& part : appearance.parts)
+            data << ' ' << std::quoted(part.serializeText());
+        const std::string encoded = data.str();
+        sqlite3_bind_text(s, 6, encoded.c_str(), -1, SQLITE_TRANSIENT);
         const int rc = sqlite3_step(s);
         sqlite3_finalize(s);
         checkSqlite(rc, mDb, "saveCharacterAppearance");

@@ -22,6 +22,11 @@ namespace mwmp
             ws.writeString(mPlayer->headMesh);
             ws.writeString(mPlayer->hairMesh);
             ws.write(mPlayer->isMale);
+            ws.writeString(mPlayer->appearance.bodyRace.serializeText());
+            ws.write(mPlayer->appearance.animationRig);
+            ws.write(mPlayer->appearance.tail);
+            for (const auto& part : mPlayer->appearance.parts)
+                ws.writeString(part.serializeText());
             ws.write(mPlayer->scale);
             // Class
             ws.writeString(mPlayer->charClass.mId.serializeText());
@@ -36,6 +41,11 @@ namespace mwmp
             mPlayer->headMesh = rs.readString();
             mPlayer->hairMesh = rs.readString();
             rs.read(mPlayer->isMale);
+            mPlayer->appearance.bodyRace = ESM::RefId::deserializeText(rs.readString());
+            rs.read(mPlayer->appearance.animationRig);
+            rs.read(mPlayer->appearance.tail);
+            for (auto& part : mPlayer->appearance.parts)
+                part = ESM::RefId::deserializeText(rs.readString());
             rs.read(mPlayer->scale);
             mPlayer->charClass.mId = ESM::RefId::deserializeText(rs.readString());
             mPlayer->charClass.mName = rs.readString();

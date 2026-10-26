@@ -1,6 +1,7 @@
 #ifndef OPENMW_MP_BASEPLAYER_HPP
 #define OPENMW_MP_BASEPLAYER_HPP
 
+#include <components/esm3/npcappearance.hpp>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -75,6 +76,7 @@ namespace mwmp
         // ------------------------------------------------------------------
         std::string race;
         std::string headMesh;
+        ESM::NpcAppearance appearance;
         std::string hairMesh;
         bool        isMale     = true;
         bool        isVampire  = false;

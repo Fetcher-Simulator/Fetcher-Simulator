@@ -1,5 +1,6 @@
 #include "PlayerBindings.hpp"
 
+#include <components/lua/appearance.hpp>
 #include <components/lua/luastate.hpp>
 #include <sol/sol.hpp>
 
@@ -211,42 +212,30 @@ void initPlayerBindings(LuaUtil::LuaView& view, sol::table& mp, LuaServerContext
 {
     sol::state_view& lua = view.sol();
 
-    lua.new_usertype<ScriptPlayer>("Player",
-        sol::no_constructor,
+    lua.new_usertype<ScriptPlayer>("Player", sol::no_constructor,
 
-        "name",     sol::property(&scriptPlayer_getName),
-        "guid",     sol::property(&scriptPlayer_getGuid),
-        "characterId", sol::property([](const ScriptPlayer& p) { return p.data.dbCharacterId; }),
-        "health", sol::property([](const ScriptPlayer& p) { return p.data.dynamicStats.health.current; }),
-        "cell",     sol::property(&scriptPlayer_getCell),
-        "loadedActorCells", sol::property(&scriptPlayer_getLoadedActorCells),
-        "position", sol::property(&scriptPlayer_getPosition),
-        "crimeState", sol::property(&scriptPlayer_getCrimeState),
-        "factionState", sol::property(&scriptPlayer_getFactionState),
-        "race",     sol::property(&scriptPlayer_getRace),
-        "head", sol::property([](const ScriptPlayer& p) { return p.data.head; }),
-        "hair", sol::property([](const ScriptPlayer& p) { return p.data.hair; }),
-        "charGenComplete", sol::property([](const ScriptPlayer& p) { return p.data.charGenComplete; }),
-        "isMale",   sol::property(&scriptPlayer_getIsMale),
-        "gender",   sol::property(&scriptPlayer_getGender),
+        "name", sol::property(&scriptPlayer_getName), "guid", sol::property(&scriptPlayer_getGuid), "characterId",
+        sol::property([](const ScriptPlayer& p) { return p.data.dbCharacterId; }), "health",
+        sol::property([](const ScriptPlayer& p) { return p.data.dynamicStats.health.current; }), "cell",
+        sol::property(&scriptPlayer_getCell), "loadedActorCells", sol::property(&scriptPlayer_getLoadedActorCells),
+        "position", sol::property(&scriptPlayer_getPosition), "crimeState", sol::property(&scriptPlayer_getCrimeState),
+        "factionState", sol::property(&scriptPlayer_getFactionState), "race", sol::property(&scriptPlayer_getRace),
+        "appearance", sol::property([](const ScriptPlayer& p, sol::this_state ts) {
+            return LuaUtil::appearanceBodyTable(p.data.appearance, ts);
+        }),
+        "head", sol::property([](const ScriptPlayer& p) { return p.data.head; }), "hair",
+        sol::property([](const ScriptPlayer& p) { return p.data.hair; }), "charGenComplete",
+        sol::property([](const ScriptPlayer& p) { return p.data.charGenComplete; }), "isMale",
+        sol::property(&scriptPlayer_getIsMale), "gender", sol::property(&scriptPlayer_getGender),
 
-        "sendMessage", &scriptPlayer_sendMessage,
-        "kick",        &scriptPlayer_kick,
-        "setData",       &scriptPlayer_setData,
-        "getData",       &scriptPlayer_getData,
-        "getNickname",   &scriptPlayer_getNickname,
-        "setNickname",   &scriptPlayer_setNickname,
-        "setBounty",     &scriptPlayer_setBounty,
-        "modifyBounty",  &scriptPlayer_modifyBounty,
-        "joinFaction", &scriptPlayer_joinFaction,
-        "leaveFaction", &scriptPlayer_leaveFaction,
-        "setFactionRank", &scriptPlayer_setFactionRank,
-        "modifyFactionRank", &scriptPlayer_modifyFactionRank,
-        "setFactionReputation", &scriptPlayer_setFactionReputation,
-        "modifyFactionReputation", &scriptPlayer_modifyFactionReputation,
-        "expelFromFaction", &scriptPlayer_expelFromFaction,
-        "clearFactionExpulsion", &scriptPlayer_clearFactionExpulsion
-    );
+        "sendMessage", &scriptPlayer_sendMessage, "kick", &scriptPlayer_kick, "setData", &scriptPlayer_setData,
+        "getData", &scriptPlayer_getData, "getNickname", &scriptPlayer_getNickname, "setNickname",
+        &scriptPlayer_setNickname, "setBounty", &scriptPlayer_setBounty, "modifyBounty", &scriptPlayer_modifyBounty,
+        "joinFaction", &scriptPlayer_joinFaction, "leaveFaction", &scriptPlayer_leaveFaction, "setFactionRank",
+        &scriptPlayer_setFactionRank, "modifyFactionRank", &scriptPlayer_modifyFactionRank, "setFactionReputation",
+        &scriptPlayer_setFactionReputation, "modifyFactionReputation", &scriptPlayer_modifyFactionReputation,
+        "expelFromFaction", &scriptPlayer_expelFromFaction, "clearFactionExpulsion",
+        &scriptPlayer_clearFactionExpulsion);
 
     mp.set_function("getPlayer", [context](uint32_t guid) -> sol::optional<ScriptPlayer>
     {
@@ -260,6 +249,7 @@ void initPlayerBindings(LuaUtil::LuaView& view, sol::table& mp, LuaServerContext
         = [](const ScriptPlayer& player, const sol::table& selection, const std::string& requestId) {
               PlayerAppearance value{ selection["race"].get<std::string>(), selection["head"].get<std::string>(),
                   selection["hair"].get<std::string>(), selection["isMale"].get<bool>() };
+              value.body = LuaUtil::readAppearanceBody(selection);
               if (!player.context || player.data.dbCharacterId <= 0 || !player.data.charGenComplete || requestId.empty()
                   || requestId.size() > 64 || !validAppearanceId(value.race) || !validAppearanceId(value.head)
                   || !validAppearanceId(value.hair, true))

@@ -138,7 +138,7 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryExtenderFixBootstrapsBarterBefore
 {
     const auto root = std::filesystem::path{ OPENMW_PROJECT_SOURCE_DIR }
         / "files" / "server" / "server-lua-packages";
-    mwmp::ServerLuaPackageRegistry registry(root, 143);
+    mwmp::ServerLuaPackageRegistry registry(root, 144);
     const auto packageIt = std::find_if(registry.packageSet().packages.begin(), registry.packageSet().packages.end(),
         [](const auto& package) { return package.packageId == "fetcher.inventoryextender-fix"; });
     ASSERT_NE(packageIt, registry.packageSet().packages.end());
@@ -218,7 +218,7 @@ TEST(ServerLuaPackageRegistry, ShippedInventoryCameraDefaultsDisabled)
 {
     const auto root = std::filesystem::path{ OPENMW_PROJECT_SOURCE_DIR }
         / "files" / "server" / "server-lua-packages";
-    mwmp::ServerLuaPackageRegistry registry(root, 143);
+    mwmp::ServerLuaPackageRegistry registry(root, 144);
     const auto packageIt = std::find_if(registry.packageSet().packages.begin(), registry.packageSet().packages.end(),
         [](const auto& package) { return package.packageId == "fetcher.inventorycamera-defaults"; });
     ASSERT_NE(packageIt, registry.packageSet().packages.end());
@@ -251,7 +251,7 @@ TEST(ServerLuaPackageRegistry, ShippedArrowStickUsesAuthoritativeProjectileRecov
 {
     const auto root = std::filesystem::path{ OPENMW_PROJECT_SOURCE_DIR }
         / "files" / "server" / "server-lua-packages";
-    mwmp::ServerLuaPackageRegistry registry(root, 143);
+    mwmp::ServerLuaPackageRegistry registry(root, 144);
     const auto packageIt = std::find_if(registry.packageSet().packages.begin(), registry.packageSet().packages.end(),
         [](const auto& package) { return package.packageId == "fetcher.arrowstick-mp-fix"; });
     ASSERT_NE(packageIt, registry.packageSet().packages.end());
@@ -278,7 +278,7 @@ TEST(ServerLuaPackageRegistry, ShippedSetBonusFixUsesAuthoritativeSpellRecords)
 {
     const auto root = std::filesystem::path{ OPENMW_PROJECT_SOURCE_DIR }
         / "files" / "server" / "server-lua-packages";
-    mwmp::ServerLuaPackageRegistry registry(root, 143);
+    mwmp::ServerLuaPackageRegistry registry(root, 144);
     const auto packageIt = std::find_if(registry.packageSet().packages.begin(), registry.packageSet().packages.end(),
         [](const auto& package) { return package.packageId == "fetcher.setbonus-mp-fix"; });
     ASSERT_NE(packageIt, registry.packageSet().packages.end());

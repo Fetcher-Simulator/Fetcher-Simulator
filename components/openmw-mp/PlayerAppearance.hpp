@@ -1,6 +1,7 @@
 #ifndef OPENMW_MP_PLAYERAPPEARANCE_HPP
 #define OPENMW_MP_PLAYERAPPEARANCE_HPP
 
+#include <components/esm3/npcappearance.hpp>
 #include <components/esm3/loadbody.hpp>
 #include <string>
 
@@ -12,6 +13,7 @@ namespace mwmp
         std::string head;
         std::string hair;
         bool isMale = true;
+        ESM::NpcAppearance body;
     };
 
     inline bool validAppearancePart(const ESM::BodyPart& part, ESM::BodyPart::MeshPart kind)

@@ -60,6 +60,7 @@ namespace mwmp
         // Chargen result — populated once isNew becomes false
         std::string race;
         std::string headMesh;
+        ESM::NpcAppearance appearance;
         std::string hairMesh;
         bool        isMale    = true;
         std::string classId;
@@ -567,7 +568,7 @@ namespace mwmp
         void markChargenComplete(int64_t characterId);
         /// Cosmetic edit only: preserve class, birthsign, stats and all other character data.
         bool saveCharacterAppearance(int64_t characterId, const std::string& race, const std::string& head,
-            const std::string& hair, bool isMale);
+            const std::string& hair, bool isMale, const ESM::NpcAppearance& appearance = {});
 
         /// Update last_seen timestamp.
         void touch(int64_t characterId);

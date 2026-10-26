@@ -79,6 +79,7 @@ namespace LuaUi
         MyGUI::IntCoord calculateCoord() const;
 
         virtual bool isTextInput() { return false; }
+        virtual MyGUI::Widget* keyFocusWidget() { return widget(); }
         bool collectWarnings(Warnings& warnings, int depth, bool generateWarningStrings) const;
         std::string diagnosticName() const;
 

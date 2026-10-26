@@ -344,6 +344,7 @@ namespace mwmp
         // Chargen restore — only meaningful when isNewCharacter=false
         std::string race;
         std::string headMesh;
+        ESM::NpcAppearance appearance;
         std::string hairMesh;
         bool        isMale     = true;
         std::string classId;
@@ -414,6 +415,11 @@ namespace mwmp
             ws.writeString(headMesh);
             ws.writeString(hairMesh);
             ws.write(isMale);
+            ws.writeString(appearance.bodyRace.serializeText());
+            ws.write(appearance.animationRig);
+            ws.write(appearance.tail);
+            for (const auto& part : appearance.parts)
+                ws.writeString(part.serializeText());
             ws.writeString(classId);
             ws.writeString(className);
             ws.writeString(birthSign);
@@ -443,6 +449,11 @@ namespace mwmp
             headMesh   = rs.readString();
             hairMesh   = rs.readString();
             rs.read(isMale);
+            appearance.bodyRace = ESM::RefId::deserializeText(rs.readString());
+            rs.read(appearance.animationRig);
+            rs.read(appearance.tail);
+            for (auto& part : appearance.parts)
+                part = ESM::RefId::deserializeText(rs.readString());
             classId    = rs.readString();
             className  = rs.readString();
             birthSign  = rs.readString();

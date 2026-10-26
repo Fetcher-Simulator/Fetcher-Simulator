@@ -1,7 +1,7 @@
 manifestVersion: 3
 packageId: fetcher.inventoryextender-fix
 packageVersion: 25
-requiredOpenMWLuaApi: 143
+requiredOpenMWLuaApi: 144
 requiredMultiplayerLuaApi: 10
 dependencies: []
 files:

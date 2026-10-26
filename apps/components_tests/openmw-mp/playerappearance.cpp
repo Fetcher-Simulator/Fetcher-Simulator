@@ -1,4 +1,6 @@
 #include "../../openmw-server/PlayerDatabase.hpp"
+#include <components/openmw-mp/Packets/Player/PacketPlayerBaseInfo.hpp>
+#include <components/openmw-mp/Packets/System/PacketHandshake.hpp>
 #include <chrono>
 #include <components/openmw-mp/PlayerAppearance.hpp>
 #include <filesystem>
@@ -45,6 +47,29 @@ namespace
         EXPECT_FALSE(mwmp::validAppearanceId("head\x7f"));
     }
 
+    TEST(PlayerAppearance, ReplicatesPresentationOnUpdatesAndReconnect)
+    {
+        mwmp::BasePlayer source, target;
+        source.guid = 42;
+        source.race = "breton";
+        source.appearance.bodyRace = ESM::RefId::stringRefId("argonian");
+        source.appearance.animationRig = 2;
+        source.appearance.tail = false;
+        source.appearance.parts[14] = ESM::RefId::stringRefId("custom_tail");
+        mwmp::PacketPlayerBaseInfo outgoing, incoming;
+        outgoing.setPlayer(&source);
+        incoming.setPlayer(&target);
+        const auto bytes = outgoing.encode();
+        ASSERT_TRUE(incoming.decode(bytes.data(), bytes.size()));
+        EXPECT_EQ(target.race, "breton");
+        EXPECT_EQ(target.appearance, source.appearance);
+        mwmp::PacketCharacterData login, restored;
+        login.appearance = source.appearance;
+        const auto reconnect = login.encode();
+        ASSERT_TRUE(restored.decode(reconnect.data(), reconnect.size()));
+        EXPECT_EQ(restored.appearance, source.appearance);
+    }
+
     struct TemporaryAppearanceDatabase
     {
         std::filesystem::path path = std::filesystem::temp_directory_path()
@@ -78,12 +103,23 @@ namespace
             item.count = 2;
             item.instanceId = 42;
             db.saveCharacterInventory(character, { item });
-            EXPECT_TRUE(db.saveCharacterAppearance(character, "new_mod_race", "new_mod_head", "", false));
+            ESM::NpcAppearance appearance;
+            appearance.bodyRace = ESM::RefId::stringRefId("khajiit");
+            appearance.animationRig = 1;
+            appearance.tail = false;
+            appearance.parts[5] = ESM::RefId::stringRefId("argonian_hands");
+            appearance.parts[14] = ESM::RefId::stringRefId("khajiit_tail");
+            EXPECT_TRUE(db.saveCharacterAppearance(character, "new_mod_race", "new_mod_head", "", false, appearance));
             EXPECT_FALSE(db.saveCharacterAppearance(9999999, "new_mod_race", "new_mod_head", "", false));
         }
         mwmp::PlayerDatabase db(temporary.path.string());
         const auto record = db.lookupCharacter(account, "Keep Progress");
         ASSERT_TRUE(record);
+        EXPECT_EQ(record->appearance.bodyRace.serializeText(), "khajiit");
+        EXPECT_EQ(record->appearance.animationRig, 1);
+        EXPECT_FALSE(record->appearance.tail);
+        EXPECT_EQ(record->appearance.parts[5].serializeText(), "argonian_hands");
+        EXPECT_EQ(record->appearance.parts[14].serializeText(), "khajiit_tail");
         EXPECT_EQ(record->race, "new_mod_race");
         EXPECT_EQ(record->headMesh, "new_mod_head");
         EXPECT_TRUE(record->hairMesh.empty());

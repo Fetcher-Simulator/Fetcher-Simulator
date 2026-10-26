@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include <components/lua/appearance.hpp>
 #include <components/esm3/loadbody.hpp>
 #include <components/esm3/loadbsgn.hpp>
 #include <components/esm3/loadfact.hpp>
@@ -384,6 +385,17 @@ namespace MWLua
                 "addJournalEntryAction");
         };
 
+        player["getAppearance"] = [](const Object& object, sol::this_state ts) {
+            verifyPlayer(object);
+            const auto* npc = object.ptr().get<ESM::NPC>()->mBase;
+            auto result = LuaUtil::appearanceBodyTable(npc->mAppearance, ts);
+            result["race"] = npc->mRace.serializeText();
+            result["head"] = npc->mHead.serializeText();
+            result["hair"] = npc->mHair.serializeText();
+            result["isMale"] = npc->isMale();
+            return result;
+        };
+
         player["previewAppearance"] = [context](const Object& object, const sol::object& selection) {
             verifyPlayer(object);
             if (object.isLObject() && !object.isSelfObject())
@@ -397,11 +409,21 @@ namespace MWLua
                 const sol::table table = selection.as<sol::table>();
                 value = mwmp::PlayerAppearance{ table["race"].get<std::string>(), table["head"].get<std::string>(),
                     table["hair"].get<std::string>(), table["isMale"].get<bool>() };
+                value->body = LuaUtil::readAppearanceBody(table);
                 if (!mwmp::validAppearanceId(value->race) || !mwmp::validAppearanceId(value->head)
                     || !mwmp::validAppearanceId(value->hair, true))
                     throw std::runtime_error("Invalid appearance record ID");
                 const auto store = MWBase::Environment::get().getESMStore();
                 store->get<ESM::Race>().find(ESM::RefId::deserializeText(value->race));
+                if (!value->body.bodyRace.empty())
+                    store->get<ESM::Race>().find(value->body.bodyRace);
+                for (size_t i = 2; i < value->body.parts.size(); ++i)
+                    if (!value->body.parts[i].empty())
+                    {
+                        const auto* part = store->get<ESM::BodyPart>().find(value->body.parts[i]);
+                        if (!mwmp::validAppearancePart(*part, static_cast<ESM::BodyPart::MeshPart>(i)))
+                            throw std::runtime_error("Invalid appearance skin part");
+                    }
                 const auto* head = store->get<ESM::BodyPart>().find(ESM::RefId::deserializeText(value->head));
                 if (head->mData.mPart != ESM::BodyPart::MP_Head)
                     throw std::runtime_error("Appearance head must reference a head body part");

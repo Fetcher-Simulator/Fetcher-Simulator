@@ -1,7 +1,7 @@
 # Character appearance editor
 
-A server-distributed Lua package for changing an existing character's race, sex,
-head and hair. Type **`/appearance`** in chat while standing on solid ground and
+A server-distributed Lua package for changing an existing character's identity race,
+body race, sex, head, hair, skin parts, animation rig and tail. Type **`/appearance`** in chat while standing on solid ground and
 outside other menus. The same command closes an open editor; **Escape** also cancels.
 F6 retains its normal chat-display binding.
 The character faces the camera beside a panel styled with Morrowind's MWUI borders,
@@ -29,18 +29,39 @@ hardcoded race/mod list and no fixed number of choices. Dropdowns virtualize eig
 rows, rather than creating one widget per record. Mods must provide normal TES3
 race/body-part records and their assets; model-only transformations are not races.
 
-Changes are cosmetic. The editor preserves attributes, skills, spells, class,
-birthsign, inventory, equipment, saved location and other progression. It does not
-rerun chargen or replace racial bonuses. Previews are local and are excluded from
-outgoing full player syncs. The server validates applied race/body-part IDs against
-its authoritative content, updates only four character columns, and broadcasts the
-confirmed appearance to the owner and other players. Late base-info/chargen packets
-cannot overwrite a confirmed edit. Camera/UI changes affect only the editing client.
+The **Character / Identity** page chooses identity race (voice catalogue and racial
+powers/abilities), sex, head and hair. **Body / Rig** chooses the body race (default
+skin and proportions), automatic/humanoid/beast animation rig, tail visibility,
+and individual skin meshes from any installed playable race/sex. Select a body
+slot, then its skin mesh; Automatic restores that slot's body-race default.
+Hands, arms and legs apply to both sides. Neck, chest, groin and clavicles are also
+available. Equipped armor and clothing retain their normal coverage priorities.
+
+Identity and visual body are independent: a Breton identity can use an Argonian
+body and beast animations. Tail visibility does not create a mesh: choose a tail
+skin explicitly if the body race has none. Tail meshes require a compatible tail
+bone; select Beast rig if a humanoid skeleton lacks one. Mixing meshes from
+different bodies or mods can produce seams/clipping and is not automatic retargeting.
+
+Applying an identity replaces the previous race's powers/abilities, retaining
+shared powers and birthsign powers. Learned spells, earned attributes, skills,
+level, class, birthsign, inventory and equipment are preserved. Character creation
+and starting-stat calculations are not rerun. Previews do not grant racial powers.
+Voice playback remains checked against server-confirmed identity on every use.
+
+Previews are local and excluded from outgoing full player syncs. Cancel restores
+the complete original body, rig and tail as well as race/head/hair. The server
+validates every selected record, mesh kind and model, saves identity and body in
+one character-database update, then broadcasts the result to all clients.
+Reconnects and late joiners receive the same presentation. Unsolicited base-info
+packets cannot overwrite it. Opening clears chat keyboard focus; dropdowns focus
+their search fields and release focus when closed.
 
 ## Installation
 
-Use matching native client/server builds with OpenMW Lua API **143**. This package
-needs the new player preview API, body-part slot metadata and server appearance API.
+Use matching native client/server builds with OpenMW Lua API **144**. This package
+needs the extended player appearance API, body-part slot metadata and server appearance API.
+The multiplayer wire protocol is 25; older native clients cannot join this build.
 
 1. Install this folder as `server-lua-packages/fetcher.character-appearance`.
 2. Install `apps/openmw-server/scripts/character_appearance.lua` in `server-scripts`.
@@ -53,7 +74,7 @@ needs the new player preview API, body-part slot metadata and server appearance 
    delivers the package automatically; players do not install a separate Lua mod.
 
 Existing server packages pin the exact OpenMW Lua revision. Update their
-`requiredOpenMWLuaApi` to 143 when upgrading the matching client/server build;
+`requiredOpenMWLuaApi` to 144 when upgrading the matching client/server build;
 the bundled package manifests already use that revision.
 
 The dedicated-server script owns sessions and saves. The automatically delivered
@@ -63,22 +84,27 @@ No Bardcraft or Studio dependency is required. Set
 
 ## Native API
 
-- Client `types.Player.previewAppearance(self, {race=..., head=..., hair=..., isMale=...})`
-  queues a local visual preview. Passing `nil` restores the latest server-confirmed
-  baseline and exits preview mode. It requires an active, completed multiplayer
-  character; it never commits to the server or recalculates progression.
-- `types.BodyPart.records` exposes numeric `part`, with `types.BodyPart.PART.Head`
-  and `.Hair` constants.
-- Dedicated-server players expose `head`, `hair` and `charGenComplete` in addition
-  to `race` and `isMale`. `player:setAppearance(selection, requestId)` queues a
-  validated, character-bound save. The internal `AppearanceEditorApplyResult` event
-  contains `guid`, `characterId`, `requestId`, `ok` and `error` after native processing.
-  The package ignores client attempts to forge that internal completion event.
+- Client `types.Player.getAppearance(self)` returns a copy of the rendered selection.
+- `types.Player.previewAppearance(self, selection)` queues a local preview; `nil`
+  restores the latest server-confirmed baseline. Requires completed multiplayer
+  character creation. The four existing fields are `race`, `head`, `hair`, `isMale`.
+  Optional fields are `bodyRace` (empty means identity), `rig` (0 automatic, 1 humanoid,
+  2 beast), `tail` (boolean), and `parts` (a map of skin IDs; empty means automatic).
+  Part keys: `neck`, `chest`, `groin`, `hands`, `wrists`, `forearms`, `upperarms`,
+  `feet`, `ankles`, `knees`, `upperlegs`, `clavicles`, `tail`.
+- `types.BodyPart.records` exposes `part`, `isFirstPerson` and `PART` constants for
+  all BODY mesh kinds. Whole-body choices exclude first-person-only meshes.
+- Dedicated-server players expose `race`, `head`, `hair`, `isMale`,
+  `charGenComplete` and `appearance` (bodyRace/rig/tail/parts).
+  `player:setAppearance(selection, requestId)` queues a validated, character-bound
+  save. Internal `AppearanceEditorApplyResult` reports guid, characterId, requestId,
+  ok and error. Client attempts to forge that completion are ignored.
+- `ui.setFocus(element)` focuses an element's real input widget; `nil` clears focus.
 
 Other player scripts can use `openmw.interfaces.FetcherAppearance.open()` and
 `.close()`. `.state()` returns a copy of the current draft plus its `pending` flag,
-and the `allRaces` filter flag, or nil when closed. `.setAllRaces(boolean)` selects
-the same matching/all-races filter as the UI. `.preview(selection)` validates and changes that draft locally;
+the `allRaces` filter flag and page name, or nil when closed. `.setAllRaces(boolean)` selects
+the same matching/all-races filter as the UI. `.page("character"|"body")` switches pages. `.preview(selection)` validates and changes that draft locally;
 `.apply()` submits it through the same server session. Closing is disabled while
 a save is awaiting confirmation.
 
@@ -86,7 +112,7 @@ a save is awaiting confirmation.
 
 Run `lua scripts/test_character_appearance.lua .` from the source root for catalogue,
 session validation, dropdown, controller and camera restoration checks. Native
-`PlayerAppearance.*` component tests verify record validation and cosmetic-only
+`PlayerAppearance.*` component tests verify record validation, packet round trips and
 SQLite persistence alongside the existing inventory/spellbook persistence tests.
 
 Local client/server integration also checks preview/cancel, apply and reconnect,

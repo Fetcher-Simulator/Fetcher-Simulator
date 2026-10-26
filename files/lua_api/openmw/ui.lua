@@ -8,6 +8,10 @@
 -- inventory stack without transferring it. `setQuickKeysEnabled(false)` suppresses
 -- native quick-key activation until re-enabled or the world is cleared.
 -- `getMousePosition()` returns the pointer in GUI pixels, including captured drags.
+-- API 144: `setFocus(element)` focuses a Lua element (including the inner
+-- editor of TextEdit); `setFocus(nil)` clears keyboard/text input focus.
+-- Requests run after queued creation and UI-mode changes. Destroyed elements
+-- are ignored. Scripts should release focus when closing their menu.
 -- @usage
 -- local ui = require('openmw.ui')
 

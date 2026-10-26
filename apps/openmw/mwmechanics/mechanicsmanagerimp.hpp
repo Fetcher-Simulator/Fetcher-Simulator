@@ -1,6 +1,7 @@
 #ifndef GAME_MWMECHANICS_MECHANICSMANAGERIMP_H
 #define GAME_MWMECHANICS_MECHANICSMANAGERIMP_H
 
+#include <components/esm3/npcappearance.hpp>
 #include <components/settings/settings.hpp>
 
 #include "../mwbase/mechanicsmanager.hpp"
@@ -67,8 +68,8 @@ namespace MWMechanics
         ///< Set player name.
 
         void setPlayerRace(const ESM::RefId& id, bool male, const ESM::RefId& head, const ESM::RefId& hair) override;
-        void setPlayerAppearance(
-            const ESM::RefId& id, bool male, const ESM::RefId& head, const ESM::RefId& hair) override;
+        void setPlayerAppearance(const ESM::RefId& id, bool male, const ESM::RefId& head, const ESM::RefId& hair,
+            const ESM::NpcAppearance& body = {}, bool updateRacePowers = false) override;
         ///< Set player race.
 
         void setPlayerBirthsign(const ESM::RefId& id) override;

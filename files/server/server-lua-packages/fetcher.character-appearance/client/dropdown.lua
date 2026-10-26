@@ -17,7 +17,7 @@ function D.filter(entries,query)
 end
 function D.close(owner)
     local d=owner.dropdown;if not d then return end
-    owner.dropdown=nil;d.active=false
+    owner.dropdown=nil;d.active=false;ui.setFocus(nil)
     d.root:destroy();for _,element in ipairs(d.children) do element:destroy() end
 end
 function D.open(owner,entries,selected,choose,y)
@@ -78,6 +78,7 @@ function D.open(owner,entries,selected,choose,y)
             mouseMove=callback(function() owner:area('dropdown') end),
             mousePress=callback(function() owner:area('dropdown');owner:dragEnd() end),
             focusGain=callback(function() owner:area('dropdown') end)}}
+    ui.setFocus(self.search)
     self.matches=D.filter(entries,'')
     for i,entry in ipairs(self.matches) do if entry.id==selected then self.offset=math.max(0,i-4);break end end
     self:draw();return self

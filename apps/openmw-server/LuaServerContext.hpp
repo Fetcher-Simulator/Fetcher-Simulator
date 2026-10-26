@@ -45,6 +45,7 @@ struct LuaPlayerSnapshot
     std::string nickname;
     std::string race;
     std::string head;
+    ESM::NpcAppearance appearance;
     std::string hair;
     bool charGenComplete = false;
     bool isMale = true;

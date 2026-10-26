@@ -449,8 +449,10 @@ namespace MWClass
     {
         const MWWorld::LiveCellRef<ESM::NPC>* ref = ptr.get<ESM::NPC>();
         const VFS::Path::NormalizedView model = [&]() -> VFS::Path::NormalizedView {
-            const ESM::Race* race = MWBase::Environment::get().getESMStore()->get<ESM::Race>().find(ref->mBase->mRace);
-            if (race->mData.mFlags & ESM::Race::Beast)
+            const ESM::Race* race = MWBase::Environment::get().getESMStore()->get<ESM::Race>().find(
+                ref->mBase->mAppearance.bodyRace.empty() ? ref->mBase->mRace : ref->mBase->mAppearance.bodyRace);
+            if (ref->mBase->mAppearance.animationRig == 2
+                || (ref->mBase->mAppearance.animationRig == 0 && (race->mData.mFlags & ESM::Race::Beast)))
                 return Settings::models().mBaseanimkna.get();
             return Settings::models().mBaseanim.get();
         }();
@@ -466,8 +468,10 @@ namespace MWClass
     {
         const MWWorld::LiveCellRef<ESM::NPC>* ref = ptr.get<ESM::NPC>();
 
-        const ESM::Race* race = MWBase::Environment::get().getESMStore()->get<ESM::Race>().find(ref->mBase->mRace);
-        if (race->mData.mFlags & ESM::Race::Beast)
+        const ESM::Race* race = MWBase::Environment::get().getESMStore()->get<ESM::Race>().find(
+            ref->mBase->mAppearance.bodyRace.empty() ? ref->mBase->mRace : ref->mBase->mAppearance.bodyRace);
+        if (ref->mBase->mAppearance.animationRig == 2
+            || (ref->mBase->mAppearance.animationRig == 0 && (race->mData.mFlags & ESM::Race::Beast)))
             return Settings::models().mBaseanimkna.get();
 
         return Settings::models().mBaseanim.get();
@@ -1320,7 +1324,8 @@ namespace MWClass
 
         const MWWorld::LiveCellRef<ESM::NPC>* ref = ptr.get<ESM::NPC>();
 
-        const ESM::Race* race = MWBase::Environment::get().getESMStore()->get<ESM::Race>().find(ref->mBase->mRace);
+        const ESM::Race* race = MWBase::Environment::get().getESMStore()->get<ESM::Race>().find(
+            ref->mBase->mAppearance.bodyRace.empty() ? ref->mBase->mRace : ref->mBase->mAppearance.bodyRace);
 
         // Race weight should not affect 1st-person meshes, otherwise it will change hand proportions and can break
         // aiming.

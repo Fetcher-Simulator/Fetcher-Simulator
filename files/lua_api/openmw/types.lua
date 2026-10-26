@@ -1238,6 +1238,16 @@
 -- @function [parent=#PLAYER] previewAppearance
 -- @param openmw.core#GameObject player
 -- @param #table selection `{race=string, head=string, hair=string, isMale=boolean}` or nil. Hair may be empty.
+-- Optional API 144 fields: `bodyRace` (empty: identity), `rig` (0 automatic,
+-- 1 humanoid, 2 beast), `tail` (boolean) and `parts` (map of BODY skin IDs;
+-- empty ID: body-race default). Keys: neck, chest, groin, hands, wrists,
+-- forearms, upperarms, feet, ankles, knees, upperlegs, clavicles, tail.
+
+--- Returns the current rendered appearance, including a local preview.
+-- The returned selection is a copy and can be passed to previewAppearance.
+-- @function [parent=#PLAYER] getAppearance
+-- @param openmw.core#GameObject player
+-- @return #table
 
 ---
 -- @type PLAYER
@@ -1560,7 +1570,7 @@
 -- A read-only list of all @{#BodyPartRecord}s in the world database.
 -- Implements [iterables#List](iterables.html#List) of #BodyPartRecord.
 -- @field [parent=#BodyPart] #list<#BodyPartRecord> records
--- @field [parent=#BodyPart] #map<#string,#number> PART Named `Head` and `Hair` body-part slots.
+-- @field [parent=#BodyPart] #map<#string,#number> PART Head, Hair, Neck, Chest, Groin, Hand, Wrist, Forearm, Upperarm, Foot, Ankle, Knee, Upperleg, Clavicle and Tail mesh slots.
 -- @usage local record = types.BodyPart.records['example_recordid']
 -- @usage local record = types.BodyPart.records[1]
 
@@ -1575,7 +1585,8 @@
 -- @field #string id The record ID of the body part
 -- @field #string race The id of the race of the body part
 -- @field #string model VFS path to the model
--- @field #number part Body-part slot; use `types.BodyPart.PART.Head` and `.Hair` for appearance selection.
+-- @field #number part Body-part slot; see `types.BodyPart.PART`.
+-- @field #boolean isFirstPerson Whether this mesh is intended only for first-person arms/hands.
 -- @field #boolean isFemale Whether the body part only applies to female characters
 -- @field #boolean isPlayable Whether the player can choose this part
 -- @field #boolean isVampire Whether this body part is meant for vampires

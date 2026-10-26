@@ -152,6 +152,24 @@ namespace MWLua
         };
         api["content"] = LuaUi::loadContentConstructor(context.mLua);
 
+        api["setFocus"] = [luaManager = context.mLuaManager, windowManager](
+                              const sol::optional<std::shared_ptr<LuaUi::Element>>& element) {
+            luaManager->addAction(
+                [element, windowManager] {
+                    MyGUI::Widget* widget = nullptr;
+                    if (element)
+                    {
+                        if (((*element)->mState != LuaUi::Element::Created
+                                && (*element)->mState != LuaUi::Element::Update)
+                            || !(*element)->mRoot)
+                            return;
+                        widget = (*element)->mRoot->keyFocusWidget();
+                    }
+                    windowManager->setKeyFocusWidget(widget);
+                },
+                "Set Lua UI focus");
+        };
+
         api["create"]
             = [luaManager = context.mLuaManager, menu](const sol::table& layout, sol::optional<sol::table> options) {
                   auto element = LuaUi::Element::make(layout, menu, options);

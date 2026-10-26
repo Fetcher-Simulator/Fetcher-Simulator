@@ -15,7 +15,7 @@ function V.new(api)
     return setmetatable({api=api,offset=0,query='',selected=1,children={},autoPreview=true,clock=0},V)
 end
 function V:destroyBrowser()
-    if self.browser then self.browser:destroy();self.browser=nil end
+    if self.browser then ui.setFocus(nil);self.browser:destroy();self.browser=nil end
     for _,child in ipairs(self.children) do child:destroy() end
     self.children={};self.press=nil;self.drag=nil;self.pendingPreview=nil;self.api.stopPreview()
 end
@@ -147,7 +147,7 @@ function V:buildBrowser()
     button('Stop',width-211,height-42,79,function() self.pendingPreview=nil;self.api.stopPreview() end)
     button('Close',width-123,height-42,105,function() self:close() end)
     self.browser=ui.create{type=ui.TYPE.Widget,layer='Windows',props={position=v(self.bx,self.by),size=v(width,height)},content=ui.content(content)}
-    self.matches=self:filtered();self:drawRows()
+    self.matches=self:filtered();self:drawRows();ui.setFocus(self.search)
 end
 function V:drawBar()
     if self.bar then self.bar:destroy();self.bar=nil end

@@ -76,7 +76,7 @@ function E:dragEnd() self.drag=nil end
 function E.new(catalogue,selection,save,cancel)
     local screen=viewport()
     local self=setmetatable({catalogue=catalogue,selection=Catalogue.copy(selection),save=save,cancel=cancel,
-        children={},fields={},cycles={},choices={},buttons={},width=410,height=610,pointerArea='preview',
+        children={},fields={},cycles={},choices={},buttons={},groups={character={},body={}},page='character',bodySlot='neck',width=410,height=610,pointerArea='preview',
         scale=math.max(.65,math.min(1.5,screen.y/780)),view=Preview.new()},E)
     self.scale=math.min(self.scale,(screen.x*.44-20)/self.width,(screen.y-20)/self.height)
     self.x=math.max(10,screen.x-self.width*self.scale-20);self.y=(screen.y-self.height*self.scale)/2
@@ -90,31 +90,48 @@ function E.new(catalogue,selection,save,cancel)
             focusGain=callback(function() self:area('preview') end)}}
         local content={Style.frame(0,0,self.width,self.height,true),
             Style.title('Character Appearance',4,4,self.width-8,20,19),
-            Style.label('Preview your changes, then Apply to save.',16,49,self.width-32,14)}
-        local function field(key,title,y,entries,choose)
+            self:button('Character / Identity    |    Body / Rig >',16,44,self.width-32,function() self:pageTo(self.page=='character' and 'body' or 'character') end)}
+        local function field(key,title,y,entries,choose,group)
+            local first=#content+1;group=group or self.groups.character
             self.choices[key]={entries=entries,choose=choose}
             content[#content+1]=Style.label(title,16,y,self.width-32)
             local left=self:button('<',16,y+28,32,function() self:cycle(key,-1) end)
             local button=self:button('',54,y+28,self.width-108,function()
                 if self.pending then return end
-                self:dragEnd();Dropdown.open(self,entries(),self.selection[key],choose,y+65)
+                self:dragEnd();Dropdown.open(self,entries(),self:value(key),choose,math.min(y+65,360))
             end)
             local right=self:button('>',self.width-48,y+28,32,function() self:cycle(key,1) end)
             self.fields[key]=button;self.cycles[key]={left,right}
             content[#content+1]=left;content[#content+1]=button;content[#content+1]=right
+            for i=first,#content do group[#group+1]=content[i] end
         end
-        field('race','Race',90,function() return catalogue.races end,function(value) self:choose(value,self.selection.isMale) end)
+        field('race','Identity race (voice / racial powers)',90,function() return catalogue.races end,function(value)
+                if self.selection.bodyRace=='' then self.selection.bodyRace=self.selection.race end
+                self.selection.race=value;self:preview()
+            end)
         field('isMale','Sex',168,function() return {{id=true,label='Male'},{id=false,label='Female'}} end,
             function(value) self:choose(self.selection.race,value) end)
-        field('head','Head',246,function() local entries=catalogue:choices(self.selection.race,self.selection.isMale);return entries end,
+        field('head','Head',246,function() local entries=catalogue:choices(self:visualRace(),self.selection.isMale);return entries end,
             function(value) self.selection.head=value;self:preview() end)
-        field('hair','Hair',324,function() local _,entries=catalogue:choices(self.selection.race,self.selection.isMale);return entries end,
+        field('hair','Hair',324,function() local _,entries=catalogue:choices(self:visualRace(),self.selection.isMale);return entries end,
             function(value) self.selection.hair=value;self:preview() end)
+        local body=self.groups.body
+        field('bodyRace','Body race (skin / proportions)',90,function() return catalogue.races end,function(value)
+            self.selection.bodyRace=value;self:choose(self.selection.race,self.selection.isMale)
+        end,body)
+        field('rig','Animation rig',168,function() return {{id=0,label='Automatic (body race)'},{id=1,label='Humanoid'},{id=2,label='Beast'}} end,
+            function(value) self.selection.rig=value;self:preview() end,body)
+        field('tail','Tail visibility',246,function() return {{id=true,label='Show tail (if available)'},{id=false,label='No tail'}} end,
+            function(value) self.selection.tail=value;self:preview() end,body)
+        field('bodySlot','Body part to edit',324,function()
+            local result={};for _,slot in ipairs(Catalogue.bodySlots) do result[#result+1]={id=slot.key,label=slot.label} end;return result
+        end,function(value) self.bodySlot=value;self:refresh() end,body)
+        field('bodyPart','Skin mesh: any race / sex',402,function() return catalogue:bodyChoices(self.bodySlot) end,
+            function(value) self.selection.parts[self.bodySlot]=value;self:preview() end,body)
         self.partsMode=self:button('',16,405,self.width-32,function() self:toggleParts() end)
-        content[#content+1]=self.partsMode
-        content[#content+1]=Style.label('Left-drag the model view to orbit the character.',16,449,self.width-32,14)
-        content[#content+1]=Style.label('Mouse wheel: zoom. Wheel over a list: scroll.',16,473,self.width-32,14)
-        self.status=self:element(Style.label('Stats and inventory are preserved.',16,507,self.width-32,14))
+        content[#content+1]=self.partsMode;self.groups.character[#self.groups.character+1]=self.partsMode
+        content[#content+1]=Style.label('Drag: orbit. Wheel: zoom. Use Beast rig for tails.',16,477,self.width-32,12)
+        self.status=self:element(Style.label('Stats and inventory are preserved.',16,513,self.width-32,14))
         content[#content+1]=self.status
         self.apply=self:button('Apply',16,545,181,function() self:submit() end)
         content[#content+1]=self.apply
@@ -125,10 +142,26 @@ function E.new(catalogue,selection,save,cancel)
             mouseMove=callback(function() self:area('panel') end),
             mousePress=callback(function() self:area('panel');self:dragEnd() end),
             focusGain=callback(function() self:area('panel') end)}}
-        I.UI.addMode('Interface',{windows={}});self.ownsMode=true;self:refresh()
+        I.UI.addMode('Interface',{windows={}});ui.setFocus(nil);self.ownsMode=true;self:pageTo(self.page);self:refresh()
     end)
     if not ok then self:close();error(problem) end
     return self
+end
+function E:visualRace() return self.selection.bodyRace~='' and self.selection.bodyRace or self.selection.race end
+function E:value(key)
+    if key=='bodySlot' then return self.bodySlot end
+    if key=='bodyPart' then return self.selection.parts[self.bodySlot] or '' end
+    if key=='bodyRace' then return self:visualRace() end
+    return self.selection[key]
+end
+function E:pageTo(page)
+    if self.closed or self.pending then return end
+    Dropdown.close(self);self:dragEnd();self.page=page
+    for name,items in pairs(self.groups) do for _,item in ipairs(items) do
+        local layout=item.layout or item;layout.props.visible=name==page
+        if item.layout then item:update() end
+    end end
+    if self.root then self.root:update() end
 end
 function E:cycle(key,direction)
     if self.closed or self.pending then return false end
@@ -136,7 +169,7 @@ function E:cycle(key,direction)
     local entries=field.entries();if #entries==0 then return false end
     local index=direction>0 and 0 or 1
     for i,entry in ipairs(entries) do
-        local a,b=entry.id,self.selection[key]
+        local a,b=entry.id,self:value(key)
         if a==b or type(a)=='string' and type(b)=='string' and a:lower()==b:lower() then index=i;break end
     end
     Dropdown.close(self);self:dragEnd()
@@ -152,10 +185,17 @@ function E:toggleParts()
     self:choose(self.selection.race,self.selection.isMale);return true
 end
 function E:refresh()
-    self.fields.race.layout.content[1].props.text=(self.catalogue.index[self.selection.race:lower()] or {}).label or self.selection.race
-    self.fields.isMale.layout.content[1].props.text=self.selection.isMale and 'Male' or 'Female'
-    self.fields.head.layout.content[1].props.text=self.selection.head~='' and self.selection.head or 'No playable heads'
-    self.fields.hair.layout.content[1].props.text=self.selection.hair~='' and self.selection.hair or 'No hair / bald'
+    for key,element in pairs(self.fields) do
+        local current=self:value(key);local label=tostring(current)
+        for _,entry in ipairs(self.choices[key].entries()) do
+            if entry.id==current or type(entry.id)=='string' and type(current)=='string' and entry.id:lower()==current:lower() then
+                label=entry.label;break
+            end
+        end
+        -- Clip long names within the selector; keep complete UTF-8 text in its list.
+        element.layout.content[1].props.autoSize=false
+        element.layout.content[1].props.text=label
+    end
     for key,element in pairs(self.fields) do
         local n=#self.choices[key].entries();self:enable(element,not self.pending and n>0)
         for _,button in ipairs(self.cycles[key]) do self:enable(button,not self.pending and n>1) end
@@ -167,7 +207,9 @@ function E:refresh()
     self:enable(self.apply,not self.pending and self.catalogue:contains(self.selection))
 end
 function E:choose(race,isMale)
-    self.selection=self.catalogue:choose(self.selection,race,isMale);self:preview()
+    local identity=race
+    self.selection=self.catalogue:choose(self.selection,self:visualRace(),isMale)
+    self.selection.race=identity;self:preview()
 end
 function E:preview()
     if self.catalogue:contains(self.selection) then

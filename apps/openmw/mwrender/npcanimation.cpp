@@ -539,7 +539,8 @@ namespace MWRender
             removeIndividualPart((ESM::PartReferenceType)i);
 
         const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
-        const ESM::Race* race = store.get<ESM::Race>().find(mNpc->mRace);
+        const ESM::Race* race = store.get<ESM::Race>().find(
+            mNpc->mAppearance.bodyRace.empty() ? mNpc->mRace : mNpc->mAppearance.bodyRace);
         NpcType curType = getNpcType();
         bool isWerewolf = (curType == Type_Werewolf);
         bool isVampire = (curType == Type_Vampire);
@@ -574,7 +575,8 @@ namespace MWRender
                 mHeadModel = std::move(vampireHead);
 
         bool is1stPerson = mViewMode == VM_FirstPerson;
-        bool isBeast = (race->mData.mFlags & ESM::Race::Beast) != 0;
+        bool isBeast = mNpc->mAppearance.animationRig == 2
+            || (mNpc->mAppearance.animationRig == 0 && (race->mData.mFlags & ESM::Race::Beast) != 0);
 
         std::string_view base;
         if (!isWerewolf)
@@ -591,7 +593,7 @@ namespace MWRender
 
         std::string smodel = defaultSkeleton;
         bool isCustomModel = false;
-        if (!is1stPerson && !isWerewolf && !mNpc->mModel.empty())
+        if (!is1stPerson && !isWerewolf && mNpc->mAppearance.animationRig == 0 && !mNpc->mModel.empty())
         {
             const VFS::Path::Normalized model = Misc::ResourceHelpers::correctMeshPath(mNpc->mModel.getNormalized());
             isCustomModel = !isDefaultActorSkeleton(model);
@@ -611,7 +613,7 @@ namespace MWRender
         if (isCustomModel)
             addAnimSource(smodel, smodel);
 
-        const bool customArgonianSwim = !is1stPerson && !isWerewolf && isBeast && mNpc->mRace.contains("argonian");
+        const bool customArgonianSwim = !is1stPerson && !isWerewolf && isBeast && race->mId.contains("argonian");
         if (customArgonianSwim)
             addAnimSource(Settings::models().mXargonianswimkna.get().value(), smodel);
 
@@ -751,15 +753,31 @@ namespace MWRender
         showCarriedLeft(mShowCarriedLeft);
 
         bool isWerewolf = (getNpcType() == Type_Werewolf);
-        ESM::RefId race = (isWerewolf ? ESM::RefId::stringRefId("werewolf") : mNpc->mRace);
+        ESM::RefId race = (isWerewolf                ? ESM::RefId::stringRefId("werewolf")
+                : mNpc->mAppearance.bodyRace.empty() ? mNpc->mRace
+                                                     : mNpc->mAppearance.bodyRace);
 
         const std::vector<const ESM::BodyPart*>& parts
             = getBodyParts(race, !mNpc->isMale(), mViewMode == VM_FirstPerson, isWerewolf);
+        if (!isWerewolf && !mNpc->mAppearance.tail)
+            removeIndividualPart(ESM::PRT_Tail);
         for (int part = ESM::PRT_Neck; part < ESM::PRT_Count; ++part)
         {
             if (mPartPriorities[part] < 1)
             {
-                if (const ESM::BodyPart* bodypart = parts[part])
+                const ESM::BodyPart* bodypart = parts[part];
+                if (!isWerewolf)
+                {
+                    static constexpr std::array<int, ESM::PRT_Count> meshKinds = { 0, 1, 2, 3, 4, -1, 5, 5, 6, 6, -1, 7,
+                        7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, -1, 14 };
+                    const int kind = meshKinds[part];
+                    if (part == ESM::PRT_Tail && !mNpc->mAppearance.tail)
+                        continue;
+                    if (kind >= 2 && !mNpc->mAppearance.parts[kind].empty())
+                        bodypart = MWBase::Environment::get().getESMStore()->get<ESM::BodyPart>().search(
+                            mNpc->mAppearance.parts[kind]);
+                }
+                if (bodypart)
                     addOrReplaceIndividualPart(static_cast<ESM::PartReferenceType>(part), -1, 1,
                         Misc::ResourceHelpers::correctMeshPath(bodypart->mModel.getNormalized()));
             }

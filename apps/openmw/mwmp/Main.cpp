@@ -789,6 +789,7 @@ bool Main::captureCurrentChargenData(const char* context)
 
         local.race = npc->mRace.serializeText();
         local.headMesh = npc->mHead.serializeText();
+        local.appearance = npc->mAppearance;
         local.hairMesh = npc->mHair.serializeText();
         local.isMale = npc->isMale();
 
@@ -1116,12 +1117,12 @@ void Main::previewAppearance(const std::optional<PlayerAppearance>& appearance)
     const auto* base = world->getPlayerPtr().get<ESM::NPC>()->mBase;
     if (!mAppearancePreview)
         mAppearancePreview = PlayerAppearance{ base->mRace.serializeText(), base->mHead.serializeText(),
-            base->mHair.serializeText(), base->isMale() };
+            base->mHair.serializeText(), base->isMale(), base->mAppearance };
     const PlayerAppearance value = appearance ? *appearance : *mAppearancePreview;
     if (!appearance)
         mAppearancePreview.reset();
     MWBase::Environment::get().getMechanicsManager()->setPlayerAppearance(ESM::RefId::deserializeText(value.race),
-        value.isMale, ESM::RefId::deserializeText(value.head), ESM::RefId::deserializeText(value.hair));
+        value.isMale, ESM::RefId::deserializeText(value.head), ESM::RefId::deserializeText(value.hair), value.body);
     MWBase::Environment::get().getWindowManager()->getInventoryWindow()->rebuildAvatar();
 }
 
@@ -1261,6 +1262,8 @@ bool Main::enterSelectedCharacterWorld(bool allowNewCharacterUi)
         {
             mechanicsManager->setPlayerRace(ESM::RefId::deserializeText(race), isMale,
                 ESM::RefId::deserializeText(head), ESM::RefId::deserializeText(hair));
+            mechanicsManager->setPlayerAppearance(ESM::RefId::deserializeText(race), isMale,
+                ESM::RefId::deserializeText(head), ESM::RefId::deserializeText(hair), mRestoredAppearance);
             windowManager->getInventoryWindow()->rebuildAvatar();
         }
         if (!className.empty())
@@ -1487,6 +1490,7 @@ void Main::finalizeCharacterData(PacketCharacterData cd)
     mRestoredRace      = cd.race;
     mRestoredHeadMesh  = cd.headMesh;
     mRestoredHairMesh  = cd.hairMesh;
+    mRestoredAppearance = cd.appearance;
     mRestoredIsMale    = cd.isMale;
     mRestoredClassId   = cd.classId;
     mRestoredClassName = cd.className;
@@ -1865,19 +1869,21 @@ void Main::registerProtocolHandlers()
             {
                 auto& local = mPlayerSync->localPlayer();
                 const bool changed = local.race != tmp.race || local.headMesh != tmp.headMesh
-                    || local.hairMesh != tmp.hairMesh || local.isMale != tmp.isMale;
+                    || local.hairMesh != tmp.hairMesh || local.isMale != tmp.isMale
+                    || local.appearance != tmp.appearance;
                 local.name = tmp.name;
                 local.race = tmp.race;
                 local.headMesh = tmp.headMesh;
                 local.hairMesh = tmp.hairMesh;
                 local.isMale = tmp.isMale;
+                local.appearance = tmp.appearance;
                 if (changed && !tmp.race.empty() && !tmp.headMesh.empty())
                 {
-                    if (mAppearancePreview)
-                        mAppearancePreview = PlayerAppearance{ tmp.race, tmp.headMesh, tmp.hairMesh, tmp.isMale };
+                    // Restore the pre-preview identity before replacing race powers.
+                    previewAppearance(std::nullopt);
                     MWBase::Environment::get().getMechanicsManager()->setPlayerAppearance(
                         ESM::RefId::deserializeText(tmp.race), tmp.isMale, ESM::RefId::deserializeText(tmp.headMesh),
-                        ESM::RefId::deserializeText(tmp.hairMesh));
+                        ESM::RefId::deserializeText(tmp.hairMesh), tmp.appearance, true);
                     MWBase::Environment::get().getWindowManager()->getInventoryWindow()->rebuildAvatar();
                 }
                 return;

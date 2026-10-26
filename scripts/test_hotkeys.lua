@@ -137,6 +137,7 @@ local ui={TYPE={Widget=1,Image=2,TextEdit=3,Flex=4},ALIGNMENT={Center=1},texture
     registerSettingsPage=function(page) registered=registered+1;check(page.name=='Fetcher Hotkeys','settings page is discoverable in Scripts') end,
     removeSettingsPage=function() removed=removed+1 end,getMousePosition=function() return v(10,10) end}
 local templates={textNormal={props={textColor={}}},textHeader={props={textColor={}}},borders={},bordersThick={},textEditLine={}}
+ui.setFocus=function(element) ui.focus=element end
 package.loaded['openmw.ui']=ui
 package.loaded['openmw.util']={vector2=v,color={rgb=function(...) return {...} end}}
 package.loaded['openmw.async']={callback=function(_,f) return f end}
@@ -237,8 +238,10 @@ handlers.onKeyRelease{code=keys._1};pressed={}
 handlers.onKeyPress{code=keys._1};check(#used==3,'releasing chords returns to base page')
 handlers.onKeyRelease{code=keys._1}
 api.openVoices();check(mode=='Interface','browser captures cursor through normal UI mode')
+check(ui.focus and ui.focus.layout.events.textChanged,'voice browser requests focus on its search editor')
 check(api.openItems==nil,'removed item window is not exposed through the player interface')
 api.close();check(mode==nil,'owned UI mode is restored on close')
+check(ui.focus==nil,'closing voice browser releases text input focus')
 mode='Interface';api.openVoices();api.close();check(mode=='Interface','closing browser preserves previously open inventory')
 local activeBar
 for _,element in ipairs(created) do if not element.destroyed and element.layout.layer=='FetcherHotbar' then activeBar=element end end

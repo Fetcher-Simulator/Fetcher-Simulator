@@ -395,15 +395,47 @@ namespace MWMechanics
         buildPlayer();
     }
 
-    void MechanicsManager::setPlayerAppearance(
-        const ESM::RefId& race, bool male, const ESM::RefId& head, const ESM::RefId& hair)
+    void MechanicsManager::setPlayerAppearance(const ESM::RefId& race, bool male, const ESM::RefId& head,
+        const ESM::RefId& hair, const ESM::NpcAppearance& body, bool updateRacePowers)
     {
         MWBase::World* world = MWBase::Environment::get().getWorld();
 
         ESM::NPC player = *world->getPlayerPtr().get<ESM::NPC>()->mBase;
 
-        if (player.mRace != race || player.mHead != head || player.mHair != hair || player.isMale() != male)
+        if (player.mRace != race || player.mHead != head || player.mHair != hair || player.isMale() != male
+            || player.mAppearance != body)
         {
+            if (updateRacePowers && player.mRace != race)
+            {
+                const auto& store = *MWBase::Environment::get().getESMStore();
+                auto& spells = world->getPlayerPtr().getClass().getCreatureStats(world->getPlayerPtr()).getSpells();
+                const auto& previous = store.get<ESM::Race>().find(player.mRace)->mPowers.mList;
+                const auto& next = store.get<ESM::Race>().find(race)->mPowers.mList;
+                const auto signId = world->getPlayer().getBirthSign();
+                const auto* sign = signId.empty() ? nullptr : store.get<ESM::BirthSign>().search(signId);
+                for (const auto& power : previous)
+                {
+                    const auto* record = store.get<ESM::Spell>().search(power);
+                    const bool retained = std::find(next.begin(), next.end(), power) != next.end()
+                        || (sign
+                            && std::find(sign->mPowers.mList.begin(), sign->mPowers.mList.end(), power)
+                                != sign->mPowers.mList.end());
+                    // Learned spells are saved independently; never remove one.
+                    if (record && record->mData.mType != ESM::Spell::ST_Spell && !retained)
+                    {
+                        spells.remove(power, false);
+                        std::erase(player.mSpells.mList, power);
+                    }
+                }
+                for (const auto& power : next)
+                {
+                    spells.add(power, false);
+                    if (std::find(player.mSpells.mList.begin(), player.mSpells.mList.end(), power)
+                        == player.mSpells.mList.end())
+                        player.mSpells.mList.push_back(power);
+                }
+            }
+            player.mAppearance = body;
             player.mRace = race;
             player.mHead = head;
             player.mHair = hair;

@@ -1,7 +1,7 @@
 manifestVersion: 3
 packageId: fetcher.skyships-mp-fix
 packageVersion: 1
-requiredOpenMWLuaApi: 143
+requiredOpenMWLuaApi: 144
 requiredMultiplayerLuaApi: 6
 dependencies: []
 files:

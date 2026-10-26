@@ -1,7 +1,7 @@
 manifestVersion: 3
 packageId: fetcher.hotkeys
-packageVersion: 4
-requiredOpenMWLuaApi: 143
+packageVersion: 5
+requiredOpenMWLuaApi: 144
 requiredMultiplayerLuaApi: 12
 dependencies: []
 files:

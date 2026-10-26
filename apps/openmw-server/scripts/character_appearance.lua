@@ -4,17 +4,42 @@ local config=require('config')
 local sessions,rates={},{}
 local serial=0
 local function send(guid,data) data.version=1;mp.send(guid,'AppearanceEditor_Message',data) end
-local function valid(value)
+local C={}
+C.bodySlots={{key='neck',label='Neck',part=2},{key='chest',label='Chest',part=3},
+ {key='groin',label='Groin',part=4},{key='hands',label='Hands',part=5},{key='wrists',label='Wrists',part=6},
+ {key='forearms',label='Forearms',part=7},{key='upperarms',label='Upper arms',part=8},
+ {key='feet',label='Feet',part=9},{key='ankles',label='Ankles',part=10},{key='knees',label='Knees',part=11},
+ {key='upperlegs',label='Upper legs',part=12},{key='clavicles',label='Clavicles',part=13},{key='tail',label='Tail',part=14}}
+local allowedParts={};for _,slot in ipairs(C.bodySlots) do allowedParts[slot.key]=true end
+local function validId(s,optional)
+ return type(s)=='string' and #s<=256 and (optional or #s>0) and not s:find('[%z\1-\31\127]')
+end
+function C.validBody(value)
+ if value.bodyRace~=nil and not validId(value.bodyRace,true) then return false end
+ if value.rig~=nil and (type(value.rig)~='number' or value.rig%1~=0 or value.rig<0 or value.rig>2) then return false end
+ if value.tail~=nil and type(value.tail)~='boolean' then return false end
+ if value.parts~=nil then
+  if type(value.parts)~='table' then return false end
+  for key,part in pairs(value.parts) do if not allowedParts[key] or not validId(part,true) then return false end end
+ end
+ return true
+end
+function C.valid(value)
     if type(value)~='table' or type(value.isMale)~='boolean' then return false end
     local count=0
-    for key in pairs(value) do if key~='race' and key~='head' and key~='hair' and key~='isMale' then return false end;count=count+1 end
-    if count~=4 then return false end
+    for key in pairs(value) do
+        if key~='race' and key~='head' and key~='hair' and key~='isMale' and key~='bodyRace' and key~='rig' and key~='tail' and key~='parts' then return false end
+        count=count+1
+    end
+    if count<4 or count>8 or not C.validBody(value) then return false end
     for _,key in ipairs({'race','head','hair'}) do
-        local text=value[key]
-        if type(text)~='string' or #text>256 or (key~='hair' and text=='') or text:find('[%z\1-\31\127]') then return false end
+        local s=value[key]
+        if type(s)~='string' or #s>256 or (key~='hair' and #s==0) or s:find('[%z\1-\31\127]') then return false end
     end
     return true
 end
+
+local valid=C.valid
 local function close(guid,reason)
     local s=sessions[guid];sessions[guid]=nil
     if s then send(guid,{op='closed',token=s.token,error=reason}) end
@@ -38,7 +63,9 @@ local function request(data)
         local token=string.format('%d:%d:%d',p.guid,p.characterId,serial)
         sessions[p.guid]={token=token,character=p.characterId,expires=now+600}
         send(p.guid,{op='open',request=data.request,token=token,
-            selection={race=p.race,head=p.head,hair=p.hair,isMale=p.isMale}})
+            selection={race=p.race,head=p.head,hair=p.hair,isMale=p.isMale,
+                bodyRace=p.appearance and p.appearance.bodyRace or p.race,rig=p.appearance and p.appearance.rig or 0,
+                tail=not p.appearance or p.appearance.tail~=false,parts=p.appearance and p.appearance.parts or {}}})
         return
     end
     local s=sessions[p.guid]

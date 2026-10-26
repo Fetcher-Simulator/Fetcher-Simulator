@@ -2,6 +2,7 @@
 #define OPENMW_ESM_NPC_H
 
 #include <array>
+#include "npcappearance.hpp"
 #include <string>
 #include <vector>
 
@@ -118,6 +119,7 @@ namespace ESM
 
         // body parts
         RefId mHair, mHead;
+        NpcAppearance mAppearance;
 
         void load(ESMReader& esm, bool& isDeleted);
         void save(ESMWriter& esm, bool isDeleted = false) const;

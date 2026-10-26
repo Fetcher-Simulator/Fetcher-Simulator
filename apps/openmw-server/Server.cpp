@@ -8621,6 +8621,7 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
 
                 cdPkt.race      = rec->race;
                 cdPkt.headMesh  = rec->headMesh;
+                cdPkt.appearance = rec->appearance;
                 cdPkt.hairMesh  = rec->hairMesh;
                 cdPkt.isMale    = rec->isMale;
                 cdPkt.classId   = rec->classId;
@@ -8843,6 +8844,7 @@ void MPServer::handleCharacterSelect(ConnectedClient& c, const uint8_t* data, si
 
     c.player.race = cdPkt.race;
     c.player.headMesh = cdPkt.headMesh;
+    c.player.appearance = cdPkt.appearance;
     c.player.hairMesh = cdPkt.hairMesh;
     c.player.isMale = cdPkt.isMale;
     if (!cdPkt.classId.empty())
@@ -9048,9 +9050,13 @@ void MPServer::handlePlayerBaseInfo(ConnectedClient& c, const uint8_t* data, siz
     pkt.setPlayer(&proposed);
     if (!pkt.decode(data, size)) return;
     const bool locked = c.player.charGenComplete && !c.dbChargenCompletePending;
-    const bool stale = locked
-        && (proposed.race != c.player.race || proposed.headMesh != c.player.headMesh
-            || proposed.hairMesh != c.player.hairMesh || proposed.isMale != c.player.isMale);
+    const bool stale = proposed.appearance != c.player.appearance
+        || (locked
+            && (proposed.race != c.player.race || proposed.headMesh != c.player.headMesh
+                || proposed.hairMesh != c.player.hairMesh || proposed.isMale != c.player.isMale));
+    // Body overrides are only accepted through validated server appearance
+    // actions, including while a new character is still in chargen.
+    proposed.appearance = c.player.appearance;
     if (locked)
     {
         proposed.race = c.player.race;
@@ -22226,6 +22232,7 @@ void MPServer::syncLuaPlayerSnapshot()
         snapshot.nickname = client.nickname;
         snapshot.race = client.player.race;
         snapshot.head = client.player.headMesh;
+        snapshot.appearance = client.player.appearance;
         snapshot.hair = client.player.hairMesh;
         snapshot.charGenComplete = client.player.charGenComplete;
         snapshot.isMale = client.player.isMale;

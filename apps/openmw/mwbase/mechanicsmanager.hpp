@@ -1,6 +1,7 @@
 #ifndef GAME_MWBASE_MECHANICSMANAGER_H
 #define GAME_MWBASE_MECHANICSMANAGER_H
 
+#include <components/esm3/npcappearance.hpp>
 #include <cstdint>
 #include <map>
 #include <set>
@@ -76,8 +77,8 @@ namespace MWBase
         ///< Set player race.
 
         /// Change the rendered appearance without rebuilding skills, spells or attributes.
-        virtual void setPlayerAppearance(
-            const ESM::RefId& id, bool male, const ESM::RefId& head, const ESM::RefId& hair)
+        virtual void setPlayerAppearance(const ESM::RefId& id, bool male, const ESM::RefId& head,
+            const ESM::RefId& hair, const ESM::NpcAppearance& body = {}, bool updateRacePowers = false)
             = 0;
 
         virtual void setPlayerBirthsign(const ESM::RefId& id) = 0;

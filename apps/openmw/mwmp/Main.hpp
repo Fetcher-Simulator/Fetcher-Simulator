@@ -269,6 +269,7 @@ namespace mwmp
         std::string mRestoredRace;
         std::string mRestoredHeadMesh;
         std::string mRestoredHairMesh;
+        ESM::NpcAppearance mRestoredAppearance;
         bool        mRestoredIsMale    = true;
         std::string mRestoredClassId;
         std::string mRestoredClassName;

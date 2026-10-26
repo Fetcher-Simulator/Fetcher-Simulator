@@ -43,17 +43,38 @@ namespace mwmp
                     || !mContentRegistry->hasModel(hair->mModel.getOriginal()))
                     return reject("Select playable hair available on this server.");
             }
+            ESM::NpcAppearance body = value.body;
+            if (body.animationRig > 2 || !body.parts[0].empty() || !body.parts[1].empty())
+                return reject("Invalid body appearance.");
+            if (!body.bodyRace.empty())
+            {
+                const auto* donor = store.get<ESM::Race>().search(body.bodyRace);
+                if (!donor || !(donor->mData.mFlags & ESM::Race::Playable))
+                    return reject("Select a playable body race.");
+                body.bodyRace = donor->mId;
+            }
+            for (size_t i = 2; i < body.parts.size(); ++i)
+            {
+                if (body.parts[i].empty())
+                    continue;
+                const auto* part = store.get<ESM::BodyPart>().search(body.parts[i]);
+                if (!part || !validAppearancePart(*part, static_cast<ESM::BodyPart::MeshPart>(i))
+                    || ESM::isFirstPersonBodyPart(*part) || !mContentRegistry->hasModel(part->mModel.getOriginal()))
+                    return reject("Select a playable skin part of the correct body slot.");
+                body.parts[i] = part->mId;
+            }
             const std::string raceId = race->mId.serializeText();
             const std::string headId = head->mId.serializeText();
             const std::string hairId = hair ? hair->mId.serializeText() : std::string();
-            // One UPDATE changes only cosmetic columns. Never call chargen or
+            // One UPDATE saves identity and presentation. Never call chargen or
             // rebuild the character's stats, learned spells, class or birthsign.
-            if (!mPlayerDb->saveCharacterAppearance(characterId, raceId, headId, hairId, value.isMale))
+            if (!mPlayerDb->saveCharacterAppearance(characterId, raceId, headId, hairId, value.isMale, body))
                 return reject("Character appearance could not be saved.");
             client->player.race = raceId;
             client->player.headMesh = headId;
             client->player.hairMesh = hairId;
             client->player.isMale = value.isMale;
+            client->player.appearance = body;
             PacketPlayerBaseInfo packet;
             packet.setPlayer(&client->player);
             broadcastToAll(packet.encode());

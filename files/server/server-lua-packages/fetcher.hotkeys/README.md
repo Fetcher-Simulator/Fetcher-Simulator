@@ -55,7 +55,7 @@ bindings and HUD preferences use local permanent player storage.
 
 ## Server installation
 
-Requires matching client/server builds with **OpenMW Lua API 143**, multiplayer
+Requires matching client/server builds with **OpenMW Lua API 144**, multiplayer
 Lua API 12. Install this folder in `server-lua-packages/fetcher.hotkeys` and ship
 the current `hotkeys.lua`, `hotkeys_commands.lua`, `speech_commands.lua` and the
 stock command-router updates in `server-scripts`. Add `GLOBAL: hotkeys.lua` to
@@ -63,7 +63,7 @@ stock command-router updates in `server-scripts`. Add `GLOBAL: hotkeys.lua` to
 router can call `require('hotkeys_commands').handleChat(player,data,env)` for
 `/voicelines`; permit that command in any command allowlist.
 
-Upgrade exact `requiredOpenMWLuaApi` pins in existing packages to 143 along with
+Upgrade exact `requiredOpenMWLuaApi` pins in existing packages to 144 along with
 the matching client/server binaries. Restart the server and reconnect clients
 after installation. No public-server deployment happens merely by building this
 package locally.
@@ -113,3 +113,6 @@ items continue to assign directly from inventory to the HUD.
 `scripts/transcribe_hotkeys_missing.py` is an optional developer-only, resumable
 local-audio pass using faster-whisper small.en and FFmpeg. The importer withholds
 uncertain or isolated-word results; retained machine output is still unverified.
+
+Opening `/voicelines` transfers keyboard focus from chat to its search field. Closing
+the browser clears text-input focus so hotbar keys work again.

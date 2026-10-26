@@ -55,7 +55,8 @@ return {interfaceName='FetcherAppearance',interface={
     open=open,
     close=function() if not editor or not editor.pending then close(true) end end,
     state=function() return editor and {selection=Catalogue.copy(editor.selection),pending=editor.pending==true,
-        allRaces=editor.catalogue.allRaces} or nil end,
+        allRaces=editor.catalogue.allRaces,page=editor.page} or nil end,
+    page=function(name) if editor and (name=='character' or name=='body') then editor:pageTo(name);return true end;return false end,
     setAllRaces=function(enabled)
         if not editor or editor.pending or type(enabled)~='boolean' then return false end
         if editor.catalogue.allRaces~=enabled then return editor:toggleParts() end

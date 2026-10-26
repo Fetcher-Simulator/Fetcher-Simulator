@@ -39,6 +39,25 @@ check(C.valid({race='elf',head='elf_head',hair='',isMale=true}),'bald is valid')
 check(not C.valid({race='elf',head='elf_head',hair='',isMale=true,stats={}}),'extra mutation fields rejected')
 check(not C.valid({race='elf',head='bad\0id',hair='',isMale=true}),'control characters rejected')
 check(not C.valid({race=string.rep('x',257),head='elf_head',hair='',isMale=true}),'oversized IDs rejected')
+local bodyParts={}
+for _,slot in ipairs(C.bodySlots) do
+ bodyParts[#bodyParts+1]={id='mixed_'..slot.key,race='elf',part=slot.part,isFemale=true,isPlayable=true,isVampire=false,type='skin',model='skin.nif'}
+end
+bodyParts[#bodyParts+1]={id='first_person',race='elf',part=5,isPlayable=true,isFirstPerson=true,type='skin',model='hand.nif'}
+for _,part in ipairs(parts) do bodyParts[#bodyParts+1]=part end
+local bodies=C.new(races,bodyParts,{Head=0,Hair=1},original)
+local all=C.copy(original);all.bodyRace='modded_dragon';all.rig=2;all.tail=false
+for _,slot in ipairs(C.bodySlots) do
+ all.parts[slot.key]='mixed_'..slot.key
+ check(#bodies:bodyChoices(slot.key)==2,'each skin slot exposes automatic and mixed donor choices: '..slot.key)
+end
+check(bodies:contains(all),'full mixed body is independent of identity, sex, rig and tail visibility')
+local copied=C.copy(all);copied.parts.hands=''
+check(all.parts.hands=='mixed_hands','draft body-part tables are copied without aliasing saved state')
+copied.parts.hands='first_person';check(not bodies:contains(copied),'first-person-only parts are excluded from whole-body selections')
+copied=C.copy(all);copied.parts.tail='mixed_feet';check(not bodies:contains(copied),'parts cannot cross mesh slots')
+check(not C.valid({race='elf',head='elf_head',hair='',isMale=true,rig=3}),'unknown rigs rejected')
+check(not C.valid({race='elf',head='elf_head',hair='',isMale=true,parts={weapon='iron_dagger'}}),'equipment cannot be smuggled into skin selection')
 local current=C.new(races,parts,{Head=0,Hair=1},{race='npc_only'})
 check(#current.races==3,'current non-playable race retained')
 
@@ -121,7 +140,8 @@ vector.__sub=function(a,b) return setmetatable({x=a.x-b.x,y=a.y-b.y,z=(a.z or 0)
 vector.__mul=function(a,n) return setmetatable({x=a.x*n,y=a.y*n,z=(a.z or 0)*n},vector) end
 local function v(x,y,z) return setmetatable({x=x,y=y,z=z},vector) end
 local uiCount=0
-local ui={TYPE={Image='Image',Widget='Widget',Text='Text',TextEdit='TextEdit'},
+local focusRequests={}
+local ui={setFocus=function(element) focusRequests[#focusRequests+1]=element or false end,TYPE={Image='Image',Widget='Widget',Text='Text',TextEdit='TextEdit'},
     ALIGNMENT={Center='Center'},texture=function(value) return value end,content=function(value) return value end,
     screenSize=function() return v(1920,1080) end,layers={[1]={size=v(1920,1080)},indexOf=function() return 1 end}}
 function ui.create(layout)
@@ -253,7 +273,7 @@ editor.cycles.isMale[2].layout.events.mouseClick()
 check(not editor.selection.isMale and editor.selection.head=='female_head','sex cycling replaces incompatible body parts')
 editor.cycles.isMale[1].layout.events.mouseClick()
 editor.cycles.race[2].layout.events.mouseClick()
-check(editor.selection.race=='elf' and editor.selection.head=='elf_head','race arrows select matching body parts')
+check(editor.selection.race=='elf' and editor.selection.bodyRace==original.race and editor.selection.head~= 'elf_head','identity cycling preserves the visible body and head')
 editor.cycles.race[2].layout.events.mouseClick()
 check(editor.selection.race==original.race,'race arrows wrap through available races')
 editor.partsMode.layout.events.mouseClick()
@@ -278,6 +298,21 @@ check(editor.dropdown.rows[1].layout.content[1].props.textColor==style.header,'h
 editor.dropdown.search.layout.events.textChanged('dragon_head_1999')
 check(#editor.dropdown.matches==1 and editor.dropdown.rows[1].layout.props.visible,'search reaches late custom records')
 editor.dropdown:wheel(-30);check(editor.dropdown.offset==0,'filtered scrolling stays in bounds')
+check(focusRequests[1]==false,'appearance opens with no text input focus')
+editor:pageTo('body')
+check(not editor.fields.race.layout.props.visible and editor.fields.rig.layout.props.visible,'body controls replace identity controls without covering the camera')
+editor.cycles.rig[2].layout.events.mouseClick()
+check(editor.selection.rig==1,'humanoid animation rig is independent of identity')
+editor.cycles.rig[2].layout.events.mouseClick()
+check(editor.selection.rig==2,'beast animation rig can be selected for any identity')
+editor.cycles.tail[2].layout.events.mouseClick()
+check(editor.selection.tail==false,'tail visibility can be disabled independently')
+editor.cycles.tail[2].layout.events.mouseClick()
+check(editor.selection.tail==true,'tail visibility can be restored')
+editor.cycles.bodyRace[2].layout.events.mouseClick()
+check(editor.selection.bodyRace=='elf' and editor.selection.race==original.race,'body race changes without changing identity race')
+editor:pageTo('character')
+check(editor.fields.race.layout.props.visible and not editor.fields.rig.layout.props.visible,'character page restores its own controls')
 editor:close()
 check(mode==nil and cameraMode=='ThirdPerson' and yaw==.2 and pitch==.3,'closing restores original mode and camera angles')
 check(roll==.1 and extraYaw==.07 and extraPitch==-.04 and extraRoll==.03,'closing restores original camera roll and extra offsets')

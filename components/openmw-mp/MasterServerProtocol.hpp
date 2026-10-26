@@ -40,7 +40,8 @@ namespace mwmp
     // exact live client handles and adds one atomic multi-row Take All request.
     // Protocol 22 adds atomic server-authoritative NPC spellmaking.
     // Protocol 24 carries target-specific aggro state and multi-target actor AI.
-    inline constexpr int MultiplayerProtocolVersion = 24;
+    // Protocol 25 carries independent player body, animation rig and skin overrides.
+    inline constexpr int MultiplayerProtocolVersion = 25;
     inline constexpr std::string_view MultiplayerBuildVersion = "0.1.0";
     inline constexpr std::string_view DefaultMasterServerUrl = "https://master.fetchers.org";
 

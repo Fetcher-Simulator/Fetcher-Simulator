@@ -1667,6 +1667,7 @@ namespace mwmp
                 npcRecord.mRace = ESM::RefId::deserializeText(mState.race);
             if (!mState.headMesh.empty())
                 npcRecord.mHead = ESM::RefId::deserializeText(mState.headMesh);
+            npcRecord.mAppearance = mState.appearance;
             if (!mState.hairMesh.empty())
                 npcRecord.mHair = ESM::RefId::deserializeText(mState.hairMesh);
 
@@ -1929,7 +1930,8 @@ namespace mwmp
     {
         // Track whether any appearance field changed (requires re-spawn to rebuild NPC record)
         const bool appearanceChanged = (mState.race != state.race) || (mState.headMesh != state.headMesh)
-            || (mState.hairMesh != state.hairMesh) || (mState.isMale != state.isMale);
+            || (mState.hairMesh != state.hairMesh) || (mState.isMale != state.isMale)
+            || (mState.appearance != state.appearance);
 
         const bool nameChanged = (mState.name != state.name);
 
@@ -1942,6 +1944,7 @@ namespace mwmp
         mState.headMesh = state.headMesh;
         mState.hairMesh = state.hairMesh;
         mState.isMale = state.isMale;
+        mState.appearance = state.appearance;
         mState.scale = state.scale;
         mName = state.name;
 
