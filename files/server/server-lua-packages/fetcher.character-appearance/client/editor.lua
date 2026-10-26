@@ -89,7 +89,7 @@ function E.new(catalogue,selection,save,cancel)
             mouseRelease=callback(function() self:dragEnd() end),
             focusGain=callback(function() self:area('preview') end)}}
         local content={Style.frame(0,0,self.width,self.height,true),
-            Style.title('Character Appearance',8,8,self.width-16,28,19),
+            Style.title('Character Appearance',4,4,self.width-8,20,19),
             Style.label('Preview your changes, then Apply to save.',16,49,self.width-32,14)}
         local function field(key,title,y,entries,choose)
             self.choices[key]={entries=entries,choose=choose}

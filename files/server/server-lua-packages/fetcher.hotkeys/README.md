@@ -4,7 +4,8 @@ A server-delivered Lua hotbar and voice browser, styled with Morrowind's MWUI
 text, borders and button frames. No Bardcraft, Studio or Inventory Extender
 dependency. The server sends the client Lua automatically when players connect.
 Browser windows use the original inventory/chat title-block textures, with matching
-filled scrollbar handles. Paging uses the options menu's solid textured arrows.
+filled scrollbar handles. Their title bars sit flush against the outer and inset
+body borders, using the native Morrowind window margins. Paging uses the options menu's solid textured arrows.
 The HUD hotbar keeps its plain page label and has no textured title bar.
 
 ## Playing and assigning

@@ -17,10 +17,15 @@ function S.label(text,x,y,w,size,header)
         props={position=v(x,y),size=v(w,26),text=text,textSize=size or 16}}
 end
 function S.frame(x,y,w,h,thick)
-    return {type=ui.TYPE.Widget,props={position=v(x,y),size=v(w,h)},content=ui.content{
+    local frame={type=ui.TYPE.Widget,props={position=v(x,y),size=v(w,h)},content=ui.content{
         S.image(0,0,w,h,util.color.rgb(0,0,0)),
         {template=thick and S.templates.bordersThick or S.templates.borders,props={size=v(w,h)}},
     }}
+    -- MW_Window: caption at (4,4), 20px tall; its bottom meets the inner
+    -- border at y=24. Both frames share the same four-pixel outer inset.
+    if thick then frame.content[#frame.content+1]={template=S.templates.bordersThick,
+        props={position=v(4,24),size=v(w-8,h-28)}} end
+    return frame
 end
 local textures={}
 for _,name in ipairs({'top','bottom','left','right','top_left_corner','top_right_corner','bottom_left_corner','bottom_right_corner'}) do

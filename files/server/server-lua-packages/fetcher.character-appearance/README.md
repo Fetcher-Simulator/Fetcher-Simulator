@@ -7,7 +7,8 @@ F6 retains its normal chat-display binding.
 The character faces the camera beside a panel styled with Morrowind's MWUI borders,
 text colours and original button textures. Each selector has a searchable dropdown
 with a filled textured scrollbar handle. The editor and selector title bars reuse
-the inventory/chat header blocks, and left/right cycling buttons use the options
+the inventory/chat header blocks, flush with the outer and inset body borders.
+Left/right cycling buttons use the options
 menu's solid textured arrows. **Left-drag the model view** to orbit horizontally or
 vertically around the character's head/upper-body pivot, opposite to the drag
 direction on both axes; **mouse wheel** zooms toward

@@ -38,3 +38,7 @@ assets. All 473 hotkey and 255 appearance checks pass. Native integration opened
 both browsers and the appearance editor without Lua or missing-texture errors;
 the final HUD-only title-bar removal also passed the existing hotbar checks.
 One unrelated RigGeometry/skeleton warning occurred during character loading.
+
+The follow-up Hotkeys v3 / Appearance v8 update adds the native inset body frame
+and moves window captions to `(4,4)`, height 20, meeting the inner border at y=24.
+The HUD remains unchanged. Both existing Lua suites still pass (728 checks total).

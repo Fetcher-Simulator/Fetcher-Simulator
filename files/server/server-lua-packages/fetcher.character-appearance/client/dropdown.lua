@@ -31,7 +31,7 @@ function D.open(owner,entries,selected,choose,y)
     local width=owner.width-32
     local height=340
     self.y=math.max(12,math.min(y,owner.height-height-12))
-    local content={Style.frame(0,0,width,height,true),Style.title('Search / scroll to select',8,6,width-16,24,15),
+    local content={Style.frame(0,0,width,height,true),Style.title('Search / scroll to select',4,4,width-8,20,15),
         Style.frame(12,35,width-24,28)}
     self.search=element{template=Style.templates.textEditLine,
         props={position=v(17,39),size=v(width-34,21),text='',textSize=15,autoSize=false},

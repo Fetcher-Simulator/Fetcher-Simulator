@@ -76,7 +76,7 @@ function V:buildBrowser()
     local height=math.min(640,screen.y-145)
     self.rowCount=math.max(3,math.floor((height-205)/30))
     self.bx=math.floor((screen.x-width)/2);self.by=math.max(10,math.floor((screen.y-height-105)/2))
-    local content={S.frame(0,0,width,height,true),S.title(self.mode=='voices' and 'Voice lines' or 'Hotbar items',8,8,width-16,28,20),
+    local content={S.frame(0,0,width,height,true),S.title(self.mode=='voices' and 'Voice lines' or 'Hotbar items',4,4,width-8,20,20),
         S.label('Drag an entry to a slot. Click its x to clear it.',18,46,width-36),S.frame(18,75,width-36,29)}
     local function element(layout)
         local e=ui.create(layout);self.children[#self.children+1]=e;return e
