@@ -3,8 +3,10 @@ local util=require('openmw.util')
 local async=require('openmw.async')
 local S=require('scripts.multiplayer.fetcher.hotkeys.client.style')
 local Model=require('scripts.multiplayer.fetcher.hotkeys.shared.model')
+local VoiceText=require('scripts.multiplayer.fetcher.hotkeys.client.voice-text')
 local V={};V.__index=V
 local v=util.vector2
+local rowTop,rowHeight=138,30
 local function cb(fn) return async:callback(function(...) fn(...);return false end) end
 local function size() return ui.layers[ui.layers.indexOf('Windows')].size end
 local function hit(p,x,y,w,h) return p and p.x>=x and p.y>=y and p.x<x+w and p.y<y+h end
@@ -21,21 +23,25 @@ function V:close()
     self:destroyBrowser();self.mode=nil
     if self.ownsMode then self.api.closeMode();self.ownsMode=nil end
 end
-function V:open(mode)
-    self:destroyBrowser();self.mode=mode;self.query='';self.offset=0;self.selected=1
+function V:open()
+    self:destroyBrowser();self.mode='voices';self.query='';self.offset=0;self.selected=1
     if not self.ownsMode then self.ownsMode=self.api.openMode() end
     self:buildBrowser()
 end
 function V:filtered()
     local list={};local q=self.query:lower()
-    for _,entry in ipairs(self.api.entries(self.mode)) do
-        if (entry.label..' '..(entry.path or '')..' '..(entry.category or '')):lower():find(q,1,true) then list[#list+1]=entry end
+    for _,entry in ipairs(self.api.entries()) do
+        local search=entry.search or table.concat({entry.label,entry.text or '',entry.path or '',entry.category or ''},' '):lower()
+        if search:find(q,1,true) then list[#list+1]=entry end
     end
     return list
 end
 function V:entriesChanged()
     if self.mode then
-        self.matches=self:filtered();self.selected=math.max(1,math.min(self.selected,#self.matches));self:drawRows()
+        local previous=self.matches and self.matches[self.selected]
+        self.matches=self:filtered();self.selected=math.max(1,math.min(self.selected,#self.matches))
+        if previous then for i,entry in ipairs(self.matches) do if entry.id==previous.id then self.selected=i;break end end end
+        self:drawRows()
     end
 end
 function V:select(index,preview)
@@ -56,15 +62,20 @@ function V:drawRows()
     for i,element in ipairs(self.rows) do
         local index=self.offset+i;local entry=self.matches[index]
         element.layout.props.visible=entry~=nil
-        element.layout.content[1].props.text=entry and entry.label or ''
+        element.layout.content[1].props.text=entry and VoiceText.display(entry.label) or ''
         element.layout.content[1].props.textColor=index==self.selected and S.header or S.normal
+        element.layout.content[2].props.text=entry and VoiceText.display(entry.text and entry.text~='' and entry.text or 'No transcript available') or ''
+        element.layout.content[2].props.textColor=index==self.selected and S.header or S.normal
         element:update()
     end
     local entry=self.matches[self.selected]
-    self.detail.layout.props.text=entry and (entry.command or entry.label)..'\n'..(entry.path or entry.id) or 'No matching entries.'
+    self.detail.layout.props.text=entry and VoiceText.display(entry.text and entry.text~='' and entry.text or 'No transcript available for this recording.') or 'No matching voice lines.'
     self.detail:update()
-    self.counter.layout.props.text=tostring(#self.matches)..(self.mode=='voices' and ' installed voice lines' or ' inventory items');self.counter:update()
-    local height=self.rowCount*30;local max=math.max(0,#self.matches-self.rowCount)
+    self.detailInfo.layout.props.text=entry and VoiceText.display((entry.command or entry.label)..'   '..(entry.textSource or 'No transcript')..'   '..(entry.path or entry.id)) or ''
+    self.detailInfo:update()
+    local missing=0;for _,line in ipairs(self.matches) do if not line.text or line.text=='' then missing=missing+1 end end
+    self.counter.layout.props.text=tostring(#self.matches)..' voice lines'..(missing>0 and ('; '..missing..' without text') or '');self.counter:update()
+    local height=self.rowCount*rowHeight;local max=math.max(0,#self.matches-self.rowCount)
     self.thumbHeight=math.max(22,height*self.rowCount/math.max(self.rowCount,#self.matches))
     self.thumbTop=max>0 and self.offset/max*(height-self.thumbHeight) or 0
     self.thumb.layout.props.position=v(0,self.thumbTop);self.thumb.layout.props.size=v(15,self.thumbHeight);self.thumb:update()
@@ -72,12 +83,13 @@ end
 function V:buildBrowser()
     self:destroyBrowser()
     local screen=size();self.screen=screen
-    local width=math.min(820,screen.x-24)
-    local height=math.min(640,screen.y-145)
-    self.rowCount=math.max(3,math.floor((height-205)/30))
+    local width=math.min(1040,screen.x-24)
+    local height=math.min(740,screen.y-145)
+    self.rowCount=math.max(3,math.floor((height-rowTop-170)/rowHeight))
     self.bx=math.floor((screen.x-width)/2);self.by=math.max(10,math.floor((screen.y-height-105)/2))
-    local content={S.frame(0,0,width,height,true),S.title(self.mode=='voices' and 'Voice lines' or 'Hotbar items',4,4,width-8,20,20),
-        S.label('Drag an entry to a slot. Click its x to clear it.',18,46,width-36),S.frame(18,75,width-36,29)}
+    local content={S.frame(0,0,width,height,true),S.title('Voice lines',4,4,width-8,20,20),
+        S.label('Search spoken words, type or filename. Drag a line to a hotbar slot.',18,46,width-36),S.frame(18,75,width-36,29),
+        S.label('Type / ID',24,111,166,14,true),S.label('Spoken line',196,111,width-232,14,true)}
     local function element(layout)
         local e=ui.create(layout);self.children[#self.children+1]=e;return e
     end
@@ -88,8 +100,10 @@ function V:buildBrowser()
         events={textChanged=cb(function(text) self.query=text;self.offset=0;self.selected=1;self.matches=self:filtered();self:drawRows() end)}}
     content[#content+1]=self.search;self.rows={}
     for i=1,self.rowCount do
-        local layout=S.image(18,116+(i-1)*30,width-62,28,util.color.rgb(0,0,0))
-        layout.content=ui.content{S.label('',6,3,width-77,16)}
+        local layout=S.image(18,rowTop+(i-1)*rowHeight,width-62,rowHeight-2,util.color.rgb(0,0,0))
+        local name=S.label('',6,3,166,15);name.props.autoSize=false
+        local text=S.label('',178,3,width-246,16);text.props.autoSize=false
+        layout.content=ui.content{name,text}
         layout.events={mousePress=cb(function(e)
             if e.button~=1 then return end
             local entry=self.matches[self.offset+i];if not entry then return end
@@ -97,7 +111,7 @@ function V:buildBrowser()
         end),mouseMove=cb(function(e)
             self.overList=true
             if self.press and e.button==1 and (e.position-self.press.position):length()>4 then
-                self.drag={kind=self.mode=='voices' and 'voice' or 'item',id=self.press.entry.id};self.ignoreClick=true
+                self.drag={kind='voice',id=self.press.entry.id};self.ignoreClick=true
             end
         end),mouseRelease=cb(function(e) if e.button==1 then self:release(e.position) end end),
         mouseClick=cb(function()
@@ -105,10 +119,10 @@ function V:buildBrowser()
         end),focusGain=cb(function() self.overList=true end),focusLoss=cb(function() self.overList=false end)}
         self.rows[i]=element(layout);content[#content+1]=self.rows[i]
     end
-    local trackHeight=self.rowCount*30
+    local trackHeight=self.rowCount*rowHeight
     local function scroll(e,press)
         if e.button~=1 then return end
-        local at=e.position.y-self.by-116
+        local at=e.position.y-self.by-rowTop
         if press then self.grab=at>=self.thumbTop and at<=self.thumbTop+self.thumbHeight and at-self.thumbTop or self.thumbHeight/2 end
         local max=math.max(0,#self.matches-self.rowCount)
         self.offset=math.floor(math.max(0,math.min(1,(at-(self.grab or 0))/math.max(1,trackHeight-self.thumbHeight)))*max+.5)
@@ -117,17 +131,20 @@ function V:buildBrowser()
     local events={mousePress=cb(function(e) scroll(e,true) end),mouseMove=cb(function(e) scroll(e,false) end),
         focusGain=cb(function() self.overList=true end),focusLoss=cb(function() self.overList=false end)}
     local thumb=S.filled(0,0,15,22);thumb.events=events;self.thumb=element(thumb)
-    local track=S.image(width-35,116,15,trackHeight,util.color.rgb(0,0,0));track.events=events;track.content=ui.content{self.thumb};content[#content+1]=track
-    local y=116+trackHeight+5
-    self.detail=element(S.label('',18,y,width-36,14));self.detail.layout.props.size=v(width-36,44);content[#content+1]=self.detail
-    self.counter=element(S.label('',18,height-37,240,14));content[#content+1]=self.counter
-    if self.mode=='voices' then
-        button('Preview',width-420,height-42,92,function() local e=self.matches[self.selected];if e then self.api.preview(e) end end)
-        button(self.autoPreview and 'Auto: On' or 'Auto: Off',width-321,height-42,103,function()
-            self.autoPreview=not self.autoPreview;self:buildBrowser()
-        end)
-        button('Stop',width-211,height-42,79,function() self.pendingPreview=nil;self.api.stopPreview() end)
-    else button('Refresh',width-211,height-42,100,function() self:entriesChanged() end) end
+    local track=S.image(width-35,rowTop,15,trackHeight,util.color.rgb(0,0,0));track.events=events;track.content=ui.content{self.thumb};content[#content+1]=track
+    local y=rowTop+trackHeight+8
+    content[#content+1]=S.frame(18,y,width-36,height-62-y)
+    self.detailInfo=element(S.label('',24,y+4,width-48,12));self.detailInfo.layout.props.autoSize=false;content[#content+1]=self.detailInfo
+    self.detail=element{type=ui.TYPE.TextEdit,props={position=v(24,y+24),size=v(width-48,math.max(20,height-92-y)),
+        text='',textSize=16,textColor=S.normal,readOnly=true,multiline=true,wordWrap=true,autoSize=false},
+        events={focusGain=cb(function() self.overList=false end)}}
+    content[#content+1]=self.detail
+    self.counter=element(S.label('',18,height-37,width-450,14));content[#content+1]=self.counter
+    button('Preview',width-420,height-42,92,function() local e=self.matches[self.selected];if e then self.api.preview(e) end end)
+    button(self.autoPreview and 'Auto: On' or 'Auto: Off',width-321,height-42,103,function()
+        self.autoPreview=not self.autoPreview;self:buildBrowser()
+    end)
+    button('Stop',width-211,height-42,79,function() self.pendingPreview=nil;self.api.stopPreview() end)
     button('Close',width-123,height-42,105,function() self:close() end)
     self.browser=ui.create{type=ui.TYPE.Widget,layer='Windows',props={position=v(self.bx,self.by),size=v(width,height)},content=ui.content(content)}
     self.matches=self:filtered();self:drawRows()
@@ -163,7 +180,7 @@ function V:drawBar()
         end),mouseMove=cb(function(e)
             if self.slotPress and self.slotPress.binding and e.button==1 and (e.position-self.slotPress.position):length()>4 then self.drag=self.slotPress.binding end
         end),mouseRelease=cb(function(e) if e.button==1 then self:release(e.position) end end),
-        focusGain=cb(function() self.api.hint(info and info.label or 'Empty slot') end)}
+        focusGain=cb(function() self.api.hint(info and (info.text and info.text~='' and info.text or info.label) or 'Empty slot') end)}
         content[#content+1]=box
         self.rects[slot]={x=x+left,y=y+top,w=cell-3,h=cell-3,index=index}
     end

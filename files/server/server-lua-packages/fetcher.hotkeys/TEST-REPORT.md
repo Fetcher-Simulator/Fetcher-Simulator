@@ -42,3 +42,27 @@ One unrelated RigGeometry/skeleton warning occurred during character loading.
 The follow-up Hotkeys v3 / Appearance v8 update adds the native inset body frame
 and moves window captions to `(4,4)`, height 20, meeting the inner border at y=24.
 The HUD remains unchanged. Both existing Lua suites still pass (728 checks total).
+
+## Voice text and item-window removal — 2026-10-26
+
+- `/hotbar`, its help entry, item palette and `openItems()` interface were removed.
+  Direct inventory-cursor assignment to the HUD remains covered by regression checks.
+- Imported all ten race tabs from the supplied Google workbook: 5,118 normalized
+  audio paths, with duplicate variants retained for search. The source URL and
+  workbook SHA-256 are recorded in the generated Lua data.
+- Installed dialogue INFO subtitles take precedence; indexing yields every 200
+  records. Script `Say` captions and automatic text supply additional fallbacks.
+  No sheet access or speech-model dependency runs in-game.
+- Local speech recognition processed 1,048 audio files; two catalogue references
+  had no corresponding loose audio file. The import retained 616 multiword
+  automatic captions, explicitly marked unverified, and withheld uncertain or
+  isolated-word output. The base `/s` catalogue has text for 6,015 of its 6,449
+  referenced paths; the other 434 are mostly hit/creature-attack vocalizations.
+- The real Synth A check listed 427 available recordings: 238 game subtitles,
+  38 script captions, 121 automatic captions and 30 without reliable text. The
+  browser opened without Lua errors, previewed and assigned a captioned entry,
+  then restored the original slot. `/hotbar` no longer handled a command.
+- **492 hotkey checks**, **255 appearance checks**, **4 importer tests** and
+  **25 native package checks** passed. Coverage includes actual-word search,
+  display of the full selected line, alternate wording, filename collision
+  handling, incremental indexing, source priority and MyGUI text escaping.

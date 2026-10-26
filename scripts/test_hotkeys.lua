@@ -4,6 +4,7 @@ local checks=0
 local function check(value,message) checks=checks+1;assert(value,message) end
 local function load(path) return assert(loadfile(path))() end
 local Model=load(base..'shared/model.lua')
+local VoiceText=load(base..'client/voice-text.lua')
 check(Model.state().pages==3,'three pages by default')
 local saved=Model.state{pages=3,base=2,slots={['1']={kind='item',id='Potion'},['20']={kind='voice',id='sound/vo/x.mp3'},['160']={kind='item',id='last'}}}
 check(saved.slots['1'].id=='potion' and saved.slots['20'].kind=='voice','bindings normalized')
@@ -94,7 +95,8 @@ request(11,'bind',{token=token,index=4,binding={kind='command',id='/admin'}})
 check(not sections.FetcherHotkeys['100'].slots['4'],'server rejects arbitrary command actions')
 local commands=load(root..'/apps/openmw-server/scripts/hotkeys_commands.lua')
 check(commands.handleChat(p,{message='/voicelines'},{commandPrefix='/'})==false and latest().op=='voices','chat command opens the voice browser')
-check(commands.handleChat(p,{message='!hotbar'},{commandPrefix='!'})==false and latest().op=='items','custom command prefixes work')
+check(commands.handleChat(p,{message='!voicelines'},{commandPrefix='!'})==false and latest().op=='voices','custom command prefixes work')
+check(commands.handleChat(p,{message='/hotbar'},{commandPrefix='/'})==nil,'redundant item-window command removed')
 check(commands.handleChat(p,{message='/other'},{commandPrefix='/'})==nil,'unknown commands remain with their own handler')
 
 -- Stub renderer and input: exercise actual GUI construction, hit testing,
@@ -108,7 +110,7 @@ local function v(x,y) return setmetatable({x=x,y=y},vector) end
 local created,registered,removed={},0,0
 local keys={Escape=41,PageUp=75,PageDown=78,LeftCtrl=224,LeftShift=225,LeftAlt=226,UpArrow=82,DownArrow=81}
 for i=0,9 do keys['_'..i]=i+30 end
-local ui={TYPE={Widget=1,Image=2},ALIGNMENT={Center=1},texture=function(t) return t end,content=function(t) return t end,
+local ui={TYPE={Widget=1,Image=2,TextEdit=3,Flex=4},ALIGNMENT={Center=1},texture=function(t) return t end,content=function(t) return t end,
     create=function(layout)
         local e={layout=layout};e.update=function() end;e.destroy=function() e.destroyed=true end
         created[#created+1]=e;return e
@@ -125,6 +127,8 @@ local configStore={}
 package.loaded['openmw.storage']={playerSection=function() return {getCopy=function() return nil end,set=function(_,k,val) configStore[k]=val end} end}
 local prefix='scripts.multiplayer.fetcher.hotkeys.'
 package.loaded[prefix..'shared.model']=Model
+package.loaded[prefix..'client.voice-text']=VoiceText
+package.loaded[prefix..'shared.voice-transcripts']=load(base..'shared/voice-transcripts.lua')
 package.loaded[prefix..'client.style']=load(base..'client/style.lua')
 local Settings=load(base..'client/settings.lua')
 local pages=3
@@ -152,6 +156,11 @@ view.drag={kind='voice',id=entries[1].id};view:release(v(0,0));check(#bindings==
 view.overList=true;view:wheel(-1);view:frame(.2)
 check(previews==1 and view.selected==2,'scrolling previews selected line with debounce')
 view.query='hello 3000';view:entriesChanged();check(#view.matches==1,'search filters entire catalogue')
+entries[3000].text='The moon is a strange place for an outlander.'
+view.query='OUTLANDER';view:entriesChanged()
+check(#view.matches==1 and view.matches[1].id==entries[3000].id,'spoken words are searched case-insensitively')
+check(view.rows[1].layout.content[2].props.text==entries[3000].text,'actual words are shown beside the type and ID')
+check(view.detail.layout.props.text==entries[3000].text,'selected full transcript is shown below the list')
 view:setHint('preview');view:destroy();check(not view.bar and not view.browser,'HUD and browser cleaned up')
 
 -- Drive the real player controller with its engine adapters stubbed. This
@@ -209,12 +218,46 @@ handlers.onKeyRelease{code=keys._1};pressed={}
 handlers.onKeyPress{code=keys._1};check(#used==3,'releasing chords returns to base page')
 handlers.onKeyRelease{code=keys._1}
 api.openVoices();check(mode=='Interface','browser captures cursor through normal UI mode')
-api.openItems();check(mode=='Interface','switching browsers retains owned UI mode without queued close/reopen')
+check(api.openItems==nil,'removed item window is not exposed through the player interface')
 api.close();check(mode==nil,'owned UI mode is restored on close')
-mode='Interface';api.openItems();api.close();check(mode=='Interface','closing browser preserves previously open inventory')
+mode='Interface';api.openVoices();api.close();check(mode=='Interface','closing browser preserves previously open inventory')
+local activeBar
+for _,element in ipairs(created) do if not element.destroyed and element.layout.layer=='FetcherHotbar' then activeBar=element end end
+local cancelled
+ui.getDraggedItem=function() return item end
+ui.cancelItemDrag=function(expected) cancelled=expected end
+check(api.acceptItemDrop(activeBar.layout.props.position+v(72,27)),'native inventory cursor still assigns directly to the HUD')
+check(outbound[#outbound].data.op=='bind' and outbound[#outbound].data.binding.kind=='item' and cancelled==item and item.count==5,
+    'inventory-to-HUD assignment cancels only the cursor and does not transfer or consume the stack')
+ui.getDraggedItem=function() return nil end
 mode=nil
 check(api.setPageCount(16) and not api.setPageCount(17),'page-count API validates configured bounds')
 connectedNow=false;handlers.onFrame(.01)
 check(quickKeysEnabled,'disconnect restores vanilla quick keys')
+
+local captionFallback={sheet={['sound/vo/test.mp3']={'Spreadsheet wording','Alternate phrasing'},['sound/vo/sheet.mp3']={'A sheet-only line'}},
+    scripts={['sound/vo/script.mp3']='A script caption'},automatic={['sound/vo/auto.mp3']='Automatic words'}}
+local records={}
+for i=1,450 do records[i]={sound='Vo/test'..i..'.mp3',text='Installed line '..i} end
+records[1]={sound='Sound\\Vo\\TEST.mp3',text='Native spoken text'}
+records[2]={sound='other/test.mp3',text='Different directory, same basename'}
+local captions=VoiceText.new({voice={records={{infos=records}}}},captionFallback)
+captions:frame();check(not captions.done,'subtitle indexing yields instead of blocking on a large catalogue')
+for i=1,4 do captions:frame() end
+check(captions.done,'subtitle indexing completes incrementally')
+local text,source,aliases=captions:lookup('Vo/TEST.mp3')
+check(text=='Native spoken text' and source=='Game subtitles','installed subtitle overrides fallback spelling')
+check(aliases:find('Alternate phrasing',1,true),'spreadsheet alternatives remain searchable')
+check(captions:lookup('other/test.mp3')=='Different directory, same basename','full paths prevent basename collisions')
+check(captions:lookup('Vo/sheet.mp3')=='A sheet-only line','spreadsheet supplies missing installed subtitles')
+check(captions:lookup('Vo/script.mp3')=='A script caption','script captions cover scripted Say audio')
+local automatic,automaticSource=captions:lookup('Vo/auto.mp3')
+check(automatic=='Automatic words' and automaticSource:find('unverified',1,true),'machine transcription is identified honestly')
+check(captions:lookup('Vo/missing.mp3')=='','missing words are never invented')
+check(not VoiceText.path('https://host/audio.mp3') and not VoiceText.path('../vo/audio.mp3'),'external and traversing paths rejected')
+check(VoiceText.clean('<font color="x">Hello<br>there</font>\n')=='Hello there','subtitle formatting is removed from searchable text')
+check(VoiceText.display('#ABCDEFhello')=='##ABCDEFhello','subtitle text cannot inject MyGUI colors')
+local decorated=captions:decorate{id='sound/vo/test.mp3',path='sound/vo/test.mp3',label='attack 001',category='attack'}
+check(decorated.search:find('native spoken',1,true) and decorated.search:find('alternate phrasing',1,true),'search indexes actual words and fallback aliases')
 
 print(string.format('Hotkeys: %d checks passed',checks))

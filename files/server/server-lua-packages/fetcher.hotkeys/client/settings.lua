@@ -54,7 +54,7 @@ function M:draw()
     button('Raise',350,500,110,function() c.offset=math.min(300,c.offset+12);self:save() end)
     button('Lower',472,500,110,function() c.offset=math.max(0,c.offset-12);self:save() end)
     content[#content+1]=S.label('Reducing page count keeps assignments on hidden pages.',10,547,660)
-    content[#content+1]=S.label(self.notice or 'Use /hotbar for items; /voicelines for voice previews and assignment.',10,576,670,14)
+    content[#content+1]=S.label(self.notice or 'Drag items from inventory. Use /voicelines to choose speech.',10,576,670,14)
     self.element.layout.content=ui.content(content)
     self.element.layout.events={keyPress=cb(function(e) self:key(e.code) end)}
     self.element:update()

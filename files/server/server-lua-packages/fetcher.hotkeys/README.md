@@ -15,10 +15,11 @@ The HUD hotbar keeps its plain page label and has no textured title bar.
   move or consume anything when assigned. Missing items remain assigned.
 - Open inventory, pick up an item on the cursor, then drop it onto a hotbar slot.
   Both the vanilla inventory and the optional Inventory Extender are supported.
-  **`/hotbar`** also opens a searchable inventory palette with drag assignment.
 - **`/voicelines`** opens a searchable, scrollable list drawn from the server's
   actual `/s` catalogue for your current race/sex, plus its globally available
-  lines. Only files installed in your effective VFS are shown. Click **Preview**
+  lines. Search matches spoken text, type/ID and filename. Rows show the actual
+  words beside the type/ID; the lower panel wraps the full selected line and can
+  scroll longer text. Only files installed in your effective VFS are shown. Click **Preview**
   or a row to hear it locally. With **Auto: On**, scrolling or using the arrow
   keys auditions the selected line after a short debounce; previews replace
   each other. **Stop**, Close or Escape stops the preview.
@@ -60,7 +61,7 @@ the current `hotkeys.lua`, `hotkeys_commands.lua`, `speech_commands.lua` and the
 stock command-router updates in `server-scripts`. Add `GLOBAL: hotkeys.lua` to
 `server.omwscripts`. The stock release already contains these entries. A custom
 router can call `require('hotkeys_commands').handleChat(player,data,env)` for
-`/hotbar` and `/voicelines`; permit both commands in any command allowlist.
+`/voicelines`; permit that command in any command allowlist.
 
 Upgrade exact `requiredOpenMWLuaApi` pins in existing packages to 143 along with
 the matching client/server binaries. Restart the server and reconnect clients
@@ -74,7 +75,7 @@ transfers items. `ui.getMousePosition()` returns GUI pixel coordinates for
 captured drag releases. `input.isTextInputActive()` guards native chat/text entry.
 Native quick-key suppression resets on world clear and Lua disconnect/inactivity.
 
-Other player scripts can use `I.FetcherHotkeys.openVoices()`, `.openItems()`,
+Other player scripts can use `I.FetcherHotkeys.openVoices()`,
 `.close()`, `.state()`, `.catalogue()`, `.bind(index,binding)`, `.activate(slot)`,
 `.cycle(delta)`, `.setPageCount(count)`, `.previewVoice(id)` and `.stopPreview()`.
 Assignments are `{kind='item'|'voice',
@@ -84,3 +85,31 @@ requests. No chat commands, script strings, URLs or arbitrary sound paths can be
 bound as actions.
 
 Run `lua scripts/test_hotkeys.lua .` for model, server, GUI and controller checks.
+
+## Voice text
+
+The client indexes installed voice, greeting, persuasion and topic INFO subtitles
+incrementally. This follows installed mods and localization without sending game
+records or audio over the network. Captions only decorate entries supplied by the
+server's existing `/s` catalogue; they grant no extra voice access.
+
+Missing captions fall back to the user's supplied [voice spreadsheet](https://docs.google.com/spreadsheets/d/1x757dhvjUUlROeapDgXx7aLiKTNo977mjG9m9wECuo0/edit?gid=1127185881),
+then extracted MWScript `Say` captions, then local automatic transcriptions. The
+selected line identifies automatic text as **unverified**. Recordings without
+usable text remain playable and searchable by their type/ID and filename, and
+show **No transcript available**. Duplicate spreadsheet phrasings remain searchable;
+installed game subtitles take precedence. Matching uses full normalized VFS paths,
+so identical filenames in different directories cannot borrow each other's words.
+
+The generated fallback is `shared/voice-transcripts.lua`. Regenerate it with
+`scripts/import_hotkeys_voice_transcripts.py --workbook <downloaded.xlsx>
+--game-data <Data Files> --automatic <optional-transcripts.jsonl> --output <lua>
+--report <json>`. The importer reads all race tabs, records duplicate conflicts and
+malformed cells, and retains the source URL and workbook digest. No live Google
+Sheets access, speech model, network service or transcription dependency is needed
+by players or the server. The redundant `/hotbar` command/window was removed in v4;
+items continue to assign directly from inventory to the HUD.
+
+`scripts/transcribe_hotkeys_missing.py` is an optional developer-only, resumable
+local-audio pass using faster-whisper small.en and FFmpeg. The importer withholds
+uncertain or isolated-word results; retained machine output is still unverified.
