@@ -1,4 +1,5 @@
 name: Fetcher Simulator Experimental prerelease
+run-name: Fetcher Simulator Experimental prerelease
 
 on:
   workflow_dispatch:
