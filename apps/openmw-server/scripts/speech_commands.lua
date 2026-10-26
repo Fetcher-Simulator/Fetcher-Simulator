@@ -498,7 +498,15 @@ function M.catalogue(player)
     for kind, entries in pairs(speechData.global or {}) do
         for index, entry in ipairs(entries) do add(kind, index, entry[2]) end
     end
-    table.sort(result, function(a,b) return a.label < b.label end)
+    table.sort(result, function(a,b)
+        if a.category ~= b.category then return a.category < b.category end
+        local ai, bi = a.label:match(' (%S+)$'), b.label:match(' (%S+)$')
+        local an, bn = parsePositiveInteger(ai), parsePositiveInteger(bi)
+        if an and bn and an ~= bn then return an < bn end
+        if (an ~= nil) ~= (bn ~= nil) then return an ~= nil end
+        if ai ~= bi then return ai < bi end
+        return a.id < b.id
+    end)
     return result
 end
 

@@ -54,6 +54,25 @@ local ids={};for _,e in ipairs(list) do ids[e.id]=true end
 check(ids['sound/vo/mod/new.mp3'] and not ids['sound/vo/mod/collision.mp3'],'catalogue honors /s duplicate precedence')
 check(not ids['sound/vo/f/hello.mp3'],'other sex voice is excluded')
 local female=speech.catalogue(q);check(#female==2,'female list includes only current voice and global lines')
+local data=package.loaded.speech_data
+local originalMisc=data.global.misc;data.global.misc={}
+for i=1,170 do data.global.misc[i]={tostring(i),'Vo/misc/line'..i..'.mp3'} end
+local actual,expected={},{}
+for _,entry in ipairs(speech.catalogue(p)) do if entry.category=='misc' then actual[#actual+1]=entry.label end end
+for i=1,170 do expected[i]='misc '..i end
+check(table.concat(actual,',')==table.concat(expected,','),'numeric order across misc 2/7/17/20/68/70/165/170 boundaries')
+data.global.misc=originalMisc
+data.races.elf.default.male.idle={{'100','Vo/m/idle100.mp3'},{'20','Vo/m/idle20.mp3'},
+    {'002','Vo/m/idle2.mp3'},{'010','Vo/m/idle10.mp3'},{'extra','Vo/m/idle-extra.mp3'}}
+actual={};local categories={}
+for _,entry in ipairs(speech.catalogue(p)) do
+    if entry.category=='idle' then actual[#actual+1]=entry.label end
+    categories[#categories+1]=entry.category
+end
+check(table.concat(actual,',')=='idle 002,idle 010,idle 20,idle 100,idle extra','padded IDs retain their labels; nonnumeric IDs follow numbers')
+local grouped=true;for i=2,#categories do if categories[i]<categories[i-1] then grouped=false end end
+check(grouped,'numeric sorting keeps voice categories grouped')
+data.races.elf.default.male.idle=nil
 local server=load(root..'/apps/openmw-server/scripts/hotkeys.lua').eventHandlers
 local function request(pid,op,extra)
     local d={pid=pid,version=1,op=op};for k,v in pairs(extra or {}) do d[k]=v end
