@@ -6,6 +6,8 @@ on:
       - main
     tags:
       - openmw-**
+    paths-ignore:
+      - .github/workflows/release-vehicles.yml
   workflow_dispatch:
 
 permissions:

@@ -507,21 +507,6 @@ jobs:
         if-no-files-found: ignore
         retention-days: 14
 
-    - name: Retarget explicit release tag
-      if: ${{ inputs.release && inputs.release-tag != '' }}
-      shell: bash
-      run: |
-        git tag -f "${{ inputs.release-tag }}" "${{ github.sha }}"
-        git push origin "refs/tags/${{ inputs.release-tag }}" --force
-
-    - name: Remove existing explicit prerelease
-      if: ${{ inputs.release && inputs.release-tag != '' }}
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        gh release delete "${{ inputs.release-tag }}" --repo "${{ github.repository }}" --yes || true
-
     - name: Stage OpenMW release assets
       if: ${{ inputs.release }}
       shell: pwsh
@@ -542,7 +527,8 @@ jobs:
         $zip = Join-Path $assets $zipName
         Compress-Archive -Path "$portableRoot\*" -DestinationPath $zip -CompressionLevel Optimal -Force
 
-    - name: Create OpenMW client prerelease
+    # Keep the working download if publishing fails.
+    - name: Publish OpenMW client prerelease
       if: ${{ inputs.release }}
       uses: softprops/action-gh-release@v2
       with:
@@ -553,3 +539,11 @@ jobs:
         prerelease: true
         draft: false
         make_latest: false
+        fail_on_unmatched_files: true
+
+    - name: Retarget published release tag
+      if: ${{ inputs.release && inputs.release-tag != '' }}
+      shell: bash
+      run: |
+        git tag -f "${{ inputs.release-tag }}" "${{ github.sha }}"
+        git push origin "refs/tags/${{ inputs.release-tag }}" --force
