@@ -546,22 +546,9 @@ jobs:
           throw "Fetcher Vehicles release archive validation failed."
         }
 
-    - name: Retarget explicit release tag
-      if: ${{ inputs.release && inputs.release-tag != '' }}
-      shell: bash
-      run: |
-        git tag -f "${{ inputs.release-tag }}" "${{ github.sha }}"
-        git push origin "refs/tags/${{ inputs.release-tag }}" --force
-
-    - name: Remove existing explicit prerelease
-      if: ${{ inputs.release && inputs.release-tag != '' }}
-      shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        gh release delete "${{ inputs.release-tag }}" --repo "${{ github.repository }}" --yes || true
-
-    - name: Create OpenMW client prerelease
+    # Update the existing release in place. Deleting it first can remove the
+    # working public download when GitHub refuses release creation or upload.
+    - name: Publish OpenMW client prerelease
       if: ${{ inputs.release }}
       uses: softprops/action-gh-release@v2
       with:
@@ -572,3 +559,11 @@ jobs:
         prerelease: true
         draft: false
         make_latest: false
+        fail_on_unmatched_files: true
+
+    - name: Retarget published release tag
+      if: ${{ inputs.release && inputs.release-tag != '' }}
+      shell: bash
+      run: |
+        git tag -f "${{ inputs.release-tag }}" "${{ github.sha }}"
+        git push origin "refs/tags/${{ inputs.release-tag }}" --force
