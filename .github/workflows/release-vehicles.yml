@@ -1,4 +1,5 @@
-name: Fetcher Simulator Vehicles prerelease
+name: Fetcher Simulator Experimental prerelease
+run-name: Fetcher Simulator Experimental prerelease
 
 on:
   workflow_dispatch:
@@ -12,15 +13,15 @@ concurrency:
 
 jobs:
   Windows:
-    if: ${{ github.ref == 'refs/heads/experimental/vehicles-rigidbody' }}
+    if: ${{ github.ref == 'refs/heads/experimental/public-test' }}
     uses: ./.github/workflows/windows.yml
     with:
       image: "2022"
       build-type: RelWithDebInfo
       package: true
       release: true
-      release-tag: Fetcher-Simulator-Vehicles
-      release-name: Fetcher Simulator Vehicles Public Test
+      release-tag: Fetcher-Simulator-Experimental
+      release-name: Fetcher Simulator Experimental
       release-zip-name: fetcher-simulator.zip
       release-include-installer: false
       embed-fetcher-tester-tools: true
