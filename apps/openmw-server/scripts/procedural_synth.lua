@@ -210,7 +210,7 @@ local function request(data)
     if now > s.expires or not near(player,objectFor(s.id)) then release(s); return end
     s.inSeq = data.seq
     local channel=data.channel or 0
-    if not integer(channel,0,16) then return end
+    if not integer(channel,0,projectFormat.maxTracks) then return end
     local noteKey=channel*128+(integer(data.note,0,127) and data.note or 0)
     -- Safety operations bypass musical/edit rate limits.
     if data.op == 'close' then release(s); return end
@@ -243,7 +243,7 @@ local function request(data)
             local a,b=m.target,s.band[n].target
             if projectFormat.targetKey(a)~=projectFormat.targetKey(b) then structural=true end
         end
-        for n=1,16 do if (routes[n] or 0)~=(s.routes[n] or 0) then structural=true end end
+        for n=1,projectFormat.maxTracks do if (routes[n] or 0)~=(s.routes[n] or 0) then structural=true end end
         if structural and (s.transport or s.upload) then
             s.transport=nil;s.upload=nil;s.notes={};s.drumPending=false
             nextEvent(s);broadcast(s,{op='transportStop',playId=s.lastPlayId or 0})

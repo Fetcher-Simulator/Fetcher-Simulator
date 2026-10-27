@@ -36,12 +36,19 @@ function W:touch(key,quiet)
     end
     self.dirty=true;if not quiet then self.revision=self.revision+1 end;self.generation=self.generation+1
 end
+function W:clampPages(reset)
+    local drums=0;for _,t in ipairs(self.project.tracks) do if t.kind=='drum' then drums=drums+1 end end
+    for _,key in ipairs{'songPage','mixerPage','arrangePage','bandPage','drumPage'} do
+        local count=key=='drumPage' and drums or #self.project.tracks
+        self[key]=reset and 0 or math.max(0,math.min(self[key] or 0,math.ceil(count/8)-1))
+    end
+end
 function W:restore(project)
     self:stop(true)
     self.clipEdit=nil;self.regionIndex=nil;self.regionSelection=nil
     if self.cb.documentChanged then self.cb.documentChanged() end
     if self.project.midi~=project.midi then self.song=nil end
-    self.project=copy(project);self.checkpoint=copy(project);self.lastEditKey=nil
+    self.project=copy(project);self.checkpoint=copy(project);self.lastEditKey=nil;self:clampPages()
     self.selected=math.max(1,math.min(self.selected,#project.tracks));self.bar=math.min(self.bar,project.length/16-1)
     self.noteSelection={};self.noteCache={};self:cacheSpans();self:configureAll();self.dirty=true;self.revision=self.revision+1;self.generation=self.generation+1
     if self:needsMidi() and not self.song then self.cb.importMidi(project.midi) end
@@ -59,7 +66,7 @@ function W:newSong(bpm,numerator,denominator,bars)
     p=format.project(p);if not p then return false end
     self:stop(true);if self.cb.documentChanged then self.cb.documentChanged() end
     if self.library then self.library:detach() end
-    self.song=nil;self.spans={};self.project=p;self.noteCache={};self.noteSelection={};self.selected=1
+    self.song=nil;self.spans={};self.project=p;self.noteCache={};self.noteSelection={};self.selected=1;self:clampPages(true)
     self.clipEdit=nil;self.regionIndex=nil;self.regionSelection=nil
     self.rollStart=0;self.bar=0;self.base=60;self.time=0;self.beat=0;self.step=-1;self.page='song'
     self.lastEditKey=nil;self:configureAll();self:touch();return true
@@ -260,6 +267,10 @@ function W:setSample(index,reference)
     local params=t.params.sample and schema.state(t.params) or schema.state{attack=0.002,sustain=1,
         release=0.08,cutoff=18000,resonance=0,polyphony=8}
     params.sample=reference;t.followPrograms=false;t.params=params;t.presetId='';self.project.soundSet=''
+    if t.kind=='drum' then
+        if t.note~=reference.root and self.native and self.playing then self.sequenceDirty=true end
+        t.note=reference.root
+    end
     self:configure(index);self:touch('sound:sample:'..index);return true
 end
 function W:prepareSamples(index)
@@ -278,7 +289,17 @@ function W:preset(index,id)
         if p.id==id then
             local params=schema.state(p.state);if not params then return false end
             params.polyphony=math.min(8,params.polyphony)
-            t.params=params;t.presetId=id;self.project.soundSet='';self:configure(index);self:touch();return true
+            local wasSample=t.params.sample~=nil
+            t.params=params;t.presetId=id;self.project.soundSet=''
+            if t.kind=='drum' and params.sample then
+                if t.note~=params.sample.root and self.native and self.playing then self.sequenceDirty=true end
+                t.note=params.sample.root
+            elseif t.kind=='drum' and wasSample and params.drumType>0 then
+                local note=({36,38,42,46})[params.drumType]
+                if t.note~=note and self.native and self.playing then self.sequenceDirty=true end
+                t.note=note
+            end
+            self:configure(index);self:touch();return true
         end
     end
     return false
@@ -318,7 +339,7 @@ function W:presetName(t)
     return 'Custom sound'
 end
 function W:add(kind,presetId,name,note)
-    if #self.project.tracks>=format.maxTracks then self.cb.message('Track limit: 16.');return false end
+    if #self.project.tracks>=format.maxTracks then self.cb.message('Track limit: '..format.maxTracks..'.');return false end
     self:stop(true);self.clipEdit=nil
     local t=format.newTrack(kind,name or (kind=='drum' and 'Drum ' or 'Piano ')..(#self.project.tracks+1),self.project.length)
     local n=#self.project.tracks+1;self.project.tracks[n]=t;self.selected=n
@@ -345,9 +366,14 @@ function W:addKit(kitIndex)
 end
 function W:remove(index)
     if not self.project.tracks[index] then return false end
+    if self.recording or self.failedTake then self.cb.message('Keep, retry or cancel the take before deleting a track.');return false end
     self:stop(true);self.clipEdit=nil;self.regionIndex=nil;self.regionSelection=nil;table.remove(self.project.tracks,index);self.selected=math.max(1,math.min(index,#self.project.tracks))
-    self:configureAll();self:touch();return true
+    self:clampPages();self:configureAll();self:touch();return true
 end
+function W:duplicateTrack(index) return require(prefix..'client.pattern-tools').duplicate(self,index) end
+function W:clearDrumBar() return require(prefix..'client.pattern-tools').clearBar(self) end
+function W:deletePatternBar() return require(prefix..'client.pattern-tools').deleteBar(self) end
+function W:capturePattern() return require(prefix..'client.pattern-tools').capture(self) end
 function W:setTrack(index,name,value)
     local t=self.project.tracks[index];if not t then return false end
     if name=='mute' or name=='solo' then
@@ -546,7 +572,7 @@ function W:import(song,path)
     end
     local found={};for _,p in ipairs(parts) do found[p.id]=true end
     for _,t in ipairs(self.project.tracks) do if t.edited and self.project.midi==path and not found[t.part] then extra[#extra+1]=t end end
-    if #parts+#extra>format.maxTracks then self.cb.message('MIDI has '..#parts..' parts; at most 16 tracks fit. Remove clips or choose a smaller MIDI.');return false end
+    if #parts+#extra>format.maxTracks then self.cb.message('MIDI has '..#parts..' parts; at most '..format.maxTracks..' tracks fit. Remove clips or choose a smaller MIDI.');return false end
     local timeline=self.project.midi==path and self.project.timeline or nil
     if not timeline and song.meters and #song.meters>0 then
         local tempos={};for _,t in ipairs(song.tempos or {}) do tempos[#tempos+1]={beat=t.beat,tempo=t.tempo} end
@@ -579,7 +605,7 @@ function W:load(project)
     self:endTake(true);self:stop(true);if self.cb.documentChanged then self.cb.documentChanged() end;if self.project.midi~=valid.midi or valid.composition then self.song=nil end
     self.clipEdit=nil;self.regionIndex=nil;self.regionSelection=nil
     if self.library then self.library:detach() end
-    self.project=valid;self.checkpoint=copy(valid);self.undoStack={};self.redoStack={};self.lastEditKey=nil;self.noteSelection={};self.noteCache={};self:cacheSpans();self.selected=1;self.bar=0;self.rollStart=0;self.dirty=false;self.revision=self.revision+1;self.generation=self.generation+1;self:configureAll()
+    self.project=valid;self.checkpoint=copy(valid);self.undoStack={};self.redoStack={};self.lastEditKey=nil;self.noteSelection={};self.noteCache={};self:cacheSpans();self.selected=1;self.bar=0;self.rollStart=0;self:clampPages(true);self.dirty=false;self.revision=self.revision+1;self.generation=self.generation+1;self:configureAll()
     if self:needsMidi() and not self.song then self.cb.importMidi(valid.midi) end
     return true
 end
@@ -639,7 +665,7 @@ function W:compilePlan()
     if self.mode~='pattern' then return Sequence.compile(self.project,self.song,MIDI,self.mode,format,SoundSets.programPatch) end
     local clip=assert(self:clipSource(),'Select a clip source first.')
     local p=copy(self.project);p.composition=nil;p.timeline=nil;p.length=clip.length;p.swing=0;p.loop=true
-    for _,t in ipairs(p.tracks) do t.kind='midi';t.arrangement=nil;t.automation=nil;t.followPrograms=false end
+    for _,t in ipairs(p.tracks) do t.kind='midi';t.edited=nil;t.arrangement=nil;t.automation=nil;t.followPrograms=false end
     p.tracks[self.selected].kind='piano';p.tracks[self.selected].notes=format.decodeNotes(clip.notes)
     return Sequence.compile(p,nil,MIDI,'clips',format,SoundSets.programPatch)
 end

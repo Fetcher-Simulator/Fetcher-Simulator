@@ -1,7 +1,7 @@
 -- Bounded, versioned DAW document shared by client and server.
 -- Kept as a factory so both runtimes supply their own synth schema module.
 return function(schema)
-local M={version=1,maxTracks=16,maxNotes=512,maxSteps=256,maxMembers=8,maxEditedNotes=8192,maxPartNotes=4096,maxSongBeats=65536}
+local M={version=1,maxTracks=32,maxNotes=512,maxSteps=256,maxMembers=8,maxEditedNotes=8192,maxPartNotes=4096,maxSongBeats=65536}
 M.maxClips=8;M.maxRegions=64;M.maxProjectRegions=256;M.maxExpandedNotes=60000
 local function num(v,a,b) return type(v)=='number' and v==v and v>=a and v<=b end
 local function int(v,a,b) return num(v,a,b) and v%1==0 end

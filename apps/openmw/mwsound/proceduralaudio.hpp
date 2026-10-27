@@ -6,6 +6,8 @@ namespace MWSound
     class ProceduralAudio
     {
     public:
+        // Two complete 32-part keyboards plus routed outputs and local monitors.
+        static constexpr unsigned MaxUnits = 128;
         virtual ~ProceduralAudio() = default;
         virtual void render(float* output, std::size_t frames) = 0;
         virtual void close() = 0;

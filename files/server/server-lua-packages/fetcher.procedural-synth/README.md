@@ -2,9 +2,11 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current build: package 28 / native synth API 15. Installed-game voice, effect
-and music samples are available, along with MIDI export and track renaming.
-Project library and autosave/recovery are available. Next: recording follow-ups. See [the roadmap](ROADMAP.md).
+Current source: package 31 / native synth API 16 / multiplayer protocol 27.
+Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
+and independent concurrent playback. These native changes require matching client
+and server builds; source completion does not publish a release.
+Next: recording follow-ups. See [the roadmap](ROADMAP.md).
 
 ## Local use
 
@@ -19,13 +21,13 @@ The setup creates `C:\serena_workspaces_directory\fetcher-simulator\test-server\
 
 The first setup reads the original local database in read-only mode and copies only the `ass` account and its public-key registrations into a new database. It creates two vanilla Imperial characters. A local authentication key is copied privately into this fixture. Neither keys nor account/database files are committed. An existing destination database is preserved on subsequent setup runs. Stop fixture processes before rerunning setup.
 
-Both players start in vanilla `ToddTest`, near `(2175,2176,-703)`. The server places one **OpenMW Synthesizer** at `(2175,2256,-703)`. Setup installs the included, hash-verified Yamaha keyboard and X-stand assets for both local profiles and configures the runtime activator to use them. Add `-VanillaSynth` to setup to use the original lute mesh instead. Activate the instrument to acquire the editor. A second player can listen; concurrent editing is denied. Mouse keys hold until release; pressing lower on a key increases velocity. Z/S/X/D/C/V/G/B/H/N/J/M/comma play chromatic C4–C5 when a text field is not consuming input. Hide, Escape or F8 hides the editor and releases manually held keys while MIDI, spatial audio, arm posing and the session heartbeat continue. Normal game camera controls are available while hidden. F8 or activating the same instrument reopens the editor without restarting playback; draft preset names and selection are preserved. Finish stops playback and releases the session. Neither the performance package nor the MIDI test probe steers a camera. Add `-ResetStage` to explicitly back up and reset the fixture stage/character positions; ordinary setup preserves saved positions.
+Both players start in vanilla `ToddTest`, near `(2175,2176,-703)`. The server places one **OpenMW Synthesizer** at `(2175,2256,-703)`. Setup installs the included, hash-verified Yamaha keyboard and X-stand assets for both local profiles and configures the runtime activator to use them. Add `-VanillaSynth` to setup to use the original lute mesh instead. Activate the instrument to acquire the editor. A second player can listen; concurrent editing is denied. Mouse keys hold until release; pressing lower on a key increases velocity. Z/S/X/D/C/V/G/B/H/N/J/M/comma play chromatic C4â€“C5 when a text field is not consuming input. Hide, Escape or F8 hides the editor and releases manually held keys while MIDI, spatial audio, arm posing and the session heartbeat continue. Normal game camera controls are available while hidden. F8 or activating the same instrument reopens the editor without restarting playback; draft preset names and selection are preserved. Finish stops playback and releases the session. Neither the performance package nor the MIDI test probe steers a camera. Add `-ResetStage` to explicitly back up and reset the fixture stage/character positions; ordinary setup preserves saved positions.
 
 For the scripted live probe, add `-LiveProbe` to setup, then run the same launchers. It opens the actual editor, plays a chord, changes waveform/cutoff, saves and reloads presets, closes and reacquires. Finally Synth A holds note 76 and logs `READY abrupt disconnect`; terminate only that fixture client to exercise observer takeover. Synth B then plays briefly and logs `PASS observer takeover complete`. Rerun setup without `-LiveProbe` to move this optional probe out of the package directory and return to interactive use. The probe saves its own `Integration Tone` presets only in the isolated fixture database.
 
 The editor also has MIDI previous/next, **Play MIDI** and **Stop** controls. Setup copies the locally installed Bardcraft MIDI directory into an isolated data directory; it copies no Bardcraft ESP, scripts or samples. Override its source with `-BardcraftDataDirectory 'C:\path\to\Bardcraft'`. Other installations can supply their own `.mid`/`.midi` files under a configured data directory's `midi/` folder. Files are discovered on the first frame even when resuming a saved multiplayer character. Original mod/song files are preserved and are not redistributed by this repository.
 
-Format 0/1 MIDI with PPQ timing supports merged tracks, tempo changes, running status, velocity, sustain pedal and note cleanup. Imports retain SMF track names, channels, program metadata and tempo maps. Each (SMF track, MIDI channel) becomes an independently assignable part; channel-10 percussion is split further by pitch, with kick/snare/hat synth defaults. Program changes, pitch bend and expression/volume controllers do not alter the assigned sound. Imports exceeding 16 parts including existing clips are rejected explicitly. Imports are limited to 512 KiB, 64 tracks, 60,000 retained events and 30 minutes; parsing yields between bounded groups of operations. Playback stops on long frame stalls or excessive density instead of bursting stale notes into the server. Manual playing, preset loads, Stop, Finish, disconnect and session loss release playback. MIDI notes use the same validated note transport and 3D synth as live playing, rather than transferring audio or MIDI files to listeners.
+Format 0/1 MIDI with PPQ timing supports merged tracks, tempo changes, running status, velocity, sustain pedal and note cleanup. Imports retain SMF track names, channels, program metadata and tempo maps. Each (SMF track, MIDI channel) becomes an independently assignable part; channel-10 percussion is split further by pitch, with kick/snare/hat synth defaults. Program changes, pitch bend and expression/volume controllers do not alter the assigned sound. Imports exceeding 32 parts including existing clips are rejected explicitly. Imports are limited to 512 KiB, 64 tracks, 60,000 retained events and 30 minutes; parsing yields between bounded groups of operations. Playback stops on long frame stalls or excessive density instead of bursting stale notes into the server. Manual playing, preset loads, Stop, Finish, disconnect and session loss release playback. MIDI notes use the same validated note transport and 3D synth as live playing, rather than transferring audio or MIDI files to listeners.
 
 During a session both clients pose the authenticated performer's upper arms, forearms and hands toward the instrument. Two-link IK preserves arm lengths and clamps unreachable targets; live notes add small wrist/target pulses. This first pass does not animate keyboard keys or fingers. The default test asset combines a wider Yamaha keyboard and X-stand, with the keys approximately 89 units above its floor origin. Hand contact and posture still require visual tuning for different races and positions; unreachable targets cannot be reached by stretching the skeleton. The pose does not move or turn the actor. Finish or session cleanup restores normal animation, with a native half-second expiry as backup.
 
@@ -48,7 +50,7 @@ not modify presets, projects or other listeners. Native `openmw.synth` version 3
 provides `getMonitorVolume()` and `setMonitorVolume(0..1)`; setters validate finite
 values and apply to already-playing streams on the engine thread.
 
-The bar-count control cycles from 1 through 16 bars. It changes playback length
+The bar-count dropdown selects from 1 through 16 bars. It changes playback length
 without deleting later drum steps or piano notes. Each clip retains 256 steps;
 hidden bars survive Save/Load and return when the loop grows. Earlier 1-4-bar
 projects are padded on load while retaining their existing composition.
@@ -58,41 +60,56 @@ Activate the keyboard and click **Studio**. The tabs switch between **Synth**,
 input. F8 / Hide / Escape preserves playback and reopens the last view; Finish
 releases the instrument and every channel. Cameras remain under normal game control.
 
-1. Choose a local MIDI using the arrows and click **Import**. This lists all parts
-   without starting playback. **Play song** starts the complete MIDI with its
-   original tempo map. The original Synth editor's Play MIDI uses the same routing.
-2. In **Mixer**, each row selects its own saved sound with the arrows. The catalog
-   includes personal character presets as soon as the server response arrives;
-   built-ins are available immediately. Faders, Mute, Solo and the Master fader
-   apply live. **Sound** opens that row's sound in the synth editor; its changes
-   affect that part. Save/Save As there adds to the existing personal preset library.
-3. **+ Piano clip** creates an editable, quantized clip. Piano displays one bar and
-   octave at a time. Click a grid cell to add a note; click anywhere on a note to
-   remove it. Set note length and velocity before insertion. The Piano tab also
-   displays imported MIDI parts with track/channel identity and original beat
-   positions; imported notes are currently a read-only view.
-4. **Drums** adds Kick, Snare or Hat lanes. Click a lane's name to audition it;
-   click steps to toggle them at the chosen velocity. Pitch buttons retune that
-   lane. Mixer can assign any saved sound to it. Patterns have 16 steps per bar,
-   1-16 bars, swing and looping. **Play clips** runs drum and piano clips together.
-   **Play song** combines them with the MIDI; clips follow the MIDI's tempo map.
-5. **Save** in Studio stores the current named project in the authenticated
-   character's `ProceduralSynth/project` SQLite storage key. **Load** replaces the
-   current working project with that saved document, without autoplay. This first
-   pass has one working project per character. Project and preset storage are
-   separate; existing presets are preserved. Saves include sound snapshots,
-   assignments, mix, notes, steps, tempo, swing and the MIDI VFS path. The original
-   MIDI must remain installed; its file/audio is not stored or sent to listeners.
+1. Choose a local or server-library MIDI from the song dropdown and click **Import**.
+   **Play song** uses the whole song and its tempo map. **New song** creates an
+   editable document without an imported file; Song sets its bar count and loop.
+2. **Mixer** assigns saved sounds/samples, levels, mute/solo, effects and outputs.
+   **Duplicate track** copies the selected part's notes, sound, mix and routing.
+   Four track-page ranges cover parts 1-32 without shrinking the controls.
+3. **Piano** edits imported or authored notes. Click to add, drag to move, drag
+   the right edge to resize, or right-click to delete. The dedicated editor
+   fullscreen button expands the work area; Escape returns to the Studio page.
+4. **Drums** edits 16-step bars, up to 16 bars per pattern. **Duplicate lane**
+   copies its settings/hits; **Delete lane** removes it. **Clear bar** clears the
+   current bar across drum lanes. **Delete bar** removes that time slice across
+   legacy drum/piano patterns and shifts later pattern data left; one bar remains
+   as the minimum. These operations support Undo. Authored song/clip notes are
+   edited separately in Piano/Arrange.
+5. **Play clips** plays piano-roll notes, placed clips and drum hits within the
+   selected 1-16-bar pattern length. Editing a specific clip source auditions
+   only that source. **Play song** plays the complete arrangement instead.
+6. **Arrange -> Capture pattern** (also **Drums -> Arrange pattern**) converts
+   the current pattern into one reusable source/placement per populated part,
+   retaining each sound/sample and selecting the placements together. Captured
+   notes move into those sources once; later authored song notes stay in place.
+   Duplicate/move the selected group to repeat a multi-instrument phrase. Song
+   length is independent of pattern length and extends when authored placements
+   go past its end. Extend shortened patterns before capture if hidden legacy
+   hits/notes remain. Arrange fills the available window with explicit zoom.
+7. **Samples** searches installed paths and voice-line text using the same
+   installed-dialogue and fallback transcript resolver as **/voicelines**.
+   Assigning a sample to a drum lane sets its trigger to the sample root for
+   original-speed playback; existing deliberately pitched lanes retain their
+   saved pitch. **Match root** resets such a lane explicitly.
+8. **Recording setup -> Count-in click** defaults on independently of the
+   ongoing metronome. Recording settings, including click volume, are local.
+9. **Projects / Save / Load** stores named projects and recovery snapshots in
+   authenticated per-character server SQLite storage. Sound presets are separate.
+   MIDI/sample VFS references are saved, rather than copies of installed audio.
 
-The document has a maximum of 16 total MIDI/piano/drum tracks, 128 clip notes per
-track and 512 clip notes overall. Imported full-length MIDI is retained separately
-in memory (up to the existing 60,000-event bound); it is not truncated to the clip
-length. Dense piano-roll views draw at most 512 visible notes. All tracks currently
-output at the placed keyboard. The document's separate `output` field and
-part-to-channel routing leave room for held-instrument destinations, but physical
-instrument selection, recording, arrangement/song export, automation, effects and
-pan controls are not implemented. Manual playing in the Synth view takes over
-from the transport; drum-pad audition can run alongside clips.
+A document supports 32 total parts, including percussion lanes split from MIDI
+channel 10. This is separate from MIDI's 16 channels per port: several file tracks
+can share a MIDI channel and remain separate Studio parts. Imports over the part
+limit fail explicitly. Native Studio lanes have at most eight voices each, while
+the manual synth retains its 1-32 voice control. Scores, source notes, arrangement
+placements and event density remain bounded; see the later feature sections.
+
+The client has a 128-unit audio resource budget shared by all heard instruments.
+Each configured Studio timbre costs one unit, and each Studio output stream costs another;
+this is neither a track count nor a polyphony setting. Two complete 32-part
+keyboards therefore use 66 units before their manual/monitor instruments or extra
+band outputs. CPU demand still depends on simultaneous voices/effects, so the
+resource guard does not guarantee every 128-unit workload runs in real time.
 
 Use **-DawProbe** with local setup for the disposable two-client parts/mixer,
 hidden playback, drum/piano and server-project round-trip test. It implies the
@@ -108,7 +125,7 @@ probe package; setup without probe flags restores normal interaction.
 * This package's `client/{global,player,editor,studio,workstation,midi,window,controls}.lua`: activation, native channel lifecycle, sound/Studio views, transport/clip editing and SMF import. `shared/schema.lua` and `shared/project.lua` are checked against their server copies by tests.
 * `scripts/procedural-synth-tests`, `scripts/test_procedural_synth*.lua`, `scripts/setup-procedural-synth-test.ps1` and `scripts/seed-procedural-synth-test.py`: unit tests, client harness and disposable local setup.
 
-DSP is 48 kHz mono, converted to signed 16-bit PCM for OpenAL spatialization. Each voice has two oscillators, amp ADSR, filter ADSR and a resonant low-pass state-variable filter. Sine, additive band-limited triangle, PolyBLEP saw/square and deterministic white noise are supported. A per-voice exponential pitch envelope provides falling kick-drum pitch. Synth Kick, Noise Snare and Closed Hat are native synth presets. There is a shared sine LFO for pitch, filter or amplitude modulation. Continuous values and waveform mixtures are smoothed; output uses a soft limiter. Default polyphony is 16, configurable from 1 to 32, with oldest-voice stealing. There are at most 32 simultaneous native instances across the whole client. DAW tracks create streams lazily on their first note and use at most eight voices each; the manual synth retains its 1�32 voice control. Running out of sources stops the transport with a message.
+DSP is 48 kHz mono, converted to signed 16-bit PCM for OpenAL spatialization. Each voice has two oscillators, amp ADSR, filter ADSR and a resonant low-pass state-variable filter. Sine, additive band-limited triangle, PolyBLEP saw/square and deterministic white noise are supported. A per-voice exponential pitch envelope provides falling kick-drum pitch. Synth Kick, Noise Snare and Closed Hat are native synth presets. There is a shared sine LFO for pitch, filter or amplitude modulation. Continuous values and waveform mixtures are smoothed; output uses a soft limiter. Default polyphony is 16, configurable from 1 to 32, with oldest-voice stealing. There are at most 128 native resource units across the whole client (configured timbres plus spatial streams). Studio parts share output streams and use at most eight voices each; the manual synth retains its 1–32 voice control. Running out of sources stops the transport with a message.
 
 Only OpenAL's existing stream worker renders PCM. Controls use fixed-size command storage (256 commands) and a mutex which the audio reader only tries, never waits on. Overflow clears queued commands and requests voice release. Parameter snapshots and all voice/filter/oscillator storage are bounded. Interactive decoders use three 10 ms queued buffers and a 5 ms worker cadence while active. Ordinary streams retain their six 125 ms buffers and normal 50 ms cadence. No continuous PCM is sent over the network.
 
@@ -119,7 +136,7 @@ SoundManager owns streams attached to world references. They use normal environm
 Available to player scripts on a compatible binary:
 
 ```lua
-local synth = require('openmw.synth') -- version == 4, sampleRate == 48000, maxInstances == 32
+local synth = require('openmw.synth') -- version == 16, sampleRate == 48000, maxUnits == 128
 local instrument = synth.create(worldObject) -- spatial source; throws when unavailable
 instrument:set('wave1', 2)           -- false for unknown/out-of-range/nonfinite values
 instrument:noteOn(60, 0.8)           -- MIDI pitch 0..127, velocity 0..1
@@ -130,7 +147,7 @@ print(instrument.peak, instrument.voices, instrument.closed)
 instrument:close()                  -- idempotent; no further playback
 ```
 
-`synth.parameters[name]` exposes immutable `min`, `max`, `default`, `discrete` metadata. `peak` is generated PCM peak before spatial attenuation, not a microphone or final output meter. The package's optional `I.ProceduralSynth` interface exposes `status`, `noteOn`, `noteOff`, `setParameter`, `presetCommand` and `close` for other client scripts/input methods, subject to an owned editor session. Older clients without native module version 8 show a compatibility message on activation instead of acquiring a lock.
+`synth.parameters[name]` exposes immutable `min`, `max`, `default`, `discrete` metadata. `peak` is generated PCM peak before spatial attenuation, not a microphone or final output meter. The package's optional `I.ProceduralSynth` interface exposes `status`, `noteOn`, `noteOff`, `setParameter`, `presetCommand` and `close` for other client scripts/input methods, subject to an owned editor session. Older clients without native module version 16 show a compatibility message on activation instead of acquiring a lock.
 
 Interface version 4 adds `studio()`, `workstation()`, `importMidi(path)`, `saveProject()` and `loadProject()`, plus per-channel meter/parameter summaries and transport time in `status()`. Version 3 added `hide()` and `show()` and the `status().editorVisible` field; `editing` continues to mean owning the session, including while hidden. `close()` retains its original meaning of stopping playback and releasing ownership. Interface version 2 added `midiSongs()`, `playMidi(catalogPath)` and `stopMidi()`. Native `openmw.animation.boneTransformsVersion == 1` adds `getBoneNames`, `getBoneTransform`, `setBoneTransform` and `clearBoneTransform`; see `files/lua_api/openmw/animation.lua` for coordinate spaces, threading, validation and expiry. Transform reads return the matrix and a rotation-only transform, with an option to exclude scripted offsets for IK. `openmw.mp.getPlayerObject(serverGuid)` resolves the authoritative performer to the correct local/remote model in `onFrame`. These visual APIs are independent of the synthesizer. Older clients with no bone extension can still use the audio/editor, with the pose omitted.
 
@@ -144,7 +161,7 @@ Install the three server Lua files through the existing release-files list and a
 
 Existing reliable custom Lua events carry `Synth_Request` client-to-server and `Synth_Message` server-to-client. A client global activation handler forwards only the synth activator to its player script. Acquisition resolves an actual server-placed mpNum and verifies its record, authoritative cell and distance (300 units). The existing server `Activate` intent hook also recognizes the synth. Sender pid/characterId are supplied by the native authenticated bridge; payloads cannot choose a different owner or storage character.
 
-Every owned session has a server epoch, input sequence, output sequence and preset revision. Requests and nested project documents are whitelisted and bounded; preset fields are whitelisted and finite. Notes have a 40/sec, burst-80 token bucket; full parameter updates are coalesced to 10 Hz by the client and limited to 12/sec, burst 16 by the server. Preset operations, acquisition, sync and heartbeat have separate budgets. Note-off/panic/close bypass the musical bucket; redundant note-offs/panic are discarded so they cannot become an unlimited relay. Queue/rate overflow uses release instead of leaving a partially accepted chord held. The controller plays locally and receives no duplicate note echo. Channel IDs 1�16 identify DAW timbres; channel 0 is the original manual synth. Note ownership is keyed by channel and pitch. Channel parameters/levels precede notes and are included in late-listener snapshots. The original global 40/sec, burst-80 note-on budget is shared across the whole project. Off/panic remain safety operations; stopped/deleted tracks release their sources.
+Every owned session has a server epoch, input sequence, output sequence and preset revision. Requests and nested project documents are whitelisted and bounded; preset fields are whitelisted and finite. Notes have a 40/sec, burst-80 token bucket; full parameter updates are coalesced to 10 Hz by the client and limited to 12/sec, burst 16 by the server. Preset operations, acquisition, sync and heartbeat have separate budgets. Note-off/panic/close bypass the musical bucket; redundant note-offs/panic are discarded so they cannot become an unlimited relay. Queue/rate overflow uses release instead of leaving a partially accepted chord held. The controller plays locally and receives no duplicate note echo. Channel IDs 1–32 identify DAW timbres; channel 0 is the original manual synth. Note ownership is keyed by channel and pitch. Channel parameters/levels precede notes and are included in late-listener snapshots. The original global 40/sec, burst-80 note-on budget is shared across the whole project. Off/panic remain safety operations; stopped/deleted tracks release their sources.
 
 An 8-second lease renewed every 2 seconds, authoritative object/range checks, disconnect and cell-change handlers release ownership. Server liveness reaches listeners every two seconds; silent transport loss expires client audio. Clients in the same or loaded actor cells receive state. Newly relevant listeners get current parameters before future live notes and never receive a historical note-on replay. Notes are intentionally not reconstructed midway through a held chord for a late join.
 
@@ -154,7 +171,7 @@ The fallback is the vanilla Morrowind `meshes/m/Misc_de_lute_01.nif`, confirmed 
 
 The default custom model combines **Yamaha keyboard** by **Rapunzel123** (Sketchfab UID `ed15fc0df2d244a583e2ac0929b57045`) and **Keyboard X Stand** by **Michael Perez / pixelflygraphics** (`d76fd9cba4234dd1891581c2df6b7b00`), both CC BY 4.0. The user supplied the downloads; source metadata and hashes are recorded in `stage-provenance.json`. Full source links, attribution, license and adaptation details accompany the runtime bundle in `files/server/optional-assets/fetcher.procedural-synth`. Preserve these notices when distributing it. The older Casio model and its notices remain available as an alternative.
 
-The combined Morrowind NIF is 104 � 30.16 � 111.68 game units, with its origin on the floor, 12,189 visual triangles and seven box colliders (84 triangles). Four diffuse DDS textures preserve the keyboard's original material assignments and the stand atlas; two optional `_n.dds` normals are included. Textures have mipmaps. The actual exported NIF was reimported and rendered for inspection. Conversion and packaging commands are documented in `scripts/procedural-synth-assets/README.md`.
+The combined Morrowind NIF is 104 × 30.16 × 111.68 game units, with its origin on the floor, 12,189 visual triangles and seven box colliders (84 triangles). Four diffuse DDS textures preserve the keyboard's original material assignments and the stand atlas; two optional `_n.dds` normals are included. Textures have mipmaps. The actual exported NIF was reimported and rendered for inspection. Conversion and packaging commands are documented in `scripts/procedural-synth-assets/README.md`.
 
 Server Lua packages transfer scripts, not NIF/textures. For another installation, copy the entire assets bundle to a client data directory and add that directory to every client's `openmw.cfg` with `data="..."`. Install it on the server's configured data path as well, then set `Config.PROCEDURAL_SYNTH_MODEL = 'meshes/fetcher/synth/keyboard-stand.nif'`. No new ESP is required. The isolated setup does this automatically and verifies every manifested file before and after copying. Shared local profiles use one asset data directory. Keep the default lute configuration on servers whose clients lack the assets. Automatic mesh transfer is not implemented.
 
@@ -324,7 +341,7 @@ Native `openmw.synth.createStudio(object)` returns a Studio with `configure`,
 `notes`, `trackPeak`, `trackVoices`, `keepAlive`, `close`, and read-only `playing`,
 `position` (render cursor), `audiblePosition` (queue-compensated estimate),
 `strikes`, `voices`, `peak`, `fault`, `closed`. `releaseTrack` releases its current
-voices; `stop` also cancels the score. `maxUnits=32` bounds native instruments
+voices; `stop` also cancels the score. `maxUnits=128` bounds native instruments
 plus streams globally; Studio lanes are allocated on the control thread and
 retained for the session. No score construction, heap allocation or blocking
 control mutex acquisition occurs in the render path. Each lane retains its
@@ -462,7 +479,7 @@ and master settings. One Undo restores the previous complete sound snapshots
 Custom. Existing saved sounds and same-file reimports are preserved; choose a set
 explicitly to remap an older project. The selection and snapshots save per
 character; observers receive ordinary bounded instrument-state updates. A full
-16-track switch may reach listeners over multiple control-update frames.
+32-track switch may reach listeners over multiple control-update frames.
 
 
 ## Portable keyboard (package 11)
@@ -520,7 +537,8 @@ when every lane is routed elsewhere. Timing is scheduled in native PCM, with
 separate device queues per output; continuous drift correction is not added.
 Delay/reverb settings are shared, but each physical output has its own send sum
 and tails. OUTPUT MAX meters show the loudest output, not a summed master bus.
-The existing 32-unit native budget includes each output stream plus its lanes.
+The 128-unit native budget includes each Studio output stream plus its configured lanes.
+Standalone manual/preview synth instances each consume one unit.
 
 To add/preserve a second keyboard on the isolated test stage, stop its processes
 and run setup with -BandStage. This leaves characters/projects/inventory intact,

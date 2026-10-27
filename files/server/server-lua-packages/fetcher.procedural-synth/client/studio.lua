@@ -28,6 +28,13 @@ function S:button(text,x,y,w,fn,on)
     local r=rect(x,y,w,27,on and c.accent or c.track)
     r.content=ui.content{label(text,6,5,w-10,12,on and c.bg or c.text)};r.events={mouseClick=cb(fn)};return r
 end
+function S:pageSelector(content,key,caption,x,y,width)
+    local page=math.max(0,math.min(Project.maxTracks/8-1,self.w[key] or 0))
+    content[#content+1]=self:button(caption..' '..(page*8+1)..'-'..(page*8+8)..' v',x,y,width,function()
+        local choices={};for n=0,Project.maxTracks/8-1 do choices[#choices+1]={id=n,label=caption..' '..(n*8+1)..'-'..(n*8+8)} end
+        Dropdown.open(self,choices,page,function(value) self.w[key]=value;self.w.revision=self.w.revision+1 end,x,math.min(y+32,290),width)
+    end)
+end
 function S:element(layout)
     local e=self.window:create(layout);self.children[#self.children+1]=e;return e
 end
@@ -128,8 +135,7 @@ function S:song(content)
         local choices={};for _,r in ipairs{'kick','snare','hat','openhat','tom'} do choices[#choices+1]={id=r,label=r} end
         Dropdown.open(self,choices,nil,function(role) w:addPart(role) end,235,385,390)
     end)
-    content[#content+1]=self:button('Parts 1-8',470,602,120,function() w.songPage=0;w.revision=w.revision+1 end,page==0)
-    content[#content+1]=self:button('Parts 9-16',605,602,120,function() w.songPage=1;w.revision=w.revision+1 end,page==1)
+    self:pageSelector(content,'songPage','Parts',470,602,255)
     content[#content+1]=self:button('Route in Band',740,602,150,function() w.page='band';w.revision=w.revision+1 end)
     content[#content+1]=label('Each drum part has its own synth voice. Draw or record its hits in Notes. Save before Finish.',20,656,880,12,c.muted)
 end
@@ -193,22 +199,27 @@ function S:openArranger()
 end
 function S:arrange(content)
     local w,p=self.w,self.w.project;local index=w.selected;local t=p.tracks[index]
-    content[#content+1]=self:button('< time',20,166,75,function() w.arrangeBar=math.max(0,(w.arrangeBar or 0)-(w.arrangeBars or 8));w.revision=w.revision+1 end)
-    content[#content+1]=label('From bar '..((w.arrangeBar or 0)+1),108,172,190,12,c.accent)
-    content[#content+1]=self:button('time >',300,166,75,function() w.arrangeBar=(w.arrangeBar or 0)+(w.arrangeBars or 8);w.revision=w.revision+1 end)
-    content[#content+1]=self:button((w.arrangeBars or 8)..' bars in view v',390,166,145,function()
-        Dropdown.open(self,{{id=4,label='4 bars'},{id=8,label='8 bars'},{id=16,label='16 bars'}},w.arrangeBars or 8,function(id) w.arrangeBars=id;w.revision=w.revision+1 end,390,198,390)
+    local footer=self.height-103
+    local function zoom(factor) w.arrangeBars=math.max(1,math.min(64,(w.arrangeBars or 8)*factor));w.revision=w.revision+1 end
+    content[#content+1]=self:button('< time',20,166,65,function() w.arrangeBar=math.max(0,(w.arrangeBar or 0)-(w.arrangeBars or 8));w.revision=w.revision+1 end)
+    content[#content+1]=label('From bar '..((w.arrangeBar or 0)+1),98,172,140,12,c.accent)
+    content[#content+1]=self:button('time >',250,166,65,function() w.arrangeBar=(w.arrangeBar or 0)+(w.arrangeBars or 8);w.revision=w.revision+1 end)
+    content[#content+1]=self:button((w.arrangeBars or 8)..' bars in view v',330,166,145,function()
+        local choices={};for _,n in ipairs{1,2,4,8,16,32,64} do choices[#choices+1]={id=n,label=n..' bars'} end
+        Dropdown.open(self,choices,w.arrangeBars or 8,function(id) w.arrangeBars=id;w.revision=w.revision+1 end,390,198,390)
     end)
-    content[#content+1]=self:button('Tracks 1-8',550,166,120,function() w.arrangePage=0;w.revision=w.revision+1 end,(w.arrangePage or 0)==0)
-    content[#content+1]=self:button('Tracks 9-16',685,166,130,function() w.arrangePage=1;w.revision=w.revision+1 end,w.arrangePage==1)
+    self:pageSelector(content,'arrangePage','Tracks',625,166,265)
     content[#content+1]=label(t and t.name or 'Select a track',20,212,210,13,c.accent)
+    content[#content+1]=self:button('Zoom -',485,166,60,function() zoom(2) end)
+    content[#content+1]=self:button('Zoom +',550,166,60,function() zoom(.5) end)
     local id=w.arrangeClip or 1;local clips=t and t.arrangement and t.arrangement.clips or {};local clip=clips[id]
     content[#content+1]=self:button((clip and clip.name or 'Choose source clip')..' v',240,205,240,function()
         local choices={};for n,source in ipairs(clips) do choices[#choices+1]={id=n,label=source.name} end
         Dropdown.open(self,choices,id,function(value) w.arrangeClip=value;w.regionSelection={};w.regionIndex=nil;w.revision=w.revision+1 end,240,237,470)
     end)
     content[#content+1]=self:button('Edit source',495,205,110,function() if clip then self:releaseAll();w:editClip(index,id) end end)
-    content[#content+1]=self:button('+ Empty clip',620,205,125,function() if w:newClip(index) then w.revision=w.revision+1 end end)
+    content[#content+1]=self:button('Capture pattern',620,205,125,function() self:releaseAll();w:capturePattern() end)
+    content[#content+1]=self:button('+ Empty clip',760,240,130,function() if w:newClip(index) then w.revision=w.revision+1 end end)
     content[#content+1]=self:button('Delete source',760,205,130,function() w:deleteClip(index,id) end)
     if clip then
         local draft=clip.name
@@ -223,15 +234,15 @@ function S:arrange(content)
         end)
     end
     local selected=p.tracks[w.regionTrack or 0];local region=selected and selected.arrangement and selected.arrangement.regions[w.regionIndex or 0]
-    content[#content+1]=label(region and string.format('Placement: bar %.2f, %.2f bars, %+d semitones',Project.barPosition(p,region.s/4),Project.barPosition(p,(region.s+region.l)/4)-Project.barPosition(p,region.s/4),region.transpose) or 'Click an empty bar to place the selected source.',420,246,470,11,c.muted)
+    content[#content+1]=label(region and string.format('Placement: bar %.2f, %.2f bars, %+d semitones',Project.barPosition(p,region.s/4),Project.barPosition(p,(region.s+region.l)/4)-Project.barPosition(p,region.s/4),region.transpose) or 'Click an empty bar to place a source.',420,246,330,11,c.muted)
     self.arranger=Arranger.new(self,content)
-    content[#content+1]=self:button('Duplicate placement',20,592,170,function() w:batchRegions('duplicate') end)
-    content[#content+1]=self:button('Remove placement',205,592,165,function() w:batchRegions('remove') end)
-    content[#content+1]=self:button('Pitch -',390,592,90,function() if region then w:batchRegions('pitch',-1) end end)
-    content[#content+1]=self:button('Pitch +',495,592,90,function() if region then w:batchRegions('pitch',1) end end)
-    content[#content+1]=self:button('Mute placement',605,592,140,function() if region then w:batchRegions('mute',not region.mute) end end,region and region.mute)
-    content[#content+1]=self:button('Song settings',760,592,130,function() w.page='song';w.revision=w.revision+1 end)
-    content[#content+1]=self:button('Selection: '..#w:selectedRegions()..' / Tools v',20,635,220,function()
+    content[#content+1]=self:button('Duplicate placement',20,footer,170,function() w:batchRegions('duplicate') end)
+    content[#content+1]=self:button('Remove placement',205,footer,165,function() w:batchRegions('remove') end)
+    content[#content+1]=self:button('Pitch -',390,footer,90,function() if region then w:batchRegions('pitch',-1) end end)
+    content[#content+1]=self:button('Pitch +',495,footer,90,function() if region then w:batchRegions('pitch',1) end end)
+    content[#content+1]=self:button('Mute placement',605,footer,140,function() if region then w:batchRegions('mute',not region.mute) end end,region and region.mute)
+    content[#content+1]=self:button('Song settings',760,footer,130,function() w.page='song';w.revision=w.revision+1 end)
+    content[#content+1]=self:button('Selection: '..#w:selectedRegions()..' / Tools v',20,footer+43,220,function()
         Dropdown.open(self,{{id='all',label='Select all placements (all tracks)'},{id='clear',label='Clear selection'},
             {id='left',label='Move selection one bar earlier'},{id='right',label='Move selection one bar later'}},nil,function(action)
             if action=='all' then w:selectAllRegions()
@@ -239,17 +250,17 @@ function S:arrange(content)
             else w:moveRegions(action=='left' and -1 or 1) end
         end,20,355,540)
     end)
-    content[#content+1]=self:button('Make unique',255,635,135,function() w:batchRegions('unique') end)
-    content[#content+1]=self:button('Copy source to v',405,635,180,function()
+    content[#content+1]=self:button('Make unique',255,footer+43,135,function() w:batchRegions('unique') end)
+    content[#content+1]=self:button('Copy source to v',405,footer+43,180,function()
         if not clip then return end
         local choices={};for n,track in ipairs(p.tracks) do if n~=index and track.edited then choices[#choices+1]={id=n,label=n..'  '..track.name} end end
         Dropdown.open(self,choices,nil,function(target) w:copyClip(index,id,target) end,400,355,490)
     end)
     if region then local source=selected.arrangement.clips[region.clip];local offsetTrack,offsetRegion=w.regionTrack,w.regionIndex
         content[#content+1]=Controls.slider(self,'regionOffset','Source offset (quarters)',{min=0,max=math.max(0,source.length/4-1/960),step=.0625},
-            function() return (w.project.tracks[offsetTrack].arrangement.regions[offsetRegion].offset or 0)/4 end,function(value) w:changeRegion(offsetTrack,offsetRegion,{offset=value*4}) end,605,628,285)
+            function() return (w.project.tracks[offsetTrack].arrangement.regions[offsetRegion].offset or 0)/4 end,function(value) w:changeRegion(offsetTrack,offsetRegion,{offset=value*4}) end,605,footer+36,285)
     end
-    content[#content+1]=label('Shift-click selects; drag moves the group in time. Right edge resizes one. Unique separates sources. Ctrl+A/D, Delete, arrows.',20,679,880,10,c.muted)
+    content[#content+1]=label('Shift-click selects; drag moves the group in time. Right edge resizes one. Unique separates sources. Ctrl+A/D, Delete, arrows.',20,footer+87,880,10,c.muted)
 end
 function S:automation(content)
     local w,p=self.w,self.w.project;local t=p.tracks[w.selected]
@@ -336,11 +347,11 @@ function S:mixer(content)
     content[#content+1]=self:button('+ Drum lane',150,578,120,function() if w:add('drum') then w.page='drums' end end)
     content[#content+1]=label('MASTER',302,582,72,12,c.muted)
     content[#content+1]=self:slider(380,584,190,p.master,function(value) p.master=value;w:configureAll();w:touch() end)
-    content[#content+1]=self:button('Tracks 1-8',620,578,110,function() w.mixerPage=0;w.revision=w.revision+1 end,page==0)
-    content[#content+1]=self:button('Tracks 9-16',740,578,120,function() w.mixerPage=1;w.revision=w.revision+1 end,page==1)
+    self:pageSelector(content,'mixerPage','Tracks',620,578,240)
     local t=p.tracks[w.selected]
     content[#content+1]=self:button('Rename track',20,614,155,function() if t then self:renameTrack(w.selected) end end)
-    content[#content+1]=label(t and ('Selected: '..t.name) or 'Select a track to edit its name.',195,623,495,14,c.accent)
+    content[#content+1]=label(t and ('Selected: '..t.name) or 'Select a track to edit its name.',195,623,320,14,c.accent)
+    content[#content+1]=self:button('Duplicate track',530,614,160,function() if t then w:duplicateTrack(w.selected) end end)
     content[#content+1]=self:button('Delay / Reverb',705,614,180,function() w.page='returns';w.revision=w.revision+1 end)
     self:addMasterMeter(content,650)
 end
@@ -389,8 +400,7 @@ function S:band(content)
         end
     end
     content[#content+1]=self:button('Refresh instruments',20,566,190,function() if w.cb.refreshBand then w.cb.refreshBand() end;w.revision=w.revision+1 end)
-    content[#content+1]=self:button('Tracks 1-8',550,566,140,function() w.bandPage=0;w.revision=w.revision+1 end,page==0)
-    content[#content+1]=self:button('Tracks 9-16',705,566,150,function() w.bandPage=1;w.revision=w.revision+1 end,page==1)
+    self:pageSelector(content,'bandPage','Tracks',550,566,305)
     content[#content+1]=label('Bind keyboards, invite players, or create owned NPCs. Players use F9 to ready an instrument and accept.',20,609,880,12,c.muted)
     content[#content+1]=label('Changing a binding or track output stops playback. Missing or busy members stay silent.',20,638,880,12,c.muted)
     content[#content+1]=label('Save stores routing. Consent is session-only. Leave / Not ready in F9 immediately silences your part.',20,667,880,12,c.accent)
@@ -567,6 +577,7 @@ function S:recordSetup(content)
     end)
     content[#content+1]=self:button(o.metronome and 'Metronome: On' or 'Metronome: Off',280,217,240,function() r:set('metronome',not o.metronome) end,o.metronome)
     content[#content+1]=Controls.slider(self,'clickVolume','Click volume',{min=0,max=1,unit='%',step=.01},function() return r.settings.clickVolume end,function(value) r:set('clickVolume',value) end,545,210,345)
+    content[#content+1]=self:button(o.countClick and 'Count-in click: On' or 'Count-in click: Off',545,253,345,function() r:set('countClick',not o.countClick) end,o.countClick)
     content[#content+1]=Controls.slider(self,'recordLatency','Input compensation (ms)',{min=-250,max=250,unit='ms',step=1},function() return r.settings.latency end,function(value) r:set('latency',value) end,20,278,400)
     content[#content+1]=label('Positive shifts captured notes earlier; negative later. Monitoring remains immediate.',445,291,445,12,c.muted)
     content[#content+1]=self:button((r.deviceName or 'Choose MIDI input')..' v',20,347,385,function()
@@ -614,7 +625,9 @@ function S:drums(content)
     local page=w.drumPage or 0
     self:barControls(content,169,p.length/16)
     content[#content+1]=self:button('Duplicate to next bar',505,169,190,function() w:duplicateDrumBar() end)
-    content[#content+1]=label('Copies all lanes; replaces the next bar.',20,204,280,11,c.muted)
+    content[#content+1]=self:button('Clear bar',710,169,80,function() w:clearDrumBar() end)
+    content[#content+1]=self:button('Delete bar',800,169,90,function() w:deletePatternBar() end)
+    content[#content+1]=label('Bar edits support Undo.',20,204,280,11,c.muted)
     local gx,gy,cw=304,225,(self.width-334)/16
     for step=0,15 do content[#content+1]=label(tostring(step+1),gx+step*cw+6,204,cw,11,c.muted) end
     for row=1,8 do
@@ -643,14 +656,16 @@ function S:drums(content)
     content[#content+1]=self:button('+ Open hat',320,578,110,function() add('b:openhat','Open hat',46) end)
     content[#content+1]=self:button('+ Kit',440,578,80,function() w:addKit(w.kitBank) end)
     content[#content+1]=self:button('Sound',530,578,110,function() if p.tracks[w.selected] then self.cb.sound(w.selected) end end)
-    content[#content+1]=self:button('Lanes 1-8',650,578,100,function() w.drumPage=0;w.revision=w.revision+1 end,page==0)
-    content[#content+1]=self:button('Lanes 9-16',760,578,110,function() w.drumPage=1;w.revision=w.revision+1 end,page==1)
+    self:pageSelector(content,'drumPage','Lanes',650,578,220)
     content[#content+1]=self:button('Kit: '..schema.kits[w.kitBank or 1].name,20,610,220,function()
         w.kitBank=(w.kitBank or 1)%#schema.kits+1;w.revision=w.revision+1
     end)
-    content[#content+1]=label('Choose a kit, then + Kit. Sound edits the instrument.',260,616,470,12,c.accent)
-    content[#content+1]=self:button('Capture lane',745,610,145,function() self:releaseAll();if w:captureClip(w.selected) then self:openArranger() end end)
-    content[#content+1]=label('Play clips loops the piano and drum clips together. Play song also follows the imported MIDI tempo map.',20,657,880,12,c.muted)
+    content[#content+1]=self:button('Duplicate lane',255,610,135,function() local t=p.tracks[w.selected];if t and t.kind=='drum' then w:duplicateTrack(w.selected) end end)
+    content[#content+1]=self:button('Delete lane',400,610,125,function() local t=p.tracks[w.selected];if t and t.kind=='drum' then w:remove(w.selected) end end)
+    content[#content+1]=self:button('Capture lane',535,610,155,function() self:releaseAll();if w:captureClip(w.selected) then self:openArranger() end end)
+    content[#content+1]=self:button('Arrange pattern',705,610,185,function() self:releaseAll();if w:capturePattern() then self:openArranger() end end)
+    content[#content+1]=label('Arrange pattern captures all piano/drum lanes together. Song length is independent of pattern bars.',20,657,880,12,c.muted)
+    content[#content+1]=label('Clear bar clears drums only. Delete bar removes time across piano/drum pattern lanes; Undo restores it.',20,680,880,11,c.muted)
 end
 function S:samplePage(content)
     local w=self.w
@@ -674,8 +689,10 @@ function S:samplePage(content)
     content[#content+1]=self:button('Browse sounds v',650,207,240,function()
         Dropdown.open(self,browser:entries(),browser.path,function(path) browser:select(path);refresh() end,20,245,870)
     end)
-    content[#content+1]=label((browser.path or 'Choose an installed sound. Search also finds race, collection, gender and voice type.'):sub(1,125),20,256,880,12)
-    content[#content+1]=label(browser:description(),20,279,880,11,c.muted)
+    content[#content+1]=label((browser.path or 'Choose a sound. Search finds filenames, spoken text, race, collection and voice type.'):sub(1,125),20,256,880,12)
+    local transcript=label(browser:description():gsub('#','##'),20,276,880,11,c.muted)
+    transcript.props.size=v(880,32);transcript.props.multiline=true;transcript.props.wordWrap=true
+    content[#content+1]=transcript
     self.sampleStatus=self:element(label('',20,310,880,11,c.accent));content[#content+1]=self.sampleStatus
     content[#content+1]=label('Start (seconds)',20,333,180,13,c.muted)
     content[#content+1]=label('End (seconds)',240,333,180,13,c.muted)
@@ -705,6 +722,10 @@ function S:samplePage(content)
     end)
     content[#content+1]=self:button('Stop preview',630,451,180,function() browser:stop() end)
     content[#content+1]=label('Root plays at original speed. Gated follows MIDI note length; one-shot plays to the end.',20,499,870,12,c.muted)
+    if t and t.kind=='drum' then
+        content[#content+1]=label('Lane trigger: '..pitch(t.note)..' / MIDI '..t.note..'  |  New samples match the root automatically.',20,521,670,11,c.accent)
+        content[#content+1]=self:button('Match root',710,510,180,function() w:setTrack(w.selected,'note',browser.root) end)
+    end
     content[#content+1]=self:button('Use sample on part',20,543,250,function()
         local ref=browser:reference();if ref then browser:stop();w:setSample(w.selected,ref)
         else w.cb.message('Choose a sound and wait until Ready before assigning it.');end
@@ -842,7 +863,10 @@ function S:render()
     content[#content+1]=tempo
     local swing=Controls.slider(self,'swing','Swing',{min=0,max=0.6,unit='%',step=0.01},function() return p.swing end,function(value) p.swing=value;w:touch('swing',true) end,504,64,113)
     content[#content+1]=swing
-    content[#content+1]=self:button(p.length/16 ..' clip bars',self.width-310,70,70,function() w:length(p.length%256+16) end)
+    content[#content+1]=self:button(p.length/16 ..' bars v',self.width-310,70,70,function()
+        local choices={};for n=1,Project.maxSteps/16 do choices[#choices+1]={id=n*16,label=n..' pattern bars'} end
+        Dropdown.open(self,choices,p.length,function(value) w:length(value) end,self.width-310,102,250)
+    end)
     content[#content+1]=self:button('Clip loop',self.width-228,70,61,function() p.loop=not p.loop;w:touch() end,p.loop)
     content[#content+1]=self:button('Save',self.width-156,70,54,function() w:save() end)
     content[#content+1]=self:button('Projects',self.width-98,70,75,self.cb.load)
@@ -857,7 +881,7 @@ function S:render()
     content[#content+1]=self:button('MIDI >',self.width-306,112,65,function() self.cb.cycleMidi(1);w.revision=w.revision+1 end)
     content[#content+1]=self:button('Import',self.width-229,112,92,self.cb.import)
     content[#content+1]=self:button('Export MIDI',self.width-125,112,100,function() w:exportMidi() end)
-    local body={};self.bodyOffset=(w.page=='piano' or w.page=='drums' or w.page=='auto') and 0 or math.max(0,(self.width-940)/2)
+    local body={};self.bodyOffset=(w.page=='piano' or w.page=='drums' or w.page=='auto' or w.page=='arrange') and 0 or math.max(0,(self.width-940)/2)
     if w.page=='timing' then self:timing(body) elseif w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='recordsetup' then self:recordSetup(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
     -- Keep the header above centered page containers in native hit testing.
     if self.bodyOffset>0.1 then table.insert(content,1,{type=ui.TYPE.Widget,props={position=v(self.bodyOffset,0),size=v(940,self.height)},content=ui.content(body)})

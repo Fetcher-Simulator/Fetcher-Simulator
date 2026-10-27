@@ -108,9 +108,9 @@ events={};w:play('song');for _=1,32 do w:frame(0.125) end
 local drumHits=0;for _,event in ipairs(events) do if event[1]=='on' and event[2]==3 then drumHits=drumHits+1 end end
 check(w.playing and drumHits==1,'non-looping clips finish once while full MIDI keeps playing')
 w:stop()
-for _=#w.project.tracks+1,16 do w:add('piano') end
-check(not w:add('drum') and #w.project.tracks==16,'track capacity enforced')
-local many=copy(song);many.events={};for n=1,17 do many.events[n]={kind='on',part=n..':0',track=n,channel=0,note=60,tick=0,time=0,velocity=1} end
+for _=#w.project.tracks+1,32 do w:add('piano') end
+check(not w:add('drum') and #w.project.tracks==32,'track capacity enforced')
+local many=copy(song);many.events={};for n=1,33 do many.events[n]={kind='on',part=n..':0',track=n,channel=0,note=60,tick=0,time=0,velocity=1} end
 local before=w.project.midi
 check(not w:import(many,'midi/too-many.mid') and w.project.midi==before,'oversized MIDI import preserves existing project')
 local rejected

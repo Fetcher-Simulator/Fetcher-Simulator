@@ -1,6 +1,6 @@
 # FETCHER STUDIO roadmap
 
-Updated 2026-10-21. Completed work and subsequent planned slices are identified below.
+Updated 2026-10-26. Completed work and subsequent planned slices are identified below.
 
 ## Product goal
 
@@ -157,6 +157,22 @@ preference/project persistence checks passed in the port-25567 fixture. Physical
 MIDI hardware acceptance and listening/tapping remain unverified here. Tap
 calibration estimates timing bias, not automatic hardware round-trip latency.
 
+## Maintenance slice: sequencer workflow, samples and concurrent playback
+
+Package 31 / native synth API 16 / protocol 27 adds whole-pattern capture into
+linked arrangements, piano-roll notes in Play clips, responsive Arrange/zoom,
+track/lane duplication and drum bar/lane deletion. Samples reuse /voicelines
+subtitle lookup and set new drum sample triggers to the root. Count-in clicks
+are independently enabled by default. Studio documents/native transport support
+32 parts with four UI pages; the client resource allowance becomes 128 timbre/
+stream units. MIDI channel numbers retain their standard 1-16 range.
+
+The audio worker now accounts for rendering time in its refill schedule, and
+settled patches avoid redundant per-sample calculations. Controlled WASAPI tests
+compare the previous and candidate builds with two dense independent scores.
+See TEST-REPORT.md for measurements and the limits of that test. This maintenance
+slice precedes the remaining feature roadmap; it does not itself publish builds.
+
 ## Remaining roadmap (next: recording follow-ups)
 
 1. Recording follow-ups: physical MIDI controller acceptance, live controller
@@ -188,11 +204,11 @@ drum and plucked-string synthesis, drive/cabinet processing, channel EQ and
 compression, shared delay/reverb and fifty-one built-in sound starting points.
 Personal patches, 16 named projects and three recovery snapshots save per character.
 
-Sixteen tracks route to placed keyboards or player/owned-NPC band performers,
+Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 28 / native synth API 15. Installed-game sampling, library/recovery,
+package 31 / native synth API 16 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented; recording follow-ups are next.
 

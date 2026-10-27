@@ -11,6 +11,21 @@ function M.source(w,index)
 end
 function M.commitProject(w,p,key)
     if w.recording or w.failedTake then w.cb.message('Keep, retry or cancel the take before arranging.');return false end
+    -- Placement length is independent of the sequencer's pattern length.
+    -- Extend an authored song when arranging beyond its previous end.
+    if p.composition and p.timeline then
+        local finish=p.timeline.beats
+        for _,t in ipairs(p.tracks) do for _,r in ipairs(t.arrangement and t.arrangement.regions or {}) do
+            finish=math.max(finish,(r.s+r.l)/4)
+        end end
+        if finish>p.timeline.beats then
+            local bars=math.ceil(Format.barPosition(p,finish)-1e-8)-1
+            if bars>256 then w.cb.message('An authored song supports at most 256 bars.');return false end
+            local old=p.composition.bars;p.composition.bars=math.max(old,bars)
+            if p.composition.loopEnd==old then p.composition.loopEnd=p.composition.bars end
+            p.timeline.beats=Format.barStart(p,p.composition.bars+1)
+        end
+    end
     local valid=Format.project(p)
     if not valid then w.cb.message('Arrangement change exceeds note, time, pitch or clip limits; previous data kept.');return false end
     if w.mode=='pattern' and w.playing then w:stop(true) end

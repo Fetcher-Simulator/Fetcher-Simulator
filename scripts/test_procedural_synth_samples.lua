@@ -2,6 +2,8 @@ local root='files/server/server-lua-packages/fetcher.procedural-synth/'
 local prefix='scripts.multiplayer.fetcher.procedural-synth.'
 local schema=dofile(root..'shared/schema.lua');package.loaded[prefix..'shared.schema']=schema
 local catalog=dofile(root..'client/speech-catalog.lua');package.loaded[prefix..'client.speech-catalog']=catalog
+package.loaded[prefix..'client.voice-text']=dofile(root..'client/voice-text.lua')
+package.loaded[prefix..'shared.voice-transcripts']=dofile(root..'shared/voice-transcripts.lua')
 package.loaded[prefix..'client.midi']=dofile(root..'client/midi.lua')
 package.loaded[prefix..'shared.project']=dofile(root..'shared/project.lua')
 package.loaded[prefix..'client.soundsets']=dofile(root..'client/soundsets.lua')
@@ -22,8 +24,10 @@ local synth={sampleInfo=function() return {status=state,hash=string.rep('a',32),
 local paths={'sound/vo/d/m/hlo_dm001.mp3','sound/fx/test.wav','music/test.ogg'}
 local browser=Samples.new(synth,{pathsWithPrefix=function(prefix)
     local n=0;return function() repeat n=n+1 until not paths[n] or paths[n]:sub(1,#prefix)==prefix;return paths[n] end
-end},{})
+end},{},{voice={records={{infos={{sound='Vo/D/M/hlo_dm001.mp3',text='Quiet voices hide secrets.'}}}}}})
 browser:start();browser:frame();check(#browser:entries()==1,'voice category excludes effects and music')
+check(browser:entries()[1].search:find('Quiet voices',1,true),'sample search includes installed subtitle text')
+check(browser:entries()[1].label:find('hlo_dm001.mp3',1,true),'voice rows retain the filename beside the spoken line')
 check(catalog[ref.path] and catalog[ref.path]:find('hello'),'reuses /s race/gender/type metadata')
 browser.category='All';check(#browser:entries()==3,'loose/archive VFS catalog categories')
 browser:select(ref.path);check(not browser:audition() and previews==0,'loading cannot audition or assign')

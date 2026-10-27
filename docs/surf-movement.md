@@ -50,7 +50,8 @@ needed. The existing collision solver and visual model selection remain in use;
 this change does not standardize arbitrary modded collision meshes or implement
 leaderboard eligibility/anti-cheat validation.
 
-The new settings require a matching **protocol-26 client and server**. Protocol-25
+The new settings require a matching client and server (introduced in protocol 26; the current Studio
+source uses **protocol 27**). Protocol-25
 clients are rejected by the normal handshake rather than silently running different
 movement rules. The server-delivered package API remains Lua 144 / multiplayer 12.
 

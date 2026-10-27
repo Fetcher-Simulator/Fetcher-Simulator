@@ -25,6 +25,10 @@ local r=R.new(w,engine,{getRealTime=function() return now end},{},section,functi
 w.recorder=r;w.cb.recordOptions=function() return R.options(r.settings) end;w.cb.recordStart=function(t) return r:start(t) end;w.cb.recordEnd=function() r:ended() end
 assert(w:newSong(120,4,4,8));w.snap=0
 check(r.settings.countIn==1 and not r.settings.metronome and r.settings.latency==0,'recording defaults are local and click is opt-in')
+check(r.settings.countClick,'count-in clicks default on independently of continuous metronome')
+assert(w:startTake(1));check(#r.clock.bytes/11==4,'default count-in has four audible clicks without song metronome');w:endTake(true)
+assert(r:set('countClick',false));assert(w:startTake(1));check(#r.clock.bytes==0,'explicit silent count-in remains available');w:endTake(true)
+assert(r:set('countClick',true))
 local gen=w.generation;assert(r:set('countIn',2));assert(r:set('metronome',true));assert(r:set('latency',100))
 check(w.generation==gen and not r:set('countIn',3) and not r:set('latency',math.huge),'settings avoid document history and reject unsupported values')
 check(w:startTake(1) and math.abs(w.recording.starts-now-4.15)<1e-7,'two-bar native count-in includes scheduled lead: '..table.concat(messages,' / '))

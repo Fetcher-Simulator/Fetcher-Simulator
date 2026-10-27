@@ -287,7 +287,7 @@ namespace MWSound
     }
     void SoundManager::startProcedural(const MWWorld::ConstPtr& source, std::shared_ptr<ProceduralAudio> synth, bool local)
     {
-        if (!isEnabled() || source.isEmpty() || !source.isInCell() || synthUnits() >= 32)
+        if (!isEnabled() || source.isEmpty() || !source.isInCell() || synthUnits() >= ProceduralAudio::MaxUnits)
             throw std::runtime_error("Cannot create synthesizer: audio disabled, source unavailable or instance limit reached");
         synth->keepAlive();
         auto stream = getStreamRef();

@@ -56,7 +56,7 @@ Early fixture failures (missing defaults.bin, prefixed interior names and an inc
 ## Remaining acceptance work and limitations
 
 * Final speaker output, perceptual timbre/click/dropout quality, stereo positioning and walking-distance attenuation still need a person to listen and move the observer. Nonzero generated PCM and an attached 3D OpenAL source establish the engine path, not those perceptual outcomes.
-* No native UI screenshot/visual inspection was available in this session. The real editor created and operated without Lua errors; mouse/keyboard usability, layout at multiple resolutions, focus changes and operating-system focus loss still need interactive QA. Intended minimum layout is approximately 964×719 including margins. Sliders use numeric feedback; the waveform graph is a theoretical oscillator preview rather than a captured output waveform.
+* No native UI screenshot/visual inspection was available in this session. The real editor created and operated without Lua errors; mouse/keyboard usability, layout at multiple resolutions, focus changes and operating-system focus loss still need interactive QA. Intended minimum layout is approximately 964Ã—719 including margins. Sliders use numeric feedback; the waveform graph is a theoretical oscillator preview rather than a captured output waveform.
 * Cell changes, malformed events, overlapping sessions and timeout cleanup were covered in the harness. Not all were repeated by walking/operating real clients. Sound device teardown is covered by native close/concurrency tests and ownership code review, not a physical audio-device hot-unplug test.
 * Full game CPU/frame-time profiling, several simultaneous synth instances, packet-loss/jitter tests and prolonged listening remain outstanding. The microbenchmark and the exercised chord do not establish these performance goals.
 * The original October 15 run used the vanilla lute. The Casio keyboard import and verified local installation were completed October 16, as recorded below.
@@ -64,7 +64,7 @@ Early fixture failures (missing defaults.bin, prefixed interior names and an inc
 
 The delivered fixture is switched back to interactive use without the automated probe after validation. Production feature activation stays disabled by default.
 
-## Keyboard asset integration — October 16
+## Keyboard asset integration â€” October 16
 
 The user supplied `keyboard-casio-vl-tone.zip`. Its SHA-256 is
 `61cac05a2dd8e7434beb0946a68d1d737210870ea08309300597056cb2564715`.
@@ -76,7 +76,7 @@ outside the repository.
 Blender 4.5.3 with `io_scene_mw` exported Morrowind NIF 4.0.0.2, then reimported the
 serialized NIF successfully. The model retains 6,896 visual triangles and separate
 keys/buttons, plus 12 box-collision triangles. Verified dimensions are approximately
-48 × 12.04 × 5.07 game units. Two materials use a 2K DXT1 atlas and approximate LCD
+48 Ã— 12.04 Ã— 5.07 game units. Two materials use a 2K DXT1 atlas and approximate LCD
 glass; an optional 1K DXT5 normal map is included. Both DDS files have mipmaps.
 The rendered reimport was visually inspected for texture resolution, geometry and
 orientation. This is an asset preview, not an in-game screenshot. The keys remain
@@ -107,7 +107,7 @@ locally under the fixture's `evidence/keyboard` directory. Setup was returned to
 interactive use without the probe. The same fixture batch launchers now use the
 keyboard by default; no production configuration was changed.
 
-## Bone API and Bardcraft MIDI — October 16
+## Bone API and Bardcraft MIDI â€” October 16
 
 The client was rebuilt with `openmw.animation.boneTransformsVersion = 1`:
 `getBoneNames`, `getBoneTransform`, `setBoneTransform` and `clearBoneTransform`.
@@ -174,14 +174,14 @@ there is no actor movement, key animation, finger IK or automatic facing. No
 in-game screenshot or human assessment of posture/hand contact was obtained.
 The fixture is restored to interactive mode after validation.
 
-## Combined stage, world transforms and camera controls � October 16
+## Combined stage, world transforms and camera controls — October 16
 
 The default local asset is now one floor-origin `keyboard-stand.nif`, combining
 the user-supplied Yamaha keyboard and X-stand under their verified CC BY 4.0
 licenses. Attribution and provenance for both authors accompany the runtime
 bundle; the older Casio remains available. Blender export/reimport and preview
 inspection passed: 12,189 visual triangles plus 84 collision triangles, dimensions
-104 � 30.16 � 111.68 units, four mipmapped diffuse DDS maps and two optional normals.
+104 × 30.16 × 111.68 units, four mipmapped diffuse DDS maps and two optional normals.
 Packaging produced a 3,521,484-byte assets-only ZIP; setup verified all 16 manifest
 files before and after installation. The new `-ResetStage` option explicitly
 backs up the isolated SQLite database before resetting the stage layout.
@@ -1332,3 +1332,74 @@ and that enumeration stops at 1,024 installed songs. Local exports remain added
 separately. All 21 Lua suites pass; the client suite has 15,579 assertions. This
 checks file parsing/discovery, not full performance of every imported song.
 See evidence/daggerfall-midi/import.json and lua-tests.json.
+
+
+## Studio maintenance and 32-part playback (package 31 / API 16 / protocol 27)
+
+Validated 2026-10-26 on Windows. Matching native client/server candidates build
+in RelWithDebInfo; the standalone DSP suite builds/runs in Release. All 23
+`scripts/test_procedural_synth*.lua` suites pass. The client/widget suite has
+16,575 assertions, the usability suite 42, samples 26 and recording tools 62.
+Eleven component checks covering surf movement, appearance and handshakes pass.
+
+Coverage includes multi-lane capture and grouped duplication, preserving later
+linear song notes and hidden legacy bars, source audition isolation, piano-roll
+notes in Play clips, song auto-extension, imported-part independent duplication,
+bar clear/delete/Undo, new sample root matching and live score replacement,
+installed INFO transcript search, independent count-in click preferences, 32-part
+MIDI import/export/score compilation/routing and four-page UI selectors. Arrange
+fullscreen width/height, zoom and tab hit areas are checked through actual widget
+callbacks. Visual styling and human interaction/listening remain manual checks.
+Native tests configure all 32 parts, play lane 32, reject lane 33 and release all
+lanes on Stop; existing deterministic automation/effects/sample/tail tests pass.
+
+A disposable private server on UDP 25571 and separate profiles/database/packages
+exercised the actual source package through the new client/server. It verified
+sample root assignment, installed subtitle lookup, capturing authored Piano plus
+drums, native Play clips strikes, track 32 over the server and four count-in
+strikes with nonzero pre-gain PCM while the continuous metronome was disabled.
+The ordinary port-25567 fixture, running user client and VPS were preserved.
+An initial staging attempt lacked the new server MIDI-library module; this was
+corrected by staging all matching procedural_synth modules before acceptance.
+
+Controlled real-device OpenAL WASAPI comparison, with private monitoring muted:
+
+- Previous native build, two independent 14-sounding-part dense scores: clocks
+  fell 2.496 and 2.986 seconds behind wall time over the 55-second measurement.
+- Candidate, same sounding workload and two complete 32-part outputs configured:
+  both clocks stayed between -4.553 and +5.501 ms, ending -4.003 ms. Adding the
+  second complete output caused a 9.845 ms continuity change. Two transient
+  underruns were logged during its configuration/startup; sustained drift did
+  not recur during the measurement.
+- Two actual clients then owned separate placed keyboards and imported separate
+  32-part MIDI songs, all parts sounding two-note chords. Synth B started while
+  A was playing; both clients received both complete scores. Over 30 seconds,
+  both output clocks stayed within [-2.911,+9.029] ms across the two clients,
+  with no native faults, lost sessions or reported underruns in the successful
+  run. A first harness run quit A before B completed its interval; the harness
+  was corrected to keep both owners connected until both measurements finished.
+
+The worker subtracts rendering time from its polling interval and yields its
+mutex when that interval is exhausted. Interactive queues hold four 10-ms
+buffers, with audible clocks compensating for queued audio. Exact smoothing
+fixed points avoid redundant per-sample parameter/wave passes; drum/filter math
+is skipped or shared when equivalent. A matching RelWithDebInfo DSP benchmark
+reduced two dense 16-part streams from about 720 to 370 ms per second of PCM.
+The 128-unit guard permits two 32-part keyboards plus outputs/monitors; it does
+not promise unlimited voices or real-time performance for every permitted patch.
+
+Evidence is retained locally in `build/studio-usability-qa/{baseline-result,
+candidate-result,network-result}.json`, their logs, the private QA harnesses,
+`build/studio-usability-dsp-32-tests.log` and component/build logs. OpenAL's null
+backend showed unsuitable clock behavior and is excluded from device-timing
+acceptance. These are native counters/device clocks, not audio-loopback or human
+listening tests. The friend's original Vanilla songs and long-session hardware
+playback should be rechecked after a matching rollout. No release/workflow or VPS
+activation is part of these checks.
+
+After private acceptance, the idle ordinary port-25567 server reported zero
+players and was stopped cleanly. Matching binaries, the Studio package and its
+server modules were installed there and SHA-256 verified; all 52 tracked local
+database/profile/settings/key/config files matched before/after installation.
+The local server was restarted. The user's running public client, other Lua
+packages and public server installations were left intact.

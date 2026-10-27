@@ -132,5 +132,20 @@ void studioTests()
     mixedA.loadScore(score,24000,true);mixedB.loadScore(score,24000,true);mixedA.start(0,0);mixedB.start(0,0);
     check(studioRender(mixedA,96000,480)==studioRender(mixedB,96000,137),"active EQ/compression preserves block-independent scheduling and PCM");
     check(mixedA.trackPeak(1)>0 && mixedA.trackRms(1)>0 && mixedA.trackReduction(1)>1 && mixedA.masterRms()>0 && mixedA.mixPeak()>0,"post-fader lane meters, gain reduction and master meters are live");
+    {
+        auto full=std::make_unique<NativeStudio>();Synth::State patch;
+        for (std::size_t i=0;i<patch.size();++i) patch[i]=Synth::Parameters[i].initial;
+        std::string all;
+        for (unsigned lane=1;lane<=NativeStudio::MaxTracks;++lane)
+        {
+            check(full->configure(lane,patch,.5f),"all 32 native tracks configure");
+            all+=scoreNote(0,4800,lane,60);
+        }
+        check(NativeStudio::MaxTracks==32 && full->units()==33,"native track/output accounting includes the stream");
+        check(!full->configure(33,patch,.5f),"native track 33 is rejected");
+        check(full->loadScore(all,12000,false) && full->start(0,0),"32-part native score starts");
+        studioRender(*full,1000);check(full->trackVoices(32)>0 && full->fault()==0,"track 32 sounds without a score fault");
+        full->stop();studioRender(*full,24000);check(full->voices()==0,"32-track Stop releases every lane");
+    }
     std::cout<<"PASS native Studio block-invariant PCM, shared onsets, loop gates, seek, Stop, replacement and validation\n";
 }

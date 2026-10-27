@@ -5,9 +5,9 @@ local self = require('openmw.self')
 local ui = require('openmw.ui')
 local input = require('openmw.input')
 local supported, synth = pcall(require,'openmw.synth')
-if not supported or (synth.version and synth.version<15) then
+if not supported or (synth.version and synth.version<16) then
     return {eventHandlers={Synth_Activate=function()
-        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 15.')
+        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 16.')
     end}}
 end
 local schema = require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -254,7 +254,7 @@ makeWorkstation=function(i)
         local now=core.getRealTime()
         if i.pendingBand and now-bandAt>=0.5 then send('band',i.pendingBand);i.pendingBand=nil;bandAt=now end
         channelTokens=math.min(16,channelTokens+math.max(0,now-channelAt)*10);channelAt=now
-        for n=0,16 do if i.pendingChannels[n] and channelTokens>=1 then
+        for n=0,Project.maxTracks do if i.pendingChannels[n] and channelTokens>=1 then
             channelTokens=channelTokens-1;send(n==0 and 'effects' or 'channel',i.pendingChannels[n]);i.pendingChannels[n]=nil
         end end
     end
@@ -265,7 +265,7 @@ makeWorkstation=function(i)
         exportMidi=function(name,bytes)
             local result=synth.exportMidi(name,bytes);refreshExports();return result.path
         end,
-        samples=function() return Samples.new(synth,vfs,self) end,
+        samples=function() return Samples.new(synth,vfs,self,core.dialogue) end,
         canMonitor=function(channel)
             local params=i.channels[channel] and i.channels[channel].params
             return (not params or not params.sample or Samples.status(synth,params.sample).status=='Ready')
@@ -399,7 +399,7 @@ showEditor=function()
             sound=function(index) w.selected=index;switchPage('synth',index) end,
             playSong=playSelected,
             newSong=function(bpm,numerator,denominator,bars) return session.library:guard(function() if editor then editor:releaseAll() end;w:newSong(bpm,numerator,denominator,bars) end,'create a new song') end,
-            playClips=function() stopPlayback();w:play('clips') end,
+            playClips=function() stopPlayback();if w.clipEdit then w:playClip() else w:play('clips') end end,
             stop=function() stopPlayback(true) end,
             load=function() w.page='projects';w.revision=w.revision+1;session.library:list() end,
             import=function() playSong(nil,'import') end,
@@ -552,7 +552,7 @@ local function message(data)
         instances[data.id]=i;apply(i,params);applyEffects(i,data.effects,data.master);transport:band(i,data.band,data.routes,data.availability,data.performers)
         for n,channel in pairs(data.channels or {}) do
             local state=schema.state(channel.params)
-            if type(n)=='number' and n>=1 and n<=16 and n%1==0 and state then applyChannel(i,n,state,channel.level or 1,channel.mixer) end
+            if type(n)=='number' and n>=1 and n<=Project.maxTracks and n%1==0 and state then applyChannel(i,n,state,channel.level or 1,channel.mixer) end
         end
         if data.op=='granted' then
             refreshExports()
@@ -582,7 +582,7 @@ local function message(data)
         for key in pairs(i.notes) do if math.floor(key/128)==channel then i.notes[key]=nil end end
     elseif data.op=='channel' then
         local params=schema.state(data.params)
-        if params and channel>=1 and channel<=16 and channel%1==0 then applyChannel(i,channel,params,data.level,data.mixer) end
+        if params and channel>=1 and channel<=Project.maxTracks and channel%1==0 then applyChannel(i,channel,params,data.level,data.mixer) end
     elseif data.op=='effects' then applyEffects(i,data.effects,data.master)
     elseif data.op=='on' then playNote(i,channel,data.note,data.velocity)
     elseif data.op=='off' then releaseNote(i,channel,data.note)
@@ -634,7 +634,7 @@ local function frame(dt)
         else
             if now-(i.sampleCheckAt or -10)>0.5 and synth.sampleInfo then
                 i.sampleCheckAt=now;i.sampleStates=i.sampleStates or {}
-                for n=0,16 do
+                for n=0,Project.maxTracks do
                     local params=n==0 and i.params or i.channels[n] and i.channels[n].params
                     local ref=params and params.sample
                     if ref then
@@ -707,7 +707,7 @@ end
 return {
     interfaceName='ProceduralSynth',
     interface={
-        version=15,
+        version=16,
         status=function()
             local out={}
             for id,i in pairs(instances) do

@@ -1,6 +1,6 @@
 -- Bounded, portable score format: LE u32 onset, LE u32 gate, lane, pitch, velocity.
 -- The server validates the same bytes that native clients consume.
-local M={rate=48000,maxNotes=60000,maxControls=8192,maxEvents=68192,maxFrames=86400000,recordSize=11,chunkSize=2816}
+local M={maxTracks=32,rate=48000,maxNotes=60000,maxControls=8192,maxEvents=68192,maxFrames=86400000,recordSize=11,chunkSize=2816}
 local function integer(n,a,b) return type(n)=='number' and n==n and n>=a and n<=b and n%1==0 end
 local function u32(bytes,at)
     local a,b,c,d=bytes:byte(at,at+3);return a+b*256+c*65536+d*16777216
@@ -17,7 +17,7 @@ function M.validate(bytes,length,loop,channels)
     for at=1,#bytes,11 do
         local frame,duration=u32(bytes,at),u32(bytes,at+4)
         local lane,note,velocity=bytes:byte(at+8,at+10)
-        if frame<previous or frame>=length or lane<1 or lane>16 or channels and not channels[lane] then return nil,'Invalid score lane or time.' end
+        if frame<previous or frame>=length or lane<1 or lane>M.maxTracks or channels and not channels[lane] then return nil,'Invalid score lane or time.' end
         previous=frame
         if note>=128 then
             controlCount=controlCount+1
@@ -123,6 +123,19 @@ function M.compile(project,song,MIDI,mode,format,programPatch)
         if t.arrangement then format.eachRegionNote(t,function(pitch,step,length,velocity)
             local time=seconds(step/4);add(lane,pitch,velocity,time,seconds((step+length)/4)-time)
         end) end
+    end end end
+    if not songMode then for lane,t in ipairs(project.tracks) do if t.kind=='midi' then
+        local data=t.edited and assert(format.decodeNotes(t.edited)) or song and MIDI.editableSpans(song,t.part) or {}
+        local function patternNote(pitch,step,length,velocity)
+            if step<project.length then
+                local time=seconds(step/4)
+                local gate=seconds(length/4)
+                if not project.loop then gate=math.min(gate,total-time) end
+                if gate>0 then add(lane,pitch,velocity,time,gate) end
+            end
+        end
+        for _,n in ipairs(data) do patternNote(n.n,n.s,n.l,n.v) end
+        if t.arrangement then format.eachRegionNote(t,patternNote) end
     end end end
     local period=project.length/4
     local cycles=songMode and (project.loop and math.ceil(beats/period) or 1) or 1

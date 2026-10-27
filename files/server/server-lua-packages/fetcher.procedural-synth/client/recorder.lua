@@ -7,11 +7,11 @@ local function pack(n) local a=n%256;n=math.floor(n/256);local b=n%256;n=math.fl
 function R.options(values)
     values=values or {};local bars=values.countIn
     return {countIn=({[0]=true,[1]=true,[2]=true,[4]=true})[bars] and bars or 1,
-        metronome=values.metronome==true,clickVolume=finite(values.clickVolume,0,1) and values.clickVolume or .55,
+        metronome=values.metronome==true,countClick=values.countClick~=false,clickVolume=finite(values.clickVolume,0,1) and values.clickVolume or .55,
         latency=finite(values.latency,-250,250) and values.latency or 0,
         channel=finite(values.channel,0,16) and values.channel%1==0 and values.channel or 0}
 end
-function R.plan(w,mode,first,last,loop,count,enabled)
+function R.plan(w,mode,first,last,loop,count,enabled,countClick)
     local song=mode=='song';local p=song and {timeline=w.project.timeline or w.song,composition=w.project.composition} or {}
     local function seconds(beat) return song and Format.seconds(p.timeline,beat) or beat*60/w.project.bpm end
     local origin=seconds(first);local duration=seconds(last)-origin+(count and count.duration or 0)
@@ -22,20 +22,22 @@ function R.plan(w,mode,first,last,loop,count,enabled)
         if frame>=length or frame-previous<2400 then return end -- bounded 20 Hz at extreme meters/tempos
         previous=frame;bytes[#bytes+1]=pack(frame)..pack(math.min(720,length-frame))..string.char(1,accent and 84 or 76,accent and 110 or 75)
     end
-    if enabled then
+    if enabled or countClick and count and count.duration>0 then
         assert(Format.barBoundaries(p,first,last,4097),'Metronome supports at most 4096 bars per take.')
-        if count and count.duration>0 then
+        if count and count.duration>0 and (countClick==true or countClick==nil and enabled) then
             local pulse=4/count.denominator;local total=count.beats*count.bars
             local beat=0;while beat<total-1e-8 do add(beat*count.tempo,math.abs(beat%count.beats)<1e-8);beat=beat+pulse end
         end
         local bar=Format.barAt(p,first)
-        while Format.barStart(p,bar)<last-1e-8 do
-            local start,finish=Format.barStart(p,bar),math.min(last,Format.barStart(p,bar+1));local _,d=Format.meterAt(p,start)
-            local beat=start;while beat<finish-1e-8 do
-                if beat>=first-1e-8 then add((count and count.duration or 0)+seconds(beat)-origin,beat==start) end
-                beat=beat+4/d
+        if enabled then
+            while Format.barStart(p,bar)<last-1e-8 do
+                local start,finish=Format.barStart(p,bar),math.min(last,Format.barStart(p,bar+1));local _,d=Format.meterAt(p,start)
+                local beat=start;while beat<finish-1e-8 do
+                    if beat>=first-1e-8 then add((count and count.duration or 0)+seconds(beat)-origin,beat==start) end
+                    beat=beat+4/d
+                end
+                bar=bar+1
             end
-            bar=bar+1
         end
     end
     return {bytes=table.concat(bytes),length=length,loop=loop}
@@ -48,7 +50,7 @@ function R.calculation(taps)
     return value,median(deviations)
 end
 function R.new(w,engine,core,self,storage,message)
-    local saved={};for _,key in ipairs{'countIn','metronome','clickVolume','latency','channel'} do saved[key]=storage:get(key) end
+    local saved={};for _,key in ipairs{'countIn','countClick','metronome','clickVolume','latency','channel'} do saved[key]=storage:get(key) end
     return setmetatable({w=w,engine=engine,core=core,self=self,storage=storage,message=message,settings=R.options(saved),keys={},counts={},pedal={},taps={},inputStatus='Disconnected'},R)
 end
 function R:set(key,value)
@@ -75,7 +77,7 @@ function R:start(r)
     local ok,err=pcall(function()
         assert(count.duration<1800,'Count-in exceeds the native 30-minute clock limit.')
         r.limit=math.min(r.limit,self.w:beatAt(r.seconds+1800-count.duration,r.mode)*4)
-        local a=self:clockFor(R.plan(self.w,r.mode,r.startStep/4,r.limit/4,false,count,r.options.metronome))
+        local a=self:clockFor(R.plan(self.w,r.mode,r.startStep/4,r.limit/4,false,count,r.options.metronome,r.options.countClick))
         self.clockKind='take';r.starts=r.starts+.15
         r.clock=function() if not self.clock or not a.playing then return end;return a.audiblePosition-count.duration end
     end)

@@ -298,6 +298,7 @@ namespace MWSound
         std::unique_ptr<Sound_Loudness> mLoudnessAnalyzer;
 
         std::atomic<bool> mIsFinished;
+        unsigned mUnderruns = 0;
 
         OpenAL_SoundStream(const OpenAL_SoundStream& rhs);
         OpenAL_SoundStream& operator=(const OpenAL_SoundStream& rhs);
@@ -354,6 +355,7 @@ namespace MWSound
             std::unique_lock<std::mutex> lock(mMutex);
             while (!mQuitNow)
             {
+                const auto began = std::chrono::steady_clock::now();
                 auto iter = mStreams.begin();
                 while (iter != mStreams.end())
                 {
@@ -365,7 +367,21 @@ namespace MWSound
 
                 const bool interactive = std::any_of(mStreams.begin(), mStreams.end(),
                     [](const auto* stream) { return stream->isInteractive(); });
-                mCondVar.wait_for(lock, std::chrono::milliseconds(interactive ? 5 : 50));
+                // Rendering several live instruments consumes part of the refill
+                // interval. Sleeping a further fixed 5 ms makes two otherwise
+                // real-time-safe streams gradually outrun their shared worker.
+                const auto deadline = began + std::chrono::milliseconds(interactive ? 5 : 50);
+                if (std::chrono::steady_clock::now() >= deadline)
+                {
+                    // A wait on an already expired deadline need not release the
+                    // mutex. Explicitly let UI/control queries progress even when
+                    // dense live streams consume this complete polling interval.
+                    lock.unlock();
+                    std::this_thread::yield();
+                    lock.lock();
+                }
+                else
+                    mCondVar.wait_until(lock, deadline);
             }
         }
 
@@ -514,7 +530,9 @@ namespace MWSound
         }
 
         mFrameSize = static_cast<ALuint>(framesToBytes(1, chans, type));
-        mQueueLimit = mDecoder->isInteractive() ? 3 : mBuffers.size();
+        // One extra 10-ms buffer absorbs short device/scheduler stalls while
+        // remaining bounded; audible-position queries account for this queue.
+        mQueueLimit = mDecoder->isInteractive() ? 4 : mBuffers.size();
         mBufferSize = static_cast<ALuint>((mDecoder->isInteractive() ? 0.01f : sBufferLength) * mSampleRate);
         mBufferSize *= mFrameSize;
 
@@ -596,12 +614,21 @@ namespace MWSound
     {
         try
         {
+            const auto refillBegan = std::chrono::steady_clock::now();
             if (refillQueue() > 0)
             {
                 ALint state;
                 alGetSourcei(mSource, AL_SOURCE_STATE, &state);
                 if (state != AL_PLAYING && state != AL_PAUSED)
                 {
+                    if (state == AL_STOPPED && mDecoder->isInteractive() && !mIsFinished)
+                    {
+                        ++mUnderruns;
+                        if (mUnderruns <= 3 || mUnderruns % 100 == 0)
+                            Log(Debug::Warning) << "Interactive audio underrun: " << mDecoder->getName()
+                                << " count=" << mUnderruns << " refillMs="
+                                << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - refillBegan).count();
+                    }
                     // Ensure all processed buffers are removed so we don't replay them.
                     refillQueue();
 

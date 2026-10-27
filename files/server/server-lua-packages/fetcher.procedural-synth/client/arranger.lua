@@ -7,7 +7,8 @@ local function cb(fn) return async:callback(function(e) fn(e);return false end) 
 local function clamp(n,a,b) return math.max(a,math.min(b,n)) end
 function R.new(owner,content)
     local w=owner.w
-    local self=setmetatable({owner=owner,w=w,x=190,y=292,width=700,height=264,pool={},labels={},grids={},page=w.arrangePage or 0},R)
+    local self=setmetatable({owner=owner,w=w,x=190,y=292,width=owner.width-240,height=math.max(264,(owner.height or 695)-431),pool={},labels={},grids={},page=w.arrangePage or 0},R)
+    self.rh=self.height/8
     self.bars=w.arrangeBars or 8
     local finish=w.project.timeline and w.project.timeline.beats*4 or Format.barStart(w.project,self.bars+1)*4
     for _,t in ipairs(w.project.tracks) do for _,r in ipairs(t.arrangement and t.arrangement.regions or {}) do finish=math.max(finish,r.s+r.l) end end
@@ -16,10 +17,10 @@ function R.new(owner,content)
     for row=1,8 do
         local index=self.page*8+row;local t=w.project.tracks[index]
         if t then
-            content[#content+1]=owner:button(index..' '..t.name:sub(1,17),20,self.y+(row-1)*33,160,function()
+            content[#content+1]=owner:button(index..' '..t.name:sub(1,17),20,self.y+(row-1)*self.rh,160,function()
                 if not w:leaveClip() then return end;w.selected=index;w.arrangeClip=1;w.regionIndex=nil;w.regionSelection={};w.revision=w.revision+1
             end,w.selected==index)
-            local grid=rect(self.x,self.y+(row-1)*33,self.width,30,c.bg);local cells={}
+            local grid=rect(self.x,self.y+(row-1)*self.rh,self.width,self.rh-3,c.bg);local cells={}
             for b=0,self.bars-1 do
                 if row==1 then local label=owner:element{type=ui.TYPE.Text,props={position=v(self.x+b*self.width/self.bars,269),size=v(50,20),text=tostring(w.arrangeBar+b+1),textSize=11,textColor=c.selected}};self.labels[#self.labels+1]=label;content[#content+1]=label end
             end
@@ -46,7 +47,7 @@ function R.new(owner,content)
         w.arrangeBar=math.floor(start+0.5);self:draw()
     end
     local events={mousePress=cb(function(e) if e.button==1 then self.scrolling=true;scroll(e) end end),mouseMove=cb(function(e) if self.scrolling then scroll(e) end end)}
-    local barLayout=rect(self.x,565,self.width,12,c.line);barLayout.content=ui.content{self.thumb};barLayout.events=events
+    local barLayout=rect(self.x,self.y+self.height+9,self.width,12,c.line);barLayout.content=ui.content{self.thumb};barLayout.events=events
     self.thumb.layout.events=events;content[#content+1]=barLayout
     self.playhead=owner:element(rect(self.x,self.y,2,self.height,c.selected));content[#content+1]=self.playhead
     self:draw();return self
@@ -113,7 +114,7 @@ function R:draw()
     for index,label in ipairs(self.labels) do
         local bar=self.w.arrangeBar+index;local at=(Format.barStart(self.w.project,bar)*4-self.start)*self.cw
         label.layout.props.text=tostring(bar);label.layout.props.position=v(self.x+at,269);self.owner.window:update(label)
-        cells[#cells+1]=rect(at,0,1,30,c.line)
+        cells[#cells+1]=rect(at,0,1,self.rh-3,c.line)
     end
     for _,grid in ipairs(self.grids) do grid.layout.content=ui.content(cells);self.owner.window:update(grid) end
     local selected={};for _,e in ipairs(self.w:selectedRegions()) do selected[e.track..':'..e.id]=true end
@@ -124,8 +125,8 @@ function R:draw()
             elseif not self.drag.resize and selected[entry.index..':'..entry.id] then s=s+self.drag.delta end
         end
         local left,right=math.max(s,self.start),math.min(s+l,self.start+self.steps);local props=entry.element.layout.props
-        props.visible=right>left;props.position=v(self.x+(left-self.start)*self.cw,self.y+(entry.row-1)*33)
-        props.size=v(math.max(3,(right-left)*self.cw-2),29)
+        props.visible=right>left;props.position=v(self.x+(left-self.start)*self.cw,self.y+(entry.row-1)*self.rh)
+        props.size=v(math.max(3,(right-left)*self.cw-2),self.rh-4)
         props.color=selected[entry.index..':'..entry.id] and c.selected or r.mute and c.line or c.clip
         local clip=entry.track.arrangement.clips[r.clip]
         entry.text.layout.props.text=clip.name..((r.offset or 0)>0 and string.format(' @%.3gQ',r.offset/4) or '')..(r.transpose~=0 and string.format(' %+d',r.transpose) or '')..(r.mute and ' [M]' or '')

@@ -20,7 +20,7 @@ namespace MWSound
             for (unsigned n=0;n<MaxTracks;++n) { mLanePeak[n]=0; mRms[n]=0; mReduction[n]=0; }
             keepAlive();
         }
-        static constexpr unsigned MaxTracks = 16, MaxNotes = 60000, MaxControls = 8192, MaxCurves = 16 * 115, MaxActive = 4096;
+        static constexpr unsigned MaxTracks = 32, MaxNotes = 60000, MaxControls = 8192, MaxCurves = MaxTracks * 115, MaxActive = 4096;
         static constexpr std::uint32_t MaxFrames = 48000 * 1800;
         struct Note
         {

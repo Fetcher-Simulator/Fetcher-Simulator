@@ -54,7 +54,7 @@ namespace MWLua
                     auto s = readSample(value); return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 15;
+            api["version"] = 16;
             api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
                 const auto path = manager->exportStudioMidi(name, bytes);
                 sol::table result(lua, sol::create);
@@ -113,7 +113,7 @@ namespace MWLua
                 },
                 "configure", [](Studio& studio, unsigned n, const sol::table& values, float level) {
                     auto sound = MWBase::Environment::get().getSoundManager();
-                    if (!studio.hasTrack(n) && sound->synthUnits() >= 32) return false;
+                    if (!studio.hasTrack(n) && sound->synthUnits() >= MWSound::ProceduralAudio::MaxUnits) return false;
                     Synth::State state;
                     for (std::size_t i = 0; i < state.size(); ++i)
                         state[i] = values[Synth::Parameters[i].name].get_or(Synth::Parameters[i].initial);
@@ -170,8 +170,8 @@ namespace MWLua
                         { { "Sound", "instrument volume" } });
                 }, "Set instrument monitor volume");
             };
-            api["maxInstances"] = 32;
-            api["maxUnits"] = 32;
+            api["maxInstances"] = MWSound::ProceduralAudio::MaxUnits;
+            api["maxUnits"] = MWSound::ProceduralAudio::MaxUnits;
             api["maxScheduledNotes"] = Studio::MaxNotes;
             api["sampleRate"] = Synth::SampleRate;
             api["create"] = [](const sol::object& object) {

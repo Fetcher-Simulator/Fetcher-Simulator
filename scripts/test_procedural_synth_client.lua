@@ -13,6 +13,8 @@ function source:isValid() return self.valid end
 local self={cell={id='ToddTest'}}
 package.loaded[prefix..'shared.schema']=schema
 package.loaded[prefix..'client.speech-catalog']=dofile(root..'client/speech-catalog.lua')
+package.loaded[prefix..'client.voice-text']=dofile(root..'client/voice-text.lua')
+package.loaded[prefix..'shared.voice-transcripts']=dofile(root..'shared/voice-transcripts.lua')
 package.loaded[prefix..'client.samples']=dofile(root..'client/samples.lua')
 package.loaded[prefix..'client.soundsets']=dofile(root..'client/soundsets.lua')
 package.loaded[prefix..'shared.sequence']=dofile(root..'shared/sequence.lua')
@@ -80,6 +82,7 @@ package.loaded[prefix..'client.automation-roll']=dofile(root..'client/automation
 package.loaded[prefix..'client.piano-roll']=dofile(root..'client/piano-roll.lua')
 package.loaded[prefix..'client.dropdown']=dofile(root..'client/dropdown.lua')
 package.loaded[prefix..'client.arrangement']=dofile(root..'client/arrangement.lua')
+package.loaded[prefix..'client.pattern-tools']=dofile(root..'client/pattern-tools.lua')
 package.loaded[prefix..'client.arranger']=dofile(root..'client/arranger.lua')
 package.loaded[prefix..'client.library']=dofile(root..'client/library.lua')
 local Studio=dofile(root..'client/studio.lua')
@@ -563,7 +566,7 @@ api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrum
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
 -- Reproduce loaded-song reuse from the actual Studio callbacks, including Band.
-package.loaded['openmw.synth'].version=15
+package.loaded['openmw.synth'].version=16
 local paths={'midi/a.mid','midi/b.mid'};local files={}
 local function midiBytes(pitch,count)
     local events={};for n=1,count or 1 do events[#events+1]=string.char(0,144,pitch,100,96,128,pitch,0) end
@@ -847,6 +850,18 @@ for _,caption in ipairs{'Song','Piano','Drums','Band','Samples','Synth'} do
     local tab=button(caption);local at,size=tab.props.position,tab.props.size
     check(topHit(lastStudio.root.layout.content,at.x+size.x/2,at.y+size.y/2)==tab,'fullscreen Mixer leaves '..caption..' tab clickable')
 end
+w.page='arrange';w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
+check(lastStudio.bodyOffset==0 and lastStudio.arranger.width==lastStudio.width-240,'fullscreen arrangement uses all available horizontal workspace')
+check(lastStudio.arranger.height>264 and lastStudio.arranger.y+lastStudio.arranger.height<lastStudio.height-103,'fullscreen arrangement grows vertically without covering tools')
+local arrangeZoom=w.arrangeBars or 8
+button('Zoom +').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(w.arrangeBars==arrangeZoom/2,'arrangement zoom changes time density')
+button('Zoom -').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(w.arrangeBars==arrangeZoom,'arrangement zoom can be restored')
+for _,caption in ipairs{'Song','Mixer','Piano','Drums','Band','Samples'} do
+    local tab=button(caption);local at,size=tab.props.position,tab.props.size
+    check(topHit(lastStudio.root.layout.content,at.x+size.x/2,at.y+size.y/2)==tab,'fullscreen arrangement leaves '..caption..' clickable')
+end
 button('Piano').events.mouseClick();now=now+.01;lastStudio:frame(now)
 w.base=60;w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
 local normalY,normalHeight=lastStudio.roll.y,lastStudio.roll.height
@@ -899,6 +914,23 @@ w:addNote(1,67,8);button('Finish').events.mouseClick();now=now+.01;lastStudio:fr
 check(l.action and button('Keep recovery and continue') and mode=='Interface','Finish with edits asks how to preserve the draft')
 button('Cancel').events.mouseClick();now=now+.01;lastStudio:frame(now)
 check(not l.action and w.dirty and mode=='Interface','Cancel Finish keeps editor and edits')
+-- Every main track selector can reach the fourth page of a 32-part document.
+do
+    check(w:newSong(120,4,4,8),'create paging document')
+    for n=2,32 do assert(w:addPart('keys')) end
+    for _,spec in ipairs{{'song','songPage','Parts'},{'mixer','mixerPage','Tracks'},{'arrange','arrangePage','Tracks'},{'band','bandPage','Tracks'}} do
+        w.page=spec[1];w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
+        button(spec[3]..' 1-8 v').events.mouseClick()
+        check(#lastStudio.dropdown.entries==4,'four track ranges on '..spec[1])
+        lastStudio.dropdown.rows[4].layout.events.mouseClick();now=now+.01;lastStudio:frame(now)
+        check(w[spec[2]]==3 and button(spec[3]..' 25-32 v'),'last track page selectable on '..spec[1])
+    end
+    for n=1,32 do w.project.tracks[n]=Format.newTrack('drum','Lane '..n,16) end
+    w.page='drums';w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
+    button('Lanes 1-8 v').events.mouseClick();lastStudio.dropdown.rows[4].layout.events.mouseClick();now=now+.01;lastStudio:frame(now)
+    check(w.drumPage==3 and button('Lanes 25-32 v'),'last drum-lane page selectable')
+    check(w:newSong(120,4,4,8) and w.mixerPage==0 and w.drumPage==0,'new song resets pages from a larger document')
+end
 viewport=vector(1024,768);lastStudio.window:zoom(-0.5)
 api.close();check(not uiOverride,'Finish restores game UI controls')
 -- The normal installation can have a non-default global GUI scale. Native
