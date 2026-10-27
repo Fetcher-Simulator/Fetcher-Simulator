@@ -5,12 +5,17 @@
 
 #include <components/openmw-mp/Base/SurfPhysicsSettings.hpp>
 
+namespace MWWorld { class ConstPtr; }
+
 namespace MWPhysics
 {
     using SurfPhysicsSettings = mwmp::SurfPhysicsSettings;
 
     inline std::mutex sSurfPhysicsSettingsMutex;
     inline SurfPhysicsSettings sSurfPhysicsSettings;
+
+    // Fail closed outside the server-selected cell, including during cell changes.
+    SurfPhysicsSettings getPlayerSurfPhysicsSettings(const MWWorld::ConstPtr& ptr);
 
     inline SurfPhysicsSettings getSurfPhysicsSettings()
     {

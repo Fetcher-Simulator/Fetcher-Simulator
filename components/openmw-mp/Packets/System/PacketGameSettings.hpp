@@ -39,6 +39,10 @@ namespace mwmp
             ws.write(settings.impactOverbounce);
             ws.write(settings.impactVelocityThreshold);
             ws.write(static_cast<std::uint8_t>(guardArrestMode));
+            ws.write(settings.normalizeMovement);
+            ws.write(settings.referenceSpeed);
+            ws.write(settings.referenceAthletics);
+            ws.write(settings.referenceAcrobatics);
         }
 
         void unpack(ReadStream& rs) override
@@ -55,16 +59,16 @@ namespace mwmp
             rs.read(settings.rampAngle);
             rs.read(settings.impactOverbounce);
             rs.read(settings.impactVelocityThreshold);
-            // Optional tail field keeps new clients compatible with servers
-            // that predate the configurable multiplayer arrest policy.
-            if (!rs.eof())
-            {
-                std::uint8_t rawGuardArrestMode = 0;
-                rs.read(rawGuardArrestMode);
-                guardArrestMode = rawGuardArrestMode == static_cast<std::uint8_t>(GuardArrestMode::Dialogue)
-                    ? GuardArrestMode::Dialogue
-                    : GuardArrestMode::Combat;
-            }
+            std::uint8_t rawGuardArrestMode = 0;
+            rs.read(rawGuardArrestMode);
+            guardArrestMode = rawGuardArrestMode == static_cast<std::uint8_t>(GuardArrestMode::Dialogue)
+                ? GuardArrestMode::Dialogue : GuardArrestMode::Combat;
+            rs.read(settings.normalizeMovement);
+            rs.read(settings.referenceSpeed);
+            rs.read(settings.referenceAthletics);
+            rs.read(settings.referenceAcrobatics);
+            if (!settings.validMovementProfile())
+                throw std::runtime_error("Invalid surf movement profile");
         }
     };
 }

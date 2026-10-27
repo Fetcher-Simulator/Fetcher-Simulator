@@ -17,6 +17,7 @@
 #include <osg/ref_ptr>
 
 #include <components/vfs/pathutil.hpp>
+#include <components/openmw-mp/Base/SurfPhysicsSettings.hpp>
 
 #include "../mwworld/ptr.hpp"
 
@@ -84,6 +85,7 @@ namespace MWPhysics
     struct ActorFrameData
     {
         ActorFrameData(Actor& actor, bool inert, bool waterCollision, float slowFall, float waterlevel, bool isPlayer);
+        const mwmp::SurfPhysicsSettings mSurfSettings;
         osg::Vec3f mPosition;
         osg::Vec3f mInertia;
         const btCollisionObject* mStandingOn;

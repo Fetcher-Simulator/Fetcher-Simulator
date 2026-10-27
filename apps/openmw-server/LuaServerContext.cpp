@@ -1037,19 +1037,13 @@ SurfPhysicsSettings LuaServerContext::getPlayerSurfPhysicsSettings(uint32_t guid
 SurfPhysicsSettings LuaServerContext::getEffectiveSurfPhysicsSettings(uint32_t guid, const std::string& cellId) const
 {
     std::lock_guard<std::mutex> lock(mSurfPhysicsMutex);
-    SurfPhysicsSettings settings = mGlobalSurfPhysicsSettings;
-    settings.cellId = cellId;
-
     auto cellIt = mCellSurfPhysicsSettings.find(cellId);
-    if (cellIt != mCellSurfPhysicsSettings.end())
-        settings = cellIt->second;
-
     auto playerIt = mPlayerSurfPhysicsSettings.find(guid);
-    if (playerIt != mPlayerSurfPhysicsSettings.end())
-        settings = playerIt->second;
-
-    settings.cellId = cellId;
-    return settings;
+    // A map's shared movement profile always wins over personal /surf settings,
+    // including overrides set before entering the map.
+    return resolveSurfPhysicsSettings(mGlobalSurfPhysicsSettings,
+        cellIt == mCellSurfPhysicsSettings.end() ? nullptr : &cellIt->second,
+        playerIt == mPlayerSurfPhysicsSettings.end() ? nullptr : &playerIt->second, cellId);
 }
 
 std::vector<PlayerMark> LuaServerContext::getPlayerMarks(uint32_t guid) const

@@ -36,6 +36,7 @@
 #include <components/sceneutil/positionattitudetransform.hpp>
 
 #include "../mwrender/animation.hpp"
+#include "../mwphysics/surfphysics.hpp"
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
@@ -2638,6 +2639,8 @@ namespace MWMechanics
         updateMagicEffects();
 
         bool isPlayer = mPtr == MWMechanics::getPlayer();
+        const auto surf = MWPhysics::getPlayerSurfPhysicsSettings(mPtr);
+        const bool normalizedSurf = surf.hasNormalizedMovement();
         // Remote player NPCs carry Flag_NetworkPlayerNpc so the CC always takes
         // the first-person movement path: no TurnToMovementDirection biped logic,
         // no turn-left/right animations, no NPC smooth-movement slowdown. This
@@ -2650,9 +2653,9 @@ namespace MWMechanics
             || isNetworkPlayerPuppet;
         bool godmode = isPlayer && MWBase::Environment::get().getWorld()->getGodModeState();
 
-        float scale = mPtr.getCellRef().getScale();
+        float scale = normalizedSurf ? 1.f : mPtr.getCellRef().getScale();
 
-        if (!Settings::game().mNormaliseRaceSpeed && cls.isNpc())
+        if (!normalizedSurf && !Settings::game().mNormaliseRaceSpeed && cls.isNpc())
         {
             const ESM::NPC* npc = mPtr.get<ESM::NPC>()->mBase;
             const ESM::Race* race = world->getStore().get<ESM::Race>().find(npc->mRace);
@@ -2672,7 +2675,7 @@ namespace MWMechanics
         {
             bool onground = world->isOnGround(mPtr);
             bool inwater = world->isSwimming(mPtr);
-            bool flying = world->isFlying(mPtr);
+            bool flying = !normalizedSurf && world->isFlying(mPtr);
 #ifdef BUILD_MULTIPLAYER
             // Network-driven overrides for locomotion flags.
             // When a remote player spam-jumps, their visual Z coordinate may be physically in
@@ -2873,7 +2876,7 @@ namespace MWMechanics
             if (vec.x() != 0.f || vec.y() != 0.f)
             {
                 // advance athletics
-                if (isPlayer)
+                if (isPlayer && !normalizedSurf)
                 {
                     if (inwater)
                     {
@@ -2895,7 +2898,7 @@ namespace MWMechanics
                     }
                 }
 
-                if (!godmode)
+                if (!godmode && !normalizedSurf)
                 {
                     // reduce fatigue
                     float fatigueLoss = 0.f;
@@ -2964,7 +2967,8 @@ namespace MWMechanics
                     static const float fJumpMoveBase = gmst.find("fJumpMoveBase")->mValue.getFloat();
                     static const float fJumpMoveMult = gmst.find("fJumpMoveMult")->mValue.getFloat();
                     float factor = fJumpMoveBase
-                        + fJumpMoveMult * mPtr.getClass().getSkill(mPtr, ESM::Skill::Acrobatics) / 100.f;
+                        + fJumpMoveMult * (normalizedSurf ? surf.referenceAcrobatics
+                            : mPtr.getClass().getSkill(mPtr, ESM::Skill::Acrobatics)) / 100.f;
                     factor = std::min(1.f, factor);
                     vec.x() *= factor;
                     vec.y() *= factor;
@@ -3017,7 +3021,7 @@ namespace MWMechanics
                 {
                     float height = cls.getCreatureStats(mPtr).land(isPlayer);
                     float healthLost = 0.f;
-                    if (!inwater)
+                    if (!inwater && !normalizedSurf)
                         healthLost = getFallDamage(mPtr, height);
 
                     if (healthLost > 0.0f)
@@ -3295,7 +3299,8 @@ namespace MWMechanics
                     // Make sure the actual speed is the "expected" speed even though the animation is slower
                     if (isMovementAnimationControlled())
                     {
-                        scale *= std::max(1.f, speedMult / maxSpeedMult);
+                        if (!normalizedSurf)
+                            scale *= std::max(1.f, speedMult / maxSpeedMult);
                     }
 
 #ifdef BUILD_MULTIPLAYER
@@ -3401,7 +3406,7 @@ namespace MWMechanics
 
         if (mPtr.getClass().isActor() && !isScriptedAnimPlaying())
         {
-            if (isMovementAnimationControlled())
+            if (isMovementAnimationControlled() && !normalizedSurf)
             {
                 if (duration != 0.f && movementFromAnimation != osg::Vec3f())
                 {

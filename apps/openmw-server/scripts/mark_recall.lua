@@ -211,6 +211,10 @@ end
 
 function M.onServerInit()
     for cellId, settings in pairs(DEFAULT_SURF_CELL_SETTINGS) do
+        settings.normalizeMovement = true
+        settings.referenceSpeed = 100
+        settings.referenceAthletics = 100
+        settings.referenceAcrobatics = 50
         mp.setCellPhysics(cellId, settings)
     end
 end

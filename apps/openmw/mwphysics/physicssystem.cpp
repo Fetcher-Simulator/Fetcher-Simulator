@@ -56,6 +56,7 @@
 #include "hasspherecollisioncallback.hpp"
 #include "heightfield.hpp"
 #include "movementsolver.hpp"
+#include "surfphysics.hpp"
 #include "mtphysics.hpp"
 #include "vehiclebody.hpp"
 #include "object.hpp"
@@ -70,15 +71,17 @@ namespace
         if (ptr.getClass().getMovementSettings(ptr).mPosition[2] == 0)
             return;
         const bool isPlayer = (ptr == MWMechanics::getPlayer());
+        const bool normalizedSurf = MWPhysics::getPlayerSurfPhysicsSettings(ptr).hasNormalizedMovement();
         // Advance acrobatics and set flag for GetPCJumping
         if (isPlayer)
         {
-            ptr.getClass().skillUsageSucceeded(ptr, ESM::Skill::Acrobatics, ESM::Skill::Acrobatics_Jump);
+            if (!normalizedSurf)
+                ptr.getClass().skillUsageSucceeded(ptr, ESM::Skill::Acrobatics, ESM::Skill::Acrobatics_Jump);
             MWBase::Environment::get().getWorld()->getPlayer().setJumping(true);
         }
 
         // Decrease fatigue
-        if (!isPlayer || !MWBase::Environment::get().getWorld()->getGodModeState())
+        if (!normalizedSurf && (!isPlayer || !MWBase::Environment::get().getWorld()->getGodModeState()))
         {
             const MWWorld::Store<ESM::GameSetting>& gmst
                 = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
@@ -626,7 +629,8 @@ namespace MWPhysics
 
         // check if Actor should spawn above water
         const MWMechanics::MagicEffects& effects = ptr.getClass().getCreatureStats(ptr).getMagicEffects();
-        const bool canWaterWalk = effects.getOrDefault(ESM::MagicEffect::WaterWalking).getMagnitude() > 0;
+        const bool canWaterWalk = !getPlayerSurfPhysicsSettings(ptr).hasNormalizedMovement()
+            && effects.getOrDefault(ESM::MagicEffect::WaterWalking).getMagnitude() > 0;
 
         auto actor = std::make_shared<Actor>(
             ptr, shape, mTaskScheduler.get(), canWaterWalk, Settings::game().mActorCollisionShapeType);
@@ -816,6 +820,8 @@ namespace MWPhysics
                     waterCollision = effects.getOrDefault(ESM::MagicEffect::WaterWalking).getMagnitude();
             }
 
+            if (getPlayerSurfPhysicsSettings(ptr).hasNormalizedMovement())
+                waterCollision = false;
             physicActor->setCanWaterWalk(waterCollision);
 
             // Slow fall reduces fall speed by a factor of (effect magnitude / 200)
@@ -1154,7 +1160,8 @@ namespace MWPhysics
 
     ActorFrameData::ActorFrameData(
         Actor& actor, bool inert, bool waterCollision, float slowFall, float waterlevel, bool isPlayer)
-        : mPosition()
+        : mSurfSettings(isPlayer ? getPlayerSurfPhysicsSettings(actor.getPtr()) : SurfPhysicsSettings{})
+        , mPosition()
         , mStandingOn(nullptr)
         , mIsOnGround(actor.getOnGround())
         , mIsOnSlope(actor.getOnSlope())
@@ -1169,7 +1176,7 @@ namespace MWPhysics
                         ->get<ESM::GameSetting>()
                         .find("fSwimHeightScale")
                         ->mValue.getFloat()))
-        , mSlowFall(slowFall)
+        , mSlowFall(mSurfSettings.hasNormalizedMovement() ? 1.f : slowFall)
         , mJumpVelocity(actor.getPtr().getClass().getJump(actor.getPtr()))
         , mRotation()
         , mMovement(actor.velocity())
@@ -1179,10 +1186,11 @@ namespace MWPhysics
         , mHalfExtentsZ(actor.getMovementHalfExtentsZ())
         , mOldHeight(0)
         , mStuckFrames(0)
-        , mFlying(MWBase::Environment::get().getWorld()->isFlying(actor.getPtr()))
+        , mFlying(!mSurfSettings.hasNormalizedMovement()
+              && MWBase::Environment::get().getWorld()->isFlying(actor.getPtr()))
         , mWasOnGround(actor.getOnGround())
         , mIsAquatic(actor.getPtr().getClass().isPureWaterCreature(actor.getPtr()))
-        , mWaterCollision(waterCollision)
+        , mWaterCollision(!mSurfSettings.hasNormalizedMovement() && waterCollision)
         , mSkipCollisionDetection(!actor.getCollisionMode())
         , mIsPlayer(isPlayer)
     {

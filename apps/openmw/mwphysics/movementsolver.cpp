@@ -297,7 +297,8 @@ namespace MWPhysics
                 }
             }
 
-            applyStormVelocity(worldData, velocity);
+            if (!settings.hasNormalizedMovement())
+                applyStormVelocity(worldData, velocity);
 
             Stepper stepper(collisionWorld, actor.mCollisionObject, actor.mCollisionRotation);
             ActorTracer tracer;
@@ -568,7 +569,7 @@ namespace MWPhysics
         ActorFrameData& actor, float time, const btCollisionWorld* collisionWorld, const WorldFrameData& worldData)
     {
         actor.mActorSupported = false;
-        const auto surfSettings = getSurfPhysicsSettings();
+        const auto& surfSettings = actor.mSurfSettings;
         if (actor.mIsPlayer && surfSettings.enabled)
         {
             moveWithSurfPhysics(actor, time, collisionWorld, worldData, surfSettings);

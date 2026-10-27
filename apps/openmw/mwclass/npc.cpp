@@ -39,6 +39,7 @@
 #include <components/sceneutil/positionattitudetransform.hpp>
 
 #include "../mwlua/localscripts.hpp"
+#include "../mwphysics/surfphysics.hpp"
 
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/aisequence.hpp"
@@ -1100,6 +1101,12 @@ namespace MWClass
         if (stats.isParalyzed() || stats.getKnockedDown() || stats.isDead())
             return 0.f;
 
+        if (MWPhysics::getPlayerSurfPhysicsSettings(ptr).hasNormalizedMovement())
+            return stats.getStance(MWMechanics::CreatureStats::Stance_Run)
+                && !(stats.getStance(MWMechanics::CreatureStats::Stance_Sneak)
+                    && !MWBase::Environment::get().getWorld()->isSwimming(ptr))
+                ? getRunSpeed(ptr) : getWalkSpeed(ptr);
+
         const MWBase::World* world = MWBase::Environment::get().getWorld();
         const GMST& gmst = getGmst();
 
@@ -1137,7 +1144,9 @@ namespace MWClass
 
     float Npc::getJump(const MWWorld::Ptr& ptr) const
     {
-        const float normalizedEncumbrance = getNormalizedEncumbrance(ptr);
+        const auto surf = MWPhysics::getPlayerSurfPhysicsSettings(ptr);
+        const bool normalized = surf.hasNormalizedMovement();
+        const float normalizedEncumbrance = normalized ? 0.f : getNormalizedEncumbrance(ptr);
         if (normalizedEncumbrance > 1.0f)
             return 0.f;
 
@@ -1150,7 +1159,7 @@ namespace MWClass
         const float encumbranceTerm = gmst.fJumpEncumbranceBase->mValue.getFloat()
             + gmst.fJumpEncumbranceMultiplier->mValue.getFloat() * (1.0f - normalizedEncumbrance);
 
-        float a = getSkill(ptr, ESM::Skill::Acrobatics);
+        float a = normalized ? surf.referenceAcrobatics : getSkill(ptr, ESM::Skill::Acrobatics);
         float b = 0.0f;
         if (a > 50.0f)
         {
@@ -1161,12 +1170,15 @@ namespace MWClass
         float x = gmst.fJumpAcrobaticsBase->mValue.getFloat()
             + std::pow(a / 15.0f, gmst.fJumpAcroMultiplier->mValue.getFloat());
         x += 3.0f * b * gmst.fJumpAcroMultiplier->mValue.getFloat();
-        x += mageffects.getOrDefault(ESM::MagicEffect::Jump).getMagnitude() * 64;
+        if (!normalized)
+            x += mageffects.getOrDefault(ESM::MagicEffect::Jump).getMagnitude() * 64;
         x *= encumbranceTerm;
 
         if (stats.getStance(MWMechanics::CreatureStats::Stance_Run))
             x *= gmst.fJumpRunMultiplier->mValue.getFloat();
-        x *= stats.getFatigueTerm();
+        x *= normalized
+            ? MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>().find("fFatigueBase")->mValue.getFloat()
+            : stats.getFatigueTerm();
         x -= -Constants::GravityConst * Constants::UnitsPerMeter;
         x /= 3.0f;
 
@@ -1616,11 +1628,16 @@ namespace MWClass
     {
         const GMST& gmst = getGmst();
         const MWMechanics::NpcStats& stats = getNpcStats(ptr);
-        const float normalizedEncumbrance = getNormalizedEncumbrance(ptr);
-        const bool sneaking = MWBase::Environment::get().getMechanicsManager()->isSneaking(ptr);
+        const auto surf = MWPhysics::getPlayerSurfPhysicsSettings(ptr);
+        const bool normalized = surf.hasNormalizedMovement();
+        const float normalizedEncumbrance = normalized ? 0.f : getNormalizedEncumbrance(ptr);
+        const bool sneaking = normalized
+            ? stats.getStance(MWMechanics::CreatureStats::Stance_Sneak)
+                && !MWBase::Environment::get().getWorld()->isSwimming(ptr)
+            : MWBase::Environment::get().getMechanicsManager()->isSneaking(ptr);
 
         float walkSpeed = gmst.fMinWalkSpeed->mValue.getFloat()
-            + 0.01f * stats.getAttribute(ESM::Attribute::Speed).getModified()
+            + 0.01f * (normalized ? surf.referenceSpeed : stats.getAttribute(ESM::Attribute::Speed).getModified())
                 * (gmst.fMaxWalkSpeed->mValue.getFloat() - gmst.fMinWalkSpeed->mValue.getFloat());
         walkSpeed *= 1.0f - gmst.fEncumberedMoveEffect->mValue.getFloat() * normalizedEncumbrance;
         walkSpeed = std::max(0.0f, walkSpeed);
@@ -1633,8 +1650,10 @@ namespace MWClass
     float Npc::getRunSpeed(const MWWorld::Ptr& ptr) const
     {
         const GMST& gmst = getGmst();
+        const auto surf = MWPhysics::getPlayerSurfPhysicsSettings(ptr);
         return getWalkSpeed(ptr)
-            * (0.01f * getSkill(ptr, ESM::Skill::Athletics) * gmst.fAthleticsRunBonus->mValue.getFloat()
+            * (0.01f * (surf.hasNormalizedMovement() ? surf.referenceAthletics : getSkill(ptr, ESM::Skill::Athletics))
+                * gmst.fAthleticsRunBonus->mValue.getFloat()
                 + gmst.fBaseRunMultiplier->mValue.getFloat());
     }
 

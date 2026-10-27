@@ -1989,6 +1989,9 @@ void Main::registerProtocolHandlers()
             mGuardArrestMode = pkt.guardArrestMode;
             Log(Debug::Info) << "[MP] Applied surf settings for cell=" << pkt.settings.cellId
                              << " enabled=" << (pkt.settings.enabled ? "true" : "false")
+                             << " normalizedMovement=" << (pkt.settings.normalizeMovement ? "true" : "false")
+                             << " referenceStats=" << pkt.settings.referenceSpeed << '/'
+                             << pkt.settings.referenceAthletics << '/' << pkt.settings.referenceAcrobatics
                              << " guardArrestMode="
                              << (mGuardArrestMode == GuardArrestMode::Dialogue ? "dialogue" : "combat");
         });

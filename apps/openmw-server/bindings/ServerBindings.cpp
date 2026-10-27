@@ -208,6 +208,10 @@ namespace
         table["friction"] = settings.groundFriction;
         table["groundAccel"] = settings.groundAcceleration;
         table["jumpSpeed"] = settings.jumpSpeed;
+        table["normalizeMovement"] = settings.normalizeMovement;
+        table["referenceSpeed"] = settings.referenceSpeed;
+        table["referenceAthletics"] = settings.referenceAthletics;
+        table["referenceAcrobatics"] = settings.referenceAcrobatics;
         table["gravityMult"] = settings.gravityMultiplier;
         table["gravity"] = settings.gravityMultiplier;
         table["overbounce"] = settings.overbounce;
@@ -1414,6 +1418,12 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
         settings.groundFriction = values.get_or("friction", settings.groundFriction);
         settings.groundAcceleration = values.get_or("groundAccel", settings.groundAcceleration);
         settings.jumpSpeed = values.get_or("jumpSpeed", settings.jumpSpeed);
+        settings.normalizeMovement = values.get_or("normalizeMovement", settings.normalizeMovement);
+        settings.referenceSpeed = values.get_or("referenceSpeed", settings.referenceSpeed);
+        settings.referenceAthletics = values.get_or("referenceAthletics", settings.referenceAthletics);
+        settings.referenceAcrobatics = values.get_or("referenceAcrobatics", settings.referenceAcrobatics);
+        if (!settings.validMovementProfile())
+            throw std::runtime_error("Surf reference stats must be finite values between 0 and 100");
         settings.gravityMultiplier = values.get_or("gravityMult", settings.gravityMultiplier);
         settings.gravityMultiplier = values.get_or("gravity", settings.gravityMultiplier);
         settings.overbounce = values.get_or("overbounce", settings.overbounce);

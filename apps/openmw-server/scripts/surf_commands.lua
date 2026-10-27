@@ -13,6 +13,10 @@ local DEFAULTS = {
     rampAngle = 0.8,
     impactOverbounce = 1.1,
     impactVelocityThreshold = 200.0,
+    normalizeMovement = false,
+    referenceSpeed = 100,
+    referenceAthletics = 100,
+    referenceAcrobatics = 50,
 }
 
 local SETTING_FIELDS = {
@@ -30,6 +34,11 @@ local SETTING_FIELDS = {
     rampangle = "rampAngle",
     impactoverbounce = "impactOverbounce",
     impactvelocitythreshold = "impactVelocityThreshold",
+    normalize = "normalizeMovement",
+    normalizemovement = "normalizeMovement",
+    referencespeed = "referenceSpeed",
+    referenceathletics = "referenceAthletics",
+    referenceacrobatics = "referenceAcrobatics",
 }
 
 local DISPLAY_FIELDS = {
@@ -43,6 +52,10 @@ local DISPLAY_FIELDS = {
     { key = "rampAngle", label = "rampAngle" },
     { key = "impactOverbounce", label = "impactOverbounce" },
     { key = "impactVelocityThreshold", label = "impactVelocityThreshold" },
+    { key = "normalizeMovement", label = "normalizeMovement", kind = "bool" },
+    { key = "referenceSpeed", label = "referenceSpeed" },
+    { key = "referenceAthletics", label = "referenceAthletics" },
+    { key = "referenceAcrobatics", label = "referenceAcrobatics" },
 }
 
 local function trim(text)
@@ -83,6 +96,10 @@ local function copyDefaults()
         rampAngle = DEFAULTS.rampAngle,
         impactOverbounce = DEFAULTS.impactOverbounce,
         impactVelocityThreshold = DEFAULTS.impactVelocityThreshold,
+        normalizeMovement = DEFAULTS.normalizeMovement,
+        referenceSpeed = DEFAULTS.referenceSpeed,
+        referenceAthletics = DEFAULTS.referenceAthletics,
+        referenceAcrobatics = DEFAULTS.referenceAcrobatics,
     }
 end
 
@@ -117,17 +134,20 @@ local function dumpSettings(player, label, settings)
 end
 
 local function parseValue(field, rawValue)
-    if field == "enabled" then
+    if field == "enabled" or field == "normalizeMovement" then
         local enabled = parseBoolean(rawValue)
         if enabled == nil then
-            return nil, "Expected on/off for surf enabled."
+            return nil, "Expected on/off for " .. field .. "."
         end
         return enabled
     end
 
     local number = tonumber(rawValue)
-    if not number then
-        return nil, "Expected a numeric value."
+    if not number or number ~= number or number == math.huge or number == -math.huge then
+        return nil, "Expected a finite numeric value."
+    end
+    if field:sub(1, 9) == "reference" and (number < 0 or number > 100) then
+        return nil, "Reference stats must be between 0 and 100."
     end
 
     return number
@@ -214,6 +234,12 @@ local function handlePlayerAction(player, target, args, actionIndex, env)
     local action = trim(args[actionIndex])
     if not action or action == "" then
         dumpSettings(player, "Player " .. target.name .. ":", mp.getPlayerPhysics(target.guid))
+        return false
+    end
+
+    local cellSettings = mp.getCellPhysics(env.normalizeCellId(target.cell))
+    if cellSettings and cellSettings.enabled and cellSettings.normalizeMovement then
+        player:sendMessage("This surf map uses shared movement settings. Personal overrides are disabled here.")
         return false
     end
 

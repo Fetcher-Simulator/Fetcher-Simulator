@@ -41,7 +41,8 @@ namespace mwmp
     // Protocol 22 adds atomic server-authoritative NPC spellmaking.
     // Protocol 24 carries target-specific aggro state and multi-target actor AI.
     // Protocol 25 carries independent player body, animation rig and skin overrides.
-    inline constexpr int MultiplayerProtocolVersion = 25;
+    // Protocol 26 carries server-selected normalized surf movement reference values.
+    inline constexpr int MultiplayerProtocolVersion = 26;
     inline constexpr std::string_view MultiplayerBuildVersion = "0.1.0";
     inline constexpr std::string_view DefaultMasterServerUrl = "https://master.fetchers.org";
 
