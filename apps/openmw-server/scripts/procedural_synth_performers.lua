@@ -21,6 +21,14 @@ function P:registry(character)
     if value.version~=1 or type(value.entries)~='table' or #value.entries>format.maxMembers then return nil end
     self.registries[character]=value;return value
 end
+-- Remove only registered identities; never delete an unrelated actor reusing an ID.
+function P:removeEntry(registry,index,cell)
+    local entry=registry.entries[index];if not entry then return false end
+    local actor=entry.mpNum and mp.getActorByMpNum(entry.mpNum)
+    if actor and actor.refId~=entry.refId then return false end
+    if actor and not mp.removeActor(entry.mpNum,actor.cell or entry.cell or cell) then return false end
+    table.remove(registry.entries,index);return true
+end
 function P:state(guid)
     local p=mp.getPlayer(guid);if not p then return end
     local available={};local items=inventory(p)
@@ -132,9 +140,7 @@ function P:dismiss(s,slot)
     if not t or t.kind~='npc' then return end
     local registry=self:registry(s.characterId)
     for n,e in ipairs(registry and registry.entries or {}) do if e.mpNum==t.mpNum and e.refId==t.refId then
-        local actor=mp.getActorByMpNum(t.mpNum)
-        if not mp.removeActor(t.mpNum,actor and actor.cell or e.cell or s.cell) then return end
-        table.remove(registry.entries,n)
+        if not self:removeEntry(registry,n,s.cell) then return end
         mp.setCharacterStorageForCharacter(s.characterId,'ProceduralSynth','performers',registry)
         emit(s.owner,{op='npcDismissed',id=s.id,epoch=s.epoch,slot=slot,mpNum=t.mpNum});self:roster(s);return
     end end
@@ -145,13 +151,28 @@ function P:spawned(data,sessions)
     self.spawning[data.refId]=nil
     local registry=self:registry(pending.character)
     if not registry then return end
-    for _,e in ipairs(registry.entries) do if e.refId==data.refId then e.mpNum=data.mpNum end end
+    local index
+    for n,e in ipairs(registry.entries) do if e.refId==data.refId then e.mpNum=data.mpNum;index=n end end
+    if not index then
+        local actor=mp.getActorByMpNum(data.mpNum)
+        if actor and actor.refId==data.refId then mp.removeActor(data.mpNum,actor.cell) end
+        return
+    end
     mp.setCharacterStorageForCharacter(pending.character,'ProceduralSynth','performers',registry)
     local s=sessions[pending.id]
     if s and s.epoch==pending.epoch then
         local target={kind='npc',mpNum=data.mpNum,refId=data.refId,instrument=pending.instrument}
-        if pending.complete then pending.complete(target)
+        if pending.complete then
+            if pending.complete(target)==false then
+                if index then self:removeEntry(registry,index,s.cell)
+                else local actor=mp.getActorByMpNum(data.mpNum);if actor and actor.refId==data.refId then mp.removeActor(data.mpNum,actor.cell) end end
+                mp.setCharacterStorageForCharacter(pending.character,'ProceduralSynth','performers',registry)
+            end
         else emit(s.owner,{op='npcCreated',id=s.id,epoch=s.epoch,slot=pending.slot,target=target});self:roster(s) end
+    elseif pending.complete then
+        if index then self:removeEntry(registry,index,data.cell)
+        else local actor=mp.getActorByMpNum(data.mpNum);if actor and actor.refId==data.refId then mp.removeActor(data.mpNum,actor.cell) end end
+        mp.setCharacterStorageForCharacter(pending.character,'ProceduralSynth','performers',registry)
     end
 end
 function P:request(data,player,sessions)

@@ -1,5 +1,53 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 27 follow-up: managed bands and participating leader (package 34)
+
+Automatic planning now groups ordinary drum lanes onto one drummer and identical
+melodic timbres onto a shared physical performer, preserving musical tracks and
+mix settings. Leader plays reserves a group for the placed keyboard. Auto manage
+persists in the project, stages a changed song before Play, trims surplus/unbound
+owned hires, and removes managed NPCs on Finish/session release. Remove owned
+NPCs handles explicit cleanup. Stop retains the current lineup. Cleanup checks
+registered actor identity and preserves other active bands' claims; late native
+spawn completions after cancellation cannot leave unregistered performers.
+
+The existing local test was found to have two server processes listening on
+25567 against the same database. Both were stopped with the user's restart
+authorization. The fixture launcher now checks the UDP port and uses a named
+launch lock. The saved performer roster contained 24 generated identities; no
+database rows were manually removed for testing.
+
+Lua regressions cover grouped routes, leader/conductor options, 32 distinct
+timbres, surplus removal, busy-band protection, pending manual/managed spawn
+cancellation, clear, keyboard alignment, automatic Play/resume, Stop cancellation
+and persisted settings. The native harness seeds five old hires, assigns fourteen
+parts (ten drum lanes) to the leader and three NPCs, then checks a late observer,
+song changes, adding a needed performer, explicit removal and Finish cleanup.
+Leader animation reports six arm and thirty finger overrides, native note strikes
+and four audio outputs. The leader's keybed alignment was inspected in game.
+All 26 Lua suites pass. Native visual inspection also checked the refined
+fiddle/clarinet grips and the Band controls. Studio windows now render above
+the HUD hotbar so it cannot cover the new controls on smaller displays.
+
+The fiddle wrist now supports the neck from below; the bow frog is held at the
+finger contact point instead of the wrist. Clarinet grips cross the upper and
+lower key stacks from opposite sides, with lighter finger presses. These use the
+generated meshes' measured grip points; custom race/rig variation remains a limit.
+
+The first harness edited stale track objects and raced a final manual-hire reply;
+it was corrected to finish seeding before setup and assign props before note
+transactions. An empty solo test needed a note before playback. A subsequent
+rapid lineup change exposed the old five-second stage request budget silently
+dropping valid requests; the bounded burst allowance and immediate rejection
+response now prevent a fifty-second UI wait. Native evidence is retained in
+`build/studio-usability-qa/managed-band-result.json` and matching logs/harnesses.
+
+The matching package/server modules were copied back to the established 25567
+fixture with all 64 tracked database/profile/settings/key/config files unchanged
+during copying. The launcher port guard was checked with the port free and with
+the updated server running; the duplicate attempt returned without creating a
+second process. Installation evidence: `build/studio-managed-band-local-install.json`.
+
 ## October 27: standing stage and original orchestral props (package 33)
 
 All 26 procedural-synth Lua suites pass, including formation/authority/reuse,

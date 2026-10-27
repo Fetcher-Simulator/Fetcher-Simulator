@@ -61,6 +61,7 @@ function W:newSong(bpm,numerator,denominator,bars)
     p.timeline={beats=s.bars*s.numerator*4/s.denominator,tempos={{beat=0,tempo=math.floor(60000000/p.bpm+0.5)}}}
     -- Keep the physical roster while starting a fresh musical document.
     p.band=copy(self.project.band)
+    p.autoBand=self.project.autoBand;p.leaderPlays=self.project.leaderPlays
     p.tracks[1]=format.newTrack('midi','Piano 1',p.length);p.tracks[1].edited=format.encodeNotes({},960);p.tracks[1].sourceRole='keys'
     p.tracks[1].params,p.tracks[1].presetId=SoundSets.assignment('balanced','keys',true)
     p=format.project(p);if not p then return false end
@@ -239,14 +240,28 @@ function W:configureBand()
         self.cb.band(self.project.band,routes)
     end
 end
-function W:setupNpcBand(restage)
+function W:stageDescription()
+    local description={midi=self.project.midi,leaderPlays=self.project.leaderPlays~=false,tracks={}}
+    for index,t in ipairs(self.project.tracks) do description.tracks[index]={kind=t.kind,instrument=t.instrument,
+        sourceRole=t.sourceRole,followPrograms=t.followPrograms,presetId=t.presetId,params=copy(t.params)} end
+    return description
+end
+function W:setAutoBand(enabled)
+    self.project.autoBand=enabled==true;self.managedProject=nil;self:touch('autoBand');return true
+end
+function W:setLeaderPlays(enabled)
+    self:stop(true);self.project.leaderPlays=enabled==true;self.managedProject=nil;self:touch('leaderPlays');return true
+end
+function W:setupNpcBand(restage,resume,clear)
     if self.recording or self.failedTake then self.cb.message('Keep or cancel the take before setting up NPCs.');return false end
     if not self.cb.setupBand then return false end
     if self.bandSetup then self.cb.message('NPC stage setup is still running.');return false end
-    if not restage and #self.project.tracks==0 then self.cb.message('Create or import song parts first.');return false end
+    if not restage and not clear and #self.project.tracks==0 then self.cb.message('Create or import song parts first.');return false end
+    if not restage and not clear and not self.project.autoBand then self:setAutoBand(true) end
+    if not restage then self.managedProject=nil end
     self:stop(true);self.bandSetupSerial=(self.bandSetupSerial or 0)+1
-    self.bandSetup={requestId=self.bandSetupSerial,generation=self.generation,document=self.project,at=self.cb.now(),restage=restage==true}
-    self.cb.setupBand(self.bandSetupSerial,restage==true,not restage and format.project(self.project) or nil)
+    self.bandSetup={requestId=self.bandSetupSerial,generation=self.generation,document=self.project,at=self.cb.now(),restage=restage==true,clear=clear==true,resume=resume}
+    self.cb.setupBand(self.bandSetupSerial,restage==true,not restage and not clear and format.project(self.project) or nil,clear==true)
     self.revision=self.revision+1;return true
 end
 function W:receiveBandSetup(data)
@@ -254,28 +269,43 @@ function W:receiveBandSetup(data)
     if not pending or data.requestId~=pending.requestId then return false end
     self.bandSetup=nil;self.revision=self.revision+1
     if data.error then self.cb.message(tostring(data.error));return false end
-    if data.restage~=pending.restage then return false end
+    if data.restage~=pending.restage or (data.clear==true)~=pending.clear then return false end
     if pending.restage then self.cb.message('NPC formation faces your captured leader position.');return true end
+    if pending.clear then
+        local candidate=copy(self.project);candidate.autoBand=false
+        local slots={};for slot,member in ipairs(candidate.band) do
+            if member.target and member.target.kind=='npc' then member.target=nil;slots[slot]=true end
+        end
+        for _,track in ipairs(candidate.tracks) do if slots[track.output.slot] then track.output.slot=0 end end
+        if not require(prefix..'client.arrangement').commitProject(self,candidate) then return false end
+        self.managedProject=nil;self:configureAll()
+        self.cb.message('Owned NPCs removed: '..(data.removed or 0)..'. Kept busy/unavailable: '..(data.retained or 0)..'.');return true
+    end
     if pending.generation~=self.generation or pending.document~=self.project then
         self.cb.message('The song changed during NPC setup. Hired performers remain yours; run Auto NPC band again.');return false
     end
-    if type(data.targets)~='table' or #data.targets~=#self.project.tracks then return false end
-    local candidate=copy(self.project);candidate.band=format.band();local seen={}
-    for index,track in ipairs(candidate.tracks) do
-        local target=format.target(data.targets[index])
+    local routes=format.routes(data.routes)
+    if type(data.targets)~='table' or #data.targets>format.maxMembers or not routes or #routes~=#self.project.tracks then return false end
+    local candidate=copy(self.project);candidate.band=format.band();candidate.autoBand=true;local seen={}
+    for index,value in ipairs(data.targets) do
+        local target=format.target(value)
         if not target or target.kind~='npc' or seen[target.mpNum] then return false end
-        seen[target.mpNum]=true;candidate.band[index].name=track.name;candidate.band[index].target=target
-        track.output={kind='keyboard',slot=index}
+        seen[target.mpNum]=true;candidate.band[index].name=target.instrument..' '..index;candidate.band[index].target=target
+    end
+    for index,track in ipairs(candidate.tracks) do
+        if routes[index]>#data.targets then return false end
+        track.output={kind='keyboard',slot=routes[index]}
     end
     if not require(prefix..'client.arrangement').commitProject(self,candidate) then return false end
-    self.memberPage=0;self.bandPage=0;self:configureAll()
-    self.cb.message('NPC band ready: '..#candidate.tracks..' parts. Routing supports Undo; hired NPCs remain in your roster.')
+    self.memberPage=0;self.bandPage=0;self.managedProject=self:stageDescription();self:configureAll()
+    self.cb.message('Band ready: '..#candidate.tracks..' parts / '..#data.targets..' NPCs. Drum lanes share a drummer; leader output uses this keyboard.')
+    if pending.resume then return self:play(pending.resume) end
     return true
 end
 function W:setOutput(index,slot)
     local t=self.project.tracks[index]
     if not t or type(slot)~='number' or slot%1~=0 or slot<0 or slot>format.maxMembers then return false end
-    self:stop(true);t.output={kind='keyboard',slot=slot};self:configureBand();self:touch('output:'..index);return true
+    self:stop(true);self.project.autoBand=false;t.output={kind='keyboard',slot=slot};self:configureBand();self:touch('output:'..index);return true
 end
 function W:setStageInstrument(index,instrument)
     if not self.project.tracks[index] or not format.instruments[instrument] then return false end
@@ -288,7 +318,7 @@ end
 function W:setMember(slot,member)
     if not self.project.band[slot] then return false end
     local band=copy(self.project.band);band[slot]=copy(member);band=format.band(band);if not band then return false end
-    if not equal(band[slot].target,self.project.band[slot].target) then self:stop(true) end
+    if not equal(band[slot].target,self.project.band[slot].target) then self:stop(true);self.project.autoBand=false end
     self.project.band=band;self:configureBand();self:touch('member:'..slot,true);return true
 end
 function W:configureAll()
@@ -650,7 +680,7 @@ function W:cacheSpans() self.spans=self.song and MIDI.noteSpans(self.song) or {}
 function W:load(project)
     local valid=format.project(project);if not valid then return false end
     self:endTake(true);self:stop(true);if self.cb.documentChanged then self.cb.documentChanged() end;if self.project.midi~=valid.midi or valid.composition then self.song=nil end
-    self.clipEdit=nil;self.regionIndex=nil;self.regionSelection=nil
+    self.clipEdit=nil;self.regionIndex=nil;self.regionSelection=nil;self.managedProject=nil
     if self.library then self.library:detach() end
     self.project=valid;self.checkpoint=copy(valid);self.undoStack={};self.redoStack={};self.lastEditKey=nil;self.noteSelection={};self.noteCache={};self:cacheSpans();self.selected=1;self.bar=0;self.rollStart=0;self:clampPages(true);self.dirty=false;self.revision=self.revision+1;self.generation=self.generation+1;self:configureAll()
     if self:needsMidi() and not self.song then self.cb.importMidi(valid.midi) end
@@ -672,6 +702,7 @@ function W:audition(index)
     return true
 end
 function W:stop(force)
+    if self.bandSetup then self.bandSetup.resume=nil end
     self:endAutomationWrite()
     self:endTake(false)
     if self.cb.stopSequence and (self.native or force) then self.cb.stopSequence() end
@@ -688,6 +719,7 @@ function W:play(mode)
     if mode=='song' and not self.cb.schedule then
         for _,t in ipairs(self.project.tracks) do if t.edited then self.cb.message('Edited MIDI requires native Studio playback.');return false end end
     end
+    if self.project.autoBand and not equal(self.managedProject,self:stageDescription()) then return self:setupNpcBand(false,mode) end
     self:configureAll();self.time=0;self.beat=0;self.step=-1;self.pending={};self.counts={};self.playing=true;self.mode=mode
     if self.cb.schedule then
         local Sequence=require(prefix..'shared.sequence')

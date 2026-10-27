@@ -2,7 +2,7 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current source: package 33 / native synth API 16 / multiplayer protocol 27.
+Current source: package 34 / native synth API 16 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,13 +11,31 @@ layouts and conductor presentation. See [the roadmap](ROADMAP.md).
 
 ## Standing bands and orchestral instruments
 
-Import or create a song, open **Band**, then choose **Auto NPC band**. The server
-hires or reuses one owned NPC per part, up to 32, places a grid ahead of the
-leader, and turns each performer toward the captured leader position. Use clear,
+Import or create a song, open **Band**, then choose **Auto NPC band**. Drum lanes
+share one drummer. Melodic parts share a performer when their physical instrument,
+sound parameters, preset, role and program-following setting match. Tracks remain
+separate: notes, patches, samples, automation and mixer controls are preserved.
+The server hires or reuses the required owned NPCs, up to 32, places a grid ahead
+of the leader, and turns each performer toward the captured leader position. Use clear,
 level ground with enough room: the grid does not yet detect floors or obstacles.
 NPCs remain standing when playback stops. Walking away does not move the stage;
-**Restage grid** explicitly moves the bound formation. Routing is one Undo action;
-Undo does not dismiss hired NPCs. Members and tracks have separate eight-row pages.
+**Restage grid** explicitly moves the bound formation. Members and tracks have
+separate eight-row pages.
+
+**Leader plays: On** reserves a compatible keyboard group for the owner's placed
+keyboard. If no keyboard group exists, the first melodic group (or percussion
+for an all-drum song) plays there instead. With the Yamaha stand, setup aligns
+the leader on its playing side; note-driven arm, wrist and finger motion runs
+for the owner and observers. Turn this off to conduct an entirely NPC lineup.
+
+Auto setup enables the saved **Auto manage** setting. Play rebuilds a changed
+song's required lineup before starting and removes surplus owned hires, including
+older unbound ones. Stop keeps the formation ready. Finish, disconnect or losing
+the editor session removes its managed NPCs; another active band's claimed NPCs
+are preserved. **Remove owned NPCs** also removes unbound hires and disables auto
+management. Manual output/binding changes turn auto management off. Automatic
+routing supports Undo; world spawning/removal/alignment is not undone, and a
+managed song recreates missing performers on the next setup/play.
 
 Click a part in Band and use its instrument selector to choose keyboard, lute,
 drum, violin, cello, trumpet, flute, clarinet or timpani. The physical model is
@@ -43,6 +61,10 @@ reported in Band; playback remains available with a fallback prop. The matching
 native client updates moving attachments without recreating their meshes each frame.
 
 ## Local use
+
+The test server launcher checks its UDP port and holds a launch lock, preventing
+two server processes from sharing the fixture port/database. If it reports an
+existing server, connect to that process rather than launching a second copy.
 
 From the OpenMW repository in PowerShell:
 

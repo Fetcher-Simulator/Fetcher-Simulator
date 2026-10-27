@@ -25,7 +25,7 @@ end
 local function emit(guid, data) data.version = 1; mp.send(guid, 'Synth_Message', data) end
 local hostedMidi=require('procedural_synth_midi')(mp,emit)
 local performers=require('procedural_synth_performers')(mp,projectFormat,emit)
-local stage=require('procedural_synth_stage')(mp,projectFormat,performers,emit)
+local stage=require('procedural_synth_stage')(mp,projectFormat,performers,emit,config.PROCEDURAL_SYNTH_MODEL)
 local function broadcast(s, out, except)
     out.id, out.epoch, out.seq, out.revision, out.owner = s.id, s.epoch, s.outSeq, s.revision, s.owner
     for _, player in ipairs(mp.getPlayers()) do
@@ -54,7 +54,7 @@ local function nextEvent(s) s.outSeq = s.outSeq + 1 end
 local function release(s)
     hostedMidi.cancel(s.owner)
     nextEvent(s); broadcast(s, {op='close'})
-    sessions[s.id] = nil;performers:release(s)
+    sessions[s.id] = nil;stage:release(s,sessions);performers:release(s)
     for id,owner in pairs(claims) do if owner==s.id then claims[id]=nil end end
 end
 local function objectFor(id)
@@ -227,11 +227,15 @@ local function request(data)
         end
         return
     end
-    if data.op=='autoBand' or data.op=='stageBand' then
-        if not integer(data.requestId,1,2147483647) or not budget(data.pid,now,'stage',.2,1) then return end
+    if data.op=='autoBand' or data.op=='stageBand' or data.op=='clearBand' then
+        if not integer(data.requestId,1,2147483647) then return end
+        if not budget(data.pid,now,'stage',1,4) then
+            emit(s.owner,{op='bandSetup',id=s.id,epoch=s.epoch,requestId=data.requestId,restage=data.op=='stageBand',
+                clear=data.op=='clearBand',error='Stage setup requested too quickly; wait a second and retry.'});return
+        end
         local project=data.op=='autoBand' and projectFormat.project(data.project) or nil
         if data.op=='autoBand' and not project then return end
-        stage:begin(s,project,data.requestId,sessions,data.op=='stageBand')
+        stage:begin(s,project,data.requestId,sessions,data.op=='stageBand',data.op=='clearBand')
         return
     end
     if data.op=='roster' or data.op=='hire' or data.op=='invite' or data.op=='dismiss' then

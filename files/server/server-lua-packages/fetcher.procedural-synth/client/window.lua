@@ -27,6 +27,14 @@ local function rect(x,y,w,h,color)
     return {type=ui.TYPE.Image,props={position=v(x,y),size=v(w,h),resource=white,color=color}}
 end
 local function cb(fn) return async:callback(function(...) fn(...);return false end) end
+local function windowLayer()
+    local layers=ui.layers
+    if not layers or not layers.insertAfter or not layers.indexOf then return 'Windows' end
+    if not layers.indexOf('FetcherStudio') then
+        layers.insertAfter(layers.indexOf('FetcherHotbar') and 'FetcherHotbar' or 'Windows','FetcherStudio',{interactive=true})
+    end
+    return 'FetcherStudio'
+end
 function W.new()
     local screen=viewport()
     local defaultScale=math.min(math.max(1,screen.y/900),screen.x/width,screen.y/(height+chrome))
@@ -128,7 +136,7 @@ function W:root(content)
         local grip=rect(self.actualWidth-20,self.actualHeight-20,20,20,accent)
         grip.external={action=true,move=v(0,0),resize=v(1,1)};template[#template+1]=grip
     end
-    local root={type=ui.TYPE.Window,layer='Windows',props={position=v(self:isFullscreen() and 0 or self.x,self:isFullscreen() and 0 or self.y),
+    local root={type=ui.TYPE.Window,layer=windowLayer(),props={position=v(self:isFullscreen() and 0 or self.x,self:isFullscreen() and 0 or self.y),
         size=v(self.actualWidth,self.actualHeight)},template={content=ui.content(template)},content=ui.content(content),
         events={windowDrag=cb(function(e) self:drag(e) end),keyPress=self.keyPress}}
     self.changed=false;self.monitor=volume

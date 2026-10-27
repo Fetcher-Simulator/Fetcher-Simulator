@@ -291,7 +291,7 @@ makeWorkstation=function(i)
         refreshBand=function() i.bandSignature=nil;i.workstation:configureBand();send('roster') end,
         refreshTargets=function() send('roster') end,
         hire=function(slot) send('hire',{slot=slot}) end,
-        setupBand=function(requestId,restage,project) send(restage and 'stageBand' or 'autoBand',{requestId=requestId,project=project}) end,
+        setupBand=function(requestId,restage,project,clear) send(clear and 'clearBand' or restage and 'stageBand' or 'autoBand',{requestId=requestId,project=project}) end,
         dismiss=function(slot) send('dismiss',{slot=slot}) end,
         invite=function(slot) send('invite',{slot=slot}) end,
         instruments=function()
@@ -737,7 +737,7 @@ return {
                 end
                 out[#out+1]={id=id,owner=i.owner,voices=voices,peak=peak,effects=i.effects,master=i.master,delayPeak=i.studio and i.studio.delayPeak or 0,reverbPeak=i.studio and i.studio.reverbPeak or 0,mixPeak=i.studio and i.studio.mixPeak or 0,masterRms=i.studio and i.studio.masterRms or 0,
                 editing=session~=nil and session.id==id,editorVisible=editor~=nil and session.id==id,epoch=i.epoch,seq=i.seq,
-                cutoff=i.params.cutoff,wave1=i.params.wave1,poseBones=i.pose and i.pose.applied or 0,
+                cutoff=i.params.cutoff,wave1=i.params.wave1,poseBones=i.pose and i.pose.applied or 0,poseFingers=i.pose and i.pose.fingers or 0,
                 poseError=i.pose and i.pose.error or 0,midi=(playback~=nil and playback.playing) or (w and w.playing and w.mode=='song') or false,
                 channels=channels,outputs=outputs,band=i.band,availability=i.availability,performers=i.performers,tracks=w and #w.project.tracks or 0,transport=w and w.playing or false,transportTime=w and w.time or 0,
                 nativePlaying=i.studio and i.studio.playing or false,nativePosition=i.studio and i.studio.position or 0,

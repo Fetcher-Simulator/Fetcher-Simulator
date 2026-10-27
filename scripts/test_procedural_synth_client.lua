@@ -21,8 +21,13 @@ package.loaded[prefix..'shared.sequence']=dofile(root..'shared/sequence.lua')
 package.loaded[prefix..'client.transport']=dofile(root..'client/transport.lua')
 package.loaded[prefix..'shared.project']=dofile(root..'shared/project.lua')
 package.loaded['openmw.util']={vector2=vector,color={rgb=function(...) return {...} end,rgba=function(...) return {...} end}}
-package.loaded['openmw.util'].vector3=function(x,y,z) return {x=x,y=y,z=z} end
-local dummyT=setmetatable({},{__mul=function(a) return a end});package.loaded['openmw.util'].transform={identity=dummyT,rotateX=function() return dummyT end,rotateY=function() return dummyT end,rotateZ=function() return dummyT end}
+do
+    local V={}
+    function V.__add(a,b) return setmetatable({x=a.x+b.x,y=a.y+b.y,z=a.z+b.z},V) end
+    function V.__sub(a,b) return setmetatable({x=a.x-b.x,y=a.y-b.y,z=a.z-b.z},V) end
+    package.loaded['openmw.util'].vector3=function(x,y,z) return setmetatable({x=x,y=y,z=z},V) end
+end
+local dummyT=setmetatable({},{__mul=function(a,b) return b.x and b or a end});package.loaded['openmw.util'].transform={identity=dummyT,rotateX=function() return dummyT end,rotateY=function() return dummyT end,rotateZ=function() return dummyT end}
 package.loaded['openmw.animation']={}
 package.loaded['openmw.camera']={MODE={FirstPerson=1},getMode=function() return 2 end}
 package.loaded['openmw.types']={}
@@ -950,8 +955,8 @@ do
     now=now+.01;lastStudio:frame(now)
     button('Auto NPC band (32 parts)').events.mouseClick();local setup=sent[#sent]
     check(setup.op=='autoBand' and #setup.project.tracks==32 and w.bandSetup,'Band automatic setup sends a validated document with a pending request')
-    local targets={};for n=1,32 do targets[n]={kind='npc',mpNum=1000+n,refId='fetcher_synth_bard_1_'..n,instrument='drum'} end
-    handler{version=1,op='bandSetup',id=setup.id,epoch=setup.epoch,requestId=setup.requestId,restage=false,targets=targets}
+    local targets,routes={},{};for n=1,32 do targets[n]={kind='npc',mpNum=1000+n,refId='fetcher_synth_bard_1_'..n,instrument='drum'};routes[n]=n end
+    handler{version=1,op='bandSetup',id=setup.id,epoch=setup.epoch,requestId=setup.requestId,restage=false,targets=targets,routes=routes}
     check(not w.bandSetup and w.project.tracks[32].output.slot==32,'matching setup response routes the last track as well as the first')
     w.page='drums';w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
     button('Lanes 1-8 v').events.mouseClick();lastStudio.dropdown.rows[4].layout.events.mouseClick();now=now+.01;lastStudio:frame(now)

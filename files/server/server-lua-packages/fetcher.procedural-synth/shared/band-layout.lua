@@ -23,8 +23,36 @@ function M.instrument(track)
     return ({strings='violin',brass='trumpet',reed='clarinet',pipe='flute'})[role] or 'keyboard'
 end
 function M.plan(project)
-    local out={};for index,track in ipairs(project.tracks) do
-        out[index]={name=track.name,instrument=M.instrument(track)}
-    end;return out
+    local function equal(a,b)
+        if type(a)~=type(b) then return false end
+        if type(a)~='table' then return a==b end
+        for k,v in pairs(a) do if not equal(v,b[k]) then return false end end
+        for k in pairs(b) do if a[k]==nil then return false end end;return true
+    end
+    local groups={}
+    for index,track in ipairs(project.tracks) do
+        local instrument=M.instrument(track);local group
+        for _,g in ipairs(groups) do
+            local previous=g.source
+            if g.instrument==instrument and (instrument=='drum' or
+                previous.sourceRole==track.sourceRole and previous.followPrograms==track.followPrograms
+                and previous.presetId==track.presetId and equal(previous.params,track.params)) then group=g;break end
+        end
+        if not group then group={name=track.name,instrument=instrument,source=track,tracks={}};groups[#groups+1]=group end
+        group.tracks[#group.tracks+1]=index
+    end
+    local leader
+    if project.leaderPlays~=false then
+        for _,g in ipairs(groups) do if g.instrument=='keyboard' then leader=g;break end end
+        if not leader then for _,g in ipairs(groups) do if g.instrument~='drum' and g.instrument~='timpani' then leader=g;break end end end
+        leader=leader or groups[1]
+    end
+    local out={routes={},leader=leader and leader.name}
+    for _,g in ipairs(groups) do
+        local slot=0
+        if g~=leader then out[#out+1]={name=g.name,instrument=g.instrument};slot=#out end
+        for _,index in ipairs(g.tracks) do out.routes[index]=slot end
+    end
+    return out
 end
 return M

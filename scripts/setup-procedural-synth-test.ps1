@@ -253,7 +253,8 @@ show owned = 0
 $launcher = Get-Content -LiteralPath "$SimulatorRoot\launch-test-clients.ps1" -Raw
 $launcher = $launcher.Replace('127.0.0.1:25565',"127.0.0.1:$Port").Replace('Mario','Synth A').Replace('Sith Soldier','Synth B')
 Write-Utf8 -Path "$fixture\launch-test-clients.ps1" -Value $launcher
-Set-Content -LiteralPath "$fixture\launch-test-server.bat" -Value "@echo off`r`ncd /d `"%~dp0`"`r`nopenmw-server-test.exe --config server.cfg --log-dir logs`r`npause" -Encoding ascii
+Copy-Item -LiteralPath "$PSScriptRoot\launch-procedural-synth-server.ps1" -Destination "$fixture\start-server.ps1" -Force
+Set-Content -LiteralPath "$fixture\launch-test-server.bat" -Value "@echo off`r`ncd /d `"%~dp0`"`r`npowershell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0start-server.ps1`"`r`npause" -Encoding ascii
 Set-Content -LiteralPath "$fixture\launch-test-clients.bat" -Value '@powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0launch-test-clients.ps1"' -Encoding ascii
 if (-not (Test-Path -LiteralPath "$fixture\mp-keys\127.0.0.1_$Port.key")) {
     Copy-Item -LiteralPath "$SimulatorRoot\mp-keys\127.0.0.1_25565.key" -Destination "$fixture\mp-keys\127.0.0.1_$Port.key"

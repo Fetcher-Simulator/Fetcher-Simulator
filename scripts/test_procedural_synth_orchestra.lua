@@ -13,7 +13,7 @@ for n,program in ipairs{40,42,56,73,71,47} do
 end
 table.sort(song.events,function(a,b) return a.time==b.time and a.track<b.track or a.time<b.time end)
 check(w:import(song,'midi/private-orchestra.mid'),'orchestral MIDI imports')
-local plan=Layout.plan(w.project)
+w.project.leaderPlays=false;local plan=Layout.plan(w.project)
 for n,instrument in ipairs(expected) do
  check(w.project.tracks[n].instrument==instrument and plan[n].instrument==instrument,'GM program selects '..instrument)
  check(Format.target{kind='npc',mpNum=n,refId='fetcher_synth_bard_1_'..n,instrument=instrument},'new model is a validated performer instrument')

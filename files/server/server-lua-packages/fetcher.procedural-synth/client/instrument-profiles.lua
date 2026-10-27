@@ -15,6 +15,9 @@ local path='meshes/fetcher/orchestra/'
 M.violin={kind='violin',model=path..'violin.nif',position=v(-6,14,12),rotation=T.rotateZ(-1.2)*T.rotateX(-.1),
     targets={L=v(-26.2,22.3,18.5),R=v(1.7,32.5,17)},centerNote=60,
     extras={{key='synth_bow',model=path..'bow.nif',position=v(0,0,5),rotation=T.identity,bow=true}}}
+-- Wrist anchors sit behind the finger contact points, not on the strings/frog.
+M.violin.targets.L=M.violin.position+M.violin.rotation*v(-5,22,0)
+M.violin.targets.R=M.violin.position+M.violin.rotation*v(19,0,4.75)-v(0,5,-2)
 M.cello={kind='cello',anchor='feet',model=path..'cello.nif',position=v(0,17,55),rotation=T.rotateZ(math.pi)*T.rotateX(-math.pi/2),
     targets={L=v(0,24.3,98),R=v(20,25.5,69)},centerNote=48,
     extras={{key='synth_bow',model=path..'bow.nif',position=v(0,14,8.5),rotation=T.rotateZ(math.pi),bow=true}}}
@@ -23,7 +26,7 @@ M.trumpet={kind='trumpet',model=path..'trumpet.nif',position=v(0,6,13),rotation=
 M.flute={kind='flute',model=path..'flute.nif',position=v(0,8,13),rotation=T.identity,
     targets={L=v(11,0,14),R=v(28,0,14)}}
 M.clarinet={kind='clarinet',model=path..'clarinet.nif',position=v(0,8,13),rotation=T.identity,
-    targets={L=v(-1,12,-2),R=v(2,16,-14)}}
+    targets={L=v(-6,14.1,0),R=v(6,16.6,-13)}}
 M.timpani={kind='timpani',anchor='feet',model=path..'timpani.nif',position=v(0,35,0),rotation=T.identity,
     targets={L=v(-10,27,82),R=v(10,27,82)},
     extras={{key='synth_mallet_l',model=path..'mallet.nif',hand='L'},{key='synth_mallet_r',model=path..'mallet.nif',hand='R'}}}
@@ -51,7 +54,7 @@ function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel)
     elseif profile.kind=='violin' or profile.kind=='cello' then
         if side=='L' then
             local fret=clamp((pitch-profile.centerNote)*(profile.kind=='cello' and .45 or .25),-5,7)
-            point=point-profile.rotation*v(0,fret,0);curl=.42+(pressed and pulse*.12 or 0)
+            point=point-profile.rotation*v(0,fret,0);curl=(profile.kind=='violin' and .22 or .42)+(pressed and pulse*.05 or 0)
         else
             local axis=profile.rotation*profile.extras[1].rotation*v(1,0,0)
             point=point+axis*(bowTravel or 0);curl=.35
@@ -66,8 +69,11 @@ function M.handDirections(profile,side)
         return profile.rotation*v(side=='L' and -1 or 1,0,0),v(0,side=='L' and 1 or -1,0)
     end
     if profile.kind=='violin' then
+        if side=='L' then return profile.rotation*v(1,0,.15),profile.rotation*v(-.15,0,1) end
         return v(0,1,0),v(0,0,side=='L' and 1 or -1)
-    elseif profile.kind=='cello' or profile.kind=='clarinet' then
+    elseif profile.kind=='clarinet' then
+        return v(side=='L' and 1 or -1,0,-.15),v(0,-1,0)
+    elseif profile.kind=='cello' then
         return v(0,0,-1),v(0,side=='L' and 1 or -1,0)
     elseif profile.kind=='trumpet' and side=='L' then return v(0,1,0),v(0,0,1) end
     return v(0,1,0),v(0,0,-1)
@@ -78,7 +84,9 @@ function M.fingerCurl(profile,side,name,base,pitch,pressed)
     if profile.kind=='trumpet' and side=='R' and finger>0 then
         local valves={0,7,5,6,3,1,2,0,6,3,1,2};local bit=2^math.min(2,finger-1)
         return math.floor(valves[math.floor(pitch)%12+1]/bit)%2==1 and .65 or .2
-    elseif (profile.kind=='flute' or profile.kind=='clarinet') and finger>0 then
+    elseif profile.kind=='clarinet' and finger>0 then
+        return (math.floor(pitch)+finger*2+(side=='L' and 0 or 3))%12<7 and .35 or .1
+    elseif profile.kind=='flute' and finger>0 then
         return (math.floor(pitch)+finger*2+(side=='L' and 0 or 3))%12<7 and .55 or .18
     end
     return base

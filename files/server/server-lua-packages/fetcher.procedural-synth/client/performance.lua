@@ -49,6 +49,7 @@ function M.new(actor)
         local staged=record and record.model:lower():gsub('\\','/'):find('keyboard%-stand%.nif$')~=nil
         local halfWidth,spacing,spread,front,height=8,0.65,5,-2,5
         if staged then halfWidth,spacing,spread,front,height=14,1.2,18,-18,91 end
+        if staged then profile={kind='keyboard',targets={L=v(-18,-18,91),R=v(18,-18,91)}} end
         local rootName=self.bones['bip01']
         local root=rootName and anim.getBoneTransform(self.actor,rootName,true,true)
         if not root then return end

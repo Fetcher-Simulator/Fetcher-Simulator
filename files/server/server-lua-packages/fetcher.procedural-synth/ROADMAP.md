@@ -189,6 +189,16 @@ attachments move existing meshes instead of recreating them each pose frame.
 Two-client checks cover 32 stationary performers, late observers, reused identities
 and stopped holding poses. See TEST-REPORT.md for visual checks and limits.
 
+Package 34 refines the automatic setup: compatible melodic parts share a player,
+all ordinary drum lanes share a drummer, and Leader plays reserves the owner's
+workstation group. Track content/mixing remains independent. Managed Play updates
+the lineup for a changed song, trims surplus hires (including old unbound NPCs),
+and waits before starting audio. Stop retains the stage; Finish/session release
+removes managed NPCs. Remove owned NPCs provides explicit cleanup. The leader is
+aligned with the standing keyboard and uses note-driven wrist/finger motion.
+Fiddle and clarinet grip refinement and Studio-over-hotbar window ordering are
+included in this follow-up.
+
 ## Remaining roadmap (next: seated stage layouts)
 
 1. **Seated stage layouts and conductor presentation.** Optional instrument-aware
@@ -241,7 +251,7 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 33 / native synth API 16 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
+package 34 / native synth API 16 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented; seated stage layouts are the next priority.
 

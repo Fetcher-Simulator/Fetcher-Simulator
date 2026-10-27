@@ -26,6 +26,7 @@ local mp={getUptime=function() return now end,getPlayer=function(id) if id==1 th
  getCharacterStorageForCharacter=function(id,_,key) return storage[id..':'..key] end,
  setCharacterStorageForCharacter=function(id,_,key,value) storage[id..':'..key]=value;return true end,
  upsertDynamicRecord=function() return true end,
+ removeActor=function(id) if not actors[id] then return false end;actors[id]=nil;return true end,
  spawnActor=function(id,_,__,cell,position,options) if failSpawn then return false end;queue[#queue+1]={refId=id,cell=cell,position=copy(position),options=options};return true end,
  teleportActorByInstanceId=function(id,cell,position)
   teleports[#teleports+1]={id=id,cell=cell,position=copy(position)};actors[id].cell=cell;actors[id].position=copy(position);return true
@@ -34,8 +35,8 @@ local emit=function(guid,data) sent[#sent+1]={guid=guid,data=data} end
 local P=require('procedural_synth_performers')(mp,Format,emit)
 local S=require('procedural_synth_stage')(mp,Format,P,emit)
 local session={id=7,epoch=1,owner=1,characterId=11,cell='A',band=Format.band()};local sessions={[7]=session}
-local project=Format.new()
-for n=1,32 do project.tracks[n]=Format.newTrack('midi','Part '..n,16);project.tracks[n].sourceRole=n%3==0 and 'guitar' or n%3==1 and 'keys' or 'snare' end
+local project=Format.new();project.leaderPlays=false
+for n=1,32 do project.tracks[n]=Format.newTrack('midi','Part '..n,16);project.tracks[n].sourceRole=n%2==0 and 'guitar' or 'keys';project.tracks[n].params.fine1=n end
 local function drain()
  for _,p in ipairs(queue) do nextActor=nextActor+1;p.mpNum=nextActor
   actors[nextActor]={mpNum=nextActor,actorInstanceId=nextActor,refId=p.refId,cell=p.cell,position=p.position,isDead=false}
@@ -53,14 +54,14 @@ for n,t in ipairs(result.targets) do
  check(t.instrument==Layout.instrument(project.tracks[n]),'physical role mapping matches project')
  session.band[n].target=t
 end
-check(result.targets[1].instrument=='keyboard' and result.targets[2].instrument=='drum' and result.targets[3].instrument=='lute','keyboard/percussion/pluck defaults are distinct')
+check(result.targets[1].instrument=='keyboard' and result.targets[2].instrument=='lute','distinct melodic timbres remain separate physical performers')
 local serial=P:registry(11).nextId
 check(S:begin(session,project,3,sessions,false),'existing complete roster can be reused at capacity');pump()
 check(P:registry(11).nextId==serial and #teleports==32,'repeating Auto teleports owned actors without creating duplicates')
 leader.position.rz=math.pi/2
 check(S:begin(session,nil,4,sessions,true),'explicit restage begins from current leader facing');pump()
 check(#teleports==64 and actors[first].position.x>239,'restage moves the existing formation ahead of the new facing')
-local other={id=9,band=Format.band()};other.band[1].target=result.targets[1];sessions[9]=other
+local other={id=9,characterId=11,band=Format.band()};other.band[1].target=result.targets[1];sessions[9]=other
 check(not S:begin(session,project,5,sessions,false),'busy owned performer is never stolen from another active band at roster capacity')
 check(not S:begin(session,nil,5,sessions,true),'restage cannot move a performer claimed by another active band')
 check(sent[#sent].data.op=='bandSetup' and sent[#sent].data.requestId==5 and sent[#sent].data.error,'rejected setup reports a matching completion so the client need not wait for timeout')
@@ -70,7 +71,7 @@ session.epoch=2;S:tick(sessions);check(not next(S.jobs),'session loss/epoch chan
 -- A rejected spawn rolls back its roster slot rather than consuming the hire limit.
 local fresh={id=8,epoch=1,owner=1,characterId=12,cell='A',band=Format.band()};sessions[8]=fresh
 failSpawn=true
-local one=Format.new();one.tracks[1]=Format.newTrack('piano','One',16)
+local one=Format.new();one.leaderPlays=false;one.tracks[1]=Format.newTrack('piano','One',16)
 check(S:begin(fresh,one,7,sessions,false),'failure case begins');pump()
 check(#P:registry(12).entries==0,'native spawn queue rejection does not leave an unspawned roster entry')
 -- Client routing commits only the matching, unchanged document as one Undo step.
@@ -84,13 +85,72 @@ w:newSong(120,4,4,8);for n=2,32 do w:addPart('keys') end
 check(w:setupNpcBand(false) and not w:play('song'),'pending stage setup prevents playback against half-built routing')
 check(not w:receiveBandSetup{requestId=999,restage=false,targets=result.targets} and w.bandSetup,'unmatched replies cannot change the routing or cancel a pending job')
 local history=#w.undoStack
-check(w:receiveBandSetup{requestId=requests[1].id,restage=false,targets=result.targets},'matching complete NPC setup commits')
+check(w:receiveBandSetup{requestId=requests[1].id,restage=false,targets=result.targets,routes=result.routes},'matching complete NPC setup commits')
 check(#w.undoStack==history+1 and w.project.tracks[32].output.slot==32 and w.project.band[32].target,'32-part routing is one validated Undo action')
 check(w:undo() and w.project.tracks[32].output.slot==0 and w:redo() and w.project.tracks[32].output.slot==32,'routing supports Undo/Redo without changing the owned roster')
 w:setupNpcBand(false);w:renameTrack(1,'Changed while waiting')
 check(not w:receiveBandSetup{requestId=requests[2].id,restage=false,targets=result.targets} and w.project.tracks[1].name=='Changed while waiting','late automatic setup cannot overwrite newer edits')
 w:setupNpcBand(false)
 check(not w:receiveBandSetup{requestId=requests[3].id,restage=false,error='No available performers'} and not w.bandSetup,'rejected setup immediately releases the pending UI')
+-- Grouping changes destinations, never the musical tracks or patches.
+local grouped=Format.new();local kinds={'keys','keys'}
+for n=1,14 do
+    local t=Format.newTrack(n>=3 and n<=12 and 'drum' or 'piano','Part '..n,16)
+    t.sourceRole=n<=2 and 'keys' or n<=12 and 'snare' or 'strings'
+    t.instrument=n<=2 and 'keyboard' or n<=12 and 'drum' or n==13 and 'violin' or 'cello'
+    if n>=3 then t.params.fine1=n end
+    grouped.tracks[n]=t
+end
+local plan=Layout.plan(grouped)
+check(#plan==3 and plan.routes[1]==0 and plan.routes[2]==0,'leader plays compatible keyboard parts at the workstation')
+for n=3,12 do check(plan.routes[n]==1,'independent drum lanes share one physical drummer') end
+check(plan.routes[13]==2 and plan.routes[14]==3 and #grouped.tracks==14,'different melodic instruments retain their own performers and source tracks')
+grouped.leaderPlays=false;check(#Layout.plan(grouped)==4,'leader can choose to conduct without playing');grouped.leaderPlays=nil
+failSpawn=false;session.band=Format.band()
+check(S:begin(session,grouped,10,sessions,false),'grouped setup begins with a pre-existing oversized roster');pump()
+local groupedResult=sent[#sent-1].data
+for _,message in ipairs(sent) do if message.data.op=='bandSetup' and message.data.requestId==10 then groupedResult=message.data end end
+check(#P:registry(11).entries==3 and groupedResult.removed==29,'surplus and unbound old hires are removed rather than left in corners')
+for n,target in ipairs(groupedResult.targets) do session.band[n].target=target end
+local busyTarget=groupedResult.targets[1];sessions[9]={id=9,characterId=11,band=Format.band()};sessions[9].band[1].target=busyTarget
+sessions[10]={id=10,characterId=88,band=Format.band()};sessions[10].band[1].target=groupedResult.targets[2]
+local leaderOnly=Format.new();leaderOnly.tracks[1]=Format.newTrack('piano','Solo',16)
+check(S:begin(session,leaderOnly,11,sessions,false),'a keyboard-only song needs zero NPCs');pump()
+check(#P:registry(11).entries==1 and actors[busyTarget.mpNum],'automatic cleanup preserves an actor claimed by another active band')
+check(not actors[groupedResult.targets[2].mpNum],'a foreign character cannot block owned-NPC cleanup by forging a band target')
+sessions[10]=nil
+check(S:begin(session,nil,12,sessions,false,true),'explicit clear works without any song parts');pump()
+check(#P:registry(11).entries==1,'clear cannot remove another active band performer')
+sessions[9]=nil;check(S:begin(session,nil,13,sessions,false,true),'clear retries after the other band releases');pump()
+check(#P:registry(11).entries==0,'clear includes unbound owned NPCs')
+-- A delayed native spawn after Finish must not leave an orphan.
+check(S:begin(session,one,14,sessions,false),'pending spawn cleanup starts');now=now+.2;S:tick(sessions)
+check(#queue==1,'native spawn is pending at session close')
+sessions[session.id]=nil;S:release(session,sessions);drain()
+check(#P:registry(11).entries==0 and not next(S.jobs),'session release and late spawn completion leave no managed NPCs')
+sessions[session.id]=session
+check(P:hire(session,1),'manual hire starts for clear-race coverage')
+check(not S:begin(session,one,15,sessions,false),'automatic setup cannot race an outstanding manual hire')
+check(S:begin(session,nil,16,sessions,false,true),'clear can cancel a pending manual hire');now=now+1;S:tick(sessions);drain()
+check(#P:registry(11).entries==0 and not next(actors),'a manual spawn arriving after clear does not leave an unregistered actor')
+local aligned
+mp.teleportPlayer=function(guid,cell,position) aligned=copy(position);return guid==1 and cell=='A' end
+local alignStage=require('procedural_synth_stage')(mp,Format,P,emit,'meshes/fetcher/synth/keyboard-stand.nif')
+check(alignStage:begin(session,leaderOnly,17,sessions,false) and aligned.x==0 and aligned.y==-50 and aligned.z==0,'participating leader aligns at the fixed stand playing side')
+alignStage:tick(sessions)
+-- Play waits for automatic staging and then resumes exactly once.
+w:newSong(120,4,4,8);w:setAutoBand(true)
+check(w:play('clips') and w.bandSetup and not w.playing,'managed Play queues setup before starting the score')
+local request=w.bandSetup.requestId
+check(w:receiveBandSetup{requestId=request,restage=false,targets={},routes={0}} and w.playing,'leader-only setup resumes playback without creating NPCs')
+w:stop(true);check(w:play('clips') and not w.bandSetup,'unchanged song restarts without moving the formation')
+w:stop(true);w.project.tracks[1].params.fine1=23
+check(w:play('clips') and w.bandSetup,'changed instrument grouping refreshes the lineup before playing')
+request=w.bandSetup.requestId;w:stop(true)
+check(w:receiveBandSetup{requestId=request,restage=false,targets={},routes={0}} and not w.playing,'Stop during setup cancels deferred playback')
+check(Format.project(w.project).autoBand==true,'managed mode survives project validation/save')
+w.project.leaderPlays='yes';check(not Format.project(w.project),'malformed leader settings are rejected');w.project.leaderPlays=nil
+w:setOutput(1,0);check(not w.project.autoBand,'explicit manual routing turns off automatic replacement')
 -- Stand controller applies only to this package's generated NPC identities.
 local npc={recordId='fetcher_synth_bard_11_1',controls={}}
 function npc:enableAI(enabled) self.ai=enabled end
