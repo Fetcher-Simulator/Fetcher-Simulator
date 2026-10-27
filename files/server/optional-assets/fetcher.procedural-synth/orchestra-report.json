@@ -1,0 +1,138 @@
+{
+  "violin": {
+    "model": "meshes/fetcher/orchestra/violin.nif",
+    "triangles": 716,
+    "bounds": [
+      [
+        -7.5,
+        -14.0,
+        -1.399999976158142
+      ],
+      [
+        7.5,
+        36.79999923706055,
+        4.345001697540283
+      ]
+    ],
+    "bytes": 51832
+  },
+  "cello": {
+    "model": "meshes/fetcher/orchestra/cello.nif",
+    "triangles": 752,
+    "bounds": [
+      [
+        -12.75,
+        -55.0,
+        -2.379999876022339
+      ],
+      [
+        12.75,
+        62.55999755859375,
+        7.386502742767334
+      ]
+    ],
+    "bytes": 54360
+  },
+  "bow": {
+    "model": "meshes/fetcher/orchestra/bow.nif",
+    "triangles": 108,
+    "bounds": [
+      [
+        -23.021543502807617,
+        -0.550000011920929,
+        -0.8999999761581421
+      ],
+      [
+        25.0,
+        0.550000011920929,
+        1.7165062427520752
+      ]
+    ],
+    "bytes": 7061
+  },
+  "trumpet": {
+    "model": "meshes/fetcher/orchestra/trumpet.nif",
+    "triangles": 936,
+    "bounds": [
+      [
+        -6.5,
+        -3.5,
+        -6.5
+      ],
+      [
+        8.488687515258789,
+        53.5,
+        6.5
+      ]
+    ],
+    "bytes": 60072
+  },
+  "flute": {
+    "model": "meshes/fetcher/orchestra/flute.nif",
+    "triangles": 1568,
+    "bounds": [
+      [
+        -7.0,
+        -1.149999976158142,
+        -0.700001060962677
+      ],
+      [
+        43.0,
+        1.25,
+        1.0499999523162842
+      ]
+    ],
+    "bytes": 117999
+  },
+  "clarinet": {
+    "model": "meshes/fetcher/orchestra/clarinet.nif",
+    "triangles": 1196,
+    "bounds": [
+      [
+        -3.0,
+        -1.0377912521362305,
+        -49.599998474121094
+      ],
+      [
+        3.0,
+        12.0,
+        1.1152410507202148
+      ]
+    ],
+    "bytes": 91584
+  },
+  "timpani": {
+    "model": "meshes/fetcher/orchestra/timpani.nif",
+    "triangles": 804,
+    "bounds": [
+      [
+        -23.5,
+        -25.5,
+        -0.1483420729637146
+      ],
+      [
+        23.5,
+        23.5,
+        65.0
+      ]
+    ],
+    "bytes": 53770
+  },
+  "mallet": {
+    "model": "meshes/fetcher/orchestra/mallet.nif",
+    "triangles": 156,
+    "bounds": [
+      [
+        -1.7999999523162842,
+        -0.2967292368412018,
+        -11.800000190734863
+      ],
+      [
+        1.7999999523162842,
+        9.800000190734863,
+        0.23738500475883484
+      ]
+    ],
+    "bytes": 12385
+  }
+}

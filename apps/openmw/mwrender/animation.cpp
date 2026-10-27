@@ -2235,10 +2235,20 @@ namespace MWRender
         const std::string id(key), effect="__lua_prop_"+id;
         auto it=mScriptAttachments.find(id);
         if (it==mScriptAttachments.end() && mScriptAttachments.size()>=8) return false;
-        if (it==mScriptAttachments.end() || it->second.model!=model || it->second.bone!=bone || it->second.transform!=transform)
+        if (it==mScriptAttachments.end() || it->second.model!=model || it->second.bone!=bone)
         {
             removeEffect(effect);
             addEffect(model,effect,true,bone,{},false,false,transform);
+        }
+        else if (it->second.transform!=transform)
+        {
+            // IK anchors and bow/mallet motion update every frame. Keep the
+            // instantiated mesh/controllers instead of cloning its NIF again.
+            if (!setEffectTransform(effect,transform.getTrans(),transform.getRotate(),transform.getScale()))
+            {
+                removeEffect(effect);
+                addEffect(model,effect,true,bone,{},false,false,transform);
+            }
         }
         auto& value=mScriptAttachments[id];value.model=model;value.bone=bone;value.transform=transform;
         value.expires=std::chrono::steady_clock::now()+std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(timeout));

@@ -1,0 +1,11 @@
+Original Fetcher Studio orchestral props
+
+Violin, cello, bow, trumpet, flute, clarinet, timpani and mallet meshes and icons
+were generated from scripts/procedural-synth-assets/generate_orchestra.py for
+Fetcher Simulator. No downloaded or game-owned mesh/texture was used.
+Attribution: Fetcher Simulator contributors / Fetcher Studio orchestral props.
+License: Creative Commons Attribution 4.0 International (CC BY 4.0).
+https://creativecommons.org/licenses/by/4.0/
+These are original stylized standing-performance props, not exact replicas or
+endorsements of a manufacturer's instruments. The cello stance is provisional
+until seated layouts ship. Existing keyboard/stand attribution remains separate.

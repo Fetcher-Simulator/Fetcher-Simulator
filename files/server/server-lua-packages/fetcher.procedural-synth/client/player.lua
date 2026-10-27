@@ -282,10 +282,16 @@ makeWorkstation=function(i)
             local signature=table.concat(values,'|')
             if signature~=i.bandSignature then i.bandSignature=signature;i.pendingBand={band=Project.band(band),routes=Project.routes(routes)};flushChannels() end
         end,
-        bandStatus=function(slot) return i.availability and i.availability[slot] or 'Unbound' end,
+        bandStatus=function(slot)
+            local status=i.availability and i.availability[slot] or 'Unbound'
+            local performer=i.performers and i.performers[slot]
+            if status=='Ready' and performer and not actors:hasModel(performer.instrument) then return 'Ready / model missing' end
+            return status
+        end,
         refreshBand=function() i.bandSignature=nil;i.workstation:configureBand();send('roster') end,
         refreshTargets=function() send('roster') end,
         hire=function(slot) send('hire',{slot=slot}) end,
+        setupBand=function(requestId,restage,project) send(restage and 'stageBand' or 'autoBand',{requestId=requestId,project=project}) end,
         dismiss=function(slot) send('dismiss',{slot=slot}) end,
         invite=function(slot) send('invite',{slot=slot}) end,
         instruments=function()
@@ -475,6 +481,10 @@ local function message(data)
         end
         return
     end
+    if data.op=='bandSetup' then
+        if session and session.id==data.id and session.epoch==data.epoch then session.workstation:receiveBandSetup(data) end
+        return
+    end
     if data.op=='npcCreated' then
         if session and session.id==data.id and session.epoch==data.epoch then
             local w=session.workstation;local old=w.project.band[data.slot]
@@ -572,7 +582,7 @@ local function message(data)
     local channel=data.channel or 0
     if data.op=='band' then
         local statusChanged=false
-        for slot=1,8 do if (i.availability or {})[slot]~=(data.availability or {})[slot] then statusChanged=true end end
+        for slot=1,Project.maxMembers do if (i.availability or {})[slot]~=(data.availability or {})[slot] then statusChanged=true end end
         local ok,err=pcall(transport.band,transport,i,data.band,data.routes,data.availability,data.performers)
         if not ok then transport:stop(i);ui.showMessage(tostring(err)) end
         if i.workstation and statusChanged then i.workstation.revision=i.workstation.revision+1 end

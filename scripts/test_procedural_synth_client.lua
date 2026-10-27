@@ -22,7 +22,7 @@ package.loaded[prefix..'client.transport']=dofile(root..'client/transport.lua')
 package.loaded[prefix..'shared.project']=dofile(root..'shared/project.lua')
 package.loaded['openmw.util']={vector2=vector,color={rgb=function(...) return {...} end,rgba=function(...) return {...} end}}
 package.loaded['openmw.util'].vector3=function(x,y,z) return {x=x,y=y,z=z} end
-local dummyT=setmetatable({},{__mul=function(a) return a end});package.loaded['openmw.util'].transform={identity=dummyT,rotateX=function() return dummyT end,rotateZ=function() return dummyT end}
+local dummyT=setmetatable({},{__mul=function(a) return a end});package.loaded['openmw.util'].transform={identity=dummyT,rotateX=function() return dummyT end,rotateY=function() return dummyT end,rotateZ=function() return dummyT end}
 package.loaded['openmw.animation']={}
 package.loaded['openmw.camera']={MODE={FirstPerson=1},getMode=function() return 2 end}
 package.loaded['openmw.types']={}
@@ -30,6 +30,7 @@ package.loaded['openmw.vfs']={pathsWithPrefix=function() return function() end e
 package.loaded[prefix..'client.midi']=dofile(root..'client/midi.lua')
 package.loaded[prefix..'client.hosted-midi']=dofile(root..'client/hosted-midi.lua')
 package.loaded[prefix..'client.midi-export']=dofile(root..'client/midi-export.lua')
+package.loaded[prefix..'client.instrument-profiles']=dofile(root..'client/instrument-profiles.lua')
 package.loaded[prefix..'client.performance']=dofile(root..'client/performance.lua')
 local viewport=vector(1024,768)
 local mouseDown=false
@@ -38,6 +39,7 @@ local ui={TYPE={Text='Text',TextEdit='TextEdit',Widget='Widget',Image='Image',Wi
     showMessage=function() end}
 function ui.create(layout)
     local element={layout=layout}
+    ui.latest=element
     function element:update() check(self.layout~=nil,'updating destroyed UI') end
     function element:destroy() check(self.layout~=nil,'double UI destruction'); self.layout=nil end
     return element
@@ -544,7 +546,11 @@ local actor={sendEvent=function(_,name,data) activations[#activations+1]={name=n
 package.loaded['openmw.world']={players={actor}}
 package.loaded['openmw.interfaces'].Activation={addGlobalHandler=function(fn) activation=fn end}
 local global=dofile(root..'client/global.lua')
-check(type(activation)=='function' and global.engineHandlers==nil,'keyboard uses the default activation handler chain')
+check(type(activation)=='function' and global.engineHandlers.onActivate==nil,'keyboard uses the default activation handler chain')
+local custom={recordId='fargoth',attached=false,hasScript=function(o) return o.attached end,addScript=function(o) o.attached=true end}
+global.engineHandlers.onActorActive(custom);check(not custom.attached,'ordinary actors never receive the Studio stand controller')
+custom.recordId='fetcher_synth_bard_1_1';global.engineHandlers.onActorActive(custom)
+check(custom.attached,'owned Studio performers receive their custom stand controller on activation')
 check(activation(source,actor)==false and #activations==1 and activations[1].name=='Synth_Activate',
     'placed miscellaneous keyboard opens Studio and suppresses ActionTake')
 source.recordId='fetcher_procedural_synth_v1'
@@ -561,6 +567,12 @@ check(oldClient.interface==nil and oldClient.eventHandlers.Synth_Activate~=nil,'
 handler{version=1,op='performer',held='',available={lute=true},invitation={token='qa',leader='Leader',instrument='lute',slot=1}}
 check(mode==nil,'invitation state does not force a GUI or lock the camera')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode=='Interface','F9 opens the performer panel')
+for _,name in ipairs{'violin','cello','trumpet','flute','clarinet','timpani'} do
+    local found=false;for _,element in ipairs(ui.latest.layout.content) do
+        if element.content and element.content[1] and element.content[1].props.text=='Need item: '..name then found=true end
+    end
+    check(found,'F9 exposes the '..name..' inventory/ready choice')
+end
 api.respondToInvite(false);check(sent[#sent].op=='respond' and sent[#sent].token=='qa' and sent[#sent].accept==false,'decline sends only the pending consent token')
 api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrument=='lute','ready requests a server inventory check')
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
@@ -926,6 +938,21 @@ do
         check(w[spec[2]]==3 and button(spec[3]..' 25-32 v'),'last track page selectable on '..spec[1])
     end
     for n=1,32 do w.project.tracks[n]=Format.newTrack('drum','Lane '..n,16) end
+    w.page='band';w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
+    button('Members 1-8 v').events.mouseClick();lastStudio.dropdown.rows[4].layout.events.mouseClick();now=now+.01;lastStudio:frame(now)
+    check(w.memberPage==3 and button('Members 25-32 v'),'member roster pages independently through all 32 performers')
+    w.selected=1;w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
+    button('Part 1: drum v').events.mouseClick()
+    check(#lastStudio.dropdown.entries==9,'Band exposes all nine physical instruments and the correct drum fallback')
+    local popup=lastStudio.dropdown;popup.field.layout.events.textChanged('flute')
+    w.selected=2;popup.rows[1].layout.events.mouseClick()
+    check(w.project.tracks[1].instrument=='flute' and w.project.tracks[2].instrument==nil,'instrument picker retains its original part if selection changes while open')
+    now=now+.01;lastStudio:frame(now)
+    button('Auto NPC band (32 parts)').events.mouseClick();local setup=sent[#sent]
+    check(setup.op=='autoBand' and #setup.project.tracks==32 and w.bandSetup,'Band automatic setup sends a validated document with a pending request')
+    local targets={};for n=1,32 do targets[n]={kind='npc',mpNum=1000+n,refId='fetcher_synth_bard_1_'..n,instrument='drum'} end
+    handler{version=1,op='bandSetup',id=setup.id,epoch=setup.epoch,requestId=setup.requestId,restage=false,targets=targets}
+    check(not w.bandSetup and w.project.tracks[32].output.slot==32,'matching setup response routes the last track as well as the first')
     w.page='drums';w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
     button('Lanes 1-8 v').events.mouseClick();lastStudio.dropdown.rows[4].layout.events.mouseClick();now=now+.01;lastStudio:frame(now)
     check(w.drumPage==3 and button('Lanes 25-32 v'),'last drum-lane page selectable')

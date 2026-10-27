@@ -1,4 +1,26 @@
-# Casio keyboard asset conversion
+# Fetcher Studio instrument assets
+
+## Original orchestral props
+
+`generate_orchestra.py` creates original low-poly violin, cello, bow, trumpet,
+flute, clarinet, timpani and mallet meshes, small generated material textures,
+and transparent inventory icons. They use no downloaded or game-owned geometry
+or textures. Credit/license details are in `ORCHESTRA-ASSETS.txt`; the existing
+Sketchfab keyboard/stand credits remain in the same bundle.
+
+```powershell
+& 'C:/Program Files/Blender Foundation/Blender 4.5/blender.exe' --background --factory-startup --disable-autoexec --python-exit-code 1 --python scripts/procedural-synth-assets/generate_orchestra.py -- --output files/server/optional-assets/fetcher.procedural-synth --working build/orchestra-assets
+```
+
+Requires Blender 4.5 with `io_scene_mw` and ImageMagick. Export verifies triangle
+counts and resolves serialized relative texture paths. The generator records
+bounds/counts in `orchestra-report.json`, preserves existing notices and refreshes
+the whole bundle's SHA-256 manifest. Native in-game inspection verifies exported
+geometry/materials and hand alignment; source renders alone are insufficient.
+Props are static meshes moved by the Lua performance profiles. The cello's
+standing stance is provisional until seated layouts are implemented.
+
+## Casio keyboard asset conversion
 
 Source: **Keyboard (Casio VL-Tone)** by **AleixoAlonso**, Sketchfab UID
 `be22fbe1ef0044f3bedc6e3edf459593`, licensed CC BY 4.0. See the runtime bundle's

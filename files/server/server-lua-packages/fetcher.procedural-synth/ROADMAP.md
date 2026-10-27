@@ -1,6 +1,6 @@
 # FETCHER STUDIO roadmap
 
-Updated 2026-10-26. Completed work and subsequent planned slices are identified below.
+Updated 2026-10-27. Completed work and subsequent planned slices are identified below.
 
 ## Product goal
 
@@ -173,23 +173,56 @@ compare the previous and candidate builds with two dense independent scores.
 See TEST-REPORT.md for measurements and the limits of that test. This maintenance
 slice precedes the remaining feature roadmap; it does not itself publish builds.
 
-## Remaining roadmap (next: recording follow-ups)
+## Completed slices: standing stage and first orchestral instruments
 
-1. Recording follow-ups: physical MIDI controller acceptance, live controller
+Package 33 adds Auto NPC band (one performer per part, up to 32), roster reuse,
+explicit Restage grid, stationary performers facing the captured leader, and
+one-step routing Undo. Keyboard performers use the floor-anchored Yamaha/X-stand;
+the vanilla lute now has its measured neck/string orientation and fretting/strum
+targets. Drum, wrist and finger motion have separate profiles.
+
+The next instrument slice adds original violin, cello, trumpet, flute, clarinet
+and timpani props/icons, moving bows/mallets, nine selectable physical instruments,
+GM-aware initial model selection, six editable synthetic orchestral patches and
+an Orchestra sound set. Model choice persists independently of the sound. Native
+attachments move existing meshes instead of recreating them each pose frame.
+Two-client checks cover 32 stationary performers, late observers, reused identities
+and stopped holding poses. See TEST-REPORT.md for visual checks and limits.
+
+## Remaining roadmap (next: seated stage layouts)
+
+1. **Seated stage layouts and conductor presentation.** Optional instrument-aware
+   chair placement, seated rigs, collision/height alignment and a sheet-music
+   stand per player. Add section layouts, saved spacing/layout presets, conductor
+   gestures and explicit safe restaging. Keep the standing grid available and
+   avoid moving a formation automatically when its leader walks away. Add floor/
+   obstruction preview before supporting cramped or uneven stages.
+2. **Orchestral instrument expansion and sound refinement.** Add remaining families
+   (including double bass, oboe, bassoon, horn and trombone), articulation, rig/body
+   variation support and better acoustic presets/multisamples. Refine the provisional
+   standing cello into a seated performance. Balance a Star Wars-theme-scale score;
+   the six initial synthetic patches are starting points, not a complete orchestra.
+3. **Large orchestra performance and multiplayer timing.** Profile 32 sounding
+   physical performers, late joins, separate concurrent bands and long sessions.
+   Improve output/voice culling, spatial section grouping and device-drift/latency
+   correction before increasing score/performer limits further. Imports over the
+   current 32-part budget fail clearly; do not silently drop orchestral parts.
+4. **Room acoustics.** Add a listener/environment reverb stage distinct from saved
+   instrument patches and musical delay/reverb. Begin with authorable cell/room
+   zones and dry/small-room/hall/cave presets, with smooth transitions and user
+   control. Later estimate room size, shape, absorption/occlusion from geometry;
+   a cell name alone does not establish room acoustics. Share one environmental
+   send rather than stacking a separate cave reverb on every orchestra member.
+5. **Recording follow-ups.** Physical MIDI controller acceptance, live controller
    monitoring/capture, shared-source overdub during playback and additional record
-   modes. Automatic hardware round-trip measurement and non-Windows MIDI input
-   remain planned; tap-based timing compensation is available now.
-2. Mixer/effects routing: stereo/panning, group buses and flexible effect chains.
-   Native EQ/compression, instrument drive/cabinet and shared delay/reverb exist;
-   mixer/return automation is still planned.
-3. Band gameplay/presentation: NPC stage position/facing/follow behaviour and
-   better instrument-specific arm/hand/finger animation. Consent, held-instrument
-   readiness, owned NPCs and saved leader-controlled part routing already work.
-4. Multiplayer timing/scale: continuous device-drift correction, device latency,
-   richer late-join state and larger-band/long-session performance checks.
-5. Further sample tools and sound-library refinement: the advanced sampler
-    features above, acoustic/sample-based starting sounds and additional guitar
-    articulations. Continue preset listening/balance refinement as tools mature.
+   modes. Automatic hardware round-trip measurement and non-Windows input remain
+   planned; tap-based timing compensation is available now.
+6. **Mixer/effects routing.** Stereo/panning, group buses, flexible effect chains
+   and mixer/return automation. Native EQ/compression, instrument drive/cabinet
+   and shared delay/reverb already exist.
+7. **Further sample tools and sound libraries.** Sustained loops, chopping,
+   reverse, crossfades, acoustic starting sounds and guitar articulations. Continue
+   listening/balance refinement alongside the orchestral instrument work.
 
 This section is the current priority order. Completed-slice notes below describe
 what was available at each milestone; their older follow-up lists do not override
@@ -201,16 +234,16 @@ this order. Long-session performance and compatibility checks apply throughout.
 Studio can create songs from scratch, import/edit MIDI, record quantized takes,
 and arrange linked melodic/drum clips. The native engine provides subtractive,
 drum and plucked-string synthesis, drive/cabinet processing, channel EQ and
-compression, shared delay/reverb and fifty-one built-in sound starting points.
+compression, shared delay/reverb and fifty-seven built-in sound starting points.
 Personal patches, 16 named projects and three recovery snapshots save per character.
 
 Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 31 / native synth API 16 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
+package 33 / native synth API 16 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
-implemented; recording follow-ups are next.
+implemented; seated stage layouts are the next priority.
 
 ## Completed slice: native instrument effects and guitar sounds
 

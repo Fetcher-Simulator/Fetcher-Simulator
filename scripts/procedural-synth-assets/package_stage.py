@@ -59,6 +59,8 @@ No endorsement by either author or Yamaha is implied.
 if (args.output/'icons/fetcher/synth/keyboard.dds').is_file():
     notice+='\nInventory icon: rendered from this combined NIF, with transparent background, square framing and mipmapped DXT5 alpha.\n'
 old=(args.output/'ATTRIBUTION.txt').read_text(encoding='utf-8').split('Combined Yamaha keyboard and X-stand adaptation for OpenMW')[0].rstrip()
+if (args.output/'ORCHESTRA-ASSETS.txt').is_file():
+    notice+='\n'+(args.output/'ORCHESTRA-ASSETS.txt').read_text(encoding='utf-8')
 write(args.output/'ATTRIBUTION.txt',old+'\n\n'+notice)
 write(args.output/'LICENSE-CC-BY-4.0.txt','''The keyboard models, stand and derived textures in this bundle are licensed
 under Creative Commons Attribution 4.0 International (CC BY 4.0).

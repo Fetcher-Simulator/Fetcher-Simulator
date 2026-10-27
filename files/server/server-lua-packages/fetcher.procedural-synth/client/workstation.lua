@@ -38,7 +38,7 @@ function W:touch(key,quiet)
 end
 function W:clampPages(reset)
     local drums=0;for _,t in ipairs(self.project.tracks) do if t.kind=='drum' then drums=drums+1 end end
-    for _,key in ipairs{'songPage','mixerPage','arrangePage','bandPage','drumPage'} do
+    for _,key in ipairs{'songPage','mixerPage','arrangePage','bandPage','memberPage','drumPage'} do
         local count=key=='drumPage' and drums or #self.project.tracks
         self[key]=reset and 0 or math.max(0,math.min(self[key] or 0,math.ceil(count/8)-1))
     end
@@ -130,13 +130,13 @@ function W:setTempo(value)
 end
 function W:addPart(role)
     if not self.project.timeline or #self.project.tracks>=format.maxTracks or self.recording then return false end
-    local allowed={keys=true,bass=true,guitar=true,pad=true,kick=true,snare=true,hat=true,openhat=true,tom=true}
+    local allowed={keys=true,bass=true,guitar=true,pad=true,kick=true,snare=true,hat=true,openhat=true,tom=true,strings=true,brass=true,reed=true,pipe=true,mallet=true,organ=true,lead=true,pluck=true,fx=true}
     if not allowed[role] then return false end
     self:stop(true);self.clipEdit=nil
     local index=#self.project.tracks+1;local t=format.newTrack('midi',role..' '..index,self.project.length)
-    t.part='';t.sourceRole=role;t.edited=format.encodeNotes({},960)
+    t.part='';t.sourceRole=role;t.instrument=format.instrumentFor(role);t.edited=format.encodeNotes({},960)
     t.note=({kick=36,snare=38,hat=42,openhat=46,tom=45})[role] or 60
-    t.params,t.presetId=SoundSets.assignment(SoundSets.find(self.project.soundSet) and self.project.soundSet or 'balanced',role,true,t.note)
+    t.params,t.presetId=SoundSets.assignment(SoundSets.find(self.project.soundSet) and self.project.soundSet or 'balanced',role,true,t.note,t.instrument)
     self.project.tracks[index]=t;self.selected=index;self.noteSelection={};self.noteCache={}
     self.base=math.max(0,math.min(116,math.floor(t.note/12)*12));self:configureAll();self:touch();return true
 end
@@ -239,10 +239,51 @@ function W:configureBand()
         self.cb.band(self.project.band,routes)
     end
 end
+function W:setupNpcBand(restage)
+    if self.recording or self.failedTake then self.cb.message('Keep or cancel the take before setting up NPCs.');return false end
+    if not self.cb.setupBand then return false end
+    if self.bandSetup then self.cb.message('NPC stage setup is still running.');return false end
+    if not restage and #self.project.tracks==0 then self.cb.message('Create or import song parts first.');return false end
+    self:stop(true);self.bandSetupSerial=(self.bandSetupSerial or 0)+1
+    self.bandSetup={requestId=self.bandSetupSerial,generation=self.generation,document=self.project,at=self.cb.now(),restage=restage==true}
+    self.cb.setupBand(self.bandSetupSerial,restage==true,not restage and format.project(self.project) or nil)
+    self.revision=self.revision+1;return true
+end
+function W:receiveBandSetup(data)
+    local pending=self.bandSetup
+    if not pending or data.requestId~=pending.requestId then return false end
+    self.bandSetup=nil;self.revision=self.revision+1
+    if data.error then self.cb.message(tostring(data.error));return false end
+    if data.restage~=pending.restage then return false end
+    if pending.restage then self.cb.message('NPC formation faces your captured leader position.');return true end
+    if pending.generation~=self.generation or pending.document~=self.project then
+        self.cb.message('The song changed during NPC setup. Hired performers remain yours; run Auto NPC band again.');return false
+    end
+    if type(data.targets)~='table' or #data.targets~=#self.project.tracks then return false end
+    local candidate=copy(self.project);candidate.band=format.band();local seen={}
+    for index,track in ipairs(candidate.tracks) do
+        local target=format.target(data.targets[index])
+        if not target or target.kind~='npc' or seen[target.mpNum] then return false end
+        seen[target.mpNum]=true;candidate.band[index].name=track.name;candidate.band[index].target=target
+        track.output={kind='keyboard',slot=index}
+    end
+    if not require(prefix..'client.arrangement').commitProject(self,candidate) then return false end
+    self.memberPage=0;self.bandPage=0;self:configureAll()
+    self.cb.message('NPC band ready: '..#candidate.tracks..' parts. Routing supports Undo; hired NPCs remain in your roster.')
+    return true
+end
 function W:setOutput(index,slot)
     local t=self.project.tracks[index]
     if not t or type(slot)~='number' or slot%1~=0 or slot<0 or slot>format.maxMembers then return false end
     self:stop(true);t.output={kind='keyboard',slot=slot};self:configureBand();self:touch('output:'..index);return true
+end
+function W:setStageInstrument(index,instrument)
+    if not self.project.tracks[index] or not format.instruments[instrument] then return false end
+    local p=copy(self.project);local t=p.tracks[index];t.instrument=instrument
+    local member=p.band[t.output.slot or 0]
+    if member and member.target and (member.target.kind=='npc' or member.target.kind=='player') then member.target.instrument=instrument end
+    if not require(prefix..'client.arrangement').commitProject(self,p) then return false end
+    self:stop(true);self:configureAll();return true
 end
 function W:setMember(slot,member)
     if not self.project.band[slot] then return false end
@@ -314,7 +355,7 @@ function W:applySoundSet(id)
     local changes={}
     for n,t in ipairs(self.project.tracks) do
         if t.kind=='midi' and not t.edited and not parts[t.part] then self.cb.message('Wait for the MIDI file to finish loading.');return false end
-        local role=SoundSets.trackRole(t,parts[t.part]);local state,presetId=SoundSets.assignment(id,role,t.kind=='midi',parts[t.part] and parts[t.part].note or t.note)
+        local role=SoundSets.trackRole(t,parts[t.part]);local state,presetId=SoundSets.assignment(id,role,t.kind=='midi',parts[t.part] and parts[t.part].note or t.note,t.instrument)
         if not state then return false end
         changes[n]={state,presetId}
     end
@@ -485,7 +526,9 @@ function W:convertPart(index)
     local total=#notes+format.savedNotes(self.project)
     if not data or total>format.maxEditedNotes then self.cb.message('Editing supports 4,096 notes per part and 8,192 per project. Original part preserved.');return false end
     self:stop(true);self.project.timeline=timeline;t.edited=data;self.noteCache={};self.noteSelection={};self.selectionTrack=index
-    for _,part in ipairs(MIDI.parts(self.song)) do if part.id==t.part then t.sourceRole=SoundSets.role(part);t.note=part.note or t.note end end
+    for _,part in ipairs(MIDI.parts(self.song)) do if part.id==t.part then
+        t.sourceRole=SoundSets.role(part);t.note=part.note or t.note;t.instrument=t.instrument or format.instrumentFor(t.sourceRole,part.program)
+    end end
     if notes[1] then self.bar=math.floor(notes[1].s/16);self.base=math.max(0,math.min(116,math.floor(notes[1].n/12)*12)) end
     self:touch();return true
 end
@@ -584,10 +627,14 @@ function W:import(song,path)
     for _,p in ipairs(parts) do
         local t=old[p.id] or format.newTrack('midi',p.name:sub(1,48),self.project.length)
         if not old[p.id] then
-            t.params,t.presetId=SoundSets.assignment(SoundSets.find(self.project.soundSet) and self.project.soundSet or 'balanced',SoundSets.role(p),true,p.note)
+            t.instrument=format.instrumentFor(SoundSets.role(p),p.program)
+            t.params,t.presetId=SoundSets.assignment(SoundSets.find(self.project.soundSet) and self.project.soundSet or 'balanced',SoundSets.role(p),true,p.note,t.instrument)
         end
         t.part=p.id;tracks[#tracks+1]=t
-        if not t.edited then t.sourceRole=SoundSets.role(p);t.note=p.note or t.note end
+        if not t.edited then
+            t.sourceRole=SoundSets.role(p);t.note=p.note or t.note
+            t.instrument=t.instrument or format.instrumentFor(t.sourceRole,p.program)
+        end
     end
     for _,t in ipairs(extra) do tracks[#tracks+1]=t end
     if self.project.midi~=path and not SoundSets.find(self.project.soundSet) then self.project.soundSet='balanced' end
@@ -634,6 +681,7 @@ function W:stop(force)
     if midi and midi.playing then midi:stop() elseif active or force then self.cb.panic() end
 end
 function W:play(mode)
+    if self.bandSetup then self.cb.message('Wait for NPC stage setup before playing.');return false end
     self:stop(true)
     if not self:prepareSamples() then return false end
     if mode=='song' and not self:hasSong() then self.cb.message('Load the original MIDI file for unedited parts first.');return false end
@@ -823,6 +871,9 @@ function W:recordStatus()
     return string.format('RECORD  |  Beat %.2f  |  %d notes + %d held',step/4+1,#r.notes,held)
 end
 function W:frame(dt)
+    if self.bandSetup and self.cb.now()-self.bandSetup.at>50 then
+        self.bandSetup=nil;self.revision=self.revision+1;self.cb.message('NPC setup reply timed out. Refresh the roster before retrying.')
+    end
     self:recordFrame()
     if self.native then
         self.wall=self.wall+math.max(0,type(dt)=='number' and dt==dt and dt or 0)

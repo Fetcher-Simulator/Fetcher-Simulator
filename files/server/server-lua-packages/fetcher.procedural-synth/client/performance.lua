@@ -2,6 +2,7 @@
 local anim=require('openmw.animation')
 local util=require('openmw.util')
 local types=require('openmw.types')
+local Profiles=require('scripts.multiplayer.fetcher.procedural-synth.client.instrument-profiles')
 local M={}
 local v,T=util.vector3,util.transform
 local zero=v(0,0,0)
@@ -34,21 +35,16 @@ function M.elbow(shoulder,target,a,b,pole)
     return shoulder+direction*along+perpendicular*height,shoulder+direction*reach
 end
 function M.new(actor)
-    local p={actor=actor,bones={},amount=0,lastNotes='',strike=0,missing=false,applied=0,targets={},error=0}
+    local p={actor=actor,bones={},amount=0,lastNotes='',strike=0,missing=false,applied=0,targets={},error=0,appliedBones={},fingers=0}
     if anim.boneTransformsVersion~=1 then p.missing=true;return p end
     if not anim.hasAnimation(actor) then return nil end
     for _,name in ipairs(anim.getBoneNames(actor)) do p.bones[name:lower()]=name end
     function p:clear()
-        for _,side in ipairs{'L','R'} do
-            for _,part in ipairs{'UpperArm','Forearm','Hand'} do
-                local name=self.bones[('Bip01 '..side..' '..part):lower()]
-                if name then anim.clearBoneTransform(self.actor,name) end
-            end
-        end
-        self.applied=0
+        for name in pairs(self.appliedBones) do anim.clearBoneTransform(self.actor,name) end
+        self.appliedBones={};self.applied=0;self.fingers=0
     end
     function p:frame(dt,source,notes,now,strikes,profile)
-        self.error=0
+        self.error=0;self.fingers=0
         local record=not profile and source.recordId=='fetcher_procedural_keyboard_v1' and types.Miscellaneous.record(source) or (not profile and types.Activator.record(source))
         local staged=record and record.model:lower():gsub('\\','/'):find('keyboard%-stand%.nif$')~=nil
         local halfWidth,spacing,spread,front,height=8,0.65,5,-2,5
@@ -69,6 +65,7 @@ function M.new(actor)
         end
         self.amount=math.min(1,self.amount+math.min(dt,0.1)*4)
         local pulse=math.max(0,1-(now-self.strike)/0.13)
+        self.bowTravel=profile and Profiles.bowTravel(profile,now-self.strike,#signature>0) or 0
         for _,side in ipairs{'L','R'} do
             local sign=side=='L' and -1 or 1
             local upper=self.bones[('Bip01 '..side..' UpperArm'):lower()]
@@ -86,12 +83,16 @@ function M.new(actor)
                     local current=anim.getBoneTransform(self.actor,hand,true)
                     if current and self.targets[side] then self.error=math.max(self.error,(current*zero-self.targets[side]):length()) end
                     local group=side=='L' and low or high
+                    if profile and profile.kind~='keyboard' then group={} for _,n in ipairs(low) do group[#group+1]=n end;for _,n in ipairs(high) do group[#group+1]=n end end
                     local pitch=side=='L' and 53 or 67
                     if #group>0 then pitch=0;for _,n in ipairs(group) do pitch=pitch+n end;pitch=pitch/#group end
                     -- Configurable keyboard-space targets: this small model has
                     -- a narrow key bed. No actor teleport or root motion is used.
                     local x=sign*halfWidth+clamp((pitch-(side=='L' and 53 or 67))*spacing,-spread,spread)
-                    local point=profile and (profile.targets[side]+v(0,0,#group>0 and -pulse*profile.strike or 0)) or v(x,front,height+(#group>0 and -pulse or 0))
+                    local point,wrist,curl
+                    if profile then
+                        point,wrist,curl=Profiles.motion(profile,side,pitch,#group>0,pulse,strikes,#low+#high,self.bowTravel)
+                    else point,wrist,curl=v(x,front,height+(#group>0 and -pulse or 0)),pulse*.08,0 end
                     local target=toModel*(source.position+source.rotation*point)
                     local a,b=(e-s):length(),(w-e):length()
                     if a>0.1 and b>0.1 then
@@ -106,7 +107,45 @@ function M.new(actor)
                             local foreRotation=between(inverseFore*(adjusted*w),inverseFore*tip)
                             anim.setBoneTransform(self.actor,upper,{rotation=upperRotation,weight=self.amount})
                             anim.setBoneTransform(self.actor,fore,{rotation=foreRotation,weight=self.amount})
-                            anim.setBoneTransform(self.actor,hand,{rotation=T.rotateY(pulse*0.08),weight=self.amount})
+                            local handRotation=T.identity
+                            if profile then
+                                local finger=self.bones[('Bip01 '..side..' Finger1'):lower()]
+                                local thumb=self.bones[('Bip01 '..side..' Finger0'):lower()]
+                                local ft=finger and anim.getBoneTransform(self.actor,finger,true,true)
+                                local tt=thumb and anim.getBoneTransform(self.actor,thumb,true,true)
+                                if ft and tt then
+                                    local inverseHand=h:inverse()
+                                    local forward=inverseHand*(toModel*ft*zero)
+                                    local thumbDirection=inverseHand*(toModel*tt*zero)
+                                    local normal=forward:cross(thumbDirection)*(side=='L' and 1 or -1)
+                                    local posedFore=adjusted*f
+                                    local posedHand=posedFore*foreRotation*posedFore:inverse()*adjusted*h
+                                    local inversePosed=posedHand:inverse()
+                                    local desiredForward,desiredNormal=Profiles.handDirections(profile,side)
+                                    local origin=toModel*source.position
+                                    local direction=toModel*(source.position+source.rotation*desiredForward)-origin
+                                    local palm=toModel*(source.position+source.rotation*desiredNormal)-origin
+                                    local localForward=inversePosed*(tip+direction)
+                                    local localNormal=inversePosed*(tip+palm)
+                                    if localForward:length()>.001 and normal:length()>.001 then
+                                        localForward=localForward/localForward:length()
+                                        local align=between(forward,localForward)
+                                        normal=align*normal;normal=normal-localForward*normal:dot(localForward)
+                                        localNormal=localNormal-localForward*localNormal:dot(localForward)
+                                        handRotation=between(normal,localNormal)*align
+                                    end
+                                end
+                            end
+                            anim.setBoneTransform(self.actor,hand,{rotation=handRotation*T.rotateY(wrist),weight=self.amount})
+                            self.appliedBones[upper]=true;self.appliedBones[fore]=true;self.appliedBones[hand]=true
+                            if profile then
+                                local stem=('bip01 '..side..' finger'):lower()
+                                for lower,name in pairs(self.bones) do if lower:sub(1,#stem)==stem then
+                                    local amount=Profiles.fingerCurl(profile,side,name,curl,pitch,#group>0)
+                                    anim.setBoneTransform(self.actor,name,{rotation=T.rotateZ((side=='L' and -1 or 1)*amount),weight=self.amount})
+                                    self.appliedBones[name]=true;self.fingers=self.fingers+1
+                                end end
+                            end
                             self.applied=6
                         end
                     end

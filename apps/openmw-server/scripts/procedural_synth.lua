@@ -25,6 +25,7 @@ end
 local function emit(guid, data) data.version = 1; mp.send(guid, 'Synth_Message', data) end
 local hostedMidi=require('procedural_synth_midi')(mp,emit)
 local performers=require('procedural_synth_performers')(mp,projectFormat,emit)
+local stage=require('procedural_synth_stage')(mp,projectFormat,performers,emit)
 local function broadcast(s, out, except)
     out.id, out.epoch, out.seq, out.revision, out.owner = s.id, s.epoch, s.outSeq, s.revision, s.owner
     for _, player in ipairs(mp.getPlayers()) do
@@ -160,7 +161,7 @@ local function request(data)
             elseif k=='mixer' and data.op=='channel' then if not projectFormat.mixer(v) then return end
             elseif k=='band' and data.op=='band' then if not projectFormat.band(v) then return end
             elseif k=='routes' and data.op=='band' then if not projectFormat.routes(v) then return end
-            elseif k=='project' and (data.op=='libSave' or data.op=='libSnapshot') then -- Validate after ownership/rate checks below.
+            elseif k=='project' and (data.op=='libSave' or data.op=='libSnapshot' or data.op=='autoBand') then -- Validate after ownership/rate checks below.
             elseif k=='project' and (data.op=='dawSave' or data.op=='pickup') then if not projectFormat.project(v) then return end
             else return end
         elseif type(v) == 'string' then
@@ -226,10 +227,17 @@ local function request(data)
         end
         return
     end
+    if data.op=='autoBand' or data.op=='stageBand' then
+        if not integer(data.requestId,1,2147483647) or not budget(data.pid,now,'stage',.2,1) then return end
+        local project=data.op=='autoBand' and projectFormat.project(data.project) or nil
+        if data.op=='autoBand' and not project then return end
+        stage:begin(s,project,data.requestId,sessions,data.op=='stageBand')
+        return
+    end
     if data.op=='roster' or data.op=='hire' or data.op=='invite' or data.op=='dismiss' then
         if not budget(data.pid,now,'roster',1,3) then return end
         if data.op=='roster' then performers:roster(s)
-        elseif integer(data.slot,1,8) then
+        elseif integer(data.slot,1,projectFormat.maxMembers) and not stage.jobs[s.characterId] then
             if data.op=='hire' then performers:hire(s,data.slot) elseif data.op=='dismiss' then performers:dismiss(s,data.slot) else performers:invite(s,data.slot) end
         end
         if resolveBand(s) then sendBand(s) end
@@ -449,6 +457,7 @@ local function request(data)
 end
 local function sweep()
     hostedMidi.tick()
+    stage:tick(sessions)
     local now = mp.getUptime()
     if now-lastSweep < 0.5 then return end
     lastSweep=now
@@ -496,6 +505,11 @@ return {
         end,
         OnServerInit=function()
             hostedMidi.prepare()
+            for name,asset in pairs(projectFormat.instrumentModels) do
+                mp.upsertDynamicRecord('miscellaneous',projectFormat.instruments[name],
+                    {name='Studio '..name:sub(1,1):upper()..name:sub(2),model=asset.model,icon=asset.icon,weight=name=='timpani' and 20 or 5,value=200},
+                    {scope='permanent',persistent=true})
+            end
             -- Runtime record with a vanilla mesh; no client ESP and no asset transfer.
             local ok=mp.upsertDynamicRecord('activator',RECORD,
                 {name='OpenMW Synthesizer',model=config.PROCEDURAL_SYNTH_MODEL or 'meshes/m/Misc_de_lute_01.nif'},

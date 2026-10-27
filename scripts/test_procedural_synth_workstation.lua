@@ -178,7 +178,7 @@ check(mix:setMember(1,member) and mix:setOutput(1,1) and routing.routes[1]==1,'m
 local routed=format.project(mix.project);check(routed.band[1].target.mpNum==82 and routed.tracks[1].output.slot==1,'stable member slot and physical identity serialize')
 check(mix:undo() and mix.project.tracks[1].output.slot==0 and mix:redo() and mix.project.tracks[1].output.slot==1,'output assignment has undo/redo')
 check(mix:preset(1,'b:guitar-clean') and mix.project.tracks[1].output.slot==1 and mix.project.band[1].level==0.5,'sound changes preserve member routing and gain')
-check(not mix:setOutput(1,9) and not mix:setOutput(1,0/0),'invalid destinations rejected before editing')
+check(not mix:setOutput(1,33) and not mix:setOutput(1,0/0),'invalid destinations rejected before editing')
 print('PASS band routing, slot persistence, mix independence and undo/redo')
 
 -- A drum bar is a synchronized slice across every drum lane, including page 2.

@@ -1,7 +1,7 @@
 -- Bounded, versioned DAW document shared by client and server.
 -- Kept as a factory so both runtimes supply their own synth schema module.
 return function(schema)
-local M={version=1,maxTracks=32,maxNotes=512,maxSteps=256,maxMembers=8,maxEditedNotes=8192,maxPartNotes=4096,maxSongBeats=65536}
+local M={version=1,maxTracks=32,maxNotes=512,maxSteps=256,maxMembers=32,maxEditedNotes=8192,maxPartNotes=4096,maxSongBeats=65536}
 M.maxClips=8;M.maxRegions=64;M.maxProjectRegions=256;M.maxExpandedNotes=60000
 local function num(v,a,b) return type(v)=='number' and v==v and v>=a and v<=b end
 local function int(v,a,b) return num(v,a,b) and v%1==0 end
@@ -74,6 +74,18 @@ function M.effects(t)
     return out
 end
 M.instruments={keyboard='fetcher_procedural_keyboard_v1',lute='misc_de_lute_01',drum='misc_de_drum_01'}
+M.instrumentModels={}
+for _,name in ipairs{'violin','cello','trumpet','flute','clarinet','timpani'} do
+    M.instruments[name]='fetcher_studio_'..name..'_v1'
+    M.instrumentModels[name]={model='meshes/fetcher/orchestra/'..name..'.nif',icon='fetcher/orchestra/'..name..'.dds'}
+end
+function M.instrumentFor(role,program)
+    if program==42 or program==43 then return 'cello' end
+    if program==47 then return 'timpani' end
+    if ({kick=true,snare=true,hat=true,openhat=true,tom=true})[role] then return 'drum' end
+    if role=='guitar' or role=='bass' or role=='pluck' then return 'lute' end
+    return ({strings='violin',brass='trumpet',reed='clarinet',pipe='flute'})[role] or 'keyboard'
+end
 function M.target(value)
     if type(value)~='table' then return nil end
     local kind=value.kind or 'keyboard'
@@ -313,9 +325,9 @@ function M.eachRegionNote(t,emit)
         end end
     end end
 end
-local trackKeys={name=true,kind=true,part=true,presetId=true,params=true,level=true,mute=true,solo=true,note=true,gate=true,steps=true,notes=true,output=true,mixer=true,edited=true,sourceRole=true,arrangement=true,automation=true,followPrograms=true}
+local trackKeys={name=true,kind=true,part=true,presetId=true,params=true,level=true,mute=true,solo=true,note=true,gate=true,steps=true,notes=true,output=true,mixer=true,edited=true,sourceRole=true,arrangement=true,automation=true,followPrograms=true,instrument=true}
 function M.track(t,length)
-    if not keys(t,trackKeys,20) or not text(t.name,48) or (t.kind~='midi' and t.kind~='piano' and t.kind~='drum')
+    if not keys(t,trackKeys,21) or not text(t.name,48) or (t.kind~='midi' and t.kind~='piano' and t.kind~='drum')
         or not text(t.part or '',48) or not text(t.presetId or '',32) or not num(t.level,0,1)
         or type(t.mute)~='boolean' or type(t.solo)~='boolean' or not int(t.note,0,127) or not num(t.gate,0.01,1)
         or type(t.steps)~='string' or (#t.steps<length or #t.steps>M.maxSteps or #t.steps%16~=0) or t.steps:find('[^0-9]')
@@ -325,6 +337,7 @@ function M.track(t,length)
     local out={name=t.name,kind=t.kind,part=t.part or '',presetId=t.presetId or '',params=params,level=t.level,
         mute=t.mute,solo=t.solo,note=t.note,gate=t.gate,steps=t.steps..string.rep('0',M.maxSteps-#t.steps),notes={},mixer=mixer,output={kind='keyboard',slot=t.output.slot or 0}}
     if t.sourceRole~=nil then if t.kind~='midi' or not roles[t.sourceRole] then return nil end;out.sourceRole=t.sourceRole end
+    if t.instrument~=nil then if not M.instruments[t.instrument] then return nil end;out.instrument=t.instrument end
     if t.edited~=nil then
         if t.kind~='midi' or not M.decodeNotes(t.edited) then return nil end
         out.edited={division=t.edited.division,bytes=t.edited.bytes}

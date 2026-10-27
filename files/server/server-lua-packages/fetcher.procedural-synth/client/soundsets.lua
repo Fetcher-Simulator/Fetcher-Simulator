@@ -13,7 +13,9 @@ M.entries={
     set('lofi','Lo-fi / Jazz',4,'lofi-keys','jazz-bass','guitar-warm','studio-strings','studio-reed','pad','glass-bell','studio-brass','studio-reed','studio-organ'),
     set('chiptune','Chiptune',5,'chip-lead','chip-bass','chip-lead','chip-lead','chip-lead','pad','glass-bell','chip-lead','chip-lead','chip-lead'),
     set('ambient','Ambient',1,'glass-bell','house-bass','guitar-clean','ambient-pad','flute','ambient-pad','glass-bell','studio-brass','flute','studio-organ'),
+    set('orchestra','Orchestra',1,'studio-keys','orchestra-cello','guitar-clean','orchestra-violin','orchestra-trumpet','orchestra-violin','glass-bell','orchestra-trumpet','orchestra-clarinet','studio-organ'),
 }
+M.entries[#M.entries].patches.pipe='orchestra-flute'
 local builtins={};for _,p in ipairs(schema.builtins) do builtins[p.id]=p end
 function M.find(id) for _,s in ipairs(M.entries) do if s.id==id then return s end end end
 local named={{'bass','bass'},{'guitar','guitar'},{'string','strings'},{'violin','strings'},{'cello','strings'},
@@ -34,16 +36,17 @@ function M.role(part)
     for _,entry in ipairs(named) do if name:find(entry[1],1,true) then return entry[2] end end
     return 'keys'
 end
-function M.assignment(id,role,midi,note)
+function M.assignment(id,role,midi,note,instrument)
     local s=M.find(id);if not s then return end
     local drum={kick=1,snare=2,hat=3,openhat=4}
     local presetId=drum[role] and schema.kits[s.kit].ids[drum[role]] or 'b:'..(s.patches[role] or s.patches.keys)
     if id=='chiptune' and role=='snare' then presetId='b:chip-snare' end
+    if id=='orchestra' and ({violin=true,cello=true,trumpet=true,flute=true,clarinet=true,timpani=true})[instrument] then presetId='b:orchestra-'..instrument end
     local p=builtins[presetId];if not p then return end
     local state=schema.state(p.state);state.polyphony=math.min(8,state.polyphony)
     -- MIDI bass notes already encode the written octave. Performance presets
     -- lower the keyboard by an octave for manual playing; undo that here.
-    if midi and role=='bass' then state.tune1=state.tune1+12;state.tune2=state.tune2+12 end
+    if midi and role=='bass' and id~='orchestra' then state.tune1=state.tune1+12;state.tune2=state.tune2+12 end
     if role=='tom' then state.bodyFrequency=({[41]=85,[43]=105,[45]=130,[47]=155,[48]=185,[50]=220})[note] or 130 end
     return assert(schema.state(state)),presetId
 end
@@ -56,6 +59,9 @@ function M.trackRole(track,part)
     return ({Bass='bass',Guitar='guitar',Pad='pad',Lead='lead',Bell='mallet',Pluck='pluck'})[tag] or (track.presetId=='b:bass' and 'bass' or 'keys')
 end
 function M.programPatch(project,track,program)
-    return M.assignment(M.find(project.soundSet) and project.soundSet or 'balanced',M.role{program=program},true)
+    local role=M.role{program=program}
+    local instrument=({strings='violin',brass='trumpet',reed='clarinet',pipe='flute'})[role]
+    if program==42 or program==43 then instrument='cello' elseif program==47 then instrument='timpani' end
+    return M.assignment(M.find(project.soundSet) and project.soundSet or 'balanced',role,true,nil,instrument)
 end
 return M

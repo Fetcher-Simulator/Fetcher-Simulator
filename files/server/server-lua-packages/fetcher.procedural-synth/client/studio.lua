@@ -128,7 +128,7 @@ function S:song(content)
         end
     end
     content[#content+1]=self:button('+ Melodic part v',20,602,200,function()
-        local choices={};for _,r in ipairs{'keys','bass','guitar','pad'} do choices[#choices+1]={id=r,label=r} end
+        local choices={};for _,r in ipairs{'keys','bass','guitar','pad','strings','brass','reed','pipe','mallet','organ','lead','pluck'} do choices[#choices+1]={id=r,label=r} end
         Dropdown.open(self,choices,nil,function(role) w:addPart(role) end,20,385,390)
     end)
     content[#content+1]=self:button('+ Drum part v',235,602,200,function()
@@ -364,14 +364,15 @@ function S:band(content)
         local old=p.band[slot];local m={name=old.name,target=old.target,level=old.level,mute=old.mute};m[key]=value
         w:setMember(slot,m)
     end
-    for slot,m in ipairs(p.band) do
-        local y=205+(slot-1)*42
+    for row=1,8 do
+        local slot=(w.memberPage or 0)*8+row;local m=p.band[slot]
+        local y=205+(row-1)*42
         local name=self:element{type=ui.TYPE.TextEdit,props={position=v(20,y),size=v(98,27),text=m.name,textSize=11,textColor=c.text},
             events={textChanged=cb(function(text) update(slot,'name',text:gsub('%c',''):sub(1,48)) end),
                 focusGain=cb(function() self.typing=true end),focusLoss=cb(function() self.typing=false end)}}
         content[#content+1]=name
         content[#content+1]=self:button(m.target and ((m.target.kind=='player' and 'Player #'..m.target.characterId or m.target.kind=='npc' and 'NPC #'..m.target.mpNum or 'Keyboard #'..m.target.mpNum)..(m.target.instrument and ' / '..m.target.instrument or '')..' v') or 'Bind performer v',128,y,180,function()
-            local choices={{id=0,label='Unbound (silent)'},{id=-1,label='Create owned NPC performer (up to 8)'}};local targets={}
+            local choices={{id=0,label='Unbound (silent)'},{id=-1,label='Create owned NPC performer (up to '..Project.maxMembers..')'}};local targets={}
             if m.target and m.target.kind=='npc' then choices[#choices+1]={id=-2,label='Dismiss this owned NPC'} end
             for _,entry in ipairs(w.cb.instruments and w.cb.instruments() or {}) do
                 choices[#choices+1]={id=entry.id,label=entry.label};targets[entry.id]=entry.target
@@ -387,9 +388,9 @@ function S:band(content)
         if m.target and m.target.kind=='player' then content[#content+1]=self:button('Invite',478,y,47,function() if w.cb.invite then w.cb.invite(slot) end end) end
         local status=w.cb.bandStatus and w.cb.bandStatus(slot) or 'Unbound'
         content[#content+1]=label(status,130,y+27,370,10,status=='Ready' and c.accent or c.muted)
-        local index=page*8+slot;local track=p.tracks[index]
+        local index=page*8+row;local track=p.tracks[index]
         if track then
-            content[#content+1]=label(index..'  '..track.name:sub(1,21),550,y+5,170,11)
+            content[#content+1]=self:button(index..'  '..track.name:sub(1,18),550,y,165,function() w.selected=index;w.revision=w.revision+1 end,w.selected==index)
             local output=track.output.slot or 0
             local title=output==0 and 'This keyboard' or p.band[output].name
             content[#content+1]=self:button(title..' v',725,y,168,function()
@@ -399,11 +400,21 @@ function S:band(content)
             end)
         end
     end
-    content[#content+1]=self:button('Refresh instruments',20,566,190,function() if w.cb.refreshBand then w.cb.refreshBand() end;w.revision=w.revision+1 end)
+    self:pageSelector(content,'memberPage','Members',20,566,265)
     self:pageSelector(content,'bandPage','Tracks',550,566,305)
-    content[#content+1]=label('Bind keyboards, invite players, or create owned NPCs. Players use F9 to ready an instrument and accept.',20,609,880,12,c.muted)
-    content[#content+1]=label('Changing a binding or track output stops playback. Missing or busy members stay silent.',20,638,880,12,c.muted)
-    content[#content+1]=label('Save stores routing. Consent is session-only. Leave / Not ready in F9 immediately silences your part.',20,667,880,12,c.accent)
+    content[#content+1]=self:button('Refresh instruments',20,610,175,function() if w.cb.refreshBand then w.cb.refreshBand() end;w.revision=w.revision+1 end)
+    content[#content+1]=self:button(w.bandSetup and 'Setting up NPCs...' or ('Auto NPC band ('..#p.tracks..' parts)'),205,610,270,function() self:releaseAll();w:setupNpcBand(false) end)
+    content[#content+1]=self:button('Restage grid',485,610,155,function() self:releaseAll();w:setupNpcBand(true) end)
+    local selectedIndex=w.selected;local selected=p.tracks[selectedIndex]
+    local instrument=selected and (selected.instrument or (selected.kind=='drum' and 'drum' or Project.instrumentFor(selected.sourceRole)))
+    content[#content+1]=self:button('Part '..w.selected..': '..(instrument or 'Choose part')..' v',650,610,240,function()
+        if not selected then return end
+        local choices={};for name in pairs(Project.instruments) do choices[#choices+1]={id=name,label=name} end
+        table.sort(choices,function(a,b) return a.label<b.label end)
+        Dropdown.open(self,choices,instrument,function(name) w:setStageInstrument(selectedIndex,name) end,490,260,400)
+    end)
+    content[#content+1]=label('Auto: one NPC per part, reusing your roster; replaces routing with Undo. Spare NPCs are not dismissed.',20,648,880,11,c.muted)
+    content[#content+1]=label('Use clear, level ground ahead of the leader. NPCs stand facing that captured position; F9 readies players.',20,675,880,11,c.accent)
 end
 local function db(value) return value>0.00001 and string.format('%.1f',20*math.log(value)/math.log(10)) or '-inf' end
 function S:addMasterMeter(content,y)

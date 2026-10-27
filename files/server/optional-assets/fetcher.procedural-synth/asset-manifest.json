@@ -5,8 +5,8 @@
   "files": [
     {
       "path": "ATTRIBUTION.txt",
-      "bytes": 2715,
-      "sha256": "1ccf36e421cbf37bec0276388e934522a7b6bffd0e49a559247cd9a36c485c32"
+      "bytes": 3418,
+      "sha256": "60f2df6cb1892de1fdf5ead2ee85dd2f7aa7ca44607f54187c7905117968f880"
     },
     {
       "path": "conversion-report.json",
@@ -14,9 +14,94 @@
       "sha256": "82793707d221bdb2110f28720cd6b1b7d7947c9044673be84397d909ef61d479"
     },
     {
+      "path": "icons/fetcher/orchestra/bow.dds",
+      "bytes": 22000,
+      "sha256": "fa74f53c0a5b574776b625c3dc591bcd0027f4c7e805a411c3c1b9c326e0657d"
+    },
+    {
+      "path": "icons/fetcher/orchestra/cello.dds",
+      "bytes": 22000,
+      "sha256": "a7549ca9289885c23db2ef19e1d134aca27b2237f8a445681108fdeffce37d48"
+    },
+    {
+      "path": "icons/fetcher/orchestra/clarinet.dds",
+      "bytes": 22000,
+      "sha256": "e3adf234cfcfd9f783ee14dc46adeef7d8b313c76ea7f4b596d6e62253cb68f6"
+    },
+    {
+      "path": "icons/fetcher/orchestra/flute.dds",
+      "bytes": 22000,
+      "sha256": "5ff62abf7f4a8b901e1ed4c5bf02a7b7b84137304aa49315445d91ffd1405e6b"
+    },
+    {
+      "path": "icons/fetcher/orchestra/mallet.dds",
+      "bytes": 22000,
+      "sha256": "07b9c8f9add99aeda81e45944392bfcdf253b60df9cc5a7307a00653c50a9f60"
+    },
+    {
+      "path": "icons/fetcher/orchestra/timpani.dds",
+      "bytes": 22000,
+      "sha256": "0992466c6428e903655f9d2c0d232758d9a2e0af2cd76f84893046e04291a162"
+    },
+    {
+      "path": "icons/fetcher/orchestra/trumpet.dds",
+      "bytes": 22000,
+      "sha256": "d3bb49b9acc82d112f1d4ac4115ba3b7f4b5814dcbfd53d02589da7402a1311c"
+    },
+    {
+      "path": "icons/fetcher/orchestra/violin.dds",
+      "bytes": 22000,
+      "sha256": "76f78d72f1843f33c86a48b64d05627d9c100b09e6d61477c67ebf8fd982ad5e"
+    },
+    {
+      "path": "icons/fetcher/synth/keyboard.dds",
+      "bytes": 22000,
+      "sha256": "72008124febae528953597dab1349e82044a5d6cc4a7915c0768d1398a9cc3a4"
+    },
+    {
       "path": "LICENSE-CC-BY-4.0.txt",
       "bytes": 425,
       "sha256": "93c5ae2faa89427183ebcada515ebfce48e578fd447483c9a18f5b596fd1ad21"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/bow.nif",
+      "bytes": 7061,
+      "sha256": "454343b3bf14adc6b548b9b6993352f28506c0f135726ac84f6191760d8ef6ee"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/cello.nif",
+      "bytes": 54360,
+      "sha256": "25409fa8cee6032af06ace630177b811129fb9c61ce036c6a0ba7708c31b66bf"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/clarinet.nif",
+      "bytes": 91584,
+      "sha256": "27dc5cc48e4d726249617f7b0cdebbec0ccf0ae2e3c6f0e5498f466b3dbcecb0"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/flute.nif",
+      "bytes": 117999,
+      "sha256": "987acc5b9673f6251645435d49d0668382e0c4553048d76388979fca117bd8af"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/mallet.nif",
+      "bytes": 12385,
+      "sha256": "35d880bc084622e9c8d86256c532d733af52d338b969d20a20894df1ae230782"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/timpani.nif",
+      "bytes": 53770,
+      "sha256": "edec185dd273f71ac36dca8313f3c5fe4a503bc2381a87bf77a8088072725fbe"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/trumpet.nif",
+      "bytes": 60072,
+      "sha256": "75159ce5c6fa07033d4045251d8b448177341f765979489a7d88f02fa471fbdb"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/violin.nif",
+      "bytes": 51832,
+      "sha256": "d7e9f0d83a3b4a132c21cf3aa3df5bd744e09738d4aa1e28d5c008399475e2b8"
     },
     {
       "path": "meshes/fetcher/synth/keyboard-stand.nif",
@@ -27,6 +112,16 @@
       "path": "meshes/fetcher/synth/keyboard.nif",
       "bytes": 271897,
       "sha256": "46a8895c40f8e6c6b8dd8ce5843b9836b344650a294e450c1353557c766f9855"
+    },
+    {
+      "path": "ORCHESTRA-ASSETS.txt",
+      "bytes": 702,
+      "sha256": "6a79c86291772b03b0e919e773bb12e3bbb48c8d68c9b53ca764830eb3c3cc12"
+    },
+    {
+      "path": "orchestra-report.json",
+      "bytes": 2359,
+      "sha256": "0a1019abe925eb716d868a3e4f8c18023a231db9288c180017090da8941346f0"
     },
     {
       "path": "provenance.json",
@@ -42,6 +137,46 @@
       "path": "stage-report.json",
       "bytes": 881,
       "sha256": "60e65f09d1cf97c5a205c1dec5cf5eb68e797b30067c497e67077933248686d4"
+    },
+    {
+      "path": "textures/fetcher/orchestra/fetcher-amber-maple.dds",
+      "bytes": 2872,
+      "sha256": "e8882edf41425ebd92a718da129acada4c735fee83d04207a34cf91297fe0faf"
+    },
+    {
+      "path": "textures/fetcher/orchestra/fetcher-dark-rosewood.dds",
+      "bytes": 2872,
+      "sha256": "79c920f09af97954cc2562e6fe519c1db8699ee12f94630d02a9544e706ca871"
+    },
+    {
+      "path": "textures/fetcher/orchestra/fetcher-ebony.dds",
+      "bytes": 2872,
+      "sha256": "0efe001c3a67257abe2b163f77673e797514c1184ad62db73a6297a7e98bbc59"
+    },
+    {
+      "path": "textures/fetcher/orchestra/fetcher-golden-brass.dds",
+      "bytes": 2872,
+      "sha256": "0e84cefe799087af4610bda25388a9cb3e21945febba1df94fcbccfbd475b142"
+    },
+    {
+      "path": "textures/fetcher/orchestra/fetcher-silver-keys.dds",
+      "bytes": 2872,
+      "sha256": "e3f6c5295d173840e1f915ffd641393f3f931a39ba16071bc6607826bbbee249"
+    },
+    {
+      "path": "textures/fetcher/orchestra/fetcher-steel-strings.dds",
+      "bytes": 2872,
+      "sha256": "e45c5455b15f17d6ecece0bdee6bbdf9cd70ce7164cfd00ac19dbf8536bcaad0"
+    },
+    {
+      "path": "textures/fetcher/orchestra/fetcher-timpani-copper.dds",
+      "bytes": 2872,
+      "sha256": "ed33b21bec926d6d7dd455707b3ba31a75c4828ec75ed507ac36b41a444c82f3"
+    },
+    {
+      "path": "textures/fetcher/orchestra/fetcher-vellum-and-bow-hair.dds",
+      "bytes": 2872,
+      "sha256": "7afaab952019196b34bf9431ea51e7cdf048d2f9d32e67e5edda85275225cc48"
     },
     {
       "path": "textures/fetcher/synth/keyboard.dds",
@@ -82,11 +217,6 @@
       "path": "textures/fetcher/synth/yamaha_trim.dds",
       "bytes": 699192,
       "sha256": "7777ba1b2a9c9d4a661d177cec615831545064503d9d68c1f5bb7241a2cb24fa"
-    },
-    {
-      "path": "icons/fetcher/synth/keyboard.dds",
-      "bytes": 22000,
-      "sha256": "72008124febae528953597dab1349e82044a5d6cc4a7915c0768d1398a9cc3a4"
     }
   ],
   "icon": "fetcher/synth/keyboard.dds"

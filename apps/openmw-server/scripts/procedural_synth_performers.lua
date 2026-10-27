@@ -1,6 +1,7 @@
 -- Session-scoped player consent and character-owned Studio NPCs.
 return function(mp,format,emit)
 local types=require('openmw.types')
+local Layout=require('procedural_synth_band_layout')
 local P={held={},pending={},accepted={},serial=0,registries={},spawning={}}
 local function same(a,s,slot) return a and a.id==s.id and a.epoch==s.epoch and a.slot==slot end
 local function playerFor(character)
@@ -17,7 +18,7 @@ end
 function P:registry(character)
     if self.registries[character] then return self.registries[character] end
     local value=mp.getCharacterStorageForCharacter(character,'ProceduralSynth','performers') or {version=1,entries={}}
-    if value.version~=1 or type(value.entries)~='table' or #value.entries>8 then return nil end
+    if value.version~=1 or type(value.entries)~='table' or #value.entries>format.maxMembers then return nil end
     self.registries[character]=value;return value
 end
 function P:state(guid)
@@ -104,18 +105,27 @@ function P:roster(s)
     table.sort(choices,function(a,b) return a.label<b.label end)
     emit(s.owner,{op='roster',id=s.id,epoch=s.epoch,choices=choices})
 end
-function P:hire(s,slot)
+function P:hire(s,slot,options)
+    options=options or {}
     local registry=self:registry(s.characterId);local home=mp.getObjectByMpNum(s.id)
-    if not registry or #registry.entries>=8 or not home then emit(s.owner,{op='error',message='NPC performer limit reached or roster unavailable.'});return end
+    if not registry or #registry.entries>=format.maxMembers or not home then emit(s.owner,{op='error',message='NPC performer limit reached or roster unavailable.'});return false end
+    local leader=mp.getPlayer(s.owner)
+    local position=options.position or Layout.position(leader and leader.position or home.position,slot,format.maxMembers)
+    if not position then return false end
     local serial=registry.nextId or (#registry.entries+1);registry.nextId=serial+1
     local id='fetcher_synth_bard_'..s.characterId..'_'..serial
     local entry={refId=id,cell=s.cell};registry.entries[#registry.entries+1]=entry
-    if not mp.setCharacterStorageForCharacter(s.characterId,'ProceduralSynth','performers',registry) then table.remove(registry.entries);return end
+    if not mp.setCharacterStorageForCharacter(s.characterId,'ProceduralSynth','performers',registry) then table.remove(registry.entries);return false end
     if not mp.upsertDynamicRecord('npc',id,{baseId='fargoth',name='Studio Performer '..#registry.entries,mwscript='',isEssential=false,isRespawning=false},
-        {scope='permanent',persistent=true}) then return end
-    local p=home.position
-    self.spawning[id]={id=s.id,epoch=s.epoch,slot=slot,character=s.characterId}
-    mp.spawnActor(id,0,0,s.cell,{x=p.x+100+slot*45,y=p.y-120,z=p.z,rz=p.rz or 0},{persistent=true,authorityGuid=s.owner})
+        {scope='permanent',persistent=true}) then
+        table.remove(registry.entries);mp.setCharacterStorageForCharacter(s.characterId,'ProceduralSynth','performers',registry);return false
+    end
+    self.spawning[id]={id=s.id,epoch=s.epoch,slot=slot,character=s.characterId,instrument=options.instrument or 'lute',complete=options.complete}
+    if not mp.spawnActor(id,0,0,s.cell,position,{persistent=true,authorityGuid=s.owner}) then
+        self.spawning[id]=nil;table.remove(registry.entries)
+        mp.setCharacterStorageForCharacter(s.characterId,'ProceduralSynth','performers',registry);return false
+    end
+    return true
 end
 function P:dismiss(s,slot)
     local t=s.band[slot] and s.band[slot].target
@@ -134,13 +144,14 @@ function P:spawned(data,sessions)
     local pending=self.spawning[data.refId];if not pending then return end
     self.spawning[data.refId]=nil
     local registry=self:registry(pending.character)
+    if not registry then return end
     for _,e in ipairs(registry.entries) do if e.refId==data.refId then e.mpNum=data.mpNum end end
     mp.setCharacterStorageForCharacter(pending.character,'ProceduralSynth','performers',registry)
     local s=sessions[pending.id]
     if s and s.epoch==pending.epoch then
-        emit(s.owner,{op='npcCreated',id=s.id,epoch=s.epoch,slot=pending.slot,
-            target={kind='npc',mpNum=data.mpNum,refId=data.refId,instrument='lute'}})
-        self:roster(s)
+        local target={kind='npc',mpNum=data.mpNum,refId=data.refId,instrument=pending.instrument}
+        if pending.complete then pending.complete(target)
+        else emit(s.owner,{op='npcCreated',id=s.id,epoch=s.epoch,slot=pending.slot,target=target});self:roster(s) end
     end
 end
 function P:request(data,player,sessions)

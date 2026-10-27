@@ -3,21 +3,24 @@ local anim=require('openmw.animation');local util=require('openmw.util');local t
 local Performance=require('scripts.multiplayer.fetcher.procedural-synth.client.performance')
 local vfs=require('openmw.vfs')
 local camera=require('openmw.camera')
+local profiles=require('scripts.multiplayer.fetcher.procedural-synth.client.instrument-profiles')
 local A={};A.__index=A;local v,T=util.vector3,util.transform
-local profiles={
-    keyboard={model='meshes/fetcher/synth/keyboard.nif',position=v(0,22,85),rotation=T.identity,
-        targets={L=v(-12,23,90),R=v(12,23,90)},strike=1.4},
-    lute={model='meshes/m/Misc_de_lute_01.nif',position=v(0,18,82),rotation=T.rotateX(math.pi/2)*T.rotateZ(-0.5),
-        targets={L=v(-14,20,104),R=v(8,23,84)},strike=3},
-    drum={model='meshes/m/Misc_de_drum_01.nif',position=v(0,24,76),rotation=T.identity,
-        targets={L=v(-8,23,88),R=v(8,23,88)},strike=6}}
 function A.new(mp,nearby,self) return setmetatable({mp=mp,nearby=nearby,self=self,objects={},poses={}},A) end
 function A:key(r) return r.kind=='player' and ('p:'..r.guid) or ('n:'..r.mpNum) end
 function A:source(r) return r and self.objects[self:key(r)] end
+function A:hasModel(instrument)
+    local profile=profiles[instrument]
+    if not profile or vfs.fileExists and not vfs.fileExists(profile.model) then return false end
+    for _,extra in ipairs(profile.extras or {}) do if vfs.fileExists and not vfs.fileExists(extra.model) then return false end end
+    return true
+end
 function A:clear(key)
     local p=self.poses[key];if not p then return end
     if p.pose then pcall(p.pose.clear,p.pose) end
     if p.actor:isValid() and anim.clearVisualAttachment then pcall(anim.clearVisualAttachment,p.actor,'synth_instrument') end
+    if p.actor:isValid() and anim.clearVisualAttachment then
+        for _,key in ipairs{'synth_bow','synth_mallet_l','synth_mallet_r'} do pcall(anim.clearVisualAttachment,p.actor,key) end
+    end
     self.poses[key]=nil
 end
 function A:clearInstance(i) for _,r in pairs(i.performers or {}) do self:clear(self:key(r)) end end
@@ -33,24 +36,43 @@ function A:frame(instances,dt,now)
                 local group=i.outputs and i.outputs[slot]
                 if group and (not actor or self:source(r)~=group.source) then group.audio:close();i.outputs[slot]=nil;group=nil end
                 local visible=actor~=self.self or camera.getMode()~=camera.MODE.FirstPerson
-                if visible and actor and self:source(r) and group and (group.audio.playing or group.audio.voices>0) and anim.visualAttachmentsVersion==1 then
-                    local key=self:key(r);local p=self.poses[key];local profile=profiles[r.instrument]
-                    if r.instrument=='keyboard' and vfs.fileExists and not vfs.fileExists(profile.model) then profile=profiles.lute end
+                if visible and actor and self:source(r) and anim.visualAttachmentsVersion==1 then
+                    local key=self:key(r);local p=self.poses[key];local profile=profiles[r.instrument] or profiles.lute
+                    local missing=not self:hasModel(r.instrument)
+                    if vfs.fileExists and not vfs.fileExists(profile.model) then profile=profiles.lute end
                     if p and (p.actor~=actor or p.instrument~=r.instrument) then self:clear(key);p=nil end
                     if not p then p={actor=actor,instrument=r.instrument,pose=Performance.new(actor),refresh=-10};self.poses[key]=p end
+                    p.missingModel=missing
                     active[key]=true
-                    if p.pose and not p.pose.missing then
-                        local source={position=actor.position,rotation=actor.rotation}
-                        p.pose:frame(dt,source,group.audio:notes(),now,group.audio.strikes,profile)
-                    end
-                    if profile and now-p.refresh>0.2 then
-                        local bone='Bip01 Spine2'
-                        if not p.transform then
-                            local transform=anim.getBoneTransform(actor,bone,true,true)
-                            if transform then p.transform=transform:inverse()*T.move(actor.position)*actor.rotation*T.move(profile.position)*profile.rotation end
+                    local playing=group and (group.audio.playing or group.audio.voices>0)
+                    local cadence=playing and 1/30 or .15
+                    if now-(p.frameAt or -10)>=cadence then
+                        if not p.pose then p.pose=Performance.new(actor) end
+                        local torso=anim.getBoneTransform(actor,'Bip01 Spine2',true,true)
+                        local root=anim.getBoneTransform(actor,'Bip01',true,true)
+                        if torso and root then
+                            local position=profile.anchor=='feet' and actor.position or torso*v(0,0,0)
+                            local source={position=position,rotation=actor.rotation}
+                            if p.pose and not p.pose.missing then
+                                p.pose:frame(math.min(.2,now-(p.frameAt or now-dt)),source,playing and group.audio:notes() or {},now,group and group.audio.strikes or 0,profile)
+                            end
+                            local transform=root:inverse()*T.move(position)*actor.rotation*T.move(profile.position)*profile.rotation
+                            anim.setVisualAttachment(actor,'synth_instrument',profile.model,{bone='Bip01',transform=transform,timeout=.6})
+                            for _,extra in ipairs(profile.extras or {}) do
+                                local attachment
+                                if extra.hand and p.pose and p.pose.targets[extra.hand] then
+                                    attachment=root:inverse()*T.move(p.pose.targets[extra.hand])*actor.rotation
+                                elseif extra.position then
+                                    local travel=extra.bow and p.pose and p.pose.bowTravel or 0
+                                    local offset=extra.position+extra.rotation*v(travel,0,0)
+                                    attachment=transform*T.move(offset)*extra.rotation
+                                end
+                                if attachment and (not vfs.fileExists or vfs.fileExists(extra.model)) then
+                                    anim.setVisualAttachment(actor,extra.key,extra.model,{bone='Bip01',transform=attachment,timeout=.6})
+                                end
+                            end
                         end
-                        if p.transform then anim.setVisualAttachment(actor,'synth_instrument',profile.model,{bone=bone,transform=p.transform,timeout=0.6}) end
-                        p.refresh=now
+                        p.frameAt=now
                     end
                 end
             end
@@ -61,6 +83,7 @@ end
 function A:status()
     local result={}
     for key,p in pairs(self.poses) do result[#result+1]={key=key,instrument=p.instrument,bones=p.pose and p.pose.applied or 0,
+        fingers=p.pose and p.pose.fingers or 0,error=p.pose and p.pose.error or 0,missingModel=p.missingModel,
         attachments=anim.visualAttachmentCount and anim.visualAttachmentCount(p.actor) or 0} end
     return result
 end

@@ -33,7 +33,7 @@ function T:band(i,band,routes,availability,performers)
     band=band or {};routes=routes or {};availability=availability or {}
     local structural=false
     for n=1,Sequence.maxTracks do if (routes[n] or 0)~=(i.routes and i.routes[n] or 0) then structural=true end end
-    for n=1,8 do
+    for n=1,Sequence.maxTracks do
         local a,b=band[n] and band[n].target,i.band and i.band[n] and i.band[n].target
         if (a and a.mpNum)~=(b and b.mpNum) or (a and a.characterId)~=(b and b.characterId) or (a and a.instrument)~=(b and b.instrument) or (a and a.cell)~=(b and b.cell) then structural=true end
     end

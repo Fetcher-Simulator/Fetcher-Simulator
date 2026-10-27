@@ -1,5 +1,56 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 27: standing stage and original orchestral props (package 33)
+
+All 26 procedural-synth Lua suites pass, including formation/authority/reuse,
+failure recovery, stale replies, one-step routing Undo, 32-member paging,
+GM-aware instrument mapping, patch/model independence and measured prop targets.
+The shared project/schema/layout rules match their server copies. Matching
+RelWithDebInfo client/server/component targets build successfully; animation
+controller component checks pass. The first rebuild hit a locked QA server
+executable; it succeeded after the disposable QA processes exited.
+
+An isolated UDP-25571 server and two real clients used separate database,
+profiles, packages and keys. Auto NPC band created 32 performers covering all
+nine physical profiles. The observer joined after setup and received all 32
+routed outputs and props. Every performer had six arm overrides, with 384 finger
+bones across the ensemble. Bows and paired mallets were present. XY drift stayed
+below two units over the stationary interval (zero in the observed run).
+Repeating Auto reused every actor identity; routing Undo/Redo and stopped holding
+poses passed. Evidence: `build/studio-usability-qa/orchestra-result.json` and
+the matching orchestra A/B/server logs and private harnesses.
+
+Native visual inspection covered the keyboard/stand, lute, drum, violin/bow,
+cello/bow, trumpet, flute, clarinet and timpani/mallets. The user identified the
+backwards lute: measured vanilla mesh +Y neck / +Z string face and OpenMW's
+clockwise named rotation helpers now determine its transform. Fretting and
+strumming align with those surfaces. At the user's request, keyboard performers
+use the floor-anchored Yamaha/X-stand rather than the small Casio. Wind grips
+were lowered after the first visual pass put their mouthpieces too high.
+Generated diffuse DDS textures corrected the original props' pale material-only
+appearance. Mesh updates reuse instantiated native attachments each pose frame.
+
+The eight original low-poly NIFs/icons and generated material textures have a
+CC BY 4.0 notice alongside the retained Sketchfab credits. Generation validates
+serialized triangle counts/texture paths; bundle lengths/SHA-256 and NIF/DDS
+headers are checked separately. Inventory icons are source renders; the native
+visual pass verifies exported model appearance.
+
+Limits: clear level ground is required; ToddTest is too cramped for the rear
+rows of a full 32-member stage. Floor/obstruction preview, chairs/music stands,
+seated cello and further instrument families remain planned. These grip targets
+were inspected on the generated humanoid performers, not every custom body rig.
+Six new presets are editable synthetic approximations. This was not a human
+listening or long-session latency acceptance test; the 32-output visual test
+does not establish a universal real-time voice budget. No public workflow,
+release or VPS activation is included in this slice.
+
+The idle established port-25567 fixture received the matching binaries, package
+33, server modules and complete hash-verified asset bundle. All 62 tracked
+database/profile/settings/key/config files matched before and after copying.
+The local server was restarted on the same port; no disposable QA script or
+fixture replaced its saved state. Evidence: `build/studio-orchestra-local-install.json`.
+
 The prototype builds and passes its automated checks. Two real compatible clients were exercised against a local dedicated server with only Morrowind.esm, Tribunal.esm and Bloodmoon.esm. No production host was contacted or modified.
 
 ## Commands and results

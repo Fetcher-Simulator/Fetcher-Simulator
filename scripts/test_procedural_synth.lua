@@ -388,8 +388,8 @@ test('band routing saves per character and survives format migration',function()
     local saved=sent[#sent].data.project
     check(saved.band[1].name=='Bass keyboard' and saved.band[1].level==0.4 and saved.tracks[1].output.slot==1,'routing and member mix survive character storage')
     p.band=nil;p.tracks[1].output.slot=nil;local migrated=f.project(p)
-    check(migrated and #migrated.band==8 and migrated.tracks[1].output.slot==0,'older songs retain home keyboard routing')
-    check(not f.routes({9}) and not f.routes({[2]=1}) and not f.band({{name='Bad',level=0/0,mute=false}}),'invalid slots, sparse routes and gains rejected')
+    check(migrated and #migrated.band==32 and migrated.tracks[1].output.slot==0,'older songs retain home keyboard routing')
+    check(not f.routes({33}) and not f.routes({[2]=1}) and not f.band({{name='Bad',level=0/0,mute=false}}),'invalid slots, sparse routes and gains rejected')
 end)
 test('member mix changes preserve native transport but structural routes cancel it',function()
     local f=require('procedural_synth_project')(schema);local p=f.new();p.tracks[1]=f.newTrack('piano','Clock',16);p.tracks[1].notes={{n=60,s=0,l=2,v=1}}

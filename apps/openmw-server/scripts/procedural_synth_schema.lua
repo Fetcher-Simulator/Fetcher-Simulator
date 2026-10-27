@@ -74,7 +74,7 @@ M.builtins = {
 -- Stable IDs and snapshots keep bank updates from changing saved projects.
 -- Tags are catalog metadata only; the parameter validator stays strictly numeric.
 M.banks={'All','Guitar','Rock / Metal','Blues / Funk / Jazz','House / Techno / Trance',
-    'Hip-hop / Trap / Lo-fi','DnB / Dubstep','Pop / Synthwave / Disco','Ambient / Cinematic','Chiptune','Personal'}
+    'Hip-hop / Trap / Lo-fi','DnB / Dubstep','Pop / Synthwave / Disco','Ambient / Cinematic','Chiptune','Orchestral / Cinematic','Personal'}
 local function add(id,name,role,bank,state)
     M.builtins[#M.builtins+1]={id='b:'..id,name=name,role=role,bank=bank,state=state}
 end
@@ -131,6 +131,12 @@ add('studio-organ','Drawbar-like Organ','Keys','General',{wave1=0,enabled2=1,wav
 add('studio-brass','Soft Synth Brass','Keys','General',{wave1=2,enabled2=1,wave2=3,volume2=0.2,attack=0.018,decay=0.2,sustain=0.65,release=0.1,cutoff=2200,filterAmount=1.3,filterDecay=0.2,volume=0.55})
 add('studio-reed','Mellow Synth Reed','Lead','General',{wave1=1,enabled2=1,wave2=0,tune2=12,volume2=0.14,attack=0.008,decay=0.2,sustain=0.8,release=0.1,cutoff=3600,resonance=0.12,lfoDepth=0.02,volume=0.65})
 drum('studio-tom','Synth Tom','General',6,{bodyFrequency=130,bodyDecay=0.28,bodyLevel=0.8,noiseLevel=0.025,noiseDecay=0.06,drumPitchAmount=3,drumPitchDecay=0.025,drumDrive=1.3,drumClick=0.1,volume=0.6})
+add('orchestra-violin','Bowed Violin','Strings','Orchestral / Cinematic',{wave1=2,enabled2=1,wave2=2,fine2=4,volume2=.22,attack=.065,decay=.25,sustain=.76,release=.18,cutoff=3300,resonance=.08,filterAmount=.3,lfoRate=5.5,lfoDepth=.025,volume=.46})
+add('orchestra-cello','Bowed Cello','Strings','Orchestral / Cinematic',{wave1=2,enabled2=1,wave2=1,volume2=.35,attack=.09,decay=.3,sustain=.78,release=.22,cutoff=1900,resonance=.1,lfoRate=5,lfoDepth=.018,volume=.52})
+add('orchestra-trumpet','Orchestral Trumpet','Brass','Orchestral / Cinematic',{wave1=2,enabled2=1,wave2=3,volume2=.15,attack=.028,decay=.2,sustain=.72,release=.09,cutoff=2400,resonance=.14,filterAmount=1.1,filterAttack=.05,filterDecay=.18,filterSustain=.2,volume=.45})
+add('orchestra-flute','Breathy Flute','Woodwind','Orchestral / Cinematic',{wave1=0,enabled2=1,wave2=4,volume2=.035,attack=.055,decay=.2,sustain=.82,release=.12,cutoff=4200,lfoDepth=.018,lfoRate=5.2,volume=.7})
+add('orchestra-clarinet','Orchestral Clarinet','Woodwind','Orchestral / Cinematic',{wave1=3,enabled2=1,wave2=0,volume2=.16,attack=.025,decay=.2,sustain=.72,release=.1,cutoff=2300,resonance=.08,lfoDepth=.014,lfoRate=5,volume=.42})
+add('orchestra-timpani','Tuned Timpani','Percussion','Orchestral / Cinematic',{wave1=0,enabled2=1,wave2=0,tune2=7,volume2=.3,attack=.002,decay=1.2,sustain=0,release=.8,pitchAmount=2,pitchDecay=.015,cutoff=2000,volume=.75,polyphony=6})
 for _, preset in ipairs(M.builtins) do
     preset.state = assert(M.state(preset.state),'Invalid built-in: '..preset.id)
     preset.bank=preset.bank or 'General';preset.role=preset.role or (preset.state.drumType>0 and 'Drums' or 'Synth')

@@ -20,19 +20,19 @@ function P:render()
         label('Ready with: '..(s.held~='' and s.held or 'No instrument'),24,88,850,19),
         label('Carry the instrument in your inventory. The band holds and plays it while your part runs.',24,126,880,14)}
     local n=0
-    for _,instrument in ipairs{'keyboard','lute','drum'} do
+    for _,instrument in ipairs{'keyboard','lute','drum','violin','cello','trumpet','flute','clarinet','timpani'} do
         local selected=instrument
-        content[#content+1]=self:button((s.available and s.available[selected] and 'Ready: ' or 'Need item: ')..selected,24+n*245,185,230,function() self.command('hold',{instrument=selected}) end);n=n+1
+        content[#content+1]=self:button((s.available and s.available[selected] and 'Ready: ' or 'Need item: ')..selected,24+(n%3)*245,185+math.floor(n/3)*43,230,function() self.command('hold',{instrument=selected}) end);n=n+1
     end
-    content[#content+1]=self:button('Not ready / holster',24,245,270,function() self.command('hold',{instrument='none'}) end)
-    content[#content+1]=self:button('Leave band',325,245,230,function() self.command('leaveBand') end)
+    content[#content+1]=self:button('Not ready / holster',24,325,270,function() self.command('hold',{instrument='none'}) end)
+    content[#content+1]=self:button('Leave band',325,325,230,function() self.command('leaveBand') end)
     local invitation=s.invitation
     if invitation then
-        content[#content+1]=label(invitation.leader..' invites you to play '..invitation.instrument..' in slot '..invitation.slot..'.',24,341,870,18)
-        content[#content+1]=self:button('Accept',24,399,210,function() self.command('respond',{token=invitation.token,accept=true}) end)
-        content[#content+1]=self:button('Decline',260,399,210,function() self.command('respond',{token=invitation.token,accept=false}) end)
-    elseif s.membership then content[#content+1]=label('Band leader: '..s.membership.leader..'  /  Member slot '..s.membership.slot,24,342,870,18)
-    else content[#content+1]=label('No invitation or active band membership.',24,342,870,18) end
+        content[#content+1]=label(invitation.leader..' invites you to play '..invitation.instrument..' in slot '..invitation.slot..'.',24,379,870,18)
+        content[#content+1]=self:button('Accept',24,432,210,function() self.command('respond',{token=invitation.token,accept=true}) end)
+        content[#content+1]=self:button('Decline',260,432,210,function() self.command('respond',{token=invitation.token,accept=false}) end)
+    elseif s.membership then content[#content+1]=label('Band leader: '..s.membership.leader..'  /  Member slot '..s.membership.slot,24,379,870,18)
+    else content[#content+1]=label('No invitation or active band membership.',24,379,870,18) end
     content[#content+1]=label('Invitations expire after 30 seconds. Saved songs never save your consent.',24,540,880,14)
     content[#content+1]=label('You can leave or stop being ready at any time. F8 returns to your own Studio.',24,588,880,14)
     self.root=self.window:root(content)
