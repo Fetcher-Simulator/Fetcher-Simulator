@@ -1,5 +1,42 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 28: local band monitoring and room acoustics (package 39 / API 17)
+
+Added gentler instrument distance falloff, an in-place Balanced monitor scoped
+to one selected band, and a shared instrument-only EFX environment return.
+Room dimensions/enclosure/shape come from bounded static collision probes;
+surface absorption is a local control. Direct obstruction affects world outputs,
+while Balanced bypasses it. No score/network format or protocol bump is needed.
+
+All 27 Lua suites pass, including selected/accepted/observer band scoping,
+preference validation/persistence, direct obstruction and dry bypass, closed/open
+geometry, and both per-frame and elapsed-time ray budgets. Standalone C++ DSP and
+instrument-acoustics tests pass (2/2): room size/material response, finite bounds,
+and the shared soft audible radius. Native RelWithDebInfo client build succeeds.
+
+Private two-client checks use port 25571, separate profiles/database and the
+unmodified source package plus an isolated test driver. Nine instrument profiles
+play together; Balanced/World switches preserve unit counts and advance the same
+song clock, Dry bypasses the room, and the late observer remains positional.
+The native probe estimated the test room at 34.15 x 29.04 x 14.47 metres, enclosure
+1.0 and decay 1.73 seconds, with EFX reflections available. Controls were inspected
+in the native client and Balanced/band selection exercised with the mouse.
+Evidence: `build/studio-usability-qa/listening-result.json`, matching listening
+A/B/server logs and `build/synth-automation-lua-tests.json`.
+
+This is a first-pass acoustic approximation and centered mono monitor. Tests do
+not establish perceptual quality on every playback device, exact wall materials,
+connected-room propagation or a long-session 32-performer performance baseline.
+The shared room return avoids per-performer reverbs; probes are limited to at
+most 60 rays/second outside the audio callback. Saved musical effects remain
+independent. Public servers/releases are not updated by this local validation.
+
+Package 39 and the API-17 native executable were installed in the original
+port-25567 fixture. Installation verified all 65 protected save/settings/config/
+key files unchanged; the private QA script is absent from that package.
+Evidence: `build/studio-listening-local-install.json`. The guarded server and
+Synth A were restarted for manual acceptance.
+
 ## October 28: approved live calibration defaults (package 38)
 
 Captured seven approved profiles from the current/rotated Synth A client logs:

@@ -415,8 +415,9 @@ function S:band(content)
     end)
     content[#content+1]=self:button('Auto manage: '..(p.autoBand and 'On' or 'Off'),20,645,200,function() w:setAutoBand(not p.autoBand) end)
     content[#content+1]=self:button('Leader plays: '..(p.leaderPlays~=false and 'On' or 'Off'),230,645,200,function() w:setLeaderPlays(p.leaderPlays==false) end)
-    content[#content+1]=self:button('Remove owned NPCs',440,645,220,function() self:releaseAll();w:setupNpcBand(false,nil,true) end)
-    content[#content+1]=self:button('Pose tuner',670,645,220,function() self:releaseAll();if self.cb.tunePose then self.cb.tunePose(instrument or 'lute') end end)
+    content[#content+1]=self:button('Remove owned NPCs',440,645,145,function() self:releaseAll();w:setupNpcBand(false,nil,true) end)
+    content[#content+1]=self:button('Listening',590,645,145,function() self:releaseAll();if self.cb.listening then self.cb.listening() end end)
+    content[#content+1]=self:button('Pose tuner',740,645,150,function() self:releaseAll();if self.cb.tunePose then self.cb.tunePose(instrument or 'lute') end end)
     content[#content+1]=label('Grouped parts keep their sounds. Auto trims surplus hires; Finish removes managed NPCs. Use clear, level ground.',20,675,880,11,c.muted)
 end
 local function db(value) return value>0.00001 and string.format('%.1f',20*math.log(value)/math.log(10)) or '-inf' end

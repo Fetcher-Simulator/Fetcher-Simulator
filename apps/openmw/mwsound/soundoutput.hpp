@@ -9,6 +9,7 @@
 #include <components/vfs/pathutil.hpp>
 
 #include "../mwbase/soundmanager.hpp"
+#include "instrumentacoustics.hpp"
 
 namespace MWSound
 {
@@ -60,6 +61,7 @@ namespace MWSound
 
         virtual void startUpdate() = 0;
         virtual void finishUpdate() = 0;
+        virtual bool updateInstrumentRoom(const InstrumentRoom& room) = 0;
 
         virtual void updateListener(const osg::Vec3f& pos, const osg::Vec3f& atdir, const osg::Vec3f& updir,
             const osg::Vec3f& vel, Environment env)

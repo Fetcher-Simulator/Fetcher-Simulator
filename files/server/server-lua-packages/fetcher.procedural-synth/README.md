@@ -2,12 +2,44 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current source: package 38 / native synth API 16 / multiplayer protocol 27.
+Current source: package 39 / native synth API 17 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
 Standing NPC staging and the first orchestral props are available. Next: seated
 layouts and conductor presentation. See [the roadmap](ROADMAP.md).
+
+## Band listening and room acoustics
+
+Open **Band > Listening**, or **F9 > Listening** as a performer/observer. These
+preferences save on your client and apply while the Studio window is hidden.
+
+- **World** retains each instrument's position with gentler distance attenuation.
+  The default full-volume radius is 250 game units and rolloff is 0.45; both are
+  adjustable. Instruments fade out smoothly between 2400 and 3000 game units.
+- **Balanced** centers the selected band's existing outputs at equal listening
+  distance, retaining the song's faders and dynamics. Auto selects your open
+  Studio or accepted band; observers can select a loaded band explicitly. Other
+  bands retain their world positions. This is a centered mono monitor, with no
+  second score/decoder or duplicated voices. The normal audible range still applies.
+- **Room acoustics: Auto** estimates room dimensions/enclosure and shape using
+  bounded wall/ceiling collision probes around the audio listener. One shared
+  instrument environment return supplies early reflections and a late tail;
+  dimensions, shape and adjustable surface absorption control delay, decay,
+  diffusion and high-frequency damping. Open sky removes the indoor return.
+  World-mode direct paths become quieter/muffled behind geometry; Balanced
+  bypasses direct obstruction and can retain the room return.
+- **Dry** bypasses the room return and sampled obstruction. Reflection level and
+  surface absorption are local controls. If OpenAL EFX is unavailable, monitoring
+  and attenuation still work with a dry fallback.
+
+Geometry and materials are approximations: this is not ray-traced wave acoustics
+or automatic material recognition. Connected rooms, diffraction, authored room
+zones/presets and stereo monitoring remain follow-ups. Geometry work runs outside
+the audio callback: at most two room rays and one direct-path ray per update,
+limited to 20 updates per second, with shared room parameters smoothed in native
+code. Project instrument effects and the game's ordinary sound environment stay
+separate. Changing listening modes keeps the existing song clock and audio streams.
 
 ## Live pose tuner
 

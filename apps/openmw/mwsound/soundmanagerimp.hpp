@@ -14,6 +14,7 @@
 
 #include "../mwbase/soundmanager.hpp"
 
+#include "instrumentacoustics.hpp"
 #include "regionsoundselector.hpp"
 #include "soundbuffer.hpp"
 #include "type.hpp"
@@ -95,8 +96,12 @@ namespace MWSound
             const MWWorld::CellStore* cell;
             StreamPtr stream;
             std::shared_ptr<ProceduralAudio> synth;
+            float obstruction = 0, range = 1;
         };
         std::vector<SynthSound> mSynthSounds;
+        InstrumentListening mInstrumentListening;
+        bool mInstrumentReflectionsAvailable = false;
+        InstrumentRoom mInstrumentRoom;
         void startProcedural(const MWWorld::ConstPtr& source, std::shared_ptr<ProceduralAudio> audio, bool local = false);
         MusicType mMusicType;
 
@@ -178,6 +183,17 @@ namespace MWSound
         unsigned synthUnits() const override;
         std::shared_ptr<ProceduralSample> requestSample(std::string path, double offset, double duration) override;
         double synthDelay(const ProceduralAudio* audio) override;
+        bool instrumentListening(const InstrumentListening& settings) override
+        {
+            if (!settings.valid())
+                return false;
+            mInstrumentListening = settings;
+            return true;
+        }
+        InstrumentListening instrumentListening() const override { return mInstrumentListening; }
+        osg::Vec3f instrumentListenerPosition() const override { return mListenerPos; }
+        bool instrumentReflectionsAvailable() const override { return mInstrumentReflectionsAvailable; }
+        std::pair<unsigned, unsigned> instrumentOutputCounts() const override;
 
         void processChangedSettings(const Settings::CategorySettingVector& settings) override;
 

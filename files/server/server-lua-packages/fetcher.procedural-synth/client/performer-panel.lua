@@ -5,8 +5,8 @@ local white=ui.texture{path='white'}
 local function label(text,x,y,width,size)
     return {type=ui.TYPE.Text,props={text=text,position=v(x,y),size=v(width,32),textSize=size or 16,textColor=util.color.rgb(0.85,0.89,0.94)}}
 end
-function P.new(state,command,close,tune)
-    local p=setmetatable({kind='performer',state=state,command=command,close=close,tune=tune,window=Window.new()},P)
+function P.new(state,command,close,tune,listen)
+    local p=setmetatable({kind='performer',state=state,command=command,close=close,tune=tune,listen=listen,window=Window.new()},P)
     I.UI.addMode('Interface',{windows={}});p:render();return p
 end
 function P:button(text,x,y,width,fn)
@@ -36,6 +36,7 @@ function P:render()
     content[#content+1]=label('Invitations expire after 30 seconds. Saved songs never save your consent.',24,540,880,14)
     content[#content+1]=label('You can leave or stop being ready at any time. F8 returns to your own Studio.',24,588,880,14)
     if self.tune then content[#content+1]=self:button('Local pose tuner',24,630,270,function() self.tune(s.held~='' and s.held or 'lute') end) end
+    if self.listen then content[#content+1]=self:button('Listening',325,630,230,self.listen) end
     self.root=self.window:root(content)
 end
 function P:update(state) self.state=state;self:render() end

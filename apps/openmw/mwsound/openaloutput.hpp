@@ -14,6 +14,7 @@
 #include "alext.h"
 
 #include "soundoutput.hpp"
+#include <chrono>
 
 namespace MWSound
 {
@@ -53,6 +54,9 @@ namespace MWSound
         ALuint mWaterEffect;
         ALuint mDefaultEffect;
         ALuint mEffectSlot;
+        ALuint mInstrumentEffect = 0, mInstrumentSlot = 0;
+        std::chrono::steady_clock::time_point mInstrumentRoomAt{};
+        void updateInstrumentStream(Stream* sound, ALuint source, ALuint& filter);
 
         struct StreamThread;
         std::unique_ptr<StreamThread> mStreamThread;
@@ -108,6 +112,7 @@ namespace MWSound
 
         void startUpdate() override;
         void finishUpdate() override;
+        bool updateInstrumentRoom(const InstrumentRoom& room) override;
 
         void updateListener(const osg::Vec3f& pos, const osg::Vec3f& atdir, const osg::Vec3f& updir,
             const osg::Vec3f& vel, Environment env) override;

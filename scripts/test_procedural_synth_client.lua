@@ -107,6 +107,8 @@ package.loaded[prefix..'client.actors']=dofile(root..'client/actors.lua')
 package.loaded[prefix..'client.performer-panel']=dofile(root..'client/performer-panel.lua')
 package.loaded[prefix..'client.pose-calibration']=dofile(root..'client/pose-calibration.lua')
 package.loaded[prefix..'client.pose-editor']=dofile(root..'client/pose-editor.lua')
+package.loaded[prefix..'client.listening']=dofile(root..'client/listening.lua')
+package.loaded[prefix..'client.listening-panel']=dofile(root..'client/listening-panel.lua')
 local player=dofile(root..'client/player.lua')
 local api=player.interface
 do
@@ -618,7 +620,7 @@ api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrum
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
 -- Reproduce loaded-song reuse from the actual Studio callbacks, including Band.
-package.loaded['openmw.synth'].version=16
+package.loaded['openmw.synth'].version=17
 local paths={'midi/a.mid','midi/b.mid'};local files={}
 local function midiBytes(pitch,count)
     local events={};for n=1,count or 1 do events[#events+1]=string.char(0,144,pitch,100,96,128,pitch,0) end

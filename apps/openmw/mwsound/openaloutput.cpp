@@ -282,6 +282,7 @@ namespace MWSound
 
     private:
         ALuint mSource;
+        ALuint mInstrumentFilter = 0;
 
         std::array<ALuint, 6> mBuffers;
         std::size_t mQueueLimit = 6;
@@ -977,6 +978,20 @@ namespace MWSound
                 LoadEffect(mDefaultEffect, props);
             }
 
+            alGenAuxiliaryEffectSlots(1, &mInstrumentSlot);
+            alGenEffects(1, &mInstrumentEffect);
+            alEffecti(mInstrumentEffect, AL_EFFECT_TYPE, AL_EFFECT_EAXREVERB);
+            if (alGetError() != AL_NO_ERROR)
+                alEffecti(mInstrumentEffect, AL_EFFECT_TYPE, AL_EFFECT_REVERB);
+            if (alGetError() != AL_NO_ERROR)
+            {
+                if (mInstrumentEffect)
+                    alDeleteEffects(1, &mInstrumentEffect);
+                if (mInstrumentSlot)
+                    alDeleteAuxiliaryEffectSlots(1, &mInstrumentSlot);
+                mInstrumentEffect = mInstrumentSlot = 0;
+                alGetError();
+            }
             alGenEffects(1, &mWaterEffect);
             if (alGetError() == AL_NO_ERROR)
             {
@@ -1015,6 +1030,11 @@ namespace MWSound
         if (mEffectSlot)
             alDeleteAuxiliaryEffectSlots(1, &mEffectSlot);
         mEffectSlot = 0;
+        if (mInstrumentSlot)
+            alDeleteAuxiliaryEffectSlots(1, &mInstrumentSlot);
+        if (mInstrumentEffect)
+            alDeleteEffects(1, &mInstrumentEffect);
+        mInstrumentSlot = mInstrumentEffect = 0;
         if (mDefaultEffect)
             alDeleteEffects(1, &mDefaultEffect);
         mDefaultEffect = 0;
@@ -1420,6 +1440,14 @@ namespace MWSound
             return;
         OpenAL_SoundStream* stream = reinterpret_cast<OpenAL_SoundStream*>(sound->mHandle);
         ALuint source = stream->mSource;
+        if (sound->getInstrument() && ALC.EXT_EFX)
+            alSource3i(source, AL_AUXILIARY_SEND_FILTER, AL_EFFECTSLOT_NULL, 0, AL_FILTER_NULL);
+        if (stream->mInstrumentFilter)
+        {
+            alSourcei(source, AL_DIRECT_FILTER, AL_FILTER_NULL);
+            alDeleteFilters(1, &stream->mInstrumentFilter);
+            stream->mInstrumentFilter = 0;
+        }
 
         sound->mHandle = nullptr;
         mStreamThread->remove(stream);
@@ -1477,10 +1505,85 @@ namespace MWSound
             return;
         OpenAL_SoundStream* stream = reinterpret_cast<OpenAL_SoundStream*>(sound->mHandle);
         ALuint source = stream->mSource;
+        if (sound->getInstrument())
+        {
+            updateInstrumentStream(sound, source, stream->mInstrumentFilter);
+            getALError();
+            return;
+        }
 
         updateCommon(source, sound->getPosition(), sound->getVelocity(), sound->getMaxDistance(),
             sound->getRealVolume(), getTimeScaledPitch(sound), sound->getUseEnv());
         getALError();
+    }
+
+    void OpenALOutput::updateInstrumentStream(Stream* sound, ALuint source, ALuint& filter)
+    {
+        const bool balanced = sound->getBalancedMonitor();
+        alSourcei(source, AL_SOURCE_RELATIVE, balanced ? AL_TRUE : AL_FALSE);
+        if (AL.SOFT_source_spatialize)
+            alSourcei(source, AL_SOURCE_SPATIALIZE_SOFT, balanced ? AL_FALSE : AL_TRUE);
+        alSourcef(source, AL_REFERENCE_DISTANCE, sound->getMinDistance());
+        alSourcef(source, AL_ROLLOFF_FACTOR, balanced ? 0 : sound->getInstrumentRolloff());
+        const osg::Vec3f position = balanced ? osg::Vec3f() : sound->getPosition();
+        const float blocked = balanced ? 0 : sound->getInstrumentObstruction();
+        float gain = sound->getRealVolume();
+        if (ALC.EXT_EFX)
+        {
+            if (!filter)
+            {
+                alGenFilters(1, &filter);
+                if (alGetError() != AL_NO_ERROR)
+                    filter = 0;
+            }
+            if (filter)
+            {
+                alFilteri(filter, AL_FILTER_TYPE, AL_FILTER_LOWPASS);
+                alFilterf(filter, AL_LOWPASS_GAIN, 1 - .65f * blocked);
+                alFilterf(filter, AL_LOWPASS_GAINHF,
+                    (1 - .8f * blocked) * (!balanced && mListenerEnv == Env_Underwater ? .1f : 1.f));
+                alSourcei(source, AL_DIRECT_FILTER, filter);
+            }
+            else
+                gain *= 1 - .65f * blocked;
+            if (mInstrumentSlot)
+                alSource3i(source, AL_AUXILIARY_SEND_FILTER, mListenerEnv == Env_Underwater ? 0 : mInstrumentSlot, 0,
+                    AL_FILTER_NULL);
+        }
+        else
+            gain *= 1 - .65f * blocked;
+        // Reconfigure the existing AL source; buffers/decoder/score are
+        // untouched.
+        alSourcef(source, AL_GAIN, gain);
+        alSourcef(source, AL_PITCH, getTimeScaledPitch(sound));
+        alSourcefv(source, AL_POSITION, position.ptr());
+        alSource3f(source, AL_VELOCITY, 0, 0, 0);
+    }
+
+    bool OpenALOutput::updateInstrumentRoom(const InstrumentRoom& room)
+    {
+        if (!mInstrumentEffect || !mInstrumentSlot)
+            return false;
+        alAuxiliaryEffectSlotf(mInstrumentSlot, AL_EFFECTSLOT_GAIN, room.gain);
+        const auto now = std::chrono::steady_clock::now();
+        if (now - mInstrumentRoomAt < std::chrono::milliseconds(200))
+            return true;
+        mInstrumentRoomAt = now;
+        EFXEAXREVERBPROPERTIES p = EFX_REVERB_PRESET_LIVINGROOM;
+        p.flDensity = room.density;
+        p.flDiffusion = room.diffusion;
+        p.flGain = .32f;
+        p.flGainHF = room.damping;
+        p.flDecayTime = room.decay;
+        p.flDecayHFRatio = std::clamp(room.damping, .1f, 1.f);
+        p.flReflectionsGain = .7f;
+        p.flReflectionsDelay = room.delay;
+        p.flLateReverbGain = 1.2f;
+        p.flLateReverbDelay = room.lateDelay;
+        p.flRoomRolloffFactor = 0;
+        LoadEffect(mInstrumentEffect, p);
+        alAuxiliaryEffectSloti(mInstrumentSlot, AL_EFFECTSLOT_EFFECT, mInstrumentEffect);
+        return getALError() == AL_NO_ERROR;
     }
 
     void OpenALOutput::startUpdate()

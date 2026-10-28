@@ -1,6 +1,6 @@
 # FETCHER STUDIO roadmap
 
-Updated 2026-10-27. Completed work and subsequent planned slices are identified below.
+Updated 2026-10-28. Completed work and subsequent planned slices are identified below.
 
 ## Product goal
 
@@ -212,6 +212,23 @@ running while the tuning panel is open. Defaults can now be refined interactivel
 Package 38 incorporates the approved seven-instrument calibration exports and
 keeps a stable reference frame for saved tuning, preventing duplicate rotations.
 
+## Completed slice: band listening balance and room acoustics
+
+Package 39 / native synth API 17 implements the selected approaches: gentler
+instrument-only distance falloff and a local Balanced monitor for one selected
+band. Band > Listening and F9 > Listening expose the controls. Existing audio
+sources change perspective in place, preserving the score clock, voice budget,
+authored faders and other clients' listening choices.
+
+Bounded collision probes estimate the listener's room dimensions, enclosure and
+shape. A shared instrument-only OpenAL EFX return supplies early reflections and
+late reverb, with smooth geometry changes and adjustable wet level/absorption.
+World-mode direct paths respond to static obstruction; Balanced bypasses direct
+obstruction. Dry and no-EFX fallback are supported. This first pass approximates
+geometry/materials; it does not simulate connected rooms or identify materials.
+Two-client native checks cover player/NPC outputs, uninterrupted mode switches,
+unchanged unit counts, geometry/EFX response and independent observer routing.
+
 ## Remaining roadmap (next: seated stage layouts)
 
 1. **Seated stage layouts and conductor presentation.** Optional instrument-aware
@@ -230,12 +247,12 @@ keeps a stable reference frame for saved tuning, preventing duplicate rotations.
    Improve output/voice culling, spatial section grouping and device-drift/latency
    correction before increasing score/performer limits further. Imports over the
    current 32-part budget fail clearly; do not silently drop orchestral parts.
-4. **Room acoustics.** Add a listener/environment reverb stage distinct from saved
-   instrument patches and musical delay/reverb. Begin with authorable cell/room
-   zones and dry/small-room/hall/cave presets, with smooth transitions and user
-   control. Later estimate room size, shape, absorption/occlusion from geometry;
-   a cell name alone does not establish room acoustics. Share one environmental
-   send rather than stacking a separate cave reverb on every orchestra member.
+4. **Acoustic and monitoring refinement.** Add authored room zones and acoustic
+   presets, connected-room propagation, material-aware absorption, diffraction
+   and more accurate direct/reflected balance. Refine the bounded geometric
+   estimate in irregular rooms and outdoor transitions. Retain one shared room
+   return, user controls and bounded geometry work outside the audio callback.
+   Explore stereo monitoring and optional world/monitor blending after profiling.
 5. **Recording follow-ups.** Physical MIDI controller acceptance, live controller
    monitoring/capture, shared-source overdub during playback and additional record
    modes. Automatic hardware round-trip measurement and non-Windows input remain

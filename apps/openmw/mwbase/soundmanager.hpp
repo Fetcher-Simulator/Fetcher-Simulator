@@ -6,6 +6,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <components/vfs/pathutil.hpp>
@@ -25,6 +26,7 @@ namespace ESM
 
 namespace MWSound
 {
+    struct InstrumentListening;
     // Each entry excepts of MaxCount should be used only in one place
     enum BlockerType
     {
@@ -124,6 +126,11 @@ namespace MWBase
         virtual unsigned synthUnits() const = 0;
         virtual std::shared_ptr<MWSound::ProceduralSample> requestSample(std::string path, double offset, double duration) = 0;
         virtual double synthDelay(const MWSound::ProceduralAudio* audio) = 0;
+        virtual bool instrumentListening(const MWSound::InstrumentListening& settings) = 0;
+        virtual MWSound::InstrumentListening instrumentListening() const = 0;
+        virtual osg::Vec3f instrumentListenerPosition() const = 0;
+        virtual bool instrumentReflectionsAvailable() const = 0;
+        virtual std::pair<unsigned, unsigned> instrumentOutputCounts() const = 0;
 
         virtual void processChangedSettings(const std::set<std::pair<std::string, std::string>>& settings) = 0;
 

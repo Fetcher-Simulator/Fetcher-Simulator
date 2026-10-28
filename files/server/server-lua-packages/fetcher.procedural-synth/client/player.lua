@@ -5,9 +5,9 @@ local self = require('openmw.self')
 local ui = require('openmw.ui')
 local input = require('openmw.input')
 local supported, synth = pcall(require,'openmw.synth')
-if not supported or (synth.version and synth.version<16) then
+if not supported or (synth.version and synth.version<17) then
     return {eventHandlers={Synth_Activate=function()
-        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 16.')
+        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 17.')
     end}}
 end
 local schema = require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -31,6 +31,10 @@ local PoseEditor=require('scripts.multiplayer.fetcher.procedural-synth.client.po
 local actors=Actors.new(mp,nearby,self,calibration)
 local tuner,openTuner
 local function closeTuner() if tuner then local old=tuner;tuner=nil;old:destroy() end end
+local listening=require('scripts.multiplayer.fetcher.procedural-synth.client.listening')(synth,nearby,require('openmw.util'),require('openmw.storage').playerSection('ProceduralSynthListening'))
+local ListeningPanel=require('scripts.multiplayer.fetcher.procedural-synth.client.listening-panel')
+local listeningPanel,openListening
+local function closeListening() if listeningPanel then local old=listeningPanel;listeningPanel=nil;old:destroy() end end
 local performerState={held='',available={}}
 local panel,lastPerformerRequest=nil,-10
 local function performerCommand(op,args)
@@ -96,9 +100,13 @@ local function hideEditor()
 end
 openTuner=function(instrument)
     if not calibration:profile(instrument or 'lute') then return false end
-    hideEditor();closePanel();closeTuner()
+    hideEditor();closePanel();closeTuner();closeListening()
     tuner=PoseEditor.new(calibration,actors,closeTuner,function() closeTuner();showEditor() end,instrument)
     return true
+end
+openListening=function()
+    hideEditor();closePanel();closeTuner();closeListening()
+    listeningPanel=ListeningPanel.new(listening,closeListening,function() closeListening();showEditor() end);return true
 end
 local function closeEditor(notify)
     if stopPlayback then stopPlayback() end
@@ -405,6 +413,7 @@ local function pickupKeyboard()
 end
 showEditor=function()
     closeTuner()
+    closeListening()
     closePanel()
     if editor or not session or session.pickup then return false end
     local i=instances[session.id];if not i then return false end
@@ -412,6 +421,7 @@ showEditor=function()
     if session.page=='studio' then
         editor=Studio.new(w,{
             tunePose=openTuner,
+            listening=openListening,
             hide=hideEditor,close=function() session.library:guard(function() closeEditor(true) end,'finish the session') end,
             pickup=function() session.library:guard(pickupKeyboard,'pick up the keyboard') end,
             synth=function() switchPage('synth',w.project.tracks[w.selected] and w.selected or 0) end,
@@ -637,7 +647,7 @@ local function frame(dt)
         if connected or hosted.scope then hosted:clear();refreshExports() end
         transport.offset=nil;transport.rtt=nil;transport.lastClock=-10;transport.downloads={};transport.pings={};transport.samples=0
         for id in pairs(instances) do destroy(id) end
-        closeEditor(false);closePanel();closeTuner();actors:clearAll();performerState={held='',available={}};connected=false; return
+        closeEditor(false);closePanel();closeTuner();closeListening();if connected or listening.scope then listening:reset() end;actors:clearAll();performerState={held='',available={}};connected=false; return
     end
     hosted:frame()
     if not connected or now-lastSync>5 then
@@ -646,6 +656,8 @@ local function frame(dt)
         if next(instances)==nil then mp.sendToServer('Synth_Request',{version=1,op='sync'}) end
     end
     actors:frame(instances,dt,now)
+    listening:frame(instances,session,performerState,transport,now,self.cell)
+    if listeningPanel then listeningPanel:frame(now) end
     if tuner then tuner:frame(now) end
     if panel then
         panel:frame()
@@ -731,7 +743,7 @@ end
 return {
     interfaceName='ProceduralSynth',
     interface={
-        version=16,
+        version=17,
         status=function()
             local out={}
             for id,i in pairs(instances) do
@@ -780,6 +792,8 @@ return {
         leaveBand=function() performerCommand('leaveBand') end,
         performers=function() return actors:status() end,
         poseTuner=openTuner,
+        listening=openListening,
+        listeningState=function() return listening end,
         poseCalibration=function() return calibration end,
         poseTunerState=function() return tuner end,
         hide=hideEditor,
@@ -804,8 +818,10 @@ return {
     },
     engineHandlers={onFrame=frame,onInit=scanSongs,onKeyPress=function(e)
         if e.code==input.KEY.F9 then
-            closeTuner()
-            if panel then closePanel() else hideEditor();panel=PerformerPanel.new(performerState,performerCommand,closePanel,openTuner);performerCommand('performer') end
+            closeTuner();closeListening()
+            if panel then closePanel() else hideEditor();panel=PerformerPanel.new(performerState,performerCommand,closePanel,openTuner,openListening);performerCommand('performer') end
+        elseif listeningPanel and e.code==input.KEY.Escape then closeListening()
+        elseif listeningPanel and e.code==input.KEY.F8 then closeListening();showEditor()
         elseif tuner and e.code==input.KEY.Escape then if tuner.dropdown then require('scripts.multiplayer.fetcher.procedural-synth.client.dropdown').close(tuner) else closeTuner() end
         elseif tuner and e.code==input.KEY.F8 then closeTuner();showEditor()
         elseif panel and e.code==input.KEY.Escape then closePanel()
@@ -813,7 +829,7 @@ return {
             if editor then hideEditor() else showEditor() end
         elseif editor then editor:key(e.code,true) end
     end,
-        onMouseWheel=function(vertical) if tuner and tuner.dropdown then tuner.dropdown:wheel(vertical) elseif editor and editor.dropdown then editor.dropdown:wheel(vertical) elseif editor and editor.wheel then editor:wheel(vertical) end end,
+        onMouseWheel=function(vertical) if listeningPanel and listeningPanel.dropdown then listeningPanel.dropdown:wheel(vertical) elseif tuner and tuner.dropdown then tuner.dropdown:wheel(vertical) elseif editor and editor.dropdown then editor.dropdown:wheel(vertical) elseif editor and editor.wheel then editor:wheel(vertical) end end,
         onKeyRelease=function(e) if editor then editor:key(e.code,false) end end},
     eventHandlers={Synth_Message=message,Synth_Activate=function(data)
         if session and session.id==data.id then showEditor();return end

@@ -38,6 +38,8 @@ namespace MWSound
         float mPitch = 1.0f;
         float mMinDistance = 1.0f;
         float mMaxDistance = 1000.0f;
+        bool mInstrument = false, mBalancedMonitor = false;
+        float mInstrumentRolloff = .45f, mInstrumentObstruction = 0, mInstrumentRange = 1;
         int mFlags = 0;
         float mFadeVolume = 1.0f;
         float mFadeTarget = 0.0f;
@@ -64,6 +66,18 @@ namespace MWSound
         void setVolume(float volume) { mParams.mVolume = volume; }
         void setBaseVolume(float volume) { mParams.mBaseVolume = volume; }
         void setPitch(float pitch) { mParams.mPitch = pitch; }
+        void setInstrumentListening(bool balanced, float reference, float rolloff, float obstruction, float range)
+        {
+            mParams.mBalancedMonitor = balanced;
+            mParams.mMinDistance = reference;
+            mParams.mInstrumentRolloff = rolloff;
+            mParams.mInstrumentObstruction = obstruction;
+            mParams.mInstrumentRange = range;
+        }
+        bool getInstrument() const { return mParams.mInstrument; }
+        bool getBalancedMonitor() const { return mParams.mBalancedMonitor; }
+        float getInstrumentRolloff() const { return mParams.mInstrumentRolloff; }
+        float getInstrumentObstruction() const { return mParams.mInstrumentObstruction; }
         void setFadeout(float duration) { setFade(duration, 0.0, Play_StopAtFadeEnd); }
 
         /// Fade to the given linear gain within the specified amount of time.
@@ -157,7 +171,10 @@ namespace MWSound
         const osg::Vec3f& getPosition() const { return mParams.mPos; }
         const osg::Vec3f& getLastPosition() const { return mParams.mLastPos; }
         const osg::Vec3f& getVelocity() const { return mParams.mVel; }
-        float getRealVolume() const { return mParams.mVolume * mParams.mBaseVolume * mParams.mFadeVolume; }
+        float getRealVolume() const
+        {
+            return mParams.mVolume * mParams.mBaseVolume * mParams.mFadeVolume * mParams.mInstrumentRange;
+        }
         float getPitch() const { return mParams.mPitch; }
         float getMinDistance() const { return mParams.mMinDistance; }
         float getMaxDistance() const { return mParams.mMaxDistance; }

@@ -285,6 +285,14 @@ namespace MWSound
         for (const auto& sound : mSynthSounds) if (sound.synth.get() == audio) return std::max(0.0, mOutput->getStreamDelay(sound.stream.get()));
         return 0;
     }
+    std::pair<unsigned, unsigned> SoundManager::instrumentOutputCounts() const
+    {
+        std::pair<unsigned, unsigned> result{};
+        for (const auto& s : mSynthSounds)
+            if (s.stream->getInstrument())
+                s.stream->getBalancedMonitor() ? ++result.second : ++result.first;
+        return result;
+    }
     void SoundManager::startProcedural(const MWWorld::ConstPtr& source, std::shared_ptr<ProceduralAudio> synth, bool local)
     {
         if (!isEnabled() || source.isEmpty() || !source.isInCell() || synthUnits() >= ProceduralAudio::MaxUnits)
@@ -294,8 +302,9 @@ namespace MWSound
         SoundParams params;
         params.mPos = source.getRefData().getPosition().asVec3();
         params.mBaseVolume = volumeFromType(Type::Instrument);
-        params.mMinDistance = 100;
+        params.mMinDistance = mInstrumentListening.reference;
         params.mMaxDistance = 3000;
+        params.mInstrument = !local;
         params.mFlags = (local ? PlayMode::NoEnvNoScaling : PlayMode::NoScaling) | Type::Instrument | (local ? Play_2D : Play_3D);
         stream->init(params);
         if (!(local ? mOutput->streamSound(std::make_shared<SynthDecoder>(synth), stream.get(), false)
@@ -1114,6 +1123,19 @@ namespace MWSound
             }
         }
 
+        // Geometry is sampled by the player script outside the audio callback.
+        // Smooth the shared listener environment, not a reverb per performer.
+        const auto room = InstrumentRoom::estimate(mInstrumentListening);
+        const float blend = 1 - std::exp(-std::max(0.f, duration) * 3.f);
+        auto smooth = [blend](float& current, float target) { current += (target - current) * blend; };
+        smooth(mInstrumentRoom.decay, room.decay);
+        smooth(mInstrumentRoom.delay, room.delay);
+        smooth(mInstrumentRoom.lateDelay, room.lateDelay);
+        smooth(mInstrumentRoom.diffusion, room.diffusion);
+        smooth(mInstrumentRoom.density, room.density);
+        smooth(mInstrumentRoom.damping, room.damping);
+        smooth(mInstrumentRoom.gain, room.gain);
+        mInstrumentReflectionsAvailable = mOutput->updateInstrumentRoom(mInstrumentRoom);
         for (auto it = mSynthSounds.begin(); it != mSynthSounds.end();)
         {
             auto& synth = *it;
@@ -1128,7 +1150,16 @@ namespace MWSound
             else
             {
                 sound->setPosition(synth.source.getRefData().getPosition().asVec3());
-                if (sound->getIs3D()) cull3DSound(sound);
+                if (sound->getInstrument())
+                {
+                    const float distance = (sound->getPosition() - mListenerPos).length();
+                    const bool balanced = mInstrumentListening.balanced && synth.synth->monitorEligible();
+                    const float obstruction = balanced ? 0 : synth.synth->obstruction();
+                    smooth(synth.obstruction, obstruction);
+                    smooth(synth.range, InstrumentListening::rangeGain(distance));
+                    sound->setInstrumentListening(balanced, mInstrumentListening.reference,
+                        mInstrumentListening.rolloff, synth.obstruction, synth.range);
+                }
                 mOutput->updateStream(sound);
                 ++it;
             }
