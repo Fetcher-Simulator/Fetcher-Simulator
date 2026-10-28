@@ -34,8 +34,12 @@ function M.elbow(shoulder,target,a,b,pole)
     local height=math.sqrt(math.max(0,a*a-along*along))
     return shoulder+direction*along+perpendicular*height,shoulder+direction*reach
 end
+function M.bendAxis(forward,palm)
+    local axis=forward:cross(palm);local length=axis:length()
+    return length>.0001 and axis/length or nil
+end
 function M.new(actor)
-    local p={actor=actor,bones={},amount=0,lastNotes='',strike=0,missing=false,applied=0,targets={},error=0,appliedBones={},fingers=0}
+    local p={actor=actor,bones={},amount=0,lastNotes='',strike=0,missing=false,applied=0,targets={},error=0,reachError=0,appliedBones={},fingers=0,fingerAxes={}}
     if anim.boneTransformsVersion~=1 then p.missing=true;return p end
     if not anim.hasAnimation(actor) then return nil end
     for _,name in ipairs(anim.getBoneNames(actor)) do p.bones[name:lower()]=name end
@@ -44,7 +48,7 @@ function M.new(actor)
         self.appliedBones={};self.applied=0;self.fingers=0
     end
     function p:frame(dt,source,notes,now,strikes,profile)
-        self.error=0;self.fingers=0
+        self.error=0;self.reachError=0;self.fingers=0
         local record=not profile and source.recordId=='fetcher_procedural_keyboard_v1' and types.Miscellaneous.record(source) or (not profile and types.Activator.record(source))
         local staged=record and record.model:lower():gsub('\\','/'):find('keyboard%-stand%.nif$')~=nil
         local halfWidth,spacing,spread,front,height=8,0.65,5,-2,5
@@ -100,6 +104,7 @@ function M.new(actor)
                         local pole=toModel*(root*s+self.actor.rotation*v(sign,0,-0.6))-s
                         local elbow,tip=M.elbow(s,target,a,b,pole)
                         if elbow then
+                            self.reachError=math.max(self.reachError,(root*target-root*tip):length())
                             self.targets[side]=root*tip
                             local inverseUpper=u:inverse()
                             local upperRotation=between(inverseUpper*e,inverseUpper*elbow)
@@ -108,7 +113,7 @@ function M.new(actor)
                             local foreRotation=between(inverseFore*(adjusted*w),inverseFore*tip)
                             anim.setBoneTransform(self.actor,upper,{rotation=upperRotation,weight=self.amount})
                             anim.setBoneTransform(self.actor,fore,{rotation=foreRotation,weight=self.amount})
-                            local handRotation=T.identity
+                            local handRotation=T.identity;local unposedPalm,unposedForward
                             if profile then
                                 local finger=self.bones[('Bip01 '..side..' Finger1'):lower()]
                                 local thumb=self.bones[('Bip01 '..side..' Finger0'):lower()]
@@ -119,6 +124,8 @@ function M.new(actor)
                                     local forward=inverseHand*(toModel*ft*zero)
                                     local thumbDirection=inverseHand*(toModel*tt*zero)
                                     local normal=forward:cross(thumbDirection)*(side=='L' and 1 or -1)
+                                    unposedPalm=h*normal-h*zero
+                                    unposedForward=h*forward-h*zero
                                     local posedFore=adjusted*f
                                     local posedHand=posedFore*foreRotation*posedFore:inverse()*adjusted*h
                                     local inversePosed=posedHand:inverse()
@@ -143,7 +150,27 @@ function M.new(actor)
                                 local stem=('bip01 '..side..' finger'):lower()
                                 for lower,name in pairs(self.bones) do if lower:sub(1,#stem)==stem then
                                     local amount=Profiles.fingerCurl(profile,side,name,curl,pitch,#group>0)
-                                    anim.setBoneTransform(self.actor,name,{rotation=T.rotateZ((side=='L' and -1 or 1)*amount),weight=self.amount})
+                                    local cached=self.fingerAxes[name];local axis=cached or nil
+                                    if cached==nil and unposedPalm then
+                                        local _,segment=lower:match('finger(%d)(%d*)$')
+                                        local child=segment=='' and self.bones[lower..'1'] or segment=='1' and self.bones[lower:sub(1,-2)..'2']
+                                        local parent=segment=='2' and self.bones[lower:sub(1,-2)..'1']
+                                        local bone=anim.getBoneTransform(self.actor,name,true,true)
+                                        local other=(child or parent) and anim.getBoneTransform(self.actor,child or parent,true,true)
+                                        if bone then
+                                            bone=toModel*bone
+                                            local origin=bone*zero
+                                            local direction=unposedForward
+                                            if other then other=toModel*other;direction=child and other*zero-origin or origin-other*zero end
+                                            local bend=M.bendAxis(direction,unposedPalm) or M.bendAxis(unposedForward,unposedPalm)
+                                            if bend then local inverse=bone:inverse();axis=inverse*(origin+bend)-inverse*origin;axis=axis/axis:length();self.fingerAxes[name]=axis end
+                                        end
+                                    end
+                                    -- Some rigs list unused finger nodes with no world transform.
+                                    -- Retry while the pose initializes, then keep the fallback cheap.
+                                    if not axis and self.amount>=1 then self.fingerAxes[name]=false end
+                                    local rotation=axis and T.rotate(amount,axis) or T.rotateZ((side=='L' and -1 or 1)*amount)
+                                    anim.setBoneTransform(self.actor,name,{rotation=rotation,weight=self.amount})
                                     self.appliedBones[name]=true;self.fingers=self.fingers+1
                                 end end
                             end

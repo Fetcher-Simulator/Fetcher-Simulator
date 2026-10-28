@@ -94,6 +94,12 @@ SHA-256 manifest and writes an assets-only ZIP. Source downloads are not bundled
 
 ## Inventory icon
 
+`generate_orchestra.py` creates the original orchestral models and icons. Bowed
+models use a closed tapered neck/heel supporting the ebony fingerboard; validation
+reads the exported NIF vertices and rejects a gap. The provisional standing cello
+uses a longer endpin paired with its raised performance profile. Regenerate the
+asset manifest after changing these meshes, preserving existing model credits.
+
 `icons/fetcher/synth/keyboard.dds` is a 128 x 128 DXT5 icon with alpha and a
 complete mip chain. It is rendered from the actual combined keyboard/stand NIF;
 its source model attribution is retained in the optional asset bundle.

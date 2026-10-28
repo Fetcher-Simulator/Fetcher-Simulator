@@ -1,37 +1,39 @@
 {
   "violin": {
     "model": "meshes/fetcher/orchestra/violin.nif",
-    "triangles": 716,
+    "triangles": 772,
     "bounds": [
       [
         -7.5,
         -14.0,
-        -1.399999976158142
+        -1.2999999523162842
       ],
       [
         7.5,
-        36.79999923706055,
-        4.345001697540283
+        30.19999885559082,
+        4.63894510269165
       ]
     ],
-    "bytes": 51832
+    "bytes": 53327,
+    "fingerboardToNeckGap": 0.0
   },
   "cello": {
     "model": "meshes/fetcher/orchestra/cello.nif",
-    "triangles": 752,
+    "triangles": 808,
     "bounds": [
       [
         -12.75,
-        -55.0,
-        -2.379999876022339
+        -80.0,
+        -2.2100000381469727
       ],
       [
         12.75,
-        62.55999755859375,
-        7.386502742767334
+        51.34000015258789,
+        7.88620662689209
       ]
     ],
-    "bytes": 54360
+    "bytes": 55864,
+    "fingerboardToNeckGap": 0.0
   },
   "bow": {
     "model": "meshes/fetcher/orchestra/bow.nif",

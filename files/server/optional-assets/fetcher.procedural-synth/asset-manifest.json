@@ -21,7 +21,7 @@
     {
       "path": "icons/fetcher/orchestra/cello.dds",
       "bytes": 22000,
-      "sha256": "a7549ca9289885c23db2ef19e1d134aca27b2237f8a445681108fdeffce37d48"
+      "sha256": "c4852d6119fe2e8bb67764aad723ea3d8c9872aefccf7bcd740617f0ef17f7ce"
     },
     {
       "path": "icons/fetcher/orchestra/clarinet.dds",
@@ -51,7 +51,7 @@
     {
       "path": "icons/fetcher/orchestra/violin.dds",
       "bytes": 22000,
-      "sha256": "76f78d72f1843f33c86a48b64d05627d9c100b09e6d61477c67ebf8fd982ad5e"
+      "sha256": "1767260ed96e7ab827df9d11de605a98fc426b6eed631af50dbbbff41055f1ec"
     },
     {
       "path": "icons/fetcher/synth/keyboard.dds",
@@ -70,23 +70,23 @@
     },
     {
       "path": "meshes/fetcher/orchestra/cello.nif",
-      "bytes": 54360,
-      "sha256": "25409fa8cee6032af06ace630177b811129fb9c61ce036c6a0ba7708c31b66bf"
+      "bytes": 55864,
+      "sha256": "34285cf2f3ffdcc7b31a8613facbe10acaf5800996f8b16c1beb7a3020d744c1"
     },
     {
       "path": "meshes/fetcher/orchestra/clarinet.nif",
       "bytes": 91584,
-      "sha256": "27dc5cc48e4d726249617f7b0cdebbec0ccf0ae2e3c6f0e5498f466b3dbcecb0"
+      "sha256": "7ecd25ee2337092f7b3ec5ad8ecf2d521b831bd0203c3145fc3dbd207be9675f"
     },
     {
       "path": "meshes/fetcher/orchestra/flute.nif",
       "bytes": 117999,
-      "sha256": "987acc5b9673f6251645435d49d0668382e0c4553048d76388979fca117bd8af"
+      "sha256": "0a4850315431a3ba0e6e32bbffcc39451db94817ee190f110537bdb8c734d8e7"
     },
     {
       "path": "meshes/fetcher/orchestra/mallet.nif",
       "bytes": 12385,
-      "sha256": "35d880bc084622e9c8d86256c532d733af52d338b969d20a20894df1ae230782"
+      "sha256": "2a4ddb7ae5645608019766eb0eb3cb9761a2cbba82e5bc0ee12a2ea2171c89e5"
     },
     {
       "path": "meshes/fetcher/orchestra/timpani.nif",
@@ -100,8 +100,8 @@
     },
     {
       "path": "meshes/fetcher/orchestra/violin.nif",
-      "bytes": 51832,
-      "sha256": "d7e9f0d83a3b4a132c21cf3aa3df5bd744e09738d4aa1e28d5c008399475e2b8"
+      "bytes": 53327,
+      "sha256": "239ed12f78ab1e40c595b7396e6a11a5533131df602b3955a8ec0b549d7818b7"
     },
     {
       "path": "meshes/fetcher/synth/keyboard-stand.nif",
@@ -120,8 +120,8 @@
     },
     {
       "path": "orchestra-report.json",
-      "bytes": 2359,
-      "sha256": "0a1019abe925eb716d868a3e4f8c18023a231db9288c180017090da8941346f0"
+      "bytes": 2425,
+      "sha256": "7ca078b45624e638f9a45c354aa2a7f85d3205f07f4ef28f7b8a4d1b7c220808"
     },
     {
       "path": "provenance.json",

@@ -82,8 +82,9 @@ function A:frame(instances,dt,now)
 end
 function A:status()
     local result={}
-    for key,p in pairs(self.poses) do result[#result+1]={key=key,instrument=p.instrument,bones=p.pose and p.pose.applied or 0,
-        fingers=p.pose and p.pose.fingers or 0,error=p.pose and p.pose.error or 0,missingModel=p.missingModel,
+    for key,p in pairs(self.poses) do local axes=0;for _,axis in pairs(p.pose and p.pose.fingerAxes or {}) do if axis then axes=axes+1 end end
+        result[#result+1]={key=key,instrument=p.instrument,bones=p.pose and p.pose.applied or 0,fingerAxes=axes,
+        fingers=p.pose and p.pose.fingers or 0,error=p.pose and p.pose.error or 0,reachError=p.pose and p.pose.reachError or 0,missingModel=p.missingModel,
         attachments=anim.visualAttachmentCount and anim.visualAttachmentCount(p.actor) or 0} end
     return result
 end

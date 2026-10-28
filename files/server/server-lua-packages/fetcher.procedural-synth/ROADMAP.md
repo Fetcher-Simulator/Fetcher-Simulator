@@ -199,6 +199,11 @@ aligned with the standing keyboard and uses note-driven wrist/finger motion.
 Fiddle and clarinet grip refinement and Studio-over-hotbar window ordering are
 included in this follow-up.
 
+Package 35 adds five-view native inspection of all nine profiles, palm-derived
+finger flexion axes, grip/strike refinements, a reachable standing cello bow
+position and repaired solid violin/cello necks. Serialized NIF validation checks
+that the fingerboard touches the neck. Custom rigs and seated cello work remain.
+
 ## Remaining roadmap (next: seated stage layouts)
 
 1. **Seated stage layouts and conductor presentation.** Optional instrument-aware
@@ -251,7 +256,7 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 34 / native synth API 16 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
+package 35 / native synth API 16 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented; seated stage layouts are the next priority.
 

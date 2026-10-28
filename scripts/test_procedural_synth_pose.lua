@@ -23,4 +23,11 @@ for _,target in ipairs{v(0,30,-10),v(0,1000,0),v(0,0,0.001),v(30,0,0),v(0,-30,0)
     check((w-s):length()<=46,'unreachable target stretched skeleton')
 end
 check(pose.elbow(v(0,0,0),v(0,0,0),20,20,v(0,0,1))==nil,'degenerate target accepted')
+local flex=pose.bendAxis(v(1,0,0),v(0,0,-1))
+check(flex.y==1 and math.abs(flex:dot(v(1,0,0)))<1e-8,'finger flexion axis bends toward the palm rather than assuming bone-local Z')
+check(pose.bendAxis(v(1,0,0),v(1,0,0))==nil,'degenerate finger plane falls back safely')
+for _,pair in ipairs{{v(1,0,0),v(0,0,-1)},{v(-1,0,0),v(0,-1,0)},{v(0,1,0),v(0,0,-1)}} do
+    local axis=pose.bendAxis(pair[1],pair[2])
+    check(axis:cross(pair[1]):dot(pair[2])>0,'positive flexion turns either hand toward its palm')
+end
 print('PASS arm IK reach, lengths and degenerate targets; '..checks..' assertions')

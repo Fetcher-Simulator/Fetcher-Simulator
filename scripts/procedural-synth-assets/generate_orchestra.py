@@ -80,6 +80,17 @@ def rings(name,profile,mat,axis='Z',segments=24):
    faces.append((a,a+segments,b+segments,b) if axis=='Y' else (a,b,b+segments,a+segments))
  return mesh(name,vertices,faces,mat)
 
+def section_solid(name,sections,mat,scale=1):
+ # Closed solid extruded along Y. Section points wind counter-clockwise in X/Z.
+ count=len(sections[0][1]);vertices=[];faces=[]
+ for y,points in sections:
+  assert len(points)==count
+  vertices.extend((x*scale,y*scale,z*scale) for x,z in points)
+ for row in range(len(sections)-1):
+  for i in range(count):faces.append((row*count+i,(row+1)*count+i,(row+1)*count+(i+1)%count,row*count+(i+1)%count))
+ faces.append(tuple(range(count)));faces.append(tuple(reversed(range((len(sections)-1)*count,len(vertices)))))
+ return mesh(name,vertices,faces,mat)
+
 def bowed(scale=1):
  # One symmetric waist outline, layered into rib, arched top and back.
  half=[(0,-14),(4,-13),(7,-10),(7.5,-6),(5.2,-2),(3.8,0),(4.6,3),(6.5,6),(6,9),(3,12),(0,13)]
@@ -92,13 +103,18 @@ def bowed(scale=1):
   for i in range(n):faces.append((row*n+i,row*n+(i+1)%n,(row+1)*n+(i+1)%n,(row+1)*n+i))
  faces.append(tuple(reversed(range(n))));faces.append(tuple(3*n+i for i in range(n)))
  mesh('Arched maple body',vertices,faces,wood)
- box('Ebony fingerboard',(0,18*scale,3.1*scale),(2.5*scale,27*scale,1.1*scale),black)
- rod('Maple neck',(0,11*scale,0),(0,32*scale,0),1.2*scale,wood)
- sphere('Carved scroll',(0,34*scale,.4*scale),(1.7*scale,2.8*scale,1.8*scale),wood)
- for y in (29,32):rod('Tuning peg',(-3*scale,y*scale,0),(3*scale,y*scale,0),.35*scale,black)
+ def neck_section(width,bottom):return [(-width,bottom+.4),(-width*.6,bottom),(width*.6,bottom),(width,bottom+.4),(width,3),(-width,3)]
+ section_solid('Maple neck and heel',[(11.5,neck_section(1.25,-1)),(16,neck_section(1.15,.4)),(26,neck_section(.95,1.1))],wood,scale)
+ def board_section(width):return [(-width,3),(width,3),(width,3.55),(width*.5,3.85),(-width*.5,3.85),(-width,3.55)]
+ section_solid('Ebony fingerboard',[(6,board_section(1.3)),(25,board_section(1))],black,scale)
+ box('Nut',(0,24.8*scale,3.9*scale),(2.1*scale,.45*scale,.4*scale),black)
+ box('Maple pegbox',(0,26.5*scale,2.3*scale),(2.1*scale,3.5*scale,2*scale),wood)
+ box('Pegbox recess',(0,26.8*scale,3.32*scale),(1.15*scale,2.4*scale,.12*scale),black)
+ sphere('Carved scroll',(0,28.3*scale,2.3*scale),(1.6*scale,1.9*scale,1.6*scale),wood)
+ for y in (26,28):rod('Tuning peg',(-2.7*scale,y*scale,2.3*scale),(2.7*scale,y*scale,2.3*scale),.35*scale,black)
  box('Tailpiece',(0,-9*scale,3*scale),(2.3*scale,7*scale,.6*scale),black)
- box('Bridge',(0,0,3.4*scale),(4.3*scale,.65*scale,1.7*scale),ivory)
- for x in (-.75,-.25,.25,.75):rod('String',(x*scale,-11*scale,4.3*scale),(x*scale,32*scale,4.3*scale),.045*scale,string,6)
+ box('Bridge',(0,0,3.55*scale),(4.3*scale,.65*scale,2*scale),ivory)
+ for x in (-.75,-.25,.25,.75):line('String',[(x*scale,-11*scale,3.5*scale),(x*scale,0,4.6*scale),(x*.8*scale,24.8*scale,4.1*scale)],.045*scale,string)
  for sign in (-1,1):
   line('F hole',[(sign*x*scale,y*scale,2.9*scale) for x,y in [(3.9,-5),(3.3,-4),(3.3,-1),(4.3,2),(4,4)]],.2*scale,black)
  sphere('Chin rest',(-3*scale,-11*scale,3*scale),(2.5*scale,2.7*scale,.6*scale),black)
@@ -106,7 +122,7 @@ def bowed(scale=1):
 def violin():bowed()
 def cello():
  bowed(1.7)
- rod('Adjustable endpin',(0,-55,0),(0,-22,0),.35,silver)
+ rod('Adjustable standing endpin',(0,-80,0),(0,-22,0),.35,silver)
 def bow():
  line('Pernambuco bow',[(-23,0,0),(-12,0,1.1),(0,0,1.5),(13,0,1.1),(24,0,0)],.25,wood)
  box('Horsehair ribbon',(.5,0,-.25),(47,.35,.18),ivory)
@@ -187,6 +203,13 @@ def save(name,make):
   assert (args.output/texture.filename.replace('\\','/')).is_file(),'Unresolved original texture'
  stream.save(path)
  report[name]={'model':path.relative_to(args.output).as_posix(),'triangles':actual,'bounds':bounds,'bytes':path.stat().st_size}
+ if name in ('violin','cello'):
+  shapes=list(stream.objects_of_type(nif.NiTriShape))
+  board=next(o for o in shapes if o.name=='Ebony fingerboard')
+  neck=next(o for o in shapes if o.name=='Maple neck and heel')
+  gap=float(min(p[2] for p in board.data.vertices)-max(p[2] for p in neck.data.vertices))
+  assert abs(gap)<.0001,(name,'Serialized fingerboard floats above neck',gap)
+  report[name]['fingerboardToNeckGap']=gap
  bpy.ops.wm.save_as_mainfile(filepath=str(args.working/(name+'.blend')))
  # Small transparent in-game inventory icon, rendered from the exported geometry.
  scene=bpy.context.scene;scene.render.engine='BLENDER_EEVEE_NEXT';scene.render.resolution_x=128;scene.render.resolution_y=128;scene.render.resolution_percentage=100

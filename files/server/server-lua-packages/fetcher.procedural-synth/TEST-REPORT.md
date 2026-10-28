@@ -1,5 +1,42 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 27 follow-up: five-view grip and bowed mesh refinement (package 35)
+
+All nine physical instruments were inspected in the native client from front,
+left, right, rear and overhead while a nine-part score played. The final run
+used the saved production profiles without temporary tuning wrappers. A second
+client joined late and received all nine performers and props. Evidence:
+`build/studio-usability-qa/multiview-result.json` (`ok` and `cleanPackage` true),
+matching A/B/server logs and `build/studio-multiview-coverage.json` (45 views).
+
+Lute, violin, cello, trumpet and flute wrist/palm targets were adjusted against
+those views; hand-drum strike travel now leaves room for palm thickness. The
+flute's cross-body wrist is in front of the face. The cello is raised with a
+longer floor-reaching endpin so its standing bow target is reachable. Finger
+flexion derives axes from available unposed rig transforms, with a cached
+fallback for listed nodes lacking transforms. Fargoth exposes twelve computed
+axes in this test; thirty finger overrides are still applied. A separate reach
+diagnostic reports requested targets beyond the IK reach clamp.
+
+Violin and cello now have solid tapered neck/heel and convex fingerboard meshes,
+a shorter pegbox/scroll, nut and bridge-aligned strings. Their serialized NIFs
+report a zero fingerboard-to-neck gap. All 43 asset manifest entries pass size,
+SHA-256 and format checks. All 26 Lua suites pass, including 40 profile and 21
+pose assertions. Native code/API and protocol are unchanged by this slice.
+
+These are stylized standing poses checked on the standard humanoid test rig,
+not acceptance of every custom race/body rig or seated cello animation. The
+private camera-control harness initially raced a partial file write and used
+an independent require cache; atomic control-file replacement and wrapping the
+actual performer module fixed the harness before the clean final inspection.
+
+The matching production package, server modules and assets were installed into
+the existing port-25567 fixture with all 65 tracked database/profile/settings/key/
+config files unchanged during copying. No private QA scripts were installed.
+Installation evidence: `build/studio-multiview-local-install.json`. Public
+servers, release assets and workflows were not changed by this local test.
+
+
 ## October 27 follow-up: managed bands and participating leader (package 34)
 
 Automatic planning now groups ordinary drum lanes onto one drummer and identical

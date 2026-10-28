@@ -2,7 +2,7 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current source: package 34 / native synth API 16 / multiplayer protocol 27.
+Current source: package 35 / native synth API 16 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -10,6 +10,12 @@ Standing NPC staging and the first orchestral props are available. Next: seated
 layouts and conductor presentation. See [the roadmap](ROADMAP.md).
 
 ## Standing bands and orchestral instruments
+
+Package 35 refines the grips using front, left, right, rear and overhead native
+views of all nine instruments. Finger flexion follows the available rig's palm
+and finger axes; wrist offsets account for finger contact rather than placing
+the wrist on the playing surface. Violin/cello fingerboards now sit on a solid
+tapered neck. The standing cello remains provisional until seated rigs arrive.
 
 Import or create a song, open **Band**, then choose **Auto NPC band**. Drum lanes
 share one drummer. Melodic parts share a performer when their physical instrument,
