@@ -99,6 +99,10 @@ models use a closed tapered neck/heel supporting the ebony fingerboard; validati
 reads the exported NIF vertices and rejects a gap. The provisional standing cello
 uses a longer endpin paired with its raised performance profile. Regenerate the
 asset manifest after changing these meshes, preserving existing model credits.
+Use `--only trumpet` to regenerate one model/icon while retaining the other
+models' report entries. The trumpet's folded tubing occupies Y/Z, its valve row
+runs along Y, and its pistons press along Z. Export validation checks actual NIF
+geometry/transforms for these independent axes.
 
 `icons/fetcher/synth/keyboard.dds` is a 128 x 128 DXT5 icon with alpha and a
 complete mip chain. It is rendered from the actual combined keyboard/stand NIF;

@@ -12,6 +12,7 @@ from mathutils import Vector
 parser=argparse.ArgumentParser()
 parser.add_argument('--output',type=Path,required=True)
 parser.add_argument('--working',type=Path,required=True)
+parser.add_argument('--only',choices=['violin','cello','bow','trumpet','flute','clarinet','timpani','mallet'])
 args=parser.parse_args(sys.argv[sys.argv.index('--')+1:])
 args.output=args.output.resolve();args.working=args.working.resolve()
 models=args.output/'meshes/fetcher/orchestra';icons=args.output/'icons/fetcher/orchestra'
@@ -48,7 +49,7 @@ brass=material('Fetcher golden brass',(.62,.39,.08),80,.8)
 copper=material('Fetcher timpani copper',(.48,.19,.065),64,.65)
 ivory=material('Fetcher vellum and bow hair',(.81,.76,.61),12,.08)
 string=material('Fetcher steel strings',(.46,.47,.42),50,.55)
-report={}
+report=json.loads((args.output/'orchestra-report.json').read_text()) if args.only else {}
 
 def mesh(name,vertices,faces,mat):
  data=bpy.data.meshes.new(name);data.from_pydata(vertices,[],faces);data.update()
@@ -129,14 +130,16 @@ def bow():
  box('Ebony frog',(19,0,-.25),(4.3,1.1,1.3),black)
  rod('Silver adjuster',(22,0,-.2),(25,0,-.2),.4,silver)
 def trumpet():
- line('Folded brass tubing',[(0,0,0),(0,13,0),(-4,16,0),(-4,33,0),(4,33,0),(4,12,0),(8,12,0),(8,37,0),(0,39,0),(0,44,0)],.62,brass)
+ # Bell/leadpipe point +Y. Folded tubing lies in the upright Y/Z plane,
+ # with the valve row along Y and each piston pressing vertically along Z.
+ line('Folded brass tubing',[(0,0,0),(0,13,0),(0,16,4),(0,33,4),(0,33,-4),(0,12,-4),(0,12,-8),(0,37,-8),(0,39,0),(0,44,0)],.62,brass)
  rings('Flared trumpet bell',[(.65,39),(.9,44),(1.8,48),(3.5,51),(6.2,53),(6.5,53.2),(6.2,53.5),(3.25,51.2),(1.5,48.3),(.7,44.5)],brass,'Y')
  rod('Mouthpiece shank',(0,-2.5,0),(0,1,0),.55,silver)
  rod('Mouthpiece cup',(0,-3.5,0),(0,-2.5,0),1.15,silver,r2=.55)
- for x in (0,2.5,5):
-  rod('Valve casing',(x,23,-2),(x,23,3),.8,brass)
-  rod('Valve stem',(x,23,2.8),(x,23,4.3),.22,silver)
-  rod('Finger button',(x,23,4.3),(x,23,4.7),.85,ivory)
+ for y in (14.5,17,19.5):
+  rod('Valve casing',(0,y,-4),(0,y,4),.8,brass)
+  rod('Valve stem',(0,y,3.8),(0,y,5.4),.22,silver)
+  rod('Finger button',(0,y,5.4),(0,y,5.8),.85,ivory)
 def flute():
  rod('Silver flute',(-7,0,0),(43,0,0),.7,silver,16)
  sphere('Lip plate',(0,0,.3),(2,1.15,.3),silver)
@@ -210,6 +213,19 @@ def save(name,make):
   gap=float(min(p[2] for p in board.data.vertices)-max(p[2] for p in neck.data.vertices))
   assert abs(gap)<.0001,(name,'Serialized fingerboard floats above neck',gap)
   report[name]['fingerboardToNeckGap']=gap
+ if name=='trumpet':
+  shapes=list(stream.objects_of_type(nif.NiTriShape))
+  tubing=next(o for o in shapes if o.name=='Folded brass tubing').data.vertices
+  spans=[float(max(p[i] for p in tubing)-min(p[i] for p in tubing)) for i in range(3)]
+  assert spans[2]>8*spans[0],('Trumpet tubing must stand in Y/Z',spans)
+  casings=[[o.rotation @ p * o.scale + o.translation for p in o.data.vertices] for o in shapes if o.name.startswith('Valve casing')]
+  centers=[tuple(float(sum(p[i] for p in points)/len(points)) for i in range(3)) for points in casings]
+  assert len(centers)==3 and max(p[0] for p in centers)-min(p[0] for p in centers)<.001
+  assert 4.9<max(p[1] for p in centers)-min(p[1] for p in centers)<5.1
+  for points in casings:
+   span=[float(max(p[i] for p in points)-min(p[i] for p in points)) for i in range(3)]
+   assert span[2]>4*max(span[:2]),('Pistons must remain upright',span)
+  report[name]['tubingPlane']='YZ';report[name]['valveRowAxis']='Y';report[name]['pistonAxis']='Z'
  bpy.ops.wm.save_as_mainfile(filepath=str(args.working/(name+'.blend')))
  # Small transparent in-game inventory icon, rendered from the exported geometry.
  scene=bpy.context.scene;scene.render.engine='BLENDER_EEVEE_NEXT';scene.render.resolution_x=128;scene.render.resolution_y=128;scene.render.resolution_percentage=100
@@ -224,7 +240,8 @@ def save(name,make):
  png=args.working/(name+'.png');scene.render.filepath=str(png);bpy.ops.render.render(write_still=True)
  subprocess.run([magick,str(png),'-define','dds:compression=dxt5','-define','dds:mipmaps=7',str(icons/(name+'.dds'))],check=True)
 
-for name,make in [('violin',violin),('cello',cello),('bow',bow),('trumpet',trumpet),('flute',flute),('clarinet',clarinet),('timpani',timpani),('mallet',mallet)]:save(name,make)
+for name,make in [('violin',violin),('cello',cello),('bow',bow),('trumpet',trumpet),('flute',flute),('clarinet',clarinet),('timpani',timpani),('mallet',mallet)]:
+ if not args.only or args.only==name:save(name,make)
 (args.output/'orchestra-report.json').write_bytes((json.dumps(report,indent=2)+'\n').encode('utf-8'))
 notice='''Original Fetcher Studio orchestral props
 

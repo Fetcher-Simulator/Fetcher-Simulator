@@ -1,5 +1,36 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 27 follow-up: upright trumpet and corrected support hand (package 36)
+
+The previous visual pass missed two independent mesh errors reported by the
+user: folded tubing in the horizontal X/Y plane and a valve row running across
+the horn. Tubing now occupies Y/Z, the three valves run longitudinally along Y,
+and their pistons remain upright along Z. Export validation checks actual NIF
+vertices/transforms for all three axes. The trumpet icon/report and full asset
+manifest were regenerated; the generator can now rebuild only one instrument.
+
+Hand targets and palm frames follow that layout: the left palm faces inward
+toward the casings, fingers wrapping upward, and the right hand crosses over
+the buttons with a lighter valve press. The first updated grip exceeded the
+right arm's reach by four units; moving the valve block closer and correcting
+the wrist/finger offset removed the clamp. The final native run reports zero
+reach clamp error. The user's follow-up caught an upward-facing support palm;
+this was corrected before final verification.
+
+Native checks covered front, both sides, rear, overhead and two close oblique
+views, plus the stopped holding pose. The clean package used no tuning wrappers.
+A late second client received all nine performers/props. Evidence is retained
+in `build/studio-usability-qa/trumpet-result.json` and trumpet A/B/server logs.
+All 26 Lua suites pass, including 43 instrument-profile assertions; all 43 asset
+manifest entries pass size/hash/format validation. As with the preceding slice,
+this checks the standard humanoid test rig, not every custom body mesh.
+
+The production package/assets were installed into the established 25567 fixture
+with all 65 tracked user data/settings/config/key files unchanged during copying.
+No private QA code was installed. See `build/studio-trumpet-local-install.json`.
+Public servers, release assets and workflows remain unchanged.
+
+
 ## October 27 follow-up: five-view grip and bowed mesh refinement (package 35)
 
 All nine physical instruments were inspected in the native client from front,

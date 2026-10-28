@@ -203,6 +203,8 @@ Package 35 adds five-view native inspection of all nine profiles, palm-derived
 finger flexion axes, grip/strike refinements, a reachable standing cello bow
 position and repaired solid violin/cello necks. Serialized NIF validation checks
 that the fingerboard touches the neck. Custom rigs and seated cello work remain.
+Package 36 corrects the trumpet's horizontal tubing plane and transverse valve
+row, with grips and valve presses adjusted to the upright longitudinal layout.
 
 ## Remaining roadmap (next: seated stage layouts)
 
@@ -256,7 +258,7 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 35 / native synth API 16 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
+package 36 / native synth API 16 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented; seated stage layouts are the next priority.
 

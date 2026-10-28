@@ -46,7 +46,7 @@
     {
       "path": "icons/fetcher/orchestra/trumpet.dds",
       "bytes": 22000,
-      "sha256": "d3bb49b9acc82d112f1d4ac4115ba3b7f4b5814dcbfd53d02589da7402a1311c"
+      "sha256": "6bc6a6f8bd6ea4ec88eae63e0c7ac8b1d8801240eb547bed6b3ae647c7f1d62e"
     },
     {
       "path": "icons/fetcher/orchestra/violin.dds",
@@ -96,7 +96,7 @@
     {
       "path": "meshes/fetcher/orchestra/trumpet.nif",
       "bytes": 60072,
-      "sha256": "75159ce5c6fa07033d4045251d8b448177341f765979489a7d88f02fa471fbdb"
+      "sha256": "fcdd067cf21095ebb70dc8473ff74181c959e7407f24ab6b823ac367320e2896"
     },
     {
       "path": "meshes/fetcher/orchestra/violin.nif",
@@ -120,8 +120,8 @@
     },
     {
       "path": "orchestra-report.json",
-      "bytes": 2425,
-      "sha256": "7ca078b45624e638f9a45c354aa2a7f85d3205f07f4ef28f7b8a4d1b7c220808"
+      "bytes": 2498,
+      "sha256": "8dbc9db4f6072f1fe8da161fcc1dfc770566b79733e483982493cf7f730936cf"
     },
     {
       "path": "provenance.json",

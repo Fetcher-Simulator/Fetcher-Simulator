@@ -23,7 +23,7 @@ M.cello={kind='cello',anchor='feet',model=path..'cello.nif',position=v(0,17,80),
     targets={L=v(-6,27,111),R=v(19,18.75,88)},centerNote=48,
     extras={{key='synth_bow',model=path..'bow.nif',position=v(0,6,8),rotation=T.rotateZ(math.pi),bow=true}}}
 M.trumpet={kind='trumpet',model=path..'trumpet.nif',position=v(0,11,13),rotation=T.identity,
-    targets={L=v(-4,23,10),R=v(4,26,17)}}
+    targets={L=v(-5,28,10),R=v(10,27,20.5)}}
 M.flute={kind='flute',model=path..'flute.nif',position=v(0,8,13),rotation=T.identity,
     targets={L=v(6,11,15),R=v(28,1.5,14)}}
 M.clarinet={kind='clarinet',model=path..'clarinet.nif',position=v(0,8,13),rotation=T.identity,
@@ -62,6 +62,7 @@ function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel)
         end
     elseif profile.kind=='trumpet' or profile.kind=='flute' or profile.kind=='clarinet' then
         curl=pressed and .32 or .2
+        if profile.kind=='trumpet' and side=='R' then curl=.12 end
     end
     return point,wrist,curl
 end
@@ -79,7 +80,10 @@ function M.handDirections(profile,side)
     elseif profile.kind=='cello' then
         if side=='L' then return v(1,0,-.15),v(0,-1,0) end
         return v(0,1,0),v(0,0,-1)
-    elseif profile.kind=='trumpet' and side=='L' then return v(0,1,0),v(0,0,1) end
+    elseif profile.kind=='trumpet' then
+        if side=='L' then return v(0,0,1),v(1,0,0) end
+        return v(-1,0,0),v(0,0,-1)
+    end
     return v(0,1,0),v(0,0,-1)
 end
 function M.fingerCurl(profile,side,name,base,pitch,pressed)
@@ -87,7 +91,7 @@ function M.fingerCurl(profile,side,name,base,pitch,pressed)
     local finger=tonumber(name:lower():match('finger(%d)')) or 0
     if profile.kind=='trumpet' and side=='R' and finger>0 then
         local valves={0,7,5,6,3,1,2,0,6,3,1,2};local bit=2^math.min(2,finger-1)
-        return math.floor(valves[math.floor(pitch)%12+1]/bit)%2==1 and .65 or .2
+        return math.floor(valves[math.floor(pitch)%12+1]/bit)%2==1 and .32 or .12
     elseif profile.kind=='clarinet' and finger>0 then
         return (math.floor(pitch)+finger*2+(side=='L' and 0 or 3))%12<7 and .35 or .1
     elseif profile.kind=='flute' and finger>0 then
