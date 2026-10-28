@@ -14,6 +14,8 @@ parser.add_argument('--output',type=Path,required=True)
 parser.add_argument('--working',type=Path,required=True)
 parser.add_argument('--only',choices=['violin','cello','bow','trumpet','flute','clarinet','timpani','mallet'])
 args=parser.parse_args(sys.argv[sys.argv.index('--')+1:])
+if (args.output/'sketchfab-models.json').exists():
+ raise RuntimeError('Legacy generator cannot overwrite the licensed Sketchfab defaults. Use a separate historical output folder.')
 args.output=args.output.resolve();args.working=args.working.resolve()
 models=args.output/'meshes/fetcher/orchestra';icons=args.output/'icons/fetcher/orchestra'
 textures=args.output/'textures/fetcher/orchestra'

@@ -1,24 +1,46 @@
 # Fetcher Studio instrument assets
 
-## Original orchestral props
+## Credited orchestral and stage models (package 40)
 
-`generate_orchestra.py` creates original low-poly violin, cello, bow, trumpet,
-flute, clarinet, timpani and mallet meshes, small generated material textures,
-and transparent inventory icons. They use no downloaded or game-owned geometry
-or textures. Credit/license details are in `ORCHESTRA-ASSETS.txt`; the existing
-Sketchfab keyboard/stand credits remain in the same bundle.
+The runtime bundle replaces the generated violin/bow, cello, trumpet, flute,
+clarinet, timpani and beater with CC BY 4.0 Sketchfab models. A credited chair
+and music stand support seated keyboard/cello NPCs. The existing credited
+Yamaha/X-stand and vanilla lute/drum remain. `sketchfab-sources.json` pins the
+nine source identities and manually downloaded GLB filenames; the runtime
+`sketchfab-models.json` records creators, source/license URLs, source hashes and
+adaptations. Preserve `ATTRIBUTION.txt`, `ORCHESTRA-ASSETS.txt` and the CC license
+when redistributing. Future third-party models should use documented CC0 or CC BY
+sources, with provenance/credits recorded before conversion.
+
+Requires Python, Blender 4.5 with `io_scene_mw`, and ImageMagick. Keep source GLBs,
+official API metadata and working files outside the repository. The preparation
+step verifies official downloadable/CC BY metadata and hashes local downloads;
+it does not authenticate or download through a user's browser.
 
 ```powershell
-& 'C:/Program Files/Blender Foundation/Blender 4.5/blender.exe' --background --factory-startup --disable-autoexec --python-exit-code 1 --python scripts/procedural-synth-assets/generate_orchestra.py -- --output files/server/optional-assets/fetcher.procedural-synth --working build/orchestra-assets
+$source = 'C:/serena_workspaces_directory/synth-assets/sketchfab-orchestra-2026-10-28'
+$assets = "$PWD/files/server/optional-assets/fetcher.procedural-synth"
+python scripts/procedural-synth-assets/prepare_sketchfab_sources.py --downloads 'C:/Users/REPTILE/Downloads' --output $source
+& 'C:/Program Files/Blender Foundation/Blender 4.5/blender.exe' --background --factory-startup --disable-autoexec --python-exit-code 1 --python scripts/procedural-synth-assets/convert_sketchfab_orchestra.py -- --source $source --output $assets --working "$source/converted"
+& 'C:/Program Files/Blender Foundation/Blender 4.5/blender.exe' --background --factory-startup --disable-autoexec --python-exit-code 1 --python scripts/procedural-synth-assets/make_seated_keyboard.py -- $assets
+python scripts/procedural-synth-assets/finalize_sketchfab_bundle.py --assets $assets
+& 'C:/Program Files/Blender Foundation/Blender 4.5/blender.exe' --background --factory-startup --disable-autoexec --python-exit-code 1 --python scripts/procedural-synth-assets/validate_sketchfab_bundle.py -- $assets
 ```
 
-Requires Blender 4.5 with `io_scene_mw` and ImageMagick. Export verifies triangle
-counts and resolves serialized relative texture paths. The generator records
-bounds/counts in `orchestra-report.json`, preserves existing notices and refreshes
-the whole bundle's SHA-256 manifest. Native in-game inspection verifies exported
-geometry/materials and hand alignment; source renders alone are insufficient.
-Props are static meshes moved by the Lua performance profiles. The cello's
-standing stance is provisional until seated layouts are implemented.
+Conversion retains UVs, adapts PBR materials to legacy NIF, limits textures to
+1024 pixels with DDS mipmaps, and renders inventory icons. The violin/bow split
+retains every source triangle exactly once. The percussion beater is a wooden
+drumstick, not a felt-headed mallet. `--only violin` can reconvert one source;
+always finalize and validate afterward. The seated Yamaha lowers the stand by
+24 units while retaining key/body thickness and all 12,189 visual triangles.
+It omits collision boxes because it is a visual attachment.
+
+Validation reads actual NIF/DDS bytes, checks source-report triangle counts,
+relative resolved texture paths, finite vertices, mipmaps, credits and manifest
+hashes. Native in-game views are still required for material/grip acceptance.
+`generate_orchestra.py` is retained as a historical generator; it refuses to
+overwrite a bundle containing the new Sketchfab registry. Use a separate output
+directory for historical experiments.
 
 ## Casio keyboard asset conversion
 
@@ -94,15 +116,8 @@ SHA-256 manifest and writes an assets-only ZIP. Source downloads are not bundled
 
 ## Inventory icon
 
-`generate_orchestra.py` creates the original orchestral models and icons. Bowed
-models use a closed tapered neck/heel supporting the ebony fingerboard; validation
-reads the exported NIF vertices and rejects a gap. The provisional standing cello
-uses a longer endpin paired with its raised performance profile. Regenerate the
-asset manifest after changing these meshes, preserving existing model credits.
-Use `--only trumpet` to regenerate one model/icon while retaining the other
-models' report entries. The trumpet's folded tubing occupies Y/Z, its valve row
-runs along Y, and its pistons press along Z. Export validation checks actual NIF
-geometry/transforms for these independent axes.
+The Sketchfab conversion renders orchestral/stage icons from converted geometry.
+Use the pipeline above when replacing those files and refresh the manifest.
 
 `icons/fetcher/synth/keyboard.dds` is a 128 x 128 DXT5 icon with alpha and a
 complete mip chain. It is rendered from the actual combined keyboard/stand NIF;
@@ -114,5 +129,6 @@ $assets = "$PWD/files/server/optional-assets/fetcher.procedural-synth"
 magick build/keyboard-inventory-icon.png -resize 128x128 -alpha on -strip -define dds:compression=dxt5 -define dds:mipmaps=7 "$assets/icons/fetcher/synth/keyboard.dds"
 ```
 
-Re-run `package_stage.py` after changing bundle bytes to regenerate the manifest
-and asset ZIP. Setup verifies the manifest before installing either model or icon.
+After changing the combined bundle, run `finalize_sketchfab_bundle.py` and its
+validator. The older `package_stage.py` is specific to the original Yamaha/stand
+conversion; preserve the new registry/models when packaging a complete bundle.

@@ -1,0 +1,11 @@
+{
+  "violin": {"uid":"06f60e7f2ccb48d1a6dbf15fbb1cebfb","file":"violin.glb"},
+  "cello": {"uid":"ece053225f3a42f1939528b9c9014775","file":"cello.glb"},
+  "trumpet": {"uid":"aee8229c97554ed9b4d2d0d838c6db0b","file":"trumpet.glb"},
+  "flute": {"uid":"08cb4375f9924366b725c439fd6163a8","file":"flute.glb"},
+  "clarinet": {"uid":"d61bb4e061334edeab13bbcb0e192cf4","file":"clarinete.glb"},
+  "timpani": {"uid":"9cf701a0db76411294266c5a3665458b","file":"timpani_drum.glb"},
+  "music-stand": {"uid":"fc4c522152594bd8a7f18ad3dc8997f5","file":"music_stand.glb"},
+  "chair": {"uid":"f899f1d606094afdb75bd5255d5a5194","file":"wooden_chair_low_poly.glb"},
+  "mallet": {"uid":"610a13ddadf14d2cb52111d4f0ca93fa","file":"drumsticks.glb"}
+}

@@ -1,0 +1,182 @@
+{
+  "violin": {
+    "source": "violin",
+    "model": "meshes/fetcher/orchestra/violin.nif",
+    "triangles": 13864,
+    "bounds": [
+      [
+        -8.009971618652344,
+        -14.0,
+        -3.4874463081359863
+      ],
+      [
+        7.9615678787231445,
+        30.200000762939453,
+        4.010133266448975
+      ]
+    ],
+    "sha256": "7a0af25734b12c9222b6ed8d6ed70183f2e05e8844b826786102fb3df35f191a"
+  },
+  "bow": {
+    "source": "violin",
+    "model": "meshes/fetcher/orchestra/bow.nif",
+    "triangles": 750,
+    "bounds": [
+      [
+        -24.579042434692383,
+        -1.0483136177062988,
+        -0.25870800018310547
+      ],
+      [
+        24.680234909057617,
+        0.7073755264282227,
+        0.25870776176452637
+      ]
+    ],
+    "sha256": "3e53e0231b7ec9401690a073705942e336701b28726ea96f48e5e15d88148fdb"
+  },
+  "cello": {
+    "source": "cello",
+    "model": "meshes/fetcher/orchestra/cello.nif",
+    "triangles": 22761,
+    "bounds": [
+      [
+        -22.289554595947266,
+        -80.0,
+        -12.160623550415039
+      ],
+      [
+        22.289554595947266,
+        51.339996337890625,
+        12.160615921020508
+      ]
+    ],
+    "sha256": "5c479f7dea1bb5a49cb8a8a0e48e2c762bfcb773523125a2a3c9e358dca545f0"
+  },
+  "trumpet": {
+    "source": "trumpet",
+    "model": "meshes/fetcher/orchestra/trumpet.nif",
+    "triangles": 25785,
+    "bounds": [
+      [
+        -8.26107406616211,
+        1.9073486328125e-06,
+        -11.888134002685547
+      ],
+      [
+        4.44388484954834,
+        57.00000762939453,
+        6.172932147979736
+      ]
+    ],
+    "sha256": "844573af6899b6395a3d6f649ad699f42dcb267b81c5b4bab4bd49af33e1c01d"
+  },
+  "flute": {
+    "source": "flute",
+    "model": "meshes/fetcher/orchestra/flute.nif",
+    "triangles": 43756,
+    "bounds": [
+      [
+        -7.0,
+        -1.7662104368209839,
+        -1.0482317209243774
+      ],
+      [
+        53.999996185302734,
+        1.7662041187286377,
+        1.6208800077438354
+      ]
+    ],
+    "sha256": "8d502e14b1517a6c57692d51bffba0ee603b6505866bec269a9b9fa67cd77fa9"
+  },
+  "clarinet": {
+    "source": "clarinet",
+    "model": "meshes/fetcher/orchestra/clarinet.nif",
+    "triangles": 10709,
+    "bounds": [
+      [
+        -2.7979583740234375,
+        -0.3980827331542969,
+        -49.52655029296875
+      ],
+      [
+        2.7979583740234375,
+        12.688129425048828,
+        0.133544921875
+      ]
+    ],
+    "sha256": "f4a7e3032a4093ac78ee91155d44c14768e66984f076bc07d0c2f9bfe59cf571"
+  },
+  "timpani": {
+    "source": "timpani",
+    "model": "meshes/fetcher/orchestra/timpani.nif",
+    "triangles": 1744,
+    "bounds": [
+      [
+        -33.94532012939453,
+        -40.94139099121094,
+        0.0
+      ],
+      [
+        33.945316314697266,
+        40.94139099121094,
+        80.0
+      ]
+    ],
+    "sha256": "f8c47d21b72288e605eb23b39b47b4a9f5230d5e0b5b895e72aa2a8dc9c7ad26"
+  },
+  "music-stand": {
+    "source": "music-stand",
+    "model": "meshes/fetcher/orchestra/music-stand.nif",
+    "triangles": 1616,
+    "bounds": [
+      [
+        -21.059064865112305,
+        -9.073862075805664,
+        -1.1920928955078125e-07
+      ],
+      [
+        21.059064865112305,
+        9.073862075805664,
+        82.0
+      ]
+    ],
+    "sha256": "efec5192e5f4d4a934d5719b80d054d6ab67ff5ad071af42a61e0939a58add2a"
+  },
+  "chair": {
+    "source": "chair",
+    "model": "meshes/fetcher/orchestra/chair.nif",
+    "triangles": 996,
+    "bounds": [
+      [
+        -21.115076065063477,
+        -23.085002899169922,
+        0.0
+      ],
+      [
+        21.11507225036621,
+        23.085002899169922,
+        90.0
+      ]
+    ],
+    "sha256": "541169e5e62d4829bd39b4a1da1ed6d0cb1de5531d2ffe665e6173beb37ba00d"
+  },
+  "mallet": {
+    "source": "mallet",
+    "model": "meshes/fetcher/orchestra/mallet.nif",
+    "triangles": 1728,
+    "bounds": [
+      [
+        -0.38346239924430847,
+        -3.630221366882324,
+        -5.269962310791016
+      ],
+      [
+        0.3834628164768219,
+        19.65322494506836,
+        1.0925064086914062
+      ]
+    ],
+    "sha256": "992e7656325d00ca16c05de8072ae0645b38890b9d22e638575da2012657b9d7"
+  }
+}

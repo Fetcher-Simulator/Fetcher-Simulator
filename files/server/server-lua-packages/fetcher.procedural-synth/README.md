@@ -2,12 +2,39 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current source: package 39 / native synth API 17 / multiplayer protocol 27.
+Current source: package 40 / native synth API 17 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
-Standing NPC staging and the first orchestral props are available. Next: seated
-layouts and conductor presentation. See [the roadmap](ROADMAP.md).
+Standing grids and seated keyboard/cello NPCs are available, with credited CC BY
+orchestral and stage models. Next: section layouts and conductor presentation.
+See [the roadmap](ROADMAP.md).
+
+## Seated NPC staging and model credits
+
+On **Band**, choose **Layout: Seated**, then **Auto NPC band** or **Restage grid**.
+Owned keyboard and cello NPCs receive a chair, music stand and separate seated
+pose; other instruments and players remain standing. The leader's movement does
+not move the stage. Switch to Standing and restage to remove the seated helpers.
+**Remove owned NPCs** and Finish/session release clean up managed performers and
+their temporary visual props. Stop retains the formation.
+
+The local preflight checks floor height, slope, footprint, headroom and walls in
+bounded batches. The server chooses grid X/Y/yaw and checks supplied floor heights
+against the captured leader position. These are client-assisted placement checks,
+not an independent server collision simulation. Chairs/stands are expiring visual
+attachments with no furniture collision or inventory entries. Unsupported leg
+rigs fall back to standing; custom body proportions still need calibration.
+
+Pose tuner has independent **keyboard_seated** and **cello_seated** profiles.
+Standing calibration exports remain in their existing reference frame. Replacement
+model dimensions differ, so old personal tuning may need Reset and refinement.
+The timpani currently uses wooden sticks rather than felt-headed mallets.
+
+All replacement orchestral models and new stage furniture have CC BY 4.0 credits,
+source links and download hashes in the asset bundle's `sketchfab-models.json`
+and `ATTRIBUTION.txt`. The existing credited Yamaha/stand and vanilla lute/drum
+are retained. Conversion instructions: `scripts/procedural-synth-assets/README.md`.
 
 ## Band listening and room acoustics
 
@@ -84,15 +111,12 @@ inventory or another client's poses. No exported code is loaded automatically.
 
 ## Standing bands and orchestral instruments
 
-Package 35 refines the grips using front, left, right, rear and overhead native
-views of all nine instruments. Finger flexion follows the available rig's palm
-and finger axes; wrist offsets account for finger contact rather than placing
-the wrist on the playing surface. Violin/cello fingerboards now sit on a solid
-tapered neck. The standing cello remains provisional until seated rigs arrive.
-Package 36 corrects the trumpet tubing to an upright plane, turns the valve row
-along the horn, and realigns the support/valve hands. Mesh validation checks the
-serialized tubing and valve axes independently so one rotation cannot hide the
-other error.
+The nine instrument profiles use local arm IK and note-driven wrist/finger
+motion. Finger flexion follows the available rig's palm and finger axes.
+Package 40 replaces the original generated orchestral geometry with credited
+Sketchfab models and keeps the existing calibration frame. Native front, side
+and overhead inspection checks model orientation and starting grips; the live
+tuner supports further refinements for individual rigs.
 
 Import or create a song, open **Band**, then choose **Auto NPC band**. Drum lanes
 share one drummer. Melodic parts share a performer when their physical instrument,
@@ -100,8 +124,8 @@ sound parameters, preset, role and program-following setting match. Tracks remai
 separate: notes, patches, samples, automation and mixer controls are preserved.
 The server hires or reuses the required owned NPCs, up to 32, places a grid ahead
 of the leader, and turns each performer toward the captured leader position. Use clear,
-level ground with enough room: the grid does not yet detect floors or obstacles.
-NPCs remain standing when playback stops. Walking away does not move the stage;
+level ground with enough room: floor and obstruction preflight rejects unsafe
+footprints. NPCs retain their chosen posture when playback stops. Walking away does not move the stage;
 **Restage grid** explicitly moves the bound formation. Members and tracks have
 separate eight-row pages.
 

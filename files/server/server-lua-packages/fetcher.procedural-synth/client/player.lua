@@ -4,6 +4,9 @@ local nearby = require('openmw.nearby')
 local self = require('openmw.self')
 local ui = require('openmw.ui')
 local input = require('openmw.input')
+local util=require('openmw.util')
+local stageLayout=require('scripts.multiplayer.fetcher.procedural-synth.shared.band-layout')
+local StagePreflight=require('scripts.multiplayer.fetcher.procedural-synth.client.stage-preflight')(nearby,util,stageLayout)
 local supported, synth = pcall(require,'openmw.synth')
 if not supported or (synth.version and synth.version<17) then
     return {eventHandlers={Synth_Activate=function()
@@ -310,7 +313,32 @@ makeWorkstation=function(i)
         refreshBand=function() i.bandSignature=nil;i.workstation:configureBand();send('roster') end,
         refreshTargets=function() send('roster') end,
         hire=function(slot) send('hire',{slot=slot}) end,
-        setupBand=function(requestId,restage,project,clear) send(clear and 'clearBand' or restage and 'stageBand' or 'autoBand',{requestId=requestId,project=project}) end,
+        setupBand=function(requestId,restage,project,clear)
+            local document=i.workstation.project
+            local message={requestId=requestId,project=project,stageLayout=document.stageLayout or 'standing'}
+            local op=clear and 'clearBand' or restage and 'stageBand' or 'autoBand'
+            if clear then send(op,message);return end
+            local position=self.position;local _,yaw=self.rotation:getAnglesXZ()
+            local anchor={x=position.x,y=position.y,z=position.z,rz=yaw}
+            if not restage and document.leaderPlays~=false then
+                local types=require('openmw.types')
+                local record=i.source.recordId=='fetcher_procedural_keyboard_v1' and types.Miscellaneous.record(i.source) or types.Activator.record(i.source)
+                if record.model:lower():gsub('\\','/'):find('keyboard%-stand%.nif$') then
+                    local p=i.source.position;local _,rz=i.source.rotation:getAnglesXZ()
+                    anchor={x=p.x-math.sin(rz)*50,y=p.y-math.cos(rz)*50,z=p.z,rz=rz}
+                end
+            end
+            local count=#stageLayout.plan(document)
+            if restage then local seen={};count=0;for _,m in ipairs(document.band) do local t=m.target
+                if t and t.kind=='npc' and not seen[t.mpNum] then seen[t.mpNum]=true;count=count+1 end
+            end end
+            i.stageCheck=StagePreflight.new(anchor,count,function(ground,error)
+                i.stageCheck=nil
+                local w=i.workstation;if not w.bandSetup or w.bandSetup.requestId~=requestId then return end
+                if error then w:receiveBandSetup{requestId=requestId,error=error};return end
+                message.ground=ground;send(op,message)
+            end)
+        end,
         dismiss=function(slot) send('dismiss',{slot=slot}) end,
         invite=function(slot) send('invite',{slot=slot}) end,
         instruments=function()
@@ -656,6 +684,7 @@ local function frame(dt)
         if next(instances)==nil then mp.sendToServer('Synth_Request',{version=1,op='sync'}) end
     end
     actors:frame(instances,dt,now)
+    for _,i in pairs(instances) do if i.stageCheck then i.stageCheck:frame() end end
     listening:frame(instances,session,performerState,transport,now,self.cell)
     if listeningPanel then listeningPanel:frame(now) end
     if tuner then tuner:frame(now) end

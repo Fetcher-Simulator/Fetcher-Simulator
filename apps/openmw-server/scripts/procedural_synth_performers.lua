@@ -82,14 +82,15 @@ function P:resolve(s,slot,t)
         if self.held[p.guid]~=t.instrument or not inventory(p)[format.instruments[t.instrument]] then return 'Choose '..t.instrument..' [F9]' end
         return 'Ready',{kind='player',guid=p.guid,characterId=p.characterId,name=p.name,instrument=t.instrument},'player:'..t.characterId
     elseif t.kind=='npc' then
-        local registry=self:registry(s.characterId);local owned=false
-        for _,entry in ipairs(registry and registry.entries or {}) do if entry.refId==t.refId and entry.mpNum==t.mpNum then owned=true end end
+        local registry=self:registry(s.characterId);local owned
+        for _,entry in ipairs(registry and registry.entries or {}) do if entry.refId==t.refId and entry.mpNum==t.mpNum then owned=entry end end
         if not owned then return 'Not your performer' end
         local actor=mp.getActorByMpNum(t.mpNum)
         if not actor or actor.refId~=t.refId then return 'Missing' end
         if actor.isDead then return 'Dead' end
         if not nearby(actor,s) then return 'Out of range' end
-        return 'Ready',{kind='npc',mpNum=t.mpNum,refId=t.refId,name='Studio performer',instrument=t.instrument},'npc:'..t.mpNum
+        local seated=owned.posture=='seated' and (t.instrument=='keyboard' or t.instrument=='cello')
+        return 'Ready',{kind='npc',mpNum=t.mpNum,refId=t.refId,name='Studio performer',instrument=t.instrument,posture=seated and 'seated' or nil},'npc:'..t.mpNum
     end
 end
 function P:roster(s)

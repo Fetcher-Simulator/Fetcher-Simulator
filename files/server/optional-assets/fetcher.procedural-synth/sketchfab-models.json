@@ -1,0 +1,101 @@
+[
+  {
+    "id": "cello",
+    "title": "Cello",
+    "author": "VM-Models",
+    "authorUrl": "https://sketchfab.com/vm-models",
+    "source": "https://sketchfab.com/3d-models/cello-ece053225f3a42f1939528b9c9014775",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadSha256": "753a72c5bda852962194d3edefbd80d04d9703ab8705dd8e4c70670787b16520",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+  },
+  {
+    "id": "trumpet",
+    "title": "Trumpet",
+    "author": "Adrian Christians",
+    "authorUrl": "https://sketchfab.com/Aedrian1",
+    "source": "https://sketchfab.com/3d-models/trumpet-aee8229c97554ed9b4d2d0d838c6db0b",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadSha256": "705aad90c3c37af15e61516369bfcd9903e8398a7fbb510a5296cffd4f2161c5",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+  },
+  {
+    "id": "flute",
+    "title": "Flute",
+    "author": "Kroko.blend",
+    "authorUrl": "https://sketchfab.com/jaromir.ternavskiy",
+    "source": "https://sketchfab.com/3d-models/flute-08cb4375f9924366b725c439fd6163a8",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadSha256": "d8d5a24fc428ab725f925e463e69d961e98df69c44ed01955aea5a69fccba5aa",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+  },
+  {
+    "id": "clarinet",
+    "title": "Clarinete",
+    "author": "e-sfera",
+    "authorUrl": "https://sketchfab.com/skolskaknjiga",
+    "source": "https://sketchfab.com/3d-models/clarinete-d61bb4e061334edeab13bbcb0e192cf4",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadSha256": "234ad786ddd61aea7dadd41dd6557c361b1c18ddb1e730fae765397dec083348",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+  },
+  {
+    "id": "timpani",
+    "title": "Timpani Drum",
+    "author": "taw7904",
+    "authorUrl": "https://sketchfab.com/taw7904",
+    "source": "https://sketchfab.com/3d-models/timpani-drum-9cf701a0db76411294266c5a3665458b",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadSha256": "db51520f35c598e7ec4a1bfa74da5021361753d8c7ba05057a923c5b903ae962",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+  },
+  {
+    "id": "music-stand",
+    "title": "Music Stand",
+    "author": "Kroko.blend",
+    "authorUrl": "https://sketchfab.com/jaromir.ternavskiy",
+    "source": "https://sketchfab.com/3d-models/music-stand-fc4c522152594bd8a7f18ad3dc8997f5",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadSha256": "641455cd30c90b6943ba0b528bb1224c0eaf9f3b9a03f1b7f478ba410000494a",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+  },
+  {
+    "id": "chair",
+    "title": "Wooden Chair (Low Poly)",
+    "author": "Berk Gedik",
+    "authorUrl": "https://sketchfab.com/berkgedik",
+    "source": "https://sketchfab.com/3d-models/wooden-chair-low-poly-f899f1d606094afdb75bd5255d5a5194",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadSha256": "48f5d677a245ff9ea3d81b863e137e414b64bcffd5235388818a6b41b49f09ca",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+  },
+  {
+    "id": "mallet",
+    "title": "Drumsticks",
+    "author": "Kamil.Fujarski",
+    "authorUrl": "https://sketchfab.com/Kamil.Fujarski",
+    "source": "https://sketchfab.com/3d-models/drumsticks-610a13ddadf14d2cb52111d4f0ca93fa",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadSha256": "b7538b547e9db0a700aa8994d33f786ada81f5ac7c0a4542b96150d81cd4d04e",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+  },
+  {
+    "id": "violin",
+    "title": "Violin",
+    "author": "RafalTlalka",
+    "authorUrl": "https://sketchfab.com/RafalTlalka",
+    "source": "https://sketchfab.com/3d-models/violin-06f60e7f2ccb48d1a6dbf15fbb1cebfb",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadSha256": "3185d27aa2ac693cf834b6dfa88385e6567b99e93bf2e7d197bdfaa8cd6297f0",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+  }
+]

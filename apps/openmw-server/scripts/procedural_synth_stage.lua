@@ -37,9 +37,17 @@ function S:finish(job,error,sessions)
     emit(job.owner,{op='bandSetup',id=job.id,epoch=job.epoch,requestId=job.requestId,
         targets=not error and job.targets or nil,routes=not error and job.routes or nil,removed=removed,retained=retained,
         restage=job.restage,clear=job.clear,error=error})
-    local s=job.session;if s and not error then performers:roster(s) end
+    local s=job.session
+    if s and not error then
+        local registry=performers:registry(job.character)
+        for _,entry in ipairs(registry and registry.entries or {}) do
+            if job.used[entry.mpNum] then entry.posture=job.layout=='seated' and 'seated' or nil end
+        end
+        if registry then mp.setCharacterStorageForCharacter(job.character,'ProceduralSynth','performers',registry) end
+        performers:roster(s)
+    end
 end
-function S:begin(s,project,requestId,sessions,restage,clear)
+function S:begin(s,project,requestId,sessions,restage,clear,ground)
     local function reject(message)
         emit(s.owner,{op='bandSetup',id=s.id,epoch=s.epoch,requestId=requestId,restage=restage,clear=clear,error=message});return false
     end
@@ -60,8 +68,8 @@ function S:begin(s,project,requestId,sessions,restage,clear)
         if not p then return reject('The leader keyboard is unavailable.') end
         local yaw=p.rz or 0
         anchor={x=p.x-math.sin(yaw)*50,y=p.y-math.cos(yaw)*50,z=p.z,rx=0,ry=0,rz=yaw}
-        if not mp.teleportPlayer(s.owner,s.cell,anchor) then return reject('Could not align the leader with the keyboard.') end
     end
+    local layout=project and project.stageLayout or s.stageLayout or 'standing'
     local plan=(restage or clear) and {} or Layout.plan(project)
     if restage then
         local seen={};for _,m in ipairs(s.band) do local t=m.target
@@ -73,6 +81,20 @@ function S:begin(s,project,requestId,sessions,restage,clear)
     if (restage and #plan==0) or #plan>format.maxMembers or not Layout.position(anchor,1,math.max(1,#plan)) then
         return reject(restage and 'Bind owned NPC performers before staging.' or 'Create or import song parts first.')
     end
+    if ground then
+        local a=type(ground)=='table' and ground.anchor;local h=type(ground)=='table' and ground.heights
+        local function finite(x) return type(x)=='number' and x==x and math.abs(x)<1e8 end
+        if type(a)~='table' or type(h)~='table' or #h~=#plan then return reject('Invalid stage floor check.') end
+        for key in pairs(ground) do if key~='anchor' and key~='heights' then return reject('Invalid stage floor field.') end end
+        for key in pairs(a) do if key~='x' and key~='y' and key~='z' and key~='rz' then return reject('Invalid stage anchor field.') end end
+        for _,key in ipairs{'x','y','z','rz'} do
+            if not finite(a[key]) then return reject('Invalid stage floor anchor.') end
+            local difference=key=='rz' and math.abs((a[key]-anchor[key]+math.pi)%(2*math.pi)-math.pi) or math.abs(a[key]-anchor[key])
+            if difference>(key=='rz' and .05 or 16) then return reject('Leader moved during the stage check. Retry.') end
+        end
+        for key in pairs(h) do if type(key)~='number' or key%1~=0 or key<1 or key>#plan then return reject('Invalid stage floor array.') end end
+        for index=1,#plan do local z=h[index];if not finite(z) or math.abs(z-anchor.z)>64 then return reject('Stage floor height is out of range.') end end
+    end
     local busy=busyActors(sessions,s.id,s.characterId)
     local pool={};for _,e in ipairs(registry.entries) do local actor=e.mpNum and mp.getActorByMpNum(e.mpNum)
         if actor and actor.refId==e.refId and not actor.isDead and not busy[e.mpNum] then pool[#pool+1]=e end
@@ -83,9 +105,13 @@ function S:begin(s,project,requestId,sessions,restage,clear)
     if not restage and #plan>#pool+format.maxMembers-#registry.entries then
         return reject('Not enough available owned performers. Dismiss missing/dead NPCs or release their other band first.')
     end
+    if not clear then s.stageLayout=layout end
     if not restage and not clear then s.managedBand=true end
+    if not restage and not clear and project.leaderPlays~=false and mp.teleportPlayer
+        and type(keyboardModel)=='string' and keyboardModel:lower():gsub('\\','/'):find('keyboard%-stand%.nif$')
+        and not mp.teleportPlayer(s.owner,s.cell,anchor) then return reject('Could not align the leader with the keyboard.') end
     self.jobs[s.characterId]={id=s.id,epoch=s.epoch,owner=s.owner,character=s.characterId,requestId=requestId,session=s,
-        anchor=anchor,cell=s.cell,plan=plan,routes=plan.routes,pool=pool,targets={},used={},cursor=1,restage=restage,clear=clear,expires=mp.getUptime()+45}
+        anchor=anchor,ground=ground and ground.heights,cell=s.cell,layout=layout,plan=plan,routes=plan.routes,pool=pool,targets={},used={},cursor=1,restage=restage,clear=clear,expires=mp.getUptime()+45}
     return true
 end
 function S:tick(sessions)
@@ -105,6 +131,7 @@ function S:tick(sessions)
                 if not entry then for _,e in ipairs(job.pool) do if not job.used[e.mpNum] then entry=e;break end end end
             end
             local position=Layout.position(job.anchor,index,#job.plan)
+            position.z=job.ground and job.ground[index] or position.z
             if entry then
                 position.isTeleporting=true
                 local actor=mp.getActorByMpNum(entry.mpNum)

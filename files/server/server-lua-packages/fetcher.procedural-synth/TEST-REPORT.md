@@ -1,5 +1,52 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 28: credited models and seated NPC stage (package 40 / API 17)
+
+All 28 Lua suites pass. Coverage includes stage layout document validation,
+managed routing, seated rig eligibility/fallback, measured floors/slopes,
+headroom/walls and bounded preflight work (at most eight rays per frame and
+224 rays for 32 performers). Server checks reject stale anchors, excessive
+heights and extra/non-array fields; yaw comparison permits equivalent wrapped
+angles. A request-boundary regression verifies the ground table reaches stage
+validation rather than silently timing out.
+
+Nine downloadable CC BY 4.0 sources replace the generated orchestral props and
+add chair/music-stand furniture. Actual NIF/DDS validation checks manifest hashes,
+relative texture resolution, finite vertices, mipmaps and source credits. The
+violin/bow split retains all 14,614 source triangles exactly once. The seated
+Yamaha keeps its 12,189 visual triangles and omits the standing collision boxes.
+Sources, license links, hashes and adaptations are recorded in the asset bundle.
+
+Private native tests on port 25571 use separate profiles/database and matching
+API-17 builds. Front/side/overhead views inspected replacement violin, cello,
+trumpet, flute, clarinet and timpani, plus the retained keyboard/lute/drum.
+Seated keyboard/cello pelvis displacement measured -32 units; foot height
+differences were below .004 units, with approximately 27 units of forward reach.
+The late observer received seated profiles, arms and helper attachments.
+Standing restage removed seated props, seated restage restored them, and explicit
+cleanup removed all nine managed NPCs and their performer poses.
+
+Native testing caught the rejected floor payload and a matrix supplied to the
+quaternion-only bone API; both are fixed. Seated palm construction includes the
+pelvis shift, and the timpani grip is raised so wooden sticks clear the new head.
+Final source-package native rerun and Lua regression run passed. Evidence:
+`build/studio-usability-qa/multiview-result.json`, `seated-multiview-firstpass.json`,
+the matching A/B/server logs, `build/studio-cc-asset-validation.log` and
+`build/synth-automation-lua-tests.json`.
+
+Limits: this is visual NPC seating with a standing physics capsule, not usable
+furniture collision. Custom rigs may fall back to standing or need calibration.
+The wooden percussion stick is not a felt mallet. Final artistic grip tuning,
+other body proportions, player seating and 32-performer long-session/GPU
+profiling remain follow-ups. These local tests do not publish client/content
+releases or change VPS servers.
+
+Package 40 and its assets were installed in the original port-25567 fixture.
+All 67 protected user save/settings/config/key/database files were unchanged
+during the copy (`build/studio-seated-local-install.json`). No QA driver was
+installed. The guarded server runs hidden; no interactive client was relaunched
+after the inspection, leaving the desktop available to the user.
+
 ## October 28: local band monitoring and room acoustics (package 39 / API 17)
 
 Added gentler instrument distance falloff, an in-place Balanced monitor scoped

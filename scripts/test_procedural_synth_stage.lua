@@ -138,6 +138,25 @@ mp.teleportPlayer=function(guid,cell,position) aligned=copy(position);return gui
 local alignStage=require('procedural_synth_stage')(mp,Format,P,emit,'meshes/fetcher/synth/keyboard-stand.nif')
 check(alignStage:begin(session,leaderOnly,17,sessions,false) and aligned.x==0 and aligned.y==-50 and aligned.z==0,'participating leader aligns at the fixed stand playing side')
 alignStage:tick(sessions)
+local seated=Format.new();seated.leaderPlays=false;seated.stageLayout='seated';seated.tracks[1]=Format.newTrack('piano','Cello',16);seated.tracks[1].instrument='cello'
+local floor={anchor=copy(leader.position),heights={3}}
+check(S:begin(session,seated,18,sessions,false,false,floor),'seated setup accepts bounded matching floor hints');pump()
+local entry=P:registry(11).entries[1];local target={kind='npc',mpNum=entry.mpNum,refId=entry.refId,instrument='cello'}
+session.band=Format.band();session.band[1].target=target
+local status,runtime=P:resolve(session,1,target)
+check(status=='Ready' and runtime.posture=='seated' and actors[entry.mpNum].position.z==3,'seated intent and measured height accompany the owned performer')
+check(Format.project(seated).stageLayout=='seated','layout persists in the validated project')
+seated.stageLayout='invalid';check(not Format.project(seated),'unknown layout rejected');seated.stageLayout='seated'
+local before=#teleports;floor.heights[1]=500
+check(not S:begin(session,seated,19,sessions,false,false,floor) and #teleports==before,'unbounded floor cannot teleport an owned NPC')
+floor.heights[1]=3;floor.anchor.x=100
+check(not S:begin(session,seated,20,sessions,false,false,floor),'stale leader anchor rejected')
+floor.anchor.x=leader.position.x
+floor.anchor.rz=floor.anchor.rz+2*math.pi
+floor.heights.extra=3;check(not S:begin(session,seated,21,sessions,false,false,floor),'non-array floor fields rejected');floor.heights.extra=nil
+floor.anchor.extra={};check(not S:begin(session,seated,21,sessions,false,false,floor),'extra anchor payload rejected');floor.anchor.extra=nil
+check(S:begin(session,{stageLayout='standing'},21,sessions,true,false,floor),'standing restage reuses the seated performer');pump()
+status,runtime=P:resolve(session,1,target);check(status=='Ready' and not runtime.posture,'standing restage clears the replicated seated intent')
 -- Play waits for automatic staging and then resumes exactly once.
 w:newSong(120,4,4,8);w:setAutoBand(true)
 check(w:play('clips') and w.bandSetup and not w.playing,'managed Play queues setup before starting the score')

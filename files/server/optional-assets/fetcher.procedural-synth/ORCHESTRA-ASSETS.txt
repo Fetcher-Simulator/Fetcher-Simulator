@@ -1,11 +1,70 @@
-Original Fetcher Studio orchestral props
+Fetcher Studio third-party performance and stage models
+======================================================
+Models provided by Sketchfab. Preserve these credits when redistributing.
 
-Violin, cello, bow, trumpet, flute, clarinet, timpani and mallet meshes and icons
-were generated from scripts/procedural-synth-assets/generate_orchestra.py for
-Fetcher Simulator. No downloaded or game-owned mesh/texture was used.
-Attribution: Fetcher Simulator contributors / Fetcher Studio orchestral props.
-License: Creative Commons Attribution 4.0 International (CC BY 4.0).
+Cello — VM-Models
+Source: https://sketchfab.com/3d-models/cello-ece053225f3a42f1939528b9c9014775
+Author: https://sketchfab.com/vm-models
+License: Creative Commons Attribution 4.0 International
 https://creativecommons.org/licenses/by/4.0/
-These are original stylized standing-performance props, not exact replicas or
-endorsements of a manufacturer's instruments. The cello stance is provisional
-until seated layouts ship. Existing keyboard/stand attribution remains separate.
+Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
+
+Trumpet — Adrian Christians
+Source: https://sketchfab.com/3d-models/trumpet-aee8229c97554ed9b4d2d0d838c6db0b
+Author: https://sketchfab.com/Aedrian1
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
+
+Flute — Kroko.blend
+Source: https://sketchfab.com/3d-models/flute-08cb4375f9924366b725c439fd6163a8
+Author: https://sketchfab.com/jaromir.ternavskiy
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
+
+Clarinete — e-sfera
+Source: https://sketchfab.com/3d-models/clarinete-d61bb4e061334edeab13bbcb0e192cf4
+Author: https://sketchfab.com/skolskaknjiga
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
+
+Timpani Drum — taw7904
+Source: https://sketchfab.com/3d-models/timpani-drum-9cf701a0db76411294266c5a3665458b
+Author: https://sketchfab.com/taw7904
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
+
+Music Stand — Kroko.blend
+Source: https://sketchfab.com/3d-models/music-stand-fc4c522152594bd8a7f18ad3dc8997f5
+Author: https://sketchfab.com/jaromir.ternavskiy
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
+
+Wooden Chair (Low Poly) — Berk Gedik
+Source: https://sketchfab.com/3d-models/wooden-chair-low-poly-f899f1d606094afdb75bd5255d5a5194
+Author: https://sketchfab.com/berkgedik
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
+
+Drumsticks — Kamil.Fujarski
+Source: https://sketchfab.com/3d-models/drumsticks-610a13ddadf14d2cb52111d4f0ca93fa
+Author: https://sketchfab.com/Kamil.Fujarski
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
+
+Violin — RafalTlalka
+Source: https://sketchfab.com/3d-models/violin-06f60e7f2ccb48d1a6dbf15fbb1cebfb
+Author: https://sketchfab.com/RafalTlalka
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
+
+Additional adaptations: violin/bow separated into independent animated props; one wooden percussion stick selected from the downloaded pair. The percussion beater is wooden, not a felt-headed timpani mallet.
+Seated keyboard: existing credited Yamaha/X-stand adaptation lowered by 24 game units; stand legs shortened while key/body thickness is retained. Original keyboard/stand authors and licenses remain applicable.
+No endorsement by any model author or instrument manufacturer is implied. Code licenses are separate from these asset licenses.

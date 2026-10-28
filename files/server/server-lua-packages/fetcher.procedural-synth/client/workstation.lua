@@ -241,7 +241,7 @@ function W:configureBand()
     end
 end
 function W:stageDescription()
-    local description={midi=self.project.midi,leaderPlays=self.project.leaderPlays~=false,tracks={}}
+    local description={midi=self.project.midi,leaderPlays=self.project.leaderPlays~=false,stageLayout=self.project.stageLayout or 'standing',tracks={}}
     for index,t in ipairs(self.project.tracks) do description.tracks[index]={kind=t.kind,instrument=t.instrument,
         sourceRole=t.sourceRole,followPrograms=t.followPrograms,presetId=t.presetId,params=copy(t.params)} end
     return description
@@ -251,6 +251,10 @@ function W:setAutoBand(enabled)
 end
 function W:setLeaderPlays(enabled)
     self:stop(true);self.project.leaderPlays=enabled==true;self.managedProject=nil;self:touch('leaderPlays');return true
+end
+function W:setStageLayout(layout)
+    if layout~='standing' and layout~='seated' then return false end
+    self:stop(true);self.project.stageLayout=layout;self.managedProject=nil;self:touch('stageLayout');return true
 end
 function W:setupNpcBand(restage,resume,clear)
     if self.recording or self.failedTake then self.cb.message('Keep or cancel the take before setting up NPCs.');return false end

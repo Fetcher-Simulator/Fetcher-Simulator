@@ -401,6 +401,9 @@ function S:band(content)
         end
     end
     self:pageSelector(content,'memberPage','Members',20,566,265)
+    content[#content+1]=self:button('Layout: '..(p.stageLayout=='seated' and 'Seated' or 'Standing')..' v',295,566,235,function()
+        Dropdown.open(self,{{id='standing',label='Standing grid'},{id='seated',label='Seated keyboard / cello NPCs'}},p.stageLayout or 'standing',function(layout) w:setStageLayout(layout) end,280,250,400)
+    end)
     self:pageSelector(content,'bandPage','Tracks',550,566,305)
     content[#content+1]=self:button('Refresh instruments',20,610,175,function() if w.cb.refreshBand then w.cb.refreshBand() end;w.revision=w.revision+1 end)
     content[#content+1]=self:button(w.bandSetup and 'Setting up NPCs...' or ('Auto NPC band ('..#p.tracks..' parts)'),205,610,270,function() self:releaseAll();w:setupNpcBand(false) end)
@@ -417,7 +420,10 @@ function S:band(content)
     content[#content+1]=self:button('Leader plays: '..(p.leaderPlays~=false and 'On' or 'Off'),230,645,200,function() w:setLeaderPlays(p.leaderPlays==false) end)
     content[#content+1]=self:button('Remove owned NPCs',440,645,145,function() self:releaseAll();w:setupNpcBand(false,nil,true) end)
     content[#content+1]=self:button('Listening',590,645,145,function() self:releaseAll();if self.cb.listening then self.cb.listening() end end)
-    content[#content+1]=self:button('Pose tuner',740,645,150,function() self:releaseAll();if self.cb.tunePose then self.cb.tunePose(instrument or 'lute') end end)
+    content[#content+1]=self:button('Pose tuner',740,645,150,function() self:releaseAll();if self.cb.tunePose then
+        local name=p.stageLayout=='seated' and (instrument=='keyboard' or instrument=='cello') and instrument..'_seated' or instrument or 'lute'
+        self.cb.tunePose(name)
+    end end)
     content[#content+1]=label('Grouped parts keep their sounds. Auto trims surplus hires; Finish removes managed NPCs. Use clear, level ground.',20,675,880,11,c.muted)
 end
 local function db(value) return value>0.00001 and string.format('%.1f',20*math.log(value)/math.log(10)) or '-inf' end

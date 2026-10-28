@@ -1,0 +1,19 @@
+{
+  "model": "meshes/fetcher/orchestra/keyboard-seated.nif",
+  "sourceModel": "meshes/fetcher/synth/keyboard-stand.nif",
+  "triangles": 12189,
+  "bounds": [
+    [
+      -51.999996185302734,
+      -15.081235885620117,
+      0.0
+    ],
+    [
+      51.999996185302734,
+      15.081235885620117,
+      87.68399047851562
+    ]
+  ],
+  "sha256": "771fc1fbe6815ee19fbfeaf6a53e879c350e80345598c36a3275590c8f0d72d6",
+  "changes": "Visual-only seated adaptation; stand lowered 24 units, keyboard body/key thickness retained."
+}

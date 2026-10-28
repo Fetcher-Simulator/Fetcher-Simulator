@@ -12,6 +12,7 @@ package.loaded['openmw.animation']={}
 package.loaded['openmw.types']={}
 package.loaded['openmw.util']={vector3=v}
 package.loaded['scripts.multiplayer.fetcher.procedural-synth.client.instrument-profiles']={}
+package.loaded['scripts.multiplayer.fetcher.procedural-synth.client.seated-pose']=dofile('files/server/server-lua-packages/fetcher.procedural-synth/client/seated-pose.lua')
 local pose=dofile('files/server/server-lua-packages/fetcher.procedural-synth/client/performance.lua')
 local checks=0
 local function check(value,message) checks=checks+1;assert(value,message) end

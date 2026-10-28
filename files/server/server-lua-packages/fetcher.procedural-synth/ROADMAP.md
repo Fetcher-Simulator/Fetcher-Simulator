@@ -229,18 +229,35 @@ geometry/materials; it does not simulate connected rooms or identify materials.
 Two-client native checks cover player/NPC outputs, uninterrupted mode switches,
 unchanged unit counts, geometry/EFX response and independent observer routing.
 
-## Remaining roadmap (next: seated stage layouts)
+## Completed slice: credited models and initial seated stage
 
-1. **Seated stage layouts and conductor presentation.** Optional instrument-aware
-   chair placement, seated rigs, collision/height alignment and a sheet-music
-   stand per player. Add section layouts, saved spacing/layout presets, conductor
-   gestures and explicit safe restaging. Keep the standing grid available and
-   avoid moving a formation automatically when its leader walks away. Add floor/
-   obstruction preview before supporting cramped or uneven stages.
+Package 40 / native synth API 17 replaces the generated orchestral props with
+credited CC BY 4.0 Sketchfab models, retaining the existing Yamaha/stand and
+vanilla lute/drum. Provenance, source hashes and adaptation notices ship in the
+asset bundle. New instruments should follow the same documented CC-source policy.
+
+Band's Layout selector offers Standing and Seated. Owned keyboard/cello NPCs
+receive separate seated profiles, planted-foot leg IK, chairs and music stands;
+other performers stay standing. The seated Yamaha preserves key/body thickness.
+Bounded local floor/slope/footprint/headroom/wall checks precede setup, with
+server-selected grid positions and validated floor hints. Restaging changes
+posture explicitly; helper props expire and are cleared with performers.
+Native two-client checks cover models/grips, both seated rigs, late observers,
+standing/seated restage and complete managed-NPC cleanup. Custom proportions
+and final artistic grip refinement remain ongoing work in the live pose tuner.
+
+## Remaining roadmap (next: section layouts and conductor presentation)
+
+1. **Section layouts and conductor presentation.** Add saved spacing/layout
+   presets, instrument sections, conductor gestures and formation previews.
+   Extend seating to players and additional instruments, with chair interaction
+   and custom-rig/body-height support. Keep explicit safe restaging and the
+   standing grid; avoid moving a formation when its leader walks away. Improve
+   client-assisted footprint checks for cramped/uneven stages and furniture.
 2. **Orchestral instrument expansion and sound refinement.** Add remaining families
    (including double bass, oboe, bassoon, horn and trombone), articulation, rig/body
-   variation support and better acoustic presets/multisamples. Refine the provisional
-   standing cello into a seated performance. Balance a Star Wars-theme-scale score;
+   variation support and better acoustic presets/multisamples. Refine grips and
+   seated performance across rigs. Balance a Star Wars-theme-scale score;
    the six initial synthetic patches are starting points, not a complete orchestra.
 3. **Large orchestra performance and multiplayer timing.** Profile 32 sounding
    physical performers, late joins, separate concurrent bands and long sessions.
@@ -281,9 +298,9 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 38 / native synth API 16 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
+package 40 / native synth API 17 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
-implemented; seated stage layouts are the next priority.
+implemented, together with initial seated keyboard/cello NPC staging.
 
 ## Completed slice: native instrument effects and guitar sounds
 

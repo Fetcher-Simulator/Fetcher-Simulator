@@ -155,6 +155,22 @@ local function merge(target,source)
 end
 for _,name in ipairs{'keyboard','lute','drum','violin','cello','trumpet','flute','clarinet','timpani'} do
     M.reference[name]=M[name];local d=M.seed(M[name]);merge(d,approved.profiles[name] or {})
+    -- The credited wooden stick drops five units from grip to tip. Leave room
+    -- above the new timpani head for its six-unit downstroke.
+    if name=='timpani' then d.LTarget[3]=91;d.RTarget[3]=91 end
     M.defaults[name]=d;M[name]=M.compile(M.reference[name],d)
+end
+-- Seated profiles have independent tuner values; standing exports stay intact.
+for _,kind in ipairs{'keyboard','cello'} do
+    local name=kind..'_seated';local base={};for k,x in pairs(M[kind]) do base[k]=x end
+    base.seated=true;base.model=kind=='keyboard' and path..'keyboard-seated.nif' or base.model
+    base.position=kind=='keyboard' and v(0,50,0) or v(0,20,62.4)
+    if kind=='cello' then base.rotation=base.rotation*T.scale(.78,.78,.78) end
+    base.targets=kind=='keyboard' and {L=v(-18,32,67),R=v(18,32,67)} or {L=v(-7,30,88),R=v(18,29,70)}
+    M.reference[name]=base;local d=M.seed(base)
+    for _,side in ipairs{'L','R'} do
+        for _,key in ipairs{'Rotation','Pole','CurlScale','CurlBias','MotionScale'} do d[side..key]=copy(M.defaults[kind][side..key]) end
+    end
+    M.defaults[name]=d;M[name]=M.compile(base,d)
 end
 return M

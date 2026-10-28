@@ -1,6 +1,6 @@
 -- Local, data-only pose calibration. Never changes score/network/actor state.
 return function(Profiles,util,storage)
-    local M={names={'keyboard','lute','drum','violin','cello','trumpet','flute','clarinet','timpani'},boneNames={},revision=0,enabled=true}
+    local M={names={'keyboard','lute','drum','violin','cello','trumpet','flute','clarinet','timpani','keyboard_seated','cello_seated'},boneNames={},revision=0,enabled=true}
     local defaults,values,cache={},{},{}
     local function copy(t) if type(t)~='table' then return t end;local out={};for k,x in pairs(t) do out[k]=copy(x) end;return out end
     local function finite(n) return type(n)=='number' and n==n and math.abs(n)<math.huge end

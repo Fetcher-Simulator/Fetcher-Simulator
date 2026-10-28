@@ -88,7 +88,7 @@ local function resolveBand(s)
     end
     for n,runtime in pairs(live) do
         local old=s.performers and s.performers[n]
-        if not old or old.guid~=runtime.guid or old.mpNum~=runtime.mpNum or old.instrument~=runtime.instrument then changed=true end
+        if not old or old.guid~=runtime.guid or old.mpNum~=runtime.mpNum or old.instrument~=runtime.instrument or old.posture~=runtime.posture then changed=true end
     end
     s.availability=statuses;s.performers=live;return changed
 end
@@ -162,6 +162,7 @@ local function request(data)
             elseif k=='band' and data.op=='band' then if not projectFormat.band(v) then return end
             elseif k=='routes' and data.op=='band' then if not projectFormat.routes(v) then return end
             elseif k=='project' and (data.op=='libSave' or data.op=='libSnapshot' or data.op=='autoBand') then -- Validate after ownership/rate checks below.
+            elseif k=='ground' and (data.op=='autoBand' or data.op=='stageBand') then -- Bounded grid/anchor validation follows ownership checks in stage:begin.
             elseif k=='project' and (data.op=='dawSave' or data.op=='pickup') then if not projectFormat.project(v) then return end
             else return end
         elseif type(v) == 'string' then
@@ -235,7 +236,9 @@ local function request(data)
         end
         local project=data.op=='autoBand' and projectFormat.project(data.project) or nil
         if data.op=='autoBand' and not project then return end
-        stage:begin(s,project,data.requestId,sessions,data.op=='stageBand',data.op=='clearBand')
+        if data.stageLayout~=nil and data.stageLayout~='standing' and data.stageLayout~='seated' then return end
+        if data.op=='stageBand' then project={stageLayout=data.stageLayout or s.stageLayout} end
+        stage:begin(s,project,data.requestId,sessions,data.op=='stageBand',data.op=='clearBand',data.ground)
         return
     end
     if data.op=='roster' or data.op=='hire' or data.op=='invite' or data.op=='dismiss' then

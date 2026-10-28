@@ -14,6 +14,7 @@ local T={identity=setmetatable({1,0,0,0,1,0,0,0,1},R)}
 function T.rotateX(n) local s,c=math.sin(-n),math.cos(n);return setmetatable({1,0,0,0,c,-s,0,s,c},R) end
 function T.rotateY(n) local s,c=math.sin(-n),math.cos(n);return setmetatable({c,0,s,0,1,0,-s,0,c},R) end
 function T.rotateZ(n) local s,c=math.sin(-n),math.cos(n);return setmetatable({c,-s,0,s,c,0,0,0,1},R) end
+function T.scale(x,y,z) return setmetatable({x,0,0,0,y,0,0,0,z},R) end
 package.loaded['openmw.util']={vector3=v,transform=T}
 local approved=dofile('files/server/server-lua-packages/fetcher.procedural-synth/client/pose-defaults.lua')
 package.loaded['scripts.multiplayer.fetcher.procedural-synth.client.pose-defaults']=approved
@@ -22,6 +23,8 @@ local Published=dofile('files/server/server-lua-packages/fetcher.procedural-synt
 -- Accepted in-game poses are checked separately below against their exports.
 local P=setmetatable({}, {__index=Published});for name,p in pairs(Published.reference) do P[name]=p end
 local checks=0;local function check(value,why) checks=checks+1;assert(value,why) end
+local stickStrike=Published.motion(Published.timpani,'L',45,true,1,0,2)
+check(math.abs(stickStrike.z-5-80)<.01,'wooden beater tip reaches the new timpani head without burying the resting stick')
 local neck=P.lute.position+P.lute.rotation*v(0,20,8)
 check(neck.x<0 and neck.z>P.lute.position.z,'vanilla lute neck points toward fretting hand and upward')
 local luteContact=P.lute.targets.L+P.lute.rotation*v(-4,0,0)-v(0,3,0)

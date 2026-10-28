@@ -27,7 +27,7 @@ do
     function V.__sub(a,b) return setmetatable({x=a.x-b.x,y=a.y-b.y,z=a.z-b.z},V) end
     package.loaded['openmw.util'].vector3=function(x,y,z) return setmetatable({x=x,y=y,z=z},V) end
 end
-local dummyT=setmetatable({},{__mul=function(a,b) return b.x and b or a end});package.loaded['openmw.util'].transform={identity=dummyT,rotateX=function() return dummyT end,rotateY=function() return dummyT end,rotateZ=function() return dummyT end}
+local dummyT=setmetatable({getAnglesXZ=function() return 0,0 end},{__mul=function(a,b) return b.x and b or a end});package.loaded['openmw.util'].transform={identity=dummyT,rotateX=function() return dummyT end,rotateY=function() return dummyT end,rotateZ=function() return dummyT end,scale=function() return dummyT end}
 package.loaded['openmw.animation']={}
 package.loaded['openmw.camera']={MODE={FirstPerson=1},getMode=function() return 2 end}
 package.loaded['openmw.types']={}
@@ -37,6 +37,7 @@ package.loaded[prefix..'client.hosted-midi']=dofile(root..'client/hosted-midi.lu
 package.loaded[prefix..'client.midi-export']=dofile(root..'client/midi-export.lua')
 package.loaded[prefix..'client.pose-defaults']=dofile(root..'client/pose-defaults.lua')
 package.loaded[prefix..'client.instrument-profiles']=dofile(root..'client/instrument-profiles.lua')
+package.loaded[prefix..'client.seated-pose']=dofile(root..'client/seated-pose.lua')
 package.loaded[prefix..'client.performance']=dofile(root..'client/performance.lua')
 local viewport=vector(1024,768)
 local mouseDown=false
@@ -109,6 +110,8 @@ package.loaded[prefix..'client.pose-calibration']=dofile(root..'client/pose-cali
 package.loaded[prefix..'client.pose-editor']=dofile(root..'client/pose-editor.lua')
 package.loaded[prefix..'client.listening']=dofile(root..'client/listening.lua')
 package.loaded[prefix..'client.listening-panel']=dofile(root..'client/listening-panel.lua')
+package.loaded[prefix..'shared.band-layout']=dofile(root..'shared/band-layout.lua')
+package.loaded[prefix..'client.stage-preflight']=dofile(root..'client/stage-preflight.lua')
 local player=dofile(root..'client/player.lua')
 local api=player.interface
 do
@@ -990,7 +993,15 @@ do
     w.selected=2;popup.rows[1].layout.events.mouseClick()
     check(w.project.tracks[1].instrument=='flute' and w.project.tracks[2].instrument==nil,'instrument picker retains its original part if selection changes while open')
     now=now+.01;lastStudio:frame(now)
-    button('Auto NPC band (32 parts)').events.mouseClick();local setup=sent[#sent]
+    self.rotation=dummyT;self.position=package.loaded['openmw.util'].vector3(0,0,0)
+    package.loaded['openmw.types'].Activator={record=function() return {model='meshes/keyboard.nif'} end}
+    local nearby=package.loaded['openmw.nearby'];nearby.COLLISION_TYPE={World=1,Door=2,HeightMap=4}
+    package.loaded['openmw.util'].bitOr=function() return 7 end
+    nearby.castRay=function(a,b) return {hit=a.z>b.z,hitPos=package.loaded['openmw.util'].vector3(a.x,a.y,0),hitNormal={z=1}} end
+    button('Auto NPC band (32 parts)').events.mouseClick()
+    for n=1,32 do now=now+.02;player.engineHandlers.onFrame(.02) end
+    local setup
+    for n=#sent,1,-1 do if sent[n].op=='autoBand' then setup=sent[n];break end end
     check(setup.op=='autoBand' and #setup.project.tracks==32 and w.bandSetup,'Band automatic setup sends a validated document with a pending request')
     local targets,routes={},{};for n=1,32 do targets[n]={kind='npc',mpNum=1000+n,refId='fetcher_synth_bard_1_'..n,instrument='drum'};routes[n]=n end
     handler{version=1,op='bandSetup',id=setup.id,epoch=setup.epoch,requestId=setup.requestId,restage=false,targets=targets,routes=routes}

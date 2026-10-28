@@ -38,6 +38,8 @@ function M.bendAxis(forward,palm)
     local axis=forward:cross(palm);local length=axis:length()
     return length>.0001 and axis/length or nil
 end
+local Seated=require('scripts.multiplayer.fetcher.procedural-synth.client.seated-pose')(anim,util,M.elbow,between)
+M.canSeat=Seated.supported
 function M.new(actor,calibration)
     local p={actor=actor,bones={},amount=0,lastNotes='',strike=0,missing=false,applied=0,targets={},error=0,reachError=0,appliedBones={},fingers=0,fingerAxes={}}
     if anim.boneTransformsVersion~=1 then p.missing=true;return p end
@@ -73,6 +75,8 @@ function M.new(actor,calibration)
             self.strike=now;self.lastNotes=signature;self.strikes=strikes
         end
         self.amount=math.min(1,self.amount+math.min(dt,0.1)*4)
+        local bodyShift=zero
+        if profile and profile.seated then bodyShift,self.seated=Seated.apply(self,root) end
         local pulse=math.max(0,1-(now-self.strike)/0.13)
         self.bowTravel=profile and Profiles.bowTravel(profile,now-self.strike,#signature>0) or 0
         for _,side in ipairs{'L','R'} do
@@ -87,7 +91,7 @@ function M.new(actor,calibration)
                 if u and f and h then
                     -- Solve before race/model scaling. Rotating world-space arm
                     -- lengths is inaccurate for actors with nonuniform scale.
-                    u,f,h=toModel*u,toModel*f,toModel*h
+                    u,f,h=toModel*T.move(bodyShift)*u,toModel*T.move(bodyShift)*f,toModel*T.move(bodyShift)*h
                     local s,e,w=u*zero,f*zero,h*zero
                     local current=anim.getBoneTransform(self.actor,hand,true)
                     if current and self.targets[side] then self.error=math.max(self.error,(current*zero-self.targets[side]):length()) end
@@ -126,8 +130,8 @@ function M.new(actor,calibration)
                                 local tt=thumb and anim.getBoneTransform(self.actor,thumb,true,true)
                                 if ft and tt then
                                     local inverseHand=h:inverse()
-                                    local forward=inverseHand*(toModel*ft*zero)
-                                    local thumbDirection=inverseHand*(toModel*tt*zero)
+                                    local forward=inverseHand*(toModel*T.move(bodyShift)*ft*zero)
+                                    local thumbDirection=inverseHand*(toModel*T.move(bodyShift)*tt*zero)
                                     local normal=forward:cross(thumbDirection)*(side=='L' and 1 or -1)
                                     unposedPalm=h*normal-h*zero
                                     unposedForward=h*forward-h*zero
