@@ -38,7 +38,7 @@ function M.bendAxis(forward,palm)
     local axis=forward:cross(palm);local length=axis:length()
     return length>.0001 and axis/length or nil
 end
-function M.new(actor)
+function M.new(actor,calibration)
     local p={actor=actor,bones={},amount=0,lastNotes='',strike=0,missing=false,applied=0,targets={},error=0,reachError=0,appliedBones={},fingers=0,fingerAxes={}}
     if anim.boneTransformsVersion~=1 then p.missing=true;return p end
     if not anim.hasAnimation(actor) then return nil end
@@ -53,7 +53,11 @@ function M.new(actor)
         local staged=record and record.model:lower():gsub('\\','/'):find('keyboard%-stand%.nif$')~=nil
         local halfWidth,spacing,spread,front,height=8,0.65,5,-2,5
         if staged then halfWidth,spacing,spread,front,height=14,1.2,18,-18,91 end
-        if staged then profile={kind='keyboard',targets={L=v(-18,-18,91),R=v(18,-18,91)}} end
+        if staged then profile=calibration and calibration:placedKeyboard() or {kind='keyboard',targets={L=v(-18,-18,91),R=v(18,-18,91)}} end
+        local function setBone(name,rotation)
+            local extra=profile and profile.tuning and profile.tuning.bones[name:lower()]
+            anim.setBoneTransform(self.actor,name,{rotation=extra and rotation*extra.rotation or rotation,position=extra and extra.position or zero,weight=self.amount})
+        end
         local rootName=self.bones['bip01']
         local root=rootName and anim.getBoneTransform(self.actor,rootName,true,true)
         if not root then return end
@@ -101,7 +105,8 @@ function M.new(actor)
                     local target=toModel*(source.position+source.rotation*point)
                     local a,b=(e-s):length(),(w-e):length()
                     if a>0.1 and b>0.1 then
-                        local pole=toModel*(root*s+self.actor.rotation*v(sign,0,-0.6))-s
+                        local bias=profile and profile.tuning and profile.tuning[side..'Pole'] or v(sign,0,-0.6)
+                        local pole=toModel*(root*s+self.actor.rotation*bias)-s
                         local elbow,tip=M.elbow(s,target,a,b,pole)
                         if elbow then
                             self.reachError=math.max(self.reachError,(root*target-root*tip):length())
@@ -111,8 +116,8 @@ function M.new(actor)
                             local adjusted=u*upperRotation*inverseUpper
                             local inverseFore=(adjusted*f):inverse()
                             local foreRotation=between(inverseFore*(adjusted*w),inverseFore*tip)
-                            anim.setBoneTransform(self.actor,upper,{rotation=upperRotation,weight=self.amount})
-                            anim.setBoneTransform(self.actor,fore,{rotation=foreRotation,weight=self.amount})
+                            setBone(upper,upperRotation)
+                            setBone(fore,foreRotation)
                             local handRotation=T.identity;local unposedPalm,unposedForward
                             if profile then
                                 local finger=self.bones[('Bip01 '..side..' Finger1'):lower()]
@@ -144,7 +149,7 @@ function M.new(actor)
                                     end
                                 end
                             end
-                            anim.setBoneTransform(self.actor,hand,{rotation=handRotation*T.rotateY(wrist),weight=self.amount})
+                            setBone(hand,handRotation*T.rotateY(wrist))
                             self.appliedBones[upper]=true;self.appliedBones[fore]=true;self.appliedBones[hand]=true
                             if profile then
                                 local stem=('bip01 '..side..' finger'):lower()
@@ -170,7 +175,7 @@ function M.new(actor)
                                     -- Retry while the pose initializes, then keep the fallback cheap.
                                     if not axis and self.amount>=1 then self.fingerAxes[name]=false end
                                     local rotation=axis and T.rotate(amount,axis) or T.rotateZ((side=='L' and -1 or 1)*amount)
-                                    anim.setBoneTransform(self.actor,name,{rotation=rotation,weight=self.amount})
+                                    setBone(name,rotation)
                                     self.appliedBones[name]=true;self.fingers=self.fingers+1
                                 end end
                             end

@@ -35,6 +35,7 @@ local function windowLayer()
     end
     return 'FetcherStudio'
 end
+W.layer=windowLayer
 function W.new()
     local screen=viewport()
     local defaultScale=math.min(math.max(1,screen.y/900),screen.x/width,screen.y/(height+chrome))

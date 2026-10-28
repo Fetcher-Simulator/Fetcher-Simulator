@@ -2,12 +2,46 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current source: package 36 / native synth API 16 / multiplayer protocol 27.
+Current source: package 37 / native synth API 16 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
 Standing NPC staging and the first orchestral props are available. Next: seated
 layouts and conductor presentation. See [the roadmap](ROADMAP.md).
+
+## Live pose tuner
+
+While a song plays, open **Band > Pose tuner**. Observers can also open **F9 >
+Local pose tuner**. The compact window replaces the main Studio view while
+playback continues. Drag its title bar to move it. Pick a physical instrument
+with the dropdown or arrows; this edits its profile, not a track's instrument
+assignment. All performers using that instrument on your client share the preview.
+
+- **Prop:** position and rotation offsets; bows/mallets have attachment controls.
+- **Left / Right:** wrist target, palm rotation, elbow direction, finger curl and
+  note-motion amount. Use these before individual bone overrides.
+- **Bones:** arm/hand/finger bone-local offsets added after IK. Large translations
+  can separate joints; keep them small. Missing rig nodes have no visible effect.
+- **Camera:** choose a performer, front/side/rear/above views, orbit, elevation,
+  distance, height and horizontal framing. It also works for your own performer.
+  Closing or releasing the camera restores the previous view.
+- **Export:** export the selected instrument or all profiles. Copy the text or
+  tell the developer after exporting; the same block is written between
+  `[StudioPoseExport BEGIN]` / `[StudioPoseExport END]` in the client log.
+
+Sliders, minus/plus buttons and valid numeric input update live. Hold Shift for
+finer slider/arrow steps. Positions use game units in the instrument's chest/feet
+anchor frame. Rotation offsets use degrees, composed Z * Y * X with OpenMW's
+named rotation helpers. Bone offsets use each bone's local frame. Prop and wrist
+positions are independent. The placed keyboard itself stays fixed; its hand
+targets are calibrated relative to the keybed instead.
+
+**Save locally** persists only changed values in player storage. **Reload saved**
+discards unsaved edits for all instruments; **Reset instrument** restores that
+instrument's defaults (save afterward to persist the reset). **Preview Off**
+temporarily uses the source defaults. Close keeps unsaved tuning until reconnect;
+F8/Studio returns to the main editor. Tuning never edits the song, physics,
+inventory or another client's poses. No exported code is loaded automatically.
 
 ## Standing bands and orchestral instruments
 

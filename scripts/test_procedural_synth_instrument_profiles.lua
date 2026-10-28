@@ -68,4 +68,42 @@ for _,name in ipairs{'keyboard','lute','drum','violin','cello','trumpet','flute'
   check(math.abs(direction.x*normal.x+direction.y*normal.y+direction.z*normal.z)<.001,'palm frame is well-defined for '..name..' '..side)
  end
 end
-print('PASS mesh-aligned keyboard, fretting/strumming, alternating drum and finger/wrist profiles; '..checks..' assertions')
+do
+ local data={};local storage={get=function(_,k) return data[k] end,set=function(_,k,x) data[k]=x end}
+ local make=dofile('files/server/server-lua-packages/fetcher.procedural-synth/client/pose-calibration.lua')
+ local calibration=make(P,package.loaded['openmw.util'],storage)
+ local original=P.lute.targets.L.x;local base=calibration:profile('lute')
+ check(calibration:profile('lute')==base and base.targets.L.x==original,'unchanged profiles reuse a cached transform set')
+ check(calibration:set('lute',{'LTarget',1},original+3),'live hand target accepted')
+ check(P.lute.targets.L.x==original and calibration:profile('lute').targets.L.x==original+3,'local calibration cannot mutate source defaults')
+ check(calibration:profile('lute')~=base,'a changed hand target invalidates the profile cache')
+ check(not calibration:set('lute',{'propPosition',1},0/0) and not calibration:set('lute',{'LTarget',1},1/0),'nonfinite calibration rejected')
+ check(not calibration:set('lute',{'bones','Bip01','position',1},1),'root/unknown bone offsets rejected')
+ check(not calibration:set('lute',{'extras',1,'position',1},1),'nonexistent prop attachment rejected')
+ check(calibration:set('lute',{'bones','Bip01 L Hand','rotation',3},25),'known local bone offset accepted')
+ check(calibration:profile('lute').tuning.bones['bip01 l hand']~=nil,'bone offset compiles into the live profile')
+ calibration:set('lute',{'LCurlScale'},2);calibration:set('lute',{'LCurlBias'},.1)
+ check(math.abs(P.fingerCurl(calibration:profile('lute'),'L','Finger1',.3,60,false)-.7)<.0001,'finger tuning adjusts the animated curl')
+ calibration:set('lute',{'LMotionScale'},0)
+ local point=P.motion(calibration:profile('lute'),'L',90,true,1,0,1)
+ check(math.abs(point.x-calibration:profile('lute').targets.L.x)<.0001,'zero note-motion multiplier holds the edited target while audio continues')
+ calibration:set('lute',{'LRotation',3},90)
+ local direction=select(1,P.handDirections(calibration:profile('lute'),'L'))
+ local expected=T.rotateZ(math.pi/2)*select(1,P.handDirections(P.lute,'L'))
+ check(math.abs(direction.x-expected.x)<.0001 and math.abs(direction.y-expected.y)<.0001,'palm rotation uses the documented named-axis composition')
+ calibration:save();check(not data.profiles.drum and not data.profiles.lute.propPosition,'only changed values are persisted so new defaults can reach untouched controls')
+ calibration:reset('lute');check(not calibration:profile('lute').tuning.bones['bip01 l hand'],'reset clears advanced offsets')
+ calibration:reload();check(calibration:profile('lute').targets.L.x==original+3,'saved local tuning survives reload')
+ local text=calibration:export('lute');local exported=assert((loadstring or load)(text))()
+ check(exported.format==1 and math.abs(exported.profiles.lute.LTarget[1]-original-3)<.000001 and not exported.profiles.drum,'selected export contains reusable numeric values only')
+ calibration:toggle();check(calibration:profile('lute')==P.lute,'preview toggle restores the exact default profile')
+ calibration:toggle();calibration:save();local restored=make(P,package.loaded['openmw.util'],storage)
+ check(restored:profile('lute').targets.L.x==original+3,'a new calibration instance loads saved values')
+ data.profiles.lute.LTarget[1]=99999;restored:reload()
+ check(restored:profile('lute').targets.L.x==original,'corrupt out-of-range saved values fall back to defaults')
+ local keys=restored:placedKeyboard();check(keys.targets.L.y==-18 and keys.targets.L.z==91,'placed-keyboard hand targets retain the keybed reference frame')
+ local copies=0;local engine={get=function(_,key) if key=='profiles' then error('engine storage view must be copied') end;return data[key] end,
+  getCopy=function(_,key) copies=copies+1;return data[key] end,set=storage.set}
+ make(P,package.loaded['openmw.util'],engine);check(copies==1,'native storage restores via getCopy rather than treating its userdata view as a Lua table')
+end
+print('PASS mesh-aligned profiles, live calibration, validated persistence/export; '..checks..' assertions')

@@ -25,7 +25,12 @@ local HostedMidi=require('scripts.multiplayer.fetcher.procedural-synth.client.ho
 local object
 local Actors=require('scripts.multiplayer.fetcher.procedural-synth.client.actors')
 local PerformerPanel=require('scripts.multiplayer.fetcher.procedural-synth.client.performer-panel')
-local actors=Actors.new(mp,nearby,self)
+local calibration=require('scripts.multiplayer.fetcher.procedural-synth.client.pose-calibration')(
+    require('scripts.multiplayer.fetcher.procedural-synth.client.instrument-profiles'),require('openmw.util'),require('openmw.storage').playerSection('ProceduralSynthPoseTuning'))
+local PoseEditor=require('scripts.multiplayer.fetcher.procedural-synth.client.pose-editor')
+local actors=Actors.new(mp,nearby,self,calibration)
+local tuner,openTuner
+local function closeTuner() if tuner then local old=tuner;tuner=nil;old:destroy() end end
 local performerState={held='',available={}}
 local panel,lastPerformerRequest=nil,-10
 local function performerCommand(op,args)
@@ -88,6 +93,12 @@ local function hideEditor()
     captureEditor()
     editor:destroy(); editor=nil
     ui.showMessage('Synth performance continues. Press F8 or activate the synth to reopen. Use Finish to end the session.')
+end
+openTuner=function(instrument)
+    if not calibration:profile(instrument or 'lute') then return false end
+    hideEditor();closePanel();closeTuner()
+    tuner=PoseEditor.new(calibration,actors,closeTuner,function() closeTuner();showEditor() end,instrument)
+    return true
 end
 local function closeEditor(notify)
     if stopPlayback then stopPlayback() end
@@ -393,12 +404,14 @@ local function pickupKeyboard()
     return true
 end
 showEditor=function()
+    closeTuner()
     closePanel()
     if editor or not session or session.pickup then return false end
     local i=instances[session.id];if not i then return false end
     local w=session.workstation
     if session.page=='studio' then
         editor=Studio.new(w,{
+            tunePose=openTuner,
             hide=hideEditor,close=function() session.library:guard(function() closeEditor(true) end,'finish the session') end,
             pickup=function() session.library:guard(pickupKeyboard,'pick up the keyboard') end,
             synth=function() switchPage('synth',w.project.tracks[w.selected] and w.selected or 0) end,
@@ -624,7 +637,7 @@ local function frame(dt)
         if connected or hosted.scope then hosted:clear();refreshExports() end
         transport.offset=nil;transport.rtt=nil;transport.lastClock=-10;transport.downloads={};transport.pings={};transport.samples=0
         for id in pairs(instances) do destroy(id) end
-        closeEditor(false);closePanel();actors:clearAll();performerState={held='',available={}};connected=false; return
+        closeEditor(false);closePanel();closeTuner();actors:clearAll();performerState={held='',available={}};connected=false; return
     end
     hosted:frame()
     if not connected or now-lastSync>5 then
@@ -633,6 +646,7 @@ local function frame(dt)
         if next(instances)==nil then mp.sendToServer('Synth_Request',{version=1,op='sync'}) end
     end
     actors:frame(instances,dt,now)
+    if tuner then tuner:frame(now) end
     if panel then
         panel:frame()
         if now-lastPerformerRequest>5 then performerCommand('performer');lastPerformerRequest=now end
@@ -675,7 +689,7 @@ local function frame(dt)
                     i.pose=nil
                 end
                 if actor and actor:isValid() then
-                    if not i.pose then i.pose=Performance.new(actor) end
+                    if not i.pose then i.pose=Performance.new(actor,calibration) end
                     if i.pose and not i.pose.missing then
                         local notes=i.notes;local strikes=i.strikes or 0
                         if i.studio then
@@ -765,6 +779,9 @@ return {
         respondToInvite=function(accept) if performerState.invitation then performerCommand('respond',{token=performerState.invitation.token,accept=accept}) end end,
         leaveBand=function() performerCommand('leaveBand') end,
         performers=function() return actors:status() end,
+        poseTuner=openTuner,
+        poseCalibration=function() return calibration end,
+        poseTunerState=function() return tuner end,
         hide=hideEditor,
         show=showEditor,
         midiSongs=function() local out={};for n,p in ipairs(songs) do out[n]=p end;return out end,
@@ -787,13 +804,16 @@ return {
     },
     engineHandlers={onFrame=frame,onInit=scanSongs,onKeyPress=function(e)
         if e.code==input.KEY.F9 then
-            if panel then closePanel() else hideEditor();panel=PerformerPanel.new(performerState,performerCommand,closePanel);performerCommand('performer') end
+            closeTuner()
+            if panel then closePanel() else hideEditor();panel=PerformerPanel.new(performerState,performerCommand,closePanel,openTuner);performerCommand('performer') end
+        elseif tuner and e.code==input.KEY.Escape then if tuner.dropdown then require('scripts.multiplayer.fetcher.procedural-synth.client.dropdown').close(tuner) else closeTuner() end
+        elseif tuner and e.code==input.KEY.F8 then closeTuner();showEditor()
         elseif panel and e.code==input.KEY.Escape then closePanel()
         elseif session and e.code==input.KEY.F8 then
             if editor then hideEditor() else showEditor() end
         elseif editor then editor:key(e.code,true) end
     end,
-        onMouseWheel=function(vertical) if editor and editor.dropdown then editor.dropdown:wheel(vertical) elseif editor and editor.wheel then editor:wheel(vertical) end end,
+        onMouseWheel=function(vertical) if tuner and tuner.dropdown then tuner.dropdown:wheel(vertical) elseif editor and editor.dropdown then editor.dropdown:wheel(vertical) elseif editor and editor.wheel then editor:wheel(vertical) end end,
         onKeyRelease=function(e) if editor then editor:key(e.code,false) end end},
     eventHandlers={Synth_Message=message,Synth_Activate=function(data)
         if session and session.id==data.id then showEditor();return end

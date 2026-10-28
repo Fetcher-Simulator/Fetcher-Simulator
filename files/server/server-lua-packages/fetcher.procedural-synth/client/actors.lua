@@ -5,7 +5,14 @@ local vfs=require('openmw.vfs')
 local camera=require('openmw.camera')
 local profiles=require('scripts.multiplayer.fetcher.procedural-synth.client.instrument-profiles')
 local A={};A.__index=A;local v,T=util.vector3,util.transform
-function A.new(mp,nearby,self) return setmetatable({mp=mp,nearby=nearby,self=self,objects={},poses={}},A) end
+function A.new(mp,nearby,self,calibration) return setmetatable({mp=mp,nearby=nearby,self=self,calibration=calibration,objects={},poses={},targetActors={}},A) end
+function A:profile(name) return self.calibration and self.calibration:profile(name) or profiles[name] end
+function A:targets(instrument)
+    local out={};for key,p in pairs(self.targetActors) do if p.instrument==instrument and p.actor:isValid() then
+        out[#out+1]={key=key,actor=p.actor,pose=p.pose or self.poses[key] and self.poses[key].pose}
+    end end
+    table.sort(out,function(a,b) return a.key<b.key end);return out
+end
 function A:key(r) return r.kind=='player' and ('p:'..r.guid) or ('n:'..r.mpNum) end
 function A:source(r) return r and self.objects[self:key(r)] end
 function A:hasModel(instrument)
@@ -24,20 +31,25 @@ function A:clear(key)
     self.poses[key]=nil
 end
 function A:clearInstance(i) for _,r in pairs(i.performers or {}) do self:clear(self:key(r)) end end
-function A:clearAll() for key in pairs(self.poses) do self:clear(key) end;self.objects={} end
+function A:clearAll() for key in pairs(self.poses) do self:clear(key) end;self.objects={};self.targetActors={} end
 function A:frame(instances,dt,now)
-    self.objects={};local npcs={};local active={}
+    self.objects={};self.targetActors={};local npcs={};local active={}
     for _,actor in ipairs(self.nearby.actors or {}) do local id=self.mp.getObjectMpNum(actor);if id then npcs[id]=actor end end
-    for _,i in pairs(instances) do
+    for id,i in pairs(instances) do
+        local ownerHeld=false
+        for slot,r in pairs(i.performers or {}) do if r.kind=='player' and r.guid==i.owner and i.availability[slot]=='Ready' then ownerHeld=true end end
+        local owner=not ownerHeld and i.owner and self.mp.getPlayerObject and self.mp.getPlayerObject(i.owner)
+        if owner and owner:isValid() and owner.cell==self.self.cell then self.targetActors['keyboard:'..id]={actor=owner,instrument='keyboard',pose=i.pose} end
         for slot,r in pairs(i.performers or {}) do
             if i.availability[slot]=='Ready' then
                 local actor=r.kind=='player' and self.mp.getPlayerObject(r.guid) or npcs[r.mpNum]
                 if actor and actor:isValid() and actor.cell==self.self.cell and (not types.Actor.isDead or not types.Actor.isDead(actor)) then self.objects[self:key(r)]=actor end
+                if self.objects[self:key(r)] then self.targetActors[self:key(r)]={actor=actor,instrument=r.instrument} end
                 local group=i.outputs and i.outputs[slot]
                 if group and (not actor or self:source(r)~=group.source) then group.audio:close();i.outputs[slot]=nil;group=nil end
                 local visible=actor~=self.self or camera.getMode()~=camera.MODE.FirstPerson
                 if visible and actor and self:source(r) and anim.visualAttachmentsVersion==1 then
-                    local key=self:key(r);local p=self.poses[key];local profile=profiles[r.instrument] or profiles.lute
+                    local key=self:key(r);local p=self.poses[key];local profile=self:profile(r.instrument) or profiles.lute
                     local missing=not self:hasModel(r.instrument)
                     if vfs.fileExists and not vfs.fileExists(profile.model) then profile=profiles.lute end
                     if p and (p.actor~=actor or p.instrument~=r.instrument) then self:clear(key);p=nil end
@@ -61,7 +73,7 @@ function A:frame(instances,dt,now)
                             for _,extra in ipairs(profile.extras or {}) do
                                 local attachment
                                 if extra.hand and p.pose and p.pose.targets[extra.hand] then
-                                    attachment=root:inverse()*T.move(p.pose.targets[extra.hand])*actor.rotation
+                                    attachment=root:inverse()*T.move(p.pose.targets[extra.hand])*actor.rotation*T.move(extra.position or v(0,0,0))*(extra.rotation or T.identity)
                                 elseif extra.position then
                                     local travel=extra.bow and p.pose and p.pose.bowTravel or 0
                                     local offset=extra.position+extra.rotation*v(travel,0,0)

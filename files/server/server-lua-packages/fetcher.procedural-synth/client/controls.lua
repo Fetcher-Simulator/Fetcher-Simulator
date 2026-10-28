@@ -59,6 +59,7 @@ function C.slider(owner,name,title,spec,get,set,x,y,width)
             editing=true;owner.typing=true;draft=text
             field.layout.props.text=text
             field.layout.props.textColor=C.parse(text,spec)~=nil and colors.accent or colors.bad
+            if owner.liveNumeric then local value=C.parse(text,spec);if value~=nil then apply(value) end end
         end),
         focusLoss=cb(commit),
         keyPress=cb(function(e)

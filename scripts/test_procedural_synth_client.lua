@@ -104,8 +104,42 @@ local newEditor=Editor.new
 Editor.new=function(...) lastEditor=newEditor(...);return lastEditor end
 package.loaded[prefix..'client.actors']=dofile(root..'client/actors.lua')
 package.loaded[prefix..'client.performer-panel']=dofile(root..'client/performer-panel.lua')
+package.loaded[prefix..'client.pose-calibration']=dofile(root..'client/pose-calibration.lua')
+package.loaded[prefix..'client.pose-editor']=dofile(root..'client/pose-editor.lua')
 local player=dofile(root..'client/player.lua')
 local api=player.interface
+do
+    -- A first-person player has no rendered arm pose yet, but must still be a
+    -- camera target so focusing can make the body/held instrument visible.
+    local actor={cell=self.cell,isValid=function() return true end}
+    local camera=package.loaded['openmw.camera'];local old=camera.getMode;camera.getMode=function() return camera.MODE.FirstPerson end
+    package.loaded['openmw.types'].Actor={}
+    local a=package.loaded[prefix..'client.actors'].new({getPlayerObject=function() return actor end,getObjectMpNum=function() end},{actors={}},actor)
+    a:frame({[7]={owner='test',performers={[1]={kind='player',guid='test',instrument='lute'}},availability={[1]='Ready'}}},.01,now)
+    check(next(a.poses)==nil and #a:targets('lute')==1,'first-person held player is focusable before arm rendering starts')
+    a:frame({[7]={owner='test',performers={},availability={}}},.01,now)
+    check(#a:targets('keyboard')==1 and #a:targets('lute')==0,'placed keyboard owner is focusable without stale held targets')
+    a:clearAll();check(#a:targets('keyboard')==0,'disconnect clears pose camera targets')
+    camera.getMode=old
+end
+do
+    local before=#sent
+    check(api.poseTuner('lute') and uiOverride and mode=='Interface','pose tuner opens independently of a workstation')
+    local tuner=api.poseTunerState();local slider=tuner.children[1].layout
+    check(slider.content[1].props.text=='Position X','compact prop controls expose position and rotation')
+    local field=slider.content[3].layout
+    field.events.focusGain();field.events.textChanged('12.5')
+    check(api.poseCalibration():profile('lute').position.x==12.5 and #sent==before,'numeric tuning changes the live profile without network/project mutation')
+    field.events.keyPress{code=input.KEY.Enter}
+    slider.content[5].events.mouseClick()
+    check(api.poseCalibration():profile('lute').position.x==12.75,'arrow steps update the same live profile')
+    local value=api.poseCalibration():profile('lute').position.x
+    field.events.focusGain();field.events.textChanged('nan');field.events.keyPress{code=input.KEY.Enter}
+    check(api.poseCalibration():profile('lute').position.x==value,'invalid GUI text cannot corrupt a pose')
+    tuner.page='Left';tuner:render();check(tuner.children[1].layout.content[1].props.text=='Wrist target X','hand page exposes IK targets')
+    api.poseCalibration():reset('lute');player.engineHandlers.onKeyPress{code=input.KEY.Escape}
+    check(not api.poseTunerState() and not uiOverride and mode==nil,'Escape releases UI control without ending a score')
+end
 local libraryStorage={}
 local libraryServer=dofile('apps/openmw-server/scripts/procedural_synth_library.lua')({
     getCharacterStorageForCharacter=function(_,_,key) return libraryStorage[key] end,

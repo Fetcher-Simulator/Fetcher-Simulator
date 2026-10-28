@@ -64,9 +64,10 @@ function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel)
         curl=pressed and .32 or .2
         if profile.kind=='trumpet' and side=='R' then curl=.12 end
     end
+    if profile.tuning then point=profile.targets[side]+(point-profile.targets[side])*(profile.tuning[side..'MotionScale'] or 1) end
     return point,wrist,curl
 end
-function M.handDirections(profile,side)
+local function handDirections(profile,side)
     if profile.kind=='lute' then
         return profile.rotation*v(side=='L' and -1 or 1,0,0),v(0,-1,0)
     end
@@ -86,7 +87,12 @@ function M.handDirections(profile,side)
     end
     return v(0,1,0),v(0,0,-1)
 end
-function M.fingerCurl(profile,side,name,base,pitch,pressed)
+function M.handDirections(profile,side)
+    local forward,normal=handDirections(profile,side)
+    local rotation=profile.tuning and profile.tuning[side..'Rotation']
+    return rotation and rotation*forward or forward,rotation and rotation*normal or normal
+end
+local function fingerCurl(profile,side,name,base,pitch,pressed)
     if not pressed then return base end
     local finger=tonumber(name:lower():match('finger(%d)')) or 0
     if profile.kind=='trumpet' and side=='R' and finger>0 then
@@ -98,5 +104,10 @@ function M.fingerCurl(profile,side,name,base,pitch,pressed)
         return (math.floor(pitch)+finger*2+(side=='L' and 0 or 3))%12<7 and .35 or .1
     end
     return base
+end
+function M.fingerCurl(profile,side,name,base,pitch,pressed)
+    local amount=fingerCurl(profile,side,name,base,pitch,pressed)
+    if profile.tuning then amount=amount*(profile.tuning[side..'CurlScale'] or 1)+(profile.tuning[side..'CurlBias'] or 0) end
+    return clamp(amount,0,1.5)
 end
 return M

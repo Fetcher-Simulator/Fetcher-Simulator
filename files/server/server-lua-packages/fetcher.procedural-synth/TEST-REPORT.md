@@ -1,5 +1,45 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 27 follow-up: live pose calibration GUI (package 37)
+
+Band > Pose tuner and F9 > Local pose tuner open a compact draggable window
+without stopping the native score. It covers instrument/attachment transforms,
+hand targets and palm orientation, elbow poles, finger curl/motion multipliers,
+36 arm/finger bone overrides, focused performer camera views and export. Numeric
+entries update live when valid; malformed/out-of-range input cannot corrupt the
+profile. Only changed values are persisted, leaving future defaults available
+for untouched instruments/controls. Calibration remains local to each client.
+
+All 26 Lua suites pass. The 64 profile assertions include cache invalidation,
+source-default isolation, finite/bounded fields, known-node restrictions,
+hand/motion transforms, sparse persistence, reload/reset, export and the placed
+keyboard reference frame. The client harness exercises real numeric/arrow
+callbacks, invalid text, Escape cleanup, no network writes and first-person/
+placed-keyboard camera target discovery before an arm pose exists.
+
+Native UI inspection on a private 25571 fixture checked Prop, hand, bone, Camera
+and Export pages. Dragging a slider visibly moved the lute while notes continued;
+typed numeric input updated the mesh, Reset restored it, a side preset orbited
+the performer and closing restored the preceding camera. Save and export to the
+client log were exercised. Two clients verified late performer/prop delivery.
+The initial visual run was stopped by physical Escape; private processes were
+cleaned up, and testing resumed after the user's instruction to proceed.
+
+A final native round trip caught storage returning read-only userdata rather
+than a Lua table. Reload now uses StorageSection:getCopy before validation;
+regression coverage enforces that engine storage path. Native checks then
+recreated the calibration service from saved target/bone values, exported one
+instrument, restored defaults and opened the tuner while the score kept playing.
+Evidence: `build/studio-usability-qa/pose-tuner-result.json` and matching pose-tuner
+A/B/server logs. The matching source package was installed on the usual 25567
+fixture with all 65 tracked user data/settings/key/config files unchanged during
+copying (`build/studio-pose-tuner-local-install.json`). Two existing fixture
+server processes, bound separately on IPv4/IPv6, were shut down gracefully under
+the user's restart approval. One server was restarted through the port guard.
+Public servers, native executables/API/protocol and release assets are unchanged
+by this Lua-only slice; no workflow was started.
+
+
 ## October 27 follow-up: upright trumpet and corrected support hand (package 36)
 
 The previous visual pass missed two independent mesh errors reported by the
