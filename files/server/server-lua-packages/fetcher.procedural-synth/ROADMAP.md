@@ -209,6 +209,8 @@ Package 37 adds a local live pose tuner: instrument/attachment transforms,
 hand/palm/elbow/finger controls, advanced arm/finger bone offsets, performer
 camera views, validated local persistence and data export. Band playback keeps
 running while the tuning panel is open. Defaults can now be refined interactively.
+Package 38 incorporates the approved seven-instrument calibration exports and
+keeps a stable reference frame for saved tuning, preventing duplicate rotations.
 
 ## Remaining roadmap (next: seated stage layouts)
 
@@ -262,7 +264,7 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 37 / native synth API 16 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
+package 38 / native synth API 16 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented; seated stage layouts are the next priority.
 

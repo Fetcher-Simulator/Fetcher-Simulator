@@ -1,12 +1,8 @@
 -- Local, data-only pose calibration. Never changes score/network/actor state.
 return function(Profiles,util,storage)
     local M={names={'keyboard','lute','drum','violin','cello','trumpet','flute','clarinet','timpani'},boneNames={},revision=0,enabled=true}
-    local v,T=util.vector3,util.transform
     local defaults,values,cache={},{},{}
     local function copy(t) if type(t)~='table' then return t end;local out={};for k,x in pairs(t) do out[k]=copy(x) end;return out end
-    local function xyz(p) return {p.x,p.y,p.z} end
-    local function vector(p) return v(p[1],p[2],p[3]) end
-    local function rotation(p) return T.rotateZ(math.rad(p[3]))*T.rotateY(math.rad(p[2]))*T.rotateX(math.rad(p[1])) end
     local function finite(n) return type(n)=='number' and n==n and math.abs(n)<math.huge end
     for _,side in ipairs{'L','R'} do
         for _,part in ipairs{'UpperArm','Forearm','Hand'} do M.boneNames[#M.boneNames+1]='Bip01 '..side..' '..part end
@@ -14,12 +10,7 @@ return function(Profiles,util,storage)
     end
     local bones={};for _,name in ipairs(M.boneNames) do bones[name]=true end
     for _,name in ipairs(M.names) do
-        local p=Profiles[name];local d={propPosition=xyz(p.position),propRotation={0,0,0},bones={},extras={}}
-        for _,side in ipairs{'L','R'} do
-            d[side..'Target']=xyz(p.targets[side]);d[side..'Rotation']={0,0,0};d[side..'Pole']={side=='L' and -1 or 1,0,-.6}
-            d[side..'CurlScale']=1;d[side..'CurlBias']=0;d[side..'MotionScale']=1
-        end
-        for n,e in ipairs(p.extras or {}) do d.extras[n]={position=e.position and xyz(e.position) or {0,0,0},rotation={0,0,0}} end
+        local d=copy(Profiles.defaults[name])
         defaults[name]=d;values[name]=copy(d)
     end
     function M.spec(path)
@@ -55,27 +46,7 @@ return function(Profiles,util,storage)
     function M:profile(name)
         local base=Profiles[name];if not base or not self.enabled then return base end
         if cache[name] then return cache[name] end
-        local d=values[name];local p={};for k,x in pairs(base) do p[k]=x end
-        p.position=vector(d.propPosition);p.rotation=rotation(d.propRotation)*base.rotation;p.targets={L=vector(d.LTarget),R=vector(d.RTarget)}
-        p.tuning={bones={}}
-        for _,side in ipairs{'L','R'} do
-            p.tuning[side..'Rotation']=rotation(d[side..'Rotation']);p.tuning[side..'Pole']=vector(d[side..'Pole'])
-            for _,key in ipairs{'CurlScale','CurlBias','MotionScale'} do p.tuning[side..key]=d[side..key] end
-        end
-        for name,b in pairs(d.bones) do
-            local pos={};local rot={};local nonzero=false
-            for n=1,3 do pos[n]=read(b,{'position',n});rot[n]=read(b,{'rotation',n});nonzero=nonzero or pos[n]~=0 or rot[n]~=0 end
-            if nonzero then p.tuning.bones[name:lower()]={position=vector(pos),rotation=rotation(rot)} end
-        end
-        p.extras={}
-        for n,extra in ipairs(base.extras or {}) do
-            local e={};for k,x in pairs(extra) do e[k]=x end
-            e.position=extra.position and vector(d.extras[n].position) or extra.position
-            e.rotation=rotation(d.extras[n].rotation)*(extra.rotation or T.identity)
-            -- Hand-following mallets use the local offset too.
-            if extra.hand then e.position=vector(d.extras[n].position) end
-            p.extras[n]=e
-        end
+        local p=Profiles.compile(Profiles.reference[name],values[name])
         cache[name]=p;return p
     end
     local function restore(saved)
@@ -99,7 +70,7 @@ return function(Profiles,util,storage)
     function M:save() storage:set('profiles',changes(values,defaults) or {});storage:set('enabled',self.enabled);storage:set('format',1);return true end
     function M:placedKeyboard()
         local p=self:profile('keyboard');local out={};for k,x in pairs(p) do out[k]=x end
-        out.targets={L=p.targets.L-Profiles.keyboard.position,R=p.targets.R-Profiles.keyboard.position};return out
+        out.targets={L=p.targets.L-Profiles.reference.keyboard.position,R=p.targets.R-Profiles.reference.keyboard.position};return out
     end
     function M:reload()
         -- get() returns a read-only userdata view in the engine, unlike the
@@ -117,7 +88,7 @@ return function(Profiles,util,storage)
     end
     function M:export(name)
         if name and not values[name] then return end
-        local text='return '..literal({format=1,basePackage=37,enabled=self.enabled,profiles=name and {[name]=values[name]} or values},0)
+        local text='return '..literal({format=1,basePackage=Profiles.calibrationVersion,referenceVersion=Profiles.referenceVersion,enabled=self.enabled,profiles=name and {[name]=values[name]} or values},0)
         storage:set('lastExport',text);return text
     end
     M:reload();return M

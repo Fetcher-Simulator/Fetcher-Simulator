@@ -35,6 +35,7 @@ package.loaded['openmw.vfs']={pathsWithPrefix=function() return function() end e
 package.loaded[prefix..'client.midi']=dofile(root..'client/midi.lua')
 package.loaded[prefix..'client.hosted-midi']=dofile(root..'client/hosted-midi.lua')
 package.loaded[prefix..'client.midi-export']=dofile(root..'client/midi-export.lua')
+package.loaded[prefix..'client.pose-defaults']=dofile(root..'client/pose-defaults.lua')
 package.loaded[prefix..'client.instrument-profiles']=dofile(root..'client/instrument-profiles.lua')
 package.loaded[prefix..'client.performance']=dofile(root..'client/performance.lua')
 local viewport=vector(1024,768)

@@ -1,5 +1,34 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 28: approved live calibration defaults (package 38)
+
+Captured seven approved profiles from the current/rotated Synth A client logs:
+cello and trumpet from the earlier session, then violin, lute, flute, clarinet
+and the final drum export. Duplicate clarinet exports were identical; the last
+drum export supersedes the preceding one. Original blocks and log snapshots are
+retained outside the repository under `synth-assets/pose-calibration/2026-10-28`.
+`client/pose-defaults.lua` contains the numeric data; zero-only exploratory bone
+fields were removed. Keyboard/timpani keep their original profiles.
+
+Source defaults and the tuner now use one compiler against the immutable
+package-37 reference geometry. Stored/exported positions and angles replace
+values in that frame rather than multiplying the new default's angles again.
+Reset/Preview Off use the accepted poses; individual saved edits still override
+their corresponding fields. New exports declare the calibration and reference
+versions explicitly. Native API/protocol and assets are unchanged.
+
+All 26 Lua suites pass, including 370 profile assertions. Each accepted field
+is validated, package-37 full exports reproduce the new default transforms
+without duplicate prop/palm rotations, and saving a matching accepted profile
+produces no redundant overrides. Native checks cover default target equivalence,
+storage round trip, bones, export, uninterrupted playback and a late observer.
+Evidence: `build/studio-usability-qa/accepted-defaults-result.json` and the matching
+A/B/server logs. Package 38 was copied to the existing 25567 fixture with all
+65 tracked user save/settings/config/key files unchanged during installation
+(`build/studio-defaults-local-install.json`). Public servers/releases were not
+updated and no native build or workflow was required.
+
+
 ## October 27 follow-up: live pose calibration GUI (package 37)
 
 Band > Pose tuner and F9 > Local pose tuner open a compact draggable window

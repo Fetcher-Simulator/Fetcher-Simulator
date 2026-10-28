@@ -32,6 +32,42 @@ M.timpani={kind='timpani',anchor='feet',model=path..'timpani.nif',position=v(0,3
     targets={L=v(-10,27,82),R=v(10,27,82)},
     extras={{key='synth_mallet_l',model=path..'mallet.nif',hand='L'},{key='synth_mallet_r',model=path..'mallet.nif',hand='R'}}}
 local function clamp(n,a,b) return math.max(a,math.min(b,n)) end
+local function copy(value)
+    if type(value)~='table' then return value end
+    local result={};for key,item in pairs(value) do result[key]=copy(item) end;return result
+end
+local function vector(p) return v(p[1] or 0,p[2] or 0,p[3] or 0) end
+local function rotation(p) return T.rotateZ(math.rad(p[3] or 0))*T.rotateY(math.rad(p[2] or 0))*T.rotateX(math.rad(p[1] or 0)) end
+function M.seed(p)
+    local d={propPosition={p.position.x,p.position.y,p.position.z},propRotation={0,0,0},bones={},extras={}}
+    for _,side in ipairs{'L','R'} do
+        d[side..'Target']={p.targets[side].x,p.targets[side].y,p.targets[side].z};d[side..'Rotation']={0,0,0};d[side..'Pole']={side=='L' and -1 or 1,0,-.6}
+        d[side..'CurlScale']=1;d[side..'CurlBias']=0;d[side..'MotionScale']=1
+    end
+    for n,e in ipairs(p.extras or {}) do d.extras[n]={position=e.position and {e.position.x,e.position.y,e.position.z} or {0,0,0},rotation={0,0,0}} end
+    return d
+end
+function M.compile(base,d)
+    local p={};for k,x in pairs(base) do p[k]=x end
+    p.position=vector(d.propPosition);p.rotation=rotation(d.propRotation)*base.rotation;p.targets={L=vector(d.LTarget),R=vector(d.RTarget)}
+    p.tuning={bones={}}
+    for _,side in ipairs{'L','R'} do
+        p.tuning[side..'Rotation']=rotation(d[side..'Rotation']);p.tuning[side..'Pole']=vector(d[side..'Pole'])
+        for _,key in ipairs{'CurlScale','CurlBias','MotionScale'} do p.tuning[side..key]=d[side..key] end
+    end
+    for name,b in pairs(d.bones) do
+        local pos=b.position or {};local rot=b.rotation or {};local nonzero=false
+        for n=1,3 do nonzero=nonzero or (pos[n] or 0)~=0 or (rot[n] or 0)~=0 end
+        if nonzero then p.tuning.bones[name:lower()]={position=vector(pos),rotation=rotation(rot)} end
+    end
+    p.extras={}
+    for n,extra in ipairs(base.extras or {}) do
+        local e={};for k,x in pairs(extra) do e[k]=x end
+        e.position=(extra.position or extra.hand) and vector(d.extras[n].position) or extra.position
+        e.rotation=rotation(d.extras[n].rotation)*(extra.rotation or T.identity);p.extras[n]=e
+    end
+    return p
+end
 function M.bowTravel(profile,age,pressed)
     return (profile.kind=='violin' or profile.kind=='cello') and pressed and math.sin(age*math.pi*1.6)*5 or 0
 end
@@ -109,5 +145,16 @@ function M.fingerCurl(profile,side,name,base,pitch,pressed)
     local amount=fingerCurl(profile,side,name,base,pitch,pressed)
     if profile.tuning then amount=amount*(profile.tuning[side..'CurlScale'] or 1)+(profile.tuning[side..'CurlBias'] or 0) end
     return clamp(amount,0,1.5)
+end
+local approved=require('scripts.multiplayer.fetcher.procedural-synth.client.pose-defaults')
+M.calibrationVersion=approved.version;M.referenceVersion=approved.referenceVersion;M.reference={};M.defaults={}
+local function merge(target,source)
+    for key,item in pairs(source) do
+        if type(item)=='table' and type(target[key])=='table' then merge(target[key],item) else target[key]=copy(item) end
+    end
+end
+for _,name in ipairs{'keyboard','lute','drum','violin','cello','trumpet','flute','clarinet','timpani'} do
+    M.reference[name]=M[name];local d=M.seed(M[name]);merge(d,approved.profiles[name] or {})
+    M.defaults[name]=d;M[name]=M.compile(M.reference[name],d)
 end
 return M

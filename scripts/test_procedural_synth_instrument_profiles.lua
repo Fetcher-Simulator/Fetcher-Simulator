@@ -15,7 +15,12 @@ function T.rotateX(n) local s,c=math.sin(-n),math.cos(n);return setmetatable({1,
 function T.rotateY(n) local s,c=math.sin(-n),math.cos(n);return setmetatable({c,0,s,0,1,0,-s,0,c},R) end
 function T.rotateZ(n) local s,c=math.sin(-n),math.cos(n);return setmetatable({c,-s,0,s,c,0,0,0,1},R) end
 package.loaded['openmw.util']={vector3=v,transform=T}
-local P=dofile('files/server/server-lua-packages/fetcher.procedural-synth/client/instrument-profiles.lua')
+local approved=dofile('files/server/server-lua-packages/fetcher.procedural-synth/client/pose-defaults.lua')
+package.loaded['scripts.multiplayer.fetcher.procedural-synth.client.pose-defaults']=approved
+local Published=dofile('files/server/server-lua-packages/fetcher.procedural-synth/client/instrument-profiles.lua')
+-- Keep geometry checks on the documented original mesh/reference coordinates.
+-- Accepted in-game poses are checked separately below against their exports.
+local P=setmetatable({}, {__index=Published});for name,p in pairs(Published.reference) do P[name]=p end
 local checks=0;local function check(value,why) checks=checks+1;assert(value,why) end
 local neck=P.lute.position+P.lute.rotation*v(0,20,8)
 check(neck.x<0 and neck.z>P.lute.position.z,'vanilla lute neck points toward fretting hand and upward')
@@ -71,11 +76,11 @@ end
 do
  local data={};local storage={get=function(_,k) return data[k] end,set=function(_,k,x) data[k]=x end}
  local make=dofile('files/server/server-lua-packages/fetcher.procedural-synth/client/pose-calibration.lua')
- local calibration=make(P,package.loaded['openmw.util'],storage)
- local original=P.lute.targets.L.x;local base=calibration:profile('lute')
+ local calibration=make(Published,package.loaded['openmw.util'],storage)
+ local original=Published.lute.targets.L.x;local base=calibration:profile('lute')
  check(calibration:profile('lute')==base and base.targets.L.x==original,'unchanged profiles reuse a cached transform set')
  check(calibration:set('lute',{'LTarget',1},original+3),'live hand target accepted')
- check(P.lute.targets.L.x==original and calibration:profile('lute').targets.L.x==original+3,'local calibration cannot mutate source defaults')
+ check(Published.lute.targets.L.x==original and calibration:profile('lute').targets.L.x==original+3,'local calibration cannot mutate source defaults')
  check(calibration:profile('lute')~=base,'a changed hand target invalidates the profile cache')
  check(not calibration:set('lute',{'propPosition',1},0/0) and not calibration:set('lute',{'LTarget',1},1/0),'nonfinite calibration rejected')
  check(not calibration:set('lute',{'bones','Bip01','position',1},1),'root/unknown bone offsets rejected')
@@ -87,23 +92,46 @@ do
  calibration:set('lute',{'LMotionScale'},0)
  local point=P.motion(calibration:profile('lute'),'L',90,true,1,0,1)
  check(math.abs(point.x-calibration:profile('lute').targets.L.x)<.0001,'zero note-motion multiplier holds the edited target while audio continues')
- calibration:set('lute',{'LRotation',3},90)
+ calibration:set('lute',{'LRotation',1},0);calibration:set('lute',{'LRotation',2},0);calibration:set('lute',{'LRotation',3},90)
  local direction=select(1,P.handDirections(calibration:profile('lute'),'L'))
- local expected=T.rotateZ(math.pi/2)*select(1,P.handDirections(P.lute,'L'))
+ local expected=T.rotateZ(math.pi/2)*select(1,P.handDirections({kind='lute',rotation=calibration:profile('lute').rotation},'L'))
  check(math.abs(direction.x-expected.x)<.0001 and math.abs(direction.y-expected.y)<.0001,'palm rotation uses the documented named-axis composition')
  calibration:save();check(not data.profiles.drum and not data.profiles.lute.propPosition,'only changed values are persisted so new defaults can reach untouched controls')
  calibration:reset('lute');check(not calibration:profile('lute').tuning.bones['bip01 l hand'],'reset clears advanced offsets')
  calibration:reload();check(calibration:profile('lute').targets.L.x==original+3,'saved local tuning survives reload')
  local text=calibration:export('lute');local exported=assert((loadstring or load)(text))()
  check(exported.format==1 and math.abs(exported.profiles.lute.LTarget[1]-original-3)<.000001 and not exported.profiles.drum,'selected export contains reusable numeric values only')
- calibration:toggle();check(calibration:profile('lute')==P.lute,'preview toggle restores the exact default profile')
- calibration:toggle();calibration:save();local restored=make(P,package.loaded['openmw.util'],storage)
+ calibration:toggle();check(calibration:profile('lute')==Published.lute,'preview toggle restores the exact default profile')
+ calibration:toggle();calibration:save();local restored=make(Published,package.loaded['openmw.util'],storage)
  check(restored:profile('lute').targets.L.x==original+3,'a new calibration instance loads saved values')
  data.profiles.lute.LTarget[1]=99999;restored:reload()
  check(restored:profile('lute').targets.L.x==original,'corrupt out-of-range saved values fall back to defaults')
  local keys=restored:placedKeyboard();check(keys.targets.L.y==-18 and keys.targets.L.z==91,'placed-keyboard hand targets retain the keybed reference frame')
  local copies=0;local engine={get=function(_,key) if key=='profiles' then error('engine storage view must be copied') end;return data[key] end,
   getCopy=function(_,key) copies=copies+1;return data[key] end,set=storage.set}
- make(P,package.loaded['openmw.util'],engine);check(copies==1,'native storage restores via getCopy rather than treating its userdata view as a Lua table')
+ make(Published,package.loaded['openmw.util'],engine);check(copies==1,'native storage restores via getCopy rather than treating its userdata view as a Lua table')
+ -- A package-37 saved export is already expressed in the original reference
+ -- frame. It must replace the accepted values, never rotate them a second time.
+ for name,export in pairs(approved.profiles) do
+  data={format=1,enabled=true,profiles={[name]=export}}
+  local migrated=make(Published,package.loaded['openmw.util'],storage)
+  local p=migrated:profile(name);local expected=Published[name]
+  check(math.abs(p.position.x-export.propPosition[1])<1e-7 and math.abs(p.targets.L.x-export.LTarget[1])<1e-7,'new default positions match '..name..' export')
+  for _,axis in ipairs{v(1,0,0),v(0,1,0),v(0,0,1)} do
+   local a,b=p.rotation*axis,expected.rotation*axis
+   check(math.abs(a.x-b.x)+math.abs(a.y-b.y)+math.abs(a.z-b.z)<1e-7,'saved '..name..' prop rotation is not applied twice')
+   for _,side in ipairs{'L','R'} do
+    a,b=p.tuning[side..'Rotation']*axis,expected.tuning[side..'Rotation']*axis
+    check(math.abs(a.x-b.x)+math.abs(a.y-b.y)+math.abs(a.z-b.z)<1e-7,'saved '..name..' palm rotation is not applied twice')
+   end
+  end
+  local function validate(node,path)
+   if type(node)=='table' then for key,item in pairs(node) do local nextPath={};for n,x in ipairs(path) do nextPath[n]=x end;nextPath[#nextPath+1]=key;validate(item,nextPath) end
+   else local spec=migrated.spec(path);check(spec and node>=spec.min and node<=spec.max,'export field is valid for '..name) end
+  end
+  validate(export,{})
+  migrated:save();check(not next(data.profiles),'accepted '..name..' export becomes the default rather than a redundant user override')
+  migrated:reset(name);check(migrated:get(name,{'LTarget',1})==export.LTarget[1],'Reset restores the accepted '..name..' defaults')
+ end
 end
 print('PASS mesh-aligned profiles, live calibration, validated persistence/export; '..checks..' assertions')

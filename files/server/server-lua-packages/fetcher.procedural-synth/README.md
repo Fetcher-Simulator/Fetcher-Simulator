@@ -2,7 +2,7 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current source: package 37 / native synth API 16 / multiplayer protocol 27.
+Current source: package 38 / native synth API 16 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -10,6 +10,12 @@ Standing NPC staging and the first orchestral props are available. Next: seated
 layouts and conductor presentation. See [the roadmap](ROADMAP.md).
 
 ## Live pose tuner
+
+Package 38 makes the approved cello, trumpet, violin, lute, flute, clarinet and
+hand-drum exports the defaults, including palm angles, elbow direction, finger/
+note motion and bow offsets. Keyboard and timpani retain their previous poses.
+Reset and Preview Off use these approved defaults. Rotations retain a fixed
+package-37 reference frame so an existing saved export cannot apply them twice.
 
 While a song plays, open **Band > Pose tuner**. Observers can also open **F9 >
 Local pose tuner**. The compact window replaces the main Studio view while
@@ -32,7 +38,8 @@ assignment. All performers using that instrument on your client share the previe
 Sliders, minus/plus buttons and valid numeric input update live. Hold Shift for
 finer slider/arrow steps. Positions use game units in the instrument's chest/feet
 anchor frame. Rotation offsets use degrees, composed Z * Y * X with OpenMW's
-named rotation helpers. Bone offsets use each bone's local frame. Prop and wrist
+named rotation helpers against the original reference, not the newly calibrated
+default. Bone offsets use each bone's local frame. Prop and wrist
 positions are independent. The placed keyboard itself stays fixed; its hand
 targets are calibrated relative to the keybed instead.
 
