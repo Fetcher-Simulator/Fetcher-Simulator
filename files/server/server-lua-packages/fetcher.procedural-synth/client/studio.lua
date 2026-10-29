@@ -701,7 +701,7 @@ function S:samplePage(content)
     if not self.samples then
         self.samples=w.cb.samples();self.samples:start()
         local t=w.project.tracks[w.selected];local ref=t and t.params.sample
-        if ref then for k,value in pairs(ref) do self.samples[k]=value end end
+        if ref and not schema.isBank(ref) then for k,value in pairs(ref) do self.samples[k]=value end end
     end
     local browser=self.samples;local t=w.project.tracks[w.selected]
     local function refresh() w.revision=w.revision+1 end
@@ -761,7 +761,8 @@ function S:samplePage(content)
     content[#content+1]=self:button('Sound / save preset',290,543,220,function() if t then self.cb.sound(w.selected) end end)
     content[#content+1]=self:button('Use synth keys',530,543,160,function() w:preset(w.selected,'b:studio-keys') end)
     content[#content+1]=self:button('Edit part sample',710,543,180,function()
-        if t and t.params.sample then browser:stop();for k,value in pairs(t.params.sample) do browser[k]=value end;refresh() end
+        if t and schema.isBank(t.params.sample) then w.cb.message('This instrument selects recordings per note and velocity. Use Sound to adjust its envelope and amplifier.')
+        elseif t and t.params.sample then browser:stop();for k,value in pairs(t.params.sample) do browser[k]=value end;refresh() end
     end)
     content[#content+1]=label(t and t.params.sample and ('Assigned: '..t.params.sample.path):sub(1,125) or 'Assigned: synthesized sound',20,595,880,12,c.accent)
     content[#content+1]=label('Piano, recorded notes, imported MIDI and linked clips all play the assigned sound through its band output.',20,627,880,12,c.muted)

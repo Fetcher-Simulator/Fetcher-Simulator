@@ -8,6 +8,12 @@ at acquisition. Original library sizes below are not our future bundle size.
 
 ## Acquired sources, October 29
 
+Package 48 now includes an optional first electric DI bank and native note/velocity
+zone player. The converter and license record are in
+`scripts/procedural-synth-assets/build-electric-sample-bank.py` and
+`files/server/optional-assets/fetcher.studio-samples/`. Other acquired libraries
+remain source material awaiting their own mappings and articulation support.
+
 The DI guitar, Black And Blue Basses, Big Rusty Drums, Growlybass and Meta
 nylon/steel WAV sources are downloaded to the local `synth-assets/samples-2026-10-29`
 directory outside this repository. Six archives total 3,043,043,332 bytes and

@@ -1,0 +1,980 @@
+{
+  "id": "electric-di-v1",
+  "creator": "FreePats project / FSBS Electric Guitar Direct",
+  "license": "CC0-1.0",
+  "source": "https://freepats.zenvoid.org/ElectricGuitar/clean-electric-guitar.html",
+  "release": "2022-09-11",
+  "archiveSha256": "5aedb789d108f85d2c76f0b74eae100439eac939a863f6fe870fee11cf5ab467",
+  "sfzSha256": "2b8e302ff01914dec2fe539d707cadc2b4cc581e55a4162b9bcaada41509cace",
+  "path": "sound/fetcher/banks/electric-di-v1.fsb",
+  "sha256": "ec12a88cadebae530d58772f6a6c29fb77cef5fed97b4da3b88f831e46884924",
+  "bytes": 34061890,
+  "native": {
+    "hash": "969e921873764a7fb7a112d9574d3dfe",
+    "zones": 60,
+    "pcmBytes": 68121812
+  },
+  "conversion": "mono 48 kHz PCM16; remove leading silence below -65 dB with 3 ms retained; cap at 6 s; 20 ms terminal fade; first two source alternates, round robin; no level normalization",
+  "zones": [
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/C2_s1_soft_01.wav",
+      "sourceSha256": "a2243df26556ff76a784e422ce70eb19c7ae7f155826cff57811dfd022501e37",
+      "keys": [
+        35,
+        38
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 36,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "df48d96e7c235377cf9cbc1ceb97795cc0403aed316041f871c094b777d9862f"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/C2_s1_soft_02.wav",
+      "sourceSha256": "1522baa720894225195bdbd8003a67fa23ac8045793c50921f353788dd62bddb",
+      "keys": [
+        35,
+        38
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 36,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "accf6c95954d96d183254ae0f65232f574bf89bc3dd609f009def9a6d496289b"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/C2_s1_01.wav",
+      "sourceSha256": "36096e9cb34cf882d1d81ab4724dfd1883003fbfdef6e3b383076db835539b0b",
+      "keys": [
+        35,
+        38
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 36,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "9b6314bcc55e0fa7ce6c992d440f3a841b44e629a0d6d7437104c3d69a25f06c"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/C2_s1_02.wav",
+      "sourceSha256": "e3a3368df18d839af285731f650bf6db647c049e4b3446bf63019a4cf2d5bc69",
+      "keys": [
+        35,
+        38
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 36,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "5833da7cc9aeebe9a1ea3ae946341b7092efc70a1d64a5b44241ebf360127b09"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/E2_s1_soft_01.wav",
+      "sourceSha256": "5975ccbb88f76d8b165de11d0022c4344d05f03f5d6b994aafdf60cf9245d43c",
+      "keys": [
+        39,
+        40
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 40,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "0c8e7d6e511cc7da1ccfda4423d29cd62c70ffca0515b03f56ca8f4cfc0bb4b1"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/E2_s1_soft_02.wav",
+      "sourceSha256": "2657a68247fb11cbd5f9cf18ea7ef739edf72e16f1117b8c97caf42c74c48f4c",
+      "keys": [
+        39,
+        40
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 40,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "9758ca51ccebc6cb27d26b32504bde4824921740a0ac317f7a0fc22c3fe2556e"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/E2_s1_01.wav",
+      "sourceSha256": "be2f50fb2c4cee7c76a91dbfa979de1ff1cd28de25d0900d83d52aed746b857a",
+      "keys": [
+        39,
+        40
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 40,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "ce56601bfe6aa538e1570de78da094ecaa8b3d8ff17206db48a54c0eaeaa56a1"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/E2_s1_02.wav",
+      "sourceSha256": "a614a37585d221c10a5ff830aac8049e06405c95345d3d883c5ac636f4a458b9",
+      "keys": [
+        39,
+        40
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 40,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "837894f7bfd2c3d3d6f9b613aea3263f4b54a951b485068a16e2c36cf0fea619"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/F2_s1_soft_01.wav",
+      "sourceSha256": "f623340ff0fea7b8c739c10ea3e22ef69a2ad1a42f00e24d8a0866b191a7bac1",
+      "keys": [
+        41,
+        42
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 41,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "6e752da448a286a772d58d749c4bdc2d889c47a442c8fa72e4bec0bdd825142e"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/F2_s1_soft_02.wav",
+      "sourceSha256": "32ec4a4f44295a7f64e8e0f98ea19ca6a36208e60de0dd99cfad3204f3942667",
+      "keys": [
+        41,
+        42
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 41,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "e8a78771e592de8ff795efa1441112c502a65cc55b8c2d4409f49dcf3c3bb099"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/F2_s1_01.wav",
+      "sourceSha256": "8b4bfa4e33b4cb5ba1c052256120e72ac464075cde3061096281a47d4e36ed95",
+      "keys": [
+        41,
+        42
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 41,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "7af01ce321a0c986e9bac215058a89424de8545fd8b5f15f38ba3d38861e536b"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/F2_s1_02.wav",
+      "sourceSha256": "d8b2378cec7e67ebebc8cd1a4c60aca53c1b2c8bd1b6ca3ee730ed52fb7f4abf",
+      "keys": [
+        41,
+        42
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 41,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "cf935b0e825aad11e08d5ecc7ab4d9724a15cd64e9dd3ed94ce371a159a40128"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/A2_s2_soft_01.wav",
+      "sourceSha256": "430534dad14b476f9b1afe940ce31c81658686f8e995dde45582a6bcf8e725b9",
+      "keys": [
+        43,
+        46
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 45,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "f7723cddc5af0d08769e91aca31a863d31a21a46aed6778d76a6791941ed04d8"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/A2_s2_soft_02.wav",
+      "sourceSha256": "16af4169e69f7f0fc29a6fc2e341b10616f0439a6c05655a6ee3f1b8a498d9ca",
+      "keys": [
+        43,
+        46
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 45,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "b98290e5e886143f5f66d4b859ca9d51724a4f8720001f7eb5e03b2330960822"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/A2_s2_01.wav",
+      "sourceSha256": "666ef32a1551c5ed2e7438b94dbce5d140101d5273e1c5680e0f1b335cdb7389",
+      "keys": [
+        43,
+        46
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 45,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "504bb7da9f96a8e0d8fc258878b59dc895f47d3d08b1e42fbf20382ee6e6ee8a"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/A2_s2_02.wav",
+      "sourceSha256": "c7f74449e66dce039c2538e80e3c339e224c752fba4dd340b7ba2624c4d68ed4",
+      "keys": [
+        43,
+        46
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 45,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "2b6235630ad8f6f2c26471c54ecffd911312c345b74ab32f9a2c6e172d760ea4"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/C3_s2_soft_01.wav",
+      "sourceSha256": "256c44695b54ced3d01ed58834e2be0e62a0bbf301086ad53f02e01877f7bc7e",
+      "keys": [
+        47,
+        49
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 48,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "fdbe83e3b2bef199605576bc58253ae4989cecd3d247a77133a0631a9518aad8"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/C3_s2_soft_02.wav",
+      "sourceSha256": "ad732dfc2f6cc36e02baa324a1f27d032bab5e14fbacea249346153cfe6182fe",
+      "keys": [
+        47,
+        49
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 48,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "c87e44d8bccca9377cda866695f9a9b4f17f098c399d22f61e89c949c3880752"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/C3_s2_01.wav",
+      "sourceSha256": "c0f786c29b7194484047cb4aae5d731106ddd812b7a43e983ceba7542545182b",
+      "keys": [
+        47,
+        49
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 48,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "ae1d297ad1015b889cce5ffcaea6c65ba4bcf405d3ce5e0d20af650197ffcbeb"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/C3_s2_02.wav",
+      "sourceSha256": "7b36943173c0ebf90461066e6a023f0e052de2efaf1d397dce08f7323d0ca0cc",
+      "keys": [
+        47,
+        49
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 48,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "2bbd003941353c960676059e7410ccaa4c46cc31948a4eb20a72c28d37ee583e"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/D3_s3_soft_01.wav",
+      "sourceSha256": "8ededcd59339359623e3cf7473ad07d0612210fa96a6fa4f6cd3d19f94b7592f",
+      "keys": [
+        50,
+        51
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 50,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "9f64a3d0ef8ba4bdba66b6b613dcc3056baa9d81ea5e510ecac3fc6f50a1bbaf"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/D3_s3_soft_02.wav",
+      "sourceSha256": "4727134008f00e6540951d34b91acb9dad4bbb76b33e2606a5c77919bc7095be",
+      "keys": [
+        50,
+        51
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 50,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "00860cf8d906a99ee8b34474916f0ffcf31a7bad99430165640870c029f1f863"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/D3_s3_01.wav",
+      "sourceSha256": "ae780af2885babf7e8e7235659a7235beac7d696f9ea1c9b026d116acc13dc52",
+      "keys": [
+        50,
+        51
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 50,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "3717c675af19715c2e043a04bea08161244a96e591a5faf8181f7c88ab12ebf7"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/D3_s3_02.wav",
+      "sourceSha256": "d3dabcbf1d5de42849ca88fa7f5ec16dfe2e50d68bab579794bbe2707f096b5b",
+      "keys": [
+        50,
+        51
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 50,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "1091a0c857290327313471bd2f2f4e2254c94309ddafea664412d0c928946791"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/E3_s3_soft_01.wav",
+      "sourceSha256": "5ac76dc8712c6abb9ca10a220780045117704eb479a2902ec891bbb9b4540419",
+      "keys": [
+        52,
+        53
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 52,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "f935395876e236493883f18c6e09395200dd4d89ae70a3092eb6ff0e8114d052"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/E3_s3_soft_02.wav",
+      "sourceSha256": "0e538933c048d61f6837a0cacab17f0d4e743c53c7a88b33a9a378d910c54621",
+      "keys": [
+        52,
+        53
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 52,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "b4256f2ec26a4767561c27925a68c48f52c7dd6dd8a1ea7f6fe772957aa640b5"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/E3_s3_01.wav",
+      "sourceSha256": "b6f1b57a2328b46a5e6deab1f645e4cecc0a7b27f58134b494a79897cd3d6236",
+      "keys": [
+        52,
+        53
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 52,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "2c85d74360f7e6396e9185ded9f81d8461dec49034edcfa43ebddfd80bb18c33"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/E3_s3_02.wav",
+      "sourceSha256": "ff37c56ea8e17d3a24ea93ed15a9581d5465ae96f722343f4dde65ad795c545d",
+      "keys": [
+        52,
+        53
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 52,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "407523e30fea6a557e0c444f9a705886a5c1ce48d81525c70f2acf94db75ff8d"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/G3_s4_soft_01.wav",
+      "sourceSha256": "403dbd59eb3ed75536ed748f27c5fe468323a4c2668eed9d51ed2290e7aad011",
+      "keys": [
+        54,
+        56
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 55,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "7516e007098622547c8acb223d2d2f886ec7d5c5040e09134d5bcb677128a177"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/G3_s4_soft_02.wav",
+      "sourceSha256": "a4eb57c6f48a65c01ed6e22af5cc1148a7dcb8fc93297ba1d46f1202099f09b7",
+      "keys": [
+        54,
+        56
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 55,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "3bc9b474a3054ff6f72e81232e2f14fba807232425059b4836d1cbcca9616dbf"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/G3_s4_01.wav",
+      "sourceSha256": "71da2122a7b7eb2d151026dd5adf6e186c9998f4c0f2808c1c688a2e21e9e636",
+      "keys": [
+        54,
+        56
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 55,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "cc9e897a51db03e97293fc738186a5058a936497f2d45c3acfc1f4b08a35afd5"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/G3_s4_02.wav",
+      "sourceSha256": "ed26b4b44a33df435cc0b966db8fba9179f606e5e75c93ecf7929f508d436105",
+      "keys": [
+        54,
+        56
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 55,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "3e2ba03ce668c2246b1ac19a462c4129756ce63e19ef310be147c583ad08bb44"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/B3_s5_soft_01.wav",
+      "sourceSha256": "337c3a626041dc626f2d8dd6b66e536674d4f5933cd904b88454da3ea4bf8dd3",
+      "keys": [
+        57,
+        59
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 59,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "733554de2bf139f9aa378cadfcfe4379f64f693a520f058383b0c20d49dbc1e3"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/B3_s5_soft_02.wav",
+      "sourceSha256": "09cc63ece96784b5fc12662a159eb3459a3f8573b2741d6f27f44d7efaaf551b",
+      "keys": [
+        57,
+        59
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 59,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "7983a602e57d5290d49552cea71b10f5d4d05ff9840a57f42f71fce6c62dcf17"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/B3_s5_01.wav",
+      "sourceSha256": "8ee6f8b186d2c5a4b632a5f618ac69ee63b5cddfda9281e279da9d2e7558113c",
+      "keys": [
+        57,
+        59
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 59,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "0755462fd939067f73e233c400b2d660339011761467f672b98e2338d654eb8b"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/B3_s5_02.wav",
+      "sourceSha256": "db32eb9e83d10da8ec37a172af23ae2da08c4b32c846b4398082c6f9097bd464",
+      "keys": [
+        57,
+        59
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 59,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "3d8522af98f021fcc0c125cbbf6fb53a707aaa8955c50dff210c95ae1da682da"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/C#4_s5_soft_01.wav",
+      "sourceSha256": "8a1ef1c9aff9e20cfee92bcea2204379782aac3cc216d460d3fffdb7ce7f039e",
+      "keys": [
+        60,
+        62
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 61,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "4562843e27f8ee71cc5f5f8d1105c41a1b3efbfa6b584ea9f695646182082ad6"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/C#4_s5_soft_02.wav",
+      "sourceSha256": "dfe8f7b1e15642485c6f0660b39676643dee690ef271ddf6b0335148963dd4cf",
+      "keys": [
+        60,
+        62
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 61,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "aa6f444f2a7db1b1adea7641067eba494c852e0ec7c79bb9deaef0782d09e7f6"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/C#4_s5_01.wav",
+      "sourceSha256": "fc41f7a956e5548dc6ce0989ed38e2899798cbf649f2d99d51067c2879f806c2",
+      "keys": [
+        60,
+        62
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 61,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "e5504b832f7193ecb5ccef04e402b29735c70c0744edbaa64496a93e49f4a41d"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/C#4_s5_02.wav",
+      "sourceSha256": "55a225d89299337486e368d27b2f768224baf5b03ec392d2cc4cf9e96d29f92e",
+      "keys": [
+        60,
+        62
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 61,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "b3305cb6f799566b1f301967582d7c1966d573a38c583521778370c43d2b720b"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/E4_s6_soft_01.wav",
+      "sourceSha256": "da1ac30bbeb5571b082edd0a5c574a15e3a8805f4b704f8f5aefe1577e4aecb2",
+      "keys": [
+        63,
+        65
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 64,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "8f73587017655a2aaf038218c304e5019e01b532608319dbe19c073ed7b8bb8d"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/E4_s6_soft_02.wav",
+      "sourceSha256": "7f261cd7d8ba9514ef7d427c23eca0a6f6a42b0ab3fbc5274131513d2d687196",
+      "keys": [
+        63,
+        65
+      ],
+      "velocity": [
+        1,
+        92
+      ],
+      "root": 64,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "533a1ee60ee53d2beaa8a76813c41311cb3d4a0d56d9ec3962d180a4e8423c68"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/E4_s6_01.wav",
+      "sourceSha256": "6ab9e836bdbe9245cc1c61f6e17db8b1db4d201e93ceeb5d6349ffba5ed7bb64",
+      "keys": [
+        63,
+        65
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 64,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "5055fcf20bacd3cbd804c026875c8b63313788c5d06cad323d03823453de8712"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/E4_s6_02.wav",
+      "sourceSha256": "205e20e6f1794798c0de39944566bb4f21d50da0dcd27c5e1532fb36ca590f88",
+      "keys": [
+        63,
+        65
+      ],
+      "velocity": [
+        93,
+        127
+      ],
+      "root": 64,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "26d0160f531cfb7041d9685e3126ac4454fda46fa0aafca918bdd7ebc0197bd9"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/G4_s6_01.wav",
+      "sourceSha256": "359a1a58c68293221e1eeeb4b7eb44feba10abc016edc97c6af1fc2c5eab419d",
+      "keys": [
+        66,
+        69
+      ],
+      "velocity": [
+        1,
+        127
+      ],
+      "root": 67,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "54453e1fb3ef5b6adf16ad2537d0bb28ebae650530ae76643c8e08c463d2a8ae"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/G4_s6_02.wav",
+      "sourceSha256": "7619b963e8903f9aac815f4f2a1f99c5fedc2e3e97654474bb4378728c01307a",
+      "keys": [
+        66,
+        69
+      ],
+      "velocity": [
+        1,
+        127
+      ],
+      "root": 67,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "e99e1a2544061c2e2028ea1a6b5addfd1482144ab1d7f6b51f8156e0c5910943"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/B4_s6_01.wav",
+      "sourceSha256": "2ba1e36205a101dac1c5e1a1aa02d96c90539ff11c59b97c4ed5b28d2c1ad6b7",
+      "keys": [
+        70,
+        71
+      ],
+      "velocity": [
+        1,
+        127
+      ],
+      "root": 71,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "4d746d70881854ed87ab2ae206e2292adff1cdd848e8d7e887b7d57e1bfad1ca"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/B4_s6_02.wav",
+      "sourceSha256": "bbe4dfae55e75b1ef796f90cf22d6c54154ef1feec23f9cbe99796392d381b04",
+      "keys": [
+        70,
+        71
+      ],
+      "velocity": [
+        1,
+        127
+      ],
+      "root": 71,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "dd536b8f70d4d4142e047050791a2f2ecfdf74c5e5d7b4922993f77915c2029b"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/C5_s6_01.wav",
+      "sourceSha256": "105edba76fae0f4b454f986a9832429ddbc7307ae00995db7bf5157cf86fe97b",
+      "keys": [
+        72,
+        72
+      ],
+      "velocity": [
+        1,
+        127
+      ],
+      "root": 72,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "edefbdb897439deac27d64ab94e76499bd73ef9bf614a5fd4cef61eaffa8bcc7"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/C5_s6_02.wav",
+      "sourceSha256": "982599f1ac72ca1c898f9f06b6eece03a905eba552a1834c8d72aa3ab619ec4b",
+      "keys": [
+        72,
+        72
+      ],
+      "velocity": [
+        1,
+        127
+      ],
+      "root": 72,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "3dc014b7a9e7af1cd45104161519f62c7f0070b003a6d76e5b3b26d2a8cdca90"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/D5_s6_01.wav",
+      "sourceSha256": "fc6fca2046e891fa8e3d56e80b50e24c6cac68aa273a8197f7be1e920ed1b322",
+      "keys": [
+        73,
+        75
+      ],
+      "velocity": [
+        1,
+        127
+      ],
+      "root": 74,
+      "alternate": 0,
+      "frames": 259135,
+      "pcmSha256": "73e474f00d286a91f799da1e5b2a17a7f6a25678715a61dbe97c8d46f8250916"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/D5_s6_02.wav",
+      "sourceSha256": "6d48dde760a68c54562a1fc020d3b163647e8f85a5586b3265bac3a3860a10b5",
+      "keys": [
+        73,
+        75
+      ],
+      "velocity": [
+        1,
+        127
+      ],
+      "root": 74,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "7b3de2847b7b7ebecef44122f4e64819dc7ad5ec0985f5cbd44868e1ea51e852"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/F5_s6_01.wav",
+      "sourceSha256": "5461c985e690621219889871b5297f3b54b1007734e6234d0d3db3eaf72c3d71",
+      "keys": [
+        76,
+        78
+      ],
+      "velocity": [
+        1,
+        127
+      ],
+      "root": 77,
+      "alternate": 0,
+      "frames": 218114,
+      "pcmSha256": "ce8190ca81871ff9cd489df01e8fc7b316affd78f426a6efafa9b8eb0b63d8a9"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/F5_s6_02.wav",
+      "sourceSha256": "d72300f6b0ec96cf96e1563185a3aa2c15a83d88b35277317621f801b47ebffc",
+      "keys": [
+        76,
+        78
+      ],
+      "velocity": [
+        1,
+        127
+      ],
+      "root": 77,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "c0455d608cdf44c4074802b3e5545d45197774962ec25e84322d6a82c21dbe57"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/G#5_s6_01.wav",
+      "sourceSha256": "45d4840bbcfc37f960011ca6970c2a7ce17f288ce9fe2cf0c22336e8efd61912",
+      "keys": [
+        79,
+        81
+      ],
+      "velocity": [
+        1,
+        127
+      ],
+      "root": 80,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "832f495c30c849c6665efad75186d73dc4af522710ade5e72e560cc0914cac48"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/G#5_s6_02.wav",
+      "sourceSha256": "f89b167ed0e60bdf33d0e47669f87db35c3435419f1ef058122d37ee03506b74",
+      "keys": [
+        79,
+        81
+      ],
+      "velocity": [
+        1,
+        127
+      ],
+      "root": 80,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "8302e2c491fc10930296435afb1ea7ed88e6e9ec99022e2505b882f046f9f8fd"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/A#5_s6_01.wav",
+      "sourceSha256": "ee077c36d510163c81a22bb6ac3bb94c819bff28eddd5e7dde1a1d1297846487",
+      "keys": [
+        82,
+        83
+      ],
+      "velocity": [
+        1,
+        127
+      ],
+      "root": 82,
+      "alternate": 0,
+      "frames": 288000,
+      "pcmSha256": "c8c542247b3841c556a0e1c7e5be8b0907824c6ec4667fe3c2cfa1f574f92ba9"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/A#5_s6_02.wav",
+      "sourceSha256": "fcd2c58790f6d5aed1ef841c45144690ccd3e04ac612fbcf6887d96e148d6924",
+      "keys": [
+        82,
+        83
+      ],
+      "velocity": [
+        1,
+        127
+      ],
+      "root": 82,
+      "alternate": 1,
+      "frames": 288000,
+      "pcmSha256": "e612b1aa89b8506f4ab138a169a23b149f9c0b6894702e1735779cb2c9234aaa"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/C#6_s6_01.wav",
+      "sourceSha256": "a6675a703979109cd4e673208cd5980853c30a462007fa818710b09053cd352e",
+      "keys": [
+        84,
+        86
+      ],
+      "velocity": [
+        1,
+        127
+      ],
+      "root": 85,
+      "alternate": 0,
+      "frames": 217896,
+      "pcmSha256": "ce55d1be957615686a262aa9df911e0bf42cc3f38e2fbe7c3db3fca383f58f78"
+    },
+    {
+      "source": "EGuitarFSBS-direct SFZ+WAV-20220911/samples/bridge/C#6_s6_02.wav",
+      "sourceSha256": "c92f17f9a7c0ce5d08345c0bcd5440bd881ee41f41096fbf10462b7ca51dcf10",
+      "keys": [
+        84,
+        86
+      ],
+      "velocity": [
+        1,
+        127
+      ],
+      "root": 85,
+      "alternate": 1,
+      "frames": 207308,
+      "pcmSha256": "d5802f56f7029ad00864684394bd04fd6933585cf13273655c26d74f68fed6c1"
+    }
+  ]
+}

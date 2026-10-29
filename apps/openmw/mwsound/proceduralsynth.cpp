@@ -225,10 +225,34 @@ namespace MWSound
         if (mSampleCurrent == mSampleTarget) return;
         for (auto& voice : mVoices) voice = Voice{};
         mSampleCurrent = mSampleTarget;
+        mSampleAlternates.fill(0);
     }
     void ProceduralSynth::apply(Command command)
     {
         if (mSampleCurrent.data && command.velocity >= 0 && !sampleReady()) return;
+        const ProceduralSample::Zone* zone=nullptr;
+        if(mSampleCurrent.data && command.velocity>=0 && !mSampleCurrent.data->zones.empty())
+        {
+            const auto& zones=mSampleCurrent.data->zones;
+            const int velocity=std::clamp(static_cast<int>(std::lround(command.velocity*127)),1,127);
+            for(std::size_t index=0;index<zones.size();++index)
+            {
+                const auto& z=zones[index];
+                if(command.note<z.lowKey || command.note>z.highKey || velocity<z.lowVelocity || velocity>z.highVelocity)continue;
+                const unsigned alternate=mSampleAlternates[index]++%z.alternates;
+                for(const auto& candidate:zones)if(candidate.lowKey==z.lowKey && candidate.highKey==z.highKey
+                    && candidate.lowVelocity==z.lowVelocity && candidate.highVelocity==z.highVelocity
+                    && candidate.alternate==alternate) {zone=&candidate;break;}
+                break;
+            }
+            if(!zone)return; // unmapped notes stay silent, never become an oscillator
+        }
+        const auto sampleVoice=[&](Voice& voice) {
+            if(!mSampleCurrent.data)return;
+            voice.sampleStart=zone?zone->start:0;
+            voice.sampleLength=zone?zone->length:static_cast<unsigned>(mSampleCurrent.data->pcm.size());
+            voice.sampleRoot=zone?zone->root:mSampleCurrent.root;
+        };
         for (auto& voice : mVoices)
             if (voice.note == command.note)
             {
@@ -248,6 +272,7 @@ namespace MWSound
                     || (mSampleCurrent.data && mSampleCurrent.oneShot))
                     continue;
                 if (mSampleCurrent.data) { voice = Voice{}; voice.samplePosition = 0; }
+                sampleVoice(voice);
                 // Melodic retriggers preserve phase and envelope amplitude.
                 voice.note = command.note;
                 voice.drumType = mSampleCurrent.data ? 0 : static_cast<int>(mCurrent[DrumType]);
@@ -279,6 +304,7 @@ namespace MWSound
             slot->drumCarry = carry;
         }
         slot->drumType = mSampleCurrent.data ? 0 : static_cast<int>(mCurrent[DrumType]);
+        sampleVoice(*slot);
         slot->note = command.note;
         slot->velocity = command.velocity;
         slot->pitchEnvelope = 1;
@@ -534,14 +560,15 @@ namespace MWSound
                     if (!sampleAvailable) { v = Voice{}; continue; }
                     const auto& pcm = mSampleCurrent.data->pcm;
                     const auto at = static_cast<std::size_t>(v.samplePosition);
-                    if (at + 1 >= pcm.size()) { v = Voice{}; continue; }
+                    if (at + 1 >= v.sampleLength) { v = Voice{}; continue; }
                     const double fraction = v.samplePosition - at;
-                    const double step = std::exp2((v.note - mSampleCurrent.root + mCurrent[2]
+                    const double step = std::exp2((v.note - v.sampleRoot + mCurrent[2]
                         + mCurrent[3] / 100 + pitchLfo + pitchEnvelope) / 12);
                     // Short edge fades protect arbitrary trims from hard steps.
                     const double fade = std::min({1.0, v.samplePosition / 96,
-                        (pcm.size() - 1 - v.samplePosition) / std::max(96.0, 96 * step)});
-                    sample = (pcm[at] + (pcm[at + 1] - pcm[at]) * fraction) * fade;
+                        (v.sampleLength - 1 - v.samplePosition) / std::max(96.0, 96 * step)});
+                    const auto first=v.sampleStart+at;
+                    sample = (pcm[first] + (pcm[first + 1] - pcm[first]) * fraction) * fade;
                     v.samplePosition += step;
                 }
                 else if (v.instrumentType != 0)

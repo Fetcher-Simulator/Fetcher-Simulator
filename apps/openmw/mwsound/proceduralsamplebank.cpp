@@ -1,4 +1,5 @@
 #include "proceduralsamplebank.hpp"
+#include "proceduralinstrument.hpp"
 #include "ffmpegdecoder.hpp"
 #include "sounddecoder.hpp"
 #include <components/files/hash.hpp>
@@ -31,6 +32,7 @@ namespace MWSound
             || std::any_of(path.begin(), path.end(), [](unsigned char c) { return c < 32 || c == 127; })
             || !std::isfinite(offset) || offset < 0 || offset > 600
             || !std::isfinite(duration) || duration < .01 || duration > 30) return false;
+        if(path.ends_with(".fsb"))return path.starts_with("sound/fetcher/banks/") && offset==0 && duration==1;
         for (auto extension : {".mp3", ".wav", ".ogg", ".flac", ".opus"})
             if (path.ends_with(extension)) return true;
         return false;
@@ -47,9 +49,15 @@ namespace MWSound
         const auto start = static_cast<unsigned>(std::lround(offset * 1000));
         const auto length = static_cast<unsigned>(std::lround(duration * 1000));
         std::lock_guard lock(mMutex);
-        for (const auto& entry : mCache)
-            if (entry.path == path && entry.offset == start && entry.duration == length) return entry.data;
-        // At most 32 * 30 * 48000 * 4 = 176 MiB of cached PCM. Control and
+        for (auto at=mCache.begin();at!=mCache.end();++at)
+            if(at->path==path && at->offset==start && at->duration==length)
+            {
+                if(at->data->status.load(std::memory_order_acquire)==ProceduralSample::Error
+                    && at->data->error=="Sample PCM budget reached; release another instrument"
+                    && std::chrono::steady_clock::now()>=at->retryAfter) {mCache.erase(at);break;}
+                return at->data;
+            }
+        // Entries also share a 256-MiB decoded/reserved PCM budget. Control and
         // audio owners pin entries; never evict a buffer still used by a voice.
         if (mCache.size() >= 32)
         {
@@ -78,9 +86,26 @@ namespace MWSound
             catch (const std::exception& e)
             {
                 job.data->pcm.clear(); job.data->pcm.shrink_to_fit(); job.data->error = e.what();
+                job.data->zones.clear();
+                { std::lock_guard lock(mMutex);for(auto& entry:mCache)if(entry.data==job.data)
+                    {entry.reserved=0;entry.retryAfter=std::chrono::steady_clock::now()+std::chrono::seconds(2);} }
                 job.data->status.store(ProceduralSample::Error, std::memory_order_release);
             }
         }
+    }
+    void ProceduralSampleBank::reserve(const Job& job,std::size_t bytes)
+    {
+        constexpr std::size_t limit=256u*1024*1024;
+        std::lock_guard lock(mMutex);
+        auto total=[&] {std::size_t result=bytes;for(const auto& entry:mCache)if(entry.data!=job.data)result+=entry.reserved;return result;};
+        for(auto at=mCache.begin();at!=mCache.end() && total()>limit;)
+        {
+            if(at->data!=job.data && at->data.use_count()==1 && at->data->status.load(std::memory_order_acquire)!=ProceduralSample::Loading)at=mCache.erase(at);
+            else ++at;
+        }
+        if(total()>limit)throw std::runtime_error("Sample PCM budget reached; release another instrument");
+        for(auto& entry:mCache)if(entry.data==job.data) {entry.reserved=bytes;return;}
+        throw std::runtime_error("Sample cache entry disappeared");
     }
     void ProceduralSampleBank::decode(const Job& job)
     {
@@ -93,7 +118,15 @@ namespace MWSound
         const auto hash = Files::getHash(job.path, *encoded);
         std::ostringstream fingerprint;
         fingerprint << std::hex << std::setfill('0') << std::setw(16) << hash[0] << std::setw(16) << hash[1];
-        job.data->hash = fingerprint.str(); encoded.reset();
+        job.data->hash = fingerprint.str();
+        if(job.path.ends_with(".fsb"))
+        {
+            readInstrument(*encoded,static_cast<std::uint64_t>(bytes),*job.data,[&](std::size_t n) {
+                if(mStopping)throw std::runtime_error("Instrument decode cancelled");reserve(job,n);
+            });
+            return;
+        }
+        encoded.reset();
         std::shared_ptr<SoundDecoder> decoder = std::make_shared<FFmpegDecoder>(mVfs);
         decoder->open(path);
         int rate; ChannelConfig channels; SampleType type;
@@ -107,6 +140,7 @@ namespace MWSound
         std::vector<float> source;
         const std::size_t first = static_cast<std::size_t>(rate) * job.offset / 1000;
         const std::size_t wanted = static_cast<std::size_t>(rate) * job.duration / 1000;
+        reserve(job,std::min(std::size_t(1440000),wanted*48000/rate)*sizeof(float));
         source.reserve(wanted);
         std::size_t position = 0;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);

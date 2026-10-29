@@ -76,6 +76,8 @@ namespace MWSound
             float velocity = 0;
             double phase1 = 0, phase2 = 0;
             double samplePosition = 0;
+            unsigned sampleStart = 0, sampleLength = 0;
+            int sampleRoot = 60;
             double filter1 = 0, filter2 = 0;
             double pitchEnvelope = 1;
             std::uint32_t noise = 0x9e3779b9u;
@@ -105,6 +107,7 @@ namespace MWSound
             }
         };
         SampleSettings mSampleTarget, mSampleCurrent;
+        std::array<unsigned,512> mSampleAlternates{}; // audio-thread zone-group counters
         // Reclaimed on control calls only. The current audio pointer remains
         // pinned until a later call observes that the callback has switched.
         std::vector<std::shared_ptr<ProceduralSample>> mSamplePins;

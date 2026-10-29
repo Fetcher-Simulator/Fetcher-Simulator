@@ -38,6 +38,8 @@ namespace MWLua
                 || root < 0 || root > 127 || std::floor(root) != root || result.hash.size() != 32
                 || result.hash.find_first_not_of("0123456789abcdef") != result.hash.npos)
                 throw std::invalid_argument("Invalid sample settings");
+            if(path.ends_with(".fsb") && (root!=60 || result.oneShot))
+                throw std::invalid_argument("Instrument banks use fixed zone roots and gated playback");
             result.root = static_cast<int>(root);
             result.data = MWBase::Environment::get().getSoundManager()->requestSample(std::move(path), offset, duration);
             return result;
@@ -60,7 +62,7 @@ namespace MWLua
                     return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 17;
+            api["version"] = 18;
             api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
                 const auto path = manager->exportStudioMidi(name, bytes);
                 sol::table result(lua, sol::create);
@@ -80,6 +82,12 @@ namespace MWLua
                 {
                     info["hash"] = data->hash; info["error"] = data->error;
                     info["duration"] = data->pcm.size() / 48000.0;
+                    if(!data->zones.empty())
+                    {
+                        info["zones"]=data->zones.size();
+                        std::uint32_t longest=0;for(const auto& zone:data->zones)longest=std::max(longest,zone.length);
+                        info["duration"]=longest/48000.0;
+                    }
                 }
                 return LuaUtil::makeReadOnly(info);
             };

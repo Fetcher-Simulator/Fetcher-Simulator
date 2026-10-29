@@ -123,9 +123,11 @@ function E:browser(content)
     end)
 end
 function E:plots()
-    local stringVoice=self.params.instrumentType==1 and not self.drums
+    local sampled=self.params.sample~=nil
+    local stringVoice=self.params.instrumentType==1 and not self.drums and not sampled
     local content={label(self.drums and 'BODY / NOISE DECAY (-60 dB)' or (stringVoice and 'AMP GATE ENVELOPE' or 'AMP ENVELOPE'),10,4,300,12,colors.muted),
-        label(stringVoice and 'PLUCKED STRING SIGNAL PATH' or (self.drums and 'BODY WAVE (ILLUSTRATION)' or 'OSCILLATOR PREVIEW'),350,4,400,12,colors.muted)}
+        label(sampled and 'RECORDED SIGNAL PATH' or stringVoice and 'PLUCKED STRING SIGNAL PATH' or (self.drums and 'BODY WAVE (ILLUSTRATION)' or 'OSCILLATOR PREVIEW'),350,4,400,12,colors.muted)}
+    if sampled then content[#content+1]=label('Recording > filter > effects',350,40,500,13,colors.accent) end
     if stringVoice then content[#content+1]=label('Pluck > string > filter > effects',350,40,500,13,colors.accent) end
     local p=self.params
     local total=p.attack+p.decay+0.7+p.release
@@ -153,7 +155,7 @@ function E:plots()
         if p.wave1==1 then a=2/math.pi*math.asin(a)
         elseif p.wave1==2 then a=phase*2-1 elseif p.wave1==3 then a=phase<0.5 and 1 or -1
         elseif p.wave1==4 then local noise=math.sin(n*127.1)*43758.5453;a=(noise-math.floor(noise))*2-1 end
-        if not stringVoice then content[#content+1]=rect(352+n*3,54-a*20,2,2,colors.accent) end
+        if not stringVoice and not sampled then content[#content+1]=rect(352+n*3,54-a*20,2,2,colors.accent) end
     end
     self.plot.layout.content=ui.content(content); self.window:update(self.plot)
 end
@@ -170,6 +172,7 @@ function E:render()
     if self.root then self.root:destroy() end
     for _,element in ipairs(self.children) do element:destroy() end
     self.children={};self.controls={};self.typing=false;self.drums=self.params.drumType>0;self.instrument=self.params.instrumentType
+    self.sampleSource=schema.sampleKey(self.params.sample)
     local params,cb=self.params,self.cb
     -- Window scales the logical canvas to the current viewport.
     self.width=940
@@ -220,11 +223,13 @@ function E:render()
     content[#content+1]=self:button('<',20,107,28,function() cycle(-1) end)
     content[#content+1]=self:button('>',390,107,28,function() cycle(1) end)
     content[#content+1]=self:button('Load',428,107,65,function() cb.command('load',{presetId=self.selected}) end)
-    content[#content+1]=self:button(self.drums and 'Synth' or 'Drum',515,107,70,function()
+    content[#content+1]=self:button(params.sample and 'Synth' or self.drums and 'Synth' or 'Drum',515,107,70,function()
+        if self.params.sample then cb.command('load',{presetId='b:studio-keys'});return end
         self.params.instrumentType=0;cb.change('instrumentType',0)
         self.params.drumType=self.drums and 0 or 2;cb.change('drumType',self.params.drumType);self.page='sound';self:render()
     end)
     content[#content+1]=self:button(params.instrumentType==1 and 'Synth' or 'Guitar',595,107,75,function()
+        if self.params.sample then cb.command('load',{presetId='b:guitar-clean'});return end
         self.params.drumType=0;cb.change('drumType',0);self.params.instrumentType=1-self.params.instrumentType;cb.change('instrumentType',self.params.instrumentType)
         self.page='sound';self:render()
     end)
@@ -232,7 +237,7 @@ function E:render()
     content[#content+1]=self:button(self.page=='presets' and 'Sound' or 'Browse',785,107,115,function() self.page=self.page=='presets' and 'sound' or 'presets';self:render() end)
     local col=(w-56)/3
     local titles=self.page=='effects' and {'DRIVE','AMP TONE','SPEAKER / OUTPUT'} or
-        (self.drums and {'DRUM BODY','SNARES / NOISE','OUTPUT'} or {self.params.instrumentType==1 and 'PLUCKED STRING' or 'OSCILLATORS','FILTER + ENVELOPES','MODULATION + OUTPUT'})
+        (self.drums and {'DRUM BODY','SNARES / NOISE','OUTPUT'} or {params.sample and 'RECORDED SOURCE' or self.params.instrumentType==1 and 'PLUCKED STRING' or 'OSCILLATORS','FILTER + ENVELOPES','MODULATION + OUTPUT'})
     if self.page~='presets' then for n,title in ipairs(titles) do
         local x=20+(n-1)*(col+8)
         content[#content+1]=rect(x,150,col,380,colors.panel)
@@ -258,7 +263,14 @@ function E:render()
         content[#content+1]=label('MIDI note does not retune drums.',x3,374,col-20,12,colors.muted)
         content[#content+1]=label('Stop always releases all tails.',x3,398,col-20,12,colors.muted)
     else
-        if params.instrumentType==1 then
+        if params.sample then
+            content[#content+1]=label(schema.isBank(params.sample) and 'Note / velocity sample bank' or 'Recorded sample',x1,190,col-20,12,colors.accent)
+            content[#content+1]=label(params.sample.path:match('([^/]+)$'),x1,220,col-20,11,colors.muted)
+            slider('tune1','Tune',x1,265,col/2-18);slider('fine1','Fine cents',x1+col/2-5,265,col/2-18)
+            slider('pitchAmount','Pitch env',x1,325,col/2-18);slider('pitchDecay','Pitch decay',x1+col/2-5,325,col/2-18)
+            content[#content+1]=label('Use Effects for amplifier and speaker.',x1,395,col-20,11,colors.muted)
+            content[#content+1]=label('Choose a preset to change the source.',x1,430,col-20,11,colors.muted)
+        elseif params.instrumentType==1 then
             for n,item in ipairs({{'instrumentType','Source'},{'stringDecay','String decay'},{'stringDamping','Damping'},{'stringMute','Palm mute'},{'stringPick','Pick position'}}) do slider(item[1],item[2],x1,185+(n-1)*50,col-20) end
             slider('tune1','Tune',x1,440,col/2-18);slider('fine1','Fine cents',x1+col/2-5,440,col/2-18)
             content[#content+1]=label('Noise-excited resonating string',x1,490,col-20,12,colors.muted)
@@ -307,7 +319,8 @@ function E:frame(now)
         if self.previewRemaining<=0 then self:releaseAll() end
     end
     self.lastFrameTime=now
-    if not input.isMouseButtonPressed(1) and (self.drums~=(self.params.drumType>0) or self.instrument~=self.params.instrumentType) then self:render() end
+    if not input.isMouseButtonPressed(1) and (self.drums~=(self.params.drumType>0) or self.instrument~=self.params.instrumentType
+        or self.sampleSource~=schema.sampleKey(self.params.sample)) then self:render() end
     self.window:frame(self)
     Dropdown.frame(self)
     if self.pendingRender and not self.dropdown then self:render() end

@@ -10,3 +10,7 @@ add_test(NAME procedural-synth COMMAND synth-tests)
 add_executable(acoustics-tests acoustics-test.cpp)
 target_compile_features(acoustics-tests PRIVATE cxx_std_17)
 add_test(NAME instrument-acoustics COMMAND acoustics-tests)
+add_executable(sample-bank-tool bank-tool.cpp ../../apps/openmw/mwsound/proceduralsynth.cpp
+  ../../components/files/hash.cpp ../../extern/smhasher/MurmurHash3.cpp)
+target_compile_features(sample-bank-tool PRIVATE cxx_std_17)
+target_include_directories(sample-bank-tool PRIVATE ../../extern/smhasher/include ../../extern/smhasher/include/smhasher)

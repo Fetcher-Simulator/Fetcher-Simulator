@@ -508,6 +508,17 @@ test('sample sounds persist privately and replicate references without file data
     now=now+3;params.sample.path='sound/../secret.wav';project.tracks[1].params=params;request('dawSave',{project=project})
     check(storage['project:11'].tracks[1].params.sample.path==ref.path,'unsafe sample cannot overwrite saved project')
 end)
+test('multisample bank identity is replicated and saved without PCM',function()
+    local preset;for _,p in ipairs(schema.builtins) do if p.id=='b:sampled-electric-metal' then preset=p end end
+    check(preset~=nil,'sampled guitar preset exists')
+    acquire();request('channel',{channel=1,params=preset.state,level=.8})
+    check(sent[#sent].data.params.sample.hash==preset.state.sample.hash and sent[#sent].data.params.sample.path==preset.state.sample.path,'listener receives the identical bank reference')
+    request('saveAs',{name='Recorded metal',params=preset.state})
+    check(storage[11].entries[1].state.sample.path==preset.state.sample.path,'personal sound stores bank identity')
+    local f=require('procedural_synth_project')(schema);local p=f.new();p.tracks[1]=f.newTrack('piano','Recorded guitar',16);p.tracks[1].params=preset.state
+    request('dawSave',{project=p});reset(copy(storage));sequence=0;acquire();request('dawLoad')
+    check(sent[#sent].data.project.tracks[1].params.sample.hash==preset.state.sample.hash,'bank identity survives server restart and project load')
+end)
 test('project library requests stay private, versioned and bounded',function()
     local f=require('procedural_synth_project')(schema);local p=f.new();p.name='Private library song'
     acquire();request('libSave',{requestId=1,projectId=0,saveRevision=1,project=p})

@@ -3,6 +3,7 @@
 
 #include "proceduralsample.hpp"
 #include <condition_variable>
+#include <chrono>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -19,6 +20,8 @@ namespace MWSound
             std::string path;
             unsigned offset, duration; // milliseconds, also the cache key
             std::shared_ptr<ProceduralSample> data;
+            std::size_t reserved = 0;
+            std::chrono::steady_clock::time_point retryAfter{};
         };
         const VFS::Manager* mVfs;
         std::mutex mMutex;
@@ -29,6 +32,7 @@ namespace MWSound
         std::thread mWorker;
         void run();
         void decode(const Job& job);
+        void reserve(const Job& job, std::size_t bytes);
     public:
         explicit ProceduralSampleBank(const VFS::Manager* vfs);
         ~ProceduralSampleBank();

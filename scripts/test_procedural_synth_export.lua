@@ -31,6 +31,10 @@ local authored=Export.encode(w.project,nil,MIDI,format);local result=MIDI.parse(
 check(authored:find(string.char(255,88,4,6,3,24,8),1,true) and result.events[1].tick==0,'authored meter metadata and full song rather than just active loop')
 check(w.project.composition.loopStart==2 and w.project.composition.loop,'export leaves project loop settings untouched')
 local old=w.project.tracks[1].name;local generation=w.generation
+local sampled=format.new();sampled.timeline={beats=4,tempos={{beat=0,tempo=500000}}}
+sampled.tracks[1]=format.newTrack('piano','Recorded guitar',16);sampled.tracks[1].notes={{n=60,s=0,l=1,v=.8}}
+for _,p in ipairs(schema.builtins) do if p.id=='b:sampled-electric-clean' then sampled.tracks[1].params=p.state;sampled.tracks[1].presetId=p.id end end
+check(MIDI.parse(Export.encode(sampled,nil,MIDI,format)).programs['2:0']==27,'authored sampled guitar exports the clean-electric GM program')
 check(w:renameTrack(1,'Voice chop') and w.generation==generation+1,'explicit undoable track rename')
 check(w:undo() and w.project.tracks[1].name==old and w:redo() and w.project.tracks[1].name=='Voice chop','rename undo/redo')
 check(format.project(w.project).tracks[1].name=='Voice chop' and MIDI.parse(Export.encode(w.project,nil,MIDI,format)).names[2]=='Voice chop','name persists in project and MIDI')

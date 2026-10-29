@@ -373,6 +373,7 @@ function W:preset(index,id)
             params.polyphony=math.min(8,params.polyphony)
             local wasSample=t.params.sample~=nil
             t.params=params;t.presetId=id;self.project.soundSet=''
+            if params.sample then t.followPrograms=false end
             if t.kind=='drum' and params.sample then
                 if t.note~=params.sample.root and self.native and self.playing then self.sequenceDirty=true end
                 t.note=params.sample.root

@@ -1,8 +1,8 @@
 # FETCHER STUDIO
 
-This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
+This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 44 / native synth API 17 / multiplayer protocol 27.
+Current source: package 48 / native synth API 18 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -10,6 +10,39 @@ Standing grids and seated keyboard/cello NPCs are available, with credited CC BY
 orchestral and stage models. Next priority: electric guitar/bass, classical and
 acoustic guitar, a full drum kit, and better rock/metal/funk/acoustic sound sets.
 See [the roadmap](ROADMAP.md).
+
+## First recorded instrument bank
+
+Package 48 adds **Sampled Electric Clean**, **Sampled Electric Crunch** and
+**Sampled Electric Metal** under **CC Sampled Instruments** (also in Guitar).
+Choose one from a track's saved-sound dropdown, or load it in Synth. All three
+use recorded FreePats electric guitar through different native amp/cabinet
+settings. Existing sounds and saved projects are not converted automatically.
+The current catalog contains 87 presets.
+
+Install the optional `fetcher.studio-samples` content folder as a data directory,
+or merge its `sound` directory into existing test content. Its 34-MB v1 bank has
+60 zones covering MIDI notes 35-86, the source's velocity groups and two actual
+recorded alternates per group. Each note has its own source cursor/root tuning.
+Samples are trimmed/aligned, mono 48 kHz PCM16 and capped at six seconds; the
+original archive is retained separately. This does not add palm-mute, slide or
+legato recordings, or sampled bass/drum/acoustic banks yet.
+
+One immutable decoded bank (about 65 MiB) is shared between performers on each
+client. Worker-thread loading, a shared 256-MiB PCM cache budget, bounded binary
+validation and per-client file fingerprints keep loading outside the callback.
+The server stores/relays the existing compact sample reference, not PCM; each
+listener needs the matching installed content. Missing/mismatched banks stay
+silent with sample status reporting. Source/license/conversion details are in
+the optional asset folder's README, licenses and bank manifest.
+
+MIDI program following is disabled when a recorded preset is chosen, so it
+cannot replace that selection. Authored tracks using these built-ins export
+their corresponding GM programs; original imported program metadata retains
+precedence. The recording bank stays in the Studio project, not the MIDI file.
+Use Sound for tuning/envelope/filter/amp edits; unused oscillator controls are
+replaced by a recorded-source panel. Bank zones cannot be trimmed as though
+they were one voice-line excerpt.
 
 ## Guitar, bass and full-kit sound foundations
 

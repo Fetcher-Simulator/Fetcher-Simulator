@@ -36,14 +36,17 @@ function M.sample(input)
     local path=input.path
     if type(path)~='string' or #path>240 or not (path:sub(1,6)=='sound/' or path:sub(1,6)=='music/')
         or path~=path:lower() or path:find('[%c\\:]') or path:find('..',1,true) or path:find('//',1,true)
-        or not ({mp3=true,wav=true,ogg=true,flac=true,opus=true})[path:match('%.([a-z0-9]+)$')] then return nil end
+        or not ({mp3=true,wav=true,ogg=true,flac=true,opus=true,fsb=true})[path:match('%.([a-z0-9]+)$')] then return nil end
     local function number(n,low,high) return type(n)=='number' and n==n and n>=low and n<=high end
     if not number(input.offset,0,600) or not number(input.duration,0.01,30)
         or not number(input.root,0,127) or input.root%1~=0 or type(input.oneShot)~='boolean'
         or type(input.hash)~='string' or #input.hash~=32 or input.hash:find('[^0-9a-f]') then return nil end
+    if path:sub(-4)=='.fsb' and (path:sub(1,20)~='sound/fetcher/banks/' or input.offset~=0
+        or input.duration~=1 or input.root~=60 or input.oneShot) then return nil end
     return {path=path,offset=math.floor(input.offset*1000+0.5)/1000,
         duration=math.floor(input.duration*1000+0.5)/1000,root=input.root,oneShot=input.oneShot,hash=input.hash}
 end
+function M.isBank(sample) return sample and sample.path:sub(-4)=='.fsb' or false end
 function M.sampleKey(sample)
     if not sample then return '' end
     return table.concat({sample.path,sample.offset,sample.duration,sample.root,tostring(sample.oneShot),sample.hash},'|')
@@ -172,6 +175,16 @@ drum('metal-kick','Metal Kick','Rock / Metal',6,{bodyFrequency=58,bodyDecay=.15,
 drum('metal-snare','Metal Snare','Rock / Metal',7,{bodyFrequency=230,bodyDecay=.1,noiseLevel=.9,noiseDecay=.14,drumClick=.22,drumDrive=2,volume=.58})
 drum('funk-kick','Dry Funk Kick','Blues / Funk / Jazz',6,{bodyFrequency=65,bodyDecay=.16,noiseLevel=.025,drumClick=.16,drumDrive=1.4,volume=.72})
 drum('funk-snare','Dry Funk Snare','Blues / Funk / Jazz',7,{bodyFrequency=195,bodyDecay=.075,noiseDecay=.105,noiseLevel=.75,drumDrive=1.4,volume=.65})
+-- Recorded FreePats DI source; the same immutable bank feeds distinct amps.
+M.banks[#M.banks+1]='CC Sampled Instruments'
+for _,entry in ipairs{{'sampled-electric-clean','Sampled Electric Clean',0,0,1,.7,27},
+    {'sampled-electric-crunch','Sampled Electric Crunch',1,22,2,.6,29},
+    {'sampled-electric-metal','Sampled Electric Metal',2,29,3,.5,30}} do
+    add(entry[1],entry[2],'Guitar','CC Sampled Instruments',{attack=.002,decay=.2,sustain=1,release=.12,
+        cutoff=16000,driveType=entry[3],drive=entry[4],cabinet=entry[5],volume=entry[6],polyphony=8,
+        sample={path='sound/fetcher/banks/electric-di-v1.fsb',offset=0,duration=1,root=60,oneShot=false,hash='969e921873764a7fb7a112d9574d3dfe'}})
+    M.builtins[#M.builtins].midiProgram=entry[7]
+end
 for _, preset in ipairs(M.builtins) do
     preset.state = assert(M.state(preset.state),'Invalid built-in: '..preset.id)
     preset.bank=preset.bank or 'General';preset.role=preset.role or (preset.state.drumType>0 and 'Drums' or 'Synth')

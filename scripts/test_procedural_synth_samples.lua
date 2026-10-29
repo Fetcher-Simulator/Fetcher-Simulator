@@ -47,4 +47,16 @@ check(w:undo() and not w.project.tracks[1].params.sample and w:redo() and w.proj
 state='Loading';check(not w:prepareSamples(),'owner waits for pending loading before transport')
 state='Unavailable';check(w:prepareSamples(),'missing sample does not block unrelated parts')
 check(not w:setSample(1,mismatch),'mismatch cannot replace current sound')
+local bank
+for _,p in ipairs(schema.builtins) do if p.id=='b:sampled-electric-clean' then bank=p end end
+check(bank and schema.isBank(bank.state.sample),'recorded bank is a normal validated sound preset')
+for _,changes in ipairs{{path='sound/foreign/bank.fsb'},{offset=.1},{duration=2},{root=61},{oneShot=true}} do
+ local ref={};for k,v in pairs(bank.state.sample) do ref[k]=v end;for k,v in pairs(changes) do ref[k]=v end
+ check(not schema.state{sample=ref},'bank cannot become an arbitrary excerpt or path')
+end
+w.project.tracks[1].followPrograms=true
+check(w:preset(1,bank.id) and not w.project.tracks[1].followPrograms,'recorded preset disables incompatible program following')
+check(project.project(w.project).tracks[1].params.sample.hash==bank.state.sample.hash,'bank reference survives project validation')
+check(w:undo() and w:redo() and schema.isBank(w.project.tracks[1].params.sample),'bank assignment supports undo and redo')
+state='Ready';check(Samples.status(synth,bank.state.sample).status=='Mismatch','different installed bank is explicitly mismatched')
 print('PASS sample validation, /s metadata, VFS categories, preview, identity, part assignment, persistence and readiness; '..checks..' assertions')

@@ -1,5 +1,51 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 29: first recorded instrument bank (package 48 / native API 18)
+
+The first optional bank adapts FreePats FSBS Electric Guitar Direct 2022-09-11
+under CC0. The audited converter retains 60 note/velocity regions with two
+recordings per source group, source root notes, 48-kHz mono PCM16 and a six-second
+cap. It records source/output hashes and conversion choices. The 34,061,890-byte
+bank validates with the production reader and matches fingerprint
+`969e921873764a7fb7a112d9574d3dfe` (output SHA-256 in `bank-manifest.json`).
+Decoded PCM is 68,121,812 bytes, shared across referencing performers.
+
+The existing sample-reference path now supports bounded Fetcher bank files.
+Native note-on selects a key/velocity zone and alternate; each voice retains its
+own root/cursor/bounds. Loading and hashing remain on the worker, not the audio
+thread. Cache reservations bound shared decoded PCM to 256 MiB and avoid evicting
+pinned banks. A temporary budget failure can retry after backoff. Invalid files,
+unmapped notes, pending data or differing fingerprints never fall back to an
+oscillator. Native synth API 18 gates clients before loading the new package.
+
+All 28 Lua suites pass. Recorded presets disable incompatible MIDI program
+following, preserve sample identity through project validation/Undo, export their
+GM programs, and save/relay the compact reference through authenticated server
+operations. The mirrored server schema matches.
+The recorded-source editor exposes relevant tuning/filter/envelope controls,
+restores oscillator controls on a synth preset, and labels its signal path
+without displaying an invented recording waveform. Client tests cover this.
+The complete standalone native DSP suite passes, including zone/layer/alternate/root/chord/end-boundary,
+block-invariant native score, malformed bank and pre-allocation budget checks.
+The full Windows client build succeeds. Logs: `build/studio-multisample-lua.log`,
+`build/studio-multisample-native.log`, `build/studio-multisample-client-build.log`.
+
+`build/studio-sample-bank-auditions/electric-clean.wav` and `electric-metal.wav`
+render the actual bank through native DSP at two velocities across six pitches.
+They are audition material, not a claim of artist-specific realism. There is no
+new live GUI/two-client audio session in this slice: the user requested keeping
+the game closed. Runtime VFS/late-listener acceptance remains to check in the
+next user session. Existing server-reference tests and native score tests cover
+the paths independently. No public build, launcher content update or VPS rollout
+is included. Sampled bass/drums/acoustic banks and articulation work remain next.
+
+Package 48, nine matching server modules, the new API-18 client executable and
+the bank/credits are installed on the normal port-25567 fixture. All 65 protected
+user-state files matched during installation; the binary and bank hashes match
+their sources. The server restarted, with no client launch. Installation report:
+`build/studio-sampler-local-install.json`. A single previous client executable is
+retained in `build/studio-sampler-install/` for local rollback.
+
 ## October 29: continuous sliders and sample acquisition (package 47)
 
 The common numeric slider no longer recreates its bar/buttons/content on every
