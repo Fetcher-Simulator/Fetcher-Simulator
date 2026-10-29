@@ -1,12 +1,13 @@
 # Fetcher Studio instrument assets
 
-## Credited orchestral and stage models (package 40)
+## Credited orchestral and stage models (package 41)
 
 The runtime bundle replaces the generated violin/bow, cello, trumpet, flute,
-clarinet, timpani and beater with CC BY 4.0 Sketchfab models. A credited chair
-and music stand support seated keyboard/cello NPCs. The existing credited
+clarinet, timpani and beater with CC BY 4.0 Sketchfab models. A compact piano
+stool supports seated keyboard/cello NPCs, and non-keyboard NPCs use a music
+stand. Open sheet booklets are joined into the holders. The existing credited
 Yamaha/X-stand and vanilla lute/drum remain. `sketchfab-sources.json` pins the
-nine source identities and manually downloaded GLB filenames; the runtime
+ten source identities and manually downloaded GLB filenames; the runtime
 `sketchfab-models.json` records creators, source/license URLs, source hashes and
 adaptations. Preserve `ATTRIBUTION.txt`, `ORCHESTRA-ASSETS.txt` and the CC license
 when redistributing. Future third-party models should use documented CC0 or CC BY
@@ -23,6 +24,7 @@ $assets = "$PWD/files/server/optional-assets/fetcher.procedural-synth"
 python scripts/procedural-synth-assets/prepare_sketchfab_sources.py --downloads 'C:/Users/REPTILE/Downloads' --output $source
 & 'C:/Program Files/Blender Foundation/Blender 4.5/blender.exe' --background --factory-startup --disable-autoexec --python-exit-code 1 --python scripts/procedural-synth-assets/convert_sketchfab_orchestra.py -- --source $source --output $assets --working "$source/converted"
 & 'C:/Program Files/Blender Foundation/Blender 4.5/blender.exe' --background --factory-startup --disable-autoexec --python-exit-code 1 --python scripts/procedural-synth-assets/make_seated_keyboard.py -- $assets
+& 'C:/Program Files/Blender Foundation/Blender 4.5/blender.exe' --background --factory-startup --disable-autoexec --python-exit-code 1 --python scripts/procedural-synth-assets/dress_music_holders.py -- $assets
 python scripts/procedural-synth-assets/finalize_sketchfab_bundle.py --assets $assets
 & 'C:/Program Files/Blender Foundation/Blender 4.5/blender.exe' --background --factory-startup --disable-autoexec --python-exit-code 1 --python scripts/procedural-synth-assets/validate_sketchfab_bundle.py -- $assets
 ```
@@ -33,7 +35,12 @@ retains every source triangle exactly once. The percussion beater is a wooden
 drumstick, not a felt-headed mallet. `--only violin` can reconvert one source;
 always finalize and validate afterward. The seated Yamaha lowers the stand by
 24 units while retaining key/body thickness and all 12,189 visual triangles.
-It omits collision boxes because it is a visual attachment.
+It omits collision boxes because it is a visual attachment. The holder-dressing
+step joins one 212-triangle sheet booklet to each holder, preserving all original
+geometry, materials and collision. It replaces its named subtree on repeated
+runs. The seated conversion removes that subtree before lowering the keyboard,
+so a complete repeated pipeline does not accumulate pages. Sheet-music credits
+retain cScott and the upstream notebook author Neo_minigan.
 
 Validation reads actual NIF/DDS bytes, checks source-report triangle counts,
 relative resolved texture paths, finite vertices, mipmaps, credits and manifest

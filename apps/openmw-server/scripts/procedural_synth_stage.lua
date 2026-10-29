@@ -120,6 +120,21 @@ function S:tick(sessions)
         local s=sessions[job.id]
         if not s or s.epoch~=job.epoch or not mp.getPlayer(job.owner) then self.jobs[job.character]=nil
         elseif now>job.expires then self:finish(job,'NPC setup timed out. Retry to reuse completed hires.',sessions)
+        elseif job.moving then
+            -- Native teleports are queued. A successful enqueue is not proof
+            -- that the actor actually moved (or was eligible to teleport).
+            local pending=job.moving;local actor=mp.getActorByMpNum(pending.target.mpNum)
+            local p=actor and actor.position;local q=pending.position
+            if actor and actor.refId==pending.target.refId and actor.cell==job.cell and p
+                and (p.x-q.x)^2+(p.y-q.y)^2<=12^2 and math.abs(p.z-q.z)<=16 then
+                job.moving=nil;job.cursor=pending.index+1
+            elseif now>=pending.deadline then
+                if pending.attempts<2 and actor and actor.refId==pending.target.refId and not actor.isDead
+                    and actor.actorInstanceId and mp.teleportActorByInstanceId(actor.actorInstanceId,job.cell,q,job.owner) then
+                    pending.attempts=pending.attempts+1;pending.deadline=now+2
+                else self:finish(job,'An NPC did not reach its stage slot. Refresh the roster and retry; playback was not started.',sessions) end
+            end
+            return
         elseif not job.waiting then
             if job.cursor>#job.plan then self:finish(job,nil,sessions);return end
             self.nextAction=now+.1
@@ -136,17 +151,18 @@ function S:tick(sessions)
                 position.isTeleporting=true
                 local actor=mp.getActorByMpNum(entry.mpNum)
                 if not actor or actor.refId~=entry.refId or actor.isDead or not actor.actorInstanceId
-                    or busyActors(sessions,job.id,job.character)[entry.mpNum] or not mp.teleportActorByInstanceId(actor.actorInstanceId,job.cell,position) then
+                    or busyActors(sessions,job.id,job.character)[entry.mpNum] or not mp.teleportActorByInstanceId(actor.actorInstanceId,job.cell,position,job.owner) then
                     self:finish(job,'An owned performer could not be staged. Refresh the roster and retry.',sessions);return
                 end
                 job.used[entry.mpNum]=true
                 job.targets[index]={kind='npc',mpNum=entry.mpNum,refId=entry.refId,instrument=part.instrument or entry.instrument}
-                job.cursor=index+1
+                job.moving={index=index,target=job.targets[index],position=position,attempts=1,deadline=now+2}
             else
                 job.waiting=true
                 local ok=performers:hire(s,index,{instrument=part.instrument,position=position,complete=function(target)
                     if self.jobs[job.character]~=job then return false end
-                    job.targets[index]=target;job.used[target.mpNum]=true;job.waiting=nil;job.cursor=index+1
+                    job.targets[index]=target;job.used[target.mpNum]=true;job.waiting=nil
+                    job.moving={index=index,target=target,position=position,attempts=1,deadline=mp.getUptime()+2}
                     return true
                 end})
                 if not ok then self:finish(job,'An NPC could not be hired. Retry to reuse completed hires.',sessions) end

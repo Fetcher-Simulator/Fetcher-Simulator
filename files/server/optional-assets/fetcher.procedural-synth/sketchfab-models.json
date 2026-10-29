@@ -66,17 +66,6 @@
     "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
   },
   {
-    "id": "chair",
-    "title": "Wooden Chair (Low Poly)",
-    "author": "Berk Gedik",
-    "authorUrl": "https://sketchfab.com/berkgedik",
-    "source": "https://sketchfab.com/3d-models/wooden-chair-low-poly-f899f1d606094afdb75bd5255d5a5194",
-    "license": "CC BY 4.0",
-    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
-    "downloadSha256": "48f5d677a245ff9ea3d81b863e137e414b64bcffd5235388818a6b41b49f09ca",
-    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
-  },
-  {
     "id": "mallet",
     "title": "Drumsticks",
     "author": "Kamil.Fujarski",
@@ -97,5 +86,34 @@
     "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
     "downloadSha256": "3185d27aa2ac693cf834b6dfa88385e6567b99e93bf2e7d197bdfaa8cd6297f0",
     "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+  },
+  {
+    "id": "stool",
+    "title": "Modern Piano Stool",
+    "author": "TwoPixels Studio",
+    "authorUrl": "https://sketchfab.com/twopixels.studio",
+    "source": "https://sketchfab.com/3d-models/modern-piano-stool-a460d22c74614bc0b85d29237f3eb160",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadSha256": "6eaf9aa34f40b8ca94779e913243b00a70078c239a337bf6dd8d877b329df008",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+  },
+  {
+    "id": "sheet-music",
+    "title": "Sheet Music",
+    "author": "cScott",
+    "authorUrl": "https://sketchfab.com/cscottd",
+    "source": "https://sketchfab.com/3d-models/sheet-music-d444261c68464623b1b2e08ec8ae62f3",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadSha256": "7b7a8fec4c798f3efae26f683668e4ce85a018a4f9e384c64cb8b639028bd7d6",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.",
+    "upstream": {
+      "title": "Secret notebook from Paper Hospital map",
+      "author": "Neo_minigan",
+      "source": "https://sketchfab.com/3d-models/secret-notebook-from-paper-hospital-map-95ee39927f6e4e90b3b7ea5b38e7d1ae",
+      "authorUrl": "https://sketchfab.com/neominigan",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+    }
   }
 ]

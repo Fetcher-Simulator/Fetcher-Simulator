@@ -5,8 +5,8 @@
   "files": [
     {
       "path": "ATTRIBUTION.txt",
-      "bytes": 7678,
-      "sha256": "28d54b4a4c07eab3214986513f41a044f1dcfca81ceab7d62ad7bf951b3f6137"
+      "bytes": 8611,
+      "sha256": "80ffef3f49ec681908ea5b32d87bf35dd1539e28659f617f91726ba5dc513e46"
     },
     {
       "path": "conversion-report.json",
@@ -22,11 +22,6 @@
       "path": "icons/fetcher/orchestra/cello.dds",
       "bytes": 22000,
       "sha256": "154561404199588e410472e834b3c816906b068c510ccb2fac670dbdbaa239fa"
-    },
-    {
-      "path": "icons/fetcher/orchestra/chair.dds",
-      "bytes": 22000,
-      "sha256": "aa16bf2c38e2e968ded456125ff27f9befac07230d818a192458dff5f1a3badf"
     },
     {
       "path": "icons/fetcher/orchestra/clarinet.dds",
@@ -47,6 +42,16 @@
       "path": "icons/fetcher/orchestra/music-stand.dds",
       "bytes": 22000,
       "sha256": "38b0b240a7cc9a94d9d172e3218b5df26539c2ddd2c34c20d911e31fcf50c9ca"
+    },
+    {
+      "path": "icons/fetcher/orchestra/sheet-music.dds",
+      "bytes": 22000,
+      "sha256": "0a2ba26bcf8bfc9dcd4acded3cdaa1f301be42764d59b6a328d0458bd65400e8"
+    },
+    {
+      "path": "icons/fetcher/orchestra/stool.dds",
+      "bytes": 22000,
+      "sha256": "d1539b050e1ea72e621474f34a4b1e8e7b752f3ec9c03dd9421c1a3e9dcd2587"
     },
     {
       "path": "icons/fetcher/orchestra/timpani.dds",
@@ -84,11 +89,6 @@
       "sha256": "5c479f7dea1bb5a49cb8a8a0e48e2c762bfcb773523125a2a3c9e358dca545f0"
     },
     {
-      "path": "meshes/fetcher/orchestra/chair.nif",
-      "bytes": 43437,
-      "sha256": "541169e5e62d4829bd39b4a1da1ed6d0cb1de5531d2ffe665e6173beb37ba00d"
-    },
-    {
       "path": "meshes/fetcher/orchestra/clarinet.nif",
       "bytes": 663180,
       "sha256": "f4a7e3032a4093ac78ee91155d44c14768e66984f076bc07d0c2f9bfe59cf571"
@@ -100,8 +100,8 @@
     },
     {
       "path": "meshes/fetcher/orchestra/keyboard-seated.nif",
-      "bytes": 602635,
-      "sha256": "771fc1fbe6815ee19fbfeaf6a53e879c350e80345598c36a3275590c8f0d72d6"
+      "bytes": 612943,
+      "sha256": "3ebab97ef06f2919bc2e28aed77921ac0855ee7075df6f42890b67a8c4549a01"
     },
     {
       "path": "meshes/fetcher/orchestra/mallet.nif",
@@ -110,8 +110,18 @@
     },
     {
       "path": "meshes/fetcher/orchestra/music-stand.nif",
-      "bytes": 58648,
-      "sha256": "efec5192e5f4d4a934d5719b80d054d6ab67ff5ad071af42a61e0939a58add2a"
+      "bytes": 68956,
+      "sha256": "7136c8be8288e8faab173bc0e88e0cfcbf4acad79879b0af902161dc93a13abe"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/sheet-music.nif",
+      "bytes": 10233,
+      "sha256": "fa082b227f160bedf46d507cd9ba2d2c30b00a8257145084f2351d1558bac019"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/stool.nif",
+      "bytes": 67742,
+      "sha256": "1d9773d530ac1eb8f3a723d331d0069216680fc527b33139cf62abc07559ee6e"
     },
     {
       "path": "meshes/fetcher/orchestra/timpani.nif",
@@ -130,8 +140,8 @@
     },
     {
       "path": "meshes/fetcher/synth/keyboard-stand.nif",
-      "bytes": 550881,
-      "sha256": "897feb2081fab40d96a3849c7436b52f9b5479df96cf333b5dc8faa8e9aac42b"
+      "bytes": 561189,
+      "sha256": "e9d2dfc1646793510944fb53f1e9e4a85c67d0236abeb3bf9fb57106029fb356"
     },
     {
       "path": "meshes/fetcher/synth/keyboard.nif",
@@ -139,14 +149,19 @@
       "sha256": "46a8895c40f8e6c6b8dd8ce5843b9836b344650a294e450c1353557c766f9855"
     },
     {
+      "path": "music-holder-report.json",
+      "bytes": 1585,
+      "sha256": "944ed5fe111221185324537db533fb75563f58a87fdc308a6b135bb9ce547783"
+    },
+    {
       "path": "ORCHESTRA-ASSETS.txt",
-      "bytes": 4962,
-      "sha256": "8c744ff729e36ae68ad9fcc7e3054655e3d7214e6748141126d9f8acbc90db10"
+      "bytes": 5895,
+      "sha256": "f095ed9ca62deebb4aa5d9edba80bb94867eef7ff5b7ae7f3541ea8b4afe8c94"
     },
     {
       "path": "orchestra-report.json",
-      "bytes": 4126,
-      "sha256": "34e7f21ac734dbebd2a71a0de35bc327a41be0f8be520171fb99a6f87fdccebd"
+      "bytes": 4600,
+      "sha256": "62da4358d9273842bf5bd3ea6d7c62761b9fa83431a7c629cd799702d4ba7e03"
     },
     {
       "path": "provenance.json",
@@ -155,18 +170,18 @@
     },
     {
       "path": "seated-keyboard-report.json",
-      "bytes": 517,
-      "sha256": "f1db8e6aa9413ea72308fb19b9124696c9ef0eb80e56eca0de4cc50db95dad2a"
+      "bytes": 542,
+      "sha256": "70df3dccfea7a098dc27e007c12b8b6e38517ad053de397d5ea807469c2ae05f"
     },
     {
       "path": "sketchfab-models.json",
-      "bytes": 5760,
-      "sha256": "97aa8d63caadb802ae5321c7d694cbdf3a3e855aaa450906a88b138d2e82d305"
+      "bytes": 6762,
+      "sha256": "6a6e98d10d7eca663ea05e75e911a04b1395aae9beffdc15e4092288f0f46a35"
     },
     {
       "path": "sketchfab-orchestra-report.json",
-      "bytes": 4126,
-      "sha256": "34e7f21ac734dbebd2a71a0de35bc327a41be0f8be520171fb99a6f87fdccebd"
+      "bytes": 4600,
+      "sha256": "62da4358d9273842bf5bd3ea6d7c62761b9fa83431a7c629cd799702d4ba7e03"
     },
     {
       "path": "stage-provenance.json",
@@ -197,16 +212,6 @@
       "path": "textures/fetcher/orchestra/cc_cello_1_n.dds",
       "bytes": 1398256,
       "sha256": "7a2f90e81004c71afa02edc40f071688d14c085713a9292fbb59eaf987ad7cfe"
-    },
-    {
-      "path": "textures/fetcher/orchestra/cc_chair_0.dds",
-      "bytes": 699192,
-      "sha256": "e8d2b37dd50e09d17e943596aebe09a2e822c3ab656d39a454af9a9aa2b272a4"
-    },
-    {
-      "path": "textures/fetcher/orchestra/cc_chair_0_n.dds",
-      "bytes": 1398256,
-      "sha256": "ed77263415c188bccd05cec0f30f48c2424a637847835d93132740e7e7c8cc04"
     },
     {
       "path": "textures/fetcher/orchestra/cc_clarinet_0.dds",
@@ -317,6 +322,31 @@
       "path": "textures/fetcher/orchestra/cc_music-stand_1.dds",
       "bytes": 21992,
       "sha256": "502c53f5902d7ec2411b61adc15edfc2fec48bba2f8e0986f36cabb7231e6075"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_sheet-music_0.dds",
+      "bytes": 699192,
+      "sha256": "98c22dd992056e56c8de1c2cbf5d40384c9f5dc889689ff43bc9b1aa780b2f96"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_sheet-music_1.dds",
+      "bytes": 699192,
+      "sha256": "4b51cb4a5604a9bd938d63ea1c3165b549173a4eaa897fa3bf4552ac659cb20e"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_sheet-music_2.dds",
+      "bytes": 699192,
+      "sha256": "16c181d755ae782a886fdc260f9a3754a78730faecae1cf39691057dbdabf2cb"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_stool_0.dds",
+      "bytes": 699192,
+      "sha256": "bfbfdee0e2b024f7f4dc48603351f9492c18635dd491c5d2e253771887a32b35"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_stool_0_n.dds",
+      "bytes": 1398256,
+      "sha256": "c1785fa92d32679ca54988bcf850cf0bd97e27a791dba3ada5bb88e46f328bc1"
     },
     {
       "path": "textures/fetcher/orchestra/cc_timpani_0.dds",

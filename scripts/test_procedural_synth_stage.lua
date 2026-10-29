@@ -171,6 +171,20 @@ check(Format.project(w.project).autoBand==true,'managed mode survives project va
 w.project.leaderPlays='yes';check(not Format.project(w.project),'malformed leader settings are rejected');w.project.leaderPlays=nil
 w:setOutput(1,0);check(not w.project.autoBand,'explicit manual routing turns off automatic replacement')
 -- Stand controller applies only to this package's generated NPC identities.
+local verifySession={id=70,epoch=1,owner=1,characterId=70,cell='A',band=Format.band()};sessions[70]=verifySession
+check(S:begin(verifySession,one,70,sessions,false),'readback regression starts with a real spawned actor');pump()
+local verifyResult=sent[#sent].data
+for n=#sent,1,-1 do if sent[n].data.op=='bandSetup' and sent[n].data.requestId==70 then verifyResult=sent[n].data;break end end
+verifySession.band[1].target=verifyResult.targets[1]
+local originalTeleport=mp.teleportActorByInstanceId
+local attempts=0;mp.teleportActorByInstanceId=function(_,_,_,owner) attempts=attempts+1;check(owner==1,'owned NPC teleport carries trusted owner');return true end
+leader.position.x=leader.position.x+140
+check(S:begin(verifySession,one,71,sessions,false),'queued native move can be accepted without being applied');pump()
+check(attempts==2 and sent[#sent].data.error,'unchanged native position is retried and rejected instead of claiming setup succeeded')
+mp.teleportActorByInstanceId=originalTeleport
+check(S:begin(verifySession,one,72,sessions,false),'same owned identity can recover after rejected native movement');pump()
+local verifiedActor=actors[verifySession.band[1].target.mpNum];local expected=Layout.position(leader.position,1,1)
+check(math.abs(verifiedActor.position.x-expected.x)<.01 and not sent[#sent].data.error,'readback confirms the new slot before completing setup')
 local npc={recordId='fetcher_synth_bard_11_1',controls={}}
 function npc:enableAI(enabled) self.ai=enabled end
 package.loaded['openmw.self']=npc;dofile(root..'client/stage-actor.lua').engineHandlers.onUpdate()

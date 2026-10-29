@@ -260,7 +260,8 @@ public:
         const std::string& refId, uint32_t refNum, uint32_t mpNum, const std::string& cellId, const Position& position,
         bool persistent = true, uint32_t authorityGuid = 0);
     bool removeActor(uint32_t mpNum, const std::string& cellId);
-    bool teleportActor(ActorInstanceId actorId, const std::string& cellId, const Position& position);
+    bool teleportActor(ActorInstanceId actorId, const std::string& cellId, const Position& position,
+        uint32_t expectedScriptOwner = 0);
     bool removeGameObject(uint32_t mpNum, const std::string& cellId);
     bool resetCellStateForTesting(const std::string& cellId);
     std::size_t resetAllCellStatesForTesting();

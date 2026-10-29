@@ -1,0 +1,77 @@
+{
+  "meshes/fetcher/synth/keyboard-stand.nif": {
+    "baseTriangles": 12273,
+    "sheetTriangles": 212,
+    "triangles": 12485,
+    "position": [
+      0,
+      6.7,
+      92
+    ],
+    "tiltDegrees": 70,
+    "yawDegrees": 0,
+    "bounds": [
+      [
+        -51.999996185302734,
+        -15.081235885620117,
+        0.0
+      ],
+      [
+        51.999996185302734,
+        15.081235885620117,
+        111.68399047851562
+      ]
+    ],
+    "sha256": "e9d2dfc1646793510944fb53f1e9e4a85c67d0236abeb3bf9fb57106029fb356"
+  },
+  "meshes/fetcher/orchestra/keyboard-seated.nif": {
+    "baseTriangles": 12189,
+    "sheetTriangles": 212,
+    "triangles": 12401,
+    "position": [
+      0,
+      6.7,
+      68
+    ],
+    "tiltDegrees": 70,
+    "yawDegrees": 0,
+    "bounds": [
+      [
+        -51.999996185302734,
+        -15.081235885620117,
+        0.0
+      ],
+      [
+        51.999996185302734,
+        15.081235885620117,
+        87.68399047851562
+      ]
+    ],
+    "sha256": "3ebab97ef06f2919bc2e28aed77921ac0855ee7075df6f42890b67a8c4549a01"
+  },
+  "meshes/fetcher/orchestra/music-stand.nif": {
+    "baseTriangles": 1616,
+    "sheetTriangles": 212,
+    "triangles": 1828,
+    "position": [
+      0,
+      0.6,
+      64.6
+    ],
+    "tiltDegrees": -70,
+    "yawDegrees": 180,
+    "bounds": [
+      [
+        -21.059064865112305,
+        -9.073862075805664,
+        -1.1920928955078125e-07
+      ],
+      [
+        21.059064865112305,
+        9.073862075805664,
+        82.82909834291806
+      ]
+    ],
+    "sha256": "7136c8be8288e8faab173bc0e88e0cfcbf4acad79879b0af902161dc93a13abe"
+  }
+}

@@ -44,13 +44,6 @@ License: Creative Commons Attribution 4.0 International
 https://creativecommons.org/licenses/by/4.0/
 Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
 
-Wooden Chair (Low Poly) — Berk Gedik
-Source: https://sketchfab.com/3d-models/wooden-chair-low-poly-f899f1d606094afdb75bd5255d5a5194
-Author: https://sketchfab.com/berkgedik
-License: Creative Commons Attribution 4.0 International
-https://creativecommons.org/licenses/by/4.0/
-Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
-
 Drumsticks — Kamil.Fujarski
 Source: https://sketchfab.com/3d-models/drumsticks-610a13ddadf14d2cb52111d4f0ca93fa
 Author: https://sketchfab.com/Kamil.Fujarski
@@ -65,6 +58,26 @@ License: Creative Commons Attribution 4.0 International
 https://creativecommons.org/licenses/by/4.0/
 Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
 
+Modern Piano Stool — TwoPixels Studio
+Source: https://sketchfab.com/3d-models/modern-piano-stool-a460d22c74614bc0b85d29237f3eb160
+Author: https://sketchfab.com/twopixels.studio
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
+
+Sheet Music — cScott
+Source: https://sketchfab.com/3d-models/sheet-music-d444261c68464623b1b2e08ec8ae62f3
+Author: https://sketchfab.com/cscottd
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
+
+Upstream model: Secret notebook from Paper Hospital map — Neo_minigan
+Source: https://sketchfab.com/3d-models/secret-notebook-from-paper-hospital-map-95ee39927f6e4e90b3b7ea5b38e7d1ae
+Author: https://sketchfab.com/neominigan
+License: https://creativecommons.org/licenses/by/4.0/
+
 Additional adaptations: violin/bow separated into independent animated props; one wooden percussion stick selected from the downloaded pair. The percussion beater is wooden, not a felt-headed timpani mallet.
 Seated keyboard: existing credited Yamaha/X-stand adaptation lowered by 24 game units; stand legs shortened while key/body thickness is retained. Original keyboard/stand authors and licenses remain applicable.
+Sheet booklet joined into standing/seated Yamaha music rests and the separate music stand. Existing geometry and collision are retained. Compact stool scaled to a 44-unit seat height.
 No endorsement by any model author or instrument manufacturer is implied. Code licenses are separate from these asset licenses.

@@ -1,5 +1,5 @@
 """Lower the existing credited Yamaha/X-stand adaptation without flattening keys."""
-import bpy,sys,json,hashlib
+import bpy,sys,json,hashlib,tempfile
 from pathlib import Path
 from mathutils import Matrix,Vector
 assets=Path(sys.argv[sys.argv.index('--')+1]).resolve()
@@ -7,7 +7,14 @@ bpy.ops.object.select_all(action='SELECT');bpy.ops.object.delete(use_global=Fals
 bpy.ops.preferences.addon_enable(module='io_scene_mw')
 bpy.context.preferences.addons['io_scene_mw'].preferences.scale_correction=1
 bpy.context.preferences.addons['io_scene_mw'].preferences.texture_paths.add().name=str(assets/'textures')
-bpy.ops.import_scene.mw(filepath=str(assets/'meshes/fetcher/synth/keyboard-stand.nif'),attach_keyframe_data=False,discard_root_transforms=False,use_existing_materials=False,ignore_collision_nodes=True,ignore_custom_normals=False,ignore_animations=True)
+from es3 import nif
+# The standing NIF may already have pages from a previous pipeline run. The
+# holder-dressing step adds them after lowering the keyboard, exactly once.
+source=nif.NiStream();source.load(assets/'meshes/fetcher/synth/keyboard-stand.nif')
+source.root.children=[c for c in source.root.children if c.name!='Fetcher_Sheet_Music']
+with tempfile.TemporaryDirectory(prefix='fetcher-keyboard-') as temp:
+    clean=Path(temp)/'keyboard.nif';source.save(clean)
+    bpy.ops.import_scene.mw(filepath=str(clean),attach_keyframe_data=False,discard_root_transforms=False,use_existing_materials=False,ignore_collision_nodes=True,ignore_custom_normals=False,ignore_animations=True)
 root=bpy.data.objects.new('CC_Yamaha_Seated',None);bpy.context.collection.objects.link(root)
 objects=[o for o in bpy.context.scene.objects if o.type=='MESH' and not o.name.startswith('Collision')]
 bpy.ops.object.select_all(action='DESELECT')

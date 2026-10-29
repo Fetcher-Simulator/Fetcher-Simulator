@@ -21215,17 +21215,24 @@ bool MPServer::spawnActor(
 }
 
 bool MPServer::teleportActor(
-    ActorInstanceId actorId, const std::string& destinationCellId, const Position& destinationPosition)
+    ActorInstanceId actorId, const std::string& destinationCellId, const Position& destinationPosition,
+    uint32_t expectedScriptOwner)
 {
     const ActorInstanceKey identity = unpackActorInstanceId(actorId);
-    if (identity.kind != ActorKeyKind::VanillaRefNum || destinationCellId.empty()
+    if (!isValidActorInstanceKey(identity) || destinationCellId.empty()
         || (isExteriorCellKey(destinationCellId)
             && exteriorCellIdForPosition(destinationPosition) != destinationCellId))
         return false;
 
     std::string sourceCellId;
     ActorRegistryRecord* found = findActorByNetId(actorId, &sourceCellId);
-    if (!found || found->actor.isDead || found->actorAuthorityReason == "script-owner")
+    if (!found || found->actor.isDead)
+        return false;
+    const bool scriptOwned = found->actorAuthorityReason == "script-owner";
+    // Preserve pinned simulation only for an explicit server-side request from
+    // that same owner. Ordinary admin teleports retain their existing restriction.
+    if (scriptOwned && (identity.kind != ActorKeyKind::SpawnedMpNum
+            || expectedScriptOwner == 0 || found->actorAuthorityGuid != expectedScriptOwner))
         return false;
     auto sourceCellIt = mWorld.actorCells.find(sourceCellId);
     if (sourceCellIt == mWorld.actorCells.end())
@@ -21262,10 +21269,11 @@ bool MPServer::teleportActor(
     // An admin teleport is discontinuous. Revoke the old simulator before
     // choosing one near the destination so an in-flight old position cannot
     // pull the actor back across the world.
-    record.actorAuthorityGuid = 0;
-    record.actorAuthorityTargetGuid = 0;
+    record.actorAuthorityGuid = scriptOwned ? expectedScriptOwner : 0;
+    record.actorAuthorityTargetGuid = scriptOwned ? expectedScriptOwner : 0;
     record.actorAuthorityLeaseUntilMs = 0;
-    record.actorAuthorityReason.clear();
+    if (!scriptOwned)
+        record.actorAuthorityReason.clear();
     ++record.actorAuthorityGeneration;
     if (record.actorAuthorityGeneration == 0)
         ++record.actorAuthorityGeneration;
@@ -21319,7 +21327,7 @@ bool MPServer::teleportActor(
             ActorIdentityRecord identityRecord;
             identityRecord.actorNetId = actorId;
             identityRecord.persistent = moved.persistent;
-            identityRecord.serverSpawned = false;
+            identityRecord.serverSpawned = identity.kind == ActorKeyKind::SpawnedMpNum;
             identityRecord.migrationGeneration = moved.migrationGeneration;
             identityRecord.actor = moved.actor;
             identityList.actors.push_back(std::move(identityRecord));

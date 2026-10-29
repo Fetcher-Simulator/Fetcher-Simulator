@@ -149,7 +149,8 @@ for name,item in plan.items():
     elif name=='clarinet':export(name,objects,matrix(Matrix.Rotation(math.pi/2+.2,4,'X'),50/span.y,(center.x,high.y,center.z)),name)
     elif name=='timpani':export(name,objects,matrix(Matrix.Identity(4),80/span.z,(center.x,center.y,low.z)),name)
     elif name=='music-stand':export(name,objects,matrix(Matrix.Identity(4),82/span.z,(center.x,center.y,low.z)),name)
-    elif name=='chair':export(name,objects,matrix(Matrix.Rotation(math.pi,4,'Z'),90/span.z,(center.x,center.y,low.z)),name)
+    elif name=='stool':export(name,objects,matrix(Matrix.Identity(4),44/span.z,(center.x,center.y,low.z)),name)
+    elif name=='sheet-music':export(name,objects,matrix(Matrix.Identity(4),30/span.x,(center.x,low.y,low.z)),name)
     elif name=='mallet':
         # Select one complete stick, preserving the creator's geometry/materials.
         assert len(objects)==2 and all(len(o.data.polygons)>500 for o in objects)
@@ -158,6 +159,8 @@ for name,item in plan.items():
         export(name,selected,matrix(Matrix.Rotation(-.25,4,'X')@Matrix.Rotation(math.pi/2,4,'Z'),24/(high.x-low.x),center,(0,8,-2)),name)
     credits.append({'id':name,'title':meta['name'],'author':meta['user']['displayName'],'authorUrl':meta['user']['profileUrl'],'source':meta['viewerUrl'],'license':'CC BY 4.0','licenseUrl':'https://creativecommons.org/licenses/by/4.0/','downloadSha256':download['sha256'],
       'changes':'Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.'})
+    if name=='sheet-music':
+        credits[-1]['upstream']={'title':'Secret notebook from Paper Hospital map','author':'Neo_minigan','source':'https://sketchfab.com/3d-models/secret-notebook-from-paper-hospital-map-95ee39927f6e4e90b3b7ea5b38e7d1ae','authorUrl':'https://sketchfab.com/neominigan','licenseUrl':'https://creativecommons.org/licenses/by/4.0/'}
 old=args.output/'sketchfab-orchestra-report.json'
 previous=json.loads(old.read_text()) if args.only and old.exists() else {};previous.update(report)
 old.write_bytes((json.dumps(previous,indent=2)+'\n').encode())

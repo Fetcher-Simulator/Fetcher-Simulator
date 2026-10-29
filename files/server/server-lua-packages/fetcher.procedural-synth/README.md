@@ -2,7 +2,7 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current source: package 40 / native synth API 17 / multiplayer protocol 27.
+Current source: package 41 / native synth API 17 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -13,8 +13,11 @@ See [the roadmap](ROADMAP.md).
 ## Seated NPC staging and model credits
 
 On **Band**, choose **Layout: Seated**, then **Auto NPC band** or **Restage grid**.
-Owned keyboard and cello NPCs receive a chair, music stand and separate seated
-pose; other instruments and players remain standing. The leader's movement does
+Owned keyboard and cello NPCs receive a compact piano stool and separate seated
+pose; other instruments and players remain standing. Keyboards use their built-in
+music rests. Other NPC instrumentalists receive a separate music stand. Printed
+sheet booklets are part of the holder NIFs, with no extra paper attachment.
+The leader's movement does
 not move the stage. Switch to Standing and restage to remove the seated helpers.
 **Remove owned NPCs** and Finish/session release clean up managed performers and
 their temporary visual props. Stop retains the formation.
@@ -22,9 +25,15 @@ their temporary visual props. Stop retains the formation.
 The local preflight checks floor height, slope, footprint, headroom and walls in
 bounded batches. The server chooses grid X/Y/yaw and checks supplied floor heights
 against the captured leader position. These are client-assisted placement checks,
-not an independent server collision simulation. Chairs/stands are expiring visual
+not an independent server collision simulation. Stools/stands are expiring visual
 attachments with no furniture collision or inventory entries. Unsupported leg
 rigs fall back to standing; custom body proportions still need calibration.
+
+Formation setup confirms each spawned/reused NPC's actual cell and position
+before completing. A queued move that never applies is retried, then reports an
+error rather than starting playback with an overlapping old formation. Package
+41 requires the server build with spawned/owned actor teleport support; the
+client synth API and wire protocol remain unchanged.
 
 Pose tuner has independent **keyboard_seated** and **cello_seated** profiles.
 Standing calibration exports remain in their existing reference frame. Replacement

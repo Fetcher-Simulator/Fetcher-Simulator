@@ -560,7 +560,8 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
     });
 
     mp.set_function("teleportActorByInstanceId",
-        [context](uint64_t actorId, const std::string& cellId, const sol::table& positionTable) -> bool
+        [context](uint64_t actorId, const std::string& cellId, const sol::table& positionTable,
+            sol::optional<uint32_t> expectedScriptOwner) -> bool
     {
         if (!context || !isValidActorInstanceId(actorId) || cellId.empty()
             || !context->getActorByInstanceId(actorId))
@@ -568,7 +569,7 @@ sol::table initMpPackage(LuaUtil::LuaView& view, LuaServerContext* context, LuaU
         auto position = parsePositionTable(positionTable);
         if (!position)
             return false;
-        context->queueTeleportActor(actorId, cellId, *position);
+        context->queueTeleportActor(actorId, cellId, *position, expectedScriptOwner.value_or(0));
         return true;
     });
 

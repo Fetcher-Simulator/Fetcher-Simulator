@@ -246,6 +246,11 @@ Native two-client checks cover models/grips, both seated rigs, late observers,
 standing/seated restage and complete managed-NPC cleanup. Custom proportions
 and final artistic grip refinement remain ongoing work in the live pose tuner.
 
+Package 41 replaces the oversized chair with a compact piano stool, joins a
+credited sheet booklet into the Yamaha rests and separate stand, and supplies
+stands to non-keyboard NPCs. Native spawned-actor teleport support and positional
+readback repair lineup changes that previously left reused NPCs in old slots.
+
 ## Remaining roadmap (next: section layouts and conductor presentation)
 
 1. **Section layouts and conductor presentation.** Add saved spacing/layout
@@ -298,7 +303,7 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 40 / native synth API 17 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
+package 41 / native synth API 17 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented, together with initial seated keyboard/cello NPC staging.
 

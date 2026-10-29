@@ -1,5 +1,47 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 28: compact seating, sheet music and verified restaging (package 41)
+
+Replaced the blue chair with TwoPixels Studio's CC BY piano stool, fitted to a
+44-unit seat height. cScott's CC BY sheet booklet is joined into both Yamaha
+rests and the separate music stand. Credits include the upstream notebook by
+Neo_minigan. Each holder has exactly one 212-triangle booklet subtree; the
+standing Yamaha retains its original 84 collision triangles. Keyboard NPCs have
+no separate stand; non-keyboard NPCs have a stand turned toward their position.
+
+Found the native restaging failure: the Lua binding returned success after
+enqueueing a teleport, but MPServer::teleportActor accepted only vanilla actor
+identities and rejected script-owned performers. Spawned identities now work;
+an optional trusted expected-owner argument permits pinned script-owned moves
+only for that owner, preserving the lease and advancing its generation. Existing
+three-argument admin calls retain the script-owner restriction. New observer
+identity packets retain the spawned flag. Setup waits for actual position/cell
+readback, retries a missing move once and reports failure before playback.
+
+All 28 Lua suites pass, including a native-queue mock that returns true without
+moving the actor, retry/error handling and recovery with the same identity.
+The RelWithDebInfo server build succeeds. Actual NIF/DDS/credit/hash validation
+passes for 90 bundle files and ten model sources. Native two-client checks on
+private port 25571 inspect stool and page fit from side/performer perspectives,
+verify a late observer, and change nine performers to two (lute/trumpet), then
+three. Actual actor positions match their new slots, remain separated by over
+100 units and have distinct IDs. Standing/seated restage and full cleanup pass.
+Evidence: `build/studio-usability-qa/multiview-result.json`, the matching A/B/server
+logs, `build/studio-staging-followup-lua.log`, and
+`build/studio-stage-followup-asset-validation.log`.
+
+Two independent local servers were also found sharing the fixture/database on
+IPv4 and IPv6 port 25567. Both were stopped cleanly before installation; use the
+guarded fixture launcher so an existing listener is detected across families.
+The confirmed native teleport bug is distinct from this local setup issue.
+No VPS servers or public releases are changed by these tests.
+
+Installed package 41, the new native server and assets in the original 25567
+fixture. All 65 protected user files were unchanged during installation
+(`build/studio-stage-followup-local-install.json`). Four obsolete managed blue
+chair files were removed only after matching their previous manifest hashes.
+One guarded server was restarted hidden; no interactive client was reopened.
+
 ## October 28: credited models and seated NPC stage (package 40 / API 17)
 
 All 28 Lua suites pass. Coverage includes stage layout document validation,

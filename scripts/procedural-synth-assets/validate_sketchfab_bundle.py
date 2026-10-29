@@ -29,7 +29,11 @@ for p in sorted((root/'meshes').rglob('*.nif')):
 assert models['violin']+models['bow']==14614,'violin/bow split must retain every source triangle exactly once'
 print('NIF_TRIANGLES',json.dumps(models))
 # The standing model also has collision boxes; seated attachments are visual only.
-assert renderModels['keyboard-seated']==renderModels['keyboard-stand'],'seated Yamaha must retain its render geometry'
+assert renderModels['keyboard-seated']==renderModels['keyboard-stand']==12189+212,'Yamaha render geometry includes one booklet'
+for model in ['meshes/fetcher/synth/keyboard-stand.nif','meshes/fetcher/orchestra/keyboard-seated.nif','meshes/fetcher/orchestra/music-stand.nif']:
+    s=nif.NiStream();s.load(root/model)
+    assert len([o for o in s.objects_of_type(nif.NiNode) if o.name=='Fetcher_Sheet_Music'])==1,model
+assert 'chair' not in models and models['stool']==1036,'compact stool replaces the blue chair'
 for p in root.rglob('*.dds'):
     data=p.read_bytes();assert data[:4]==b'DDS ' and struct.unpack_from('<I',data,28)[0]>=2,p
 credits=json.loads((root/'sketchfab-models.json').read_text());notice=(root/'ATTRIBUTION.txt').read_text(encoding='utf-8')

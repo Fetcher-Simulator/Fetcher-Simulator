@@ -6,6 +6,7 @@
   "clarinet": {"uid":"d61bb4e061334edeab13bbcb0e192cf4","file":"clarinete.glb"},
   "timpani": {"uid":"9cf701a0db76411294266c5a3665458b","file":"timpani_drum.glb"},
   "music-stand": {"uid":"fc4c522152594bd8a7f18ad3dc8997f5","file":"music_stand.glb"},
-  "chair": {"uid":"f899f1d606094afdb75bd5255d5a5194","file":"wooden_chair_low_poly.glb"},
+  "stool": {"uid":"a460d22c74614bc0b85d29237f3eb160","file":"modern_piano_stool.glb"},
+  "sheet-music": {"uid":"d444261c68464623b1b2e08ec8ae62f3","file":"sheet_music.glb"},
   "mallet": {"uid":"610a13ddadf14d2cb52111d4f0ca93fa","file":"drumsticks.glb"}
 }

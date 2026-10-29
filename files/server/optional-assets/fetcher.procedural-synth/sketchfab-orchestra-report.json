@@ -128,7 +128,7 @@
   "music-stand": {
     "source": "music-stand",
     "model": "meshes/fetcher/orchestra/music-stand.nif",
-    "triangles": 1616,
+    "triangles": 1828,
     "bounds": [
       [
         -21.059064865112305,
@@ -138,28 +138,10 @@
       [
         21.059064865112305,
         9.073862075805664,
-        82.0
+        82.82909834291806
       ]
     ],
-    "sha256": "efec5192e5f4d4a934d5719b80d054d6ab67ff5ad071af42a61e0939a58add2a"
-  },
-  "chair": {
-    "source": "chair",
-    "model": "meshes/fetcher/orchestra/chair.nif",
-    "triangles": 996,
-    "bounds": [
-      [
-        -21.115076065063477,
-        -23.085002899169922,
-        0.0
-      ],
-      [
-        21.11507225036621,
-        23.085002899169922,
-        90.0
-      ]
-    ],
-    "sha256": "541169e5e62d4829bd39b4a1da1ed6d0cb1de5531d2ffe665e6173beb37ba00d"
+    "sha256": "7136c8be8288e8faab173bc0e88e0cfcbf4acad79879b0af902161dc93a13abe"
   },
   "mallet": {
     "source": "mallet",
@@ -178,5 +160,41 @@
       ]
     ],
     "sha256": "992e7656325d00ca16c05de8072ae0645b38890b9d22e638575da2012657b9d7"
+  },
+  "stool": {
+    "source": "stool",
+    "model": "meshes/fetcher/orchestra/stool.nif",
+    "triangles": 1036,
+    "bounds": [
+      [
+        -26.35201644897461,
+        -15.877228736877441,
+        -3.814697265625e-06
+      ],
+      [
+        26.352018356323242,
+        15.877225875854492,
+        44.0
+      ]
+    ],
+    "sha256": "1d9773d530ac1eb8f3a723d331d0069216680fc527b33139cf62abc07559ee6e"
+  },
+  "sheet-music": {
+    "source": "sheet-music",
+    "model": "meshes/fetcher/orchestra/sheet-music.nif",
+    "triangles": 212,
+    "bounds": [
+      [
+        -15.00022029876709,
+        -0.0001583099365234375,
+        -1.2595697853612364e-06
+      ],
+      [
+        14.999534606933594,
+        18.749181747436523,
+        1.7853864431381226
+      ]
+    ],
+    "sha256": "fa082b227f160bedf46d507cd9ba2d2c30b00a8257145084f2351d1558bac019"
   }
 }

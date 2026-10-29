@@ -186,7 +186,8 @@ public:
         const std::string& refId, uint32_t refNum, uint32_t mpNum, const std::string& cellId, const Position& position,
         bool persistent = true, uint32_t authorityGuid = 0);
     void queueRemoveActor(uint32_t mpNum, const std::string& cellId);
-    void queueTeleportActor(ActorInstanceId actorId, const std::string& cellId, const Position& position);
+    void queueTeleportActor(ActorInstanceId actorId, const std::string& cellId, const Position& position,
+        uint32_t expectedScriptOwner = 0);
     void queueRemoveGameObject(uint32_t mpNum, const std::string& cellId);
     void queueResetCellState(const std::string& cellId);
     void queueResetAllCellStates();

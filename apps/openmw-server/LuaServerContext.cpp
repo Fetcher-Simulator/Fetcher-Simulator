@@ -348,7 +348,7 @@ void LuaServerContext::drainOutbound()
                 mServer->removeActor(action.actorMpNum, action.cellId);
                 break;
             case OutboundLuaActionType::TeleportActor:
-                mServer->teleportActor(action.actorInstanceId, action.cellId, action.position);
+                mServer->teleportActor(action.actorInstanceId, action.cellId, action.position, action.actorTeleportOwner);
                 break;
             case OutboundLuaActionType::TeleportPlayer:
                 mServer->teleportPlayer(action.guid, action.cellId, action.position);
@@ -1293,7 +1293,7 @@ void LuaServerContext::queueRemoveActor(uint32_t mpNum, const std::string& cellI
 }
 
 void LuaServerContext::queueTeleportActor(
-    ActorInstanceId actorId, const std::string& cellId, const Position& position)
+    ActorInstanceId actorId, const std::string& cellId, const Position& position, uint32_t expectedScriptOwner)
 {
     if (!isValidActorInstanceId(actorId) || cellId.empty())
         return;
@@ -1301,6 +1301,7 @@ void LuaServerContext::queueTeleportActor(
     OutboundLuaAction action;
     action.type = OutboundLuaActionType::TeleportActor;
     action.actorInstanceId = actorId;
+    action.actorTeleportOwner = expectedScriptOwner;
     action.cellId = cellId;
     action.position = position;
     mOutboundQueue.push(std::move(action));

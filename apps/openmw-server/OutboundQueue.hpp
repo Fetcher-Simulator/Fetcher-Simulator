@@ -77,6 +77,7 @@ struct OutboundLuaAction
     uint32_t actorRefNum = 0;
     uint32_t actorMpNum = 0;
     uint32_t actorAuthorityGuid = 0;
+    uint32_t actorTeleportOwner = 0;
     std::uint64_t actorInstanceId = 0;
     Position position;
     PlayerMark playerMark;
