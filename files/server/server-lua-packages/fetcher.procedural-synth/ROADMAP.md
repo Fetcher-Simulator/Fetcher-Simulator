@@ -2,6 +2,11 @@
 
 Updated 2026-10-29. Completed work and subsequent planned slices are identified below.
 
+Package 43 adopts the latest seated keyboard/cello, violin, timpani, trumpet and
+flute calibration exports, including seated legs/feet and stool scale. Standing
+keyboard/cello, lute, hand drum and clarinet retain their earlier defaults until
+new exports are supplied.
+
 ## Completed refinement: seated pose and bench tuning (package 42)
 
 The local pose tuner now exposes pelvis position, independent foot targets and

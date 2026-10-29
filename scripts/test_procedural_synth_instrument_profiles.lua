@@ -24,7 +24,7 @@ local Published=dofile('files/server/server-lua-packages/fetcher.procedural-synt
 local P=setmetatable({}, {__index=Published});for name,p in pairs(Published.reference) do P[name]=p end
 local checks=0;local function check(value,why) checks=checks+1;assert(value,why) end
 local stickStrike=Published.motion(Published.timpani,'L',45,true,1,0,2)
-check(math.abs(stickStrike.z-5-80)<.01,'wooden beater tip reaches the new timpani head without burying the resting stick')
+check(math.abs(stickStrike.z-(Published.timpani.targets.L.z-6*Published.defaults.timpani.LMotionScale))<.01,'timpani downstroke respects the accepted target and motion calibration')
 local neck=P.lute.position+P.lute.rotation*v(0,20,8)
 check(neck.x<0 and neck.z>P.lute.position.z,'vanilla lute neck points toward fretting hand and upward')
 local luteContact=P.lute.targets.L+P.lute.rotation*v(-4,0,0)-v(0,3,0)
@@ -88,12 +88,12 @@ do
  check(calibration:set('keyboard_seated',{'bones','Bip01 L Calf','rotation',1},5) and calibration:set('keyboard_seated',{'bones','Bip01 R Foot','position',3},1),'lower-body bone-local refinements accepted')
  local seat=calibration:profile('keyboard_seated')
  check(seat.bench.scale==1.3 and seat.bench.position.y==-9 and seat.seat.pelvis.z==-36 and seat.seat.targets.L.y==20 and seat.seat.targets.R.y==27,'compiled sitting and furniture values stay independent')
- check(calibration:profile('cello_seated').bench.scale==1 and calibration:profile('cello_seated').seat.pelvis.z==-32,'editing keyboard does not change seated cello defaults')
+ check(calibration:profile('cello_seated').bench.scale==Published.cello_seated.bench.scale and calibration:profile('cello_seated').seat.pelvis.z==Published.cello_seated.seat.pelvis.z,'editing keyboard does not change seated cello defaults')
  calibration:save();local sitting=make(Published,package.loaded['openmw.util'],storage)
  check(sitting:profile('keyboard_seated').bench.scale==1.3 and sitting:profile('keyboard_seated').seat.targets.L.y==20,'seated and bench edits survive storage reload')
  local exportedSeat=assert((loadstring or load)(sitting:export('keyboard_seated')))().profiles.keyboard_seated
  check(exportedSeat.benchScale==1.3 and exportedSeat.pelvisOffset[3]==-36 and exportedSeat.bones['Bip01 L Calf'].rotation[1]==5,'export contains seat, furniture and leg bone edits')
- sitting:toggle();check(sitting:profile('keyboard_seated').bench.scale==1,'preview off restores default furniture')
+ sitting:toggle();check(sitting:profile('keyboard_seated').bench.scale==Published.keyboard_seated.bench.scale,'preview off restores default furniture')
  calibration:reset('keyboard_seated');calibration:save()
  local original=Published.lute.targets.L.x;local base=calibration:profile('lute')
  check(calibration:profile('lute')==base and base.targets.L.x==original,'unchanged profiles reuse a cached transform set')

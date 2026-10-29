@@ -2,7 +2,7 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current source: package 42 / native synth API 17 / multiplayer protocol 27.
+Current source: package 43 / native synth API 17 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -78,6 +78,12 @@ code. Project instrument effects and the game's ordinary sound environment stay
 separate. Changing listening modes keeps the existing song clock and audio streams.
 
 ## Live pose tuner
+
+Package 43 applies the October 29 exports for seated keyboard/cello, violin,
+timpani, trumpet and flute (the later flute export). Seated defaults include
+the exported foot/leg and stool calibration. Standing keyboard/cello, lute,
+hand drum and clarinet retain their previous defaults. Reset and Preview Off
+use these updated profiles; saved overrides remain relative to reference 37.
 
 Package 38 makes the approved cello, trumpet, violin, lute, flute, clarinet and
 hand-drum exports the defaults, including palm angles, elbow direction, finger/

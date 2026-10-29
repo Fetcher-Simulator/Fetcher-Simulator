@@ -167,10 +167,11 @@ local function merge(target,source)
     end
 end
 for _,name in ipairs{'keyboard','lute','drum','violin','cello','trumpet','flute','clarinet','timpani'} do
-    M.reference[name]=M[name];local d=M.seed(M[name]);merge(d,approved.profiles[name] or {})
+    M.reference[name]=M[name];local d=M.seed(M[name])
     -- The credited wooden stick drops five units from grip to tip. Leave room
     -- above the new timpani head for its six-unit downstroke.
     if name=='timpani' then d.LTarget[3]=91;d.RTarget[3]=91 end
+    merge(d,approved.profiles[name] or {})
     M.defaults[name]=d;M[name]=M.compile(M.reference[name],d)
 end
 -- Seated profiles have independent tuner values; standing exports stay intact.

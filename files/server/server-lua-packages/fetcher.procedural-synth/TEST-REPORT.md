@@ -1,5 +1,24 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 29: accepted tuning exports (package 43)
+
+Accepted seven export blocks from the latest ordinary Synth A log: seated
+keyboard, violin, timpani, trumpet, flute twice and seated cello. The later flute
+block wins. Captures are parsed as numeric data, checked against reference 37
+and merged into the existing approved defaults; older cello, clarinet, hand drum
+and lute calibrations remain intact. Standing keyboard keeps its built-in pose.
+Seated exports include stool scale and all foot/leg settings. Zero-only exploratory
+bone fields are omitted without changing their effect. The timpani fallback hand
+height is applied before approved calibration so it cannot replace exported values.
+
+The calibration suite verifies all approved export fields, storage migration,
+Reset, Preview Off and absence of doubled rotations (594 assertions). The client
+UI lifecycle suite passes with the updated seated defaults (17,170 assertions).
+Captures and their hashes are retained outside the repository in
+`synth-assets/pose-calibration/2026-10-29`; selection evidence is in
+`build/studio-default-update-20261029.json`. These data changes require no native
+client/server rebuild or protocol change.
+
 ## October 29: live seated-pose and bench controls (package 42)
 
 All 28 Lua suites pass. Calibration/UI checks cover seated-only validation,
