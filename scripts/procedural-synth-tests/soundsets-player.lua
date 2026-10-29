@@ -8,7 +8,7 @@ local function log(s) print('[SynthSoundSetTest] '..tostring(role)..' '..s) end
 local function song()
     local s={tracks=6,division=96,names={},programs={},tempos={},duration=80,beats=160,events={}}
     local order=0
-    for n,entry in ipairs{{0,60,0},{1,36,32},{2,64,24},{9,36},{9,38},{9,42}} do
+    for n,entry in ipairs{{0,60,0},{1,36,32},{2,64,30},{9,36},{9,38},{9,42}} do
         local channel,pitch=entry[1],entry[2];local part=n..':'..channel..(channel==9 and ':'..pitch or '')
         s.programs[part]=entry[3]
         for hit=0,79 do for _,kind in ipairs{'on','off'} do
@@ -28,7 +28,7 @@ local function run()
             for _,o in ipairs(nearby.activators) do if o.recordId=='fetcher_procedural_synth_v1' then phase=1;o:activateBy(self);break end end
         elseif phase==1 and w then
             assert(w:load(format.new()));assert(w:import(song(),'midi/soundset-qa.mid'))
-            assert(w.project.tracks[1].presetId=='b:studio-keys' and w.project.tracks[2].params.tune1==0 and w.project.tracks[3].presetId=='b:guitar-clean','GM defaults differ')
+            assert(w.project.tracks[1].presetId=='b:studio-keys' and w.project.tracks[2].params.tune1==0 and w.project.tracks[3].presetId=='b:guitar-metal','GM defaults differ')
             w.project.name='Sound Set QA';w.project.tracks[1].level=0.31;w:touch();api.studio();assert(w:play('song'))
             phase=2;at=now;log('PASS program-aware defaults; six-part native song started')
         elseif phase==2 and state and state.nativePlaying and now-at>4 then
@@ -40,7 +40,7 @@ local function run()
             else assert(w:save());phase=3;at=now end
         elseif phase==3 and now-at>3 and not w.dirty then api.loadProject();phase=4;at=now
         elseif phase==4 and now-at>4 and not w.dirty then
-            assert(w.project.soundSet=='ambient' and w.project.tracks[3].presetId=='b:guitar-clean' and w.project.tracks[1].level==0.31,'saved set/snapshot/mix mismatch')
+            assert(w.project.soundSet==sets.entries[#sets.entries].id and w.project.tracks[3].presetId=='b:guitar-metal' and w.project.tracks[1].level==0.31,'saved set/snapshot/mix mismatch')
             local details='native='..tostring(state.nativePlaying)..' UI='..tostring(w.playing)..' voices='..state.voices..' pos='..state.nativePosition
             for _,c in ipairs(state.channels) do details=details..' lane'..c.id..'='..c.voices end
             assert(not state.nativePlaying and state.voices==0,'load left scheduled voices: '..details)

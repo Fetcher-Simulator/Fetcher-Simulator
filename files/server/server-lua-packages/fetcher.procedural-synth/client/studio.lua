@@ -132,7 +132,7 @@ function S:song(content)
         Dropdown.open(self,choices,nil,function(role) w:addPart(role) end,20,385,390)
     end)
     content[#content+1]=self:button('+ Drum part v',235,602,200,function()
-        local choices={};for _,r in ipairs{'kick','snare','hat','openhat','tom'} do choices[#choices+1]={id=r,label=r} end
+        local choices={};for _,r in ipairs{'kick','snare','hat','openhat','tom','pedalhat','rim','clap','crash','ride','ridebell','cowbell','tambourine','shaker','percussion'} do choices[#choices+1]={id=r,label=r} end
         Dropdown.open(self,choices,nil,function(role) w:addPart(role) end,235,385,390)
     end)
     self:pageSelector(content,'songPage','Parts',470,602,255)
@@ -679,7 +679,8 @@ function S:drums(content)
     content[#content+1]=self:button('Sound',530,578,110,function() if p.tracks[w.selected] then self.cb.sound(w.selected) end end)
     self:pageSelector(content,'drumPage','Lanes',650,578,220)
     content[#content+1]=self:button('Kit: '..schema.kits[w.kitBank or 1].name,20,610,220,function()
-        w.kitBank=(w.kitBank or 1)%#schema.kits+1;w.revision=w.revision+1
+        local choices={};for n,kit in ipairs(schema.kits) do choices[#choices+1]={id=n,label=kit.name..' / '..(kit.lanes and #kit.lanes or 4)..' lanes'} end
+        Dropdown.open(self,choices,w.kitBank or 1,function(n) w.kitBank=n;w.revision=w.revision+1 end,20,250,400)
     end)
     content[#content+1]=self:button('Duplicate lane',255,610,135,function() local t=p.tracks[w.selected];if t and t.kind=='drum' then w:duplicateTrack(w.selected) end end)
     content[#content+1]=self:button('Delete lane',400,610,125,function() local t=p.tracks[w.selected];if t and t.kind=='drum' then w:remove(w.selected) end end)

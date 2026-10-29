@@ -2,7 +2,7 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current source: package 43 / native synth API 17 / multiplayer protocol 27.
+Current source: package 44 / native synth API 17 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -10,6 +10,35 @@ Standing grids and seated keyboard/cello NPCs are available, with credited CC BY
 orchestral and stage models. Next priority: electric guitar/bass, classical and
 acoustic guitar, a full drum kit, and better rock/metal/funk/acoustic sound sets.
 See [the roadmap](ROADMAP.md).
+
+## Guitar, bass and full-kit sound foundations
+
+Package 44 adds Classical Nylon, Acoustic Steel, Classic Heavy Rhythm, Tight
+Thrash Rhythm, Percussive Metal Rhythm and Clean Funk Chops, plus acoustic,
+fingered, picked, slap and pop bass starting patches. The catalog has 84 presets.
+The Sound set picker adds Classic Heavy Rock, Thrash Metal, Alternative Metal,
+Funk and Acoustic / Classical. Existing saved patch snapshots stay intact.
+
+Imported GM nylon/steel/clean/muted/distorted guitars and bass playing styles
+receive distinct assignments. The original program identity now persists through
+conversion to editable notes, source-free Save/Load, sound-set changes and MIDI
+export. Bass assignments preserve the written MIDI octave. Percussion maps rim,
+clap, pedal hat, toms, ride/bell, crash/splash/china, tambourine and cowbell to
+their own starting sounds. Other percussion has an explicit fallback.
+
+On **Drums**, use **Kit** to choose **Full Acoustic**, **Full Metal** or **Full
+Funk**, then **+ Kit**. Each adds ten lanes: kick, snare, closed/open/pedal hat,
+three toms, ride and crash. Addition is one Undo step and needs ten free tracks.
+The original four-lane kits remain available. Song's percussion-part picker
+also exposes the added kit roles. Auto NPC band groups compatible kit parts
+under one drummer while retaining independent lane sounds and mixing.
+
+These are synthesized starting sounds using the existing native engine. More
+realistic guitar/bass articulation, acoustic multisamples, cross-lane hi-hat
+choking and dedicated guitar/bass/drum-set meshes and animations remain in the
+first-priority roadmap. Presentation currently uses the existing lute and hand
+drum models. No native API or protocol change is needed for this package;
+the matching server Lua schema/project/layout modules are required.
 
 ## Seated NPC staging and model credits
 

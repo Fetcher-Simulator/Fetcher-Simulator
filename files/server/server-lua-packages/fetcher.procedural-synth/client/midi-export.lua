@@ -10,7 +10,8 @@ function M.encode(project,song,MIDI,format,mode)
     local Sequence=require('scripts.multiplayer.fetcher.procedural-synth.shared.sequence')
     local p=assert(format.project(project),'Invalid Studio project');mode=mode or ((p.timeline or song) and 'song' or 'clips')
     if p.composition then p.composition.loop=false;p.composition.loopStart=1;p.composition.loopEnd=p.composition.bars end
-    local plan=Sequence.compile(p,song,MIDI,mode,format,require('scripts.multiplayer.fetcher.procedural-synth.client.soundsets').programPatch)
+    local SoundSets=require('scripts.multiplayer.fetcher.procedural-synth.client.soundsets')
+    local plan=Sequence.compile(p,song,MIDI,mode,format,SoundSets.programPatch)
     local noteCount=0;for at=1,#plan.bytes,11 do if plan.bytes:byte(at+9)<128 then noteCount=noteCount+1 end end
     assert(noteCount<=M.maxNotes,'MIDI export supports at most 29000 expanded notes')
     local tempos=mode=='song' and ((p.timeline or song).tempos or {}) or {{beat=0,tempo=60000000/p.bpm}}
@@ -40,13 +41,13 @@ function M.encode(project,song,MIDI,format,mode)
     local channels={};local melodic=0
     for n,t in ipairs(p.tracks) do
         tracks[n+1]={};local role=t.sourceRole
-        local drum=t.kind=='drum' or ({kick=true,snare=true,hat=true,openhat=true,tom=true})[role] or t.part:match('^%d+:9:')~=nil
+        local drum=t.kind=='drum' or format.instrumentFor(role)=='drum' or t.part:match('^%d+:9:')~=nil
         local channel,port=9,0
         if not drum then local index=melodic%15;channel=index>=9 and index+1 or index;port=math.floor(melodic/15);melodic=melodic+1 end
         channels[n]=channel
         event(n+1,0,string.char(255,3)..vlq(#t.name)..t.name,-3)
         event(n+1,0,string.char(255,33,1,port),-2)
-        local program=song and song.programs and song.programs[t.part]
+        local program=SoundSets.trackProgram(t,song and song.programs and {program=song.programs[t.part]})
         if program and not (t.automation and t.automation.program and #t.automation.program>0) then event(n+1,0,string.char(192+channel,program),-1) end
         local function controller(name,step,value)
             local at=math.floor(step/4*M.division+0.5);local bytes

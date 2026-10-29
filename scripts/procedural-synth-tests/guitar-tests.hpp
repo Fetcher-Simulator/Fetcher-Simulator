@@ -106,7 +106,7 @@ void guitarTests()
         <<std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count()<<" seconds for 1 second PCM\n";
 }
 
-void writeBankPreview(const std::string& inputPath,const std::string& outputPath)
+void writeBankPreview(const std::string& inputPath,const std::string& outputPath,bool matched=false)
 {
     std::ifstream input(inputPath);check(static_cast<bool>(input),"bank parameters open");
     std::vector<float> mix;
@@ -121,8 +121,18 @@ void writeBankPreview(const std::string& inputPath,const std::string& outputPath
         auto held=render(*synth,48000);
         check(energy(held)>1e-10,"every bank sound produces audible-range PCM");
         synth->allNotesOff();auto tail=render(*synth,36000);
+        const double rawRms=std::sqrt(energy(held));
+        if(matched)
+        {
+            float peak=0;
+            for(float sample:held) {check(std::isfinite(sample),"finite audition PCM");peak=std::max(peak,std::abs(sample));}
+            for(float sample:tail) {check(std::isfinite(sample),"finite audition tail");peak=std::max(peak,std::abs(sample));}
+            const double gain=std::min(0.06/std::max(rawRms,1e-10),0.8/std::max(static_cast<double>(peak),1e-10));
+            for(float& sample:held) sample=static_cast<float>(sample*gain);
+            for(float& sample:tail) sample=static_cast<float>(sample*gain);
+        }
         mix.insert(mix.end(),held.begin(),held.end());mix.insert(mix.end(),tail.begin(),tail.end());
-        std::cout<<"BANK "<<name<<" RMS="<<std::sqrt(energy(held))<<'\n';
+        std::cout<<"BANK "<<name<<" rawRMS="<<rawRms<<" auditionRMS="<<std::sqrt(energy(held))<<'\n';
         // Additional velocity/register checks without adding them to the preview.
         for (int note : {40,76})
         {

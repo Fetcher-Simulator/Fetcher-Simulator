@@ -131,12 +131,12 @@ function W:setTempo(value)
 end
 function W:addPart(role)
     if not self.project.timeline or #self.project.tracks>=format.maxTracks or self.recording then return false end
-    local allowed={keys=true,bass=true,guitar=true,pad=true,kick=true,snare=true,hat=true,openhat=true,tom=true,strings=true,brass=true,reed=true,pipe=true,mallet=true,organ=true,lead=true,pluck=true,fx=true}
+    local allowed={keys=true,bass=true,guitar=true,pad=true,kick=true,snare=true,hat=true,openhat=true,tom=true,strings=true,brass=true,reed=true,pipe=true,mallet=true,organ=true,lead=true,pluck=true,fx=true,pedalhat=true,rim=true,clap=true,crash=true,ride=true,ridebell=true,cowbell=true,tambourine=true,shaker=true,percussion=true}
     if not allowed[role] then return false end
     self:stop(true);self.clipEdit=nil
     local index=#self.project.tracks+1;local t=format.newTrack('midi',role..' '..index,self.project.length)
     t.part='';t.sourceRole=role;t.instrument=format.instrumentFor(role);t.edited=format.encodeNotes({},960)
-    t.note=({kick=36,snare=38,hat=42,openhat=46,tom=45})[role] or 60
+    t.note=({kick=36,snare=38,hat=42,openhat=46,tom=45,pedalhat=44,rim=37,clap=39,crash=49,ride=51,ridebell=53,cowbell=56,tambourine=54,shaker=70,percussion=76})[role] or 60
     t.params,t.presetId=SoundSets.assignment(SoundSets.find(self.project.soundSet) and self.project.soundSet or 'balanced',role,true,t.note,t.instrument)
     self.project.tracks[index]=t;self.selected=index;self.noteSelection={};self.noteCache={}
     self.base=math.max(0,math.min(116,math.floor(t.note/12)*12));self:configureAll();self:touch();return true
@@ -389,7 +389,7 @@ function W:applySoundSet(id)
     local changes={}
     for n,t in ipairs(self.project.tracks) do
         if t.kind=='midi' and not t.edited and not parts[t.part] then self.cb.message('Wait for the MIDI file to finish loading.');return false end
-        local role=SoundSets.trackRole(t,parts[t.part]);local state,presetId=SoundSets.assignment(id,role,t.kind=='midi',parts[t.part] and parts[t.part].note or t.note,t.instrument)
+        local role=SoundSets.trackRole(t,parts[t.part]);local state,presetId=SoundSets.assignment(id,role,t.kind=='midi',parts[t.part] and parts[t.part].note or t.note,t.instrument,SoundSets.trackProgram(t,parts[t.part]))
         if not state then return false end
         changes[n]={state,presetId}
     end
@@ -427,14 +427,17 @@ function W:add(kind,presetId,name,note)
     self:configure(n);self:touch();return true
 end
 function W:addKit(kitIndex)
-    if #self.project.tracks>format.maxTracks-4 then self.cb.message('A kit needs four free tracks.');return false end
-    self.editDepth=(self.editDepth or 0)+1
     local kit=schema.kits[kitIndex or 1] or schema.kits[1]
-    self:add('drum',kit.ids[1],kit.name..' Kick',36)
-    self:add('drum',kit.ids[2],kit.name..' Snare',38)
-    self:add('drum',kit.ids[3],kit.name..' Closed hat',42)
-    self:add('drum',kit.ids[4],kit.name..' Open hat',46)
-    self.selected=#self.project.tracks-3
+    local lanes=kit.lanes or {{name='Kick',note=36,id=kit.ids[1]},{name='Snare',note=38,id=kit.ids[2]},
+        {name='Closed hat',note=42,id=kit.ids[3]},{name='Open hat',note=46,id=kit.ids[4]}}
+    if #self.project.tracks>format.maxTracks-#lanes then self.cb.message('This kit needs '..#lanes..' free tracks.');return false end
+    self.editDepth=(self.editDepth or 0)+1
+    local first=#self.project.tracks+1
+    for _,lane in ipairs(lanes) do
+        self:add('drum',lane.id,kit.name..' '..lane.name,lane.note)
+        if SoundSets.tomFrequencies[lane.note] then self.project.tracks[#self.project.tracks].params.bodyFrequency=SoundSets.tomFrequencies[lane.note];self:configure(#self.project.tracks) end
+    end
+    self.selected=first
     self.editDepth=self.editDepth-1
     if self.editDepth==0 and self.transactionTouched then self.transactionTouched=false;self:touch() end
     return true
@@ -561,7 +564,7 @@ function W:convertPart(index)
     if not data or total>format.maxEditedNotes then self.cb.message('Editing supports 4,096 notes per part and 8,192 per project. Original part preserved.');return false end
     self:stop(true);self.project.timeline=timeline;t.edited=data;self.noteCache={};self.noteSelection={};self.selectionTrack=index
     for _,part in ipairs(MIDI.parts(self.song)) do if part.id==t.part then
-        t.sourceRole=SoundSets.role(part);t.note=part.note or t.note;t.instrument=t.instrument or format.instrumentFor(t.sourceRole,part.program)
+        t.sourceRole=SoundSets.role(part);t.sourceProgram=part.program;t.note=part.note or t.note;t.instrument=t.instrument or format.instrumentFor(t.sourceRole,part.program)
     end end
     if notes[1] then self.bar=math.floor(notes[1].s/16);self.base=math.max(0,math.min(116,math.floor(notes[1].n/12)*12)) end
     self:touch();return true
@@ -662,11 +665,11 @@ function W:import(song,path)
         local t=old[p.id] or format.newTrack('midi',p.name:sub(1,48),self.project.length)
         if not old[p.id] then
             t.instrument=format.instrumentFor(SoundSets.role(p),p.program)
-            t.params,t.presetId=SoundSets.assignment(SoundSets.find(self.project.soundSet) and self.project.soundSet or 'balanced',SoundSets.role(p),true,p.note,t.instrument)
+            t.params,t.presetId=SoundSets.assignment(SoundSets.find(self.project.soundSet) and self.project.soundSet or 'balanced',SoundSets.role(p),true,p.note,t.instrument,p.program)
         end
         t.part=p.id;tracks[#tracks+1]=t
         if not t.edited then
-            t.sourceRole=SoundSets.role(p);t.note=p.note or t.note
+            t.sourceRole=SoundSets.role(p);t.sourceProgram=p.program;t.note=p.note or t.note
             t.instrument=t.instrument or format.instrumentFor(t.sourceRole,p.program)
         end
     end

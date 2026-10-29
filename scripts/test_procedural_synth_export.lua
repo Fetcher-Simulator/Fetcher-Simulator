@@ -9,7 +9,7 @@ local Export=dofile(root..'client/midi-export.lua');package.loaded[prefix..'clie
 local W=dofile(root..'client/workstation.lua');local checks=0
 local function check(b,m) checks=checks+1;assert(b,m) end
 local p=format.new();p.name='Export QA';p.timeline={beats=16,tempos={{beat=0,tempo=500000},{beat=4,tempo=1000000}}}
-local t=format.newTrack('midi',string.rep('N',48),16);p.tracks[1]=t;t.part='2:0';t.edited=format.encodeNotes({{n=60,s=0,l=4,v=.8}},960)
+local t=format.newTrack('midi',string.rep('N',48),16);p.tracks[1]=t;t.part='2:0';t.sourceProgram=24;t.edited=format.encodeNotes({{n=60,s=0,l=4,v=.8}},960)
 t.arrangement={clips={{name='Theme',length=16,notes=format.encodeNotes({{n=67,s=0,l=2,v=.5}},960)}},regions={{clip=1,s=16,l=16,transpose=12,mute=false},{clip=1,s=32,l=16,transpose=0,mute=true}}}
 p.tracks[2]=format.newTrack('drum','Snare',16);p.tracks[2].note=38;p.tracks[2].steps='0900000000000000'..string.rep('0',240)
 local bytes=Export.encode(p,nil,MIDI,format);local song=MIDI.parse(bytes)
@@ -20,6 +20,11 @@ check(#notes==2 and notes[1].n==60 and notes[1].s==0 and notes[1].l==4,'direct P
 check(notes[2].n==79 and notes[2].s==16 and notes[2].l==2,'linked placement flattened with transpose and mute')
 local percussion=false;for _,e in ipairs(song.events) do if e.kind=='on' and e.note==38 then percussion=e.channel==9 end end
 check(percussion,'drum lane maps to MIDI percussion channel')
+check(song.programs['2:0']==24,'source-free edited guitar retains its original program in exported MIDI')
+local cymbal=format.new();cymbal.timeline={beats=4,tempos={{beat=0,tempo=500000}}}
+cymbal.tracks[1]=format.newTrack('midi','Ride',16);cymbal.tracks[1].sourceRole='ride';cymbal.tracks[1].edited=format.encodeNotes({{n=51,s=0,l=1,v=.8}},960)
+local round=MIDI.parse(Export.encode(cymbal,nil,MIDI,format))
+check(round.events[1].channel==9 and round.events[1].note==51,'authored source-free cymbal exports on the percussion channel')
 local w=W.new{message=function() end,configure=function() end,panic=function() end,exportMidi=function(name,data) check(name=='New song' and MIDI.parse(data),'export callback receives validated MIDI');return 'file.mid' end}
 assert(w:newSong(120,6,8,4));assert(w:addNote(1,60,0));w:setComposition{loop=true,loopStart=2,loopEnd=3}
 local authored=Export.encode(w.project,nil,MIDI,format);local result=MIDI.parse(authored)

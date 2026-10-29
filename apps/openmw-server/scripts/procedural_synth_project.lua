@@ -80,9 +80,9 @@ for _,name in ipairs{'violin','cello','trumpet','flute','clarinet','timpani'} do
     M.instrumentModels[name]={model='meshes/fetcher/orchestra/'..name..'.nif',icon='fetcher/orchestra/'..name..'.dds'}
 end
 function M.instrumentFor(role,program)
+    if ({kick=true,snare=true,hat=true,openhat=true,tom=true,pedalhat=true,rim=true,clap=true,crash=true,ride=true,ridebell=true,cowbell=true,tambourine=true,shaker=true,percussion=true})[role] then return 'drum' end
     if program==42 or program==43 then return 'cello' end
     if program==47 then return 'timpani' end
-    if ({kick=true,snare=true,hat=true,openhat=true,tom=true})[role] then return 'drum' end
     if role=='guitar' or role=='bass' or role=='pluck' then return 'lute' end
     return ({strings='violin',brass='trumpet',reed='clarinet',pipe='flute'})[role] or 'keyboard'
 end
@@ -193,7 +193,7 @@ function M.seconds(timeline,beat)
     while low<high do local middle=math.floor((low+high+1)/2);if clock[middle].beat<=beat then low=middle else high=middle-1 end end
     local t=clock[low];return t.time+(beat-t.beat)*t.tempo/1000000
 end
-local roles={keys=true,mallet=true,organ=true,guitar=true,bass=true,strings=true,brass=true,reed=true,pipe=true,lead=true,pad=true,fx=true,pluck=true,kick=true,snare=true,hat=true,openhat=true,tom=true}
+local roles={keys=true,mallet=true,organ=true,guitar=true,bass=true,strings=true,brass=true,reed=true,pipe=true,lead=true,pad=true,fx=true,pluck=true,kick=true,snare=true,hat=true,openhat=true,tom=true,pedalhat=true,rim=true,clap=true,crash=true,ride=true,ridebell=true,cowbell=true,tambourine=true,shaker=true,percussion=true}
 -- Authored songs use the same saved PPQ notes as converted MIDI parts.
 -- Bars and loop markers are independent of the sixteen-bar clip overlay.
 function M.composition(value)
@@ -325,9 +325,9 @@ function M.eachRegionNote(t,emit)
         end end
     end end
 end
-local trackKeys={name=true,kind=true,part=true,presetId=true,params=true,level=true,mute=true,solo=true,note=true,gate=true,steps=true,notes=true,output=true,mixer=true,edited=true,sourceRole=true,arrangement=true,automation=true,followPrograms=true,instrument=true}
+local trackKeys={name=true,kind=true,part=true,presetId=true,params=true,level=true,mute=true,solo=true,note=true,gate=true,steps=true,notes=true,output=true,mixer=true,edited=true,sourceRole=true,sourceProgram=true,arrangement=true,automation=true,followPrograms=true,instrument=true}
 function M.track(t,length)
-    if not keys(t,trackKeys,21) or not text(t.name,48) or (t.kind~='midi' and t.kind~='piano' and t.kind~='drum')
+    if not keys(t,trackKeys,22) or not text(t.name,48) or (t.kind~='midi' and t.kind~='piano' and t.kind~='drum')
         or not text(t.part or '',48) or not text(t.presetId or '',32) or not num(t.level,0,1)
         or type(t.mute)~='boolean' or type(t.solo)~='boolean' or not int(t.note,0,127) or not num(t.gate,0.01,1)
         or type(t.steps)~='string' or (#t.steps<length or #t.steps>M.maxSteps or #t.steps%16~=0) or t.steps:find('[^0-9]')
@@ -337,6 +337,7 @@ function M.track(t,length)
     local out={name=t.name,kind=t.kind,part=t.part or '',presetId=t.presetId or '',params=params,level=t.level,
         mute=t.mute,solo=t.solo,note=t.note,gate=t.gate,steps=t.steps..string.rep('0',M.maxSteps-#t.steps),notes={},mixer=mixer,output={kind='keyboard',slot=t.output.slot or 0}}
     if t.sourceRole~=nil then if t.kind~='midi' or not roles[t.sourceRole] then return nil end;out.sourceRole=t.sourceRole end
+    if t.sourceProgram~=nil then if t.kind~='midi' or not int(t.sourceProgram,0,127) then return nil end;out.sourceProgram=t.sourceProgram end
     if t.instrument~=nil then if not M.instruments[t.instrument] then return nil end;out.instrument=t.instrument end
     if t.edited~=nil then
         if t.kind~='midi' or not M.decodeNotes(t.edited) then return nil end

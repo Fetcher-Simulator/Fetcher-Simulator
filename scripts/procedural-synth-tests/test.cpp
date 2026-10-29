@@ -103,6 +103,11 @@ int main(int argc, char** argv)
 {
     try
     {
+        if (argc==4 && std::string(argv[1])=="--bank-preview-matched")
+        {
+            writeBankPreview(argv[2],argv[3],true);
+            return 0;
+        }
         testMidiQueue();
         guitarTests();
         studioTests();

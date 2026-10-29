@@ -74,7 +74,7 @@ M.builtins = {
 -- Stable IDs and snapshots keep bank updates from changing saved projects.
 -- Tags are catalog metadata only; the parameter validator stays strictly numeric.
 M.banks={'All','Guitar','Rock / Metal','Blues / Funk / Jazz','House / Techno / Trance',
-    'Hip-hop / Trap / Lo-fi','DnB / Dubstep','Pop / Synthwave / Disco','Ambient / Cinematic','Chiptune','Orchestral / Cinematic','Personal'}
+    'Hip-hop / Trap / Lo-fi','DnB / Dubstep','Pop / Synthwave / Disco','Ambient / Cinematic','Chiptune','Orchestral / Cinematic','Acoustic / Classical','Drum Kit','Personal'}
 local function add(id,name,role,bank,state)
     M.builtins[#M.builtins+1]={id='b:'..id,name=name,role=role,bank=bank,state=state}
 end
@@ -137,6 +137,41 @@ add('orchestra-trumpet','Orchestral Trumpet','Brass','Orchestral / Cinematic',{w
 add('orchestra-flute','Breathy Flute','Woodwind','Orchestral / Cinematic',{wave1=0,enabled2=1,wave2=4,volume2=.035,attack=.055,decay=.2,sustain=.82,release=.12,cutoff=4200,lfoDepth=.018,lfoRate=5.2,volume=.7})
 add('orchestra-clarinet','Orchestral Clarinet','Woodwind','Orchestral / Cinematic',{wave1=3,enabled2=1,wave2=0,volume2=.16,attack=.025,decay=.2,sustain=.72,release=.1,cutoff=2300,resonance=.08,lfoDepth=.014,lfoRate=5,volume=.42})
 add('orchestra-timpani','Tuned Timpani','Percussion','Orchestral / Cinematic',{wave1=0,enabled2=1,wave2=0,tune2=7,volume2=.3,attack=.002,decay=1.2,sustain=0,release=.8,pitchAmount=2,pitchDecay=.015,cutoff=2000,volume=.75,polyphony=6})
+-- First band-bank pass uses the existing native voices. Stable IDs preserve
+-- saved snapshots when later physical modelling or multisample banks arrive.
+local function string(id,name,role,bank,program,changes)
+    local state={instrumentType=1,stringDecay=3,stringDamping=.3,stringMute=0,stringPick=.23,
+        attack=.002,decay=.2,sustain=1,release=.12,cutoff=12000,volume=.7,polyphony=8}
+    for k,v in pairs(changes) do state[k]=v end
+    add(id,name,role,bank,state);M.builtins[#M.builtins].midiProgram=program
+end
+string('guitar-nylon','Classical Nylon','Guitar','Acoustic / Classical',24,{stringDamping=.64,stringPick=.3,stringDecay=2.8,cutoff=6200,release=.18,volume=.9})
+string('guitar-steel','Acoustic Steel','Guitar','Acoustic / Classical',25,{stringDamping=.16,stringPick=.17,stringDecay=4.8,cutoff=14000,release=.22,volume=.7})
+string('guitar-funk','Clean Funk Chops','Guitar','Blues / Funk / Jazz',28,{stringMute=.74,stringDamping=.35,stringPick=.14,stringDecay=1.6,cutoff=9000,cabinet=1,release=.035,volume=.9})
+string('guitar-heavy','Classic Heavy Rhythm','Guitar','Rock / Metal',29,{stringPick=.21,stringDamping=.32,driveType=3,drive=18,cabinet=2,ampMid=3,ampBass=1,ampTreble=-3,driveTone=6500,release=.1,volume=.48})
+string('guitar-thrash','Tight Thrash Rhythm','Guitar','Rock / Metal',30,{stringPick=.12,stringMute=.6,stringDamping=.2,driveType=2,drive=29,cabinet=3,ampBass=-3,ampMid=-2,ampTreble=1,driveTone=8500,release=.045,volume=.5})
+string('guitar-altmetal','Percussive Metal Rhythm','Guitar','Rock / Metal',30,{stringPick=.16,stringMute=.45,stringDamping=.26,driveType=2,drive=25,cabinet=3,ampBass=-1,ampMid=3,ampTreble=-1,driveTone=7500,release=.055,volume=.52})
+string('bass-acoustic','Acoustic Bass Pluck','Bass','Acoustic / Classical',32,{tune1=-12,stringDamping=.72,stringPick=.34,stringDecay=2.1,cutoff=2200,release=.12,volume=.95})
+string('bass-finger','Electric Finger Bass','Bass','Blues / Funk / Jazz',33,{tune1=-12,stringDamping=.5,stringPick=.3,stringDecay=2.8,cutoff=3800,release=.1,volume=.9})
+string('bass-picked','Picked Electric Bass','Bass','Rock / Metal',34,{tune1=-12,stringDamping=.25,stringPick=.13,stringDecay=2.2,cutoff=6000,driveType=1,drive=7,fxMix=.35,release=.07,volume=.7})
+string('bass-slap','Slap Bass','Bass','Blues / Funk / Jazz',36,{tune1=-12,stringDamping=.2,stringPick=.08,stringDecay=1.2,cutoff=11000,attack=.002,release=.06,ampBass=2,ampMid=-2,volume=.8})
+string('bass-pop','Bright Pop Bass','Bass','Blues / Funk / Jazz',37,{tune1=-12,stringDamping=.1,stringPick=.1,stringDecay=1.7,cutoff=14000,release=.08,volume=.75})
+drum('kit-kick','Acoustic Kit Kick','Drum Kit',6,{bodyFrequency=52,bodyDecay=.26,noiseLevel=.09,noiseDecay=.025,drumClick=.18,drumPitchAmount=19,drumDrive=1.5,volume=.72})
+drum('kit-snare','Acoustic Kit Snare','Drum Kit',7,{bodyFrequency=185,bodyDecay=.13,noiseLevel=.85,noiseDecay=.19,noiseHighpass=950,drumDrive=1.5,volume=.65})
+drum('kit-rim','Cross Stick / Rim','Drum Kit',7,{bodyFrequency=650,bodyDecay=.025,bodyLevel=.7,noiseLevel=.12,noiseDecay=.018,noiseHighpass=2200,drumClick=.28,drumPitchAmount=0,volume=.6})
+drum('kit-clap','Hand Clap','Drum Kit',7,{bodyLevel=.02,noiseLevel=.95,noiseDecay=.11,noiseHighpass=1200,noiseLowpass=9000,drumPitchAmount=0,drumClick=.08,volume=.55})
+drum('kit-pedalhat','Pedal Hi-hat','Drum Kit',8,{bodyFrequency=470,bodyDecay=.045,noiseDecay=.04,noiseHighpass=5000,drumClick=.05,volume=.46})
+drum('kit-crash','Crash Cymbal','Drum Kit',9,{bodyFrequency=650,bodyDecay=1.1,bodyLevel=.35,noiseDecay=1.7,noiseHighpass=3200,noiseLowpass=16000,noiseLevel=.8,drumClick=.09,drumDrive=1.1,volume=.42})
+drum('kit-ride','Ride Cymbal','Drum Kit',9,{bodyFrequency=930,bodyDecay=.8,bodyLevel=.6,noiseDecay=.65,noiseLevel=.22,noiseHighpass=2700,noiseLowpass=14000,drumClick=.18,drumDrive=1.05,volume=.48})
+drum('kit-ridebell','Ride Bell','Drum Kit',9,{bodyFrequency=1000,bodyDecay=.55,bodyLevel=.85,noiseDecay=.15,noiseLevel=.06,noiseHighpass=1800,drumClick=.22,volume=.5})
+drum('kit-cowbell','Cowbell','Drum Kit',8,{bodyFrequency=540,bodyDecay=.12,bodyLevel=.9,noiseLevel=.015,noiseDecay=.01,noiseHighpass=500,noiseLowpass=7000,drumClick=.12,volume=.5})
+drum('kit-tambourine','Tambourine','Drum Kit',8,{bodyFrequency=820,bodyDecay=.13,bodyLevel=.2,noiseDecay=.17,noiseLevel=.8,noiseHighpass=5500,drumClick=.08,volume=.48})
+drum('kit-shaker','Shaker / Maracas','Drum Kit',8,{bodyLevel=0,noiseLevel=.85,noiseDecay=.07,noiseHighpass=3500,noiseLowpass=12000,drumClick=.015,volume=.45})
+drum('kit-percussion','Other Percussion','Drum Kit',6,{bodyFrequency=380,bodyDecay=.09,bodyLevel=.55,noiseLevel=.22,noiseDecay=.045,drumPitchAmount=1,drumClick=.12,volume=.5})
+drum('metal-kick','Metal Kick','Rock / Metal',6,{bodyFrequency=58,bodyDecay=.15,noiseLevel=.13,noiseDecay=.018,drumClick=.4,drumPitchAmount=16,drumDrive=1.8,volume=.65})
+drum('metal-snare','Metal Snare','Rock / Metal',7,{bodyFrequency=230,bodyDecay=.1,noiseLevel=.9,noiseDecay=.14,drumClick=.22,drumDrive=2,volume=.58})
+drum('funk-kick','Dry Funk Kick','Blues / Funk / Jazz',6,{bodyFrequency=65,bodyDecay=.16,noiseLevel=.025,drumClick=.16,drumDrive=1.4,volume=.72})
+drum('funk-snare','Dry Funk Snare','Blues / Funk / Jazz',7,{bodyFrequency=195,bodyDecay=.075,noiseDecay=.105,noiseLevel=.75,drumDrive=1.4,volume=.65})
 for _, preset in ipairs(M.builtins) do
     preset.state = assert(M.state(preset.state),'Invalid built-in: '..preset.id)
     preset.bank=preset.bank or 'General';preset.role=preset.role or (preset.state.drumType>0 and 'Drums' or 'Synth')
@@ -152,4 +187,12 @@ M.kits={
     {name='Trap',ids={'b:trap-kick','b:trap-snare','b:trap-hat','b:openhat'}},
     {name='DnB',ids={'b:dnb-kick','b:dnb-snare','b:hat','b:openhat'}},
 }
+local kitNotes={{'Kick',36,1},{'Snare',38,2},{'Closed hat',42,3},{'Open hat',46,4},
+    {'Pedal hat',44,'b:kit-pedalhat'},{'High tom',50,'b:studio-tom'},{'Mid tom',47,'b:studio-tom'},
+    {'Floor tom',43,'b:studio-tom'},{'Ride',51,'b:kit-ride'},{'Crash',49,'b:kit-crash'}}
+for _,entry in ipairs{{'Full Acoustic','b:kit-kick','b:kit-snare'},{'Full Metal','b:metal-kick','b:metal-snare'},{'Full Funk','b:funk-kick','b:funk-snare'}} do
+    local kit={name=entry[1],ids={entry[2],entry[3],'b:hat','b:openhat'},lanes={}}
+    for _,lane in ipairs(kitNotes) do kit.lanes[#kit.lanes+1]={name=lane[1],note=lane[2],id=type(lane[3])=='number' and kit.ids[lane[3]] or lane[3]} end
+    M.kits[#M.kits+1]=kit
+end
 return M

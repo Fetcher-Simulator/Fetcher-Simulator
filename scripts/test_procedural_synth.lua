@@ -213,7 +213,8 @@ test('guitar effects round trip in personal patches and late listener snapshots'
     local entries=sent[#sent].data.entries
     check(entries and #entries==#schema.builtins+1 and entries[#entries].bank=='Personal','catalog keeps personal patches and metadata')
     local guitars=0;for _,p in ipairs(entries) do if schema.inBank(p,'Guitar') then guitars=guitars+1 end end
-    check(guitars==8,'genre catalog exposes all eight guitar starting points')
+    local expected=0;for _,p in ipairs(schema.builtins) do if schema.inBank(p,'Guitar') then expected=expected+1 end end
+    check(guitars==expected and guitars>=14,'genre catalog exposes original and new guitar starting points')
 end)
 test('native scores are validated, timestamped and included in late sync',function()
     local Sequence=require('procedural_synth_sequence');local Format=require('procedural_synth_project')(schema)

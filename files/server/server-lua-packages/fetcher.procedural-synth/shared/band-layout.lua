@@ -17,7 +17,7 @@ end
 function M.instrument(track)
     if track.instrument then return track.instrument end
     local role=track.sourceRole
-    if track.kind=='drum' or ({kick=true,snare=true,hat=true,openhat=true,tom=true})[role]
+    if track.kind=='drum' or ({kick=true,snare=true,hat=true,openhat=true,tom=true,pedalhat=true,rim=true,clap=true,crash=true,ride=true,ridebell=true,cowbell=true,tambourine=true,shaker=true,percussion=true})[role]
         or (track.params and (track.params.drumType or 0)>0) then return 'drum' end
     if role=='guitar' or role=='bass' or role=='pluck' then return 'lute' end
     return ({strings='violin',brass='trumpet',reed='clarinet',pipe='flute'})[role] or 'keyboard'

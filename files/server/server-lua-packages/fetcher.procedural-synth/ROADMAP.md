@@ -7,6 +7,13 @@ flute calibration exports, including seated legs/feet and stool scale. Standing
 keyboard/cello, lute, hand drum and clarinet retain their earlier defaults until
 new exports are supplied.
 
+Package 44 completes the first band-sound foundation: GM guitar/bass family
+identity and source-free persistence/export, expanded percussion mapping,
+ten-lane full-kit creation, five additional genre sound sets and 27 new starting
+presets. Native audition WAVs provide matched-level comparisons with peak
+headroom limits. Sound realism/articulation, licensed multisamples, cross-lane
+hat choking and dedicated guitar/bass/drum-set presentation remain priority one.
+
 ## Completed refinement: seated pose and bench tuning (package 42)
 
 The local pose tuner now exposes pelvis position, independent foot targets and
@@ -360,14 +367,14 @@ this order. Long-session performance and compatibility checks apply throughout.
 Studio can create songs from scratch, import/edit MIDI, record quantized takes,
 and arrange linked melodic/drum clips. The native engine provides subtractive,
 drum and plucked-string synthesis, drive/cabinet processing, channel EQ and
-compression, shared delay/reverb and fifty-seven built-in sound starting points.
+compression, shared delay/reverb and eighty-four built-in sound starting points.
 Personal patches, 16 named projects and three recovery snapshots save per character.
 
 Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 43 / native synth API 17 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
+package 44 / native synth API 17 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented, together with initial seated keyboard/cello NPC staging.
 

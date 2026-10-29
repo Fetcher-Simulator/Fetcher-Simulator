@@ -1,5 +1,39 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 29: guitar/bass and full-kit foundations (package 44)
+
+All 28 Lua suites pass. Expanded sound-set checks cover all preset assignments,
+GM guitar/bass families and octave handling, cymbal/rim/pedal-hat/percussion
+mapping, ten-lane kit construction and atomic capacity rejection/Undo, one-drummer
+routing, original-program persistence after note conversion and source-free
+Save/Load/style changes. MIDI export retains source programs and authored
+percussion channels. The mirrored server schema/project/layout files match.
+
+The standalone native DSP suite passes. Four native audition WAVs compare
+electric, nylon/steel, bass and ten kit sounds using common phrases, with a 0.06
+RMS target limited by 0.8 peak headroom. Short hat/snare attacks can remain below
+that RMS target. Logs record both raw and normalized levels. These clips are
+mechanical/parameter checks and listening material, not an acceptance claim for
+artist-specific realism or recorded acoustic instruments.
+
+Native two-client checks on private port 25571 run a source-free fourteen-part
+arrangement with four independent string performers and one shared drummer.
+All thirteen sound sets switch during native playback, a late observer receives
+all parts and sounding outputs, and private server library Save/Load/replay
+preserves guitar/bass identities. Managed NPC cleanup passes. The first harness
+phrase lasted eight seconds and ended before the set/observer checks; extending
+the fixture phrase to eighty seconds completed the full acceptance run.
+Evidence: `build/studio-usability-qa/band-sounds-result.json`, matching
+`orchestra-A.log`/`orchestra-B.log`, `build/studio-band-foundation-lua.log`,
+`build/studio-band-foundation-native-dsp.log` and `build/studio-band-auditions/`.
+No native API/protocol change or public release/VPS activation is included.
+
+After acceptance, the idle ordinary port-25567 server stopped cleanly. All 44
+package files and nine matching server modules were installed and hash-verified.
+All 65 protected database/profile/settings/key/configuration files matched
+before/after installation. The guarded local server restarted on port 25567;
+the private QA driver is absent from the normal package.
+
 ## October 29: accepted tuning exports (package 43)
 
 Accepted seven export blocks from the latest ordinary Synth A log: seated
