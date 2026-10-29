@@ -47,7 +47,7 @@ local ui={TYPE={Text='Text',TextEdit='TextEdit',Widget='Widget',Image='Image',Wi
 function ui.create(layout)
     local element={layout=layout}
     ui.latest=element
-    function element:update() check(self.layout~=nil,'updating destroyed UI') end
+    function element:update() check(self.layout~=nil,'updating destroyed UI');self.updateCount=(self.updateCount or 0)+1 end
     function element:destroy() check(self.layout~=nil,'double UI destruction'); self.layout=nil end
     return element
 end
@@ -1098,5 +1098,69 @@ connected=false;player.engineHandlers.onFrame(.01)
 check(#api.midiSongs()==1 and api.midiSongs()[1]==localPath,'disconnect removes prior server library but preserves personal songs')
 end
 testHostedMidi()
+end
+-- Async status replies must not dismiss a chooser, and gain drags must retain
+-- the actual native widget identities rather than merely draw equivalent text.
+do
+local function testStableStudioWidgets()
+    local Workstation=dofile(root..'client/workstation.lua')
+    local Format=package.loaded[prefix..'shared.project'](schema)
+    local Studio=dofile(root..'client/studio.lua')
+    local effects,configured,peak=0,0,0
+    local uw=Workstation.new{configure=function() configured=configured+1 end,panic=function() end,
+        effects=function() effects=effects+1 end,meter=function() return 0 end,
+        meters=function() return peak,peak/2,0 end,message=function() end}
+    uw.project.tracks[1]=Format.newTrack('piano','Stable row',16)
+    uw.checkpoint=Format.project(uw.project);uw.playing=true;uw.native=true
+    local view=Studio.new(uw,{midiLabel=function() return 'QA song' end,hide=function() error('unexpected hide') end})
+    local rootWidget=view.root;local meter=view.meterLabels[1];view:frame(now+1)
+    local updates=meter.updateCount
+    local master
+    for _,item in ipairs(view.root.layout.content) do
+        if item.props and item.props.size and item.props.size.x==190*view.window.scale and item.events and item.events.mouseMove then master=item;break end
+    end
+    check(master~=nil,'master slider is present')
+    local fill=master.content[1];local history=#uw.undoStack;local revision=uw.revision
+    master.events.mousePress{button=1,offset=vector(190*view.window.scale*.4,0)}
+    view:frame(now+1.2)
+    master.events.mouseMove{button=1,offset=vector(190*view.window.scale*.6,0)}
+    view:frame(now+1.4)
+    check(view.root==rootWidget and view.meterLabels[1]==meter and meter.layout~=nil,'master drag retains mixer root and track meter widgets')
+    check(meter.updateCount==updates,'unchanged meter text is not resubmitted')
+    check(math.abs(fill.layout.props.size.x-190*view.window.scale*.6)<.001,'master fill follows the drag without rebuilding')
+    check(effects==2 and configured==0 and uw.project.master==.6 and uw.revision==revision and not uw.sequenceDirty,'master changes only live output gain, without channel/score rebuild')
+    peak=.25;view:frame(now+1.55)
+    check(view.meterLabels[1]==meter and meter.updateCount==updates+1 and meter.layout.props.text:find('Peak -12.0',1,true),'changed meter values update the existing text widget')
+    check(#uw.undoStack==history+1 and uw:undo() and uw.project.master==.7 and uw:redo() and uw.project.master==.6,'master drag coalesces history and supports undo/redo')
+    check(not uw:setMaster(0/0) and not uw:setMaster(1.1) and not uw:setMaster(-.1),'master rejects invalid gain')
+    view:frame(now+1.6);rootWidget=view.root
+    local selected
+    local picker=Dropdown.open(view,choices,nil,function(id) selected=id end,30,140,600)
+    picker.field.layout.events.textChanged('song');picker:scrollTo(100)
+    -- Simulate recovery/status replies while the transport is active.
+    uw.playing=true;uw.revision=uw.revision+1;view.window.changed=true
+    view:frame(now+1.8)
+    check(view.dropdown==picker and picker.active and view.root==rootWidget and picker.query=='song' and picker.offset==100,'status and window refresh retain popup, filter and scroll')
+    picker.rows[1].layout.events.mouseClick();view:frame(now+2)
+    check(selected==101 and not view.dropdown and view.root~=rootWidget and view.revision==uw.revision,'pending refresh applies after exact popup selection')
+    picker=Dropdown.open(view,choices,nil,function() error('stale project selection') end,30,140,600)
+    uw.project=assert(Format.project(uw.project));uw.revision=uw.revision+1;view:frame(now+2.2)
+    check(not view.dropdown and not picker.active,'replacing the document dismisses stale choices')
+    picker=Dropdown.open(view,choices,nil,function() end,30,140,600)
+    uw.page='band';uw.revision=uw.revision+1;view:frame(now+2.4)
+    check(not view.dropdown and not picker.active,'real page navigation dismisses a chooser')
+    view:destroy()
+    local Editor=dofile(root..'client/editor.lua')
+    local editor=Editor.new(schema.state({}),{change=function() end,command=function() end,
+        noteOff=function() end,meter=function() return 0,0 end})
+    editor.page='presets';editor:render();rootWidget=editor.root
+    picker=Dropdown.open(editor,choices,nil,function() end,30,140,600)
+    editor:catalog(schema.builtins);editor:frame(now+3)
+    check(editor.dropdown==picker and editor.root==rootWidget and editor.pendingRender,'catalog replies defer Synth browser redraw while choosing')
+    Dropdown.close(editor);editor:frame(now+3.2)
+    check(editor.root~=rootWidget and not editor.pendingRender,'Synth browser applies deferred catalog after dismissal')
+    editor:destroy()
+end
+testStableStudioWidgets()
 end
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

@@ -162,6 +162,8 @@ function E.new(params,cb)
     self.window.pickup=cb.pickup;self:render();I.UI.addMode('Interface',{windows={}});return self
 end
 function E:render()
+    if self.dropdown and self.dropdown.page==self.page then self.pendingRender=true;return end
+    self.pendingRender=nil
     Dropdown.close(self)
     self:releaseAll()
     self.controlEpoch=(self.controlEpoch or 0)+1
@@ -308,6 +310,7 @@ function E:frame(now)
     if self.drums~=(self.params.drumType>0) or self.instrument~=self.params.instrumentType then self:render() end
     self.window:frame(self)
     Dropdown.frame(self)
+    if self.pendingRender and not self.dropdown then self:render() end
     if I.UI.getMode()~='Interface' then (self.cb.hide or self.cb.close)(); return end
     if self.mouseNote and not input.isMouseButtonPressed(1) then self:note(self.mouseNote,false); self.mouseNote=nil end
     if now-self.lastMeter>0.1 then

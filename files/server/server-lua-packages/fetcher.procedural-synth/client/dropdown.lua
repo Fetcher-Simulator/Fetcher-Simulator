@@ -19,6 +19,9 @@ function D.open(owner,entries,selected,choose,x,y,width)
     local offset=0;for n,e in ipairs(entries) do if e.id==selected then offset=math.max(0,n-4) end end
     local self=setmetatable({owner=owner,entries=entries,selected=selected,choose=choose,offset=offset,query='',active=true,children={},rows={}},D)
     owner.dropdown=self;owner.typing=true;self.anchor=owner.root
+    self.page=owner.w and owner.w.page or owner.page
+    self.project=owner.w and owner.w.project
+    self.tracks=self.project and self.project.tracks
     local canvasWidth,canvasHeight=owner.window.canvasWidth,owner.window.canvasHeight
     x=math.max(0,math.min(x+(owner.bodyOffset or 0),canvasWidth-width-20));y=math.min(y,canvasHeight-380)
     local w=width;local s=owner.window.scale;local p=owner.root.layout.props
@@ -61,7 +64,12 @@ function D.close(owner)
     d.active=false;owner.dropdown=nil;owner.typing=false
     d.element:destroy();for _,e in ipairs(d.children) do e:destroy() end;return true
 end
-function D.frame(owner) if owner.dropdown and owner.dropdown.anchor~=owner.root then D.close(owner) end end
+function D.frame(owner)
+    local d=owner.dropdown;if not d then return end
+    local project=owner.w and owner.w.project
+    if d.anchor~=owner.root or d.page~=(owner.w and owner.w.page or owner.page)
+        or d.project~=project or d.tracks~=(project and project.tracks) then D.close(owner) end
+end
 function D:scrollTo(offset)
     if not self.active then return end
     self.offset=math.max(0,math.min(math.max(0,#D.filtered(self.entries,self.query)-8),math.floor(offset+0.5)));self:draw()

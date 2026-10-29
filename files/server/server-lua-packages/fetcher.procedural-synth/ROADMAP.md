@@ -2,6 +2,13 @@
 
 Updated 2026-10-29. Completed work and subsequent planned slices are identified below.
 
+Package 46 fixes background refreshes dismissing dropdowns and Mixer master
+gain drags rebuilding track rows. Sample-based instrument work remains the
+next sound priority: note/velocity zones, alternate hits and articulation
+selection, then curated guitar/bass/drum banks through the existing effects.
+The CC0 source shortlist and integration gaps are recorded in
+`scripts/procedural-synth-tests/SAMPLE-LIBRARY-CANDIDATES.md` in the repository.
+
 Package 45 corrects GM timpani sound selection across genre sets and prevents
 physical prop overrides from replacing an explicit MIDI program's Orchestra
 sound. This addresses the string-pad/timpani mismatch found in Daggerfall 03.MID.

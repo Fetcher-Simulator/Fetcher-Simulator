@@ -174,6 +174,13 @@ function W:setEffect(name,value)
     self.project.effects=state;if self.cb.effects then self.cb.effects(state,self.project.master) end
     self:touch('effects:'..name,true);return true
 end
+function W:setMaster(value)
+    if type(value)~='number' or value~=value or value<0 or value>1 then return false end
+    if self.project.master==value then return true end
+    self.project.master=value
+    if self.cb.effects then self.cb.effects(self.project.effects,value) end
+    self:touch('master',true);return true
+end
 function W:automationValue(index,name,step)
     local t=self.project.tracks[index];local spec=format.automationSpecs[name];if not t or not spec then return end
     local value=t.params[name] or spec.default;local points=t.automation and t.automation[name] or {}

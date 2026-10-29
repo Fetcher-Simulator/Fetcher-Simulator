@@ -39,8 +39,12 @@ function S:element(layout)
     local e=self.window:create(layout);self.children[#self.children+1]=e;return e
 end
 function S:slider(x,y,width,value,fn)
-    local r=rect(x,y,width,14,c.track);r.content=ui.content{rect(0,0,math.max(1,width*value),14,c.accent)}
-    local function set(e) fn(math.max(0,math.min(1,e.offset.x/(width*self.window.scale)))) end
+    local fill=self:element(rect(0,0,math.max(1,width*value),14,c.accent))
+    local r=rect(x,y,width,14,c.track);r.content=ui.content{fill}
+    local function set(e)
+        local value=math.max(0,math.min(1,e.offset.x/(width*self.window.scale)))
+        fn(value);fill.layout.props.size=v(math.max(1,width*value),14);self.window:update(fill)
+    end
     r.events={mousePress=cb(set),mouseMove=cb(function(e) if e.button==1 then set(e) end end)};return r
 end
 function S:select(delta)
@@ -346,7 +350,7 @@ function S:mixer(content)
     content[#content+1]=self:button('+ Piano clip',20,578,120,function() if w:add('piano') then w.page='piano' end end)
     content[#content+1]=self:button('+ Drum lane',150,578,120,function() if w:add('drum') then w.page='drums' end end)
     content[#content+1]=label('MASTER',302,582,72,12,c.muted)
-    content[#content+1]=self:slider(380,584,190,p.master,function(value) p.master=value;w:configureAll();w:touch() end)
+    content[#content+1]=self:slider(380,584,190,p.master,function(value) w:setMaster(value) end)
     self:pageSelector(content,'mixerPage','Tracks',620,578,240)
     local t=p.tracks[w.selected]
     content[#content+1]=self:button('Rename track',20,614,155,function() if t then self:renameTrack(w.selected) end end)
@@ -995,7 +999,9 @@ function S:frame(now)
     if self.arranger then self.arranger:frame() end
     if self.samples then self.samples:frame() end
     if self.mouseRecord and not input.isMouseButtonPressed(1) then self:recordKey(self.mouseRecord,false);self.mouseRecord=nil end
-    if self.revision~=self.w.revision then self:render() end
+    -- Autosave/roster/status replies may revise the background while a chooser
+    -- owns focus. Apply the pending redraw after selection or dismissal.
+    if self.revision~=self.w.revision and not self.dropdown then self:render() end
     if now-self.lastFrame<0.1 then return end;self.lastFrame=now
     self.transport.layout.props.text=string.format('%s  |  %.1fs  |  Beat %.1f  |  %s%s',self.w.awaiting and 'BUFFER' or (self.w.playing and 'PLAY' or 'STOP'),self.w.time,self.w.beat+1,self.w.project.name,self.w.dirty and ' *' or '')
     if self.w.mode=='song' and (self.w.project.timeline or self.w.song) then
@@ -1018,9 +1024,9 @@ function S:frame(now)
     for n,text in pairs(self.meterLabels) do
         local peak,rms,reduction=0,0,0
         if self.w.cb.meters then peak,rms,reduction=self.w.cb.meters(n) end
-        text.layout.props.text=n==0 and string.format('OUTPUT MAX  pre-limiter peak %s dBFS  |  RMS %s dBFS%s',db(peak),db(rms),peak>1 and '  |  LIMITING - lower levels' or '')
+        local value=n==0 and string.format('OUTPUT MAX  pre-limiter peak %s dBFS  |  RMS %s dBFS%s',db(peak),db(rms),peak>1 and '  |  LIMITING - lower levels' or '')
             or string.format('Peak %s / RMS %s dBFS  |  GR %.1f dB',db(peak),db(rms),reduction)
-        self.window:update(text)
+        if text.layout.props.text~=value then text.layout.props.text=value;self.window:update(text) end
     end
     if self.returnMeter and self.w.cb.returnMeters then
         local delay,reverb=self.w.cb.returnMeters()

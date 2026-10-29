@@ -145,7 +145,8 @@ function W:root(content)
 end
 function W:frame(owner)
     local screen=viewport()
-    if screen.x~=self.screen.x or screen.y~=self.screen.y then self:bounds();self.changed=true end
+    local viewportChanged=screen.x~=self.screen.x or screen.y~=self.screen.y
+    if viewportChanged then self:bounds();self.changed=true end
     if synth.getMonitorVolume and synth.getMonitorVolume()~=self.monitor then self.changed=true end
     if not self.changed or input.isMouseButtonPressed(1) then return end
     -- Responsive pages must rebuild their logical geometry, not merely scale
@@ -153,6 +154,9 @@ function W:frame(owner)
     if owner.resize and (math.abs(owner.width-self.canvasWidth)>0.1 or math.abs(owner.height-self.canvasHeight)>0.1) then
         owner:resize();return
     end
+    -- A monitor-volume/status refresh must not replace the popup's parent.
+    -- Real viewport changes still rebuild so its hit area cannot become stale.
+    if owner.dropdown and not viewportChanged then return end
     local content=owner.root.layout.content
     owner.root:destroy();owner.root=self:root(content)
 end

@@ -107,6 +107,15 @@ limited to 20 updates per second, with shared room parameters smoothed in native
 code. Project instrument effects and the game's ordinary sound environment stay
 separate. Changing listening modes keeps the existing song clock and audio streams.
 
+## Studio UI refreshes
+
+Package 46 preserves open Studio/Synth dropdowns across background status and
+catalog refreshes, including their filter and scroll position. Replacing the
+document or navigating to a different page still dismisses stale choices.
+The Mixer master slider now updates output gain and its existing fill without
+rebuilding track rows or recompiling the score; Undo/Redo and saves retain it.
+Unchanged track meter text is no longer resubmitted every meter tick.
+
 ## Live pose tuner
 
 Package 43 applies the October 29 exports for seated keyboard/cello, violin,

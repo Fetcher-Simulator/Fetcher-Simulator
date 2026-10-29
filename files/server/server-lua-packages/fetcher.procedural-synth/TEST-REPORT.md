@@ -1,5 +1,38 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 29: stable dropdowns and mixer gain (package 46)
+
+Studio previously rebuilt its entire window on every workstation revision.
+Recovery/library status replies could therefore dismiss a dropdown while a
+song played. Revisions now wait for popup selection/dismissal; explicit page,
+document or track-list replacement still invalidates stale choices. Same-size
+window refreshes and Synth browser catalogue refreshes also defer rebuilding.
+Real viewport changes retain the existing geometry rebuild behavior.
+
+Master gain now updates only the shared output effects/master callback and
+records a coalesced Undo edit. It does not reconfigure every channel, increment
+the structural UI revision or mark the playing score for recompilation. Slider
+fills update in place; unchanged track meter strings are not submitted again.
+
+All 28 Lua suites pass. Client regressions check actual root/meter/fill widget
+identity, changed/unchanged meter values, live effects callbacks, history and
+invalid gains, popup search/scroll through background revisions, document/page
+invalidation, and deferred Synth catalogue redraw. Evidence:
+`build/studio-popup-mixer-regression-lua.log`.
+
+The opt-in `scripts/procedural-synth-tests/ui-refresh-player.lua` driver passes
+on a private native fixture on port 25571. A real Studio window and live native
+song retain the popup/filter/scroll and meter widgets through repeated master
+gain changes and a server recovery-snapshot reply. Dismissal then applies the
+pending redraw. The driver creates its Studio view in its own script sandbox;
+it is absent from the normal package manifest. Evidence:
+`build/studio-usability-qa/ui-refresh-result.json` and `orchestra-A.log`.
+
+With user approval, the normal port-25567 server stopped cleanly and package 46
+was installed with nine matching server modules. All 65 protected user-state
+files matched before/after the copy. No native binary, protocol or public/VPS
+release changed. Installation evidence: `build/studio-ui-refresh-local-install.json`.
+
 ## October 29: timpani mapping and latest calibration (package 45)
 
 The local Daggerfall `DF-patch-Dfmusics2/03.MID` explicitly selects zero-based
