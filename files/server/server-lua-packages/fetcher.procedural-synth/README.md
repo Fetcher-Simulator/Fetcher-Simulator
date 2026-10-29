@@ -109,6 +109,13 @@ separate. Changing listening modes keeps the existing song clock and audio strea
 
 ## Studio UI refreshes
 
+Package 47 keeps the shared numeric slider's bar, caption, value field and fill
+persistent during drags. Track volumes update quietly; Studio defers pending
+structural redraws until mouse release. This includes timeline BPM edits, mixer,
+band, recording, Synth/effects, listening and pose controls. The local monitor
+volume fill and percentage update immediately, including external changes,
+without replacing the window. Timing edits still require stopped playback.
+
 Package 46 preserves open Studio/Synth dropdowns across background status and
 catalog refreshes, including their filter and scroll position. Replacing the
 document or navigating to a different page still dismisses stale choices.

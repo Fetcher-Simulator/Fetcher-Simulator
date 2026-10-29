@@ -6,6 +6,27 @@ included in this change. Preserve source licenses and credit creators when
 building our own bank; pin archive version, SHA-256 and retained sample paths
 at acquisition. Original library sizes below are not our future bundle size.
 
+## Acquired sources, October 29
+
+The DI guitar, Black And Blue Basses, Big Rusty Drums, Growlybass and Meta
+nylon/steel WAV sources are downloaded to the local `synth-assets/samples-2026-10-29`
+directory outside this repository. Six archives total 3,043,043,332 bytes and
+contain 7,899 WAV/FLAC audio files. Every archive contains a CC0 license; pinned
+release URLs, archive hashes, counts and license hashes are recorded in
+[`sample-sources.json`](../procedural-synth-assets/sample-sources.json).
+Where GitHub supplied an upstream SHA-256, the download matches it. The other
+archives have locally computed SHA-256 records. Metadata/SFZ maps and six fully
+decoded representative audio files are retained separately for inspection.
+
+The DI SFZ actually maps 120 sample regions with note/velocity groups and random
+alternates. Bass maps require release/keyswitch and alternate-hit support.
+The drum source is FLAC with multi-mic variants and choke/alternate mappings;
+Meta acoustic sources are stereo 24-bit/48-kHz WAVs. Import requires an explicit
+mic/downmix choice and the relevant SFZ subset, not just one sample per preset.
+Growlybass contains sustain, staccato, scrape and release directories; this
+inspection has **not** established dedicated slap/pop recordings. Keep real
+slap/pop articulation coverage as an open sourcing task.
+
 | Use | Source and stated license | Why evaluate it | Limits to check |
 | --- | --- | --- | --- |
 | Electric guitar, first choice for our amplifier | [FreePats FSBS Electric Guitar Direct](https://freepats.zenvoid.org/ElectricGuitar/clean-electric-guitar.html), CC0 1.0 | Raw Fender guitar signal, intended for external amplification; SFZ/WAV source listed as 153 MiB archive, 314 MiB unpacked, version 2022-09-11 | Inspect actual velocity/note coverage, attacks, noise and articulations; this is not proof of convincing palm-muted metal. |

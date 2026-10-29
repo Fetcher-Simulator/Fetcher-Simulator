@@ -109,7 +109,19 @@ function W:button(caption,x,w,fn)
     r.content=ui.content{{type=ui.TYPE.Text,props={position=v(6,5),size=v(w-8,22),text=caption,textSize=13,textColor=text}}}
     r.events={mouseClick=cb(fn)};return r
 end
+function W:clearChrome()
+    self.chromeEpoch=(self.chromeEpoch or 0)+1
+    for _,element in ipairs(self.chromeChildren or {}) do element:destroy() end
+    self.chromeChildren={};self.monitorFill=nil;self.monitorText=nil
+end
+function W:refreshMonitor(value)
+    if value==self.monitor then return end
+    self.monitor=value
+    if self.monitorFill then self.monitorFill.layout.props.size=v(110*value,12);self:update(self.monitorFill) end
+    if self.monitorText then self.monitorText.layout.props.text=string.format('%.0f%%',value*100);self:update(self.monitorText) end
+end
 function W:root(content)
+    self:clearChrome()
     self:bounds()
     for _,child in ipairs(content) do if child.layout then self:update(child) else self:layout(child) end end
     local s=self.scale
@@ -117,16 +129,24 @@ function W:root(content)
     local title={type=ui.TYPE.Text,external={action=true},props={position=v(10,9),size=v(160,24),
         text=self:isFullscreen() and 'FETCHER STUDIO' or 'Drag to move',textSize=13,textColor=accent}}
     local volume=synth.getMonitorVolume and synth.getMonitorVolume() or 1
+    local epoch=self.chromeEpoch
     local monitor=rect(654,12,110,12,bg)
-    monitor.content=ui.content{rect(0,0,110*volume,12,accent)}
-    local function set(e) if synth.setMonitorVolume then synth.setMonitorVolume(clamp(e.offset.x/(110*s),0,1));self.changed=true end end
+    self.monitorFill=self:create(rect(0,0,110*volume,12,accent))
+    self.monitorText=self:create{type=ui.TYPE.Text,props={position=v(775,9),size=v(62,24),text=string.format('%.0f%%',volume*100),textSize=13,textColor=accent}}
+    self.chromeChildren={self.monitorFill,self.monitorText}
+    monitor.content=ui.content{self.monitorFill}
+    local function set(e)
+        if not synth.setMonitorVolume or self.chromeEpoch~=epoch then return end
+        local value=clamp(e.offset.x/(110*s),0,1);synth.setMonitorVolume(value)
+        self:refreshMonitor(synth.getMonitorVolume and synth.getMonitorVolume() or value)
+    end
     monitor.events={mousePress=cb(set),mouseMove=cb(function(e) if e.button==1 then set(e) end end)}
     bar.content=ui.content{title,self:button('Scale -',178,62,function() self:zoom(-0.1) end),
         {type=ui.TYPE.Text,props={position=v(248,10),size=v(58,22),text=string.format('%.0f%%',s*100),textSize=13,textColor=text}},
         self:button('+',307,28,function() self:zoom(0.1) end),
         self:button(self.expanded and 'Back to Piano' or self.full and 'Restore' or 'Fullscreen',345,103,function() if self.expanded then self.restoreExpanded() else self:fullscreen() end end),
         {type=ui.TYPE.Text,props={position=v(470,10),size=v(181,22),text='Monitor Volume (local)',textSize=13,textColor=text}},monitor,
-        {type=ui.TYPE.Text,props={position=v(775,9),size=v(62,24),text=string.format('%.0f%%',volume*100),textSize=13,textColor=accent}}}
+        self.monitorText}
     -- Action widgets must be in a Window template for native dragging/resizing.
     if self.pickup then bar.content[#bar.content+1]=self:button('Pick up',842,88,self.pickup) end
     if not self:isFullscreen() then title.external={action=true} else title.external={} end
@@ -147,7 +167,7 @@ function W:frame(owner)
     local screen=viewport()
     local viewportChanged=screen.x~=self.screen.x or screen.y~=self.screen.y
     if viewportChanged then self:bounds();self.changed=true end
-    if synth.getMonitorVolume and synth.getMonitorVolume()~=self.monitor then self.changed=true end
+    if synth.getMonitorVolume then self:refreshMonitor(synth.getMonitorVolume()) end
     if not self.changed or input.isMouseButtonPressed(1) then return end
     -- Responsive pages must rebuild their logical geometry, not merely scale
     -- widgets from the old fixed-size canvas. Wait for mouse release above.

@@ -39,9 +39,11 @@ function S:element(layout)
     local e=self.window:create(layout);self.children[#self.children+1]=e;return e
 end
 function S:slider(x,y,width,value,fn)
+    local epoch=self.controlEpoch
     local fill=self:element(rect(0,0,math.max(1,width*value),14,c.accent))
     local r=rect(x,y,width,14,c.track);r.content=ui.content{fill}
     local function set(e)
+        if self.uiClosed or self.controlEpoch~=epoch then return end
         local value=math.max(0,math.min(1,e.offset.x/(width*self.window.scale)))
         fn(value);fill.layout.props.size=v(math.max(1,width*value),14);self.window:update(fill)
     end
@@ -885,7 +887,7 @@ function S:render()
     content[#content+1]=self:button('Play song',20,70,96,function() self.cb.playSong() end)
     content[#content+1]=self:button('Play clips',125,70,96,function() self.cb.playClips() end)
     content[#content+1]=self:button('Stop',230,70,58,self.cb.stop)
-    local tempo=Controls.slider(self,'bpm','BPM',{min=40,max=240,step=1},function() return p.bpm end,function(value) w:setTempo(value) end,309,64,180)
+    local tempo=Controls.slider(self,'bpm','BPM',{min=40,max=240,step=1},function() return w.project.bpm end,function(value) w:setTempo(value) end,309,64,180)
     content[#content+1]=tempo
     local swing=Controls.slider(self,'swing','Swing',{min=0,max=0.6,unit='%',step=0.01},function() return p.swing end,function(value) p.swing=value;w:touch('swing',true) end,504,64,113)
     content[#content+1]=swing
@@ -1001,7 +1003,7 @@ function S:frame(now)
     if self.mouseRecord and not input.isMouseButtonPressed(1) then self:recordKey(self.mouseRecord,false);self.mouseRecord=nil end
     -- Autosave/roster/status replies may revise the background while a chooser
     -- owns focus. Apply the pending redraw after selection or dismissal.
-    if self.revision~=self.w.revision and not self.dropdown then self:render() end
+    if self.revision~=self.w.revision and not self.dropdown and not input.isMouseButtonPressed(1) then self:render() end
     if now-self.lastFrame<0.1 then return end;self.lastFrame=now
     self.transport.layout.props.text=string.format('%s  |  %.1fs  |  Beat %.1f  |  %s%s',self.w.awaiting and 'BUFFER' or (self.w.playing and 'PLAY' or 'STOP'),self.w.time,self.w.beat+1,self.w.project.name,self.w.dirty and ' *' or '')
     if self.w.mode=='song' and (self.w.project.timeline or self.w.song) then
@@ -1047,7 +1049,7 @@ function S:destroy()
     Dropdown.close(self)
     self.uiClosed=true
     if I.Controls and I.Controls.overrideUiControls then I.Controls.overrideUiControls(false) end
-    self.root:destroy();for _,e in ipairs(self.children) do e:destroy() end
+    self.root:destroy();self.window:clearChrome();for _,e in ipairs(self.children) do e:destroy() end
     if I.UI.getMode()=='Interface' then I.UI.removeMode('Interface') end
 end
 return S

@@ -1,5 +1,39 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 29: continuous sliders and sample acquisition (package 47)
+
+The common numeric slider no longer recreates its bar/buttons/content on every
+value refresh. Caption, field and fill are independent persistent elements.
+Track-level edits use a quiet UI update; structural Studio and Synth mode
+redraws wait for mouse release. Timeline BPM now reads the current project
+after timing-map validation replaces the document. The common window updates
+monitor fill/percentage in place and releases those independent elements on
+rebuild/destruction. Delayed events from old simple/monitor bars are ignored.
+
+All 28 Lua suites pass. Extended client tests hold the mouse through multiple
+updates to timeline BPM, swing, track gain, band gain, channel EQ and monitor
+gain. They assert root/bar/fill/value/caption identity, immediate monitor
+percentage, external monitor changes, safe destruction and deferred redraw.
+Every actual slider on oscillator, string, drum and effects pages is exercised
+through the shared implementation. Existing numeric entry, fine adjustments,
+log/discrete ranges, pose and recording checks still pass. Evidence:
+`build/studio-all-slider-regression-lua.log`. The user's game stays closed;
+this slice has no new native visual-session acceptance claim.
+
+Installed package 47 and matching server modules on the normal port-25567
+fixture after a graceful server stop. All 65 protected user files matched
+before/after installation; no QA driver is present. The server restarted
+without reopening a client. Evidence: `build/studio-all-sliders-local-install.json`.
+
+Six source sample archives were acquired outside the repository. Archive sizes
+and SHA-256 hashes are pinned, all six included CC0 license texts were inspected,
+SFZ maps inventoried, and one representative from each archive fully decoded
+with FFmpeg. Evidence in `synth-assets/samples-2026-10-29`: `acquisition.json`,
+`inspection.json`, `audio-decode-check.json` and metadata/license copies.
+The portable source record is `scripts/procedural-synth-assets/sample-sources.json`.
+No audio files are bundled into package 47; the multisample playback/import
+implementation remains the next sound slice.
+
 ## October 29: stable dropdowns and mixer gain (package 46)
 
 Studio previously rebuilt its entire window on every workstation revision.

@@ -307,7 +307,7 @@ function E:frame(now)
         if self.previewRemaining<=0 then self:releaseAll() end
     end
     self.lastFrameTime=now
-    if self.drums~=(self.params.drumType>0) or self.instrument~=self.params.instrumentType then self:render() end
+    if not input.isMouseButtonPressed(1) and (self.drums~=(self.params.drumType>0) or self.instrument~=self.params.instrumentType) then self:render() end
     self.window:frame(self)
     Dropdown.frame(self)
     if self.pendingRender and not self.dropdown then self:render() end
@@ -326,6 +326,7 @@ function E:destroy()
     self.uiClosed=true
     self:releaseAll()
     self.root:destroy()
+    self.window:clearChrome()
     for _,element in ipairs(self.children) do element:destroy() end
     if I.UI.getMode()=='Interface' then I.UI.removeMode('Interface') end
 end

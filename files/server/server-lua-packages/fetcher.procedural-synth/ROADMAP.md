@@ -2,6 +2,12 @@
 
 Updated 2026-10-29. Completed work and subsequent planned slices are identified below.
 
+Package 47 extends persistent dragging to every shared numeric control, track
+and band gain, timeline BPM and the monitor fill/percentage. Six pinned CC0
+source archives are acquired, with licenses, hashes, SFZ inventories and
+representative decode checks; no runtime multisample bank is installed yet.
+`scripts/procedural-synth-assets/sample-sources.json` records provenance.
+
 Package 46 fixes background refreshes dismissing dropdowns and Mixer master
 gain drags rebuilding track rows. Sample-based instrument work remains the
 next sound priority: note/velocity zones, alternate hits and articulation

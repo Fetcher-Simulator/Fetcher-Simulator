@@ -194,7 +194,7 @@ end
 function P:destroy()
     self.uiClosed=true;self.controlEpoch=self.controlEpoch+1;Dropdown.close(self);self:restoreCamera()
     if ui.setFocus then ui.setFocus(nil) end
-    self.root:destroy();for _,child in ipairs(self.children) do child:destroy() end
+    self.root:destroy();self.window:clearChrome();for _,child in ipairs(self.children) do child:destroy() end
     if I.Controls and I.Controls.overrideUiControls then I.Controls.overrideUiControls(false) end
     if I.UI.getMode()=='Interface' then I.UI.removeMode('Interface') end
 end

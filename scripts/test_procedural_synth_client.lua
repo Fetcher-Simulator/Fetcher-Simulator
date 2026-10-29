@@ -132,7 +132,7 @@ do
     local before=#sent
     check(api.poseTuner('lute') and uiOverride and mode=='Interface','pose tuner opens independently of a workstation')
     local tuner=api.poseTunerState();local slider=tuner.children[1].layout
-    check(slider.content[1].props.text=='Position X','compact prop controls expose position and rotation')
+    check(slider.content[1].layout.props.text=='Position X','compact prop controls expose position and rotation')
     local field=slider.content[3].layout
     field.events.focusGain();field.events.textChanged('12.5')
     check(api.poseCalibration():profile('lute').position.x==12.5 and #sent==before,'numeric tuning changes the live profile without network/project mutation')
@@ -142,17 +142,18 @@ do
     local value=api.poseCalibration():profile('lute').position.x
     field.events.focusGain();field.events.textChanged('nan');field.events.keyPress{code=input.KEY.Enter}
     check(api.poseCalibration():profile('lute').position.x==value,'invalid GUI text cannot corrupt a pose')
-    tuner.page='Left';tuner:render();check(tuner.children[1].layout.content[1].props.text=='Wrist target X','hand page exposes IK targets')
+    tuner.page='Left';tuner:render();check(tuner.children[1].layout.content[1].layout.props.text=='Wrist target X','hand page exposes IK targets')
     tuner.instrument='keyboard_seated';tuner.page='Legs';tuner:render()
     local pelvis=tuner.children[1].layout
-    check(pelvis.content[1].props.text=='Pelvis offset X','Legs page exposes seated pelvis controls')
+    check(pelvis.content[1].layout.props.text=='Pelvis offset X','Legs page exposes seated pelvis controls')
     local edit=pelvis.content[3].layout;edit.events.focusGain();edit.events.textChanged('2.5');edit.events.keyPress{code=input.KEY.Enter}
     check(api.poseCalibration():profile('keyboard_seated').seat.pelvis.x==2.5,'seated pelvis numeric field updates compiled preview')
     tuner.leg='Right leg';tuner:render()
-    check(tuner.children[1].layout.content[1].props.text=='Foot target X','leg selection exposes independent foot target and rotation')
-    tuner.page='Bench';tuner:render();check(tuner.children[1].layout.content[1].props.text=='Bench position X','Bench page exposes furniture transform')
-    local bench=tuner.children[13].layout
-    check(bench.content[1].props.text=='Bench uniform scale','Bench page has a live uniform-scale control')
+    check(tuner.children[1].layout.content[1].layout.props.text=='Foot target X','leg selection exposes independent foot target and rotation')
+    tuner.page='Bench';tuner:render();check(tuner.children[1].layout.content[1].layout.props.text=='Bench position X','Bench page exposes furniture transform')
+    local bench
+    for _,child in ipairs(tuner.children) do local caption=child.layout.content and child.layout.content[1];if caption and caption.layout and caption.layout.props.text=='Bench uniform scale' then bench=child.layout;break end end
+    check(bench~=nil,'Bench page has a live uniform-scale control')
     edit=bench.content[3].layout;edit.events.focusGain();edit.events.textChanged('1.2');edit.events.keyPress{code=input.KEY.Enter}
     check(api.poseCalibration():profile('keyboard_seated').bench.scale==1.2 and #sent==before,'bench UI edits remain local and do not send score/network changes')
     api.poseCalibration():reset('keyboard_seated')
@@ -247,7 +248,7 @@ for _,bad in ipairs{'NaN','1e999','-1','hello','150 Hz'} do
 end
 local function control(owner,title)
     for _,element in ipairs(owner.children) do
-        local child=element.layout.content and element.layout.content[1]
+        local child=element.layout.content and element.layout.content[1];child=child and (child.layout or child)
         if child and child.props and child.props.text==title then return element end
     end
 end
@@ -288,7 +289,8 @@ mouseDown=false;e:frame(202)
 check(e.root.layout.props.position.x==70 and math.abs(win.scale-0.9)<0.0001,'drag/resize commits bounded geometry on release')
 local cutoff
 for _,element in ipairs(e.children) do
-    if element.layout.content and element.layout.content[1] and element.layout.content[1].props.text:find('Low%-pass cutoff') then cutoff=element;break end
+    local caption=element.layout.content and element.layout.content[1];caption=caption and (caption.layout or caption)
+    if caption and caption.props and caption.props.text and caption.props.text:find('Low%-pass cutoff') then cutoff=element;break end
 end
 check(cutoff~=nil,'cutoff control remains attached after resize')
 local cutoffWidth=cutoff.layout.props.size.x
@@ -580,7 +582,7 @@ handler{version=1,op='granted',id=7,epoch=9,seq=1,params=schema.state({})}
 api.studio();w=api.workstation();w.project.name='Portable song';w:touch()
 local pickButton
 for _,layout in ipairs(lastStudio.root.layout.template.content[2].content) do
-    if layout.content and layout.content[1].props.text=='Pick up' then pickButton=layout end
+    if layout.content and layout.content[1].props and layout.content[1].props.text=='Pick up' then pickButton=layout end
 end
 check(pickButton~=nil,'Studio chrome exposes keyboard pickup')
 pickButton.events.mouseClick();acceptRecovery()
@@ -1162,5 +1164,83 @@ local function testStableStudioWidgets()
     editor:destroy()
 end
 testStableStudioWidgets()
+local function testContinuousSliders()
+    local Workstation=dofile(root..'client/workstation.lua')
+    local Studio=dofile(root..'client/studio.lua')
+    local uw=Workstation.new{configure=function() end,effects=function() end,panic=function() end,
+        meter=function() return 0 end,meters=function() return 0,0,0 end,message=function() end}
+    check(uw:newSong(120,4,4,8),'slider regression creates a timeline-backed song')
+    uw.page='mixer'
+    local view=Studio.new(uw,{midiLabel=function() return 'Slider QA' end,hide=function() error('unexpected hide') end})
+    local function finishDrag()
+        mouseDown=false;now=now+.2;view:frame(now)
+    end
+    local function numeric(title)
+        local slider=assert(control(view,title),'missing numeric slider '..title)
+        local layout=slider.layout;local track=layout.content[2];local caption=layout.content[1];local field=layout.content[3];local fill=track.content[1]
+        local rootWidget=view.root;local parentUpdates=slider.updateCount
+        local width=track.props.size.x
+        mouseDown=true
+        track.events.mousePress{button=1,offset=vector(width*.25,0)};now=now+.2;view:frame(now)
+        track.events.mouseMove{button=1,offset=vector(width*.75,0)};now=now+.2;view:frame(now)
+        check(view.root==rootWidget and slider.layout==layout and layout.content[2]==track and track.content[1]==fill,'drag retains root/bar/fill on '..title)
+        check(layout.content[1]==caption and layout.content[3]==field and slider.updateCount==parentUpdates,'caption/value refresh never rebuilds slider on '..title)
+        check(fill.layout.props.size.x>width*.7 and field.layout.props.text~='','drag updates fill and value before release on '..title)
+        finishDrag();return slider
+    end
+    numeric('BPM');check(math.abs(uw.project.bpm-190)<.001,'timeline BPM reads the new project during continuous drag')
+    numeric('Swing')
+    local function plain(width)
+        for _,item in ipairs(view.root.layout.content) do if item.props and item.props.size and item.props.size.x==width*view.window.scale and item.events and item.events.mouseMove then return item end end
+    end
+    local track=assert(plain(94));local rootWidget=view.root;local fill=track.content[1];local revision=uw.revision
+    mouseDown=true;track.events.mousePress{button=1,offset=vector(94*view.window.scale*.2,0)};now=now+.2;view:frame(now)
+    track.events.mouseMove{button=1,offset=vector(94*view.window.scale*.8,0)};now=now+.2;view:frame(now)
+    check(view.root==rootWidget and track.content[1]==fill and uw.revision==revision and math.abs(uw.project.tracks[1].level-.8)<.001,'track-volume drag is quiet and retains its captured widget')
+    finishDrag()
+    -- External monitor changes and pointer moves must update the same native
+    -- bar and percentage even while the mouse is held, on every window type.
+    local bar=view.root.layout.template.content[2].content[7];rootWidget=view.root
+    local monitorFill=view.window.monitorFill;local monitorText=view.window.monitorText
+    mouseDown=true;bar.events.mousePress{button=1,offset=vector(110*view.window.scale*.2,0)}
+    check(monitorText.layout.props.text=='20%' and math.abs(monitorFill.layout.props.size.x-22*view.window.scale)<.001,'monitor fill and percentage change on press')
+    bar.events.mouseMove{button=1,offset=vector(110*view.window.scale*.8,0)};now=now+.2;view:frame(now)
+    check(view.root==rootWidget and view.window.monitorFill==monitorFill and monitorText.layout.props.text=='80%','monitor drag updates in place before release')
+    monitor=.35;now=now+.2;view:frame(now)
+    check(view.root==rootWidget and monitorText.layout.props.text=='35%','external monitor preference updates without rebuilding the window')
+    finishDrag()
+    uw.page='band';uw.revision=uw.revision+1;view:frame(now+.2)
+    local member=assert(plain(110));rootWidget=view.root;fill=member.content[1]
+    mouseDown=true;member.events.mousePress{button=1,offset=vector(110*view.window.scale*.3,0)}
+    member.events.mouseMove{button=1,offset=vector(110*view.window.scale*.7,0)};view:frame(now+.4)
+    check(view.root==rootWidget and member.content[1]==fill and math.abs(uw.project.band[1].level-.7)<.001,'band member volume retains its bar through the drag')
+    finishDrag()
+    uw.page='channel';uw.revision=uw.revision+1;view:frame(now+.2)
+    numeric('High-pass (Hz)')
+    view:destroy();check(monitorFill.layout==nil and monitorText.layout==nil,'window destruction releases independent monitor widgets')
+    local previous=monitor;bar.events.mouseMove{button=1,offset=vector(0,0)}
+    check(monitor==previous,'delayed monitor events from a destroyed window are ignored')
+    -- Every synth voice/effects page uses the same numeric controls. Verify
+    -- each actual slider keeps its hit target through both drag updates.
+    local Editor=dofile(root..'client/editor.lua')
+    local tested=0
+    for _,variant in ipairs{{state={},page='sound'},{state={instrumentType=1},page='sound'},
+        {state={drumType=2},page='sound'},{state={},page='effects'}} do
+        local editor=Editor.new(schema.state(variant.state),{change=function() end,command=function() end,noteOff=function() end,meter=function() return 0,0 end})
+        editor.page=variant.page;editor:render();local rootWidget=editor.root
+        local sliders={};for _,child in ipairs(editor.children) do local content=child.layout.content;if content and content[2] and content[2].events and content[2].events.mouseMove and content[3] and content[3].layout then sliders[#sliders+1]=child end end
+        for _,slider in ipairs(sliders) do
+            local track=slider.layout.content[2];local fill=track.content[1];local field=slider.layout.content[3];local title=slider.layout.content[1];local updates=slider.updateCount
+            mouseDown=true;track.events.mousePress{button=1,offset=vector(track.props.size.x*.25,0)}
+            track.events.mouseMove{button=1,offset=vector(track.props.size.x*.75,0)};editor:frame(now+1)
+            check(editor.root==rootWidget and slider.layout.content[2]==track and track.content[1]==fill and slider.updateCount==updates,'all synth/effects drag targets remain persistent')
+            check(slider.layout.content[1]==title and slider.layout.content[3]==field,'all synth/effects captions and value fields remain persistent')
+            tested=tested+1
+        end
+        mouseDown=false;editor:destroy()
+    end
+    check(tested>=60,'audit exercises oscillator, string, drum and effects slider sets')
+end
+testContinuousSliders()
 end
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

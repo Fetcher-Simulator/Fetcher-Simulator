@@ -469,7 +469,7 @@ function W:setTrack(index,name,value)
     elseif name=='note' then
         if type(value)~='number' or value%1~=0 or value<0 or value>127 then return false end;t.note=value
     else return false end
-    self:touch(name..':'..index);return true
+    self:touch(name..':'..index,name=='level');return true
 end
 function W:renameTrack(index,name)
     local t=self.project.tracks[index]

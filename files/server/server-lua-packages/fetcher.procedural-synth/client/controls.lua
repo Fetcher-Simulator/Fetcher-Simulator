@@ -36,6 +36,7 @@ function C.value(t,spec)
 end
 function C.slider(owner,name,title,spec,get,set,x,y,width)
     local element=owner:element{type=ui.TYPE.Widget,props={position=v(x,y),size=v(width,43)},content=ui.content{}}
+    local caption=owner:element{type=ui.TYPE.Text,props={position=v(0,0),size=v(math.max(30,width-72),22),text='',textSize=12,textColor=colors.text}}
     local editing,draft=false,nil
     local epoch=owner.controlEpoch
     local startX,startValue
@@ -77,21 +78,24 @@ function C.slider(owner,name,title,spec,get,set,x,y,width)
         if not spec.discrete and input.isShiftPressed and input.isShiftPressed() then amount=amount*0.1 end
         apply(math.max(spec.min,math.min(spec.max,get()+delta*amount)))
     end
-    refresh=function()
-        local track=rect(18,26,trackWidth,10,colors.track)
-        track.content=ui.content{rect(0,0,math.max(1,trackWidth*C.normalized(get(),spec)),10,colors.accent)}
-        local function move(e,press)
-            local t=e.offset.x/(trackWidth*owner.window.scale)
-            if press then startX=t;startValue=C.normalized(get(),spec) end
-            if input.isShiftPressed and input.isShiftPressed() then t=(startValue or t)+(t-(startX or t))*0.1 end
-            apply(C.value(math.max(0,math.min(1,t)),spec))
-        end
-        track.events={mousePress=cb(function(e) move(e,true) end),mouseMove=cb(function(e) if e.button==1 then move(e,false) end end)}
-        element.layout.content=ui.content{{type=ui.TYPE.Text,props={position=v(0,0),size=v(math.max(30,width-72),22),text=type(title)=='function' and title() or title,textSize=12,textColor=colors.text}},track,field,
-            button('-',0,function() step(-1) end),button('+',width-15,function() step(1) end)}
-        if not editing then field.layout.props.text=C.format(get(),spec);field.layout.props.textColor=colors.accent;owner.window:update(field) end
-        owner.window:update(element)
+    local fill=owner:element(rect(0,0,1,10,colors.accent))
+    local track=rect(18,26,trackWidth,10,colors.track);track.content=ui.content{fill}
+    local function move(e,press)
+        local t=e.offset.x/(trackWidth*owner.window.scale)
+        if press then startX=t;startValue=C.normalized(get(),spec) end
+        if input.isShiftPressed and input.isShiftPressed() then t=(startValue or t)+(t-(startX or t))*0.1 end
+        apply(C.value(math.max(0,math.min(1,t)),spec))
     end
-    refresh();return element,refresh
+    track.events={mousePress=cb(function(e) move(e,true) end),mouseMove=cb(function(e) if e.button==1 then move(e,false) end end)}
+    element.layout.content=ui.content{caption,track,field,
+        button('-',0,function() step(-1) end),button('+',width-15,function() step(1) end)}
+    refresh=function()
+        if owner.uiClosed or owner.controlEpoch~=epoch then return end
+        local text=type(title)=='function' and title() or title
+        if caption.layout.props.text~=text then caption.layout.props.text=text;owner.window:update(caption) end
+        fill.layout.props.size=v(math.max(1,trackWidth*C.normalized(get(),spec)),10);owner.window:update(fill)
+        if not editing then field.layout.props.text=C.format(get(),spec);field.layout.props.textColor=colors.accent;owner.window:update(field) end
+    end
+    owner.window:update(element);refresh();return element,refresh
 end
 return C

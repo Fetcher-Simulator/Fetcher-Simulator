@@ -44,7 +44,7 @@ function P:frame(now)
     if now-self.last>.5 then self.last=now;self.status.layout.props.text=self.service:status();self.window:update(self.status) end
 end
 function P:destroy()
-    self.uiClosed=true;self.controlEpoch=self.controlEpoch+1;Dropdown.close(self);self.root:destroy();for _,e in ipairs(self.children) do e:destroy() end
+    self.uiClosed=true;self.controlEpoch=self.controlEpoch+1;Dropdown.close(self);self.root:destroy();self.window:clearChrome();for _,e in ipairs(self.children) do e:destroy() end
     if ui.setFocus then ui.setFocus(nil) end;if I.UI.getMode()=='Interface' then I.UI.removeMode('Interface') end
 end
 return P

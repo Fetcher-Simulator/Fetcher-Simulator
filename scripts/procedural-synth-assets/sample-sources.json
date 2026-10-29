@@ -1,0 +1,127 @@
+{
+  "acquired": "2026-10-29",
+  "license": "CC0-1.0",
+  "status": "source acquisition only; no runtime bank yet",
+  "sources": [
+    {
+      "repository": "freepats/electric-guitar-FSBS-direct",
+      "release": "2022-09-11",
+      "asset": "EGuitarFSBS-direct-SFZ+WAV-20220911.7z",
+      "url": "https://github.com/freepats/electric-guitar-FSBS-direct/releases/download/2022-09-11/EGuitarFSBS-direct-SFZ%2BWAV-20220911.7z",
+      "bytes": 160785601,
+      "sha256": "5aedb789d108f85d2c76f0b74eae100439eac939a863f6fe870fee11cf5ab467",
+      "upstreamDigestVerified": true,
+      "licenseExpected": "CC0-1.0",
+      "audioFiles": 122,
+      "unpackedBytes": 329760623,
+      "licenseFiles": [
+        {
+          "path": "EGuitarFSBS-direct SFZ+WAV-20220911/LICENSE.txt",
+          "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+          "cc0Mentioned": true
+        }
+      ],
+      "sfzMapCount": 1
+    },
+    {
+      "repository": "sfzinstruments/karoryfer.black-and-blue-basses",
+      "release": "v1.002",
+      "asset": "Black_And_Blue_Basses_1002.zip",
+      "url": "https://github.com/sfzinstruments/karoryfer.black-and-blue-basses/releases/download/v1.002/Black_And_Blue_Basses_1002.zip",
+      "bytes": 1008690586,
+      "sha256": "cf77fc782abf996826fe75cfd948d356968de7c8b967c471c6a433835d2b4f55",
+      "upstreamDigestVerified": false,
+      "licenseExpected": "CC0-1.0",
+      "audioFiles": 2208,
+      "unpackedBytes": 1134211746,
+      "licenseFiles": [
+        {
+          "path": "license",
+          "sha256": "a19d58aaab15c4d0019e569d1c073d1b5286fdd37dbeee7a58a7d1ae76045ae1",
+          "cc0Mentioned": true
+        }
+      ],
+      "sfzMapCount": 64
+    },
+    {
+      "repository": "sfzinstruments/karoryfer.big-rusty-drums",
+      "release": "v1.100",
+      "asset": "Big_Rusty_Drums_1100.zip",
+      "url": "https://github.com/sfzinstruments/karoryfer.big-rusty-drums/releases/download/v1.100/Big_Rusty_Drums_1100.zip",
+      "bytes": 619600370,
+      "sha256": "d4a9990acd19376d91ce446dae415c81428728b5adebb6a88eddbb3a6aac8744",
+      "upstreamDigestVerified": false,
+      "licenseExpected": "CC0-1.0",
+      "audioFiles": 4466,
+      "unpackedBytes": 730921291,
+      "licenseFiles": [
+        {
+          "path": "LICENSE",
+          "sha256": "dfae9b7119c33a85a50ebe3ddb2aa13da7908217b0069530788a9f35a9c8dd33",
+          "cc0Mentioned": true
+        }
+      ],
+      "sfzMapCount": 347
+    },
+    {
+      "repository": "sfzinstruments/karoryfer.growlybass",
+      "release": "v1.002",
+      "asset": "Karoryfer.Growlybass.v1.002.zip",
+      "url": "https://github.com/sfzinstruments/karoryfer.growlybass/releases/download/v1.002/Karoryfer.Growlybass.v1.002.zip",
+      "bytes": 167454256,
+      "sha256": "b92dca75494fa39d6e8d8b8addaabfe70c5aaa59b5f9a0f624be6de51a2374bc",
+      "upstreamDigestVerified": false,
+      "licenseExpected": "CC0-1.0",
+      "audioFiles": 380,
+      "unpackedBytes": 190765319,
+      "licenseFiles": [
+        {
+          "path": "Growlybass/LICENSE",
+          "sha256": "a19d58aaab15c4d0019e569d1c073d1b5286fdd37dbeee7a58a7d1ae76045ae1",
+          "cc0Mentioned": true
+        }
+      ],
+      "sfzMapCount": 7
+    },
+    {
+      "repository": "facebookincubator/Meta-open-sound",
+      "release": "meta-nylon-guitar-v1.0.0",
+      "asset": "meta-open-sound-meta-nylon-guitar-wav.zip",
+      "url": "https://github.com/facebookincubator/Meta-open-sound/releases/download/meta-nylon-guitar-v1.0.0/meta-open-sound-meta-nylon-guitar-wav.zip",
+      "bytes": 423127309,
+      "sha256": "e7fa168b97a72ecc1257917f85cb524fe7c2e1f098dfdcaf8f5c0e29cabe768e",
+      "upstreamDigestVerified": true,
+      "licenseExpected": "CC0-1.0",
+      "audioFiles": 348,
+      "unpackedBytes": 550016898,
+      "licenseFiles": [
+        {
+          "path": "LICENSE",
+          "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+          "cc0Mentioned": true
+        }
+      ],
+      "sfzMapCount": 1
+    },
+    {
+      "repository": "facebookincubator/Meta-open-sound",
+      "release": "meta-steel-guitar-v1.0.0",
+      "asset": "meta-open-sound-meta-steel-guitar-wav.zip",
+      "url": "https://github.com/facebookincubator/Meta-open-sound/releases/download/meta-steel-guitar-v1.0.0/meta-open-sound-meta-steel-guitar-wav.zip",
+      "bytes": 663385210,
+      "sha256": "caaa8a9c07217f4a82d1dfd9f5657c286155464b66bf4dd27797811c2558a909",
+      "upstreamDigestVerified": true,
+      "licenseExpected": "CC0-1.0",
+      "audioFiles": 375,
+      "unpackedBytes": 845348242,
+      "licenseFiles": [
+        {
+          "path": "LICENSE",
+          "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+          "cc0Mentioned": true
+        }
+      ],
+      "sfzMapCount": 1
+    }
+  ]
+}
