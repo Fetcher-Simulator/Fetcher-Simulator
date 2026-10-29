@@ -7,7 +7,8 @@ Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
 Standing grids and seated keyboard/cello NPCs are available, with credited CC BY
-orchestral and stage models. Next: section layouts and conductor presentation.
+orchestral and stage models. Next priority: electric guitar/bass, classical and
+acoustic guitar, a full drum kit, and better rock/metal/funk/acoustic sound sets.
 See [the roadmap](ROADMAP.md).
 
 ## Seated NPC staging and model credits
