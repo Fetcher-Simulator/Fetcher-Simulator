@@ -5,8 +5,8 @@
   "files": [
     {
       "path": "ATTRIBUTION.txt",
-      "bytes": 8611,
-      "sha256": "80ffef3f49ec681908ea5b32d87bf35dd1539e28659f617f91726ba5dc513e46"
+      "bytes": 8823,
+      "sha256": "2dee113de3e4ac135f7eb11ded02bce80d8702c54c1445ddf66031d67b7d22d4"
     },
     {
       "path": "conversion-report.json",
@@ -155,8 +155,8 @@
     },
     {
       "path": "ORCHESTRA-ASSETS.txt",
-      "bytes": 5895,
-      "sha256": "f095ed9ca62deebb4aa5d9edba80bb94867eef7ff5b7ae7f3541ea8b4afe8c94"
+      "bytes": 6107,
+      "sha256": "d278777e6b999daeb6808afcdd605e4e9b5e657658e594daa8c3ce479582a04c"
     },
     {
       "path": "orchestra-report.json",
@@ -175,8 +175,8 @@
     },
     {
       "path": "sketchfab-models.json",
-      "bytes": 6762,
-      "sha256": "6a6e98d10d7eca663ea05e75e911a04b1395aae9beffdc15e4092288f0f46a35"
+      "bytes": 6974,
+      "sha256": "ccc2ad22699b952d9f7e38671cda831614f9fb36018f8dcaba1a47d46ad96048"
     },
     {
       "path": "sketchfab-orchestra-report.json",
@@ -336,7 +336,7 @@
     {
       "path": "textures/fetcher/orchestra/cc_sheet-music_2.dds",
       "bytes": 699192,
-      "sha256": "16c181d755ae782a886fdc260f9a3754a78730faecae1cf39691057dbdabf2cb"
+      "sha256": "2c2b8911762f3856c39f20de2a1865c72da4d53c4c3daba5048ab246947d4319"
     },
     {
       "path": "textures/fetcher/orchestra/cc_stool_0.dds",

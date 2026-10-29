@@ -33,6 +33,9 @@ def clear():
     bpy.ops.object.select_all(action='SELECT');bpy.ops.object.delete(use_global=False)
 def image_dds(image,filename,normal=False):
     png=args.working/(filename+'.png');image.filepath_raw=str(png);image.file_format='PNG';image.save()
+    # Preserve approved texture adaptations when importing the original GLB again.
+    override=Path(__file__).with_name('texture-overrides')/(filename+'.png')
+    if override.is_file():png=override
     output=textures/(filename+'.dds')
     subprocess.run([magick,str(png),'-resize','1024x1024>','-alpha','off','-strip','-define','dds:compression='+('dxt5' if normal else 'dxt1'),'-define','dds:mipmaps=10',str(output)],check=True,capture_output=True)
     return output
@@ -160,6 +163,7 @@ for name,item in plan.items():
     credits.append({'id':name,'title':meta['name'],'author':meta['user']['displayName'],'authorUrl':meta['user']['profileUrl'],'source':meta['viewerUrl'],'license':'CC BY 4.0','licenseUrl':'https://creativecommons.org/licenses/by/4.0/','downloadSha256':download['sha256'],
       'changes':'Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.'})
     if name=='sheet-music':
+        credits[-1]['changes']+=' Sheet texture adapted with OpenAI image generation through Codex: lyrics, printed credits, dedication and original title removed; title replaced with FETCHER; musical notation and aged-paper appearance retained.'
         credits[-1]['upstream']={'title':'Secret notebook from Paper Hospital map','author':'Neo_minigan','source':'https://sketchfab.com/3d-models/secret-notebook-from-paper-hospital-map-95ee39927f6e4e90b3b7ea5b38e7d1ae','authorUrl':'https://sketchfab.com/neominigan','licenseUrl':'https://creativecommons.org/licenses/by/4.0/'}
 old=args.output/'sketchfab-orchestra-report.json'
 previous=json.loads(old.read_text()) if args.only and old.exists() else {};previous.update(report)

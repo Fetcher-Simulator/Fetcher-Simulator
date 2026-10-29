@@ -42,6 +42,14 @@ runs. The seated conversion removes that subtree before lowering the keyboard,
 so a complete repeated pipeline does not accumulate pages. Sheet-music credits
 retain cScott and the upstream notebook author Neo_minigan.
 
+The sheet-page texture uses the approved master
+`texture-overrides/cc_sheet-music_2.png`. Conversion applies this override instead
+of the original GLB's printed page image. It removes lyrics and printed credits
+and replaces the dedication/title with FETCHER, retaining notation and aged paper.
+The master retains the original mirrored UV orientation; flop it horizontally
+for a readable preview. See `texture-overrides/README.md` for the editing prompt
+and provenance. All three holders reference the same DDS texture.
+
 Validation reads actual NIF/DDS bytes, checks source-report triangle counts,
 relative resolved texture paths, finite vertices, mipmaps, credits and manifest
 hashes. Native in-game views are still required for material/grip acceptance.

@@ -118,7 +118,7 @@ Source: https://sketchfab.com/3d-models/sheet-music-d444261c68464623b1b2e08ec8ae
 Author: https://sketchfab.com/cscottd
 License: Creative Commons Attribution 4.0 International
 https://creativecommons.org/licenses/by/4.0/
-Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
+Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes. Sheet texture adapted with OpenAI image generation through Codex: lyrics, printed credits, dedication and original title removed; title replaced with FETCHER; musical notation and aged-paper appearance retained.
 
 Upstream model: Secret notebook from Paper Hospital map — Neo_minigan
 Source: https://sketchfab.com/3d-models/secret-notebook-from-paper-hospital-map-95ee39927f6e4e90b3b7ea5b38e7d1ae

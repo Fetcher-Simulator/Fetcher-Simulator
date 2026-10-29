@@ -107,7 +107,7 @@
     "license": "CC BY 4.0",
     "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
     "downloadSha256": "7b7a8fec4c798f3efae26f683668e4ce85a018a4f9e384c64cb8b639028bd7d6",
-    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes. Sheet texture adapted with OpenAI image generation through Codex: lyrics, printed credits, dedication and original title removed; title replaced with FETCHER; musical notation and aged-paper appearance retained.",
     "upstream": {
       "title": "Secret notebook from Paper Hospital map",
       "author": "Neo_minigan",
