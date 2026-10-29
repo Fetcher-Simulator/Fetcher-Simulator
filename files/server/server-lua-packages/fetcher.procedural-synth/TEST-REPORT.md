@@ -1,5 +1,29 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 29: timpani mapping and latest calibration (package 45)
+
+The local Daggerfall `DF-patch-Dfmusics2/03.MID` explicitly selects zero-based
+program 47 for Track 7 / Ch 9 (310 note-ons, MIDI notes 36-69). Its physical
+timpani was correct, but generic GM strings-family assignment selected Fast
+String Pad outside Orchestra. Timpani now retains its pitched preset in all
+thirteen sound sets, including program following. Explicit MIDI program
+identity also takes precedence over a conflicting physical prop in Orchestra;
+channel-10 percussion remains a drum kit.
+
+The new sound-set regression fails on the old implementation and passes with
+the fix. Checks cover adjacent program 48 remaining strings, import, all sets,
+program changes, conversion to editable notes, saved source-free arrangements,
+and conflicting prop/percussion identities. All 28 Lua suites pass, including
+682 sound-set assertions. Log: `build/studio-timpani-regression-lua.log`.
+
+The Synth A export at 15:12:25.979 on October 29 raises the approved timpani
+left target Z from 86.2165963432 to 92.7165963432 and right target Z to
+91.2165963432. All other instrument defaults, timpani prop/mallet transforms
+and reference frame 37 are retained. The captured numeric export SHA-256 is
+`a9cd667acc3f7e28206ea588d25fe98766a420ed6a29d4183baf4173d2ffd8f5`.
+These are source changes with Lua validation; installation and an in-game
+reload remain pending while the user's test session is open.
+
 ## October 29: guitar/bass and full-kit foundations (package 44)
 
 All 28 Lua suites pass. Expanded sound-set checks cover all preset assignments,

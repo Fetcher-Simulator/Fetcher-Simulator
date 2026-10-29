@@ -57,6 +57,29 @@ for note,role in pairs{[37]='rim',[39]='clap',[44]='pedalhat',[49]='crash',[51]=
 end
 local state,id=sets.programPatch({soundSet='thrash'},{sourceRole='ride',note=51,instrument='drum'},47)
 check(id=='b:kit-ride' and state.drumType==4,'percussion program changes cannot turn the kit into a melodic GM instrument')
+-- Daggerfall 03.MID has string ensemble (48) and pitched timpani (47).
+-- Both share the broad GM strings group, but must not share its sound patch.
+local timpaniSong={tracks=2,division=96,names={},programs={['1:0']=48,['2:8']=47},tempos={},duration=1,beats=2,events={}}
+for n,ch in ipairs{0,8} do
+ for _,kind in ipairs{'on','off'} do timpaniSong.events[#timpaniSong.events+1]={kind=kind,part=n..':'..ch,track=n,channel=ch,note=48,velocity=.8,tick=kind=='on' and 0 or 96,time=kind=='on' and 0 or .5} end
+end
+table.sort(timpaniSong.events,function(a,b)return a.time==b.time and a.track<b.track or a.time<b.time end)
+local tw=W.new(w.cb);check(tw:import(timpaniSong,'midi/timpani-regression.mid'),'string/timpani regression imports')
+for _,style in ipairs(sets.entries) do
+ check(tw:applySoundSet(style.id),'timpani arrangement switches to '..style.id)
+ check(tw.project.tracks[2].instrument=='timpani' and tw.project.tracks[2].presetId=='b:orchestra-timpani'
+  and tw.project.tracks[2].params.drumType==0,'pitched timpani identity survives '..style.id)
+ check(tw.project.tracks[1].presetId~='b:orchestra-timpani','adjacent string ensemble program stays strings in '..style.id)
+ local _,patch=sets.programPatch({soundSet=style.id},{sourceRole='strings',instrument='keyboard'},47)
+ check(patch=='b:orchestra-timpani','live program change selects pitched timpani in '..style.id)
+end
+check(tw:convertPart(1) and tw:convertPart(2),'timpani arrangement converts to editable notes')
+local snapshot=assert(format.project(tw.project));check(tw:load(snapshot),'timpani snapshot loads')
+tw.song=nil;check(tw:applySoundSet('classic-rock') and tw.project.tracks[2].presetId=='b:orchestra-timpani','saved MIDI program restores timpani without source MIDI')
+local _,patch=sets.assignment('orchestra','strings',true,nil,'timpani',48)
+check(patch=='b:orchestra-violin','physical timpani prop cannot override explicit string ensemble program')
+_,patch=sets.assignment('orchestra','percussion',true,63,'timpani',47)
+check(patch=='b:kit-percussion','percussion kit program and prop cannot become pitched timpani')
 for _,style in ipairs{'balanced','classic-rock','thrash','alternative-metal','funk','acoustic','orchestra'} do
  for program,id in pairs{[24]='guitar-nylon',[25]='guitar-steel',[27]='guitar-clean',[33]='bass-finger',[34]='bass-picked',[36]='bass-slap',[37]='bass-pop'} do
   local role=sets.role{channel=0,program=program};local state,preset=sets.assignment(style,role,true,nil,'lute',program)

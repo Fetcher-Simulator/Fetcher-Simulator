@@ -114,6 +114,9 @@ timpani, trumpet and flute (the later flute export). Seated defaults include
 the exported foot/leg and stool calibration. Standing keyboard/cello, lute,
 hand drum and clarinet retain their previous defaults. Reset and Preview Off
 use these updated profiles; saved overrides remain relative to reference 37.
+Package 45 adopts the later October 29 timpani export, raising its left and
+right hand targets by 6.5 and 5 units respectively. Other instrument defaults
+are unchanged.
 
 Package 38 makes the approved cello, trumpet, violin, lute, flute, clarinet and
 hand-drum exports the defaults, including palm angles, elbow direction, finger/
@@ -204,7 +207,11 @@ managed song recreates missing performers on the next setup/play.
 Click a part in Band and use its instrument selector to choose keyboard, lute,
 drum, violin, cello, trumpet, flute, clarinet or timpani. The physical model is
 saved separately from its sound. MIDI programs choose initial props; saved choices
-take precedence. **Orchestra** is a whole-song sound set, and **Orchestral / Cinematic**
+take precedence. An explicit MIDI program also takes precedence over the prop
+when selecting Orchestra sounds. GM timpani (program 47, or 48 in one-based
+lists) retains its tuned timpani sound across all sound sets rather than using
+the broader strings-family preset. Channel-10 percussion remains a drum kit.
+**Orchestra** is a whole-song sound set, and **Orchestral / Cinematic**
 contains six editable synthesized starting patches. These approximate acoustic
 instruments; they are not orchestral sample libraries. F9 exposes the same nine
 held-instrument choices for player performers.

@@ -70,7 +70,20 @@ function M.assignment(id,role,midi,note,instrument,program)
         if bass[program] then presetId='b:'..bass[program] end
     end
     if id=='chiptune' and role=='snare' then presetId='b:chip-snare' end
-    if id=='orchestra' and ({violin=true,cello=true,trumpet=true,flute=true,clarinet=true,timpani=true})[instrument] then presetId='b:orchestra-'..instrument end
+    -- Physical prop overrides are independent of the MIDI sound identity. Keep
+    -- the legacy prop fallback only when no source program is available.
+    local soundInstrument=instrument
+    if type(program)=='number' then
+        soundInstrument=({strings='violin',brass='trumpet',reed='clarinet',pipe='flute'})[role]
+        if not percussionRoles[role] then
+            if program==42 or program==43 then soundInstrument='cello'
+            elseif program==47 then soundInstrument='timpani' end
+        end
+    end
+    if not percussionRoles[role] and id=='orchestra' and ({violin=true,cello=true,trumpet=true,flute=true,clarinet=true,timpani=true})[soundInstrument] then presetId='b:orchestra-'..soundInstrument end
+    -- Timpani is pitched percussion despite sharing GM's broad strings group.
+    -- Preserve it across genres rather than substituting a sustained string pad.
+    if program==47 and not percussionRoles[role] then presetId='b:orchestra-timpani' end
     local p=builtins[presetId];if not p then return end
     local state=schema.state(p.state);state.polyphony=math.min(8,state.polyphony)
     -- MIDI bass notes already encode the written octave. Performance presets
