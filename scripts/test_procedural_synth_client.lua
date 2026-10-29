@@ -143,6 +143,19 @@ do
     field.events.focusGain();field.events.textChanged('nan');field.events.keyPress{code=input.KEY.Enter}
     check(api.poseCalibration():profile('lute').position.x==value,'invalid GUI text cannot corrupt a pose')
     tuner.page='Left';tuner:render();check(tuner.children[1].layout.content[1].props.text=='Wrist target X','hand page exposes IK targets')
+    tuner.instrument='keyboard_seated';tuner.page='Legs';tuner:render()
+    local pelvis=tuner.children[1].layout
+    check(pelvis.content[1].props.text=='Pelvis offset X','Legs page exposes seated pelvis controls')
+    local edit=pelvis.content[3].layout;edit.events.focusGain();edit.events.textChanged('2.5');edit.events.keyPress{code=input.KEY.Enter}
+    check(api.poseCalibration():profile('keyboard_seated').seat.pelvis.x==2.5,'seated pelvis numeric field updates compiled preview')
+    tuner.leg='Right leg';tuner:render()
+    check(tuner.children[1].layout.content[1].props.text=='Foot target X','leg selection exposes independent foot target and rotation')
+    tuner.page='Bench';tuner:render();check(tuner.children[1].layout.content[1].props.text=='Bench position X','Bench page exposes furniture transform')
+    local bench=tuner.children[13].layout
+    check(bench.content[1].props.text=='Bench uniform scale','Bench page has a live uniform-scale control')
+    edit=bench.content[3].layout;edit.events.focusGain();edit.events.textChanged('1.2');edit.events.keyPress{code=input.KEY.Enter}
+    check(api.poseCalibration():profile('keyboard_seated').bench.scale==1.2 and #sent==before,'bench UI edits remain local and do not send score/network changes')
+    api.poseCalibration():reset('keyboard_seated')
     api.poseCalibration():reset('lute');player.engineHandlers.onKeyPress{code=input.KEY.Escape}
     check(not api.poseTunerState() and not uiOverride and mode==nil,'Escape releases UI control without ending a score')
 end

@@ -50,15 +50,17 @@ function M.new(actor,calibration)
         self.appliedBones={};self.applied=0;self.fingers=0
     end
     function p:frame(dt,source,notes,now,strikes,profile)
-        self.error=0;self.reachError=0;self.fingers=0
+        self.error=0;self.reachError=0;self.legReachError=0;self.fingers=0
         local record=not profile and source.recordId=='fetcher_procedural_keyboard_v1' and types.Miscellaneous.record(source) or (not profile and types.Activator.record(source))
         local staged=record and record.model:lower():gsub('\\','/'):find('keyboard%-stand%.nif$')~=nil
         local halfWidth,spacing,spread,front,height=8,0.65,5,-2,5
         if staged then halfWidth,spacing,spread,front,height=14,1.2,18,-18,91 end
         if staged then profile=calibration and calibration:placedKeyboard() or {kind='keyboard',targets={L=v(-18,-18,91),R=v(18,-18,91)}} end
-        local function setBone(name,rotation)
+        local written={}
+        local function setBone(name,rotation,position)
             local extra=profile and profile.tuning and profile.tuning.bones[name:lower()]
-            anim.setBoneTransform(self.actor,name,{rotation=extra and rotation*extra.rotation or rotation,position=extra and extra.position or zero,weight=self.amount})
+            anim.setBoneTransform(self.actor,name,{rotation=extra and rotation*extra.rotation or rotation,position=(position or zero)+(extra and extra.position or zero),weight=self.amount})
+            written[name]=true;self.appliedBones[name]=true
         end
         local rootName=self.bones['bip01']
         local root=rootName and anim.getBoneTransform(self.actor,rootName,true,true)
@@ -76,7 +78,8 @@ function M.new(actor,calibration)
         end
         self.amount=math.min(1,self.amount+math.min(dt,0.1)*4)
         local bodyShift=zero
-        if profile and profile.seated then bodyShift,self.seated=Seated.apply(self,root) end
+        self.seated=false
+        if profile and profile.seated then bodyShift,self.seated=Seated.apply(self,root,profile,setBone) end
         local pulse=math.max(0,1-(now-self.strike)/0.13)
         self.bowTravel=profile and Profiles.bowTravel(profile,now-self.strike,#signature>0) or 0
         for _,side in ipairs{'L','R'} do
@@ -189,6 +192,15 @@ function M.new(actor,calibration)
                 end
             end
         end
+        -- Apply overrides for bones outside the arm/leg IK chains as well.
+        -- Track them so removing an offset or disabling preview clears it live.
+        local custom={}
+        for lower in pairs(profile and profile.tuning and profile.tuning.bones or {}) do
+            local name=self.bones[lower]
+            if name then if not written[name] then setBone(name,T.identity) end;custom[name]=true end
+        end
+        for name in pairs(self.customBones or {}) do if not custom[name] and not written[name] then anim.clearBoneTransform(self.actor,name);self.appliedBones[name]=nil end end
+        self.customBones=custom
     end
     return p
 end

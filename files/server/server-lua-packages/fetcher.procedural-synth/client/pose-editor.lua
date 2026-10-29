@@ -12,7 +12,7 @@ local function label(text,x,y,w,size) return {type=ui.TYPE.Text,props={position=
 local function viewport() local n=ui.layers and ui.layers.indexOf('Windows');return n and ui.layers[n].size or ui.screenSize() end
 function P.new(model,actors,close,back,instrument)
     local screen=viewport();local s=math.min(1.2,screen.y/790,screen.x/560)
-    local p=setmetatable({kind='pose',model=model,actors=actors,close=close,back=back,instrument=instrument or 'lute',page='Prop',bone='Bip01 L Hand',extra=1,
+    local p=setmetatable({kind='pose',model=model,actors=actors,close=close,back=back,instrument=instrument or 'lute',page='Prop',bone='Bip01 L Hand',extra=1,leg='Pelvis',
         scale=s,x=math.max(0,screen.x-550*s),y=10,children={},controlEpoch=0,liveNumeric=true,focus=true,orbit=0,elevation=10,distance=145,height=100,framing=.35,lastStatus=-10},P)
     p.window=setmetatable({scale=s,canvasWidth=540,canvasHeight=732,originals=setmetatable({},{__mode='k'})},Window)
     I.UI.addMode('Interface',{windows={}})
@@ -61,8 +61,8 @@ function P:render()
             local entries={};for _,name in ipairs(self.model.names) do entries[#entries+1]={id=name,label=name} end
             self:choose(entries,self.instrument,function(name) self.instrument=name;self.extra=1;self.target=nil;self:render() end)
         end),self:button('>',486,42,38,function() self:cycle(1) end)}
-    for n,page in ipairs{'Prop','Left','Right','Bones','Camera','Export'} do local selected=page
-        content[#content+1]=self:button(page,14+(n-1)*86,79,80,function() self.page=selected;self:render() end,self.page==page)
+    for n,page in ipairs{'Prop','Left','Right','Legs','Bench','Bones','Camera','Export'} do local selected=page
+        content[#content+1]=self:button(page,14+(n-1)*64,79,62,function() self.page=selected;self:render() end,self.page==page)
     end
     local y=119;local page=self.page
     if page=='Prop' then
@@ -85,6 +85,32 @@ function P:render()
         self:slider(content,'Finger curl multiplier',{side..'CurlScale'},y);y=y+44
         self:slider(content,'Finger curl offset (radians)',{side..'CurlBias'},y);y=y+44
         self:slider(content,'Note motion multiplier',{side..'MotionScale'},y)
+    elseif page=='Legs' or page=='Bench' then
+        if not self.model:profile(self.instrument).seated then
+            content[#content+1]=label('Choose keyboard_seated or cello_seated above to tune sitting.',14,y,510,12)
+        elseif page=='Bench' then
+            y=self:pair(content,'Bench position',{'benchPosition'},'Bench rot deg',{'benchRotation'},y)
+            self:slider(content,'Bench uniform scale',{'benchScale'},y)
+            content[#content+1]=label('Position is relative to the actor feet, in actor-facing game units.',14,y+68,510,11)
+            content[#content+1]=label('The stool moves independently of the body, instrument and foot targets.',14,y+94,510,11)
+        else
+            content[#content+1]=self:button(self.leg..' v',14,y,510,function()
+                self:choose({{id='Pelvis',label='Pelvis / seat height'},{id='Left leg',label='Left leg / foot'},{id='Right leg',label='Right leg / foot'}},self.leg,function(leg) self.leg=leg;self:render() end,120)
+            end);y=y+38
+            if self.leg=='Pelvis' then
+                y=self:vector(content,'Pelvis offset',{'pelvisOffset'},y)
+                content[#content+1]=label('Moves the seated body; feet retain their independent targets.',14,y+16,510,11)
+            else
+                local side=self.leg=='Left leg' and 'L' or 'R'
+                y=self:pair(content,'Foot target', {side..'FootTarget'},'Foot rot deg',{side..'FootRotation'},y)
+                y=self:vector(content,'Knee direction',{side..'KneePole'},y)
+                content[#content+1]=label('Targets offset the unposed foot in actor-facing game units.',14,y+10,510,11)
+                content[#content+1]=label('Foot rotation uses foot-local axes; knee direction guides the IK bend.',14,y+34,510,11)
+            end
+        end
+        content[#content+1]=self:button('View seat',14,578,250,function() self.height=55;self.distance=145;self.elevation=10;self.focus=true end)
+        content[#content+1]=self:button('View feet',274,578,250,function() self.height=25;self.distance=115;self.elevation=10;self.focus=true end)
+        content[#content+1]=label('Save / export includes legs, feet and bench for this seated profile.',14,625,510,11)
     elseif page=='Bones' then
         content[#content+1]=self:button(self.bone..' v',14,y,510,function()
             local entries={};for _,name in ipairs(self.model.boneNames) do entries[#entries+1]={id=name,label=name} end
@@ -92,7 +118,7 @@ function P:render()
         end);y=y+38
         y=self:vector(content,'Bone local position offset',{'bones',self.bone,'position'},y)
         y=self:vector(content,'Bone local rotation offset (deg)',{'bones',self.bone,'rotation'},y)
-        content[#content+1]=label('Advanced offsets are added after IK. Start with the Left/Right pages.',14,y+8,510,11)
+        content[#content+1]=label('Offsets apply after IK. Start with Left/Right or Legs for targets.',14,y+8,510,11)
         content[#content+1]=label('Translations can disconnect joints; Reset instrument restores all bones.',14,y+34,510,11)
     elseif page=='Camera' then
         content[#content+1]=self:button('Performer: '..(self.target or 'choose / refresh')..' v',14,y,510,function()
@@ -107,7 +133,7 @@ function P:render()
         self:cameraSlider(content,'Orbit (deg)','orbit',{min=-180,max=180,step=1},y);y=y+48
         self:cameraSlider(content,'Elevation (deg)','elevation',{min=-75,max=75,step=1},y);y=y+48
         self:cameraSlider(content,'Distance','distance',{min=40,max=400,step=2},y);y=y+48
-        self:cameraSlider(content,'Look-at height','height',{min=20,max=170,step=1},y)
+        self:cameraSlider(content,'Look-at height','height',{min=0,max=170,step=1},y)
         y=y+48;self:cameraSlider(content,'Room for panel','framing',{min=-.7,max=.7,step=.05},y)
         content[#content+1]=label('View follows the chosen performer; closing restores your camera.',14,y+60,510,11)
     elseif page=='Export' then
@@ -160,9 +186,9 @@ function P:frame(now)
         else self:restoreCamera() end
     end
     if now-self.lastStatus>.25 then
-        self.lastStatus=now;local targets=self.actors:targets(self.instrument);local reach=0
-        for _,item in ipairs(targets) do reach=math.max(reach,item.pose and item.pose.reachError or 0) end
-        self.status.layout.props.text=string.format('Local preview | %d %s performers | Unreachable target: %.2f units',#targets,self.instrument,reach);self.window:update(self.status)
+        self.lastStatus=now;local targets=self.actors:targets(self.instrument);local reach,legReach=0,0
+        for _,item in ipairs(targets) do reach=math.max(reach,item.pose and item.pose.reachError or 0);legReach=math.max(legReach,item.pose and item.pose.legReachError or 0) end
+        self.status.layout.props.text=string.format('%d %s performers | Unreachable hands: %.2f / feet: %.2f',#targets,self.instrument,reach,legReach);self.window:update(self.status)
     end
 end
 function P:destroy()

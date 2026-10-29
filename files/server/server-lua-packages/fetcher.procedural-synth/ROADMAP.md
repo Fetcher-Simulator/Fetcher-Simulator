@@ -1,6 +1,17 @@
 # FETCHER STUDIO roadmap
 
-Updated 2026-10-28. Completed work and subsequent planned slices are identified below.
+Updated 2026-10-29. Completed work and subsequent planned slices are identified below.
+
+## Completed refinement: seated pose and bench tuning (package 42)
+
+The local pose tuner now exposes pelvis position, independent foot targets and
+foot rotation, knee directions and thigh/calf/foot/toe bone offsets. Seated
+keyboard and cello profiles also have independent stool position, rotation and
+uniform scale. Save, reload, reset, preview and export include these values;
+old hand-only calibration keeps the existing defaults. Seat/feet camera presets
+help inspect the lower body. These are local visual adjustments, with no actor
+teleport, physics or song/routing changes. Fine artistic calibration remains
+available through player exports before any wider rollout.
 
 ## Product goal
 

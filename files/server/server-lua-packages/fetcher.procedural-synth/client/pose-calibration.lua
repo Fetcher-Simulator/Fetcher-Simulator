@@ -5,7 +5,7 @@ return function(Profiles,util,storage)
     local function copy(t) if type(t)~='table' then return t end;local out={};for k,x in pairs(t) do out[k]=copy(x) end;return out end
     local function finite(n) return type(n)=='number' and n==n and math.abs(n)<math.huge end
     for _,side in ipairs{'L','R'} do
-        for _,part in ipairs{'UpperArm','Forearm','Hand'} do M.boneNames[#M.boneNames+1]='Bip01 '..side..' '..part end
+        for _,part in ipairs{'UpperArm','Forearm','Hand','Thigh','Calf','Foot','Toe0'} do M.boneNames[#M.boneNames+1]='Bip01 '..side..' '..part end
         for finger=0,4 do for _,segment in ipairs{'','1','2'} do M.boneNames[#M.boneNames+1]='Bip01 '..side..' Finger'..finger..segment end end
     end
     local bones={};for _,name in ipairs(M.boneNames) do bones[name]=true end
@@ -15,10 +15,14 @@ return function(Profiles,util,storage)
     end
     function M.spec(path)
         local key=path[1]
+        if #path==1 and key=='benchScale' then return {min=.25,max=3,step=.01} end
         if #path==1 and (key=='LCurlScale' or key=='RCurlScale' or key=='LMotionScale' or key=='RMotionScale') then return {min=0,max=3,step=.05} end
         if #path==1 and (key=='LCurlBias' or key=='RCurlBias') then return {min=-1.5,max=1.5,step=.02} end
         local axis=path[#path];if axis~=1 and axis~=2 and axis~=3 then return end
         if #path==2 then
+            if key=='pelvisOffset' or key=='benchPosition' or key=='LFootTarget' or key=='RFootTarget' then return {min=-100,max=100,step=.1} end
+            if key=='benchRotation' or key=='LFootRotation' or key=='RFootRotation' then return {min=-180,max=180,step=1} end
+            if key=='LKneePole' or key=='RKneePole' then return {min=-3,max=3,step=.05} end
             if key=='propPosition' or key=='LTarget' or key=='RTarget' then return {min=-200,max=200,step=.25} end
             if key=='propRotation' or key=='LRotation' or key=='RRotation' then return {min=-180,max=180,step=1} end
             if key=='LPole' or key=='RPole' then return {min=-3,max=3,step=.05} end
@@ -38,6 +42,7 @@ return function(Profiles,util,storage)
     function M:get(name,path) return values[name] and read(values[name],path) end
     function M:set(name,path,value)
         local spec=M.spec(path);if not values[name] or not spec or not finite(value) or value<spec.min or value>spec.max then return false end
+        if (path[1]=='pelvisOffset' or path[1]:find('^bench') or path[1]:find('Foot') or path[1]:find('KneePole')) and defaults[name][path[1]]==nil then return false end
         if path[1]=='extras' and not defaults[name].extras[path[2]] then return false end
         assign(values[name],path,value);cache[name]=nil;self.revision=self.revision+1;return true
     end

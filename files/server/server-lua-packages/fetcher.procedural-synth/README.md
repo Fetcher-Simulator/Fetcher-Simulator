@@ -2,7 +2,7 @@
 
 This optional package supplies a native, spatial, multiplayer subtractive synthesizer, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. It does not require Bardcraft scripts, a client ESP, prerecorded samples or an external synthesis library.
 
-Current source: package 41 / native synth API 17 / multiplayer protocol 27.
+Current source: package 42 / native synth API 17 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -94,7 +94,16 @@ assignment. All performers using that instrument on your client share the previe
 - **Prop:** position and rotation offsets; bows/mallets have attachment controls.
 - **Left / Right:** wrist target, palm rotation, elbow direction, finger curl and
   note-motion amount. Use these before individual bone overrides.
-- **Bones:** arm/hand/finger bone-local offsets added after IK. Large translations
+- **Legs:** on **keyboard_seated** or **cello_seated**, choose Pelvis, Left leg or
+  Right leg. Adjust seated body position, each foot target and foot rotation,
+  and knee direction. Foot targets offset the unposed foot in actor-facing game
+  units. The IK preserves leg lengths; unreachable feet are reported in status.
+  **View seat** and **View feet** frame the lower body without changing the pose.
+- **Bench:** independent stool position, rotation and uniform scale (0.25–3).
+  Position uses actor-facing coordinates relative to the actor's feet. It does
+  not move the actor, instrument or foot targets. Tune the seated profile that
+  matches the NPC; keyboard and cello furniture can have different settings.
+- **Bones:** arm/hand/finger and thigh/calf/foot/toe bone-local offsets added after IK. Large translations
   can separate joints; keep them small. Missing rig nodes have no visible effect.
 - **Camera:** choose a performer, front/side/rear/above views, orbit, elevation,
   distance, height and horizontal framing. It also works for your own performer.
@@ -117,6 +126,9 @@ instrument's defaults (save afterward to persist the reset). **Preview Off**
 temporarily uses the source defaults. Close keeps unsaved tuning until reconnect;
 F8/Studio returns to the main editor. Tuning never edits the song, physics,
 inventory or another client's poses. No exported code is loaded automatically.
+Leg/foot and bench controls are included in the same save, reload, reset,
+preview toggle and export as the hands. Old arm-only saves receive the unchanged
+seated defaults for the new controls. Missing optional toes are ignored.
 
 ## Standing bands and orchestral instruments
 

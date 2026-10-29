@@ -45,12 +45,25 @@ function M.seed(p)
         d[side..'CurlScale']=1;d[side..'CurlBias']=0;d[side..'MotionScale']=1
     end
     for n,e in ipairs(p.extras or {}) do d.extras[n]={position=e.position and {e.position.x,e.position.y,e.position.z} or {0,0,0},rotation={0,0,0}} end
+    if p.seated then
+        d.pelvisOffset={0,0,-32};d.benchPosition={0,-5,0};d.benchRotation={0,0,0};d.benchScale=1
+        for _,side in ipairs{'L','R'} do
+            d[side..'FootTarget']={0,27,0};d[side..'FootRotation']={0,0,0};d[side..'KneePole']={side=='L' and -.15 or .15,1,0}
+        end
+    end
     return d
 end
 function M.compile(base,d)
     local p={};for k,x in pairs(base) do p[k]=x end
     p.position=vector(d.propPosition);p.rotation=rotation(d.propRotation)*base.rotation;p.targets={L=vector(d.LTarget),R=vector(d.RTarget)}
     p.tuning={bones={}}
+    if base.seated then
+        p.seat={pelvis=vector(d.pelvisOffset),targets={},rotations={},poles={}}
+        for _,side in ipairs{'L','R'} do
+            p.seat.targets[side]=vector(d[side..'FootTarget']);p.seat.rotations[side]=rotation(d[side..'FootRotation']);p.seat.poles[side]=vector(d[side..'KneePole'])
+        end
+        p.bench={position=vector(d.benchPosition),rotation=rotation(d.benchRotation),scale=d.benchScale}
+    end
     for _,side in ipairs{'L','R'} do
         p.tuning[side..'Rotation']=rotation(d[side..'Rotation']);p.tuning[side..'Pole']=vector(d[side..'Pole'])
         for _,key in ipairs{'CurlScale','CurlBias','MotionScale'} do p.tuning[side..key]=d[side..key] end
@@ -171,6 +184,7 @@ for _,kind in ipairs{'keyboard','cello'} do
     for _,side in ipairs{'L','R'} do
         for _,key in ipairs{'Rotation','Pole','CurlScale','CurlBias','MotionScale'} do d[side..key]=copy(M.defaults[kind][side..key]) end
     end
+    merge(d,approved.profiles[name] or {})
     M.defaults[name]=d;M[name]=M.compile(base,d)
 end
 return M

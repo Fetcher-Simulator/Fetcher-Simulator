@@ -1,5 +1,29 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 29: live seated-pose and bench controls (package 42)
+
+All 28 Lua suites pass. Calibration/UI checks cover seated-only validation,
+bounded scales and finite values, independent instrument/foot settings, numeric
+editing and local-only updates, saved delta migration/reload, reset, preview
+toggle and export. Existing standing exports remain in the same reference frame.
+
+Native two-client checks on private port 25571 verify the default keyboard and
+cello seated rigs, live pelvis/foot targets and foot orientation, storage/export,
+Preview Off and Reset, and subsequent standing/seated restaging and cleanup.
+A requested four-unit pelvis drop measured -4.0001 units; the left foot moved
+about -7.05 units forward/back while the untouched right foot changed less than
+0.01 unit. The right foot orientation changed with its rotation control. A late
+observer retained its own default presentation. Evidence:
+`build/studio-usability-qa/seated-tuner-first-seated-tuner-result.json`, matching
+`seated-tuner-first-orchestra-*.log`, and `build/studio-seated-tuner-lua.log`.
+No native API/protocol change, public workflow or VPS activation is required.
+
+The usual port-25567 server was stopped cleanly with no test clients running.
+All 44 package files were copied and hash-verified; all 65 protected database,
+profile, settings, key and configuration files matched before/after installation.
+The local server restarted successfully with zero players. Native checks used
+separate private profiles/database and left no QA driver in the installed package.
+
 ## October 28: compact seating, sheet music and verified restaging (package 41)
 
 Replaced the blue chair with TwoPixels Studio's CC BY piano stool, fitted to a
