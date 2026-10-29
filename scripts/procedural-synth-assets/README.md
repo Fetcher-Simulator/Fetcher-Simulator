@@ -49,6 +49,10 @@ and replaces the dedication/title with FETCHER, retaining notation and aged pape
 The master retains the original mirrored UV orientation; flop it horizontally
 for a readable preview. See `texture-overrides/README.md` for the editing prompt
 and provenance. All three holders reference the same DDS texture.
+The Yamaha booklet is centered on the rest at X=3.115, tilted 76 degrees and
+scaled to 86 percent to fit behind its lip and below its top edge. Its origin is
+(3.115, 9.28, 94.5) standing, or Z=70.5 seated; the separate music stand keeps its
+own fit.
 
 Validation reads actual NIF/DDS bytes, checks source-report triangle counts,
 relative resolved texture paths, finite vertices, mipmaps, credits and manifest

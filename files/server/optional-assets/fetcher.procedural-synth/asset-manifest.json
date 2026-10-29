@@ -5,8 +5,8 @@
   "files": [
     {
       "path": "ATTRIBUTION.txt",
-      "bytes": 8823,
-      "sha256": "2dee113de3e4ac135f7eb11ded02bce80d8702c54c1445ddf66031d67b7d22d4"
+      "bytes": 8941,
+      "sha256": "14422bcf57b595c2851011dc02ec8d0461b7a8d01cd5dd298a6285d4d32df46d"
     },
     {
       "path": "conversion-report.json",
@@ -101,7 +101,7 @@
     {
       "path": "meshes/fetcher/orchestra/keyboard-seated.nif",
       "bytes": 612943,
-      "sha256": "3ebab97ef06f2919bc2e28aed77921ac0855ee7075df6f42890b67a8c4549a01"
+      "sha256": "d81f754c1d894f8dcb108dd6d0bae25dd3276e4016be90777715b59b0948085f"
     },
     {
       "path": "meshes/fetcher/orchestra/mallet.nif",
@@ -141,7 +141,7 @@
     {
       "path": "meshes/fetcher/synth/keyboard-stand.nif",
       "bytes": 561189,
-      "sha256": "e9d2dfc1646793510944fb53f1e9e4a85c67d0236abeb3bf9fb57106029fb356"
+      "sha256": "e18388641a37401350e907ffa641fa7c0d044c2ba05594e5ab33c77e917d4970"
     },
     {
       "path": "meshes/fetcher/synth/keyboard.nif",
@@ -150,13 +150,13 @@
     },
     {
       "path": "music-holder-report.json",
-      "bytes": 1585,
-      "sha256": "944ed5fe111221185324537db533fb75563f58a87fdc308a6b135bb9ce547783"
+      "bytes": 1653,
+      "sha256": "d2359ce245c6b19ab39ab01a38eba4d9da1401c2033039863027431fb62ff8e1"
     },
     {
       "path": "ORCHESTRA-ASSETS.txt",
-      "bytes": 6107,
-      "sha256": "d278777e6b999daeb6808afcdd605e4e9b5e657658e594daa8c3ce479582a04c"
+      "bytes": 6225,
+      "sha256": "3df87bdbeaced026dc4b0a685e80195915c90ca5dcaf338ec21a847b412bf7da"
     },
     {
       "path": "orchestra-report.json",
@@ -171,7 +171,7 @@
     {
       "path": "seated-keyboard-report.json",
       "bytes": 542,
-      "sha256": "70df3dccfea7a098dc27e007c12b8b6e38517ad053de397d5ea807469c2ae05f"
+      "sha256": "5a5a033cececbbe8ff8fb64f781b5b6f464fe05f95995141d2f57289a72261d2"
     },
     {
       "path": "sketchfab-models.json",

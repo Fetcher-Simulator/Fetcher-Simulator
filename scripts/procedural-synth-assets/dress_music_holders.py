@@ -13,10 +13,12 @@ bpy.ops.preferences.addon_enable(module='io_scene_mw')
 from es3 import nif
 sheet=assets/'meshes/fetcher/orchestra/sheet-music.nif';tag='Fetcher_Sheet_Music'
 report={}
-for path,position,angle,yaw in [
-    ('meshes/fetcher/synth/keyboard-stand.nif',(0,6.7,92),70,0),
-    ('meshes/fetcher/orchestra/keyboard-seated.nif',(0,6.7,68),70,0),
-    ('meshes/fetcher/orchestra/music-stand.nif',(0,.6,64.6),-70,180),
+for path,position,angle,yaw,scale in [
+    # Yamaha rest is offset from the keyboard center. Its back slopes at 76
+    # degrees; the pages sit just in front of it, above the retaining lip.
+    ('meshes/fetcher/synth/keyboard-stand.nif',(3.115,9.28,94.5),76,0,.86),
+    ('meshes/fetcher/orchestra/keyboard-seated.nif',(3.115,9.28,70.5),76,0,.86),
+    ('meshes/fetcher/orchestra/music-stand.nif',(0,.6,64.6),-70,180,1),
 ]:
     target=assets/path;stream=nif.NiStream();stream.load(target)
     assert isinstance(stream.root,nif.NiNode)
@@ -24,7 +26,7 @@ for path,position,angle,yaw in [
     original=sum(len(s.triangles) for s in stream.objects_of_type(nif.NiTriShapeData))
     paper=nif.NiStream();paper.load(sheet)
     rotation=np.array(Matrix.Rotation(math.radians(angle),3,'X')@Matrix.Rotation(math.radians(yaw),3,'Z'),dtype=np.float32)
-    node=nif.NiNode(name=tag,flags=2,translation=np.array(position,dtype=np.float32),rotation=rotation,children=paper.roots)
+    node=nif.NiNode(name=tag,flags=2,translation=np.array(position,dtype=np.float32),rotation=rotation,scale=scale,children=paper.roots)
     stream.root.children.append(node);stream.save(target)
     # Validate the serialized subtree, not just the in-memory graph.
     check=nif.NiStream();check.load(target)
@@ -39,7 +41,7 @@ for path,position,angle,yaw in [
         for child in getattr(o,'children',[]):visit(child,matrix)
     visit(check.root)
     report[path]={'baseTriangles':original,'sheetTriangles':212,'triangles':triangles,
-        'position':position,'tiltDegrees':angle,'yawDegrees':yaw,'bounds':[np.min(points,axis=0).tolist(),np.max(points,axis=0).tolist()],
+        'position':position,'tiltDegrees':angle,'yawDegrees':yaw,'scale':scale,'bounds':[np.min(points,axis=0).tolist(),np.max(points,axis=0).tolist()],
         'sha256':hashlib.sha256(target.read_bytes()).hexdigest()}
     if target.stem=='keyboard-seated':
         p=assets/'seated-keyboard-report.json';data=json.loads(p.read_text())
