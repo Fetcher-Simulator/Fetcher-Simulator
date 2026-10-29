@@ -374,11 +374,11 @@ function W:preset(index,id)
             local wasSample=t.params.sample~=nil
             t.params=params;t.presetId=id;self.project.soundSet=''
             if params.sample then t.followPrograms=false end
-            if t.kind=='drum' and params.sample then
+            if t.kind=='drum' and params.sample and not schema.isBank(params.sample) then
                 if t.note~=params.sample.root and self.native and self.playing then self.sequenceDirty=true end
                 t.note=params.sample.root
             elseif t.kind=='drum' and wasSample and params.drumType>0 then
-                local note=({36,38,42,46})[params.drumType]
+                local note=({36,38,42,46})[params.drumType] or t.note
                 if t.note~=note and self.native and self.playing then self.sequenceDirty=true end
                 t.note=note
             end

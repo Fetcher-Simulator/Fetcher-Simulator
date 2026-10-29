@@ -60,3 +60,12 @@ check(project.project(w.project).tracks[1].params.sample.hash==bank.state.sample
 check(w:undo() and w:redo() and schema.isBank(w.project.tracks[1].params.sample),'bank assignment supports undo and redo')
 state='Ready';check(Samples.status(synth,bank.state.sample).status=='Mismatch','different installed bank is explicitly mismatched')
 print('PASS sample validation, /s metadata, VFS categories, preview, identity, part assignment, persistence and readiness; '..checks..' assertions')
+local kitIndex
+for n,kit in ipairs(schema.kits) do if kit.name=='Recorded Acoustic' then kitIndex=n end end
+local kitW=W.new{configure=function() end,message=function() end,panic=function() end}
+check(kitIndex and kitW:addKit(kitIndex) and #kitW.project.tracks==10,'recorded kit adds ten independently mixed lanes')
+for _,track in ipairs(kitW.project.tracks) do check(schema.isBank(track.params.sample) and track.note~=60,'recorded kit preserves GM trigger pitches') end
+check(kitW:preset(4,'b:sampled-drum-kit') and kitW.project.tracks[4].note==46,'choosing a bank preset keeps open-hat pitch instead of reference root 60')
+check(project.project(kitW.project).tracks[4].params.sample.hash=='57fde34599e1a0562d255490162fecc2','recorded kit persists exact bank identity')
+check(kitW:undo() and kitW:undo() and #kitW.project.tracks==0,'kit creation and preset edit remain undoable')
+print('PASS recorded kit lane pitches, independent tracks, source identity and history')

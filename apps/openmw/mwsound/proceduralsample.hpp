@@ -16,6 +16,7 @@ namespace MWSound
         {
             unsigned char lowKey, highKey, lowVelocity, highVelocity, root, alternate, alternates;
             std::uint32_t start, length;
+            unsigned char flags = 0, group = 0, offBy = 0;
         };
         enum Status { Loading, Ready, Error };
         std::atomic<Status> status{Loading};

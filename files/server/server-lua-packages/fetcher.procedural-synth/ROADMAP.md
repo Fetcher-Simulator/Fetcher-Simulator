@@ -2,18 +2,26 @@
 
 Updated 2026-10-29. Completed work and subsequent planned slices are identified below.
 
+Package 49 adds recorded finger/picked bass, nylon/steel guitar and acoustic
+drum banks, plus opt-in Recorded Band Clean/Rock/Metal sound sets and a ten-lane
+Recorded Acoustic kit. Native API 19 adds per-zone one-shot tails and hi-hat
+choking across shared kit lanes. Six CC0 banks fit together inside the decoded
+PCM budget. Articulations/release triggers, sampled slap/pop, listening-based
+genre balancing, dedicated guitar/bass/kit models and live band acceptance
+remain within priority one; this does not complete that priority.
+
 Package 48 implements the first native multisample bank and optional recorded
 electric-guitar content: key/velocity zones, two alternate recordings per group,
 per-voice source cursors/root tuning, worker loading/cache bounds and three amp
 presets. Project/preset persistence and multiplayer use the existing fingerprinted
 sample reference. Dedicated bass, drums, nylon/steel banks, articulation controls,
-release triggers and curated multi-instrument sound sets remain next in priority
-one. The sampled guitar is optional and does not replace existing project sounds.
+release triggers and curated multi-instrument sound sets were its next step.
+The sampled guitar is optional and does not replace existing project sounds.
 
 Package 47 extends persistent dragging to every shared numeric control, track
 and band gain, timeline BPM and the monitor fill/percentage. Six pinned CC0
 source archives are acquired, with licenses, hashes, SFZ inventories and
-representative decode checks; no runtime multisample bank is installed yet.
+representative decode checks; that slice did not yet install a runtime bank.
 `scripts/procedural-synth-assets/sample-sources.json` records provenance.
 
 Package 46 fixes background refreshes dismissing dropdowns and Mixer master

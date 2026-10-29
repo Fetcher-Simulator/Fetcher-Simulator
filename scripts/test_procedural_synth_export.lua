@@ -35,6 +35,10 @@ local sampled=format.new();sampled.timeline={beats=4,tempos={{beat=0,tempo=50000
 sampled.tracks[1]=format.newTrack('piano','Recorded guitar',16);sampled.tracks[1].notes={{n=60,s=0,l=1,v=.8}}
 for _,p in ipairs(schema.builtins) do if p.id=='b:sampled-electric-clean' then sampled.tracks[1].params=p.state;sampled.tracks[1].presetId=p.id end end
 check(MIDI.parse(Export.encode(sampled,nil,MIDI,format)).programs['2:0']==27,'authored sampled guitar exports the clean-electric GM program')
+for id,program in pairs{['b:sampled-bass-finger']=33,['b:sampled-bass-picked']=34,['b:sampled-guitar-nylon']=24,['b:sampled-guitar-steel']=25} do
+    for _,p in ipairs(schema.builtins) do if p.id==id then sampled.tracks[1].params=p.state;sampled.tracks[1].presetId=id end end
+    check(MIDI.parse(Export.encode(sampled,nil,MIDI,format)).programs['2:0']==program,'authored recorded technique retains its GM export identity')
+end
 check(w:renameTrack(1,'Voice chop') and w.generation==generation+1,'explicit undoable track rename')
 check(w:undo() and w.project.tracks[1].name==old and w:redo() and w.project.tracks[1].name=='Voice chop','rename undo/redo')
 check(format.project(w.project).tracks[1].name=='Voice chop' and MIDI.parse(Export.encode(w.project,nil,MIDI,format)).names[2]=='Voice chop','name persists in project and MIDI')

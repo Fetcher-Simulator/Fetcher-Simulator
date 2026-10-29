@@ -78,6 +78,8 @@ namespace MWSound
             double samplePosition = 0;
             unsigned sampleStart = 0, sampleLength = 0;
             int sampleRoot = 60;
+            bool sampleOneShot = false;
+            unsigned char sampleGroup = 0;
             double filter1 = 0, filter2 = 0;
             double pitchEnvelope = 1;
             std::uint32_t noise = 0x9e3779b9u;
@@ -113,6 +115,8 @@ namespace MWSound
         std::vector<std::shared_ptr<ProceduralSample>> mSamplePins;
         bool sampleReady() const;
         void syncSample(); // mMutex held, audio thread only
+        const ProceduralSample::Zone* sampleZone(int note, float velocity, bool advance);
+        void chokeSamples(unsigned group);
         State mTarget{}, mCurrent{};
         // Score-owned overrides are audio-thread state, separate from the editable patch.
         static constexpr unsigned ControlCount = ParameterCount + 5;

@@ -134,6 +134,7 @@ namespace MWSound
         std::atomic<long long> mAlive{ 0 };
         void clearVoices();
         void trigger(const Note& note);
+        void chokeSampleGroup(unsigned track, int pitch, float velocity);
         void releaseDue();
     };
 }

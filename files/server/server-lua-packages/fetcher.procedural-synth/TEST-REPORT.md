@@ -1,5 +1,28 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 29: recorded band banks (package 49 / native API 19)
+
+Five added CC0 banks validate through the production reader: finger/picked bass
+(60 zones each), nylon/steel guitar (48 each) and drums (120). With electric DI,
+decoded PCM totals 238,012,916 bytes, below the 256-MiB shared reservation limit.
+Per-bank manifests record pinned input/output hashes, original sample hashes,
+retained roots/velocities/alternates and conversion limits. Native WAV auditions
+were rendered for all five added banks. Autocorrelation checks on twenty low
+roots confirm bass octave correction and acoustic pitch mapping (within 11 cents
+for the measured roots). This is not a full subjective listening acceptance.
+
+The full native DSP suite passes, including v1 compatibility, v2 malformed flags/
+groups/reserved fields, one-shot note-off/repeated-hit overlap, self/cross-lane
+hat choke for live and compiled notes, and isolation of another bank. All 28 Lua
+suites pass, including exact GM recorded mapping, unsupported-piece/technique
+fallbacks, bass octave behavior, ten-lane kit pitches, persistence/Undo and GM
+export identities. A RelWithDebInfo `openmw` build succeeds.
+
+The usual port-25567 fixture is installed without reopening the client. User
+state is hash-checked during installation. These checks do not constitute a live
+two-client playback or listening test; no public release/workflow/VPS rollout
+was performed. Detailed logs and installation evidence are under `build/`.
+
 ## October 29: first recorded instrument bank (package 48 / native API 18)
 
 The first optional bank adapts FreePats FSBS Electric Guitar Direct 2022-09-11

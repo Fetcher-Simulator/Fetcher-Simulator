@@ -1,7 +1,7 @@
 {
   "acquired": "2026-10-29",
   "license": "CC0-1.0",
-  "status": "source acquisition only; no runtime bank yet",
+  "status": "curated native electric, finger/picked bass, nylon/steel guitar and drum banks in optional-assets/fetcher.studio-samples; Growlybass articulation source remains unintegrated",
   "sources": [
     {
       "repository": "freepats/electric-guitar-FSBS-direct",

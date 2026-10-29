@@ -185,6 +185,19 @@ for _,entry in ipairs{{'sampled-electric-clean','Sampled Electric Clean',0,0,1,.
         sample={path='sound/fetcher/banks/electric-di-v1.fsb',offset=0,duration=1,root=60,oneShot=false,hash='969e921873764a7fb7a112d9574d3dfe'}})
     M.builtins[#M.builtins].midiProgram=entry[7]
 end
+for _,entry in ipairs{
+    {'sampled-bass-finger','Sampled Finger Bass','Bass','bass-finger-v1','39efa33c8b8f5daf6ac4d7dd976b2f8a',33},
+    {'sampled-bass-picked','Sampled Picked Bass','Bass','bass-picked-v1','b7f0d9845a771ae849ba6a4eea3665da',34},
+    {'sampled-guitar-nylon','Sampled Classical Nylon','Guitar','guitar-nylon-v1','cd9934832ec1764a29047688618930b5',24},
+    {'sampled-guitar-steel','Sampled Acoustic Steel','Guitar','guitar-steel-v1','cdbfbd10733a5c4e6a8a3eb567ef59b8',25},
+    {'sampled-drum-kit','Sampled Acoustic Drum Kit','Drums','drum-kit-v1','57fde34599e1a0562d255490162fecc2'},
+} do
+    add(entry[1],entry[2],entry[3],'CC Sampled Instruments',{attack=.002,decay=.2,sustain=1,release=.12,
+        cutoff=18000,volume=entry[4]=='guitar-nylon-v1' and .9 or .8,polyphony=8,
+        gain=entry[3]=='Guitar' and 2 or 1.25,fxOutput=entry[4]=='guitar-nylon-v1' and 2 or (entry[4]=='guitar-steel-v1' and 1.5 or 1),
+        sample={path='sound/fetcher/banks/'..entry[4]..'.fsb',offset=0,duration=1,root=60,oneShot=false,hash=entry[5]}})
+    M.builtins[#M.builtins].midiProgram=entry[6]
+end
 for _, preset in ipairs(M.builtins) do
     preset.state = assert(M.state(preset.state),'Invalid built-in: '..preset.id)
     preset.bank=preset.bank or 'General';preset.role=preset.role or (preset.state.drumType>0 and 'Drums' or 'Synth')
@@ -208,4 +221,7 @@ for _,entry in ipairs{{'Full Acoustic','b:kit-kick','b:kit-snare'},{'Full Metal'
     for _,lane in ipairs(kitNotes) do kit.lanes[#kit.lanes+1]={name=lane[1],note=lane[2],id=type(lane[3])=='number' and kit.ids[lane[3]] or lane[3]} end
     M.kits[#M.kits+1]=kit
 end
+local sampledKit={name='Recorded Acoustic',ids={'b:sampled-drum-kit','b:sampled-drum-kit','b:sampled-drum-kit','b:sampled-drum-kit'},lanes={}}
+for _,lane in ipairs(kitNotes) do sampledKit.lanes[#sampledKit.lanes+1]={name=lane[1],note=lane[2],id='b:sampled-drum-kit'} end
+M.kits[#M.kits+1]=sampledKit
 return M

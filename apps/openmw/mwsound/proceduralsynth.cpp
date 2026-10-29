@@ -227,31 +227,43 @@ namespace MWSound
         mSampleCurrent = mSampleTarget;
         mSampleAlternates.fill(0);
     }
+    const ProceduralSample::Zone* ProceduralSynth::sampleZone(int note,float value,bool advance)
+    {
+        if(!sampleReady())return nullptr;
+        const auto& zones=mSampleCurrent.data->zones;
+        const int velocity=std::clamp(static_cast<int>(std::lround(value*127)),1,127);
+        for(std::size_t index=0;index<zones.size();++index)
+        {
+            const auto& z=zones[index];
+            if(note<z.lowKey || note>z.highKey || velocity<z.lowVelocity || velocity>z.highVelocity)continue;
+            if(!advance)return &z;
+            const unsigned alternate=mSampleAlternates[index]++%z.alternates;
+            for(const auto& candidate:zones)if(candidate.lowKey==z.lowKey && candidate.highKey==z.highKey
+                && candidate.lowVelocity==z.lowVelocity && candidate.highVelocity==z.highVelocity
+                && candidate.alternate==alternate)return &candidate;
+            break;
+        }
+        return nullptr;
+    }
+    void ProceduralSynth::chokeSamples(unsigned group)
+    {
+        if(!group)return;
+        for(auto& voice:mVoices)if(voice.note>=0 && voice.sampleGroup==group)
+            {voice.amp.release();voice.filter.release();voice.drumChoke=true;}
+    }
     void ProceduralSynth::apply(Command command)
     {
         if (mSampleCurrent.data && command.velocity >= 0 && !sampleReady()) return;
-        const ProceduralSample::Zone* zone=nullptr;
-        if(mSampleCurrent.data && command.velocity>=0 && !mSampleCurrent.data->zones.empty())
-        {
-            const auto& zones=mSampleCurrent.data->zones;
-            const int velocity=std::clamp(static_cast<int>(std::lround(command.velocity*127)),1,127);
-            for(std::size_t index=0;index<zones.size();++index)
-            {
-                const auto& z=zones[index];
-                if(command.note<z.lowKey || command.note>z.highKey || velocity<z.lowVelocity || velocity>z.highVelocity)continue;
-                const unsigned alternate=mSampleAlternates[index]++%z.alternates;
-                for(const auto& candidate:zones)if(candidate.lowKey==z.lowKey && candidate.highKey==z.highKey
-                    && candidate.lowVelocity==z.lowVelocity && candidate.highVelocity==z.highVelocity
-                    && candidate.alternate==alternate) {zone=&candidate;break;}
-                break;
-            }
-            if(!zone)return; // unmapped notes stay silent, never become an oscillator
-        }
+        const auto* zone=command.velocity>=0?sampleZone(command.note,command.velocity,true):nullptr;
+        if(mSampleCurrent.data && command.velocity>=0 && !mSampleCurrent.data->zones.empty() && !zone)return;
+        if(zone)chokeSamples(zone->offBy);
+        const bool oneShot=mSampleCurrent.oneShot || (zone && (zone->flags&1));
         const auto sampleVoice=[&](Voice& voice) {
             if(!mSampleCurrent.data)return;
             voice.sampleStart=zone?zone->start:0;
             voice.sampleLength=zone?zone->length:static_cast<unsigned>(mSampleCurrent.data->pcm.size());
             voice.sampleRoot=zone?zone->root:mSampleCurrent.root;
+            voice.sampleOneShot=oneShot;voice.sampleGroup=zone?zone->group:0;
         };
         for (auto& voice : mVoices)
             if (voice.note == command.note)
@@ -259,7 +271,7 @@ namespace MWSound
                 if (command.velocity < 0)
                 {
                     // Drum hits are one-shots. MIDI gate length must not cut their tails.
-                    if (voice.drumType == 0 && !(mSampleCurrent.data && mSampleCurrent.oneShot))
+                    if (voice.drumType == 0 && !voice.sampleOneShot)
                     {
                         voice.amp.release();
                         voice.filter.release();
@@ -269,7 +281,7 @@ namespace MWSound
                 // Repeated drum hits overlap within the voice budget. Their note-off
                 // events do not own a shared gate, unlike melodic notes.
                 if (voice.drumType != 0 || (!mSampleCurrent.data && mCurrent[DrumType] != 0)
-                    || (mSampleCurrent.data && mSampleCurrent.oneShot))
+                    || (mSampleCurrent.data && (oneShot || voice.sampleOneShot)))
                     continue;
                 if (mSampleCurrent.data) { voice = Voice{}; voice.samplePosition = 0; }
                 sampleVoice(voice);

@@ -23,6 +23,13 @@ for _,s in ipairs{
     set('funk','Funk',8,'studio-organ','bass-finger','guitar-funk','studio-strings','guitar-clean','synthwave-pad','studio-keys','studio-brass','studio-reed','studio-organ'),
     set('acoustic','Acoustic / Classical',6,'studio-keys','bass-acoustic','guitar-steel','studio-strings','guitar-nylon','pad','studio-keys','studio-brass','studio-reed','studio-organ'),
 } do M.entries[#M.entries+1]=s end
+for _,entry in ipairs{{'recorded-clean','Recorded Band / Clean','sampled-electric-clean'},
+    {'recorded-rock','Recorded Band / Rock','sampled-electric-crunch'},
+    {'recorded-metal','Recorded Band / Metal','sampled-electric-metal'}} do
+    local s=set(entry[1],entry[2],9,'studio-keys','sampled-bass-finger',entry[3],'studio-strings',entry[3],'pad','glass-bell','studio-brass','studio-reed','studio-organ')
+    s.recorded=true;M.entries[#M.entries+1]=s
+end
+local recordedDrums={};for _,note in ipairs{35,36,37,38,40,41,42,43,44,45,46,47,48,49,50,51,52,53,57,59} do recordedDrums[note]=true end
 local builtins={};for _,p in ipairs(schema.builtins) do builtins[p.id]=p end
 local percussion={
     [35]='kick',[36]='kick',[37]='rim',[38]='snare',[39]='clap',[40]='snare',
@@ -84,11 +91,23 @@ function M.assignment(id,role,midi,note,instrument,program)
     -- Timpani is pitched percussion despite sharing GM's broad strings group.
     -- Preserve it across genres rather than substituting a sustained string pad.
     if program==47 and not percussionRoles[role] then presetId='b:orchestra-timpani' end
+    if s.recorded then
+        if percussionRoles[role] and recordedDrums[note] then presetId='b:sampled-drum-kit'
+        elseif role=='guitar' then
+            local recorded={[24]='sampled-guitar-nylon',[25]='sampled-guitar-steel',[27]='sampled-electric-clean',
+                [29]=s.patches.guitar,[30]=s.patches.guitar}
+            if recorded[program] then presetId='b:'..recorded[program] end
+        elseif role=='bass' and (program==33 or program==34) then
+            presetId=program==33 and 'b:sampled-bass-finger' or 'b:sampled-bass-picked'
+        elseif role=='bass' and (program==38 or program==39) then
+            presetId=program==38 and 'b:house-bass' or 'b:acid-bass'
+        end
+    end
     local p=builtins[presetId];if not p then return end
     local state=schema.state(p.state);state.polyphony=math.min(8,state.polyphony)
     -- MIDI bass notes already encode the written octave. Performance presets
     -- lower the keyboard by an octave for manual playing; undo that here.
-    if midi and role=='bass' and p.role=='Bass' then state.tune1=state.tune1+12;state.tune2=state.tune2+12 end
+    if midi and role=='bass' and p.role=='Bass' and not state.sample then state.tune1=state.tune1+12;state.tune2=state.tune2+12 end
     if role=='tom' then state.bodyFrequency=M.tomFrequencies[note] or 130 end
     return assert(schema.state(state)),presetId
 end

@@ -172,6 +172,15 @@ namespace MWSound
                 for (auto& voice : track->mVoices) { voice.amp.release(); voice.filter.release(); voice.drumChoke = true; }
         }
     }
+    void ProceduralStudio::chokeSampleGroup(unsigned n,int pitch,float velocity)
+    {
+        auto source=std::atomic_load(&mTracks[n]);if(!source)return;
+        const auto* zone=source->sampleZone(pitch,velocity,false);
+        if(!zone || !zone->offBy)return;
+        for(unsigned other=0;other<MaxTracks;++other)if(other!=n)
+            if(auto target=std::atomic_load(&mTracks[other]);target && target->mSampleCurrent.data==source->mSampleCurrent.data)
+                target->chokeSamples(zone->offBy);
+    }
     void ProceduralStudio::trigger(const Note& note)
     {
         auto track = std::atomic_load(&mTracks[note.track - 1]);
@@ -186,6 +195,7 @@ namespace MWSound
                 }
         const unsigned n = note.track - 1;
         ++mHeld[n][note.pitch]; mNoteBits[n][note.pitch / 64].fetch_or(std::uint64_t(1) << (note.pitch % 64));
+        chokeSampleGroup(n,note.pitch,note.velocity/127.f);
         track->apply({ note.pitch, note.velocity / 127.f }); ++mStrikes;
         mOffs[mOffCount++] = { mTime + note.duration, n, note.pitch, mGeneration[n] };
         std::push_heap(mOffs.begin(), mOffs.begin() + mOffCount);
@@ -347,6 +357,7 @@ namespace MWSound
                             if (command.velocity>=0)
                             {
                                 mReturns.resume();mNoteBits[command.track][command.pitch/64].fetch_or(mask);
+                                chokeSampleGroup(command.track,command.pitch,command.velocity);
                                 track->apply({command.pitch,command.velocity});
                             }
                             else if (!mHeld[command.track][command.pitch])

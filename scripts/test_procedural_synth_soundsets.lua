@@ -16,6 +16,27 @@ for _,s in ipairs(sets.entries) do
     end
 end
 local scheduled=0;local message
+for _,style in ipairs{'recorded-clean','recorded-rock','recorded-metal'} do
+    for program,id in pairs{[24]='sampled-guitar-nylon',[25]='sampled-guitar-steel',[27]='sampled-electric-clean',[33]='sampled-bass-finger',[34]='sampled-bass-picked'} do
+        local state,preset=sets.assignment(style,sets.role{program=program},true,nil,nil,program)
+        check(preset=='b:'..id and schema.isBank(state.sample),'recorded band maps exact GM technique to bank')
+        check(state.tune1==0,'recorded pitches never receive the procedural bass octave correction')
+    end
+    for _,note in ipairs{35,36,37,38,40,41,42,43,44,45,46,47,48,49,50,51,52,53,57,59} do
+        local state,id=sets.assignment(style,sets.role{channel=9,note=note},true,note)
+        check(id=='b:sampled-drum-kit' and schema.isBank(state.sample),'recorded kit covers its actual GM zone')
+    end
+    for _,note in ipairs{39,54,55,56,63,70,83} do
+        local state=sets.assignment(style,sets.role{channel=9,note=note},true,note)
+        check(not state.sample,'unrecorded percussion keeps audible procedural fallback')
+    end
+    for _,program in ipairs{32,35,36,37,38,39} do
+        check(not sets.assignment(style,'bass',true,nil,nil,program).sample,'unrecorded bass techniques retain procedural fallback')
+    end
+end
+local _,rock=sets.assignment('recorded-rock','guitar',true,nil,nil,30)
+local _,metal=sets.assignment('recorded-metal','guitar',true,nil,nil,30)
+check(rock=='b:sampled-electric-crunch' and metal=='b:sampled-electric-metal','recorded genre set changes the electric amp character')
 local w=W.new{configure=function() end,prune=function() end,effects=function() end,panic=function() end,
     stopSequence=function() end,progress=function() return true,0,0 end,schedule=function() scheduled=scheduled+1;return true end,
     message=function(s) message=s end,save=function() end,importMidi=function() end}

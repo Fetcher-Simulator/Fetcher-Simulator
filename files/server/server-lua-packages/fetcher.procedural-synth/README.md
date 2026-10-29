@@ -44,6 +44,24 @@ Use Sound for tuning/envelope/filter/amp edits; unused oscillator controls are
 replaced by a recorded-source panel. Bank zones cannot be trimmed as though
 they were one voice-line excerpt.
 
+## Recorded instruments (package 49 / native API 19)
+
+The optional `fetcher.studio-samples` content now includes electric DI,
+finger/picked bass, classical nylon, acoustic steel and an acoustic drum kit,
+all adapted from CC0 recordings. Choose **Recorded Band / Clean**, **Recorded
+Band / Rock** or **Recorded Band / Metal** in Mixer's Sound set dropdown, or
+select a **Sampled** preset from **CC Sampled Instruments**. Drums → Kit →
+**Recorded Acoustic**, then **+ Kit**, adds ten lanes. Existing sound sets and
+saved patches retain their sounds. Unsupported sampled techniques/percussion
+keep synthesized fallbacks in recorded sound sets.
+
+Recorded hats choke across kit lanes within the same output. One-shot drum
+tails overlap independently of MIDI note length; melodic samples use note gates.
+Bank drum assignments retain their GM pitch rather than using reference root 60.
+Sources, licenses, memory figures, key ranges and adaptation limits are in
+`files/server/optional-assets/fetcher.studio-samples/README.md`. These local banks
+must be included in a matching content release before public testers have them.
+
 ## Guitar, bass and full-kit sound foundations
 
 Package 44 adds Classical Nylon, Acoustic Steel, Classic Heavy Rhythm, Tight

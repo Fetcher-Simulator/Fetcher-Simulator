@@ -1,0 +1,85 @@
+{
+  "license": "CC0-1.0",
+  "nativeApi": 19,
+  "decodedBytesAllBanks": 238012916,
+  "banks": [
+    {
+      "id": "electric-di-v1",
+      "path": "sound/fetcher/banks/electric-di-v1.fsb",
+      "bytes": 34061890,
+      "sha256": "ec12a88cadebae530d58772f6a6c29fb77cef5fed97b4da3b88f831e46884924",
+      "native": {
+        "hash": "969e921873764a7fb7a112d9574d3dfe",
+        "zones": 60,
+        "pcmBytes": 68121812
+      },
+      "source": "https://freepats.zenvoid.org/ElectricGuitar/clean-electric-guitar.html",
+      "description": "FreePats electric DI: two real alternates and original velocity layers, six-second tails."
+    },
+    {
+      "id": "bass-finger-v1",
+      "path": "sound/fetcher/banks/bass-finger-v1.fsb",
+      "bytes": 17281224,
+      "sha256": "422fac5ac229bb9556c81d4f55fba4077f824b6d77d1f6b704a6ca57279557fb",
+      "native": {
+        "hash": "39efa33c8b8f5daf6ac4d7dd976b2f8a",
+        "zones": 60,
+        "pcmBytes": 34560000
+      },
+      "source": "https://shop.karoryfer.com/pages/free-black-and-blue-basses",
+      "description": "Regular finger/pick plucks, two velocity layers/two real alternates, roots shifted down 12 to match recorded concert pitch; no release/ghost/keyswitch layers."
+    },
+    {
+      "id": "bass-picked-v1",
+      "path": "sound/fetcher/banks/bass-picked-v1.fsb",
+      "bytes": 17281224,
+      "sha256": "39cb4344575b037497c0b091434b64ff1c8bacae4f43886e7eabba05464165c4",
+      "native": {
+        "hash": "b7f0d9845a771ae849ba6a4eea3665da",
+        "zones": 60,
+        "pcmBytes": 34560000
+      },
+      "source": "https://shop.karoryfer.com/pages/free-black-and-blue-basses",
+      "description": "Regular finger/pick plucks, two velocity layers/two real alternates, roots shifted down 12 to match recorded concert pitch; no release/ghost/keyswitch layers."
+    },
+    {
+      "id": "guitar-nylon-v1",
+      "path": "sound/fetcher/banks/guitar-nylon-v1.fsb",
+      "bytes": 13951172,
+      "sha256": "8891d7ef5d67dea0ae4768feda1f2b4a728ee31ebe53ea31f0d276e8aa772983",
+      "native": {
+        "hash": "cd9934832ec1764a29047688618930b5",
+        "zones": 48,
+        "pcmBytes": 27900376
+      },
+      "source": "https://github.com/facebookincubator/Meta-open-sound",
+      "description": "Channel-1 first-position string selection, three recorded velocity layers; hard layer splits, gated MIDI notes and keyboard polyphony. Stereo averaged to mono. No invented round robins or SFZ keyswitch/string choking."
+    },
+    {
+      "id": "guitar-steel-v1",
+      "path": "sound/fetcher/banks/guitar-steel-v1.fsb",
+      "bytes": 15700348,
+      "sha256": "b0746851307c28e1a375e157045266d089c5c0d44244f28a89fc4b40abb46dad",
+      "native": {
+        "hash": "cdbfbd10733a5c4e6a8a3eb567ef59b8",
+        "zones": 48,
+        "pcmBytes": 31398728
+      },
+      "source": "https://github.com/facebookincubator/Meta-open-sound",
+      "description": "Channel-1 first-position string selection, three recorded velocity layers; hard layer splits, gated MIDI notes and keyboard polyphony. Stereo averaged to mono. No invented round robins or SFZ keyswitch/string choking."
+    },
+    {
+      "id": "drum-kit-v1",
+      "path": "sound/fetcher/banks/drum-kit-v1.fsb",
+      "bytes": 20738424,
+      "sha256": "5eaa1b1b15759a2e8460f2732fad63bc4a5d8ee2c4b31f52d2714ec93dce6969",
+      "native": {
+        "hash": "57fde34599e1a0562d255490162fecc2",
+        "zones": 120,
+        "pcmBytes": 41472000
+      },
+      "source": "https://shop.karoryfer.com/pages/free-big-rusty-drums",
+      "description": "Three selected velocity layers/two recorded alternates; close mics only, snare top mic. GM aliases share recordings. Open hats choke within/across lanes; closed/pedal hats stop open hats. One-shot tails ignore note gates."
+    }
+  ]
+}

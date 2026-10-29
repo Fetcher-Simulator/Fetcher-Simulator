@@ -9,9 +9,10 @@
 
 namespace MWSound
 {
-    // Fetcher sample bank v1: bounded little-endian note/velocity zones followed
+    // Fetcher sample bank v1/v2: bounded little-endian note/velocity zones followed
     // by mono 48-kHz signed 16-bit PCM. No paths, scripts, SFZ or external data.
-    // Loader thread only; Ready publication makes both vectors immutable.
+    // V2 adds per-zone one-shot and choke groups. Loader thread only;
+    // Ready publication makes both vectors immutable.
     inline void readInstrument(std::istream& stream, std::uint64_t bytes, ProceduralSample& out,
         const std::function<void(std::size_t)>& reserve)
     {
@@ -21,10 +22,11 @@ namespace MWSound
             return value;
         };
         std::array<char,8> magic{};stream.read(magic.data(),magic.size());
-        if(magic!=std::array<char,8>{'F','S','B','A','N','K','1',0})throw std::runtime_error("Invalid instrument bank signature");
+        const bool version2=magic==std::array<char,8>{'F','S','B','A','N','K','2',0};
+        if(!version2 && magic!=std::array<char,8>{'F','S','B','A','N','K','1',0})throw std::runtime_error("Invalid instrument bank signature");
         const auto zones=number(4),frames=number(4),rate=number(4),reserved=number(4);
         if(!zones || zones>512 || frames<2 || frames>32u*1024*1024 || rate!=48000 || reserved
-            || bytes!=24ull+zones*16ull+frames*2ull)throw std::runtime_error("Invalid instrument bank bounds");
+            || bytes!=24ull+zones*(version2?20ull:16ull)+frames*2ull)throw std::runtime_error("Invalid instrument bank bounds");
         out.zones.reserve(zones);
         for(unsigned n=0;n<zones;++n)
         {
@@ -32,10 +34,13 @@ namespace MWSound
             const auto byte=[&] {return static_cast<unsigned char>(number(1));};
             z.lowKey=byte();z.highKey=byte();z.lowVelocity=byte();z.highVelocity=byte();
             z.root=byte();z.alternate=byte();z.alternates=byte();const auto flags=number(1);
+            unsigned extra=0;
+            if(version2) {z.flags=static_cast<unsigned char>(flags);z.group=byte();z.offBy=byte();extra=number(2);}
             z.start=number(4);z.length=number(4);
             if(z.lowKey>z.highKey || z.highKey>127 || !z.lowVelocity || z.lowVelocity>z.highVelocity
                 || z.highVelocity>127 || z.root>127 || !z.alternates || z.alternates>8 || z.alternate>=z.alternates
-                || flags || z.length<2 || z.length>1440000 || std::uint64_t(z.start)+z.length>frames)
+                || (version2 ? flags>1 || z.group>15 || z.offBy>15 || extra : flags!=0)
+                || z.length<2 || z.length>1440000 || std::uint64_t(z.start)+z.length>frames)
                 throw std::runtime_error("Invalid instrument sample zone");
             for(const auto& previous:out.zones)
             {
@@ -43,7 +48,8 @@ namespace MWSound
                     && z.lowVelocity<=previous.highVelocity && previous.lowVelocity<=z.highVelocity;
                 if(overlaps && (z.lowKey!=previous.lowKey || z.highKey!=previous.highKey
                     || z.lowVelocity!=previous.lowVelocity || z.highVelocity!=previous.highVelocity
-                    || z.alternates!=previous.alternates || z.alternate==previous.alternate))
+                    || z.alternates!=previous.alternates || z.alternate==previous.alternate
+                    || z.flags!=previous.flags || z.group!=previous.group || z.offBy!=previous.offBy))
                     throw std::runtime_error("Ambiguous instrument sample zones");
             }
             out.zones.push_back(z);
