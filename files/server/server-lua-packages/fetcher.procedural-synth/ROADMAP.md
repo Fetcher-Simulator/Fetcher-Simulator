@@ -2,6 +2,16 @@
 
 Updated 2026-10-29. Completed work and subsequent planned slices are identified below.
 
+Package 50 adds modeled palm damping to recorded melodic bank notes through the
+existing stringMute/stringDecay/stringDamping controls, with exact zero bypass,
+live/native automation, short gate-release presets, muted rock/metal/funk sounds,
+a separate electric lead and a Recorded Band / Funk set. GM muted-electric parts
+receive the corresponding muted preset. Recorded-set changes safely disable
+incompatible MIDI program following and recompile an active program-following
+score. This is DSP applied to existing recordings; dedicated muted/release/slap
+recordings, string-aware strums/legato, listening-based balance and new physical
+models remain within priority one. Client API 20 is required for this behavior.
+
 Package 49 adds recorded finger/picked bass, nylon/steel guitar and acoustic
 drum banks, plus opt-in Recorded Band Clean/Rock/Metal sound sets and a ten-lane
 Recorded Acoustic kit. Native API 19 adds per-zone one-shot tails and hi-hat

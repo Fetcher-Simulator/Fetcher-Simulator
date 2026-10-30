@@ -22,8 +22,18 @@ int main(int argc,char** argv)
         if(argc<3)return 0;
         MWSound::ProceduralSynth synth;synth.set("attack",.002f);synth.set("sustain",1);synth.set("release",.12f);synth.set("cutoff",16000);synth.set("polyphony",8);
         const std::string mode=argc>3?argv[3]:"clean";
-        const bool metal=mode=="metal";
+        const bool metal=mode=="metal" || mode=="metal-muted";
         synth.set("volume",metal?.5f:.7f);synth.set("driveType",metal?2:0);synth.set("drive",metal?29:0);synth.set("cabinet",metal?3:mode=="clean"?1:0);
+        if(mode=="metal-muted") {synth.set("drive",30);synth.set("stringMute",.8f);synth.set("stringDecay",.8f);synth.set("stringDamping",.5f);synth.set("release",.015f);}
+        if(mode=="rock" || mode=="rock-muted") {
+            synth.set("volume",.6f);synth.set("driveType",1);synth.set("drive",22);synth.set("cabinet",2);
+            if(mode=="rock-muted") {synth.set("stringMute",.5f);synth.set("stringDecay",1.1f);synth.set("stringDamping",.3f);synth.set("release",.025f);}
+        }
+        if(mode=="funk" || mode=="funk-muted") {
+            synth.set("volume",.85f);synth.set("cabinet",1);
+            if(mode=="funk-muted") {synth.set("stringMute",.6f);synth.set("stringDecay",.75f);synth.set("stringDamping",.55f);synth.set("release",.025f);}
+        }
+        if(mode=="lead") {synth.set("volume",.5f);synth.set("driveType",2);synth.set("drive",25);synth.set("cabinet",2);synth.set("release",.2f);}
         if(mode=="bass" || mode=="drums" || mode=="acoustic") {
             const bool nylon=std::string(argv[1]).find("nylon")!=std::string::npos;
             synth.set("cutoff",18000);synth.set("volume",nylon?.9f:.8f);synth.set("gain",mode=="acoustic"?2:1.25f);
@@ -33,10 +43,22 @@ int main(int argc,char** argv)
         std::vector<float> pcm;
         auto render=[&](unsigned frames){const auto at=pcm.size();pcm.resize(at+frames);for(unsigned n=0;n<frames;n+=480)synth.render(pcm.data()+at+n,std::min(480u,frames-n));};
         render(4800);
+        if(argc>4 && std::string(argv[4])=="riff") {
+            const std::array<int,8> roots{40,40,43,40,45,43,40,47};
+            for(unsigned step=0;step<64;++step) {
+                const int root=roots[step%roots.size()];const bool chord=step%4==0;
+                synth.noteOn(root,step%2?.6f:.9f);
+                if(chord) {synth.noteOn(root+7,.8f);synth.noteOn(root+12,.75f);}
+                render(3600);synth.noteOff(root);if(chord) {synth.noteOff(root+7);synth.noteOff(root+12);}render(2400);
+            }
+            for(int note:{40,47,52})synth.noteOn(note,.8f);
+            render(48000);for(int note:{40,47,52})synth.noteOff(note);render(24000);
+        } else {
         const std::vector<int> notes=mode=="bass"?std::vector<int>{28,35,40,43,47,52}
             :mode=="drums"?std::vector<int>{36,38,37,43,47,50,46,42,44,49,51,53,52,57,59}
             :std::vector<int>{40,48,55,60,67,72};
         for(int note:notes)for(float velocity:{.4f,.85f}) {synth.noteOn(note,velocity);render(24000);synth.noteOff(note);render(12000);}
+        }
         std::ofstream out(argv[2],std::ios::binary);
         auto number=[&](std::uint32_t n,unsigned count){for(unsigned i=0;i<count;++i)out.put(char(n>>(8*i)));};
         out.write("RIFF",4);number(36+pcm.size()*2,4);out.write("WAVEfmt ",8);number(16,4);number(1,2);number(1,2);number(48000,4);number(96000,4);number(2,2);number(16,2);out.write("data",4);number(pcm.size()*2,4);

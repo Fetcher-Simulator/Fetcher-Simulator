@@ -263,6 +263,7 @@ namespace MWSound
             voice.sampleStart=zone?zone->start:0;
             voice.sampleLength=zone?zone->length:static_cast<unsigned>(mSampleCurrent.data->pcm.size());
             voice.sampleRoot=zone?zone->root:mSampleCurrent.root;
+            voice.sampleRootFrequency=440*std::exp2((voice.sampleRoot-69)/12.0);
             voice.sampleOneShot=oneShot;voice.sampleGroup=zone?zone->group:0;
         };
         for (auto& voice : mVoices)
@@ -474,6 +475,11 @@ namespace MWSound
             const double noiseHigh = hasDrumVoices ? 1 - std::exp(-2 * Pi * mCurrent[NoiseHighpass] / SampleRate) : 0;
             const double noiseLow = hasDrumVoices ? 1 - std::exp(-2 * Pi * mCurrent[NoiseLowpass] / SampleRate) : 0;
             const double pitchDecay = hasTonalVoices ? std::exp(-1.0 / (SampleRate * mCurrent[27])) : 0;
+            // Reuse the existing string controls for modeled damping of gated
+            // bank notes. Zero is an exact bypass for existing sampled patches.
+            const double sampleMute=sampleAvailable && !mSampleCurrent.data->zones.empty()?mCurrent[StringMute]:0;
+            const double sampleLoss=sampleMute>0?std::exp(-6.907755*sampleMute
+                /(SampleRate*mCurrent[StringDecay]*(1-.9*sampleMute))):1;
             double mixed = 0;
             for (std::size_t i = 0; i < mVoices.size(); ++i)
             {
@@ -581,6 +587,18 @@ namespace MWSound
                         (v.sampleLength - 1 - v.samplePosition) / std::max(96.0, 96 * step)});
                     const auto first=v.sampleStart+at;
                     sample = (pcm[first] + (pcm[first + 1] - pcm[first]) * fraction) * fade;
+                    if(!v.sampleOneShot) {
+                        if(sampleMute>0) {
+                            const double frequency=std::clamp(v.sampleRootFrequency*step
+                                *(8-5*mCurrent[StringDamping]),200.0,12000.0);
+                            const double g=2*Pi*frequency/SampleRate;
+                            v.sampleMuteLow+=(sample-v.sampleMuteLow)*g/(1+g);
+                            sample+=(v.sampleMuteLow-sample)*sampleMute;
+                            v.sampleMuteEnvelope=ProceduralDsp::silence(v.sampleMuteEnvelope*sampleLoss);
+                        } else v.sampleMuteLow=sample;
+                        sample*=v.sampleMuteEnvelope;
+                        if(v.sampleMuteEnvelope<.00001) {v=Voice{};continue;}
+                    }
                     v.samplePosition += step;
                 }
                 else if (v.instrumentType != 0)

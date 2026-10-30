@@ -268,8 +268,15 @@ function E:render()
             content[#content+1]=label(params.sample.path:match('([^/]+)$'),x1,220,col-20,11,colors.muted)
             slider('tune1','Tune',x1,265,col/2-18);slider('fine1','Fine cents',x1+col/2-5,265,col/2-18)
             slider('pitchAmount','Pitch env',x1,325,col/2-18);slider('pitchDecay','Pitch decay',x1+col/2-5,325,col/2-18)
-            content[#content+1]=label('Use Effects for amplifier and speaker.',x1,395,col-20,11,colors.muted)
-            content[#content+1]=label('Choose a preset to change the source.',x1,430,col-20,11,colors.muted)
+            if schema.sampledStrings[params.sample.path] then
+                slider('stringMute','Palm mute (modeled)',x1,375,col-20)
+                slider('stringDecay','Muted decay',x1,420,col/2-18)
+                slider('stringDamping','Muted tone',x1+col/2-5,420,col/2-18)
+                content[#content+1]=label('AMP R sets release after note-off.',x1,480,col-20,11,colors.muted)
+            else
+                content[#content+1]=label('Use Effects for amplifier and speaker.',x1,395,col-20,11,colors.muted)
+                content[#content+1]=label('Choose a preset to change the source.',x1,430,col-20,11,colors.muted)
+            end
         elseif params.instrumentType==1 then
             for n,item in ipairs({{'instrumentType','Source'},{'stringDecay','String decay'},{'stringDamping','Damping'},{'stringMute','Palm mute'},{'stringPick','Pick position'}}) do slider(item[1],item[2],x1,185+(n-1)*50,col-20) end
             slider('tune1','Tune',x1,440,col/2-18);slider('fine1','Fine cents',x1+col/2-5,440,col/2-18)

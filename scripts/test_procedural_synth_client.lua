@@ -638,7 +638,7 @@ api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrum
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
 -- Reproduce loaded-song reuse from the actual Studio callbacks, including Band.
-package.loaded['openmw.synth'].version=19
+package.loaded['openmw.synth'].version=20
 local paths={'midi/a.mid','midi/b.mid'};local files={}
 local function midiBytes(pitch,count)
     local events={};for n=1,count or 1 do events[#events+1]=string.char(0,144,pitch,100,96,128,pitch,0) end
@@ -1224,8 +1224,9 @@ local function testContinuousSliders()
     -- each actual slider keeps its hit target through both drag updates.
     local Editor=dofile(root..'client/editor.lua')
     local tested=0
+    local bank;for _,p in ipairs(schema.builtins) do if p.id=='b:sampled-electric-clean' then bank=p end end
     for _,variant in ipairs{{state={},page='sound'},{state={instrumentType=1},page='sound'},
-        {state={drumType=2},page='sound'},{state={},page='effects'}} do
+        {state={drumType=2},page='sound'},{state={},page='effects'},{state=bank.state,page='sound'}} do
         local editor=Editor.new(schema.state(variant.state),{change=function() end,command=function() end,noteOff=function() end,meter=function() return 0,0 end})
         editor.page=variant.page;editor:render();local rootWidget=editor.root
         local sliders={};for _,child in ipairs(editor.children) do local content=child.layout.content;if content and content[2] and content[2].events and content[2].events.mouseMove and content[3] and content[3].layout then sliders[#sliders+1]=child end end
@@ -1240,10 +1241,10 @@ local function testContinuousSliders()
         mouseDown=false;editor:destroy()
     end
     check(tested>=60,'audit exercises oscillator, string, drum and effects slider sets')
-    local bank;for _,p in ipairs(schema.builtins) do if p.id=='b:sampled-electric-clean' then bank=p end end
     local requested
     local editor=Editor.new(schema.state(bank.state),{change=function() end,command=function(op,args) requested=args.presetId end,noteOff=function() end,meter=function() return 0,0 end})
     check(not editor.controls.wave1 and editor.controls.tune1 and editor.controls.cutoff and editor.controls.release,'recorded source exposes tuning/filter/envelopes instead of unused oscillator controls')
+    check(editor.controls.stringMute and editor.controls.stringDecay and editor.controls.stringDamping,'recorded strings expose modeled mute, decay and tone controls')
     for _,item in ipairs(editor.root.layout.content) do if item.content and item.content[1] and item.content[1].props and item.content[1].props.text=='Synth' then item.events.mouseClick();break end end
     check(requested=='b:studio-keys','source-mode switch loads a synth preset that clears the recorded source')
     local old=editor.root;editor:state(schema.state({}),nil);editor:frame(now+2)

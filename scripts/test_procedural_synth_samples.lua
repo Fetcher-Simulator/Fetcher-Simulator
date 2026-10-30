@@ -69,3 +69,14 @@ check(kitW:preset(4,'b:sampled-drum-kit') and kitW.project.tracks[4].note==46,'c
 check(project.project(kitW.project).tracks[4].params.sample.hash=='57fde34599e1a0562d255490162fecc2','recorded kit persists exact bank identity')
 check(kitW:undo() and kitW:undo() and #kitW.project.tracks==0,'kit creation and preset edit remain undoable')
 print('PASS recorded kit lane pitches, independent tracks, source identity and history')
+local articulations=0
+for _,p in ipairs(schema.builtins) do if p.state.sample and p.role~='Drums' then
+    check(schema.sampledStrings[p.state.sample.path],'all built-in sampled strings expose articulation controls')
+    if p.state.stringMute>0 then
+        articulations=articulations+1
+        check(p.midiProgram==28 and p.state.release<=.025,'muted recorded presets export muted-guitar identity and use short gate release')
+    end
+end end
+check(articulations==3,'recorded metal, rock and funk have distinct muted starting points')
+check(w:preset(1,'b:sampled-electric-muted') and project.project(w.project).tracks[1].params.stringMute==.8,'muted bank sound persists through project validation')
+check(w:undo() and w:redo() and w.project.tracks[1].params.stringDecay==.8,'modeled mute controls survive Undo/Redo')

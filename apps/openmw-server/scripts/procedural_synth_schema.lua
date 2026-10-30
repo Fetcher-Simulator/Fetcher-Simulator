@@ -177,6 +177,7 @@ drum('funk-kick','Dry Funk Kick','Blues / Funk / Jazz',6,{bodyFrequency=65,bodyD
 drum('funk-snare','Dry Funk Snare','Blues / Funk / Jazz',7,{bodyFrequency=195,bodyDecay=.075,noiseDecay=.105,noiseLevel=.75,drumDrive=1.4,volume=.65})
 -- Recorded FreePats DI source; the same immutable bank feeds distinct amps.
 M.banks[#M.banks+1]='CC Sampled Instruments'
+M.sampledStrings={['sound/fetcher/banks/electric-di-v1.fsb']=true}
 for _,entry in ipairs{{'sampled-electric-clean','Sampled Electric Clean',0,0,1,.7,27},
     {'sampled-electric-crunch','Sampled Electric Crunch',1,22,2,.6,29},
     {'sampled-electric-metal','Sampled Electric Metal',2,29,3,.5,30}} do
@@ -197,6 +198,19 @@ for _,entry in ipairs{
         gain=entry[3]=='Guitar' and 2 or 1.25,fxOutput=entry[4]=='guitar-nylon-v1' and 2 or (entry[4]=='guitar-steel-v1' and 1.5 or 1),
         sample={path='sound/fetcher/banks/'..entry[4]..'.fsb',offset=0,duration=1,root=60,oneShot=false,hash=entry[5]}})
     M.builtins[#M.builtins].midiProgram=entry[6]
+    if entry[3]~='Drums' then M.sampledStrings['sound/fetcher/banks/'..entry[4]..'.fsb']=true end
+end
+for _,entry in ipairs{
+    {'sampled-electric-muted','Sampled Tight Metal Rhythm',2,30,3,.8,.8,.5,.015,.5,28},
+    {'sampled-rock-muted','Sampled Muted Rock Rhythm',1,22,2,.5,1.1,.3,.025,.6,28},
+    {'sampled-funk-muted','Sampled Muted Funk Guitar',0,0,1,.6,.75,.55,.025,.85,28},
+    {'sampled-electric-lead','Sampled Electric Lead',2,25,2,0,3,.35,.2,.5,30},
+} do
+    add(entry[1],entry[2],'Guitar','CC Sampled Instruments',{attack=.002,decay=.2,sustain=1,release=entry[9],
+        cutoff=16000,driveType=entry[3],drive=entry[4],cabinet=entry[5],stringMute=entry[6],
+        stringDecay=entry[7],stringDamping=entry[8],volume=entry[10],polyphony=8,
+        sample={path='sound/fetcher/banks/electric-di-v1.fsb',offset=0,duration=1,root=60,oneShot=false,hash='969e921873764a7fb7a112d9574d3dfe'}})
+    M.builtins[#M.builtins].midiProgram=entry[11]
 end
 for _, preset in ipairs(M.builtins) do
     preset.state = assert(M.state(preset.state),'Invalid built-in: '..preset.id)

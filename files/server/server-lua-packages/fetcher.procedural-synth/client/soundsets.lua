@@ -25,9 +25,11 @@ for _,s in ipairs{
 } do M.entries[#M.entries+1]=s end
 for _,entry in ipairs{{'recorded-clean','Recorded Band / Clean','sampled-electric-clean'},
     {'recorded-rock','Recorded Band / Rock','sampled-electric-crunch'},
-    {'recorded-metal','Recorded Band / Metal','sampled-electric-metal'}} do
-    local s=set(entry[1],entry[2],9,'studio-keys','sampled-bass-finger',entry[3],'studio-strings',entry[3],'pad','glass-bell','studio-brass','studio-reed','studio-organ')
-    s.recorded=true;M.entries[#M.entries+1]=s
+    {'recorded-metal','Recorded Band / Metal','sampled-electric-metal'},
+    {'recorded-funk','Recorded Band / Funk','sampled-funk-muted'}} do
+    local s=set(entry[1],entry[2],9,'studio-keys','sampled-bass-finger',entry[3],'studio-strings','sampled-electric-lead','pad','glass-bell','studio-brass','studio-reed','studio-organ')
+    s.recorded=true;s.muted=entry[1]=='recorded-metal' and 'sampled-electric-muted' or (entry[1]=='recorded-rock' and 'sampled-rock-muted' or 'sampled-funk-muted')
+    M.entries[#M.entries+1]=s
 end
 local recordedDrums={};for _,note in ipairs{35,36,37,38,40,41,42,43,44,45,46,47,48,49,50,51,52,53,57,59} do recordedDrums[note]=true end
 local builtins={};for _,p in ipairs(schema.builtins) do builtins[p.id]=p end
@@ -94,7 +96,7 @@ function M.assignment(id,role,midi,note,instrument,program)
     if s.recorded then
         if percussionRoles[role] and recordedDrums[note] then presetId='b:sampled-drum-kit'
         elseif role=='guitar' then
-            local recorded={[24]='sampled-guitar-nylon',[25]='sampled-guitar-steel',[27]='sampled-electric-clean',
+            local recorded={[24]='sampled-guitar-nylon',[25]='sampled-guitar-steel',[27]=id=='recorded-funk' and 'sampled-funk-muted' or 'sampled-electric-clean',[28]=s.muted,
                 [29]=s.patches.guitar,[30]=s.patches.guitar}
             if recorded[program] then presetId='b:'..recorded[program] end
         elseif role=='bass' and (program==33 or program==34) then

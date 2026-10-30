@@ -89,5 +89,45 @@ void instrumentTests()
         reference->noteOn(2,42,1);studioRender(*reference,5200);
         check(energy(studioRender(*isolated,4800))>energy(studioRender(*reference,4800))*2,"hat choke does not affect a different bank");
     }
-    std::cout<<"PASS multisample zones, alternates, roots, binary v1/v2, one-shot tails and live/compiled cross-lane choke\n";
+    {
+        auto source=std::make_shared<Sample>();source->hash=hash;
+        for(unsigned i=0;i<96000;++i)source->pcm.push_back(float(.3*std::sin(2*3.141592653589793*220*i/48000)+.2*std::sin(2*3.141592653589793*2200*i/48000)));
+        source->zones={{48,72,1,127,60,0,1,0,96000}};source->status.store(Sample::Ready);
+        auto single=std::make_shared<Sample>();single->hash=hash;single->pcm=source->pcm;single->status.store(Sample::Ready);
+        auto prepare=[&](float mute,bool oneShot=false,bool zoned=true) {
+            auto synth=std::make_unique<Synth>();synth->set("attack",.002f);synth->set("sustain",1);synth->set("cutoff",18000);synth->set("resonance",0);
+            synth->set("stringMute",mute);synth->set("stringDecay",1);synth->set("stringDamping",.8f);
+            synth->sample(zoned?source:single,60,oneShot,hash);render(*synth,4800);synth->noteOn(60,.8f);return synth;
+        };
+        auto open=prepare(0),muted=prepare(.8f);
+        const auto openAttack=render(*open,4800),muteAttack=render(*muted,4800);
+        check(energy(muteAttack)>0 && magnitude(muteAttack,2200)/magnitude(muteAttack,220)<magnitude(openAttack,2200)/magnitude(openAttack,220)*.7,"modeled palm mute darkens the attack before the amp");
+        const auto openTail=render(*open,24000),muteTail=render(*muted,24000);
+        check(energy(std::vector<float>(muteTail.end()-4800,muteTail.end()))<energy(openTail)*.001,"modeled mute shortens held bank notes");
+        auto neutral=prepare(0),neutralOther=prepare(0);neutralOther->set("stringDecay",.1f);neutralOther->set("stringDamping",0);
+        check(render(*neutral,12000)==render(*neutralOther,12000),"zero mute bypasses the model exactly regardless of unused decay/tone settings");
+        auto shotA=prepare(0,true),shotB=prepare(1,true);
+        check(render(*shotA,12000)==render(*shotB,12000),"one-shot percussion bypasses melodic damping");
+        auto sampleA=prepare(0,false,false),sampleB=prepare(1,false,false);
+        check(render(*sampleA,12000)==render(*sampleB,12000),"ordinary voice/effect samples retain their existing tails");
+        auto gated=prepare(0);gated->set("release",.005f);render(*gated,4800);gated->noteOff(60);render(*gated,4800);
+        check(!gated->voices(),"short gate release chokes recorded melodic notes");
+        auto a=std::make_unique<NativeStudio>(),b=std::make_unique<NativeStudio>();
+        // Native score controls must be sorted by frame, with controls before notes.
+        const auto ordered=scoreNote(0,0,1,172,128)+scoreNote(0,48000,1,60,100)+scoreNote(9600,65535,1,172,0);
+        for(auto* studio:{a.get(),b.get()}) {setupStudio(*studio);studio->sample(1,source,60,false,hash);studio->loadScore(ordered,48001,false);studio->start(0,0);}
+        const auto ramp=studioRender(*a,48000,480);
+        check(ramp==studioRender(*b,48000,137),"sample mute automation is block invariant");
+        check(energy(std::vector<float>(ramp.end()-4800,ramp.end()))<energy(std::vector<float>(ramp.begin(),ramp.begin()+4800))*.001,"native automation damps a held recorded note");
+        auto dense=std::make_unique<NativeStudio>();Synth::State state;
+        for(unsigned i=0;i<state.size();++i)state[i]=Synth::Parameters[i].initial;
+        state[11]=1;state[25]=8;state[42]=10;state[44]=.6f;
+        for(unsigned track=1;track<=16;++track) {dense->configure(track,state,.3f);dense->sample(track,source,60,false,hash);}
+        studioRender(*dense,4800);
+        for(unsigned track=1;track<=16;++track)for(int note=48;note<56;++note)dense->noteOn(track,note,.8f);
+        const auto begin=std::chrono::steady_clock::now();const auto pcm=studioRender(*dense,48000);
+        check(energy(pcm)>0,"dense recorded-string damping remains audible and bounded");
+        std::cout<<"16 tracks x 8 damped sample voices: "<<std::chrono::duration<double>(std::chrono::steady_clock::now()-begin).count()<<" seconds / second PCM (informational)\n";
+    }
+    std::cout<<"PASS multisample zones, alternates, roots, binary v1/v2, one-shot/choke and modeled sample articulation/automation\n";
 }

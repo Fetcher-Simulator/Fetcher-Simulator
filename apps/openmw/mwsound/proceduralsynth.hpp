@@ -78,6 +78,7 @@ namespace MWSound
             double samplePosition = 0;
             unsigned sampleStart = 0, sampleLength = 0;
             int sampleRoot = 60;
+            double sampleRootFrequency = 440, sampleMuteEnvelope = 1, sampleMuteLow = 0;
             bool sampleOneShot = false;
             unsigned char sampleGroup = 0;
             double filter1 = 0, filter2 = 0;

@@ -37,6 +37,10 @@ end
 local _,rock=sets.assignment('recorded-rock','guitar',true,nil,nil,30)
 local _,metal=sets.assignment('recorded-metal','guitar',true,nil,nil,30)
 check(rock=='b:sampled-electric-crunch' and metal=='b:sampled-electric-metal','recorded genre set changes the electric amp character')
+for style,id in pairs{['recorded-rock']='b:sampled-rock-muted',['recorded-metal']='b:sampled-electric-muted',['recorded-funk']='b:sampled-funk-muted'} do
+    local state,preset=sets.assignment(style,'guitar',true,nil,nil,28)
+    check(preset==id and state.stringMute>0,'GM muted guitar selects a modeled muted recording preset')
+end
 local w=W.new{configure=function() end,prune=function() end,effects=function() end,panic=function() end,
     stopSequence=function() end,progress=function() return true,0,0 end,schedule=function() scheduled=scheduled+1;return true end,
     message=function(s) message=s end,save=function() end,importMidi=function() end}
@@ -130,4 +134,9 @@ local snapshot=assert(format.project(f.project));f:load(snapshot);f.song=nil
 check(f:applySoundSet('funk') and f.project.tracks[1].presetId=='b:guitar-nylon' and f.project.tracks[2].presetId=='b:guitar-steel' and f.project.tracks[11].presetId=='b:bass-picked' and f.project.tracks[13].presetId=='b:bass-slap','source-free saved arrangements keep distinct families when changing sound sets')
 local bad=assert(format.project(snapshot));bad.tracks[1].sourceProgram=128;check(not format.project(bad),'invalid saved program identity is rejected')
 bad.tracks[1].sourceProgram=24.5;check(not format.project(bad),'fractional saved program identity is rejected')
+local live=W.new(w.cb);check(live:import(familySong,'midi/families.mid') and live:followPrograms(1,true),'procedural part can follow embedded program changes')
+live.native=true;live.playing=true;live.sequenceDirty=false
+check(live:applySoundSet('recorded-metal') and not live.project.tracks[1].followPrograms and live.sequenceDirty,'recorded set clears incompatible program following and recompiles its active score')
+check(format.project(live.project),'recorded sound-set switch leaves a savable document')
+check(live:undo() and live.project.tracks[1].followPrograms and not live.project.tracks[1].params.sample,'Undo restores the previous patch and program-follow setting together')
 print('PASS GM guitar/bass families, full kits, percussion routing, saved identities, live sound sets and undo; '..checks..' assertions')

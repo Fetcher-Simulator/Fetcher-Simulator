@@ -1,5 +1,29 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 29: modeled recorded articulation (package 50 / native API 20)
+
+The native DSP suite verifies muted bank attacks lose upper partials, held notes
+decay faster, zero mute remains bit-exact regardless of unused decay/tone values,
+drum one-shots and ordinary single samples bypass the model, short note-off
+release ends voices, and a sample-mute automation ramp produces identical PCM
+with 480- and 137-frame blocks. A dense 16-track/eight-voice damped sample render
+checks finite bounded output and logs timing without a host-dependent threshold.
+
+All 28 Lua suites pass. Tests cover persistent dragging for the recorded editor's
+three controls, saved muted presets/Undo, muted GM program mapping, mute curve
+serialization/compilation, and a live recorded-set switch from MIDI program
+following. The switch disables incompatible following, marks the native score
+dirty and restores both settings on Undo. API 20 gates the changed DSP behavior;
+existing parameter order, bank format/fingerprints and network fields remain.
+
+Seven native original riff/power-chord auditions under
+`build/studio-articulation-auditions/` compare open/muted metal, rock and funk plus
+lead. Peak values stay below 0.23; late held-chord RMS for muted presets is below
+1% of its open counterpart. The recordings and amp/damping are rendered by the
+engine, not approximated in an external audio editor. This is signal/behavior
+validation; a live two-client listening session and subjective balance review
+remain pending. The client stays closed during installation on port 25567.
+
 ## October 29: recorded band banks (package 49 / native API 19)
 
 Five added CC0 banks validate through the production reader: finger/picked bass

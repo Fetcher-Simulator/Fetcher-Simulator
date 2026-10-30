@@ -5,7 +5,7 @@ Source: https://freepats.zenvoid.org/ElectricGuitar/clean-electric-guitar.html
 License: CC0 1.0 Universal. The original license and README are in `licenses/`.
 This is a Fetcher adaptation; it does not imply endorsement by FreePats or Fender.
 
-Use all six banks with Studio package 49 and native synth API 19. Add this folder as an OpenMW
+The six banks require Studio package 49 / native synth API 19 or newer. Add this folder as an OpenMW
 data directory, or copy its `sound/` tree into an existing data directory.
 No content plugin is required. The local test fixture already uses its existing
 `synth-assets` data directory. Public distribution through the launcher requires
@@ -33,7 +33,7 @@ native amplifier/cabinet processing. Existing procedural presets remain availabl
 - `.fsb` here is Fetcher's bounded v1 format, not an FMOD bank or a general SFZ
   player. No SFZ, includes, macros or scripts are interpreted at runtime.
 - There are no dedicated palm-mute/slide/legato recordings in this v1 adaptation.
-  The metal preset is an amp sound; convincing articulation remains follow-up work.
+The original metal preset is an amp sound; additional articulations are described below.
 
 `bank-manifest.json` records source/sample SHA-256 values, exact retained zones,
 conversion choices, output SHA-256 and the engine's 128-bit file fingerprint.
@@ -119,3 +119,21 @@ python scripts/procedural-synth-assets/build-band-sample-banks.py <source-cache>
 The converter validates source archives against the tracked hashes and checks
 the production reader's output. `sample-bank-tool <bank> <preview.wav> bass`,
 `acoustic` or `drums` renders an appropriate native audition phrase.
+
+## Package 50: modeled note articulation
+
+Studio package 50 / native API 20 adds modeled damping to gated guitar/bass bank
+notes. **Palm mute (modeled)** controls the amount, **Muted decay** its decay
+time, and **Muted tone** its darkness. The model operates before amplification;
+short AMP releases give the muted presets tight note-off behavior. It reuses
+the existing string-control parameters and supports Auto-page curves. Zero mute
+is an exact bypass. One-shot percussion and ordinary single samples bypass this
+model, and the encoded banks/fingerprints above are unchanged.
+
+**Sampled Tight Metal Rhythm**, **Sampled Muted Rock Rhythm**, **Sampled Muted Funk
+Guitar** and **Sampled Electric Lead** share the original recorded DI bank with
+different damping/amp settings. **Recorded Band / Funk** joins the recorded band
+sets; GM program 28 selects the appropriate muted preset. These model a damped
+recorded note; dedicated muted/release/slap/slide recordings remain follow-up.
+For original riff/power-chord comparison renders, append `riff` after a tool
+mode (`metal`, `metal-muted`, `rock`, `rock-muted`, `funk`, `funk-muted`, `lead`).

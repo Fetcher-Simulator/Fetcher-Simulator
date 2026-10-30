@@ -401,9 +401,16 @@ function W:applySoundSet(id)
         if not state then return false end
         changes[n]={state,presetId}
     end
-    for n,t in ipairs(self.project.tracks) do t.params=changes[n][1];t.presetId=changes[n][2] end
+    local programChanged=false
+    for n,t in ipairs(self.project.tracks) do
+        t.params=changes[n][1];t.presetId=changes[n][2]
+        if t.params.sample and t.followPrograms then t.followPrograms=false;programChanged=true end
+    end
     self.project.soundSet=id;self:configureAll();self:touch('soundset:'..self.generation)
-    if self.native and self.playing then for _,t in ipairs(self.project.tracks) do if t.followPrograms then self.sequenceDirty=true end end end
+    if self.native and self.playing then
+        if programChanged then self.sequenceDirty=true end
+        for _,t in ipairs(self.project.tracks) do if t.followPrograms then self.sequenceDirty=true end end
+    end
     return true
 end
 function W:cycleSoundSet(delta)

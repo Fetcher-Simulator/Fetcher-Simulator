@@ -44,6 +44,33 @@ Use Sound for tuning/envelope/filter/amp edits; unused oscillator controls are
 replaced by a recorded-source panel. Bank zones cannot be trimmed as though
 they were one voice-line excerpt.
 
+## Recorded articulation controls (package 50 / native API 20)
+
+Select a recorded guitar/bass sound, then open Synth (or Mixer → Sound).
+The recorded-source panel exposes **Palm mute (modeled)**, **Muted decay** and
+**Muted tone**. Mute darkens the signal before the amplifier and progressively
+damps each held note. Higher tone values darken it; shorter decay values tighten
+it. Zero mute preserves the original recorded playback exactly. Damping removes
+energy from a note; lowering mute again lets subsequent notes ring, while an
+already damped note stays quiet until retriggered. **AMP R** sets the release
+after a MIDI key/note is released. Short releases choke notes quickly; long
+releases let them overlap. Sustain pedal behavior remains independent.
+
+The new presets are **Sampled Tight Metal Rhythm**, **Sampled Muted Rock Rhythm**,
+**Sampled Muted Funk Guitar** and **Sampled Electric Lead**. Mixer also offers
+**Recorded Band / Funk**. Recorded sets map GM program 28 (muted electric) to
+their muted preset; they preserve source program identity and do not guess
+muting from track names or note length. Existing project snapshots retain their
+settings. Switching from MIDI program-following to a recorded sound set disables
+program-following as one undoable edit, preserving a valid saved project.
+
+On Auto, select **Palm mute**, **Muted / string decay** or **Muted / string tone**
+to draw/write changes in time. These use the existing parameter lanes and remain
+part of the Studio project, alongside its patches and sample references. Ordinary
+voice/effect samples and recorded drum one-shots retain their current playback.
+These controls model damping of the current recordings. Dedicated palm-muted,
+release, slide and slap/pop recordings remain future work.
+
 ## Recorded instruments (package 49 / native API 19)
 
 The optional `fetcher.studio-samples` content now includes electric DI,
