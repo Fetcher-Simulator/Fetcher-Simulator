@@ -125,6 +125,8 @@ do
     check(next(a.poses)==nil and #a:targets('lute')==1,'first-person held player is focusable before arm rendering starts')
     a:frame({[7]={owner='test',performers={},availability={}}},.01,now)
     check(#a:targets('keyboard')==1 and #a:targets('lute')==0,'placed keyboard owner is focusable without stale held targets')
+    a:frame({[7]={owner='test',leaderPlays=false,performers={},availability={}}},.01,now)
+    check(#a:targets('keyboard')==0,'non-playing leader is not a keyboard pose target')
     a:clearAll();check(#a:targets('keyboard')==0,'disconnect clears pose camera targets')
     camera.getMode=old
 end
@@ -1252,5 +1254,25 @@ local function testContinuousSliders()
     editor:destroy()
 end
 testContinuousSliders()
+end
+do
+    api.close();connected=false;player.engineHandlers.onFrame(.01);connected=true
+    local mp=package.loaded['openmw.mp'];local oldPlayer=mp.getPlayerObject
+    local performance=package.loaded[prefix..'client.performance'];local oldNew=performance.new
+    local actor={cell=self.cell,isValid=function() return true end};local frames,clears=0,0
+    mp.getPlayerObject=function() return actor end
+    performance.new=function() return {actor=actor,frame=function() frames=frames+1 end,clear=function() clears=clears+1 end} end
+    handler{version=1,op='state',id=7,epoch=100,seq=1,owner=1,params=schema.state({})}
+    player.engineHandlers.onFrame(.01);check(frames==1,'legacy playing leader gets keyboard pose')
+    handler{version=1,op='band',id=7,epoch=100,seq=2,leaderPlays=false}
+    player.engineHandlers.onFrame(.01);player.engineHandlers.onFrame(.01)
+    check(frames==1 and clears==1,'mode update clears existing pose and prevents reapplication on observers')
+    handler{version=1,op='close',id=7,epoch=100,seq=3}
+    handler{version=1,op='state',id=7,epoch=101,seq=1,owner=1,leaderPlays=false,params=schema.state({})}
+    player.engineHandlers.onFrame(.01);check(frames==1,'late conductor snapshot never starts keyboard pose')
+    handler{version=1,op='band',id=7,epoch=101,seq=2,leaderPlays=true}
+    player.engineHandlers.onFrame(.01);check(frames==2,'switching back restores playing pose')
+    handler{version=1,op='close',id=7,epoch=101,seq=3}
+    mp.getPlayerObject=oldPlayer;performance.new=oldNew
 end
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

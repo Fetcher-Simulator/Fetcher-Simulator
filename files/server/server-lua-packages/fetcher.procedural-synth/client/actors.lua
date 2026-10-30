@@ -38,7 +38,7 @@ function A:frame(instances,dt,now)
     for id,i in pairs(instances) do
         local ownerHeld=false
         for slot,r in pairs(i.performers or {}) do if r.kind=='player' and r.guid==i.owner and i.availability[slot]=='Ready' then ownerHeld=true end end
-        local owner=not ownerHeld and i.owner and self.mp.getPlayerObject and self.mp.getPlayerObject(i.owner)
+        local owner=i.leaderPlays~=false and not ownerHeld and i.owner and self.mp.getPlayerObject and self.mp.getPlayerObject(i.owner)
         if owner and owner:isValid() and owner.cell==self.self.cell then self.targetActors['keyboard:'..id]={actor=owner,instrument='keyboard',pose=i.pose} end
         for slot,r in pairs(i.performers or {}) do
             if i.availability[slot]=='Ready' then

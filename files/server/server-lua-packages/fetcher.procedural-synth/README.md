@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 51 / native synth API 20 / multiplayer protocol 27.
+Current source: package 52 / native synth API 20 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,16 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Non-playing band leader (package 52)
+
+On **Band**, turn **Leader plays: Off** before creating the automatic NPC band.
+The leader no longer receives the placed keyboard's playing pose and can walk
+around within the same cell while the band continues. Use **Hide [F8]** to close
+the editor while retaining playback; **Finish** ends the session. The setting is
+synchronized to other players and late listeners. Explicit player-performer
+assignments still play their assigned instrument. Return within reach to pick up
+the keyboard. Leaving the cell or disconnecting still ends the session.
 
 ## Electric guitar, bass and full drum-kit models (package 51)
 

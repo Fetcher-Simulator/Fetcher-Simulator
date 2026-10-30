@@ -23,6 +23,14 @@ local w=Workstation.new{
     message=function(message) messages[#messages+1]=message end,
 }
 check(#w.catalog==#schema.builtins and #w.catalog>=40,'banks available before asynchronous personal catalog response')
+do
+    local modes={}
+    local conductor=Workstation.new{band=function(_,_,leaderPlays) modes[#modes+1]=leaderPlays end,panic=function() end}
+    conductor:configureBand();check(modes[#modes]==true,'new project synchronizes playing mode')
+    conductor:setLeaderPlays(false);check(modes[#modes]==false,'toggle immediately synchronizes conductor mode')
+    conductor:undo();check(modes[#modes]==true,'undo synchronizes playing mode')
+    conductor:redo();check(modes[#modes]==false,'redo synchronizes conductor mode')
+end
 w:setCatalog(schema.builtins)
 check(w:add('drum') and w.project.tracks[1].presetId=='b:kick','new drum uses native kick preset')
 check(w:audition(1),'drum pad auditions while transport is stopped');w:frame(0.12)

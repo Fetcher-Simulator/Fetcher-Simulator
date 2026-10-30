@@ -1,5 +1,19 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 29: non-playing leader (package 52 / native API 20)
+
+All 28 Lua suites pass (`build/studio-conductor-lua.log`). Server regressions
+start a real validated score upload, move the conductor 1,500 units away, refresh
+the lease and verify that late listeners still receive the running score and
+Leader plays: Off. Pickup stays local. Ownership/type validation, default nearby
+behavior, cell departure, object removal, heartbeat expiry and switching back to
+playing mode retain cleanup. Workstation toggle/Undo/Redo synchronize the mode.
+The real client frame loop, with a pose test double, verifies clearing an existing
+keyboard pose, suppressing it on late snapshots, and restoring it when enabled.
+Pose camera targets exclude non-playing leaders. No native rebuild is required.
+This is automated validation; installation/reconnect and live inspection are
+separate steps. No public release or VPS deployment is included.
+
 ## October 29: guitar/bass/full-kit models (package 51 / native API 20)
 
 Downloaded GLBs are hash-recorded with official Sketchfab metadata verifying

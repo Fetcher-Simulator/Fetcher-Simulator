@@ -78,6 +78,53 @@ test('authenticated note relay, sequence and 3D cell eligibility',function()
     request('on',{seq=old,note=62,velocity=1}); check(#sent==1)
     request('off',{note=60}); check(#sent==2 and sent[2].data.op=='off')
 end)
+
+test('non-playing leader roams in the same cell; pickup remains local',function()
+    acquire();check(sent[#sent].data.leaderPlays==true,'legacy sessions default to playing')
+    local format=require('procedural_synth_project')(schema)
+    request('band',{band=format.band(),routes={},leaderPlays=false})
+    check(sent[#sent].data.op=='band' and sent[#sent].data.leaderPlays==false,'mode broadcasts to observers')
+    local project=format.new();project.tracks[1]=format.newTrack('piano','Conductor test',16)
+    project.tracks[1].notes={{n=60,s=0,l=2,v=1}}
+    local score=require('procedural_synth_sequence').compile(project,nil,nil,'clips',format)
+    request('channel',{channel=1,params={},level=1})
+    request('scoreBegin',{playId=1,count=#score.bytes/11,length=score.length,loop=true,quantum=score.quantum,replace=false})
+    request('scoreChunk',{playId=1,index=1,bytes=score.bytes});request('scoreCommit',{playId=1})
+    check(sent[#sent].data.op=='scoreReady','band playback starts')
+    players[1].position.x=1500;now=now+2.1;request('heartbeat');sent={};module.engineHandlers.onUpdate()
+    for _,e in ipairs(sent) do check(e.data.op~='close','conductor movement must not close playback') end
+    request('edit',{params={cutoff=1234}});check(sent[#sent].data.op=='params','remote controls remain usable')
+    request('pickup');check(#pickups==0 and sent[#sent].data.pickupFailed,'distant pickup rejected')
+    sent={};request('sync',{pid=2});local state,running=false,false
+    for _,e in ipairs(sent) do
+        if e.data.op=='state' then state=e.data.leaderPlays==false end
+        if e.data.op=='scoreReady' then running=true end
+    end
+    check(state and running,'late listener receives conductor mode and the still-playing score')
+    players[3].cell='INT:A';now=now+2.1;request('heartbeat');sent={};module.engineHandlers.onUpdate()
+    local snapshot=false
+    for _,e in ipairs(sent) do if e.guid==3 and e.data.op=='state' then snapshot=true;check(e.data.leaderPlays==false,'new cell listener receives mode') end end
+    check(snapshot,'new listener receives session snapshot')
+    players[1].position.x=0;request('pickup');check(#pickups==1,'nearby pickup still works')
+end)
+
+test('leader mode validates ownership and retains lease cleanup',function()
+    local format=require('procedural_synth_project')(schema)
+    acquire();sent={}
+    request('band',{band=format.band(),routes={},leaderPlays='false'});check(#sent==0,'nonboolean mode rejected')
+    request('band',{pid=2,band=format.band(),routes={},leaderPlays=false});check(#sent==0,'listener cannot change owner mode')
+    players[1].position.x=301;request('heartbeat');check(sent[#sent].data.op=='close','invalid toggle did not relax proximity')
+    for _,cause in ipairs({'cell','remove','timeout','playing'}) do
+        reset();sequence=0;acquire();request('band',{band=format.band(),routes={},leaderPlays=false});sent={}
+        players[1].position.x=1500
+        if cause=='cell' then players[1].cell='INT:B'
+        elseif cause=='remove' then objects[7]=nil
+        elseif cause=='timeout' then now=now+9
+        else request('band',{band=format.band(),routes={},leaderPlays=true}) end
+        module.engineHandlers.onUpdate()
+        check(sent[#sent].data.op=='close','conductor cleanup: '..cause)
+    end
+end)
 test('malformed and oversized events are ignored',function()
     acquire(); sent={}
     for _,e in ipairs({{note=-1},{note=128},{velocity=0/0},{velocity=2},{version=2},

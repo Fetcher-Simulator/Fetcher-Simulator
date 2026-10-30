@@ -2,6 +2,13 @@
 
 Updated 2026-10-29. Completed work and subsequent planned slices are identified below.
 
+Package 52 fixes the non-playing leader setup: Leader plays: Off suppresses the
+automatic keyboard pose on the owner and observers, including late snapshots,
+and retains control/playback while the leader moves within the same cell.
+Acquisition/pickup remain nearby actions; cell changes, disconnects, invalid
+keyboards and expired heartbeats still clean up the session. Dedicated conductor
+gestures, baton animation and camera controls remain future work.
+
 Package 51 adds CC BY electric-guitar, four-string bass and full drum-kit models,
 inventory icons, fixed server item identities, independent poser entries and
 initial hand/seat targets. Compatible kit parts share one seated drummer;

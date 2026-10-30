@@ -244,7 +244,7 @@ end
 function W:configureBand()
     if self.cb.band then
         local routes={};for n,t in ipairs(self.project.tracks) do routes[n]=t.output.slot or 0 end
-        self.cb.band(self.project.band,routes)
+        self.cb.band(self.project.band,routes,self.project.leaderPlays~=false)
     end
 end
 function W:stageDescription()
@@ -257,7 +257,7 @@ function W:setAutoBand(enabled)
     self.project.autoBand=enabled==true;self.managedProject=nil;self:touch('autoBand');return true
 end
 function W:setLeaderPlays(enabled)
-    self:stop(true);self.project.leaderPlays=enabled==true;self.managedProject=nil;self:touch('leaderPlays');return true
+    self:stop(true);self.project.leaderPlays=enabled==true;self.managedProject=nil;self:configureBand();self:touch('leaderPlays');return true
 end
 function W:setStageLayout(layout)
     if layout~='standing' and layout~='seated' then return false end

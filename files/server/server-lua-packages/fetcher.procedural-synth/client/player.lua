@@ -293,8 +293,9 @@ makeWorkstation=function(i)
             return (not params or not params.sample or Samples.status(synth,params.sample).status=='Ready')
                 and channelAudio(i,channel,true) and (not synth.createStudio or transport:laneStudio(i,channel,true))~=nil
         end,
-        band=function(band,routes)
-            local values={}
+        band=function(band,routes,leaderPlays)
+            i.leaderPlays=leaderPlays~=false
+            local values={tostring(i.leaderPlays)}
             for n,m in ipairs(band) do
                 local t=m.target;values[#values+1]=m.name;values[#values+1]=Project.targetKey(t)
                 values[#values+1]=t and t.cell or '';values[#values+1]=t and t.refId or ''
@@ -302,7 +303,7 @@ makeWorkstation=function(i)
             end
             for _,slot in ipairs(routes) do values[#values+1]=slot end
             local signature=table.concat(values,'|')
-            if signature~=i.bandSignature then i.bandSignature=signature;i.pendingBand={band=Project.band(band),routes=Project.routes(routes)};flushChannels() end
+            if signature~=i.bandSignature then i.bandSignature=signature;i.pendingBand={band=Project.band(band),routes=Project.routes(routes),leaderPlays=i.leaderPlays};flushChannels() end
         end,
         bandStatus=function(slot)
             local status=i.availability and i.availability[slot] or 'Unbound'
@@ -609,7 +610,7 @@ local function message(data)
         if i then destroy(data.id) end
         local ok,audio=pcall(synth.create,source)
         if not ok then ui.showMessage(tostring(audio)); return end
-        i={id=data.id,audio=audio,source=source,cell=self.cell,owner=data.owner,notes={},channels={},epoch=data.epoch,seq=data.seq,seen=core.getRealTime(),serverCell=data.cell}
+        i={id=data.id,audio=audio,source=source,cell=self.cell,owner=data.owner,leaderPlays=data.leaderPlays~=false,notes={},channels={},epoch=data.epoch,seq=data.seq,seen=core.getRealTime(),serverCell=data.cell}
         instances[data.id]=i;apply(i,params);applyEffects(i,data.effects,data.master);transport:band(i,data.band,data.routes,data.availability,data.performers)
         for n,channel in pairs(data.channels or {}) do
             local state=schema.state(channel.params)
@@ -632,6 +633,7 @@ local function message(data)
     i.seq=data.seq; i.seen=core.getRealTime(); i.audio:keepAlive()
     local channel=data.channel or 0
     if data.op=='band' then
+        if data.leaderPlays~=nil then i.leaderPlays=data.leaderPlays~=false end
         local statusChanged=false
         for slot=1,Project.maxMembers do if (i.availability or {})[slot]~=(data.availability or {})[slot] then statusChanged=true end end
         local ok,err=pcall(transport.band,transport,i,data.band,data.routes,data.availability,data.performers)
@@ -722,8 +724,8 @@ local function frame(dt)
             end
             local ownerHeld=false
             for slot,r in pairs(i.performers or {}) do if r.kind=='player' and r.guid==i.owner and i.availability[slot]=='Ready' then ownerHeld=true end end
-            if ownerHeld and i.pose then if not i.pose.missing then pcall(i.pose.clear,i.pose) end;i.pose=nil end
-            if mp.getPlayerObject and i.owner and not ownerHeld then
+            if (ownerHeld or i.leaderPlays==false) and i.pose then if not i.pose.missing then pcall(i.pose.clear,i.pose) end;i.pose=nil end
+            if mp.getPlayerObject and i.owner and not ownerHeld and i.leaderPlays~=false then
                 local actor=mp.getPlayerObject(i.owner)
                 if i.pose and i.pose.actor~=actor then
                     if not i.pose.missing then pcall(i.pose.clear,i.pose) end

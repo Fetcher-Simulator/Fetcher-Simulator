@@ -32,7 +32,7 @@ local function broadcast(s, out, except)
         if player.guid ~= except and relevant(player, s.cell) then
             if out.op == 'state' then s.recipients[player.guid] = true end
             if out.op == 'on' and not s.recipients[player.guid] then
-                emit(player.guid, {op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq-1,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
+                emit(player.guid, {op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq-1,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
                 if s.transport then sendTransport(player.guid,s,s.transport) end
                 s.recipients[player.guid] = true
             end
@@ -93,13 +93,19 @@ local function resolveBand(s)
     s.availability=statuses;s.performers=live;return changed
 end
 local function sendBand(s)
-    nextEvent(s);broadcast(s,{op='band',band=s.band,routes=s.routes,availability=s.availability,performers=s.performers})
+    nextEvent(s);broadcast(s,{op='band',band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers})
 end
 local function near(player, obj)
     if not obj or player.cell ~= obj.cell then return false end
     local a, b = player.position, obj.position
     if not a or not b then return false end
     return (a.x-b.x)^2 + (a.y-b.y)^2 + (a.z-b.z)^2 <= 300^2
+end
+-- A non-playing leader controls the band from anywhere in the keyboard's cell.
+-- Acquiring and picking up the keyboard still require physical proximity.
+local function canControl(player,s)
+    local obj=objectFor(s.id)
+    return obj and player.cell==obj.cell and (s.leaderPlays==false or near(player,obj))
 end
 local function catalog(guid, character)
     local saved = mp.getCharacterStorageForCharacter(character, 'ProceduralSynth', 'presets')
@@ -130,10 +136,10 @@ local function acquire(player, obj)
     if count >= 8 then emit(player.guid, {op='error', message='All synthesizer sessions are in use.'}); return end
     epoch = epoch + 1
     s = { id=obj.mpNum, cell=obj.cell, owner=player.guid, characterId=player.characterId, epoch=epoch, inSeq=0, outSeq=1,
-        revision=1, params=schema.state({}), expires=now+8, lastAlive=now, recipients={}, notes={}, channels={}, effects=projectFormat.effects(),master=0.7,band=projectFormat.band(),routes={},availability={},performers={} }
+        revision=1, params=schema.state({}), expires=now+8, lastAlive=now, recipients={}, notes={}, channels={}, effects=projectFormat.effects(),master=0.7,band=projectFormat.band(),leaderPlays=true,routes={},availability={},performers={} }
     sessions[s.id] = s;resolveBand(s)
-    broadcast(s, {op='state', params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell}, player.guid)
-    emit(player.guid, {op='granted', owner=s.owner, id=s.id, epoch=s.epoch, seq=s.outSeq, revision=s.revision, params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
+    broadcast(s, {op='state', params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell}, player.guid)
+    emit(player.guid, {op='granted', owner=s.owner, id=s.id, epoch=s.epoch, seq=s.outSeq, revision=s.revision, params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
 end
 policy.registerHandler('Activate', 'procedural-synth', function(context)
     local obj = context.object
@@ -198,7 +204,7 @@ local function request(data)
         if not budget(data.pid,now,'sync',0.5,2) then return end
         for _, s in pairs(sessions) do
             if relevant(player,s.cell) then
-                emit(data.pid,{op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
+                emit(data.pid,{op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
                 if s.transport then sendTransport(data.pid,s,s.transport) end
                 s.recipients[data.pid]=true
             end
@@ -209,7 +215,7 @@ local function request(data)
     local s = sessions[data.id]
     if not s or s.owner ~= data.pid or s.epoch ~= data.epoch or not integer(data.seq,1,2147483647)
         or data.seq <= s.inSeq then return end
-    if now > s.expires or not near(player,objectFor(s.id)) then release(s); return end
+    if now > s.expires or not canControl(player,s) then release(s); return end
     s.inSeq = data.seq
     local channel=data.channel or 0
     if not integer(channel,0,projectFormat.maxTracks) then return end
@@ -251,6 +257,7 @@ local function request(data)
         return
     end
     if data.op=='band' then
+        if data.leaderPlays~=nil and type(data.leaderPlays)~='boolean' then return end
         local band,routes=projectFormat.band(data.band),projectFormat.routes(data.routes)
         if not band or not routes or not budget(data.pid,now,'band',4,8) then return end
         local structural=false
@@ -263,10 +270,12 @@ local function request(data)
             s.transport=nil;s.upload=nil;s.notes={};s.drumPending=false
             nextEvent(s);broadcast(s,{op='transportStop',playId=s.lastPlayId or 0})
         end
+        if data.leaderPlays~=nil then s.leaderPlays=data.leaderPlays end
         s.band=band;s.routes=routes;performers:bind(s);resolveBand(s);sendBand(s);return
     end
     if data.op=='pickup' then
         local function failed(message) emit(data.pid,{op='error',message=message,pickupFailed=true,id=s.id,epoch=s.epoch}) end
+        if not near(player,objectFor(s.id)) then failed('Move closer to pick up the keyboard.');return end
         if not budget(data.pid,now,'projects',0.5,2) then failed('Please wait a moment before picking up the keyboard.');return end
         if not mp.pickupPlacedObject then failed('Keyboard pickup requires the updated server.');return end
         if data.project then
@@ -472,14 +481,14 @@ local function sweep()
         if s.upload and now>s.upload.expires then s.upload=nil end
         if s.transport and not s.transport.loop and now>s.transport.started+s.transport.length/48000+8 then s.transport=nil end
         local owner=mp.getPlayer(s.owner)
-        if not owner or now>s.expires or not near(owner,objectFor(s.id)) then release(s)
+        if not owner or now>s.expires or not canControl(owner,s) then release(s)
         elseif now-s.lastAlive >= 2 then
             s.lastAlive=now
             -- New listeners receive parameters only, never a historical note-on.
             for _, p in ipairs(mp.getPlayers()) do
                 if relevant(p,s.cell) and p.guid ~= s.owner then
                     if not s.recipients[p.guid] then
-                        emit(p.guid,{op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
+                        emit(p.guid,{op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
                         if s.transport then sendTransport(p.guid,s,s.transport) end
                         s.recipients[p.guid]=true
                     end
