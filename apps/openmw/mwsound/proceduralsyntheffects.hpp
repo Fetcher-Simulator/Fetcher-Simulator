@@ -5,6 +5,7 @@
 #include <array>
 #include <cmath>
 #include "proceduraldsp.hpp"
+#include "cabinetconvolver.hpp"
 
 namespace MWSound
 {
@@ -18,6 +19,7 @@ namespace MWSound
             int mode = 0, cabinet = 0;
             double drive = 0, tone = 12000, mix = 1, output = 1;
             double bass = 0, mid = 0, treble = 0;
+            double preHighpass = 0, cabinetHighpass = 0, cabinetLowpass = 0;
         };
         ProceduralSynthEffects()
         {
@@ -39,7 +41,8 @@ namespace MWSound
         double process(double input, const Settings& p)
         {
             const bool active = p.mode != 0 || p.cabinet != 0 || std::abs(p.bass) + std::abs(p.mid)
-                + std::abs(p.treble) > 0.00001 || std::abs(p.output - 1) > 0.00001;
+                + std::abs(p.treble) > 0.00001 || std::abs(p.output - 1) > 0.00001
+                || p.preHighpass>0 || p.cabinetHighpass>0 || p.cabinetLowpass>0;
             mBlend = ProceduralDsp::smooth(mBlend, active && p.mix > 0.000001 ? 1.0 : 0.0, 0.004);
             if (mBlend < 0.000001)
             {
@@ -47,6 +50,9 @@ namespace MWSound
                 {
                     mUp.fill(0); mDown.fill(0); mDry.fill(0); mCab.fill(0);
                     mBass = mUpper = mTone = mDcIn = mDcOut = 0;
+                    mIrDry.fill(0);mIrDryAt=0;
+                    mPreLow=mPostLow=mPostHigh=0;if(mIrActive){mConvolver.clear();mIrActive=false;}
+                    mPreBlend=mPostHighBlend=mPostLowBlend=0;
                     mWasActive = false;
                 }
                 return input; // Legacy patches retain the exact old signal path.
@@ -58,6 +64,9 @@ namespace MWSound
                 mCompensation = 1 / std::sqrt(mGain);
                 mToneCoefficient = 1 - std::exp(-2 * Pi * p.tone / 48000);
                 mEq = { std::pow(10.0, p.bass / 20), std::pow(10.0, p.mid / 20), std::pow(10.0, p.treble / 20) };
+                mPreCoefficient=1-std::exp(-2*Pi*p.preHighpass/48000);
+                mPostHighCoefficient=1-std::exp(-2*Pi*p.cabinetHighpass/48000);
+                mPostLowCoefficient=1-std::exp(-2*Pi*p.cabinetLowpass/48000);
             }
             for (std::size_t i = 0; i < mWeights.size(); ++i)
                 mWeights[i] = ProceduralDsp::smooth(mWeights[i], static_cast<int>(i) == p.mode ? 1.0 : 0.0, 0.004);
@@ -65,9 +74,14 @@ namespace MWSound
                 mCabWeights[i] = ProceduralDsp::smooth(mCabWeights[i], static_cast<int>(i) == p.cabinet ? 1.0 : 0.0, 0.004);
             mDry[mUpPosition] = input;
             const double dry = mDry[(mUpPosition + 1) % mDry.size()];
-            mBass = zap(mBass + 0.032195 * (input - mBass)); // 250 Hz
-            mUpper = zap(mUpper + 0.279043 * (input - mUpper)); // 2500 Hz
-            mUp[mUpPosition] = mBass * mEq[0] + (mUpper - mBass) * mEq[1] + (input - mUpper) * mEq[2];
+            mPreBlend=ProceduralDsp::smooth(mPreBlend,p.preHighpass>0?1.0:0.0,0.004);
+            mPostHighBlend=ProceduralDsp::smooth(mPostHighBlend,p.cabinetHighpass>0?1.0:0.0,0.004);
+            mPostLowBlend=ProceduralDsp::smooth(mPostLowBlend,p.cabinetLowpass>0?1.0:0.0,0.004);
+            mPreLow=zap(mPreLow+mPreCoefficient*(input-mPreLow));
+            const double pre=input-mPreLow*mPreBlend;
+            mBass = zap(mBass + 0.032195 * (pre - mBass)); // 250 Hz
+            mUpper = zap(mUpper + 0.279043 * (pre - mUpper)); // 2500 Hz
+            mUp[mUpPosition] = mBass * mEq[0] + (mUpper - mBass) * mEq[1] + (pre - mUpper) * mEq[2];
             double wet = 0;
             for (std::size_t phase = 0; phase < 4; ++phase)
             {
@@ -105,7 +119,21 @@ namespace MWSound
                 }
                 wet += sample * mCabWeights[cabinet + 1];
             }
-            const double result = dry + (wet * p.output - dry) * p.mix;
+            double irWeight=0;for(unsigned n=4;n<mCabWeights.size();++n)irWeight+=mCabWeights[n];
+            if(irWeight>1e-6)
+            {
+                const unsigned selected=p.cabinet>=4?unsigned(p.cabinet-4):mLastIr;
+                mLastIr=selected;mIrActive=true;wet+=mConvolver.process(float(mTone),selected)*irWeight;
+            }
+            else if(mIrActive){mConvolver.clear();mIrActive=false;}
+            mPostHigh=zap(mPostHigh+mPostHighCoefficient*(wet-mPostHigh));
+            wet-=mPostHigh*mPostHighBlend;
+            mPostLow=zap(mPostLow+mPostLowCoefficient*(wet-mPostLow));
+            wet+=(mPostLow-wet)*mPostLowBlend;
+            // Align the insert's dry branch only for IR modes (64 extra frames).
+            mIrDry[mIrDryAt]=dry;const double irDry=mIrDry[(mIrDryAt+1)%mIrDry.size()];mIrDryAt=(mIrDryAt+1)%mIrDry.size();
+            const double alignedDry=dry+(irDry-dry)*irWeight;
+            const double result = alignedDry + (wet * p.output - alignedDry) * p.mix;
             return input + (result - input) * mBlend;
         }
 
@@ -114,7 +142,8 @@ namespace MWSound
         static double zap(double x) { return std::abs(x) < 1e-20 ? 0 : x; }
         std::array<double, 65> mFir{}, mDown{};
         std::array<double, 17> mUp{}, mDry{};
-        std::array<double, 4> mWeights{ 1, 0, 0, 0 }, mCabWeights{ 1, 0, 0, 0 };
+        std::array<double, 4> mWeights{ 1, 0, 0, 0 };
+        std::array<double, 7> mCabWeights{ 1, 0, 0, 0, 0, 0, 0 };
         std::array<double, 12> mCab{};
         std::array<double, 3> mEq{ 1, 1, 1 };
         std::size_t mUpPosition = 0, mDownPosition = 0;
@@ -122,6 +151,10 @@ namespace MWSound
         bool mWasActive = false;
         double mBlend = 0, mBass = 0, mUpper = 0, mTone = 0, mDcIn = 0, mDcOut = 0;
         double mGain = 1, mCompensation = 1, mToneCoefficient = 1;
+        CabinetConvolver mConvolver;
+        std::array<double,65> mIrDry{};unsigned mIrDryAt=0,mLastIr=0;bool mIrActive=false;
+        double mPreLow=0,mPostLow=0,mPostHigh=0,mPreCoefficient=0,mPostHighCoefficient=0,mPostLowCoefficient=0;
+        double mPreBlend=0,mPostHighBlend=0,mPostLowBlend=0;
     };
 }
 #endif

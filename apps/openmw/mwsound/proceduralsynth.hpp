@@ -27,7 +27,10 @@ namespace MWSound
             bool discrete = false;
         };
         static constexpr unsigned SampleRate = 48000;
-        static constexpr std::size_t ParameterCount = 55;
+        static constexpr std::size_t ParameterCount = 58;
+        // Wire slots 55-59 retain their original MIDI-performance meaning.
+        static constexpr unsigned decodeControl(unsigned wire)
+        { return wire<55?wire:wire<60?ParameterCount+wire-55:wire-5; }
         static const std::array<Parameter, ParameterCount> Parameters;
         using State = std::array<float, ParameterCount>;
 
@@ -52,7 +55,8 @@ namespace MWSound
             DrumType = 28, BodyFrequency, BodyDecay, BodyLevel, NoiseDecay, NoiseLevel,
             NoiseHighpass, NoiseLowpass, DrumPitchAmount, DrumPitchDecay, DrumClick, DrumDrive, AmpCurve,
             InstrumentType, StringDecay, StringDamping, StringMute, StringPick,
-            DriveType, Drive, DriveTone, FxMix, FxOutput, AmpBass, AmpMid, AmpTreble, Cabinet
+            DriveType, Drive, DriveTone, FxMix, FxOutput, AmpBass, AmpMid, AmpTreble, Cabinet,
+            PreHighpass, CabinetHighpass, CabinetLowpass
         };
         struct Command
         {

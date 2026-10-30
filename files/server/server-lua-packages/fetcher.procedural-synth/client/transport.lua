@@ -84,6 +84,14 @@ function T:configure(i,n)
     if not a then return end
     assert(a:configure(n,c.params,c.level),'Native instrument budget reached ('..(self.synth.maxUnits or 32)..' units). Finish another performance.')
     assert(a:mixer(n,c.mixer or {}),'Invalid mixer state')
+    if a.monitor then a:monitor(n,not i.auditionTrack and 1 or i.auditionTrack==n and 1 or 0.25) end
+end
+function T:audition(i,n)
+    i.auditionTrack=n and n>0 and n or nil
+    for lane in pairs(i.channels or {}) do
+        local a=self:laneStudio(i,lane,false)
+        if a and a.monitor then a:monitor(lane,not i.auditionTrack and 1 or i.auditionTrack==lane and 1 or 0.25) end
+    end
 end
 function T:metrics(i,n)
     local a=n>0 and self:laneStudio(i,n,false)

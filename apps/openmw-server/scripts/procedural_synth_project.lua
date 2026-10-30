@@ -19,7 +19,7 @@ end
 -- Times are Studio steps (four per quarter note); absent lanes leave the patch alone.
 M.automationOrder={};M.automationSpecs={};M.maxAutomation=8192
 for i,name in ipairs(schema.order) do
-    local source=schema.specs[name];local spec={min=source.min,max=source.max,default=source.default,discrete=source.discrete,code=127+i}
+    local source=schema.specs[name];local spec={min=source.min,max=source.max,default=source.default,discrete=source.discrete,code=i<=55 and 127+i or 132+i}
     if name=='polyphony' then spec.max=8;spec.default=8 end
     M.automationOrder[#M.automationOrder+1]=name;M.automationSpecs[name]=spec
 end
@@ -30,7 +30,7 @@ for _,entry in ipairs{{'pitchBend',-2,2,0,183},{'modulation',0,1,0,184},{'expres
 end
 function M.automation(input)
     if input==nil then return {} end
-    if not keys(input,M.automationSpecs,61) then return nil end
+    if not keys(input,M.automationSpecs,#schema.order+6) then return nil end
     local out={};local count=0
     for name,points in pairs(input) do
         local spec=M.automationSpecs[name];if not array(points,1024) then return nil end

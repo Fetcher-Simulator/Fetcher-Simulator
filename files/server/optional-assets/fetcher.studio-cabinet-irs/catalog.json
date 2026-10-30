@@ -1,0 +1,44 @@
+{
+  "author": "Bastian Karschewski / Jester Dyne Productions",
+  "license": "CC0-1.0",
+  "source": "https://www.jester-dyne-productions.com/brutal-ir-pack/",
+  "archiveSha256": "299dc053f01ebd1e980459adc48f9c6b8a8c7af91917b4f946512eefdbb311ea",
+  "responses": [
+    {
+      "id": "v30-sm57",
+      "label": "Vintage 30 / SM57",
+      "sourceFile": "1_Cookie_Monster.wav",
+      "sourceSha256": "48b4e8dc8bde8595f8b8153128e99debd981c30b2b7a427e8bf8f3db0a84f49f",
+      "sampleRate": 48000,
+      "onsetRemovedFrames": 0,
+      "embeddedFrames": 2048,
+      "tailFadeFrames": 128,
+      "gain": 0.20797013401355655,
+      "retainedEnergyFraction": 0.9978563223646223
+    },
+    {
+      "id": "dv77-sm57",
+      "label": "DV-77 / SM57",
+      "sourceFile": "2_Darth_Genocider.wav",
+      "sourceSha256": "92e702fa7cf3d9f5f8bddb9e27c5f7cbdf770c60334b1db9681dfdb1af27bdc9",
+      "sampleRate": 48000,
+      "onsetRemovedFrames": 0,
+      "embeddedFrames": 2048,
+      "tailFadeFrames": 128,
+      "gain": 0.20380898947190837,
+      "retainedEnergyFraction": 0.9977211189997122
+    },
+    {
+      "id": "rockdriver-e606",
+      "label": "Rockdriver Jr / e606",
+      "sourceFile": "3_Kitten_Slayer.wav",
+      "sourceSha256": "267d5e2e0b3fce34e00f31ddf48e7b2002462a1af2336d46dfe764976fc18070",
+      "sampleRate": 48000,
+      "onsetRemovedFrames": 0,
+      "embeddedFrames": 2048,
+      "tailFadeFrames": 128,
+      "gain": 0.20151991525584814,
+      "retainedEnergyFraction": 0.995951824750077
+    }
+  ]
+}

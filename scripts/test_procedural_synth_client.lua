@@ -554,6 +554,14 @@ check(w.page=='channel','per-track processor page opens')
 button('Bypassed').events.mouseClick();now=400.2;player.engineHandlers.onFrame(0.01)
 check(w.project.tracks[1].mixer.eqEnabled==1,'EQ bypass toggle changes project')
 button('Back to mixer').events.mouseClick();now=400.21;player.engineHandlers.onFrame(0.01)
+do
+local requestsBeforeFocus,generationBeforeFocus=#sent,w.generation
+button('Focus selected (local)').events.mouseClick()
+check(w.auditionTrack==w.selected and #sent==requestsBeforeFocus and w.generation==generationBeforeFocus,'focus is local monitoring without network writes or project edits')
+now=400.22;player.engineHandlers.onFrame(.01);button('Full mix (end focus)').events.mouseClick()
+check(not w.auditionTrack and w.generation==generationBeforeFocus,'full mix exits local focus without changing project history')
+now=400.23;player.engineHandlers.onFrame(.01)
+end
 button('Sound').events.mouseClick()
 check(lastEditor.params==w.project.tracks[1].params,'mixer Sound opens the selected track synth')
 api.setParameter('cutoff',2222);now=400.3;player.engineHandlers.onFrame(0.12)
@@ -640,7 +648,7 @@ api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrum
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
 -- Reproduce loaded-song reuse from the actual Studio callbacks, including Band.
-package.loaded['openmw.synth'].version=21
+package.loaded['openmw.synth'].version=22
 local paths={'midi/a.mid','midi/b.mid'};local files={}
 local function midiBytes(pitch,count)
     local events={};for n=1,count or 1 do events[#events+1]=string.char(0,144,pitch,100,96,128,pitch,0) end

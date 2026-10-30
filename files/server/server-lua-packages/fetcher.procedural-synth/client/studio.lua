@@ -325,7 +325,8 @@ function S:mixer(content)
         Dropdown.open(self,choices,p.soundSet,function(id) w:applySoundSet(id) end,55,181,590)
     end)
     content[#content+1]=self:button('>',362,150,28,function() w:cycleSoundSet(1) end)
-    content[#content+1]=label('Changes sounds on all tracks. Undo restores the previous set.',410,155,480,11,c.muted)
+    content[#content+1]=label('Applies sounds to all tracks.',410,155,190,11,c.muted)
+    content[#content+1]=self:button(w.auditionTrack and 'Full mix (end focus)' or 'Focus selected (local)',610,150,275,function() w:setAudition(w.auditionTrack and 0 or w.selected) end,w.auditionTrack~=nil)
     content[#content+1]=label('PART / TRACK',28,183,240,10,c.muted)
     content[#content+1]=label('SAVED SOUND',295,183,225,10,c.muted)
     content[#content+1]=label('LEVEL',554,183,90,10,c.muted)
@@ -334,7 +335,7 @@ function S:mixer(content)
         local index=page*8+row;local t=p.tracks[index]
         if t then
             local y=210+(row-1)*43
-            content[#content+1]=self:button(index..'  '..t.name:sub(1,30),20,y,265,function() w.selected=index;w.revision=w.revision+1 end,index==w.selected)
+            content[#content+1]=self:button(index..'  '..t.name:sub(1,30),20,y,265,function() w.selected=index;if w.auditionTrack then w:setAudition(index) end;w.revision=w.revision+1 end,index==w.selected)
             content[#content+1]=self:button('<',294,y,24,function() w:cyclePreset(index,-1) end)
             content[#content+1]=self:button(w:presetName(t)..' v',326,y,173,function()
                 local choices={};for _,p in ipairs(w.catalog) do choices[#choices+1]={id=p.id,label=p.name,search=p.name..' '..(p.bank or '')..' '..(p.role or '')} end

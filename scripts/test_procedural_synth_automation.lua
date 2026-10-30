@@ -13,6 +13,13 @@ local queued=0;local playing,time=true,0;local messages={}
 local cb={configure=function() end,panic=function() end,stopSequence=function() end,message=function(m) messages[#messages+1]=m end,
     schedule=function() queued=queued+1;return true end,progress=function() return playing,time,0 end}
 local w=W.new(cb);assert(w:newSong(120,4,4,8));assert(w:addNote(1,69,0));w.noteLength=16;assert(w:addNote(1,72,16))
+check(format.automationSpecs.pitchBend.code==183 and format.automationSpecs.pedal.code==187 and format.automationSpecs.preHighpass.code==188,'new filter controls preserve existing MIDI wire slots')
+do
+    local probe=assert(format.project(w.project));probe.tracks[1].params.cabinet=6;probe.tracks[1].params.preHighpass=120
+    probe.tracks[1].automation={preHighpass={{s=0,v=80,linear=true},{s=8,v=180,linear=false}}}
+    local persisted=assert(format.project(probe));local score=Sequence.compile(persisted,nil,MIDI,'song',format,SoundSets.programPatch)
+    check(#records(score,188)==2 and persisted.tracks[1].params.cabinet==6,'IR choice and new filter automation survive project validation and compilation')
+end
 check(w:setAutomation(1,'cutoff',0,100,true) and w:setAutomation(1,'cutoff',16,18000,false),'editable continuous curve')
 check(w:automationValue(1,'cutoff',8)==9050,'linear musical interpolation')
 check(w:setAutomation(1,'pedal',0,1,true) and not w.project.tracks[1].automation.pedal[1].linear,'discrete controls always step')
@@ -43,7 +50,7 @@ local manual=Sequence.compile(w.project,nil,MIDI,'song',format,SoundSets.program
 check(#records(manual,128)==0,'program lane is opt-in')
 check(w:followPrograms(1,true),'program follow enabled')
 local follow=Sequence.compile(w.project,nil,MIDI,'song',format,SoundSets.programPatch)
-check(#follow.bytes==#manual.bytes+110*11 and records(follow,128)[1].mode==129,'program changes expand to bounded sound-set snapshots')
+check(#follow.bytes==#manual.bytes+2*#schema.order*11 and records(follow,128)[1].mode==129,'program changes expand to bounded sound-set snapshots')
 local before=#w.undoStack;check(w:play('song'),'automation song schedules natively');w.awaiting=false;w:frame(.1)
 check(w:beginAutomationWrite(),'write captures native playhead')
 for n=1,12 do w.beat=n/4;assert(w:recordAutomation(1,'expression',n/12)) end

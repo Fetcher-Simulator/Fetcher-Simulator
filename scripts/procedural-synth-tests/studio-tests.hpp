@@ -44,7 +44,7 @@ void studioTests()
         check(energy(expected)>0 && a->strikes()==4,"controllers do not create attacks");
         a->stop();studioRender(*a,24000);a->noteOn(1,60,1);check(energy(studioRender(*a,24000))>0,"Stop removes automation and restores manual patch");
         check(!a->loadScore(scoreNote(0,65536,1,141,0),24000,true)
-            && !a->loadScore(scoreNote(0,1,1,188,0),24000,true)
+            && !a->loadScore(scoreNote(0,1,1,191,0),24000,true)
             && !a->loadScore(scoreNote(0,1,1,128,128),24000,true)
             && !a->loadScore(scoreNote(0,1,1,185,129),24000,true)
             && !a->loadScore(scoreNote(0,1,1,141,0)+scoreNote(0,2,1,141,128),24000,true),"malformed controls and duplicate curve times rejected");
@@ -117,6 +117,18 @@ void studioTests()
     check(!finite.loadScore(scoreNote(0,1,3,60),24000,true) && !finite.loadScore("bad",24000,true),"unconfigured track and malformed byte records rejected");
     check(!finite.loadScore(scoreNote(200,1,1,60)+scoreNote(100,1,1,60),24000,true),"unsorted score rejected");
     check(!finite.start(-1,0) && !finite.start(0,std::numeric_limits<double>::infinity()),"invalid transport times rejected");
+    {
+        auto monitor=std::make_unique<NativeStudio>();setupStudio(*monitor);
+        check(monitor->loadScore(scoreNote(0,96000,1,60),96001,false) && monitor->start(0,0),"monitor setup");
+        studioRender(*monitor,24000);
+        check(monitor->monitor(1,0) && !monitor->monitor(33,1) && !monitor->monitor(1,1.1f),"monitor gain is bounded and local to a configured lane");
+        studioRender(*monitor,24000);const auto quiet=studioRender(*monitor,4800);
+        check(energy(quiet)<1e-15 && monitor->trackRms(1)>0 && monitor->trackVoices(1)>0,"monitor dim does not change track meters, voices or scheduled music");
+        const auto strikes=monitor->strikes();monitor->monitor(1,1);studioRender(*monitor,12000);
+        check(energy(studioRender(*monitor,4800))>0 && monitor->strikes()==strikes,"full mix recovers without retriggering notes");
+        check(monitor->loadScore(scoreNote(0,40000,1,60)+scoreNote(0,8000,1,188,128)+scoreNote(10000,65535,1,183,0),48000,false),"new filter automation coexists with original pitch-bend wire slot");
+        check(!monitor->loadScore(scoreNote(0,0,1,191,0),48000,false),"unknown extended control rejected");
+    }
     {
         std::string dense;
         for(unsigned n=0;n<640;++n) dense+=scoreNote(n*750,240,1,40+n%24);

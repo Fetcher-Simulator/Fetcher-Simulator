@@ -44,6 +44,7 @@ function W:clampPages(reset)
     end
 end
 function W:restore(project)
+    self:setAudition(0)
     self:stop(true)
     self.clipEdit=nil;self.regionIndex=nil;self.regionSelection=nil
     if self.cb.documentChanged then self.cb.documentChanged() end
@@ -54,6 +55,7 @@ function W:restore(project)
     if self:needsMidi() and not self.song then self.cb.importMidi(project.midi) end
 end
 function W:newSong(bpm,numerator,denominator,bars)
+    self:setAudition(0)
     if self.recording or self.failedTake then self.cb.message('Keep or cancel the take before creating a song.');return false end
     local p=format.new();p.name='New song';p.bpm=bpm or 120
     p.composition={bars=bars or 8,numerator=numerator or 4,denominator=denominator or 4,loopStart=1,loopEnd=bars or 8,loop=false}
@@ -246,6 +248,12 @@ function W:configureBand()
         local routes={};for n,t in ipairs(self.project.tracks) do routes[n]=t.output.slot or 0 end
         self.cb.band(self.project.band,routes,self.project.leaderPlays~=false)
     end
+end
+function W:setAudition(index)
+    if type(index)~='number' or index%1~=0 or index<0 or index>#self.project.tracks then return false end
+    self.auditionTrack=index>0 and index or nil
+    if self.cb.audition then self.cb.audition(index) end
+    self.revision=self.revision+1;return true
 end
 function W:stageDescription()
     local description={midi=self.project.midi,leaderPlays=self.project.leaderPlays~=false,stageLayout=self.project.stageLayout or 'standing',tracks={}}
@@ -469,10 +477,10 @@ end
 function W:remove(index)
     if not self.project.tracks[index] then return false end
     if self.recording or self.failedTake then self.cb.message('Keep, retry or cancel the take before deleting a track.');return false end
-    self:stop(true);self.clipEdit=nil;self.regionIndex=nil;self.regionSelection=nil;table.remove(self.project.tracks,index);self.selected=math.max(1,math.min(index,#self.project.tracks))
+    self:setAudition(0);self:stop(true);self.clipEdit=nil;self.regionIndex=nil;self.regionSelection=nil;table.remove(self.project.tracks,index);self.selected=math.max(1,math.min(index,#self.project.tracks))
     self:clampPages();self:configureAll();self:touch();return true
 end
-function W:duplicateTrack(index) return require(prefix..'client.pattern-tools').duplicate(self,index) end
+function W:duplicateTrack(index) self:setAudition(0);return require(prefix..'client.pattern-tools').duplicate(self,index) end
 function W:clearDrumBar() return require(prefix..'client.pattern-tools').clearBar(self) end
 function W:deletePatternBar() return require(prefix..'client.pattern-tools').deleteBar(self) end
 function W:capturePattern() return require(prefix..'client.pattern-tools').capture(self) end
@@ -670,6 +678,7 @@ function W:duplicateNotes(index)
     local step=self:copyNotes(index);return step and self:pasteNotes(index,step+(self.snap>0 and self.snap or 0.25)) or false
 end
 function W:import(song,path)
+    self:setAudition(0)
     local parts=MIDI.parts(song);local extra,old={},{}
     for _,t in ipairs(self.project.tracks) do
         if t.kind~='midi' then extra[#extra+1]=t elseif self.project.midi==path then old[t.part]=t end

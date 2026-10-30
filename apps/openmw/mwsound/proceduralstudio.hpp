@@ -17,10 +17,11 @@ namespace MWSound
             for (auto& track : mTracks) track = nullptr;
             for (auto& lane : mNoteBits) for (auto& bits : lane) bits = 0;
             for (auto& state : mMixerTarget) state = ProceduralMixer::defaults();
+            for(auto& gain:mMonitorTarget)gain=1;mMonitorCurrent.fill(1);
             for (unsigned n=0;n<MaxTracks;++n) { mLanePeak[n]=0; mRms[n]=0; mReduction[n]=0; }
             keepAlive();
         }
-        static constexpr unsigned MaxTracks = 32, MaxNotes = 60000, MaxControls = 8192, MaxCurves = MaxTracks * 115, MaxActive = 4096;
+        static constexpr unsigned MaxTracks = 32, MaxNotes = 60000, MaxControls = 8192, MaxCurves = MaxTracks * (2*ProceduralSynth::ParameterCount+5), MaxActive = 4096;
         // Preloaded scores are scheduled on the audio clock, independently of live network notes.
         static constexpr unsigned NoteRate = 256, NoteBurst = 512;
         static constexpr std::uint32_t MaxFrames = 48000 * 1800;
@@ -45,6 +46,8 @@ namespace MWSound
         }
         bool hasTrack(unsigned track) const;
         bool mixer(unsigned track, const ProceduralMixer::State& state);
+        bool monitor(unsigned track,float gain)
+        { if(!hasTrack(track) || !std::isfinite(gain) || gain<0 || gain>1)return false;mMonitorTarget[track-1]=gain;return true; }
         float trackRms(unsigned n) const { return hasTrack(n) ? mRms[n-1].load() : 0; }
         float trackReduction(unsigned n) const { return hasTrack(n) ? mReduction[n-1].load() : 0; }
         bool effects(const ProceduralReturns::State& state, float master);
@@ -105,6 +108,8 @@ namespace MWSound
         std::array<bool, MaxTracks> mMixerDirty{};
         std::array<std::atomic<float>, MaxTracks> mLanePeak{}, mRms{}, mReduction{};
         std::array<double, MaxTracks> mPower{};
+        std::array<std::atomic<float>,MaxTracks> mMonitorTarget{};
+        std::array<double,MaxTracks> mMonitorCurrent{};
         std::atomic<float> mMasterRms{0}, mMixPeak{0};
         double mMasterPower=0;
         ProceduralReturns mReturns;

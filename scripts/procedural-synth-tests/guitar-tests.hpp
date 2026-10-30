@@ -13,6 +13,56 @@ double magnitude(const std::vector<float>& samples, double hz)
 }
 void guitarTests()
 {
+    {
+        MWSound::CabinetConvolver convolver;
+        for(unsigned ir=0;ir<3;++ir)
+        {
+            convolver.clear();double error=0;
+            for(unsigned n=0;n<2400;++n)
+            {
+                const float source=n==17?1.f:n==383?-.3f:0;
+                const auto result=convolver.process(source,ir);
+                double expected=0;
+                if(n>=81 && n<81+2048)expected+=MWSound::CabinetIRData::Responses[ir][n-81];
+                if(n>=447 && n<447+2048)expected-=.3*MWSound::CabinetIRData::Responses[ir][n-447];
+                error=std::max(error,std::abs(result-expected));
+            }
+            check(error<2e-6,"partitioned captured IR matches direct convolution across block boundaries");
+        }
+        for(unsigned n=0;n<12000;++n)
+        {
+            const auto sample=convolver.process(0,(n/97)%3);
+            check(std::isfinite(sample) && std::abs(sample)<1,"rapid IR changes retain bounded tails");
+        }
+        convolver.clear();check(convolver.process(0,0)==0,"cleared IR never replays an old tail");
+        std::cout<<"PASS captured cabinet IR convolution, alignment, reset and switching\n";
+    }
+    {
+        MWSound::ProceduralSynthEffects effects;MWSound::ProceduralSynthEffects::Settings settings;settings.cabinet=1;
+        double previous=0,largest=0;
+        for(unsigned n=0;n<16000;++n)
+        {
+            if(n==4000)settings.cabinetLowpass=6000;
+            if(n==8000)settings.cabinetLowpass=0;
+            const double value=effects.process(.4*std::sin(2*3.141592653589793*997*n/48000),settings);
+            if(n>1000)largest=std::max(largest,std::abs(value-previous));previous=value;
+        }
+        check(largest<.08,"filter bypass transitions retain smooth PCM instead of hard signal cuts");
+    }
+    {
+        std::vector<std::unique_ptr<Synth>> band;
+        for(unsigned n=0;n<8;++n)
+        {
+            auto synth=std::make_unique<Synth>();synth->set("cabinet",4+n%3);synth->set("driveType",2);
+            synth->set("preHighpass",100);synth->set("cabinetHighpass",70);synth->set("cabinetLowpass",9000);
+            for(int pitch=40;pitch<48;++pitch)synth->noteOn(pitch,.6f);
+            band.push_back(std::move(synth));
+        }
+        const auto start=std::chrono::steady_clock::now();
+        for(auto& synth:band)render(*synth,48000);
+        std::cout<<"8 instruments x 8 voices with captured IRs and drive: "
+            <<std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count()<<" seconds / second PCM (informational)\n";
+    }
     using Effects=MWSound::ProceduralSynthEffects;
     Effects bypass;
     Effects::Settings settings;

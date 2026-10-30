@@ -88,7 +88,7 @@ function E:slider(name,title,x,y,width)
     elseif name=='drive' or name:find('^amp[BMT]') then spec.unit='dB';spec.step=0.5
     elseif name:find('tune') or name:find('fine') or name:find('Amount') then spec.step=1 end
     local labels={wave1=waves,wave2=waves,enabled2={'Off','On'},lfoTarget={'Pitch','Filter','Amplitude'},drumType={'Synth','Kick','Snare','Closed hat','Open hat'},
-        instrumentType={'Oscillators','Plucked string'},driveType={'Off','Overdrive','Distortion','Fuzz'},cabinet={'Off','Small speaker','Open speaker','Dark stack'}}
+        instrumentType={'Oscillators','Plucked string'},driveType={'Off','Overdrive','Distortion','Fuzz'},cabinet={'Off','Small speaker','Open speaker','Dark stack','IR V30 / SM57','IR DV77 / SM57','IR Rockdriver / e606'}}
     local caption=labels[name] and function() return title..' / '..(labels[name][self.params[name]+1] or '') end or title
     local element,refresh=Controls.slider(self,name,caption,spec,function() return self.params[name] end,function(value)
         self.params[name]=value;self.cb.change(name,value)
@@ -247,10 +247,10 @@ function E:render()
     local function slider(name,title,x,y,width) content[#content+1]=self:slider(name,title,x,y,width) end
     if self.page=='presets' then self:browser(content)
     elseif self.page=='effects' then
-        for n,item in ipairs({{'driveType','Character'},{'drive','Input drive (dB)'},{'driveTone','Drive tone (Hz)'},{'fxMix','Wet / dry'}}) do slider(item[1],item[2],x1,185+(n-1)*55,col-20) end
-        for n,item in ipairs({{'ampBass','Bass (dB)'},{'ampMid','Mid (dB)'},{'ampTreble','Treble (dB)'}}) do slider(item[1],item[2],x2,185+(n-1)*55,col-20) end
+        for n,item in ipairs({{'driveType','Character'},{'drive','Input drive (dB)'},{'driveTone','Drive tone (Hz)'},{'fxMix','Wet / dry'},{'preHighpass','Pre-drive low cut (Hz)'}}) do slider(item[1],item[2],x1,185+(n-1)*55,col-20) end
+        for n,item in ipairs({{'ampBass','Pre-drive bass (dB)'},{'ampMid','Pre-drive mid (dB)'},{'ampTreble','Pre-drive treble (dB)'},{'cabinetHighpass','Post-cab low cut (Hz)'},{'cabinetLowpass','Post-cab high cut (Hz)'}}) do slider(item[1],item[2],x2,185+(n-1)*55,col-20) end
         for n,item in ipairs({{'cabinet','Speaker'},{'fxOutput','Effects output'},{'volume','Instrument volume'},{'gain','Output gain'}}) do slider(item[1],item[2],x3,185+(n-1)*55,col-20) end
-        content[#content+1]=label('Per-instrument insert / 4x drive',x1,435,col-20,12,colors.muted)
+        content[#content+1]=label('Post-cab EQ: Mixer > Mix',x3,435,col-20,12,colors.muted)
         content[#content+1]=label('Drive adds color; volume sets level.',x1,477,col*2-20,12,colors.accent)
     elseif self.drums then
         for n,item in ipairs({{'drumType','Drum type'},{'bodyFrequency','Body tune (Hz)'},{'bodyDecay','Body decay'},{'bodyLevel','Body level'},{'drumPitchAmount','Pitch sweep (semitones)'},{'drumPitchDecay','Pitch decay'},{'drumClick','Attack click'}}) do slider(item[1],item[2],x1,185+(n-1)*45,col-20) end

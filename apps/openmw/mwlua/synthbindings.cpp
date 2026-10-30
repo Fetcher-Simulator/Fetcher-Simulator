@@ -62,7 +62,7 @@ namespace MWLua
                     return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 21;
+            api["version"] = 22;
             api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
                 const auto path = manager->exportStudioMidi(name, bytes);
                 sol::table result(lua, sol::create);
@@ -125,7 +125,7 @@ namespace MWLua
                         state[i]=values[MWSound::ProceduralMixer::Parameters[i].name].get_or(MWSound::ProceduralMixer::Parameters[i].initial);
                     return studio.mixer(n, state);
                 },
-                "set", &Studio::set, "loadScore", &Studio::loadScore, "notes",
+                "set", &Studio::set, "monitor", &Studio::monitor, "loadScore", &Studio::loadScore, "notes",
                 [lua](const Studio& studio) {
                     sol::table notes(lua, sol::create);
                     for (unsigned key : studio.activeNotes())

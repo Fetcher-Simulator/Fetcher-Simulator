@@ -8,9 +8,9 @@ local util=require('openmw.util')
 local stageLayout=require('scripts.multiplayer.fetcher.procedural-synth.shared.band-layout')
 local StagePreflight=require('scripts.multiplayer.fetcher.procedural-synth.client.stage-preflight')(nearby,util,stageLayout)
 local supported, synth = pcall(require,'openmw.synth')
-if not supported or (synth.version and synth.version<21) then
+if not supported or (synth.version and synth.version<22) then
     return {eventHandlers={Synth_Activate=function()
-        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 21.')
+        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 22.')
     end}}
 end
 local schema = require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -401,6 +401,7 @@ makeWorkstation=function(i)
             return delay,reverb
         end,
         meters=function(n) return transport:metrics(i,n) end,
+        audition=function(n) transport:audition(i,n) end,
         meter=function(n) local audio=channelAudio(i,n,false);return audio and audio.peak or 0 end,
     }
     w.recorder=Recorder.new(w,synth,core,self,require('openmw.storage').playerSection('ProceduralSynthRecording'),ui.showMessage)
@@ -774,7 +775,7 @@ end
 return {
     interfaceName='ProceduralSynth',
     interface={
-        version=21,
+        version=22,
         status=function()
             local out={}
             for id,i in pairs(instances) do

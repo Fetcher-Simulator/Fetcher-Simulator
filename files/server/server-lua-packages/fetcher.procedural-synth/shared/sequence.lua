@@ -21,8 +21,8 @@ function M.validate(bytes,length,loop,channels)
         previous=frame
         if note>=128 then
             controlCount=controlCount+1
-            if controlCount>M.maxControls or note>187 or duration>65535 or velocity~=0 and velocity~=128 and velocity~=129
-                or velocity==129 and note>182 or velocity==128 and discrete[note] then return nil,'Invalid score control.' end
+            if controlCount>M.maxControls or note>190 or duration>65535 or velocity~=0 and velocity~=128 and velocity~=129
+                or velocity==129 and note>=183 and note<=187 or velocity==128 and discrete[note] then return nil,'Invalid score control.' end
             local key=lane..':'..note..':'..(velocity==129 and 'program' or 'automation')
             if curves[key] and curves[key]>=frame then return nil,'Duplicate score control time.' end;curves[key]=frame
         else
@@ -200,7 +200,7 @@ function M.compile(project,song,MIDI,mode,format,programPatch)
                     assert(programPatch and not t.params.sample,'Program changes require a synth part and a program resolver.')
                     local patch=assert(programPatch(project,t,p.v))
                     for _,param in ipairs(format and format.automationOrder or {}) do local ps=format.automationSpecs[param]
-                        if ps.code and ps.code<=182 then control(lane,p.frame,ps.code,math.floor((math.min(ps.max,patch[param])-ps.min)/((ps.code==153 and 32 or ps.max)-ps.min)*65535+0.5),false,true) end
+                        if ps.code and (ps.code<=182 or ps.code>=188) then control(lane,p.frame,ps.code,math.floor((math.min(ps.max,patch[param])-ps.min)/((ps.code==153 and 32 or ps.max)-ps.min)*65535+0.5),false,true) end
                     end
                 else
                     control(lane,p.frame,spec.code,math.floor((p.v-spec.min)/((spec.code==153 and 32 or spec.max)-spec.min)*65535+0.5),p.linear,false)

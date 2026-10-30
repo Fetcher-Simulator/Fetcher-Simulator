@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 53 / native synth API 21 / multiplayer protocol 27.
+Current source: package 54 / native synth API 22 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,33 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Captured cabinets and full-band audition (package 54 / native API 22)
+
+In a track's **Sound → Effects** page, **Speaker** now includes three captured
+cabinet/microphone responses: **IR V30 / SM57**, **IR DV77 / SM57** and
+**IR Rockdriver / e606**. These CC0 captures by Jester Dyne / Bastian Karschewski
+use native partitioned convolution after drive. Choices 0–3 retain the original
+filters. Old projects keep their saved choices. New pre-drive low-cut and
+post-cabinet low/high-cut controls default to zero/bypass for old sounds.
+Use **Mixer → Mix** for independently saved post-cabinet channel EQ/compression.
+
+Reapply a recorded Rock, Metal or Thrash sound set to use the new cabinet defaults.
+The generated-string voice and recorded DI both use this same effects stage;
+this slice does not replace the string model or add new articulation recordings.
+IR processing adds 64 frames (1.33 ms) to the existing insert latency, with
+crossfaded cabinet changes and no audio-thread allocation or loading.
+
+On **Mixer**, select a track and press **Focus selected (local)**. Other tracks
+in that Studio performance are dimmed to 25% (about −12 dB), retaining drums/bass
+for tone decisions. Selecting another row moves focus. **Full mix (end focus)**
+restores normal monitoring. This does not change saved faders, mute/solo, project
+history or other players' playback. Existing mute/solo still applies. Focus
+resets when loading/importing a document or changing track identities; it remains
+available while opening the selected track's Sound editor.
+
+Capture provenance, source WAVs, license handbook and deterministic preparation
+metadata are in `files/server/optional-assets/fetcher.studio-cabinet-irs/`.
 
 ## Dense MIDI songs and recorded-band balance (package 53 / native API 21)
 

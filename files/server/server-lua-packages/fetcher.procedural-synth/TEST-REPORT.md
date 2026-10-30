@@ -1,5 +1,36 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 30: captured cabinets and local focus (package 54 / API 22)
+
+Three original CC0 captures from Jester Dyne's Brutal Pack 1.0 are source-hashed,
+retained with their handbook, and prepared reproducibly. Page 3 of that original
+handbook was extracted and visually checked. The embedded 48 kHz kernels retain
+at least 99.59% of source energy before a 128-frame final fade. Each kernel is
+2,048 frames. A uniform partitioned overlap-save convolver has 64-frame latency,
+immutable shared FFT kernels, preallocated per-instrument history and crossfaded
+selection. It follows the voice sum/drive; it is separate from room acoustics.
+
+Native tests compare all three responses to direct convolution with impulses
+across block boundaries (maximum error below 2e-6), exercise reset/switching and
+legacy bypass, and verify note scheduling/controllers. Eight instruments with
+eight voices, drive and IR processing render one second in approximately 0.17
+seconds on this machine (informational; not an in-game frame-rate guarantee).
+Native monitor tests verify smoothed dim/recovery without changing note starts,
+voices or pre-monitor channel meters. Tests preserve the original 183–187 MIDI
+wire slots while using 188–190 for the three new filter controls.
+
+All 28 Lua suites pass, including UI buttons, no network/project-history edits
+for focus, focus across split physical outputs, reconfiguration, saved fader
+preservation, filter automation and project round trips. The client build passes.
+Current native/GUI validation is automated; no live visual/listening acceptance
+is claimed while the client is left closed.
+
+For the same Master of Puppets excerpt (60–76 seconds), recorded Thrash guitar
+stem RMS is 0.07241 with IRs versus package 53's 0.07285; the complete new mix
+peaks at 0.3941 with RMS 0.08923, below clipping. Level-matched full-band A/B
+files and matching-gain metadata are under `build/studio-cabinet-ir/`. These are
+listening artifacts, not a claim of matching an artist's album tone.
+
 ## October 30: dense prerecorded scores and recorded-band voicing (package 53 / API 21)
 
 Master of Puppets reproduces the former shared 40/sec rejection with 19 parts,

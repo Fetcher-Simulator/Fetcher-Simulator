@@ -111,12 +111,13 @@ namespace MWSound
             previous = note.frame;
             if (note.pitch >= 128)
             {
-                const unsigned code = note.pitch - 128;
+                const unsigned wire = note.pitch - 128;
+                const unsigned code = ProceduralSynth::decodeControl(wire);
                 const bool program = note.velocity == 129;
-                if (++controls > MaxControls || code >= ProceduralSynth::ControlCount || note.duration > 65535
+                if (++controls > MaxControls || wire >= ProceduralSynth::ControlCount || note.duration > 65535
                     || (note.velocity != 0 && note.velocity != 128 && !program)
                     || (program && code >= ProceduralSynth::ParameterCount)
-                    || (note.velocity == 128 && (code == 59 || (code < 55 && ProceduralSynth::Parameters[code].discrete)))) return false;
+                    || (note.velocity == 128 && (code == ProceduralSynth::ParameterCount+4 || (code < ProceduralSynth::ParameterCount && ProceduralSynth::Parameters[code].discrete)))) return false;
                 auto curve = std::find_if(score->curves.begin(), score->curves.end(), [&](const auto& c) {
                     return c.track == note.track-1u && c.code == code && c.program == program;
                 });
@@ -274,23 +275,23 @@ namespace MWSound
                 value += slope*(phase-p.frame);
             }
             const auto code=curve.code;
-            const double low = code<55 ? ProceduralSynth::Parameters[code].min : code==55 ? -2 : 0;
-            const double high = code<55 ? ProceduralSynth::Parameters[code].max : code==55 ? 2 : 1;
+            const double low = code<ProceduralSynth::ParameterCount ? ProceduralSynth::Parameters[code].min : code==ProceduralSynth::ParameterCount ? -2 : 0;
+            const double high = code<ProceduralSynth::ParameterCount ? ProceduralSynth::Parameters[code].max : code==ProceduralSynth::ParameterCount ? 2 : 1;
             value=low+(high-low)*value/65535; slope *= (high-low)/65535;
-            if (code==55 && std::abs(value)<0.00004) value=0;
-            if (code<55 && ProceduralSynth::Parameters[code].discrete) value=std::round(value);
+            if (code==ProceduralSynth::ParameterCount && std::abs(value)<0.00004) value=0;
+            if (code<ProceduralSynth::ParameterCount && ProceduralSynth::Parameters[code].discrete) value=std::round(value);
             if (code==25) value=std::min(8.0,value);
             if (curve.program) { track->mProgrammed[code]=true; track->mProgram[code]=static_cast<float>(value); }
             else { track->mAutomated[code]=true; track->mAutomation[code]=value; track->mAutomationSlope[code]=slope; }
-            if (code==59) pedal(curve.track, value>=0.5);
+            if (code==ProceduralSynth::ParameterCount+4) pedal(curve.track, value>=0.5);
         }
         for (const auto& slot : mTracks) if (auto track=std::atomic_load(&slot))
         {
             if (mChasingControls)
             {
-                for (unsigned i=0; i<55; ++i) if (track->mAutomated[i] || track->mProgrammed[i])
+                for (unsigned i=0; i<ProceduralSynth::ParameterCount; ++i) if (track->mAutomated[i] || track->mProgrammed[i])
                     track->mCurrent[i]=static_cast<float>(track->mAutomated[i] ? track->mAutomation[i] : track->mProgram[i]);
-                for (unsigned i=0; i<4; ++i) track->mPerformance[i]=track->mAutomated[55+i] ? track->mAutomation[55+i] : (i<2 ? 0.0 : 1.0);
+                for (unsigned i=0; i<4; ++i) track->mPerformance[i]=track->mAutomated[ProceduralSynth::ParameterCount+i] ? track->mAutomation[ProceduralSynth::ParameterCount+i] : (i<2 ? 0.0 : 1.0);
             }
             track->automationDiscrete();
         }
@@ -419,10 +420,14 @@ namespace MWSound
                 {
                     track->keepAlive(); track->render(lane.data(), count);
                     float held=mLanePeak[n];
+                    const float monitor=mMonitorTarget[n];
                     for (std::size_t i=0;i<count;++i)
                     {
-                        const float sample=mMixer[n].process(lane[i]); mixed[i]+=sample;
-                        delayInput[i]+=sample*mMixer[n].delaySend();reverbInput[i]+=sample*mMixer[n].reverbSend();
+                        const float sample=mMixer[n].process(lane[i]);
+                        mMonitorCurrent[n]+=(monitor-mMonitorCurrent[n])*0.0020811647;
+                        if(std::abs(monitor-mMonitorCurrent[n])<1e-12)mMonitorCurrent[n]=monitor;
+                        const float heard=static_cast<float>(sample*mMonitorCurrent[n]);mixed[i]+=heard;
+                        delayInput[i]+=heard*mMixer[n].delaySend();reverbInput[i]+=heard*mMixer[n].reverbSend();
                         held=std::max(std::abs(sample),ProceduralDsp::silence(held*0.99993056f));
                         mPower[n]+=0.00013888*(sample*sample-mPower[n]);
                         if (mPower[n]<1e-25) mPower[n]=0;

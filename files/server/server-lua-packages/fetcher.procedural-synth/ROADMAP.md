@@ -3,13 +3,21 @@
 Updated 2026-10-30. Completed work and subsequent planned slices are identified below.
 
 **Sound-design direction after reviewing the supplied video references:** the
-next native audio slice is a proper guitar cabinet/microphone IR stage, with
+first native audio slice adds a proper guitar cabinet/microphone IR stage, with
 independent pre-drive shaping, post-cabinet EQ and matched output levels. Follow
 with better picked-string excitation/resonance and per-note articulation for
 both synthesized and sampled sources. More samples are one possible improvement,
 not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
+
+Package 54 / native API 22 implements three CC0 captured cabinet/microphone
+responses with bounded partitioned convolution, pre-drive low-cut and post-cab
+cuts, plus local focus/dim audition across routed performers. Existing channel
+EQ provides post-cab tone controls. Legacy cabinets and MIDI control codes remain
+stable; the new controls use extension slots 188–190. Recorded guitar defaults
+use the captures, with full-band/raw-level comparisons. Perceptual acceptance,
+better string excitation/resonance and explicit articulations are still pending.
 
 October 30, package 53 / native API 21: prerecorded density is independently
 bounded at 256 notes/sec, burst 512, in the Lua compiler/server and native player.

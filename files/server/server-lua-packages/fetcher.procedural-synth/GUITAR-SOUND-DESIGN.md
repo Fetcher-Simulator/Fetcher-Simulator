@@ -4,6 +4,12 @@ Reviewed October 30, 2026 using the three supplied videos' English captions,
 chapter descriptions and published descriptions. This is a plan, not a completed
 DSP implementation or a listening approval of the current presets.
 
+Package 54 follow-up: the first native cabinet/mix-context slice is implemented
+and covered by DSP, UI and routed-output tests. It supplies three CC0 captures,
+pre-drive/post-cab cuts, existing post-cab channel EQ and local focus/dim. The
+string/articulation and experimental branches below remain planned. Full-band
+listening acceptance remains distinct from the automated measurements.
+
 ## What the references contribute
 
 - [CyberBlitz: How to DOOM Like Mick Gordon](https://www.youtube.com/watch?v=-9rTxQr1194):

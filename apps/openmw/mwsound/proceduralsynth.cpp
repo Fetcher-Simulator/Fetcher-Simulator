@@ -60,7 +60,10 @@ namespace MWSound
         { "ampBass", -12, 12, 0 },
         { "ampMid", -12, 12, 0 },
         { "ampTreble", -12, 12, 0 },
-        { "cabinet", 0, 3, 0, true },
+        { "cabinet", 0, 6, 0, true },
+        { "preHighpass", 0, 500, 0 },
+        { "cabinetHighpass", 0, 500, 0 },
+        { "cabinetLowpass", 0, 18000, 0 },
     } };
 
     namespace
@@ -652,6 +655,9 @@ namespace MWSound
             fx.mode = static_cast<int>(effective[DriveType]); fx.cabinet = static_cast<int>(effective[Cabinet]);
             fx.drive = mCurrent[Drive]; fx.tone = mCurrent[DriveTone]; fx.mix = mCurrent[FxMix]; fx.output = mCurrent[FxOutput];
             fx.bass = mCurrent[AmpBass]; fx.mid = mCurrent[AmpMid]; fx.treble = mCurrent[AmpTreble];
+            fx.preHighpass=effective[PreHighpass]>0?mCurrent[PreHighpass]:0;
+            fx.cabinetHighpass=effective[CabinetHighpass]>0?mCurrent[CabinetHighpass]:0;
+            fx.cabinetLowpass=effective[CabinetLowpass]>0?mCurrent[CabinetLowpass]:0;
             // Preserve legacy multiplication order when the insert is bypassed.
             const double signal = mEffects.process(mixed, fx);
             output[frame] = static_cast<float>(std::tanh(signal * mCurrent[23] * mCurrent[24] * 0.18 * mPerformance[2] * mPerformance[3]));

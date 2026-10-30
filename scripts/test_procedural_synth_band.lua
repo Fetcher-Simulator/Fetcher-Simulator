@@ -10,6 +10,7 @@ local native={createStudio=function(object)
     local a={source=object,closed=false,playing=false,tracks={},starts={},replaces=0,strikes=0,mixPeak=0.1,masterRms=0.05}
     function a:configure(n,p,l) self.tracks[n]={params=p,level=l};return true end
     function a:mixer() return true end
+    function a:monitor(n,gain) self.tracks[n].monitor=gain;return true end
     function a:effects(_,master) self.master=master;return true end
     function a:loadScore(bytes,length,loop) self.bytes=bytes;self.length=length;self.loop=loop;return #bytes%11==0 end
     function a:start(delay,offset) self.starts[#self.starts+1]={delay=delay,offset=offset};self.playing=true;return true end
@@ -78,5 +79,12 @@ for slot,audio in pairs{[1]=i.studio,[2]=i.outputs[1].audio} do
     for at=1,#audio.bytes,11 do check(audio.bytes:byte(at+8)==slot,'control lane stays with its physical output');if audio.bytes:byte(at+9)>=128 then controls=controls+1 else notes=notes+1 end end
     check(notes==1 and controls==1,'each output receives exactly its own note and automation')
 end
+local keyboardLevel,memberLevel=i.studio.tracks[1].level,i.outputs[1].audio.tracks[2].level
+transport:audition(i,2)
+check(i.studio.tracks[1].monitor==.25 and i.outputs[1].audio.tracks[2].monitor==1,'focus dims backing parts across physical output splits')
+transport:configure(i,1);check(i.studio.tracks[1].monitor==.25,'parameter updates preserve local focus')
+transport:audition(i,0)
+check(i.studio.tracks[1].monitor==1 and i.outputs[1].audio.tracks[2].monitor==1,'full mix restores every output')
+check(i.studio.tracks[1].level==keyboardLevel and i.outputs[1].audio.tracks[2].level==memberLevel,'focus never overwrites saved/routed faders')
 transport:close(i)
 print('PASS physical band routing, exact partition, shared starts/replacement, missing/rejoin, gain/mute and bounded cleanup; '..checks..' assertions')
