@@ -366,7 +366,8 @@ end
 function S:band(content)
     local w,p=self.w,self.w.project;local page=w.bandPage or 0
     content[#content+1]=label('BAND MEMBERS / INSTRUMENTS & PERFORMERS',20,158,500,13,c.accent)
-    content[#content+1]=label('TRACK OUTPUTS',550,158,340,13,c.accent)
+    content[#content+1]=label('TRACK OUTPUTS',550,158,145,13,c.accent)
+    content[#content+1]=self:button('Match GM models',700,174,190,function() self:releaseAll();w:matchStageInstruments() end)
     content[#content+1]=label('Name                 Instrument                     Level        Mute',20,181,510,10,c.muted)
     local function update(slot,key,value)
         local old=p.band[slot];local m={name=old.name,target=old.target,level=old.level,mute=old.mute};m[key]=value
@@ -417,7 +418,7 @@ function S:band(content)
     content[#content+1]=self:button(w.bandSetup and 'Setting up NPCs...' or ('Auto NPC band ('..#p.tracks..' parts)'),205,610,270,function() self:releaseAll();w:setupNpcBand(false) end)
     content[#content+1]=self:button('Restage grid',485,610,155,function() self:releaseAll();w:setupNpcBand(true) end)
     local selectedIndex=w.selected;local selected=p.tracks[selectedIndex]
-    local instrument=selected and (selected.instrument or (selected.kind=='drum' and 'drum' or Project.instrumentFor(selected.sourceRole)))
+    local instrument=selected and (selected.instrument or Project.instrumentFor(selected.kind=='drum' and 'percussion' or selected.sourceRole))
     content[#content+1]=self:button('Part '..w.selected..': '..(instrument or 'Choose part')..' v',650,610,240,function()
         if not selected then return end
         local choices={};for name in pairs(Project.instruments) do choices[#choices+1]={id=name,label=name} end

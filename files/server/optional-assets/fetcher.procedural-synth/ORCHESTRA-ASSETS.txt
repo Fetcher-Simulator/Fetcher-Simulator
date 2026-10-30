@@ -77,6 +77,27 @@ Source: https://sketchfab.com/3d-models/secret-notebook-from-paper-hospital-map-
 Author: https://sketchfab.com/neominigan
 License: https://creativecommons.org/licenses/by/4.0/
 
+Hirasawa Yui Guitar / Standard electric guitar — Kaif.3D
+Source: https://sketchfab.com/3d-models/hirasawa-yui-guitar-standard-electric-guitar-b14acd63f3794fdd96d5ec8b00a6fb8f
+Author: https://sketchfab.com/kaif.3d
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
+
+Bass guitar — JoY_3d
+Source: https://sketchfab.com/3d-models/bass-guitar-e56f581f51a6488595af35131324f945
+Author: https://sketchfab.com/JoY_3d
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.
+
+Drum Kit — art.katja
+Source: https://sketchfab.com/3d-models/drum-kit-898f2f4ba1704abe9c784066e2b0f751
+Author: https://sketchfab.com/art.katja
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes. Display plinth and loose spare cymbal omitted; dense hardware simplified for real-time use. Drums, cymbals, hi-hat and pedals retained.
+
 Additional adaptations: violin/bow separated into independent animated props; one wooden percussion stick selected from the downloaded pair. The percussion beater is wooden, not a felt-headed timpani mallet.
 Seated keyboard: existing credited Yamaha/X-stand adaptation lowered by 24 game units; stand legs shortened while key/body thickness is retained. Original keyboard/stand authors and licenses remain applicable.
 Sheet booklet joined into standing/seated Yamaha music rests and the separate music stand. Yamaha pages centered on the offset rest, scaled to 86 percent and tilted 76 degrees to sit behind its retaining lip. Existing geometry and collision are retained. Compact stool scaled to a 44-unit seat height.

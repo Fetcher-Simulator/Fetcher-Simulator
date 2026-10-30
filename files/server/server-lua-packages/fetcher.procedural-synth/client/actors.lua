@@ -90,11 +90,14 @@ function A:frame(instances,dt,now)
                                     anim.setVisualAttachment(actor,extra.key,extra.model,{bone='Bip01',transform=attachment,timeout=.6})
                                 end
                             end
-                            if r.kind=='npc' then
+                            if r.kind=='npc' or r.instrument=='drumkit' then
                                 local furniture={}
                                 if profile.seated and p.pose and not p.seatedUnsupported then furniture[#furniture+1]={key='synth_chair',file='stool',position=profile.bench.position,rotation=profile.bench.rotation,scale=profile.bench.scale} end
                                 -- Keyboards already include their own music rest and pages.
-                                if r.instrument~='keyboard' then furniture[#furniture+1]={key='synth_music_stand',file='music-stand',position=v(38,60,0),rotation=T.rotateZ(math.atan2(-38,-60))} end
+                                if r.instrument~='keyboard' then
+                                    local stand=profile.musicStand or v(38,60,0)
+                                    furniture[#furniture+1]={key='synth_music_stand',file='music-stand',position=stand,rotation=T.rotateZ(math.atan2(-stand.x,-stand.y))}
+                                end
                                 for _,prop in ipairs(furniture) do
                                     local model='meshes/fetcher/orchestra/'..prop.file..'.nif'
                                     if not vfs.fileExists or vfs.fileExists(model) then

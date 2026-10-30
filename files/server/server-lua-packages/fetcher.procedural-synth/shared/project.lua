@@ -75,15 +75,17 @@ function M.effects(t)
 end
 M.instruments={keyboard='fetcher_procedural_keyboard_v1',lute='misc_de_lute_01',drum='misc_de_drum_01'}
 M.instrumentModels={}
-for _,name in ipairs{'violin','cello','trumpet','flute','clarinet','timpani'} do
+for _,name in ipairs{'violin','cello','trumpet','flute','clarinet','timpani','guitar','bass','drumkit'} do
     M.instruments[name]='fetcher_studio_'..name..'_v1'
     M.instrumentModels[name]={model='meshes/fetcher/orchestra/'..name..'.nif',icon='fetcher/orchestra/'..name..'.dds'}
 end
 function M.instrumentFor(role,program)
-    if ({kick=true,snare=true,hat=true,openhat=true,tom=true,pedalhat=true,rim=true,clap=true,crash=true,ride=true,ridebell=true,cowbell=true,tambourine=true,shaker=true,percussion=true})[role] then return 'drum' end
+    if ({kick=true,snare=true,hat=true,openhat=true,tom=true,pedalhat=true,rim=true,clap=true,crash=true,ride=true,ridebell=true,cowbell=true,tambourine=true,shaker=true,percussion=true})[role] then return 'drumkit' end
     if program==42 or program==43 then return 'cello' end
     if program==47 then return 'timpani' end
-    if role=='guitar' or role=='bass' or role=='pluck' then return 'lute' end
+    if role=='bass' then return 'bass' end
+    if role=='guitar' then return 'guitar' end
+    if role=='pluck' then return 'lute' end
     return ({strings='violin',brass='trumpet',reed='clarinet',pipe='flute'})[role] or 'keyboard'
 end
 function M.target(value)

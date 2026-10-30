@@ -1,5 +1,25 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 29: guitar/bass/full-kit models (package 51 / native API 20)
+
+Downloaded GLBs are hash-recorded with official Sketchfab metadata verifying
+CC BY 4.0. Converted NIF 4.0.0.2 models contain 40,146 guitar, 41,050 bass and
+54,602 kit triangles. The kit removes the display plinth/loose spare cymbal and
+reduces dense hardware. Diffuse/normal source textures are adapted to DDS and
+legacy materials, with new inventory icons and thirteen total credited sources.
+The asset validator verifies 109 files, every manifest hash, finite geometry,
+trusted texture paths, mipmaps and source credits. Actual NIF front/side/back
+renders under `build/studio-band-model-views/` were inspected, including the bass
+front/back orientation repair. This is a mesh check, not a live character test.
+
+All 28 Lua suites pass, covering trusted model identities, player/NPC targets,
+guitar/bass/front-facing axis conventions, independent editable kit seat/foot/
+stool defaults, one-drummer grouping, wider positions and preflight, twelve
+performer choices, model matching/Undo and preservation of sound/mix/note data.
+The native synth API stays at 20: no engine or network-protocol change is needed.
+The port-25567 fixture receives package 51/content with user-state hash checks;
+the client stays closed. Public release and VPS rollout are outside this slice.
+
 ## October 29: modeled recorded articulation (package 50 / native API 20)
 
 The native DSP suite verifies muted bank attacks lose upper partials, held notes

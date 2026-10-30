@@ -23,6 +23,13 @@ local Published=dofile('files/server/server-lua-packages/fetcher.procedural-synt
 -- Accepted in-game poses are checked separately below against their exports.
 local P=setmetatable({}, {__index=Published});for name,p in pairs(Published.reference) do P[name]=p end
 local checks=0;local function check(value,why) checks=checks+1;assert(value,why) end
+for _,name in ipairs{'guitar','bass'} do
+    local profile=Published[name];local neck=profile.rotation*v(0,30,0);local face=profile.rotation*v(0,0,1)
+    check(neck.x<0 and neck.z>0 and face.y>.99,'new string model neck points left/up and its strings face away from the player')
+    check(Published.defaults[name].LTarget and profile.model:find('/'..name..'.nif',1,true),'new string instrument has independent editable pose defaults')
+end
+check(Published.drumkit.seated and Published.drumkit.anchor=='feet' and #Published.drumkit.extras==2,'kit is floor anchored with a seated profile and two sticks')
+check(Published.defaults.drumkit.benchScale and Published.defaults.drumkit.LFootTarget,'drummer stool and both feet are exposed to the existing poser')
 local stickStrike=Published.motion(Published.timpani,'L',45,true,1,0,2)
 check(math.abs(stickStrike.z-(Published.timpani.targets.L.z-6*Published.defaults.timpani.LMotionScale))<.01,'timpani downstroke respects the accepted target and motion calibration')
 local neck=P.lute.position+P.lute.rotation*v(0,20,8)

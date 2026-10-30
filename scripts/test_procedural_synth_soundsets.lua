@@ -78,7 +78,7 @@ w.song=nil;check(not w:applySoundSet('metal') and message,'missing imported MIDI
 for note,role in pairs{[37]='rim',[39]='clap',[44]='pedalhat',[49]='crash',[51]='ride',[52]='crash',[53]='ridebell',[54]='tambourine',[55]='crash',[56]='cowbell',[57]='crash',[59]='ride',[70]='shaker',[76]='percussion'} do
  check(sets.role{channel=9,note=note}==role,'GM percussion identity '..note)
  local state,id=sets.assignment('rock',role,true,note)
- check(state.drumType>0 and id~='b:rock-snare' and format.instrumentFor(role,47)=='drum','percussion keeps its sound and drummer despite channel kit program '..note)
+ check(state.drumType>0 and id~='b:rock-snare' and format.instrumentFor(role,47)=='drumkit','percussion keeps its sound and drummer despite channel kit program '..note)
 end
 local state,id=sets.programPatch({soundSet='thrash'},{sourceRole='ride',note=51,instrument='drum'},47)
 check(id=='b:kit-ride' and state.drumType==4,'percussion program changes cannot turn the kit into a melodic GM instrument')
@@ -118,7 +118,7 @@ local notes={};for _,t in ipairs(f.project.tracks) do if t.kind=='drum' then not
 check(notes[50].params.bodyFrequency==220 and notes[43].params.bodyFrequency==105 and notes[51].presetId=='b:kit-ride' and notes[49].presetId=='b:kit-crash','kit tom pitches and cymbal identities differ')
 local Layout=dofile(root..'shared/band-layout.lua');f.project.leaderPlays=false
 local plan=Layout.plan(f.project);local drummer=plan.routes[2]
-for n=2,#f.project.tracks do check(plan.routes[n]==drummer and plan[drummer].instrument=='drum','complete kit shares one physical drummer') end
+for n=2,#f.project.tracks do check(plan.routes[n]==drummer and plan[drummer].instrument=='drumkit','complete kit shares one physical drummer') end
 check(f:undo() and #f.project.tracks==count and f:redo() and #f.project.tracks==count+10,'whole-kit undo/redo restores every lane')
 while #f.project.tracks<23 do f.project.tracks[#f.project.tracks+1]=format.newTrack('piano','Capacity',f.project.length) end
 local history=#f.undoStack;check(not f:addKit(8) and #f.project.tracks==23 and #f.undoStack==history,'insufficient track space cannot install a partial kit')

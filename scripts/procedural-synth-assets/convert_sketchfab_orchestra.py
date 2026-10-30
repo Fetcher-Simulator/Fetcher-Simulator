@@ -6,6 +6,7 @@ Original downloads/metadata stay outside the repository. No source scripts run.
 import argparse, hashlib, json, math, shutil, subprocess, sys
 from pathlib import Path
 import bpy
+import numpy as np
 from mathutils import Matrix, Vector
 
 p=argparse.ArgumentParser()
@@ -14,7 +15,7 @@ p.add_argument('--output',type=Path,required=True)
 p.add_argument('--working',type=Path,required=True)
 p.add_argument('--only')
 args=p.parse_args(sys.argv[sys.argv.index('--')+1:])
-args.output=args.output.resolve();args.working.mkdir(parents=True,exist_ok=True)
+args.output=args.output.resolve();args.working=args.working.resolve();args.working.mkdir(parents=True,exist_ok=True)
 magick=shutil.which('magick');assert magick
 bpy.ops.preferences.addon_enable(module='io_scene_mw')
 bpy.context.preferences.addons['io_scene_mw'].preferences.scale_correction=1
@@ -91,7 +92,7 @@ def export(name,objects,transform,sourceName):
         texture.filename='textures\\fetcher\\orchestra\\'+Path(texture.filename.replace('\\','/')).name
         assert (args.output/texture.filename.replace('\\','/')).is_file()
     stream.save(path)
-    low,high=bounds(visuals);assert max(high-low)<200 and min(high-low)>.01,(name,low,high)
+    low,high=bounds(visuals);assert max(high-low)<(300 if name=='drumkit' else 200) and min(high-low)>.01,(name,low,high)
     report[name]={'source':sourceName,'model':path.relative_to(args.output).as_posix(),'triangles':triangles,'bounds':[list(low),list(high)],'sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
     for o in bpy.context.scene.objects:
         if o.type=='MESH' and o not in visuals:o.hide_render=True
@@ -101,10 +102,24 @@ def export(name,objects,transform,sourceName):
     camera.location=center+Vector((1,-1.5,1))*span;camera.rotation_euler=(center-camera.location).to_track_quat('-Z','Y').to_euler();camera.data.type='ORTHO';camera.data.ortho_scale=span*1.35;camera.data.clip_end=span*100;scene.camera=camera
     for pos,power in [((1,-2,3),700),((-2,1,1),400)]:
         lamp=bpy.data.objects.new('Lamp',bpy.data.lights.new('Lamp','AREA'));scene.collection.objects.link(lamp);lamp.location=center+Vector(pos)*span;lamp.rotation_euler=(center-lamp.location).to_track_quat('-Z','Y').to_euler();lamp.data.energy=power*span*span;lamp.data.size=span*3
-    scene.world.color=(.3,.3,.3);scene.view_settings.view_transform='Standard';scene.render.filepath=str(args.working/(name+'.png'));bpy.ops.render.render(write_still=True)
+    scene.world.color=(.3,.3,.3);scene.view_settings.view_transform='Standard';scene.view_settings.exposure=-1 if name in ('guitar','bass','drumkit') else 0
+    scene.render.filepath=str(args.working/(name+'.png'));bpy.ops.render.render(write_still=True)
     subprocess.run([magick,scene.render.filepath,'-resize','128x128','-define','dds:compression=dxt5','-define','dds:mipmaps=7',str(icons/(name+'.dds'))],check=True,capture_output=True)
 def matrix(rotation,scale,center,offset=(0,0,0)):
     return Matrix.Translation(Vector(offset))@Matrix.Scale(scale,4)@rotation@Matrix.Translation(-Vector(center))
+
+def string_transform(objects,length,name):
+    points=np.array([list(o.matrix_world@v.co) for o in objects for v in o.data.vertices])
+    center=points.mean(axis=0);_,axes=np.linalg.eigh(np.cov((points-center).T));neck=axes[:,2];normal=axes[:,0]
+    along=(points-center)@neck;radius=np.linalg.norm((points-center)-np.outer(along,neck),axis=1)
+    # The body is wider than the headstock: +Y is always toward the tuners.
+    q1,q3=np.quantile(along,[.2,.8])
+    if np.mean(radius[along<q1])<np.mean(radius[along>q3]):neck=-neck
+    if normal[np.argmax(np.abs(normal))]<0:normal=-normal
+    across=np.cross(neck,normal);rotation=Matrix([list(across),list(neck),list(normal)]).to_4x4()
+    transformed=(points-center)@np.array(rotation)[:3,:3].T;lo,hi=transformed.min(axis=0),transformed.max(axis=0)
+    scale=length/(hi[1]-lo[1]);origin=Vector((float((lo[0]+hi[0])/2),float(lo[1]+length*.25/scale),float((lo[2]+hi[2])/2)))
+    return Matrix.Translation(Vector((0,0,0)))@Matrix.Scale(scale,4)@Matrix.Translation(-origin)@rotation@Matrix.Translation(-Vector(center))
 def crop_violin(mesh,bow):
     import bmesh
     bm=bmesh.new();bm.from_mesh(mesh);seen=set();remove=set()
@@ -160,11 +175,27 @@ for name,item in plan.items():
         selected=[max(objects,key=lambda o:bounds([o])[0].z)]
         low,high=bounds(selected);center=(low+high)/2
         export(name,selected,matrix(Matrix.Rotation(-.25,4,'X')@Matrix.Rotation(math.pi/2,4,'Z'),24/(high.x-low.x),center,(0,8,-2)),name)
+    elif name in ('guitar','bass'):
+        export(name,objects,string_transform(objects,85 if name=='guitar' else 100,name),name)
+    elif name=='drumkit':
+        selected=[]
+        for obj in objects:
+            lo,hi=bounds([obj])
+            # Exclude the display plinth and loose spare cymbal, not kit hardware.
+            if (hi.x-lo.x>2.5 and hi.z-lo.z<.05) or obj.name=='Circle.009_Metal_0':continue
+            if len(obj.data.polygons)>2000:
+                bpy.context.view_layer.objects.active=obj;modifier=obj.modifiers.new('Realtime hardware reduction','DECIMATE');modifier.ratio=.4
+                bpy.ops.object.modifier_apply(modifier=modifier.name)
+            selected.append(obj)
+        low,high=bounds(selected);center=(low+high)/2
+        export(name,selected,matrix(Matrix.Rotation(math.pi,4,'Z'),110/(high.z-low.z),(center.x,center.y,low.z)),name)
+    else:raise RuntimeError('No audited conversion for '+name)
     credits.append({'id':name,'title':meta['name'],'author':meta['user']['displayName'],'authorUrl':meta['user']['profileUrl'],'source':meta['viewerUrl'],'license':'CC BY 4.0','licenseUrl':'https://creativecommons.org/licenses/by/4.0/','downloadSha256':download['sha256'],
       'changes':'Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.'})
     if name=='sheet-music':
         credits[-1]['changes']+=' Sheet texture adapted with OpenAI image generation through Codex: lyrics, printed credits, dedication and original title removed; title replaced with FETCHER; musical notation and aged-paper appearance retained.'
         credits[-1]['upstream']={'title':'Secret notebook from Paper Hospital map','author':'Neo_minigan','source':'https://sketchfab.com/3d-models/secret-notebook-from-paper-hospital-map-95ee39927f6e4e90b3b7ea5b38e7d1ae','authorUrl':'https://sketchfab.com/neominigan','licenseUrl':'https://creativecommons.org/licenses/by/4.0/'}
+    if name=='drumkit':credits[-1]['changes']+=' Display plinth and loose spare cymbal omitted; dense hardware simplified for real-time use. Drums, cymbals, hi-hat and pedals retained.'
 old=args.output/'sketchfab-orchestra-report.json'
 previous=json.loads(old.read_text()) if args.only and old.exists() else {};previous.update(report)
 old.write_bytes((json.dumps(previous,indent=2)+'\n').encode())

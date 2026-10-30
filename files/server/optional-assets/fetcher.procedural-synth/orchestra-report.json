@@ -196,5 +196,59 @@
       ]
     ],
     "sha256": "fa082b227f160bedf46d507cd9ba2d2c30b00a8257145084f2351d1558bac019"
+  },
+  "guitar": {
+    "source": "guitar",
+    "model": "meshes/fetcher/orchestra/guitar.nif",
+    "triangles": 40146,
+    "bounds": [
+      [
+        -14.881497383117676,
+        -21.250001907348633,
+        -3.526808261871338
+      ],
+      [
+        14.881498336791992,
+        63.75,
+        3.526808261871338
+      ]
+    ],
+    "sha256": "26f51b49b30daf3c0e65daae1079904bf25f7d1f1206ab14439cb787a8f6cea1"
+  },
+  "bass": {
+    "source": "bass",
+    "model": "meshes/fetcher/orchestra/bass.nif",
+    "triangles": 41050,
+    "bounds": [
+      [
+        -14.608034133911133,
+        -25.000001907348633,
+        -3.4927549362182617
+      ],
+      [
+        14.60803508758545,
+        75.0,
+        3.4927544593811035
+      ]
+    ],
+    "sha256": "80201d15869556828c7a157693254743215d0d3251d75c51076facab86ecf2e3"
+  },
+  "drumkit": {
+    "source": "drumkit",
+    "model": "meshes/fetcher/orchestra/drumkit.nif",
+    "triangles": 54602,
+    "bounds": [
+      [
+        -89.81110382080078,
+        -35.720096588134766,
+        9.5367431640625e-06
+      ],
+      [
+        89.81111145019531,
+        35.72010040283203,
+        110.0
+      ]
+    ],
+    "sha256": "87a8727a12a291d6c83207db05a5f7a73a8ea3a6cfddc69bd5c011f45c2c13d2"
   }
 }

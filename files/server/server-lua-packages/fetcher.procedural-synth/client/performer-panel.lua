@@ -20,9 +20,9 @@ function P:render()
         label('Ready with: '..(s.held~='' and s.held or 'No instrument'),24,88,850,19),
         label('Carry the instrument in your inventory. The band holds and plays it while your part runs.',24,126,880,14)}
     local n=0
-    for _,instrument in ipairs{'keyboard','lute','drum','violin','cello','trumpet','flute','clarinet','timpani'} do
+    for _,instrument in ipairs{'keyboard','lute','drum','violin','cello','trumpet','flute','clarinet','timpani','guitar','bass','drumkit'} do
         local selected=instrument
-        content[#content+1]=self:button((s.available and s.available[selected] and 'Ready: ' or 'Need item: ')..selected,24+(n%3)*245,185+math.floor(n/3)*43,230,function() self.command('hold',{instrument=selected}) end);n=n+1
+        content[#content+1]=self:button((s.available and s.available[selected] and 'Ready: ' or 'Need item: ')..selected,24+(n%4)*224,185+math.floor(n/4)*43,210,function() self.command('hold',{instrument=selected}) end);n=n+1
     end
     content[#content+1]=self:button('Not ready / holster',24,325,270,function() self.command('hold',{instrument='none'}) end)
     content[#content+1]=self:button('Leave band',325,325,230,function() self.command('leaveBand') end)

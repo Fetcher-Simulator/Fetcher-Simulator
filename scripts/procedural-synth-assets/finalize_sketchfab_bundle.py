@@ -5,7 +5,7 @@ p=argparse.ArgumentParser();p.add_argument('--assets',type=Path,required=True);a
 models=json.loads((assets/'sketchfab-models.json').read_text())
 models=[m for m in models if m['id']!='chair']
 (assets/'sketchfab-models.json').write_bytes((json.dumps(models,indent=2,ensure_ascii=False)+'\n').encode())
-assert {m['id'] for m in models}=={'violin','cello','trumpet','flute','clarinet','timpani','music-stand','stool','sheet-music','mallet'}
+assert {m['id'] for m in models}==set(json.loads(Path(__file__).with_name('sketchfab-sources.json').read_text()))
 lines=['Fetcher Studio third-party performance and stage models','======================================================','Models provided by Sketchfab. Preserve these credits when redistributing.','']
 for m in models:
     assert m['license']=='CC BY 4.0' and m['source'].startswith('https://sketchfab.com/3d-models/')

@@ -41,7 +41,8 @@ function M.encode(project,song,MIDI,format,mode)
     local channels={};local melodic=0
     for n,t in ipairs(p.tracks) do
         tracks[n+1]={};local role=t.sourceRole
-        local drum=t.kind=='drum' or format.instrumentFor(role)=='drum' or t.part:match('^%d+:9:')~=nil
+        local instrument=format.instrumentFor(role)
+        local drum=t.kind=='drum' or instrument=='drum' or instrument=='drumkit' or t.part:match('^%d+:9:')~=nil
         local channel,port=9,0
         if not drum then local index=melodic%15;channel=index>=9 and index+1 or index;port=math.floor(melodic/15);melodic=melodic+1 end
         channels[n]=channel

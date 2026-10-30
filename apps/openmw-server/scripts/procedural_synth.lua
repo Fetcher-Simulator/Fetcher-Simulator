@@ -514,7 +514,7 @@ return {
             hostedMidi.prepare()
             for name,asset in pairs(projectFormat.instrumentModels) do
                 mp.upsertDynamicRecord('miscellaneous',projectFormat.instruments[name],
-                    {name='Studio '..name:sub(1,1):upper()..name:sub(2),model=asset.model,icon=asset.icon,weight=name=='timpani' and 20 or 5,value=200},
+                    {name=name=='drumkit' and 'Studio Drum Kit' or 'Studio '..name:sub(1,1):upper()..name:sub(2),model=asset.model,icon=asset.icon,weight=(name=='timpani' or name=='drumkit') and 20 or 5,value=200},
                     {scope='permanent',persistent=true})
             end
             -- Runtime record with a vanilla mesh; no client ESP and no asset transfer.

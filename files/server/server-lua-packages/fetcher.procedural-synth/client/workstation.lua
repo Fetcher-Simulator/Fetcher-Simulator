@@ -326,6 +326,15 @@ function W:setStageInstrument(index,instrument)
     if not require(prefix..'client.arrangement').commitProject(self,p) then return false end
     self:stop(true);self:configureAll();return true
 end
+function W:matchStageInstruments()
+    if self.recording or self.failedTake or self.bandSetup then self.cb.message('Finish the current take or band setup first.');return false end
+    local p=copy(self.project)
+    for _,t in ipairs(p.tracks) do
+        t.instrument=format.instrumentFor(SoundSets.trackRole(t),SoundSets.trackProgram(t))
+    end
+    if not require(prefix..'client.arrangement').commitProject(self,p) then return false end
+    self:stop(true);self.managedProject=nil;self:configureAll();return true
+end
 function W:setMember(slot,member)
     if not self.project.band[slot] then return false end
     local band=copy(self.project.band);band[slot]=copy(member);band=format.band(band);if not band then return false end

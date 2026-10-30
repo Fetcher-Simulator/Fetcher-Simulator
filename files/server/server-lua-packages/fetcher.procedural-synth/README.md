@@ -2,14 +2,46 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 48 / native synth API 18 / multiplayer protocol 27.
+Current source: package 51 / native synth API 20 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
-Standing grids and seated keyboard/cello NPCs are available, with credited CC BY
-orchestral and stage models. Next priority: electric guitar/bass, classical and
-acoustic guitar, a full drum kit, and better rock/metal/funk/acoustic sound sets.
+Standing grids, seated keyboard/cello NPCs and a seated full-kit drummer are
+available, with credited CC BY orchestral, guitar, bass, drum-kit and stage models.
+Acoustic/classical physical guitar models, more detailed articulation/animation
+and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Electric guitar, bass and full drum-kit models (package 51)
+
+Band's instrument picker offers **guitar**, **bass** and **drumkit**, alongside
+the original lute, hand drum and orchestra instruments. Newly imported guitar,
+bass and GM percussion parts default to those physical choices. Sound selection
+remains independent. Older saved arrangements retain their chosen models; use
+**Band → Match GM models → Auto NPC band** to adopt the current defaults.
+Matching is one undoable project edit and preserves notes, patches and mixing.
+
+All compatible drum-kit lanes/parts share one physical drummer. Its kit is
+anchored on the floor, with a compact stool, two sticks and an offset music stand.
+Automatic staging reserves a wider formation (280-unit slot spacing, 300-unit
+rows) and checks a larger floor footprint when a kit is present. Kit performers
+use the seated presentation even in an otherwise standing layout. Players can
+carry **Studio Guitar**, **Studio Bass** or **Studio Drum Kit** and select the
+corresponding Ready button in the F9 performer panel.
+
+Pose tuner has independent **guitar**, **bass** and **drumkit** entries. The kit
+includes pelvis/legs/feet and stool position/rotation/scale controls. The initial
+hand targets and note-sensitive stick motions are starting points for live
+calibration. Detailed pedal motion, per-piece stick contact and accepted live
+poses remain follow-up work. Meshes were inspected from front/side/back without
+opening the client; this does not replace an in-game character check.
+
+Sources: Kaif.3D's Les Paul-style guitar, JoY_3d's four-string bass and art.katja's
+drum kit. All are CC BY 4.0, with source URLs, authors, changes and download hashes
+in the optional content's `sketchfab-models.json` and `ATTRIBUTION.txt`. The kit's
+display plinth/loose spare cymbal are omitted and dense hardware is simplified.
+The bass/guitar retain their imported geometry. Converted content remains local
+until a matching public content bundle is published.
 
 ## First recorded instrument bank
 

@@ -75,6 +75,7 @@ function S:begin(s,project,requestId,sessions,restage,clear,ground)
         local seen={};for _,m in ipairs(s.band) do local t=m.target
             if t and t.kind=='npc' and owns(registry,t) and not seen[t.mpNum] then
                 plan[#plan+1]={target=t};seen[t.mpNum]=true
+                if t.instrument=='drumkit' then plan.wideSpacing=true end
             end
         end
     end
@@ -145,7 +146,7 @@ function S:tick(sessions)
                 for _,e in ipairs(job.pool) do if not job.used[e.mpNum] and old and e.mpNum==old.mpNum and e.refId==old.refId then entry=e;break end end
                 if not entry then for _,e in ipairs(job.pool) do if not job.used[e.mpNum] then entry=e;break end end end
             end
-            local position=Layout.position(job.anchor,index,#job.plan)
+            local position=Layout.position(job.anchor,index,#job.plan,job.plan.wideSpacing)
             position.z=job.ground and job.ground[index] or position.z
             if entry then
                 position.isTeleporting=true

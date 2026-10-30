@@ -2,6 +2,16 @@
 
 Updated 2026-10-29. Completed work and subsequent planned slices are identified below.
 
+Package 51 adds CC BY electric-guitar, four-string bass and full drum-kit models,
+inventory icons, fixed server item identities, independent poser entries and
+initial hand/seat targets. Compatible kit parts share one seated drummer;
+formations/preflight reserve a wider footprint, with its stand outside the kit.
+New MIDI imports choose the new models; Match GM models updates older physical
+preferences as one undoable edit. Original sound/score/mix data and explicit saved
+model choices are preserved. Front/side/back NIF inspection and Lua validation
+are complete; live actor/hand/seat calibration, detailed stick/pedal motion,
+acoustic/classical guitar models and performance acceptance remain pending.
+
 Package 50 adds modeled palm damping to recorded melodic bank notes through the
 existing stringMute/stringDecay/stringDamping controls, with exact zero bypass,
 live/native automation, short gate-release presets, muted rock/metal/funk sounds,

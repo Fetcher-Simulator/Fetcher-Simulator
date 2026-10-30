@@ -19,6 +19,10 @@ local function run(count)
     check(p.done,'preflight completes in bounded frames');return p
 end
 mode='clear';run(32);check(result and #result.heights==32 and not error and rays==224,'32-place grid has measured floors and bounded work')
+local wideDone,wideGround
+local wide=Preflight.new({x=0,y=0,z=0,rz=0},3,function(r) wideDone=true;wideGround=r end,true)
+for n=1,8 do wide:frame() end
+check(wideDone and #wideGround.heights==3 and wide.wide,'full kit uses the larger footprint and the same bounded floor checks')
 run(0);check(result and #result.heights==0 and rays==0,'solo songs need no NPC collision work')
 for _,case in ipairs{'void','slope','ceiling','wall','uneven'} do mode=case;run(4);check(not result and type(error)=='string','unsafe '..case..' stage is rejected') end
 local Seating=dofile(root..'client/seated-pose.lua')({}, {vector3=v}, function() end,function() end)

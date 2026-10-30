@@ -73,6 +73,16 @@ function M.new(actor,calibration)
             local group=note<60 and low or high;group[#group+1]=note
         end
         table.sort(signature);signature=table.concat(signature,',')
+        if profile and profile.kind=='drumkit' then
+            local hats,other={},{}
+            for identity in pairs(notes) do local note=identity%128
+                if note==42 or note==46 then hats[#hats+1]=note
+                elseif note~=35 and note~=36 and note~=44 then other[#other+1]=note end
+            end
+            table.sort(hats);table.sort(other)
+            low=#hats>0 and {hats[#hats]} or {};high=#other>0 and {other[1]} or {}
+            if #low==0 and #other>1 then low={other[#other]} end
+        end
         if signature~=self.lastNotes or strikes~=self.strikes then
             self.strike=now;self.lastNotes=signature;self.strikes=strikes
         end
@@ -99,7 +109,7 @@ function M.new(actor,calibration)
                     local current=anim.getBoneTransform(self.actor,hand,true)
                     if current and self.targets[side] then self.error=math.max(self.error,(current*zero-self.targets[side]):length()) end
                     local group=side=='L' and low or high
-                    if profile and profile.kind~='keyboard' then group={} for _,n in ipairs(low) do group[#group+1]=n end;for _,n in ipairs(high) do group[#group+1]=n end end
+                    if profile and profile.kind~='keyboard' and profile.kind~='drumkit' then group={} for _,n in ipairs(low) do group[#group+1]=n end;for _,n in ipairs(high) do group[#group+1]=n end end
                     local pitch=side=='L' and 53 or 67
                     if #group>0 then pitch=0;for _,n in ipairs(group) do pitch=pitch+n end;pitch=pitch/#group end
                     -- Configurable keyboard-space targets: this small model has

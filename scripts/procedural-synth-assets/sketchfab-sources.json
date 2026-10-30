@@ -8,5 +8,8 @@
   "music-stand": {"uid":"fc4c522152594bd8a7f18ad3dc8997f5","file":"music_stand.glb"},
   "stool": {"uid":"a460d22c74614bc0b85d29237f3eb160","file":"modern_piano_stool.glb"},
   "sheet-music": {"uid":"d444261c68464623b1b2e08ec8ae62f3","file":"sheet_music.glb"},
-  "mallet": {"uid":"610a13ddadf14d2cb52111d4f0ca93fa","file":"drumsticks.glb"}
+  "mallet": {"uid":"610a13ddadf14d2cb52111d4f0ca93fa","file":"drumsticks.glb"},
+  "guitar": {"uid":"b14acd63f3794fdd96d5ec8b00a6fb8f","file":"hirasawa_yui_guitar__standard_electric_guitar.glb"},
+  "bass": {"uid":"e56f581f51a6488595af35131324f945","file":"bass_guitar.glb"},
+  "drumkit": {"uid":"898f2f4ba1704abe9c784066e2b0f751","file":"drum_kit.glb"}
 }

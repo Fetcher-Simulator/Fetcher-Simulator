@@ -1,8 +1,11 @@
 """Record official CC BY metadata and hashes for manually downloaded GLBs."""
 import argparse,concurrent.futures,hashlib,json,re,shutil,urllib.request
 from pathlib import Path
-p=argparse.ArgumentParser();p.add_argument('--downloads',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
+p=argparse.ArgumentParser();p.add_argument('--downloads',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--only',help='Comma-separated source IDs')
 args=p.parse_args();plan=json.loads(Path(__file__).with_name('sketchfab-sources.json').read_text())
+if args.only:
+    names=set(args.only.split(','));assert names<=set(plan),'Unknown source ID'
+    plan={name:item for name,item in plan.items() if name in names}
 def prepare(pair):
     name,item=pair;assert re.fullmatch('[a-f0-9]{32}',item['uid']) and Path(item['file']).name==item['file']
     source=args.downloads/item['file'];assert source.is_file() and source.stat().st_size<256*1024*1024,source

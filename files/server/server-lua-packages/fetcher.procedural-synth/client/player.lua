@@ -328,16 +328,16 @@ makeWorkstation=function(i)
                     anchor={x=p.x-math.sin(rz)*50,y=p.y-math.cos(rz)*50,z=p.z,rz=rz}
                 end
             end
-            local count=#stageLayout.plan(document)
-            if restage then local seen={};count=0;for _,m in ipairs(document.band) do local t=m.target
-                if t and t.kind=='npc' and not seen[t.mpNum] then seen[t.mpNum]=true;count=count+1 end
+            local plan=stageLayout.plan(document);local count=#plan;local wide=plan.wideSpacing
+            if restage then local seen={};count=0;wide=false;for _,m in ipairs(document.band) do local t=m.target
+                if t and t.kind=='npc' and not seen[t.mpNum] then seen[t.mpNum]=true;count=count+1;if t.instrument=='drumkit' then wide=true end end
             end end
             i.stageCheck=StagePreflight.new(anchor,count,function(ground,error)
                 i.stageCheck=nil
                 local w=i.workstation;if not w.bandSetup or w.bandSetup.requestId~=requestId then return end
                 if error then w:receiveBandSetup{requestId=requestId,error=error};return end
                 message.ground=ground;send(op,message)
-            end)
+            end,wide)
         end,
         dismiss=function(slot) send('dismiss',{slot=slot}) end,
         invite=function(slot) send('invite',{slot=slot}) end,

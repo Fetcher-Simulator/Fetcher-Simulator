@@ -32,4 +32,21 @@ check(not w:setStageInstrument(1,'arbitrary-model.nif'),'untrusted model paths c
 local _,patch=sets.programPatch({soundSet='orchestra'},{},42);check(patch=='b:orchestra-cello','opt-in GM program following keeps cello distinct')
 _,patch=sets.programPatch({soundSet='orchestra'},{},47);check(patch=='b:orchestra-timpani','program following retains pitched timpani')
 for _,bank in ipairs(schema.banks) do if bank=='Orchestral / Cinematic' then check(true,'orchestral presets have a browser bank') end end
-print('PASS orchestral instrument/program mapping, independent props/sounds, presets, persistence and Undo; '..checks..' assertions')
+local models=W.new{configure=function() end,band=function() end,panic=function() end,message=function() end,prune=function() end}
+local p=Format.new();p.leaderPlays=false;p.timeline={beats=4,tempos={{beat=0,tempo=500000}}}
+for n,entry in ipairs{{'guitar',30},{'bass',33},{'snare',nil},{'hat',nil}} do
+    local track=Format.newTrack('midi','Part '..n,16);track.edited=Format.encodeNotes({},960);track.sourceRole=entry[1];track.sourceProgram=entry[2];track.instrument=n>2 and 'drum' or 'lute';p.tracks[n]=track
+end
+p.tracks[1].params.cutoff=3210;p.tracks[1].mixer.bass=5;p.tracks[1].level=.3
+check(models:load(p) and models:matchStageInstruments(),'older lute/hand-drum arrangements can opt into current GM models')
+local current=models.project
+check(current.tracks[1].params.cutoff==3210 and current.tracks[1].mixer.bass==5 and current.tracks[1].level==.3 and current.tracks[1].edited.bytes==p.tracks[1].edited.bytes,'matching physical models preserves sounds, mix and musical data')
+check(current.tracks[1].instrument=='guitar' and current.tracks[2].instrument=='bass' and current.tracks[3].instrument=='drumkit','guitar bass and percussion resolve to separate physical identities')
+local band=Layout.plan(current)
+check(#band==3 and band.wideSpacing and band.routes[3]==band.routes[4],'all kit pieces share one drummer and request wider staging')
+check(Format.project(current) and models:undo() and models.project.tracks[1].instrument=='lute' and models:redo(),'model matching preserves valid saved data and supports one-step history')
+for _,name in ipairs{'guitar','bass','drumkit'} do
+    check(Format.target{kind='player',characterId=12,instrument=name} and Format.target{kind='npc',mpNum=12,refId='fetcher_synth_bard_1_12',instrument=name},'new instrument is accepted for both players and NPCs')
+    check(Format.instrumentModels[name].model:find('/'..name..'.nif',1,true),'new instrument has a fixed trusted model path')
+end
+print('PASS orchestral/rock instrument mapping, independent props/sounds, model matching, persistence and Undo; '..checks..' assertions')

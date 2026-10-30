@@ -1,10 +1,10 @@
 -- Short, bounded local collision preflight. Server still selects all grid X/Y/yaw.
 return function(nearby,util,Layout)
     local M={};local V=util.vector3
-    function M.new(anchor,count,complete)
+    function M.new(anchor,count,complete,wide)
         local invalid=type(count)~='number' or count%1~=0 or count<0 or count>32
         if not invalid then invalid=not Layout.position(anchor,1,math.max(1,count)) end
-        return setmetatable({anchor=anchor,count=count,complete=complete,index=1,step=1,heights={},rays=0,invalid=invalid}, {__index=M})
+        return setmetatable({anchor=anchor,count=count,complete=complete,wide=wide,index=1,step=1,heights={},rays=0,invalid=invalid}, {__index=M})
     end
     function M:finish(error)
         self.done=true;self.complete(not error and {anchor=self.anchor,heights=self.heights} or nil,error)
@@ -14,10 +14,10 @@ return function(nearby,util,Layout)
         if self.invalid then self:finish('Invalid stage dimensions.');return end
         if not nearby.castRay then self:finish('Stage collision checks are unavailable.');return end
         local mask=util.bitOr(nearby.COLLISION_TYPE.World,nearby.COLLISION_TYPE.Door,nearby.COLLISION_TYPE.HeightMap)
-        local offsets={{0,0},{-58,-32},{58,-32},{-58,108},{58,108}}
+        local offsets=self.wide and {{0,0},{-110,-40},{135,-40},{-110,110},{135,110}} or {{0,0},{-58,-32},{58,-32},{-58,108},{58,108}}
         for _=1,8 do
             if self.index>self.count then self:finish();return end
-            local p=Layout.position(self.anchor,self.index,self.count)
+            local p=Layout.position(self.anchor,self.index,self.count,self.wide)
             local function ray(a,b,radius)
                 self.rays=self.rays+1;return nearby.castRay(a,b,{collisionType=mask,radius=radius or 0})
             end

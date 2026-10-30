@@ -115,5 +115,38 @@
       "authorUrl": "https://sketchfab.com/neominigan",
       "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
     }
+  },
+  {
+    "id": "guitar",
+    "title": "Hirasawa Yui Guitar / Standard electric guitar",
+    "author": "Kaif.3D",
+    "authorUrl": "https://sketchfab.com/kaif.3d",
+    "source": "https://sketchfab.com/3d-models/hirasawa-yui-guitar-standard-electric-guitar-b14acd63f3794fdd96d5ec8b00a6fb8f",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadSha256": "066e7ea4e89c9a2b9dc7ac549cfe18f04a76260d1a12986a14ad54be70090af2",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+  },
+  {
+    "id": "bass",
+    "title": "Bass guitar",
+    "author": "JoY_3d",
+    "authorUrl": "https://sketchfab.com/JoY_3d",
+    "source": "https://sketchfab.com/3d-models/bass-guitar-e56f581f51a6488595af35131324f945",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadSha256": "7be0e50c5b293c3cc187bb36cd15cc6c59cae2e8b406d6d651afd41a98f65828",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+  },
+  {
+    "id": "drumkit",
+    "title": "Drum Kit",
+    "author": "art.katja",
+    "authorUrl": "https://sketchfab.com/art.katja",
+    "source": "https://sketchfab.com/3d-models/drum-kit-898f2f4ba1704abe9c784066e2b0f751",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadSha256": "5db49d8cc0ee845e923154de2b75be924a258a3f6cbbc59126e5e15638b65509",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes. Display plinth and loose spare cymbal omitted; dense hardware simplified for real-time use. Drums, cymbals, hi-hat and pedals retained."
   }
 ]

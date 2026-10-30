@@ -31,6 +31,15 @@ M.clarinet={kind='clarinet',model=path..'clarinet.nif',position=v(0,8,13),rotati
 M.timpani={kind='timpani',anchor='feet',model=path..'timpani.nif',position=v(0,35,0),rotation=T.identity,
     targets={L=v(-10,27,82),R=v(10,27,82)},
     extras={{key='synth_mallet_l',model=path..'mallet.nif',hand='L'},{key='synth_mallet_r',model=path..'mallet.nif',hand='R'}}}
+local stringRotation=T.rotateY(-math.pi/2-.35)*T.rotateX(math.pi/2)
+M.guitar={kind='guitar',model=path..'guitar.nif',position=v(8,18,-12),rotation=stringRotation,centerNote=55,
+    targets={L=v(-21,23,-1),R=v(12,23,-14)}}
+M.bass={kind='bass',model=path..'bass.nif',position=v(10,18,-13),rotation=stringRotation,centerNote=40,
+    targets={L=v(-27,24,0),R=v(12,23,-15)}}
+M.drumkit={kind='drumkit',anchor='feet',seated=true,model=path..'drumkit.nif',position=v(0,50,0),rotation=T.identity,
+    targets={L=v(-57,25,90),R=v(-25,24,70)},musicStand=v(116,95,0),
+    extras={{key='synth_mallet_l',model=path..'mallet.nif',hand='L',rotation=T.rotateZ(-.6)},
+        {key='synth_mallet_r',model=path..'mallet.nif',hand='R',rotation=T.rotateZ(-.6)}}}
 local function clamp(n,a,b) return math.max(a,math.min(b,n)) end
 local function copy(value)
     if type(value)~='table' then return value end
@@ -90,14 +99,25 @@ function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel)
         local shift=clamp((pitch-(side=='L' and 53 or 67))*.9,-16,16)
         point=point+v(shift,0,pressed and -pulse*1.2 or 0)
         wrist=pressed and -.12*pulse or 0;curl=.08+(pressed and .18*pulse or 0)
-    elseif profile.kind=='lute' then
+    elseif profile.kind=='lute' or profile.kind=='guitar' or profile.kind=='bass' then
         if side=='L' then
-            local fret=clamp((pitch-55)*.27,-5,6)
+            local fret=clamp((pitch-(profile.centerNote or 55))*(profile.kind=='bass' and .5 or .27),-5,6)
             point=point+v(fret,0,-fret*.365);curl=.25+(pressed and .08*pulse or 0)
         else
             point=point+v(0,0,pressed and ((strikes or 0)%2==0 and -1 or 1)*pulse*3 or 0)
             wrist=pressed and -.25*pulse or 0;curl=.2
         end
+    elseif profile.kind=='drumkit' then
+        -- The left hand plays hats; the right covers snare/toms/cymbals.
+        local offsets={ [41]=v(45,0,-5),[43]=v(45,0,-5),[45]=v(28,14,10),[47]=v(28,14,10),
+            [48]=v(0,14,15),[50]=v(0,14,15),[49]=v(-20,0,28),[51]=v(68,0,20),[53]=v(68,0,20),[57]=v(-20,0,28),[59]=v(68,0,20)}
+        if pitch==42 or pitch==46 then
+            if side=='R' then point=point+v(-30,1,17) end
+        else
+            if side=='L' then point=point+v(30,-1,-17) end
+            point=point+(offsets[math.floor(pitch)] or v(0,0,0))
+        end
+        point=point+v(0,0,pressed and -pulse*5 or 0);wrist=pressed and -.18*pulse or .08;curl=.35
     elseif profile.kind=='drum' or profile.kind=='timpani' then
         local hit=pressed and ((count or 0)>1 or ((strikes or 0)%2==0)==(side=='L'))
         point=point+v(0,0,hit and -pulse*(profile.kind=='drum' and 4 or 6) or 0);wrist=hit and -.18*pulse or .08;curl=profile.kind=='timpani' and .35 or .03
@@ -117,7 +137,7 @@ function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel)
     return point,wrist,curl
 end
 local function handDirections(profile,side)
-    if profile.kind=='lute' then
+    if profile.kind=='lute' or profile.kind=='guitar' or profile.kind=='bass' then
         return profile.rotation*v(side=='L' and -1 or 1,0,0),v(0,-1,0)
     end
     if profile.kind=='violin' then
@@ -166,11 +186,12 @@ local function merge(target,source)
         if type(item)=='table' and type(target[key])=='table' then merge(target[key],item) else target[key]=copy(item) end
     end
 end
-for _,name in ipairs{'keyboard','lute','drum','violin','cello','trumpet','flute','clarinet','timpani'} do
+for _,name in ipairs{'keyboard','lute','drum','violin','cello','trumpet','flute','clarinet','timpani','guitar','bass','drumkit'} do
     M.reference[name]=M[name];local d=M.seed(M[name])
     -- The credited wooden stick drops five units from grip to tip. Leave room
     -- above the new timpani head for its six-unit downstroke.
     if name=='timpani' then d.LTarget[3]=91;d.RTarget[3]=91 end
+    if name=='drumkit' then d.LFootTarget={-40,28,0};d.RFootTarget={-10,30,0};d.benchScale=.9 end
     merge(d,approved.profiles[name] or {})
     M.defaults[name]=d;M[name]=M.compile(M.reference[name],d)
 end

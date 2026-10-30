@@ -17,6 +17,10 @@ for _,yaw in ipairs{0,math.pi/2,math.pi,-math.pi/2} do
  end
 end
 check(not Layout.position({x=0/0,y=0,z=0},1,1),'invalid leader coordinates rejected')
+for _,yaw in ipairs{0,math.pi/2,math.pi} do
+ local a=Layout.position({x=0,y=0,z=0,rz=yaw},1,4,true);local b=Layout.position({x=0,y=0,z=0,rz=yaw},2,4,true)
+ check((a.x-b.x)^2+(a.y-b.y)^2>=279.99^2,'kit formations reserve at least 280 units between adjacent slots at every yaw')
+end
 local now=100;local actors,storage,sent,queue,teleports={},{},{},{},{};local nextActor=50;local failSpawn=false
 local leader={guid=1,characterId=11,name='Leader',health=100,cell='A',position={x=0,y=0,z=0,rz=0},inventory={}}
 package.loaded['openmw.types']={Actor={inventory=function(p) return p.inventory end}}
@@ -54,7 +58,7 @@ for n,t in ipairs(result.targets) do
  check(t.instrument==Layout.instrument(project.tracks[n]),'physical role mapping matches project')
  session.band[n].target=t
 end
-check(result.targets[1].instrument=='keyboard' and result.targets[2].instrument=='lute','distinct melodic timbres remain separate physical performers')
+check(result.targets[1].instrument=='keyboard' and result.targets[2].instrument=='guitar','distinct melodic timbres remain separate physical performers')
 local serial=P:registry(11).nextId
 check(S:begin(session,project,3,sessions,false),'existing complete roster can be reused at capacity');pump()
 check(P:registry(11).nextId==serial and #teleports==32,'repeating Auto teleports owned actors without creating duplicates')
@@ -190,4 +194,19 @@ function npc:enableAI(enabled) self.ai=enabled end
 package.loaded['openmw.self']=npc;dofile(root..'client/stage-actor.lua').engineHandlers.onUpdate()
 check(npc.ai==false and npc.controls.movement==0 and npc.controls.yawChange==0 and npc.controls.use==0,'owned NPC stays still rather than wandering, facing away or fighting')
 npc.recordId='fargoth';check(not dofile(root..'client/stage-actor.lua').engineHandlers,'ordinary NPCs are unaffected')
-print('PASS orchestra formation, 32-part automatic/reused routing, authority, restaging, failure recovery, Undo and stand controller; '..checks..' assertions')
+local kitSession={id=121,epoch=1,owner=1,characterId=121,cell='A',band=Format.band()};sessions[121]=kitSession
+local kitProject=Format.new();kitProject.leaderPlays=false
+for n,instrument in ipairs{'drumkit','drumkit','guitar','bass'} do
+ kitProject.tracks[n]=Format.newTrack(n<=2 and 'drum' or 'piano','Rock part '..n,16);kitProject.tracks[n].instrument=instrument
+end
+check(S:begin(kitSession,kitProject,121,sessions,false),'full-kit band stages through the real server job')
+pump();local kitResult
+for _,message in ipairs(sent) do if message.data.op=='bandSetup' and message.data.requestId==121 then kitResult=message.data end end
+check(kitResult and not kitResult.error and #kitResult.targets==3 and kitResult.routes[1]==kitResult.routes[2],'two kit lanes create exactly one physical drummer')
+for n,target in ipairs(kitResult.targets) do
+ local expected=Layout.position(leader.position,n,3,true);local actual=actors[target.mpNum].position
+ check(math.abs(actual.x-expected.x)<.01 and math.abs(actual.y-expected.y)<.01,'server uses the same wider formation as client preflight')
+ kitSession.band[n].target=target
+end
+local _,drummer=P:resolve(kitSession,1,kitResult.targets[1]);check(drummer and drummer.posture=='seated','kit performer is seated independently of the other stage layout')
+print('PASS orchestra formation, full-kit grouping/spacing, 32-part routing, restaging, failure recovery, Undo and stand controller; '..checks..' assertions')

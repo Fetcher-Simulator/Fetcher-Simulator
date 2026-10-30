@@ -89,7 +89,7 @@ function P:resolve(s,slot,t)
         if not actor or actor.refId~=t.refId then return 'Missing' end
         if actor.isDead then return 'Dead' end
         if not nearby(actor,s) then return 'Out of range' end
-        local seated=owned.posture=='seated' and (t.instrument=='keyboard' or t.instrument=='cello')
+        local seated=t.instrument=='drumkit' or owned.posture=='seated' and (t.instrument=='keyboard' or t.instrument=='cello')
         return 'Ready',{kind='npc',mpNum=t.mpNum,refId=t.refId,name='Studio performer',instrument=t.instrument,posture=seated and 'seated' or nil},'npc:'..t.mpNum
     end
 end
