@@ -34,6 +34,8 @@ void guitarTests()
             const auto sample=convolver.process(0,(n/97)%3);
             check(std::isfinite(sample) && std::abs(sample)<1,"rapid IR changes retain bounded tails");
         }
+        check(convolver.idle(),"drained cabinet suspends FFT work on an empty lane");
+        check(convolver.process(.1f,2)==0 && !convolver.idle(),"a new pick resumes an idle cabinet with its normal latency");
         convolver.clear();check(convolver.process(0,0)==0,"cleared IR never replays an old tail");
         std::cout<<"PASS captured cabinet IR convolution, alignment, reset and switching\n";
     }

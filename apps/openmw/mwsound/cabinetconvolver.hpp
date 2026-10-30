@@ -59,10 +59,13 @@ namespace MWSound
         {
             for(auto& block:*mHistory)block.fill({});
             mInput.fill(0);mPrevious.fill(0);mOutput.fill(0);
-            mAt=mHead=0;mFresh=true;mFade=Fade;
+            mAt=mHead=mRemaining=0;mFresh=true;mFade=Fade;
         }
+        bool idle() const {return mRemaining==0;}
         float process(float sample,unsigned selected)
         {
+            if(std::abs(sample)>1e-20f)mRemaining=Block*(Parts+1);
+            else if(!mRemaining)return 0;
             selected=std::min(selected,Count-1);
             if(mFresh){mCurrent=mNext=selected;mFresh=false;}
             const auto output=mOutput[mAt];mInput[mAt]=sample;
@@ -85,6 +88,7 @@ namespace MWSound
                 }
                 else mOutput=old;
             }
+            if(!--mRemaining)clear();
             return output;
         }
     private:
@@ -103,7 +107,7 @@ namespace MWSound
         const std::array<Kernel,Count>& mKernels;
         std::unique_ptr<std::array<Spectrum,Parts>> mHistory;
         std::array<float,Block> mInput{},mPrevious{},mOutput{};
-        unsigned mAt=0,mHead=0,mCurrent=0,mNext=0,mFade=Fade;
+        unsigned mAt=0,mHead=0,mCurrent=0,mNext=0,mFade=Fade,mRemaining=0;
         bool mFresh=true;
     };
 }

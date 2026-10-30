@@ -8,7 +8,10 @@ handbook was extracted and visually checked. The embedded 48 kHz kernels retain
 at least 99.59% of source energy before a 128-frame final fade. Each kernel is
 2,048 frames. A uniform partitioned overlap-save convolver has 64-frame latency,
 immutable shared FFT kernels, preallocated per-instrument history and crossfaded
-selection. It follows the voice sum/drive; it is separate from room acoustics.
+selection. FFT work suspends after a silent lane's finite tail drains and resumes
+with the same latency on a new pick. It follows the voice sum/drive; it is
+separate from room acoustics. Filter bypass transitions also have a PCM-smoothing
+regression check.
 
 Native tests compare all three responses to direct convolution with impulses
 across block boundaries (maximum error below 2e-6), exercise reset/switching and
