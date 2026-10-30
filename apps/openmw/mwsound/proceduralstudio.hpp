@@ -21,6 +21,8 @@ namespace MWSound
             keepAlive();
         }
         static constexpr unsigned MaxTracks = 32, MaxNotes = 60000, MaxControls = 8192, MaxCurves = MaxTracks * 115, MaxActive = 4096;
+        // Preloaded scores are scheduled on the audio clock, independently of live network notes.
+        static constexpr unsigned NoteRate = 256, NoteBurst = 512;
         static constexpr std::uint32_t MaxFrames = 48000 * 1800;
         struct Note
         {

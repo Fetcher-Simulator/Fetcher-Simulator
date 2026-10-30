@@ -14,3 +14,7 @@ add_executable(sample-bank-tool bank-tool.cpp ../../apps/openmw/mwsound/procedur
   ../../components/files/hash.cpp ../../extern/smhasher/MurmurHash3.cpp)
 target_compile_features(sample-bank-tool PRIVATE cxx_std_17)
 target_include_directories(sample-bank-tool PRIVATE ../../extern/smhasher/include ../../extern/smhasher/include/smhasher)
+add_executable(score-audition score-audition.cpp ../../apps/openmw/mwsound/proceduralsynth.cpp
+  ../../apps/openmw/mwsound/proceduralstudio.cpp ../../components/files/hash.cpp ../../extern/smhasher/MurmurHash3.cpp)
+target_compile_features(score-audition PRIVATE cxx_std_17)
+target_include_directories(score-audition PRIVATE ../../extern/smhasher/include ../../extern/smhasher/include/smhasher)

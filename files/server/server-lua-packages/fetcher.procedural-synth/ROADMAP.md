@@ -2,6 +2,16 @@
 
 Updated 2026-10-29. Completed work and subsequent planned slices are identified below.
 
+October 30, package 53 / native API 21: prerecorded density is independently
+bounded at 256 notes/sec, burst 512, in the Lua compiler/server and native player.
+Master of Puppets now passes its 19-part, 13,682-note score validation. Live
+network notes retain 40/sec, burst 80. Recorded drum gain and electric-guitar
+levels/voicing are rebalanced. Recorded Band / Thrash provides a deliberate
+electric rhythm reinterpretation and a separate named solo sound. Existing
+project snapshots/faders remain intact. Dedicated muted/slap/release recordings,
+articulation selection, amp/cabinet improvements and listening acceptance remain
+priority sound work; this preset pass does not provide those recordings.
+
 Package 52 fixes the non-playing leader setup: Leader plays: Off suppresses the
 automatic keyboard pose on the owner and observers, including late snapshots,
 and retains control/playback while the leader moves within the same cell.

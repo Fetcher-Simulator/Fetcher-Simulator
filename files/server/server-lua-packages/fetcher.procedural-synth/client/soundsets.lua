@@ -26,9 +26,13 @@ for _,s in ipairs{
 for _,entry in ipairs{{'recorded-clean','Recorded Band / Clean','sampled-electric-clean'},
     {'recorded-rock','Recorded Band / Rock','sampled-electric-crunch'},
     {'recorded-metal','Recorded Band / Metal','sampled-electric-metal'},
+    {'recorded-thrash','Recorded Band / Thrash','sampled-thrash-rhythm'},
     {'recorded-funk','Recorded Band / Funk','sampled-funk-muted'}} do
     local s=set(entry[1],entry[2],9,'studio-keys','sampled-bass-finger',entry[3],'studio-strings','sampled-electric-lead','pad','glass-bell','studio-brass','studio-reed','studio-organ')
-    s.recorded=true;s.muted=entry[1]=='recorded-metal' and 'sampled-electric-muted' or (entry[1]=='recorded-rock' and 'sampled-rock-muted' or 'sampled-funk-muted')
+    s.recorded=true;s.muted=(entry[1]=='recorded-metal' or entry[1]=='recorded-thrash') and 'sampled-electric-muted' or (entry[1]=='recorded-rock' and 'sampled-rock-muted' or 'sampled-funk-muted')
+    -- Explicit genre reinterpretation: many rock MIDIs mark rhythm guitars as
+    -- GM clean. The other recorded sets continue to honor that clean identity.
+    s.electricRhythm=entry[1]=='recorded-thrash'
     M.entries[#M.entries+1]=s
 end
 local recordedDrums={};for _,note in ipairs{35,36,37,38,40,41,42,43,44,45,46,47,48,49,50,51,52,53,57,59} do recordedDrums[note]=true end
@@ -57,7 +61,7 @@ function M.role(part)
     for _,entry in ipairs(named) do if name:find(entry[1],1,true) then return entry[2] end end
     return 'keys'
 end
-function M.assignment(id,role,midi,note,instrument,program)
+function M.assignment(id,role,midi,note,instrument,program,name)
     local s=M.find(id);if not s then return end
     local drum={kick=1,snare=2,hat=3,openhat=4}
     local presetId=drum[role] and schema.kits[s.kit].ids[drum[role]] or 'b:'..(s.patches[role] or s.patches.keys)
@@ -96,9 +100,11 @@ function M.assignment(id,role,midi,note,instrument,program)
     if s.recorded then
         if percussionRoles[role] and recordedDrums[note] then presetId='b:sampled-drum-kit'
         elseif role=='guitar' then
-            local recorded={[24]='sampled-guitar-nylon',[25]='sampled-guitar-steel',[27]=id=='recorded-funk' and 'sampled-funk-muted' or 'sampled-electric-clean',[28]=s.muted,
-                [29]=s.patches.guitar,[30]=s.patches.guitar}
+            local recorded={[24]='sampled-guitar-nylon',[25]='sampled-guitar-steel',[27]=s.electricRhythm and s.patches.guitar or (id=='recorded-funk' and 'sampled-funk-muted' or 'sampled-electric-clean'),[28]=s.muted,
+                [29]=s.patches.guitar,[30]=s.patches.guitar,[31]='sampled-electric-lead'}
             if recorded[program] then presetId='b:'..recorded[program] end
+            local label=(name or ''):lower()
+            if (program==29 or program==30) and (label:find('solo',1,true) or label:find('lead',1,true)) then presetId='b:sampled-electric-lead' end
         elseif role=='bass' and (program==33 or program==34) then
             presetId=program==33 and 'b:sampled-bass-finger' or 'b:sampled-bass-picked'
         elseif role=='bass' and (program==38 or program==39) then
@@ -133,6 +139,6 @@ function M.programPatch(project,track,program)
     local role=M.role{program=program}
     local instrument=({strings='violin',brass='trumpet',reed='clarinet',pipe='flute'})[role]
     if program==42 or program==43 then instrument='cello' elseif program==47 then instrument='timpani' end
-    return M.assignment(M.find(project.soundSet) and project.soundSet or 'balanced',role,true,nil,instrument,program)
+    return M.assignment(M.find(project.soundSet) and project.soundSet or 'balanced',role,true,nil,instrument,program,track.name)
 end
 return M

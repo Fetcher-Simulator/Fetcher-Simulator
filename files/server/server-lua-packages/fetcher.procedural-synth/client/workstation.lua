@@ -406,7 +406,7 @@ function W:applySoundSet(id)
     local changes={}
     for n,t in ipairs(self.project.tracks) do
         if t.kind=='midi' and not t.edited and not parts[t.part] then self.cb.message('Wait for the MIDI file to finish loading.');return false end
-        local role=SoundSets.trackRole(t,parts[t.part]);local state,presetId=SoundSets.assignment(id,role,t.kind=='midi',parts[t.part] and parts[t.part].note or t.note,t.instrument,SoundSets.trackProgram(t,parts[t.part]))
+        local role=SoundSets.trackRole(t,parts[t.part]);local state,presetId=SoundSets.assignment(id,role,t.kind=='midi',parts[t.part] and parts[t.part].note or t.note,t.instrument,SoundSets.trackProgram(t,parts[t.part]),t.name)
         if not state then return false end
         changes[n]={state,presetId}
     end
@@ -689,7 +689,7 @@ function W:import(song,path)
         local t=old[p.id] or format.newTrack('midi',p.name:sub(1,48),self.project.length)
         if not old[p.id] then
             t.instrument=format.instrumentFor(SoundSets.role(p),p.program)
-            t.params,t.presetId=SoundSets.assignment(SoundSets.find(self.project.soundSet) and self.project.soundSet or 'balanced',SoundSets.role(p),true,p.note,t.instrument,p.program)
+            t.params,t.presetId=SoundSets.assignment(SoundSets.find(self.project.soundSet) and self.project.soundSet or 'balanced',SoundSets.role(p),true,p.note,t.instrument,p.program,p.name)
         end
         t.part=p.id;tracks[#tracks+1]=t
         if not t.edited then

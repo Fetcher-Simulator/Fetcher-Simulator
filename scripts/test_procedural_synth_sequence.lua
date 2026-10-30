@@ -20,6 +20,18 @@ check(Sequence.validate(plan.bytes,plan.length,true,{[1]=true}),'valid configure
 check(not Sequence.validate(plan.bytes,plan.length,true,{[2]=true}),'unconfigured lanes rejected')
 check(not Sequence.validate('bad',plan.length,true) and not Sequence.validate(plan.bytes,0,true),'malformed bytes and length rejected')
 check(not Sequence.validate(plan.bytes:sub(12)..plan.bytes:sub(1,11),plan.length,true),'nonmonotonic onsets rejected')
+do
+    local function pack(n) return string.char(n%256,math.floor(n/256)%256,math.floor(n/65536)%256,math.floor(n/16777216)%256) end
+    local function note(frame) return pack(frame)..pack(1)..string.char(1,60,100) end
+    local dense={};for n=0,639 do dense[#dense+1]=note(n*750) end
+    check(Sequence.validate(table.concat(dense),480000,false) and Sequence.validate(table.concat(dense),480000,true),'64 notes/sec across an entire song no longer hits the live-note rate')
+    local burst={};for n=1,513 do burst[n]=note(0) end
+    check(not Sequence.validate(table.concat(burst),48000,false),'instantaneous flood remains capped at 512 notes')
+    local flood={};for n=0,4799 do flood[#flood+1]=note(n*120) end
+    check(not Sequence.validate(table.concat(flood),576000,false),'sustained prerecorded flood remains capped at 256 notes/sec')
+    local edge={};for n=1,300 do edge[#edge+1]=note(0) end;for n=1,300 do edge[#edge+1]=note(235200) end
+    check(Sequence.validate(table.concat(edge),240000,false) and not Sequence.validate(table.concat(edge),240000,true),'loop boundaries retain burst protection')
+end
 p.loop=false;local finite=Sequence.compile(p,nil,MIDI,'clips')
 check(record(finite.bytes,1).gate==96000,'finite pattern truncates a gate at its end')
 local song={events={{kind='on',channel=0,part='1:0',note=60,velocity=1,time=0,tick=0},

@@ -212,6 +212,26 @@ for _,entry in ipairs{
         sample={path='sound/fetcher/banks/electric-di-v1.fsb',offset=0,duration=1,root=60,oneShot=false,hash='969e921873764a7fb7a112d9574d3dfe'}})
     M.builtins[#M.builtins].midiProgram=entry[11]
 end
+-- Recorded patches need their own gain staging: sustained distorted DI masks
+-- the short acoustic drum transients when both use the old generic defaults.
+local recordedBalance={
+    ['sampled-drum-kit']={volume=.95,gain=1.7,fxOutput=1.5},
+    ['sampled-electric-clean']={volume=.62},
+    ['sampled-electric-crunch']={volume=.46,drive=20,driveTone=8500,ampBass=-2,ampMid=1,ampTreble=1,release=.055},
+    ['sampled-electric-metal']={volume=.40,drive=27,driveTone=7200,ampBass=-3,ampMid=-2,ampTreble=2,release=.035},
+    ['sampled-electric-muted']={volume=.40,drive=28,driveTone=7200,ampBass=-3,ampMid=-2,ampTreble=2,stringMute=.7,stringDamping=.22,release=.015},
+    ['sampled-rock-muted']={volume=.46,drive=20,driveTone=8500,ampBass=-2,ampMid=1,stringDamping=.22},
+    ['sampled-electric-lead']={volume=.43,drive=25,driveTone=8000,ampBass=-3,ampMid=3,ampTreble=1,release=.16},
+}
+for _,preset in ipairs(M.builtins) do
+    for key,value in pairs(recordedBalance[preset.id:sub(3)] or {}) do preset.state[key]=value end
+end
+add('sampled-thrash-rhythm','Sampled Thrash Rhythm','Guitar','CC Sampled Instruments',{
+    attack=.002,decay=.2,sustain=1,release=.018,cutoff=16000,driveType=2,drive=28,driveTone=7600,
+    cabinet=2,ampBass=-3,ampMid=-3,ampTreble=3,stringMute=.32,stringDecay=1.6,stringDamping=.18,
+    volume=.40,polyphony=8,sample={path='sound/fetcher/banks/electric-di-v1.fsb',offset=0,duration=1,root=60,
+        oneShot=false,hash='969e921873764a7fb7a112d9574d3dfe'}})
+M.builtins[#M.builtins].midiProgram=30
 for _, preset in ipairs(M.builtins) do
     preset.state = assert(M.state(preset.state),'Invalid built-in: '..preset.id)
     preset.bank=preset.bank or 'General';preset.role=preset.role or (preset.state.drumType>0 and 'Drums' or 'Synth')

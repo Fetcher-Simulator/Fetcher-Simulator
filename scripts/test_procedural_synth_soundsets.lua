@@ -16,6 +16,19 @@ for _,s in ipairs(sets.entries) do
     end
 end
 local scheduled=0;local message
+do
+    local drum=sets.assignment('recorded-metal','snare',true,38)
+    check(drum.volume==.95 and drum.gain==1.7 and drum.fxOutput==1.5,'recorded drums use explicit compensated gain staging')
+    local metal=sets.assignment('recorded-metal','guitar',true,nil,nil,30)
+    local rock=sets.assignment('recorded-rock','guitar',true,nil,nil,30)
+    check(metal.volume<.5 and metal.ampMid<0 and rock.ampMid>0 and rock.release>metal.release,'recorded rock and metal have different amp voicing and gates')
+    local tight,id=sets.assignment('recorded-thrash','guitar',true,nil,nil,27,'Rhythm guitar')
+    check(id=='b:sampled-thrash-rhythm' and tight.stringMute>0 and tight.release<.025,'explicit thrash interpretation tightens GM clean rhythm guitars')
+    local _,lead=sets.assignment('recorded-thrash','guitar',true,nil,nil,29,'Guitar Solo')
+    local _,acoustic=sets.assignment('recorded-thrash','guitar',true,nil,nil,25,'Acoustic intro')
+    local _,clean=sets.assignment('recorded-metal','guitar',true,nil,nil,27,'Guitar')
+    check(lead=='b:sampled-electric-lead' and acoustic=='b:sampled-guitar-steel' and clean=='b:sampled-electric-clean','solo, acoustic and faithful clean choices remain distinct')
+end
 for _,style in ipairs{'recorded-clean','recorded-rock','recorded-metal'} do
     for program,id in pairs{[24]='sampled-guitar-nylon',[25]='sampled-guitar-steel',[27]='sampled-electric-clean',[33]='sampled-bass-finger',[34]='sampled-bass-picked'} do
         local state,preset=sets.assignment(style,sets.role{program=program},true,nil,nil,program)

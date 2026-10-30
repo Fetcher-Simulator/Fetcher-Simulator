@@ -117,6 +117,22 @@ void studioTests()
     check(!finite.loadScore(scoreNote(0,1,3,60),24000,true) && !finite.loadScore("bad",24000,true),"unconfigured track and malformed byte records rejected");
     check(!finite.loadScore(scoreNote(200,1,1,60)+scoreNote(100,1,1,60),24000,true),"unsorted score rejected");
     check(!finite.start(-1,0) && !finite.start(0,std::numeric_limits<double>::infinity()),"invalid transport times rejected");
+    {
+        std::string dense;
+        for(unsigned n=0;n<640;++n) dense+=scoreNote(n*750,240,1,40+n%24);
+        check(finite.loadScore(dense,480000,false) && finite.loadScore(dense,480000,true),"64-note/sec prerecorded band passes finite and looping native validation");
+        check(finite.start(0,0),"dense band starts");studioRender(finite,96000);
+        check(finite.strikes()>=128 && !finite.fault(),"dense band renders without note scheduler faults");
+        finite.stop();studioRender(finite,24000);
+        std::string burst;for(unsigned n=0;n<513;++n) burst+=scoreNote(0,1,1,60);
+        check(!finite.loadScore(burst,48000,false),"513-note instantaneous flood rejected");
+        std::string flood;for(unsigned n=0;n<4800;++n) flood+=scoreNote(n*120,1,1,60);
+        check(!finite.loadScore(flood,576000,false),"sustained score density above 256/sec remains bounded");
+        std::string edge;
+        for(unsigned n=0;n<300;++n) edge+=scoreNote(0,1,1,60);
+        for(unsigned n=0;n<300;++n) edge+=scoreNote(235200,1,1,60);
+        check(finite.loadScore(edge,240000,false) && !finite.loadScore(edge,240000,true),"loop wrap shares the same burst budget instead of resetting it");
+    }
     check(!finite.set(1,"polyphony",std::numeric_limits<float>::quiet_NaN()) && !finite.set(1,"polyphony",1.5f),"rack controls reject nonfinite and fractional polyphony");
     auto drain=std::make_unique<NativeStudio>();setupStudio(*drain);
     check(drain->loadScore(scoreNote(0,30000,1,60),12000,true) && drain->start(0,0),"cross-loop gate drain setup");

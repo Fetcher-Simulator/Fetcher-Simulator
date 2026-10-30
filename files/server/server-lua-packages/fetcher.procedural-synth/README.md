@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 52 / native synth API 20 / multiplayer protocol 27.
+Current source: package 53 / native synth API 21 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,28 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Dense MIDI songs and recorded-band balance (package 53 / native API 21)
+
+Preloaded scores now allow **256 note starts/sec with a 512-note burst** across
+the song. Client compilation, server validation and native playback agree,
+including the loop boundary. The separate live-note network allowance stays at
+40/sec, burst 80. The 32-part, 60,000-note, 30-minute and overlap budgets remain.
+Matching native clients are required; an older API reports that requirement.
+
+Recorded acoustic drums have higher output, and the recorded rock/metal guitars
+have lower levels, distinct amp EQ/tone and shorter releases. Choose a sound set
+again to apply these starting points to an existing project; saved sound snapshots
+and manual mixer faders are preserved until you choose to replace the sounds.
+
+Try **Mixer → Sound set → Recorded Band / Thrash** for heavy MIDI arrangements.
+It deliberately reinterprets GM clean electric rhythm guitars as distorted,
+tight-gated rhythm parts, retains acoustic guitars, and gives named Solo/Lead
+overdrive/distortion parts a separate recorded lead preset. Other recorded sets
+continue to honor GM clean guitars. The existing clean DI bank, alternate takes
+and modeled damping are used; these are starting sounds, not artist-matched
+recordings. Dedicated palm-muted samples, richer articulations and cabinet IRs
+remain future sound work.
 
 ## Non-playing band leader (package 52)
 
@@ -524,7 +546,7 @@ Install the three server Lua files through the existing release-files list and a
 
 Existing reliable custom Lua events carry `Synth_Request` client-to-server and `Synth_Message` server-to-client. A client global activation handler forwards only the synth activator to its player script. Acquisition resolves an actual server-placed mpNum and verifies its record, authoritative cell and distance (300 units). The existing server `Activate` intent hook also recognizes the synth. Sender pid/characterId are supplied by the native authenticated bridge; payloads cannot choose a different owner or storage character.
 
-Every owned session has a server epoch, input sequence, output sequence and preset revision. Requests and nested project documents are whitelisted and bounded; preset fields are whitelisted and finite. Notes have a 40/sec, burst-80 token bucket; full parameter updates are coalesced to 10 Hz by the client and limited to 12/sec, burst 16 by the server. Preset operations, acquisition, sync and heartbeat have separate budgets. Note-off/panic/close bypass the musical bucket; redundant note-offs/panic are discarded so they cannot become an unlimited relay. Queue/rate overflow uses release instead of leaving a partially accepted chord held. The controller plays locally and receives no duplicate note echo. Channel IDs 1–32 identify DAW timbres; channel 0 is the original manual synth. Note ownership is keyed by channel and pitch. Channel parameters/levels precede notes and are included in late-listener snapshots. The original global 40/sec, burst-80 note-on budget is shared across the whole project. Off/panic remain safety operations; stopped/deleted tracks release their sources.
+Every owned session has a server epoch, input sequence, output sequence and preset revision. Requests and nested project documents are whitelisted and bounded; preset fields are whitelisted and finite. Notes have a 40/sec, burst-80 token bucket; full parameter updates are coalesced to 10 Hz by the client and limited to 12/sec, burst 16 by the server. Preset operations, acquisition, sync and heartbeat have separate budgets. Note-off/panic/close bypass the musical bucket; redundant note-offs/panic are discarded so they cannot become an unlimited relay. Queue/rate overflow uses release instead of leaving a partially accepted chord held. The controller plays locally and receives no duplicate note echo. Channel IDs 1–32 identify DAW timbres; channel 0 is the original manual synth. Note ownership is keyed by channel and pitch. Channel parameters/levels precede notes and are included in late-listener snapshots. The live 40/sec, burst-80 note-on budget is shared across the whole project; preloaded native scores instead use 256/sec, burst 512. Off/panic remain safety operations; stopped/deleted tracks release their sources.
 
 An 8-second lease renewed every 2 seconds, authoritative object/range checks, disconnect and cell-change handlers release ownership. Server liveness reaches listeners every two seconds; silent transport loss expires client audio. Clients in the same or loaded actor cells receive state. Newly relevant listeners get current parameters before future live notes and never receive a historical note-on replay. Notes are intentionally not reconstructed midway through a held chord for a late join.
 

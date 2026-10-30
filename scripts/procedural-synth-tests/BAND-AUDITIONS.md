@@ -1,5 +1,25 @@
 # Band sound foundation auditions
 
+## Recorded-score comparisons (package 53)
+
+Use a local MIDI to render the actual compiled score/preset snapshots through
+native Studio without opening the game. This does not normalize the output or
+simulate room/spatial attenuation. Source MIDI files are not included here.
+
+```powershell
+cmake --build build/synth-core-tests --config Release --target score-audition
+lua scripts/procedural-synth-tests/export-score-audition.lua 'C:/path/song.mid' recorded-thrash build/studio-band-auditions/song
+& build/synth-core-tests/Release/score-audition.exe build/studio-band-auditions/song.bin build/studio-band-auditions/song.tsv files/server/optional-assets/fetcher.studio-samples build/studio-band-auditions/song.wav 60 16 all
+```
+
+The final arguments are seek seconds, duration seconds and a stem group:
+`all`, `drums`, `guitar`, `bass` or `other`. Output includes raw peak/RMS and
+scheduled strikes. Compare identical excerpts; short drum transients naturally
+have lower average RMS than sustained guitars. These measurements establish gain
+relationships and native scheduling, not perceived fidelity to a recording.
+
+## Procedural sound foundation
+
 Package 44 contains synthesized guitar/bass and full-kit starting sounds.
 The following renders use the real native synth with the Lua preset parameters;
 they do not use recorded instrument samples. Each patch plays a one-second

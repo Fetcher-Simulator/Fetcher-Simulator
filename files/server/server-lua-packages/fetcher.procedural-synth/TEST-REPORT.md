@@ -1,5 +1,26 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 30: dense prerecorded scores and recorded-band voicing (package 53 / API 21)
+
+Master of Puppets reproduces the former shared 40/sec rejection with 19 parts,
+13,682 notes, 67 onsets in its busiest second and 473.18 seconds duration. With
+the 256/sec, burst-512 scheduled-score budget, it compiles to 150,502 bytes and
+loads/renders in the native Studio. Lua/server and C++ tests accept sustained
+64/sec songs and reject 513-note instantaneous floods, sustained excessive
+density and over-budget loop boundaries. Live network bucket tests still pass.
+All 28 Lua suites and the native synth/Studio suite pass. The client rebuild is
+successful; synth API 21 exposes scheduledNoteRate/scheduledNoteBurst.
+
+The offline score-audition tool renders the actual Lua preset snapshots and bank
+data through the native mixer, without UI, spatial attenuation or normalization.
+For seconds 60–76 of the same MIDI, Recorded Metal guitar/drum stem RMS changes
+from 0.08513 / 0.01608 to 0.06958 / 0.03618: drums move 8.8 dB closer to guitars.
+Full-mix peak is 0.3943 (previously 0.3916), below digital clipping. Recorded
+Thrash's corresponding RMS is 0.07285 / 0.03618 and full-mix peak 0.3788. Renders
+and exported snapshots are under `build/studio-thrash-auditions/`. These checks
+establish relative output and valid native scheduling, not perceptual/artist
+fidelity or an in-game listening acceptance test. No source MIDI is committed.
+
 ## October 29: non-playing leader (package 52 / native API 20)
 
 All 28 Lua suites pass (`build/studio-conductor-lua.log`). Server regressions

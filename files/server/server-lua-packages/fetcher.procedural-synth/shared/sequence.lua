@@ -1,6 +1,6 @@
 -- Bounded, portable score format: LE u32 onset, LE u32 gate, lane, pitch, velocity.
 -- The server validates the same bytes that native clients consume.
-local M={maxTracks=32,rate=48000,maxNotes=60000,maxControls=8192,maxEvents=68192,maxFrames=86400000,recordSize=11,chunkSize=2816}
+local M={maxTracks=32,rate=48000,maxNotes=60000,maxControls=8192,maxEvents=68192,maxFrames=86400000,recordSize=11,chunkSize=2816,noteRate=256,noteBurst=512}
 local function integer(n,a,b) return type(n)=='number' and n==n and n>=a and n<=b and n%1==0 end
 local function u32(bytes,at)
     local a,b,c,d=bytes:byte(at,at+3);return a+b*256+c*65536+d*16777216
@@ -12,7 +12,7 @@ end
 function M.validate(bytes,length,loop,channels)
     if type(bytes)~='string' or #bytes==0 or #bytes%11~=0 or #bytes>11*M.maxEvents
         or not integer(length,1,M.maxFrames) or type(loop)~='boolean' then return nil,'Invalid score size or duration.' end
-    local tokens,previous,previousNote,base,intervals,noteCount,controlCount=80,0,0,0,{},0,0
+    local tokens,previous,previousNote,base,intervals,noteCount,controlCount=M.noteBurst,0,0,0,{},0,0
     local curves={};local discrete={[128]=true,[132]=true,[133]=true,[150]=true,[153]=true,[156]=true,[169]=true,[174]=true,[182]=true,[187]=true}
     for at=1,#bytes,11 do
         local frame,duration=u32(bytes,at),u32(bytes,at+4)
@@ -29,8 +29,8 @@ function M.validate(bytes,length,loop,channels)
             noteCount=noteCount+1
             if noteCount>M.maxNotes or duration<1 or duration>M.maxFrames or velocity<1 or velocity>127
                 or not loop and frame+duration>length then return nil,'Invalid score note.' end
-            tokens=math.min(80,tokens+(frame-previousNote)*40/M.rate)
-            if tokens<1-1e-9 then return nil,'Score exceeds the shared 40 notes/sec, burst-80 limit.' end
+            tokens=math.min(M.noteBurst,tokens+(frame-previousNote)*M.noteRate/M.rate)
+            if tokens<1-1e-9 then return nil,'Score exceeds the shared 256 notes/sec, burst-512 limit.' end
             tokens=tokens-1;previousNote=frame
             local gate=duration
             if loop then
@@ -41,11 +41,11 @@ function M.validate(bytes,length,loop,channels)
             if gate>0 then intervals[#intervals+1]={frame,1} end
         end
     end
-    if loop and noteCount*M.rate>40*length then return nil,'Loop exceeds 40 notes/sec.' end
+    if loop and noteCount*M.rate>M.noteRate*length then return nil,'Loop exceeds 256 notes/sec.' end
     if loop then
         for at=1,#bytes,11 do if bytes:byte(at+9)<128 then
-            local frame=u32(bytes,at)+length;tokens=math.min(80,tokens+(frame-previousNote)*40/M.rate)
-            if tokens<1-1e-9 then return nil,'Loop boundary exceeds burst-80 limit.' end
+            local frame=u32(bytes,at)+length;tokens=math.min(M.noteBurst,tokens+(frame-previousNote)*M.noteRate/M.rate)
+            if tokens<1-1e-9 then return nil,'Loop boundary exceeds burst-512 limit.' end
             tokens=tokens-1;previousNote=frame
         end end
     end

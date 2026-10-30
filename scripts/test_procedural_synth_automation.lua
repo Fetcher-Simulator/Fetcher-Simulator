@@ -82,7 +82,7 @@ for n=1,1025 do budget.tracks[1].automation.expression[n]={s=n,v=.5,linear=false
 check(not format.project(budget),'per-lane point budget enforced')
 local muted=W.new(cb);assert(muted:newSong(120,4,4,4));assert(muted:addNote(1,48,0));assert(muted:preset(1,'b:sampled-electric-muted'))
 check(muted:setAutomation(1,'stringMute',0,0,true) and muted:setAutomation(1,'stringMute',4,.8,false),'recorded note muting is an editable automation lane')
-local muteDoc=assert(format.project(muted.project));check(muteDoc.tracks[1].params.stringMute==.8 and muteDoc.tracks[1].automation.stringMute[2].v==.8,'patch mute and its independent automation survive project validation')
+local muteDoc=assert(format.project(muted.project));check(muteDoc.tracks[1].params.stringMute==.7 and muteDoc.tracks[1].automation.stringMute[2].v==.8,'patch mute and its independent automation survive project validation')
 local mutePlan=Sequence.compile(muteDoc,nil,MIDI,'song',format,SoundSets.programPatch)
 local muteRecords=records(mutePlan,format.automationSpecs.stringMute.code)
 check(#muteRecords>=2 and muteRecords[1].v==0 and muteRecords[#muteRecords].v==52428,'recorded mute curve reaches the existing native control code without changing the wire format')

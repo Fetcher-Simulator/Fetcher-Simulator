@@ -62,7 +62,7 @@ namespace MWLua
                     return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 20;
+            api["version"] = 21;
             api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
                 const auto path = manager->exportStudioMidi(name, bytes);
                 sol::table result(lua, sol::create);
@@ -244,6 +244,8 @@ namespace MWLua
             api["maxInstances"] = MWSound::ProceduralAudio::MaxUnits;
             api["maxUnits"] = MWSound::ProceduralAudio::MaxUnits;
             api["maxScheduledNotes"] = Studio::MaxNotes;
+            api["scheduledNoteRate"] = Studio::NoteRate;
+            api["scheduledNoteBurst"] = Studio::NoteBurst;
             api["sampleRate"] = Synth::SampleRate;
             api["create"] = [](const sol::object& object) {
                 auto ptr = ObjectVariant(object).ptr();

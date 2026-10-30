@@ -74,9 +74,9 @@ for _,p in ipairs(schema.builtins) do if p.state.sample and p.role~='Drums' then
     check(schema.sampledStrings[p.state.sample.path],'all built-in sampled strings expose articulation controls')
     if p.state.stringMute>0 then
         articulations=articulations+1
-        check(p.midiProgram==28 and p.state.release<=.025,'muted recorded presets export muted-guitar identity and use short gate release')
+        check((p.midiProgram==28 or p.id=='b:sampled-thrash-rhythm' and p.midiProgram==30) and p.state.release<=.025,'muted recorded presets retain technique identity and short gate release')
     end
 end end
-check(articulations==3,'recorded metal, rock and funk have distinct muted starting points')
-check(w:preset(1,'b:sampled-electric-muted') and project.project(w.project).tracks[1].params.stringMute==.8,'muted bank sound persists through project validation')
+check(articulations==4,'recorded metal, rock, funk and thrash have distinct damping starting points')
+check(w:preset(1,'b:sampled-electric-muted') and project.project(w.project).tracks[1].params.stringMute==.7,'muted bank sound persists through project validation')
 check(w:undo() and w:redo() and w.project.tracks[1].params.stringDecay==.8,'modeled mute controls survive Undo/Redo')

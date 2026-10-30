@@ -102,7 +102,7 @@ namespace MWSound
             for (unsigned i = 0; i < 4; ++i) value |= static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[offset + i])) << (8 * i);
             return value;
         };
-        double tokens = 80; std::uint32_t previous = 0, previousNote = 0; unsigned controls = 0;
+        double tokens = NoteBurst; std::uint32_t previous = 0, previousNote = 0; unsigned controls = 0;
         for (std::size_t at = 0; at < bytes.size(); at += 11)
         {
             Note note{ u32(at), u32(at + 4), static_cast<unsigned char>(bytes[at + 8]),
@@ -130,11 +130,19 @@ namespace MWSound
             }
             if (!note.duration || note.duration > MaxFrames || !note.velocity || note.velocity > 127
                 || (!loop && static_cast<std::uint64_t>(note.frame) + note.duration > length) || score->notes.size() >= MaxNotes) return false;
-            tokens = std::min(80.0, tokens + (note.frame - previousNote) * (40.0 / 48000));
+            tokens = std::min(double(NoteBurst), tokens + (note.frame - previousNote) * (double(NoteRate) / 48000));
             if (tokens < 1 - 1e-9) return false;
             --tokens; previousNote = note.frame; score->notes.push_back(note);
         }
-        if (loop && score->notes.size() * 48000.0 > 40.0 * length) return false;
+        if (loop && score->notes.size() * 48000.0 > NoteRate * double(length)) return false;
+        if (loop)
+            for (const auto& note : score->notes)
+            {
+                const auto frame = note.frame + length;
+                tokens = std::min(double(NoteBurst), tokens + (frame - previousNote) * (double(NoteRate) / 48000));
+                if (tokens < 1 - 1e-9) return false;
+                --tokens; previousNote = frame;
+            }
         std::lock_guard<std::mutex> lock(mControl);
         mRetained.erase(std::remove_if(mRetained.begin(), mRetained.end(), [](const auto& p) { return p.use_count() == 1; }), mRetained.end());
         if (mRetained.size() >= 4) return false;
