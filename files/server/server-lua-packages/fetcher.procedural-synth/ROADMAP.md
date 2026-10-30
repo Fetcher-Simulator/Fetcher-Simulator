@@ -1,6 +1,15 @@
 # FETCHER STUDIO roadmap
 
-Updated 2026-10-29. Completed work and subsequent planned slices are identified below.
+Updated 2026-10-30. Completed work and subsequent planned slices are identified below.
+
+**Sound-design direction after reviewing the supplied video references:** the
+next native audio slice is a proper guitar cabinet/microphone IR stage, with
+independent pre-drive shaping, post-cabinet EQ and matched output levels. Follow
+with better picked-string excitation/resonance and per-note articulation for
+both synthesized and sampled sources. More samples are one possible improvement,
+not a prerequisite for every convincing guitar sound. Evaluate the result with
+drums and bass present. Experimental DOOM-style parallel processing is a separate
+sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
 
 October 30, package 53 / native API 21: prerecorded density is independently
 bounded at 256 notes/sec, burst 512, in the Lua compiler/server and native player.
@@ -362,6 +371,14 @@ readback repair lineup changes that previously left reused NPCs in old slots.
      voices cannot deliver convincing attacks, sustain and timbre. Acceptance
      requires audible improvement in timbre, dynamics and articulation. Record
      sources, redistribution licenses and credits for new sound libraries.
+   - **Next guitar signal chain:** add bounded native cabinet/microphone IR
+     convolution after drive, independently controlled pre-drive filtering and
+     post-cabinet EQ/output compensation. Retain current filter cabinets for old
+     patches. Tune in a drum/bass mix; add a local solo-in-front audition mode
+     that dims other parts without editing or broadcasting their saved faders.
+     Then improve pick transients, evolving string resonance, dynamic muting,
+     retrigger/choke and articulation controls on the existing generated-string
+     and DI paths. Do not make fidelity depend solely on collecting more samples.
    - **Guitar and bass articulation:** clean, crunch, fuzz, high-gain rhythm and
      lead guitar; tight palm-muted/choked notes, sustained chords, picking,
      bends/slides and usable low-register/drop-tuned phrases. Electric bass
