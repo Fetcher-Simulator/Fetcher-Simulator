@@ -1,5 +1,38 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 30: source expression (package 55 / native API 23)
+
+All 28 Lua suites and the native synth/Studio suite pass. The client build
+passes. Native tests verify exact neutral-expression bypass; distinct open,
+palm-muted and dead-note tails on both generated and recorded sources; pitch
+settling; live resonance changes on held notes; cold first-note configuration;
+block-invariant per-note controls; rejection of continuous articulation ramps;
+and preservation of an open note while a later note receives dead articulation.
+One-shots and unzoned voice/effect clips produce identical PCM with string
+expression enabled or disabled. Existing MIDI wire slots remain unchanged.
+
+Lua checks cover Strings page access, every editable parameter, continuous
+dragging on both generated/sample Strings pages, preset validation and stepped
+articulation round trips/compilation. An original four-bar phrase authored as
+Open / Palm / Dead / Open can be exported with `export-string-auditions.lua` and
+rendered with score-audition. Its generated and recorded renders are under
+`build/studio-string-auditions/`. This is modeled expression, not additional
+recorded guitar articulations or an artist-fidelity acceptance test.
+
+Eight instruments with eight voices, IR/drive and expression render a second of
+PCM in about 0.20 seconds on this machine (informational). For the same 60–76s
+Master of Puppets excerpt, the final full-band expression render peaks at 0.3977
+with RMS 0.09082; drum stem RMS stays 0.03618. Native strikes remain unchanged.
+Level-matched comparisons and source-mode exercises are separate listening
+artifacts; no live visual/listening approval is claimed while the client stays closed.
+
+The matched full-band comparison in `build/studio-string-auditions/` retains the
+package-54 reference level and applies 0.98250 gain to the package-55 render.
+The normal port-25567 fixture is installed with package 55/API 23; its installer
+verified 109 model asset hashes and preserved all 65 protected profile/settings/
+database files. One server listener is active, startup stderr is empty, and the
+client remains closed. No public release or VPS deployment is part of this slice.
+
 ## October 30: captured cabinets and local focus (package 54 / API 22)
 
 Three original CC0 captures from Jester Dyne's Brutal Pack 1.0 are source-hashed,

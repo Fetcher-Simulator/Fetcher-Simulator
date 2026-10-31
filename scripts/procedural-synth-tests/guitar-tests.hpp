@@ -57,6 +57,7 @@ void guitarTests()
         {
             auto synth=std::make_unique<Synth>();synth->set("cabinet",4+n%3);synth->set("driveType",2);
             synth->set("preHighpass",100);synth->set("cabinetHighpass",70);synth->set("cabinetLowpass",9000);
+            synth->set("pickAttack",.2f);synth->set("pickPitch",.12f);synth->set("stringResonance",.25f);synth->set("pickVariation",.35f);synth->set("pickDirection",2);
             for(int pitch=40;pitch<48;++pitch)synth->noteOn(pitch,.6f);
             band.push_back(std::move(synth));
         }

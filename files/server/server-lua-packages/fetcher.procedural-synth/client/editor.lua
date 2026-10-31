@@ -88,7 +88,8 @@ function E:slider(name,title,x,y,width)
     elseif name=='drive' or name:find('^amp[BMT]') then spec.unit='dB';spec.step=0.5
     elseif name:find('tune') or name:find('fine') or name:find('Amount') then spec.step=1 end
     local labels={wave1=waves,wave2=waves,enabled2={'Off','On'},lfoTarget={'Pitch','Filter','Amplitude'},drumType={'Synth','Kick','Snare','Closed hat','Open hat'},
-        instrumentType={'Oscillators','Plucked string'},driveType={'Off','Overdrive','Distortion','Fuzz'},cabinet={'Off','Small speaker','Open speaker','Dark stack','IR V30 / SM57','IR DV77 / SM57','IR Rockdriver / e606'}}
+        instrumentType={'Oscillators','Plucked string'},driveType={'Off','Overdrive','Distortion','Fuzz'},cabinet={'Off','Small speaker','Open speaker','Dark stack','IR V30 / SM57','IR DV77 / SM57','IR Rockdriver / e606'},
+        stringArticulation={'Patch','Open','Palm mute','Dead / choked'},pickDirection={'Down','Up','Alternate'}}
     local caption=labels[name] and function() return title..' / '..(labels[name][self.params[name]+1] or '') end or title
     local element,refresh=Controls.slider(self,name,caption,spec,function() return self.params[name] end,function(value)
         self.params[name]=value;self.cb.change(name,value)
@@ -174,6 +175,7 @@ function E:render()
     self.children={};self.controls={};self.typing=false;self.drums=self.params.drumType>0;self.instrument=self.params.instrumentType
     self.sampleSource=schema.sampleKey(self.params.sample)
     local params,cb=self.params,self.cb
+    if self.page=='strings' and (self.drums or params.sample and not schema.sampledStrings[params.sample.path]) then self.page='sound' end
     -- Window scales the logical canvas to the current viewport.
     self.width=940
     local w=self.width
@@ -223,20 +225,23 @@ function E:render()
     content[#content+1]=self:button('<',20,107,28,function() cycle(-1) end)
     content[#content+1]=self:button('>',390,107,28,function() cycle(1) end)
     content[#content+1]=self:button('Load',428,107,65,function() cb.command('load',{presetId=self.selected}) end)
-    content[#content+1]=self:button(params.sample and 'Synth' or self.drums and 'Synth' or 'Drum',515,107,70,function()
+    content[#content+1]=self:button(params.sample and 'Synth' or self.drums and 'Synth' or 'Drum',515,107,60,function()
         if self.params.sample then cb.command('load',{presetId='b:studio-keys'});return end
         self.params.instrumentType=0;cb.change('instrumentType',0)
         self.params.drumType=self.drums and 0 or 2;cb.change('drumType',self.params.drumType);self.page='sound';self:render()
     end)
-    content[#content+1]=self:button(params.instrumentType==1 and 'Synth' or 'Guitar',595,107,75,function()
+    content[#content+1]=self:button(params.instrumentType==1 and 'Synth' or 'Guitar',580,107,65,function()
         if self.params.sample then cb.command('load',{presetId='b:guitar-clean'});return end
         self.params.drumType=0;cb.change('drumType',0);self.params.instrumentType=1-self.params.instrumentType;cb.change('instrumentType',self.params.instrumentType)
         self.page='sound';self:render()
     end)
-    content[#content+1]=self:button(self.page=='effects' and 'Sound' or 'Effects',680,107,95,function() self.page=self.page=='effects' and 'sound' or 'effects';self:render() end)
-    content[#content+1]=self:button(self.page=='presets' and 'Sound' or 'Browse',785,107,115,function() self.page=self.page=='presets' and 'sound' or 'presets';self:render() end)
+    if not self.drums and (not params.sample or schema.sampledStrings[params.sample.path]) then
+        content[#content+1]=self:button(self.page=='strings' and 'Sound' or 'Strings',650,107,75,function() self.page=self.page=='strings' and 'sound' or 'strings';self:render() end)
+    end
+    content[#content+1]=self:button(self.page=='effects' and 'Sound' or 'Effects',730,107,80,function() self.page=self.page=='effects' and 'sound' or 'effects';self:render() end)
+    content[#content+1]=self:button(self.page=='presets' and 'Sound' or 'Browse',815,107,85,function() self.page=self.page=='presets' and 'sound' or 'presets';self:render() end)
     local col=(w-56)/3
-    local titles=self.page=='effects' and {'DRIVE','AMP TONE','SPEAKER / OUTPUT'} or
+    local titles=self.page=='strings' and {'ARTICULATION','PICK / ATTACK','STRING / BODY'} or self.page=='effects' and {'DRIVE','AMP TONE','SPEAKER / OUTPUT'} or
         (self.drums and {'DRUM BODY','SNARES / NOISE','OUTPUT'} or {params.sample and 'RECORDED SOURCE' or self.params.instrumentType==1 and 'PLUCKED STRING' or 'OSCILLATORS','FILTER + ENVELOPES','MODULATION + OUTPUT'})
     if self.page~='presets' then for n,title in ipairs(titles) do
         local x=20+(n-1)*(col+8)
@@ -246,6 +251,17 @@ function E:render()
     local x1,x2,x3=30,38+col,46+col*2
     local function slider(name,title,x,y,width) content[#content+1]=self:slider(name,title,x,y,width) end
     if self.page=='presets' then self:browser(content)
+    elseif self.page=='strings' then
+        for n,item in ipairs({{'stringArticulation','New-note articulation'},{'stringMute','Patch / palm mute amount'},{'stringDecay','String / muted decay'},{'stringDamping','String damping'}}) do slider(item[1],item[2],x1,185+(n-1)*55,col-20) end
+        for n,item in ipairs({{'pickAttack','Pick attack'},{'pickDecay','Pick decay (seconds)'},{'pickPitch','Pick pitch (semitones)'},{'pickDirection','Pick direction'},{'pickVariation','Modeled pick variation'}}) do slider(item[1],item[2],x2,185+(n-1)*55,col-20) end
+        slider('stringResonance','String resonance',x3,185,col-20)
+        if not params.sample and params.instrumentType==1 then slider('stringPick','Pick position',x3,240,col-20) end
+        slider('release','Note-off release',x3,295,col-20)
+        content[#content+1]=label('Pick / articulation latch at note-on.',x1,435,col-20,11,colors.muted)
+        content[#content+1]=label('Use Auto for phrase changes.',x1,460,col-20,11,colors.muted)
+        content[#content+1]=label('Dead mode shortens new notes.',x3,420,col-20,11,colors.muted)
+        content[#content+1]=label(params.sample and 'Recorded source + modeled expression' or 'Generated source + modeled expression',x3,380,col-20,11,colors.muted)
+        content[#content+1]=label('Pick variation changes tone, not timing.',x1,492,col*2-20,11,colors.accent)
     elseif self.page=='effects' then
         for n,item in ipairs({{'driveType','Character'},{'drive','Input drive (dB)'},{'driveTone','Drive tone (Hz)'},{'fxMix','Wet / dry'},{'preHighpass','Pre-drive low cut (Hz)'}}) do slider(item[1],item[2],x1,185+(n-1)*55,col-20) end
         for n,item in ipairs({{'ampBass','Pre-drive bass (dB)'},{'ampMid','Pre-drive mid (dB)'},{'ampTreble','Pre-drive treble (dB)'},{'cabinetHighpass','Post-cab low cut (Hz)'},{'cabinetLowpass','Post-cab high cut (Hz)'}}) do slider(item[1],item[2],x2,185+(n-1)*55,col-20) end

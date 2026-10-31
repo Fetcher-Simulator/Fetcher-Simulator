@@ -13,7 +13,7 @@ function M.validate(bytes,length,loop,channels)
     if type(bytes)~='string' or #bytes==0 or #bytes%11~=0 or #bytes>11*M.maxEvents
         or not integer(length,1,M.maxFrames) or type(loop)~='boolean' then return nil,'Invalid score size or duration.' end
     local tokens,previous,previousNote,base,intervals,noteCount,controlCount=M.noteBurst,0,0,0,{},0,0
-    local curves={};local discrete={[128]=true,[132]=true,[133]=true,[150]=true,[153]=true,[156]=true,[169]=true,[174]=true,[182]=true,[187]=true}
+    local curves={};local discrete={[128]=true,[132]=true,[133]=true,[150]=true,[153]=true,[156]=true,[169]=true,[174]=true,[182]=true,[187]=true,[191]=true,[197]=true}
     for at=1,#bytes,11 do
         local frame,duration=u32(bytes,at),u32(bytes,at+4)
         local lane,note,velocity=bytes:byte(at+8,at+10)
@@ -21,7 +21,7 @@ function M.validate(bytes,length,loop,channels)
         previous=frame
         if note>=128 then
             controlCount=controlCount+1
-            if controlCount>M.maxControls or note>190 or duration>65535 or velocity~=0 and velocity~=128 and velocity~=129
+            if controlCount>M.maxControls or note>197 or duration>65535 or velocity~=0 and velocity~=128 and velocity~=129
                 or velocity==129 and note>=183 and note<=187 or velocity==128 and discrete[note] then return nil,'Invalid score control.' end
             local key=lane..':'..note..':'..(velocity==129 and 'program' or 'automation')
             if curves[key] and curves[key]>=frame then return nil,'Duplicate score control time.' end;curves[key]=frame

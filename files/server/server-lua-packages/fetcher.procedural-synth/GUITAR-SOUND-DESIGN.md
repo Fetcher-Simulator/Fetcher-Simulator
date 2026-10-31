@@ -1,14 +1,21 @@
 # Guitar and heavy sound-design direction
 
 Reviewed October 30, 2026 using the three supplied videos' English captions,
-chapter descriptions and published descriptions. This is a plan, not a completed
-DSP implementation or a listening approval of the current presets.
+chapter descriptions and published descriptions. Completed slices are recorded
+below alongside the remaining plan. Listening acceptance remains separate.
 
 Package 54 follow-up: the first native cabinet/mix-context slice is implemented
 and covered by DSP, UI and routed-output tests. It supplies three CC0 captures,
 pre-drive/post-cab cuts, existing post-cab channel EQ and local focus/dim. The
 string/articulation and experimental branches below remain planned. Full-band
 listening acceptance remains distinct from the automated measurements.
+
+Package 55 begins the playable-string branch: per-strike articulation, pick
+attack/variation/direction/pitch settling and live harmonic-resonance amount
+are implemented for generated sources and gated banks. The Strings page and
+Auto parameter selector expose them. String-aware strums, connected legato and
+slides, external MIDI articulation mappings and new captured gestures remain
+planned. The experimental parallel-processing branch has not been implemented.
 
 ## What the references contribute
 

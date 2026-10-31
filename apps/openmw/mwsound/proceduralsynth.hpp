@@ -12,6 +12,7 @@
 #include "proceduralsyntheffects.hpp"
 #include "proceduralaudio.hpp"
 #include "proceduralsample.hpp"
+#include "proceduralstring.hpp"
 
 namespace MWSound
 {
@@ -27,7 +28,7 @@ namespace MWSound
             bool discrete = false;
         };
         static constexpr unsigned SampleRate = 48000;
-        static constexpr std::size_t ParameterCount = 58;
+        static constexpr std::size_t ParameterCount = 65;
         // Wire slots 55-59 retain their original MIDI-performance meaning.
         static constexpr unsigned decodeControl(unsigned wire)
         { return wire<55?wire:wire<60?ParameterCount+wire-55:wire-5; }
@@ -56,7 +57,8 @@ namespace MWSound
             NoiseHighpass, NoiseLowpass, DrumPitchAmount, DrumPitchDecay, DrumClick, DrumDrive, AmpCurve,
             InstrumentType, StringDecay, StringDamping, StringMute, StringPick,
             DriveType, Drive, DriveTone, FxMix, FxOutput, AmpBass, AmpMid, AmpTreble, Cabinet,
-            PreHighpass, CabinetHighpass, CabinetLowpass
+            PreHighpass, CabinetHighpass, CabinetLowpass,
+            StringArticulation, PickAttack, PickDecay, StringResonance, PickPitch, PickVariation, PickDirection
         };
         struct Command
         {
@@ -99,6 +101,7 @@ namespace MWSound
             int instrumentType = 0;
             std::size_t stringPosition = 0;
             double stringPrevious = 0, stringAge = 0, stringLast = 0, stringCarry = 0;
+            ProceduralStringExpression expression;
             unsigned long long age = 0;
         };
         std::mutex mMutex;

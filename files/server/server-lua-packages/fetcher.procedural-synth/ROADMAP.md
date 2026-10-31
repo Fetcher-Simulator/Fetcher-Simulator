@@ -11,6 +11,17 @@ not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
 
+Package 55 / native API 23 adds a Strings editor page, per-strike open/palm/dead
+articulation, velocity-sensitive pick transients, attack pitch settling, modeled
+down/up/alternate excitation and small deterministic variation. Two evolving
+harmonic resonators have a live amount control. Generated sources and gated DI
+banks share the native expression stage. Note timing is unchanged; one-shots and
+ordinary voice/effect clips bypass it. New control slots 191–197 preserve MIDI
+IDs and can be authored/replicated with existing project automation. This is an
+initial source-expression slice. String-aware chord/strum allocation, connected
+legato/hammer-ons/slides, external keyswitch/CC mapping and dedicated recorded
+muted/fret/release/slap articulations remain pending, alongside listening acceptance.
+
 Package 54 / native API 22 implements three CC0 captured cabinet/microphone
 responses with bounded partitioned convolution, pre-drive low-cut and post-cab
 cuts, plus local focus/dim audition across routed performers. Existing channel

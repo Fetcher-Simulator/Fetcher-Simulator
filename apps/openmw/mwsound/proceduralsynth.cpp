@@ -64,6 +64,13 @@ namespace MWSound
         { "preHighpass", 0, 500, 0 },
         { "cabinetHighpass", 0, 500, 0 },
         { "cabinetLowpass", 0, 18000, 0 },
+        { "stringArticulation", 0, 3, 0, true },
+        { "pickAttack", 0, 1, 0 },
+        { "pickDecay", .001f, .05f, .006f },
+        { "stringResonance", 0, 1, 0 },
+        { "pickPitch", -2, 2, 0 },
+        { "pickVariation", 0, 1, 0 },
+        { "pickDirection", 0, 2, 0, true },
     } };
 
     namespace
@@ -269,6 +276,19 @@ namespace MWSound
             voice.sampleRootFrequency=440*std::exp2((voice.sampleRoot-69)/12.0);
             voice.sampleOneShot=oneShot;voice.sampleGroup=zone?zone->group:0;
         };
+        const auto expression=[&](Voice& voice) {
+            ProceduralStringExpression::Settings settings;
+            const bool melodic=voice.drumType==0 && (!mSampleCurrent.data
+                || (!voice.sampleOneShot && !mSampleCurrent.data->zones.empty()));
+            if(melodic)
+            {
+                settings.articulation=unsigned(mCurrent[StringArticulation]);settings.attack=mCurrent[PickAttack];
+                settings.attackDecay=mCurrent[PickDecay];settings.resonance=mCurrent[StringResonance];
+                settings.pitch=mCurrent[PickPitch];settings.variation=mCurrent[PickVariation];settings.direction=unsigned(mCurrent[PickDirection]);
+                settings.mute=mCurrent[StringMute];settings.decay=mCurrent[StringDecay];settings.damping=mCurrent[StringDamping];
+            }
+            voice.expression.trigger(settings,voice.velocity,voice.age);
+        };
         for (auto& voice : mVoices)
             if (voice.note == command.note)
             {
@@ -298,6 +318,7 @@ namespace MWSound
                 voice.age = ++mAge;
                 voice.drumChoke = false;
                 voice.instrumentType = mSampleCurrent.data ? 0 : static_cast<int>(mCurrent[InstrumentType]);
+                expression(voice);
                 if (voice.instrumentType != 0)
                     pluck(voice);
                 return;
@@ -329,6 +350,7 @@ namespace MWSound
         slot->age = ++mAge;
         slot->drumChoke = false;
         slot->instrumentType = mSampleCurrent.data ? 0 : static_cast<int>(mCurrent[InstrumentType]);
+        expression(*slot);
         if (slot->instrumentType != 0)
             pluck(*slot);
     }
@@ -339,7 +361,9 @@ namespace MWSound
         // there is no shared random generator or audio-thread allocation.
         const double frequency = 440 * std::exp2((voice.note - 69 + mCurrent[2] + mCurrent[3] / 100) / 12);
         const auto period = static_cast<std::size_t>(std::clamp(std::round(SampleRate / frequency), 3.0, 8190.0));
-        const auto pick = std::max(std::size_t(1), static_cast<std::size_t>(period * mCurrent[StringPick]));
+        const double offset=voice.expression.pickOffset();
+        const auto pick = std::max(std::size_t(1), static_cast<std::size_t>(offset==0
+            ? period*mCurrent[StringPick] : period*std::clamp(mCurrent[StringPick]+offset,.05,.95)));
         const auto noise = [&](std::size_t n) {
             auto bits = static_cast<std::uint32_t>(n) + voice.noise;
             bits ^= bits >> 16; bits *= 0x7feb352du; bits ^= bits >> 15; bits *= 0x846ca68bu; bits ^= bits >> 16;
@@ -371,6 +395,9 @@ namespace MWSound
         for (auto i : {std::size_t(25), std::size_t(28), std::size_t(41)})
             if (mAutomated[i] || mProgrammed[i])
                 mCurrent[i] = static_cast<float>(mAutomated[i] ? mAutomation[i] : mProgram[i]);
+        // Strike controls are latched per voice, including continuous pick curves.
+        for(unsigned i=StringArticulation;i<ParameterCount;++i)
+            if(i!=StringResonance && (mAutomated[i] || mProgrammed[i]))mCurrent[i]=static_cast<float>(mAutomated[i]?mAutomation[i]:mProgram[i]);
     }
     void ProceduralSynth::render(float* output, std::size_t frames)
     {
@@ -392,6 +419,8 @@ namespace MWSound
                 mCurrent[25] = target[25];
                 mCurrent[DrumType] = target[DrumType];
                 mCurrent[InstrumentType] = target[InstrumentType];
+                for(unsigned i=StringArticulation;i<ParameterCount;++i)
+                    if(i!=StringResonance && !mAutomated[i] && !mProgrammed[i])mCurrent[i]=target[i];
                 if (mPanic.exchange(false))
                     for (auto& v : mVoices)
                     {
@@ -565,7 +594,7 @@ namespace MWSound
                 }
                 const float env = v.filter.next(mCurrent[16], mCurrent[17], mCurrent[18], mCurrent[19]);
                 const double pitchLfo = performancePitch + (effective[22] == 0 ? lfo * 2 : 0);
-                const double pitchEnvelope = v.pitchEnvelope * mCurrent[26];
+                const double pitchEnvelope = v.pitchEnvelope * mCurrent[26] + v.expression.pitch();
                 v.pitchEnvelope = ProceduralDsp::silence(v.pitchEnvelope * pitchDecay);
                 v.noise ^= v.noise << 13; v.noise ^= v.noise >> 17; v.noise ^= v.noise << 5;
                 const double noise = static_cast<double>(v.noise) / 2147483648.0 - 1;
@@ -576,6 +605,7 @@ namespace MWSound
                 const double dt1 = mSampleCurrent.data ? 0 : increment(mCurrent[2], mCurrent[3]);
                 const double dt2 = mSampleCurrent.data ? 0 : increment(mCurrent[7], mCurrent[8]);
                 double sample = 0;
+                double stringFrequency=0;
                 if (mSampleCurrent.data)
                 {
                     if (!sampleAvailable) { v = Voice{}; continue; }
@@ -585,13 +615,14 @@ namespace MWSound
                     const double fraction = v.samplePosition - at;
                     const double step = std::exp2((v.note - v.sampleRoot + mCurrent[2]
                         + mCurrent[3] / 100 + pitchLfo + pitchEnvelope) / 12);
+                    stringFrequency=v.sampleRootFrequency*step;
                     // Short edge fades protect arbitrary trims from hard steps.
                     const double fade = std::min({1.0, v.samplePosition / 96,
                         (v.sampleLength - 1 - v.samplePosition) / std::max(96.0, 96 * step)});
                     const auto first=v.sampleStart+at;
                     sample = (pcm[first] + (pcm[first + 1] - pcm[first]) * fraction) * fade;
                     if(!v.sampleOneShot) {
-                        if(sampleMute>0) {
+                        if(sampleMute>0 && v.expression.articulation()==0) {
                             const double frequency=std::clamp(v.sampleRootFrequency*step
                                 *(8-5*mCurrent[StringDamping]),200.0,12000.0);
                             const double g=2*Pi*frequency/SampleRate;
@@ -607,8 +638,9 @@ namespace MWSound
                 else if (v.instrumentType != 0)
                 {
                     auto& buffer = (*mStrings)[i];
+                    const double mute=v.expression.articulation()==0?mCurrent[StringMute]:0;
                     const double damping = 0.05 + 0.45 * std::clamp(
-                        static_cast<double>(mCurrent[StringDamping]) + (1 - v.velocity) * 0.35 + mCurrent[StringMute] * 0.4, 0.0, 1.0);
+                        static_cast<double>(mCurrent[StringDamping]) + (1 - v.velocity) * 0.35 + mute * 0.4, 0.0, 1.0);
                     const double period = 1 / dt1;
                     const double delay = std::clamp(period - damping, 2.0, 8190.0);
                     double read = v.stringPosition + StringCapacity - delay;
@@ -616,7 +648,7 @@ namespace MWSound
                     const auto index = static_cast<std::size_t>(read);
                     const double fraction = read - index;
                     const double delayed = buffer[index] * (1 - fraction) + buffer[(index + 1) % StringCapacity] * fraction;
-                    const double decay = mCurrent[StringDecay] * (1 - 0.94 * mCurrent[StringMute]);
+                    const double decay = mCurrent[StringDecay] * (1 - 0.94 * mute);
                     const double loss = std::exp(-6.907755 * period / (SampleRate * decay));
                     const double filtered = (delayed * (1 - damping) + v.stringPrevious * damping) * loss;
                     v.stringPrevious = delayed;
@@ -632,6 +664,13 @@ namespace MWSound
                     sample = oscillator(v.phase1, dt1, mWave1, noise) * mCurrent[1];
                     if (mCurrent[4] > 0.0001f)
                         sample += oscillator(v.phase2, dt2, mWave2, noise) * mCurrent[6] * mCurrent[4];
+                }
+                const bool expressive=v.drumType==0 && (!mSampleCurrent.data || (!v.sampleOneShot && !mSampleCurrent.data->zones.empty()));
+                if(expressive && (v.expression.enabled() || mCurrent[StringResonance]>0))
+                {
+                    if(!mSampleCurrent.data)stringFrequency=dt1*SampleRate;
+                    sample=v.expression.process(sample,noise,stringFrequency,mCurrent[StringResonance]);
+                    if(v.expression.finished()){v=Voice{};continue;}
                 }
                 v.phase1 = std::fmod(v.phase1 + dt1, 1);
                 v.phase2 = std::fmod(v.phase2 + dt2, 1);

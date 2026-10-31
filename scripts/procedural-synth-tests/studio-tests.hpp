@@ -44,7 +44,7 @@ void studioTests()
         check(energy(expected)>0 && a->strikes()==4,"controllers do not create attacks");
         a->stop();studioRender(*a,24000);a->noteOn(1,60,1);check(energy(studioRender(*a,24000))>0,"Stop removes automation and restores manual patch");
         check(!a->loadScore(scoreNote(0,65536,1,141,0),24000,true)
-            && !a->loadScore(scoreNote(0,1,1,191,0),24000,true)
+            && !a->loadScore(scoreNote(0,1,1,198,0),24000,true)
             && !a->loadScore(scoreNote(0,1,1,128,128),24000,true)
             && !a->loadScore(scoreNote(0,1,1,185,129),24000,true)
             && !a->loadScore(scoreNote(0,1,1,141,0)+scoreNote(0,2,1,141,128),24000,true),"malformed controls and duplicate curve times rejected");
@@ -127,7 +127,7 @@ void studioTests()
         const auto strikes=monitor->strikes();monitor->monitor(1,1);studioRender(*monitor,12000);
         check(energy(studioRender(*monitor,4800))>0 && monitor->strikes()==strikes,"full mix recovers without retriggering notes");
         check(monitor->loadScore(scoreNote(0,40000,1,60)+scoreNote(0,8000,1,188,128)+scoreNote(10000,65535,1,183,0),48000,false),"new filter automation coexists with original pitch-bend wire slot");
-        check(!monitor->loadScore(scoreNote(0,0,1,191,0),48000,false),"unknown extended control rejected");
+        check(!monitor->loadScore(scoreNote(0,0,1,198,0),48000,false),"unknown extended control rejected");
     }
     {
         std::string dense;

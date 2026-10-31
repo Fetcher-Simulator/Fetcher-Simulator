@@ -13,6 +13,14 @@ local queued=0;local playing,time=true,0;local messages={}
 local cb={configure=function() end,panic=function() end,stopSequence=function() end,message=function(m) messages[#messages+1]=m end,
     schedule=function() queued=queued+1;return true end,progress=function() return playing,time,0 end}
 local w=W.new(cb);assert(w:newSong(120,4,4,8));assert(w:addNote(1,69,0));w.noteLength=16;assert(w:addNote(1,72,16))
+do
+    local phrase=W.new(cb);assert(phrase:newSong(120,4,4,4));assert(phrase:addNote(1,48,0));assert(phrase:addNote(1,55,16))
+    check(phrase:setAutomation(1,'stringArticulation',0,1,false) and phrase:setAutomation(1,'stringArticulation',16,2,false),'authored open and palm-muted phrases are editable automation')
+    check(not phrase:setAutomation(1,'stringArticulation',8,1.5,false),'articulation rejects fractional modes')
+    local document=assert(format.project(phrase.project));local plan=Sequence.compile(document,nil,MIDI,'song',format,SoundSets.programPatch)
+    local modes=records(plan,191);check(#modes==2 and modes[1].v==21845 and modes[2].v==43690 and modes[2].mode==0,'articulation has a stable stepped wire slot')
+    check(format.automationSpecs.pitchBend.code==183 and format.automationSpecs.pickDirection.code==197,'new expression controls preserve existing MIDI codes')
+end
 check(format.automationSpecs.pitchBend.code==183 and format.automationSpecs.pedal.code==187 and format.automationSpecs.preHighpass.code==188,'new filter controls preserve existing MIDI wire slots')
 do
     local probe=assert(format.project(w.project));probe.tracks[1].params.cabinet=6;probe.tracks[1].params.preHighpass=120

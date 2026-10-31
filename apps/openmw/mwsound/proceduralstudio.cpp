@@ -278,7 +278,7 @@ namespace MWSound
             const double low = code<ProceduralSynth::ParameterCount ? ProceduralSynth::Parameters[code].min : code==ProceduralSynth::ParameterCount ? -2 : 0;
             const double high = code<ProceduralSynth::ParameterCount ? ProceduralSynth::Parameters[code].max : code==ProceduralSynth::ParameterCount ? 2 : 1;
             value=low+(high-low)*value/65535; slope *= (high-low)/65535;
-            if (code==ProceduralSynth::ParameterCount && std::abs(value)<0.00004) value=0;
+            if ((code==ProceduralSynth::ParameterCount || code==ProceduralSynth::PickPitch) && std::abs(value)<0.00004) value=0;
             if (code<ProceduralSynth::ParameterCount && ProceduralSynth::Parameters[code].discrete) value=std::round(value);
             if (code==25) value=std::min(8.0,value);
             if (curve.program) { track->mProgrammed[code]=true; track->mProgram[code]=static_cast<float>(value); }
@@ -320,6 +320,8 @@ namespace MWSound
                 {
                     track->syncSample();
                     for (auto parameter : {std::size_t(25), std::size_t(28), std::size_t(41)}) track->mCurrent[parameter] = track->mTarget[parameter];
+                    for(unsigned i=ProceduralSynth::StringArticulation;i<ProceduralSynth::ParameterCount;++i)
+                        if(i!=ProceduralSynth::StringResonance && !track->mAutomated[i] && !track->mProgrammed[i])track->mCurrent[i]=track->mTarget[i];
                 }
             }
         {

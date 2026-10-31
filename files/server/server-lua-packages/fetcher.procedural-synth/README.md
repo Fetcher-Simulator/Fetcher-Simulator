@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 54 / native synth API 22 / multiplayer protocol 27.
+Current source: package 55 / native synth API 23 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,43 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Pick behavior and articulation (package 55 / native API 23)
+
+Open **Mixer → a track's Sound → Strings** (or **Strings** in the standalone
+synth editor). The neighboring **Effects** page contains the captured cabinet
+and pre-drive/post-cabinet cuts from package 54.
+
+**Strings** offers:
+
+- **New-note articulation:** 0 Patch retains the existing live mute controls;
+  1 Open bypasses modeled muting; 2 Palm mute applies a damped/filtered envelope;
+  3 Dead/choked produces a short new note that finishes without waiting for
+  note-off. These modes latch at each strike; already-held notes keep their mode.
+- **Pick attack/decay:** velocity-sensitive, band-limited modeled pick excitation.
+- **Pick pitch:** a short attack pitch movement that settles in about 12 ms per
+  decay time constant. Zero preserves the written pitch throughout the attack.
+- **Pick direction:** Down, Up or Alternate; **Modeled pick variation** makes
+  small repeatable differences in attack/level and generated-string excitation.
+  These controls do not move note starts or gates.
+- **String resonance:** a live, smoothed amount for two evolving harmonic
+  resonators. This affects already-held notes and supports continuous automation.
+  Generated strings retain the existing resonating delay-line source and pick
+  position control. Recorded DI retains its actual note/velocity/alternate zones.
+
+Use **Auto → String articulation** in the parameter selector to author phrases. Add
+stepped values 1, 2 or 3 at the desired note starts; interpolation is disabled
+for articulation/direction. Pick controls are also available in that selector.
+The new controls use wire slots 191–197; existing MIDI controls retain their IDs.
+Custom expression curves are Studio project data, not standard GM articulation
+events in an exported MIDI file. Ordinary MIDI imports do not infer gestures.
+
+Reapply the recorded or generated guitar/bass presets/sound sets for updated
+starting points. Existing saved sounds load with neutral new defaults. This is
+modeled expression, not new muted/upstroke/fret/release recordings or a complete
+six-string performance model. One-shot percussion and ordinary voice/effect clips
+bypass it. The controls work on generated melodic sources and gated sample banks;
+the Strings page is hidden for unsupported sample clips and drums.
 
 ## Captured cabinets and full-band audition (package 54 / native API 22)
 

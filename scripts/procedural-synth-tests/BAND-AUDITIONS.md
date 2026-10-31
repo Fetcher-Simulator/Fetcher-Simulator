@@ -1,5 +1,20 @@
 # Band sound foundation auditions
 
+## String expression exercises (package 55)
+
+```powershell
+New-Item -ItemType Directory -Force build/studio-string-auditions | Out-Null
+lua scripts/procedural-synth-tests/export-string-auditions.lua build/studio-string-auditions
+foreach ($source in @('generated','recorded')) {
+    & build/synth-core-tests/Release/score-audition.exe "build/studio-string-auditions/$source.bin" "build/studio-string-auditions/$source.tsv" files/server/optional-assets/fetcher.studio-samples "build/studio-string-auditions/$source.wav" 0 9 all
+}
+```
+
+Each original four-bar exercise plays the same notes as Open / Palm / Dead /
+Open, two seconds per bar plus a one-second tail. No imported song is required.
+The recorded example needs the optional credited electric-DI bank installed at
+the supplied asset root. The generated example uses the native source.
+
 ## Recorded-score comparisons (package 53)
 
 Use a local MIDI to render the actual compiled score/preset snapshots through

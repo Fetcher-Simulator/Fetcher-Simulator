@@ -272,7 +272,9 @@ function S:automation(content)
     local w,p=self.w,self.w.project;local t=p.tracks[w.selected]
     if not t then content[#content+1]=label('Add a part on Song or Mixer first.',20,175,880,16,c.accent);return end
     local name=w.automationName or 'cutoff';local spec=Project.automationSpecs[name]
-    local names={stringMute='Palm mute',stringDecay='Muted / string decay',stringDamping='Muted / string tone'}
+    local names={stringMute='Palm mute',stringDecay='Muted / string decay',stringDamping='Muted / string tone',
+        stringArticulation='String articulation',pickAttack='Pick attack',pickDecay='Pick decay',
+        stringResonance='String resonance',pickPitch='Pick pitch',pickVariation='Pick variation',pickDirection='Pick direction'}
     local title=names[name] or name
     local step=w.automationStep or 0;w.automationDraft=w.automationDraft or w:automationValue(w.selected,name,step)
     content[#content+1]=self:button(t.name..' v',20,163,225,function()
@@ -285,6 +287,8 @@ function S:automation(content)
     end)
     content[#content+1]=self:button('Import MIDI controls',500,163,185,function() w:importControls(w.selected) end)
     content[#content+1]=self:button('Follow programs',700,163,185,function() w:followPrograms(w.selected,not t.followPrograms) end,t.followPrograms)
+    if name=='stringArticulation' then content[#content+1]=label('0 Patch | 1 Open | 2 Palm | 3 Dead',500,197,390,10,c.muted)
+    elseif name=='pickDirection' then content[#content+1]=label('0 Down | 1 Up | 2 Alternate',500,197,390,10,c.muted) end
     content[#content+1]=Controls.slider(self,'automationValue',title,spec,function() return w.automationDraft end,function(value)
         w.automationDraft=value;if w.automationWriting then w:recordAutomation(w.selected,name,value) end
     end,20,206,360)

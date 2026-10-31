@@ -25,6 +25,8 @@ p('driveType',0,3,0,true);p('drive',0,36,12);p('driveTone',200,16000,12000)
 p('fxMix',0,1,1);p('fxOutput',0,2,1)
 p('ampBass',-12,12,0);p('ampMid',-12,12,0);p('ampTreble',-12,12,0);p('cabinet',0,6,0,true)
 p('preHighpass',0,500,0);p('cabinetHighpass',0,500,0);p('cabinetLowpass',0,18000,0)
+p('stringArticulation',0,3,0,true);p('pickAttack',0,1,0);p('pickDecay',.001,.05,.006)
+p('stringResonance',0,1,0);p('pickPitch',-2,2,0);p('pickVariation',0,1,0);p('pickDirection',0,2,0,true)
 function M.valid(name, value)
     local s = M.specs[name]
     return s and type(value) == 'number' and value == value and value >= s.min and value <= s.max
@@ -233,6 +235,34 @@ add('sampled-thrash-rhythm','Sampled Thrash Rhythm','Guitar','CC Sampled Instrum
     volume=.34,polyphony=8,sample={path='sound/fetcher/banks/electric-di-v1.fsb',offset=0,duration=1,root=60,
         oneShot=false,hash='969e921873764a7fb7a112d9574d3dfe'}})
 M.builtins[#M.builtins].midiProgram=30
+local expressions={
+    ['sampled-electric-clean']={.07,.005,.12,.04,.20,0},
+    ['sampled-electric-crunch']={.12,.004,.18,.08,.25,0},
+    ['sampled-electric-metal']={.16,.0035,.20,.12,.25,0},
+    ['sampled-electric-muted']={.18,.003,.12,.08,.30,2},
+    ['sampled-rock-muted']={.14,.004,.18,.06,.30,2},
+    ['sampled-funk-muted']={.12,.003,.12,.03,.50,2},
+    ['sampled-electric-lead']={.08,.005,.22,.04,.15,0},
+    ['sampled-thrash-rhythm']={.20,.003,.18,.12,.35,0},
+    ['guitar-clean']={.20,.005,.22,.05,.20,0},
+    ['guitar-crunch']={.25,.004,.24,.10,.30,0},
+    ['guitar-heavy']={.28,.004,.22,.10,.30,0},
+    ['guitar-thrash']={.30,.003,.25,.12,.35,0},
+    ['guitar-altmetal']={.27,.004,.23,.10,.30,0},
+    ['guitar-funk']={.22,.003,.18,.04,.50,2},
+    ['guitar-lead']={.18,.005,.28,.05,.20,0},
+    ['sampled-bass-picked']={.14,.004,.10,.03,.25,0},
+    ['sampled-bass-finger']={.035,.006,.10,.02,.20,0},
+    ['sampled-guitar-nylon']={.055,.006,.14,.02,.25,0},
+    ['sampled-guitar-steel']={.10,.004,.18,.04,.30,0},
+}
+for _,preset in ipairs(M.builtins) do
+    local e=expressions[preset.id:sub(3)]
+    if e then
+        local s=preset.state;s.pickAttack=e[1];s.pickDecay=e[2];s.stringResonance=e[3];s.pickPitch=e[4]
+        s.pickVariation=e[5];s.stringArticulation=e[6];s.pickDirection=preset.role=='Bass' and 0 or 2
+    end
+end
 for _, preset in ipairs(M.builtins) do
     preset.state = assert(M.state(preset.state),'Invalid built-in: '..preset.id)
     preset.bank=preset.bank or 'General';preset.role=preset.role or (preset.state.drumType>0 and 'Drums' or 'Synth')
