@@ -28,6 +28,15 @@ do
     local persisted=assert(format.project(probe));local score=Sequence.compile(persisted,nil,MIDI,'song',format,SoundSets.programPatch)
     check(#records(score,188)==2 and persisted.tracks[1].params.cabinet==6,'IR choice and new filter automation survive project validation and compilation')
 end
+do
+    local probe=assert(format.project(w.project));local t=probe.tracks[1]
+    t.params.parallelMix=.7;t.params.parallelShape=2;t.params.parallelLift=8
+    t.automation={parallelMix={{s=0,v=.2,linear=true},{s=8,v=.8,linear=false}},parallelShape={{s=0,v=2,linear=false},{s=8,v=3,linear=false}}}
+    local saved=assert(format.project(probe));local plan=Sequence.compile(saved,nil,MIDI,'song',format,SoundSets.programPatch)
+    check(#records(plan,198)==2 and records(plan,198)[1].mode==128 and #records(plan,203)==2,'parallel continuous and stepped automation use extension slots')
+    check(saved.tracks[1].params.parallelLift==8 and saved.tracks[1].params.parallelShape==2,'parallel snapshots survive strict project validation')
+    check(format.automationSpecs.parallelLift.code==209 and format.automationSpecs.pitchBend.code==183,'parallel extension preserves MIDI performance codes')
+end
 check(w:setAutomation(1,'cutoff',0,100,true) and w:setAutomation(1,'cutoff',16,18000,false),'editable continuous curve')
 check(w:automationValue(1,'cutoff',8)==9050,'linear musical interpolation')
 check(w:setAutomation(1,'pedal',0,1,true) and not w.project.tracks[1].automation.pedal[1].linear,'discrete controls always step')

@@ -11,6 +11,14 @@ not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
 
+Package 56 / native API 24 implements the opt-in experimental branch: parallel
+clean/dirty/following-noise layers, four oversampled waveshapers, a damped mono
+comb with delay modulation and bounded upward compression. The Parallel page,
+three Industrial presets and Auto controls expose this native per-lane insert.
+It shares the cabinet/post-EQ stage and preserves old paths at zero blend.
+No ordinary sound set selects these presets. Full-band listening acceptance,
+multiband dynamics and arbitrary user-routed FX graphs remain future work.
+
 Package 55 / native API 23 adds a Strings editor page, per-strike open/palm/dead
 articulation, velocity-sensitive pick transients, attack pitch settling, modeled
 down/up/alternate excitation and small deterministic variation. Two evolving

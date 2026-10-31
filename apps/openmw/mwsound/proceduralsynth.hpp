@@ -28,7 +28,7 @@ namespace MWSound
             bool discrete = false;
         };
         static constexpr unsigned SampleRate = 48000;
-        static constexpr std::size_t ParameterCount = 65;
+        static constexpr std::size_t ParameterCount = 77;
         // Wire slots 55-59 retain their original MIDI-performance meaning.
         static constexpr unsigned decodeControl(unsigned wire)
         { return wire<55?wire:wire<60?ParameterCount+wire-55:wire-5; }
@@ -58,7 +58,9 @@ namespace MWSound
             InstrumentType, StringDecay, StringDamping, StringMute, StringPick,
             DriveType, Drive, DriveTone, FxMix, FxOutput, AmpBass, AmpMid, AmpTreble, Cabinet,
             PreHighpass, CabinetHighpass, CabinetLowpass,
-            StringArticulation, PickAttack, PickDecay, StringResonance, PickPitch, PickVariation, PickDirection
+            StringArticulation, PickAttack, PickDecay, StringResonance, PickPitch, PickVariation, PickDirection,
+            ParallelMix, ParallelClean, ParallelDirty, ParallelNoise, ParallelDrive, ParallelShape,
+            ParallelComb, ParallelDelay, ParallelFeedback, ParallelRate, ParallelDepth, ParallelLift
         };
         struct Command
         {

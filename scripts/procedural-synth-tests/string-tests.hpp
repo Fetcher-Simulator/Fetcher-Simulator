@@ -74,7 +74,7 @@ void stringTests()
     check(studioRender(*a,24000,480)==studioRender(*b,24000,137),"per-note expression is block invariant");
     check(a->trackVoices(1)==1 && a->strikes()==2,"new dead-note articulation does not choke an already-held open note");
     check(!a->loadScore(scoreNote(0,1,1,191,128),48000,false),"articulation cannot use a continuous ramp");
-    check(!a->loadScore(scoreNote(0,1,1,198,0),48000,false),"unknown string control is rejected");
+    check(!a->loadScore(scoreNote(0,1,1,210,0),48000,false),"unknown string control is rejected");
     {
         auto plain=std::make_unique<NativeStudio>(),zero=std::make_unique<NativeStudio>();setupStudio(*plain);setupStudio(*zero);
         plain->loadScore(scoreNote(0,24000,1,60),24001,false);

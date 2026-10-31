@@ -85,11 +85,15 @@ function E:slider(name,title,x,y,width)
     if times[name] then spec.unit='s';spec.log=true;spec.step=0.001
     elseif hz[name] then spec.unit='Hz';spec.log=true;spec.step=1
     elseif name:find('Level') or name:find('volume') or name=='sustain' or name=='filterSustain' or name=='fxMix' or name=='stringDamping' or name=='stringMute' or name=='stringPick' then spec.unit='%';spec.step=0.01
+    elseif name=='parallelDrive' or name=='parallelLift' then spec.unit='dB';spec.step=.5
+    elseif name=='parallelDelay' then spec.unit='ms';spec.step=.1
+    elseif name=='parallelRate' then spec.unit='Hz';spec.step=.1
+    elseif name:find('^parallel') and not base.discrete then spec.step=.01
     elseif name=='drive' or name:find('^amp[BMT]') then spec.unit='dB';spec.step=0.5
     elseif name:find('tune') or name:find('fine') or name:find('Amount') then spec.step=1 end
     local labels={wave1=waves,wave2=waves,enabled2={'Off','On'},lfoTarget={'Pitch','Filter','Amplitude'},drumType={'Synth','Kick','Snare','Closed hat','Open hat'},
         instrumentType={'Oscillators','Plucked string'},driveType={'Off','Overdrive','Distortion','Fuzz'},cabinet={'Off','Small speaker','Open speaker','Dark stack','IR V30 / SM57','IR DV77 / SM57','IR Rockdriver / e606'},
-        stringArticulation={'Patch','Open','Palm mute','Dead / choked'},pickDirection={'Down','Up','Alternate'}}
+        stringArticulation={'Patch','Open','Palm mute','Dead / choked'},pickDirection={'Down','Up','Alternate'},parallelShape={'Soft clip','Hard clip','Wavefold','Rectify'}}
     local caption=labels[name] and function() return title..' / '..(labels[name][self.params[name]+1] or '') end or title
     local element,refresh=Controls.slider(self,name,caption,spec,function() return self.params[name] end,function(value)
         self.params[name]=value;self.cb.change(name,value)
@@ -225,23 +229,24 @@ function E:render()
     content[#content+1]=self:button('<',20,107,28,function() cycle(-1) end)
     content[#content+1]=self:button('>',390,107,28,function() cycle(1) end)
     content[#content+1]=self:button('Load',428,107,65,function() cb.command('load',{presetId=self.selected}) end)
-    content[#content+1]=self:button(params.sample and 'Synth' or self.drums and 'Synth' or 'Drum',515,107,60,function()
+    content[#content+1]=self:button(params.sample and 'Synth' or self.drums and 'Synth' or 'Drum',515,107,50,function()
         if self.params.sample then cb.command('load',{presetId='b:studio-keys'});return end
         self.params.instrumentType=0;cb.change('instrumentType',0)
         self.params.drumType=self.drums and 0 or 2;cb.change('drumType',self.params.drumType);self.page='sound';self:render()
     end)
-    content[#content+1]=self:button(params.instrumentType==1 and 'Synth' or 'Guitar',580,107,65,function()
+    content[#content+1]=self:button(params.instrumentType==1 and 'Synth' or 'Guitar',570,107,60,function()
         if self.params.sample then cb.command('load',{presetId='b:guitar-clean'});return end
         self.params.drumType=0;cb.change('drumType',0);self.params.instrumentType=1-self.params.instrumentType;cb.change('instrumentType',self.params.instrumentType)
         self.page='sound';self:render()
     end)
     if not self.drums and (not params.sample or schema.sampledStrings[params.sample.path]) then
-        content[#content+1]=self:button(self.page=='strings' and 'Sound' or 'Strings',650,107,75,function() self.page=self.page=='strings' and 'sound' or 'strings';self:render() end)
+        content[#content+1]=self:button(self.page=='strings' and 'Sound' or 'Strings',635,107,65,function() self.page=self.page=='strings' and 'sound' or 'strings';self:render() end)
     end
-    content[#content+1]=self:button(self.page=='effects' and 'Sound' or 'Effects',730,107,80,function() self.page=self.page=='effects' and 'sound' or 'effects';self:render() end)
-    content[#content+1]=self:button(self.page=='presets' and 'Sound' or 'Browse',815,107,85,function() self.page=self.page=='presets' and 'sound' or 'presets';self:render() end)
+    content[#content+1]=self:button(self.page=='effects' and 'Sound' or 'Effects',705,107,65,function() self.page=self.page=='effects' and 'sound' or 'effects';self:render() end)
+    content[#content+1]=self:button(self.page=='parallel' and 'Sound' or 'Parallel',775,107,65,function() self.page=self.page=='parallel' and 'sound' or 'parallel';self:render() end)
+    content[#content+1]=self:button(self.page=='presets' and 'Sound' or 'Browse',845,107,65,function() self.page=self.page=='presets' and 'sound' or 'presets';self:render() end)
     local col=(w-56)/3
-    local titles=self.page=='strings' and {'ARTICULATION','PICK / ATTACK','STRING / BODY'} or self.page=='effects' and {'DRIVE','AMP TONE','SPEAKER / OUTPUT'} or
+    local titles=self.page=='parallel' and {'PARALLEL LAYERS','WAVESHAPER / COMB','MODULATION / DYNAMICS'} or self.page=='strings' and {'ARTICULATION','PICK / ATTACK','STRING / BODY'} or self.page=='effects' and {'DRIVE','AMP TONE','SPEAKER / OUTPUT'} or
         (self.drums and {'DRUM BODY','SNARES / NOISE','OUTPUT'} or {params.sample and 'RECORDED SOURCE' or self.params.instrumentType==1 and 'PLUCKED STRING' or 'OSCILLATORS','FILTER + ENVELOPES','MODULATION + OUTPUT'})
     if self.page~='presets' then for n,title in ipairs(titles) do
         local x=20+(n-1)*(col+8)
@@ -251,6 +256,15 @@ function E:render()
     local x1,x2,x3=30,38+col,46+col*2
     local function slider(name,title,x,y,width) content[#content+1]=self:slider(name,title,x,y,width) end
     if self.page=='presets' then self:browser(content)
+    elseif self.page=='parallel' then
+        for n,item in ipairs({{'parallelMix','Parallel blend'},{'parallelClean','Clean layer'},{'parallelDirty','Dirty layer'},{'parallelNoise','Following noise'}}) do slider(item[1],item[2],x1,185+(n-1)*55,col-20) end
+        for n,item in ipairs({{'parallelShape','Dirty shape'},{'parallelDrive','Dirty drive'},{'parallelComb','Comb amount'},{'parallelDelay','Comb delay'},{'parallelFeedback','Comb feedback'}}) do slider(item[1],item[2],x2,185+(n-1)*55,col-20) end
+        for n,item in ipairs({{'parallelRate','Comb rate'},{'parallelDepth','Comb depth'},{'parallelLift','Quiet-signal lift'},{'fxOutput','Effects output'}}) do slider(item[1],item[2],x3,185+(n-1)*55,col-20) end
+        content[#content+1]=label('0 blend keeps the normal amp path.',x1,435,col-20,11,colors.muted)
+        content[#content+1]=label('Noise follows the source envelope.',x1,460,col-20,11,colors.muted)
+        content[#content+1]=label('Shared cabinet: Effects > Speaker',x3,435,col-20,11,colors.muted)
+        content[#content+1]=label('Lift: up to 18 dB below -30 dB.',x3,460,col-20,11,colors.muted)
+        content[#content+1]=label('Experimental mono layers; no external plugins.',x1,492,col*2-20,11,colors.accent)
     elseif self.page=='strings' then
         for n,item in ipairs({{'stringArticulation','New-note articulation'},{'stringMute','Patch / palm mute amount'},{'stringDecay','String / muted decay'},{'stringDamping','String damping'}}) do slider(item[1],item[2],x1,185+(n-1)*55,col-20) end
         for n,item in ipairs({{'pickAttack','Pick attack'},{'pickDecay','Pick decay (seconds)'},{'pickPitch','Pick pitch (semitones)'},{'pickDirection','Pick direction'},{'pickVariation','Modeled pick variation'}}) do slider(item[1],item[2],x2,185+(n-1)*55,col-20) end

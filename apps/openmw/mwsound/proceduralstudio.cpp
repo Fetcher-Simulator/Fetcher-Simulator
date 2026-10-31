@@ -320,7 +320,7 @@ namespace MWSound
                 {
                     track->syncSample();
                     for (auto parameter : {std::size_t(25), std::size_t(28), std::size_t(41)}) track->mCurrent[parameter] = track->mTarget[parameter];
-                    for(unsigned i=ProceduralSynth::StringArticulation;i<ProceduralSynth::ParameterCount;++i)
+                    for(unsigned i=ProceduralSynth::StringArticulation;i<=ProceduralSynth::PickDirection;++i)
                         if(i!=ProceduralSynth::StringResonance && !track->mAutomated[i] && !track->mProgrammed[i])track->mCurrent[i]=track->mTarget[i];
                 }
             }

@@ -89,6 +89,7 @@ void writePreview(const std::string& path)
 #include "sample-tests.hpp"
 #include "instrument-tests.hpp"
 #include "string-tests.hpp"
+#include "parallel-tests.hpp"
 
 void testMidiQueue()
 {
@@ -119,6 +120,7 @@ int main(int argc, char** argv)
         sampleTests();
         instrumentTests();
         stringTests();
+        parallelTests();
         Synth silentRelease;
         silentRelease.set("attack",0.002f);silentRelease.set("decay",0.002f);silentRelease.set("sustain",1);
         silentRelease.noteOn(38,1);render(silentRelease,2400);

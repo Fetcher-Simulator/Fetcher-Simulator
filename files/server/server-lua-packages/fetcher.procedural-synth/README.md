@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 55 / native synth API 23 / multiplayer protocol 27.
+Current source: package 56 / native synth API 24 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,49 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Experimental parallel processing (package 56 / native API 24)
+
+Open **Mixer → a track's Sound → Parallel**, or **Parallel** on the standalone
+Synth page. **Browse → Experimental / Industrial** contains **Industrial Parallel
+Chug**, **Industrial Parallel Saw**, and **Industrial Parallel Bass**. These are
+opt-in starting points; ordinary Rock/Metal/Thrash sets are unchanged.
+
+Flow: source → pre-drive cut / amp EQ → two paths (normal amp drive, and parallel
+clean + dirty + following noise) → blend paths → shared DC removal / drive tone /
+cabinet → post-cab cuts → effects output → channel/mixer/room processing. The
+parallel path has its own Dirty drive. Clean means undistorted before the shared
+cabinet/tone, not a cabinet bypass.
+
+- **Parallel blend:** zero retains the exact previous path; one selects the new
+  branch. **Clean layer**, **Dirty layer**, and **Following noise** sum with weights
+  normalized when their sum exceeds one. Zero all three to silence the branch.
+  Noise follows source amplitude and cannot start by itself.
+- **Dirty shape / drive:** soft clipping, hard clipping, wavefolding and full-wave
+  rectification at 4× sample rate with filtered resampling. Downstream DC removal
+  handles rectification. Oversampling reduces aliasing; extreme folding can still
+  alias. This is not a new guitar recording or a recreation of an album tone.
+- **Comb amount / delay / feedback:** a damped mono fractional-delay comb with
+  0.5–20 ms delay and feedback bounded to ±0.85. **Comb rate / depth** modulate the
+  delay. Feedback normalization limits buildup. This colors sound; it does not
+  replace room reflections or provide stereo widening.
+- **Quiet-signal lift:** up to 18 dB of upward compression below a fixed −30 dB
+  nominal input level (the synth's 0.18 pre-volume calibration), with gain
+  smoothing and a near-silence gate. Channel compression remains under
+  **Mixer → Mix**. Multiband dynamics are not part of this insert.
+
+The controls work on generated and sampled sources. Comb/release tails briefly
+continue after note-off. Disabling the branch fades it out and clears histories.
+Histories belong to each instrument, including routed NPC/player outputs; buffers
+are allocated once on the control thread and reused. Both paths have matching
+16-frame resampling latency before the cabinet.
+
+All twelve controls save with sounds/projects and are available under **Auto**.
+Shape is stepped: 0 Soft, 1 Hard, 2 Fold, 3 Rectify; other controls interpolate.
+Wire slots 198–209 preserve existing MIDI/string IDs. Old projects receive blend=0.
+Custom curves stay in Studio projects, not standard GM events in exported MIDI.
+No new content download or external plugin is required. Full-band listening
+acceptance remains separate.
 
 ## Pick behavior and articulation (package 55 / native API 23)
 

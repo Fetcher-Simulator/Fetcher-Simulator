@@ -1,5 +1,40 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 30: experimental parallel insert (package 56 / native API 24)
+
+All 28 Lua suites, the native synth/Studio tests and the client build pass.
+UI checks cover all new fields and persistent slider drags on generated and
+recorded Parallel pages. Strict project validation preserves the parameters;
+continuous blend and discrete shape automation compile to slots 198 and 203,
+with lift at 209. Existing MIDI performance IDs remain unchanged.
+
+Native checks verify exact disabled-path PCM; matching clean-path FIR latency
+and polarity; four distinct nonlinear responses; more than 14 dB suppression
+of the tested folded fifth harmonic versus non-oversampled hard clipping;
+smoothed enable/disable boundaries; silence without a source; bounded maximum
+comb feedback/modulation/lift and drained tails; no old history on reenable;
+quiet-signal lift without boosting loud material; mono modulation; and exact
+480-vs-137-frame score rendering with blend ramps, shape changes and unchanged
+strikes. The existing 60–76s Master of Puppets full-band WAV is byte-identical
+to package 55 when parallel blend is off. No source MIDI is added to the repo.
+
+Eight instruments with eight voices, parallel processing, comb modulation,
+upward compression and captured cabinets take roughly 0.24–0.26 seconds per
+second of PCM here (informational, not an in-game FPS/latency guarantee).
+The comb history is allocated once per instrument on the control thread;
+render and reset reuse bounded storage. No additional assets or plugins are used.
+
+Original four-bar full-band renders are under `build/studio-parallel-auditions/`:
+Reference peak/RMS 0.26073/0.03619; Chug 0.23649/0.03667; Saw 0.23669/0.03598;
+Bass 0.17954/0.02763. Each schedules 184 strikes. Reference/Chug matched files
+retain reference level and apply 0.98682 gain to Chug. These are listening
+artifacts; no live visual/listening acceptance or album-tone match is claimed.
+
+The usual port-25567 fixture is installed with package 56/API 24. Installation
+verified 109 asset hashes and left 65 protected profile/settings/database files
+unchanged. One server listener is active and startup stderr is empty. The client
+remains closed. No public release, workflow or VPS deployment was started.
+
 ## October 30: source expression (package 55 / native API 23)
 
 All 28 Lua suites and the native synth/Studio suite pass. The client build

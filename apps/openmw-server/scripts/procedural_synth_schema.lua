@@ -27,6 +27,9 @@ p('ampBass',-12,12,0);p('ampMid',-12,12,0);p('ampTreble',-12,12,0);p('cabinet',0
 p('preHighpass',0,500,0);p('cabinetHighpass',0,500,0);p('cabinetLowpass',0,18000,0)
 p('stringArticulation',0,3,0,true);p('pickAttack',0,1,0);p('pickDecay',.001,.05,.006)
 p('stringResonance',0,1,0);p('pickPitch',-2,2,0);p('pickVariation',0,1,0);p('pickDirection',0,2,0,true)
+p('parallelMix',0,1,0);p('parallelClean',0,1,.35);p('parallelDirty',0,1,.75);p('parallelNoise',0,1,0)
+p('parallelDrive',0,48,18);p('parallelShape',0,3,0,true);p('parallelComb',0,1,0);p('parallelDelay',.5,20,3.5)
+p('parallelFeedback',-.85,.85,.35);p('parallelRate',0,12,.5);p('parallelDepth',0,1,0);p('parallelLift',0,18,0)
 function M.valid(name, value)
     local s = M.specs[name]
     return s and type(value) == 'number' and value == value and value >= s.min and value <= s.max
@@ -80,7 +83,7 @@ M.builtins = {
 -- Stable IDs and snapshots keep bank updates from changing saved projects.
 -- Tags are catalog metadata only; the parameter validator stays strictly numeric.
 M.banks={'All','Guitar','Rock / Metal','Blues / Funk / Jazz','House / Techno / Trance',
-    'Hip-hop / Trap / Lo-fi','DnB / Dubstep','Pop / Synthwave / Disco','Ambient / Cinematic','Chiptune','Orchestral / Cinematic','Acoustic / Classical','Drum Kit','Personal'}
+    'Hip-hop / Trap / Lo-fi','DnB / Dubstep','Pop / Synthwave / Disco','Ambient / Cinematic','Chiptune','Orchestral / Cinematic','Acoustic / Classical','Drum Kit','Experimental / Industrial','Personal'}
 local function add(id,name,role,bank,state)
     M.builtins[#M.builtins+1]={id='b:'..id,name=name,role=role,bank=bank,state=state}
 end
@@ -263,6 +266,23 @@ for _,preset in ipairs(M.builtins) do
         s.pickVariation=e[5];s.stringArticulation=e[6];s.pickDirection=preset.role=='Bass' and 0 or 2
     end
 end
+-- Opt-in experimental patches; no conventional band sound set selects these.
+add('doom-parallel-chug','Industrial Parallel Chug','Guitar','Experimental / Industrial',{
+    instrumentType=1,stringDecay=1.6,stringDamping=.25,stringMute=.65,stringArticulation=2,
+    attack=.002,sustain=1,release=.06,cutoff=14000,pickAttack=.22,pickVariation=.3,
+    cabinet=5,preHighpass=100,cabinetHighpass=75,cabinetLowpass=8500,fxOutput=.8,volume=.55,polyphony=8,
+    parallelMix=1,parallelClean=.35,parallelDirty=.8,parallelNoise=.1,parallelDrive=32,parallelShape=2,
+    parallelComb=.35,parallelDelay=3.1,parallelFeedback=.25,parallelRate=.7,parallelDepth=.12,parallelLift=6})
+add('doom-parallel-saw','Industrial Parallel Saw','Synth','Experimental / Industrial',{
+    wave1=2,enabled2=1,wave2=0,tune2=-12,volume2=.25,attack=.003,decay=.22,sustain=.65,release=.08,
+    cutoff=7000,cabinet=4,preHighpass=85,cabinetHighpass=70,cabinetLowpass=9000,fxOutput=.75,volume=.5,polyphony=8,
+    parallelMix=1,parallelClean=.3,parallelDirty=.8,parallelNoise=.16,parallelDrive=26,parallelShape=3,
+    parallelComb=.55,parallelDelay=4.2,parallelFeedback=-.35,parallelRate=1.3,parallelDepth=.2,parallelLift=8})
+add('doom-parallel-bass','Industrial Parallel Bass','Bass','Experimental / Industrial',{
+    wave1=2,tune1=-12,enabled2=1,wave2=0,tune2=-12,volume2=.5,attack=.003,decay=.25,sustain=.8,release=.1,
+    cutoff=3500,preHighpass=35,cabinetHighpass=30,cabinetLowpass=6500,fxOutput=.8,volume=.5,polyphony=8,
+    parallelMix=.85,parallelClean=.65,parallelDirty=.5,parallelNoise=.04,parallelDrive=22,parallelShape=1,
+    parallelComb=.18,parallelDelay=6,parallelFeedback=.2,parallelRate=.4,parallelDepth=.08,parallelLift=4})
 for _, preset in ipairs(M.builtins) do
     preset.state = assert(M.state(preset.state),'Invalid built-in: '..preset.id)
     preset.bank=preset.bank or 'General';preset.role=preset.role or (preset.state.drumType>0 and 'Drums' or 'Synth')

@@ -71,6 +71,18 @@ namespace MWSound
         { "pickPitch", -2, 2, 0 },
         { "pickVariation", 0, 1, 0 },
         { "pickDirection", 0, 2, 0, true },
+        { "parallelMix", 0, 1, 0 },
+        { "parallelClean", 0, 1, .35f },
+        { "parallelDirty", 0, 1, .75f },
+        { "parallelNoise", 0, 1, 0 },
+        { "parallelDrive", 0, 48, 18 },
+        { "parallelShape", 0, 3, 0, true },
+        { "parallelComb", 0, 1, 0 },
+        { "parallelDelay", .5f, 20, 3.5f },
+        { "parallelFeedback", -.85f, .85f, .35f },
+        { "parallelRate", 0, 12, .5f },
+        { "parallelDepth", 0, 1, 0 },
+        { "parallelLift", 0, 18, 0 },
     } };
 
     namespace
@@ -396,7 +408,7 @@ namespace MWSound
             if (mAutomated[i] || mProgrammed[i])
                 mCurrent[i] = static_cast<float>(mAutomated[i] ? mAutomation[i] : mProgram[i]);
         // Strike controls are latched per voice, including continuous pick curves.
-        for(unsigned i=StringArticulation;i<ParameterCount;++i)
+        for(unsigned i=StringArticulation;i<=PickDirection;++i)
             if(i!=StringResonance && (mAutomated[i] || mProgrammed[i]))mCurrent[i]=static_cast<float>(mAutomated[i]?mAutomation[i]:mProgram[i]);
     }
     void ProceduralSynth::render(float* output, std::size_t frames)
@@ -419,7 +431,7 @@ namespace MWSound
                 mCurrent[25] = target[25];
                 mCurrent[DrumType] = target[DrumType];
                 mCurrent[InstrumentType] = target[InstrumentType];
-                for(unsigned i=StringArticulation;i<ParameterCount;++i)
+                for(unsigned i=StringArticulation;i<=PickDirection;++i)
                     if(i!=StringResonance && !mAutomated[i] && !mProgrammed[i])mCurrent[i]=target[i];
                 if (mPanic.exchange(false))
                     for (auto& v : mVoices)
@@ -697,6 +709,11 @@ namespace MWSound
             fx.preHighpass=effective[PreHighpass]>0?mCurrent[PreHighpass]:0;
             fx.cabinetHighpass=effective[CabinetHighpass]>0?mCurrent[CabinetHighpass]:0;
             fx.cabinetLowpass=effective[CabinetLowpass]>0?mCurrent[CabinetLowpass]:0;
+            fx.parallel.mix=effective[ParallelMix]>0?mCurrent[ParallelMix]:0;
+            fx.parallel.clean=mCurrent[ParallelClean];fx.parallel.dirty=mCurrent[ParallelDirty];fx.parallel.noise=mCurrent[ParallelNoise];
+            fx.parallel.drive=mCurrent[ParallelDrive];fx.parallel.shape=int(effective[ParallelShape]);
+            fx.parallel.comb=mCurrent[ParallelComb];fx.parallel.delay=mCurrent[ParallelDelay];fx.parallel.feedback=mCurrent[ParallelFeedback];
+            fx.parallel.rate=mCurrent[ParallelRate];fx.parallel.depth=mCurrent[ParallelDepth];fx.parallel.lift=mCurrent[ParallelLift];
             // Preserve legacy multiplication order when the insert is bypassed.
             const double signal = mEffects.process(mixed, fx);
             output[frame] = static_cast<float>(std::tanh(signal * mCurrent[23] * mCurrent[24] * 0.18 * mPerformance[2] * mPerformance[3]));

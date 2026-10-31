@@ -6,6 +6,7 @@
 #include <cmath>
 #include "proceduraldsp.hpp"
 #include "cabinetconvolver.hpp"
+#include "proceduralparallel.hpp"
 
 namespace MWSound
 {
@@ -20,6 +21,7 @@ namespace MWSound
             double drive = 0, tone = 12000, mix = 1, output = 1;
             double bass = 0, mid = 0, treble = 0;
             double preHighpass = 0, cabinetHighpass = 0, cabinetLowpass = 0;
+            ProceduralParallel::Settings parallel;
         };
         ProceduralSynthEffects()
         {
@@ -42,7 +44,7 @@ namespace MWSound
         {
             const bool active = p.mode != 0 || p.cabinet != 0 || std::abs(p.bass) + std::abs(p.mid)
                 + std::abs(p.treble) > 0.00001 || std::abs(p.output - 1) > 0.00001
-                || p.preHighpass>0 || p.cabinetHighpass>0 || p.cabinetLowpass>0;
+                || p.preHighpass>0 || p.cabinetHighpass>0 || p.cabinetLowpass>0 || p.parallel.mix>0 || mParallel.active();
             mBlend = ProceduralDsp::smooth(mBlend, active && p.mix > 0.000001 ? 1.0 : 0.0, 0.004);
             if (mBlend < 0.000001)
             {
@@ -53,6 +55,7 @@ namespace MWSound
                     mIrDry.fill(0);mIrDryAt=0;
                     mPreLow=mPostLow=mPostHigh=0;if(mIrActive){mConvolver.clear();mIrActive=false;}
                     mPreBlend=mPostHighBlend=mPostLowBlend=0;
+                    mParallel.clear();
                     mWasActive = false;
                 }
                 return input; // Legacy patches retain the exact old signal path.
@@ -81,7 +84,8 @@ namespace MWSound
             const double pre=input-mPreLow*mPreBlend;
             mBass = zap(mBass + 0.032195 * (pre - mBass)); // 250 Hz
             mUpper = zap(mUpper + 0.279043 * (pre - mUpper)); // 2500 Hz
-            mUp[mUpPosition] = mBass * mEq[0] + (mUpper - mBass) * mEq[1] + (pre - mUpper) * mEq[2];
+            const double shapedInput=mBass*mEq[0]+(mUpper-mBass)*mEq[1]+(pre-mUpper)*mEq[2];
+            mUp[mUpPosition] = shapedInput;
             double wet = 0;
             for (std::size_t phase = 0; phase < 4; ++phase)
             {
@@ -101,6 +105,7 @@ namespace MWSound
                 mDownPosition = (mDownPosition + 1) % mDown.size();
             }
             mUpPosition = (mUpPosition + 1) % mUp.size();
+            wet=mParallel.process(shapedInput,wet,p.parallel,mFir);
             // Block fuzz DC and remove inaudible rumble before speaker coloration.
             const double dc = wet - mDcIn + 0.99738543 * mDcOut; // 20 Hz
             mDcIn = wet; mDcOut = zap(dc);
@@ -152,6 +157,7 @@ namespace MWSound
         double mBlend = 0, mBass = 0, mUpper = 0, mTone = 0, mDcIn = 0, mDcOut = 0;
         double mGain = 1, mCompensation = 1, mToneCoefficient = 1;
         CabinetConvolver mConvolver;
+        ProceduralParallel mParallel;
         std::array<double,65> mIrDry{};unsigned mIrDryAt=0,mLastIr=0;bool mIrActive=false;
         double mPreLow=0,mPostLow=0,mPostHigh=0,mPreCoefficient=0,mPostHighCoefficient=0,mPostLowCoefficient=0;
         double mPreBlend=0,mPostHighBlend=0,mPostLowBlend=0;

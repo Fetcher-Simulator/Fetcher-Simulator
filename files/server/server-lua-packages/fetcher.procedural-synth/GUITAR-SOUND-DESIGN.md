@@ -7,7 +7,7 @@ below alongside the remaining plan. Listening acceptance remains separate.
 Package 54 follow-up: the first native cabinet/mix-context slice is implemented
 and covered by DSP, UI and routed-output tests. It supplies three CC0 captures,
 pre-drive/post-cab cuts, existing post-cab channel EQ and local focus/dim. The
-string/articulation and experimental branches below remain planned. Full-band
+string/articulation and experimental delivery notes follow below. Full-band
 listening acceptance remains distinct from the automated measurements.
 
 Package 55 begins the playable-string branch: per-strike articulation, pick
@@ -15,7 +15,14 @@ attack/variation/direction/pitch settling and live harmonic-resonance amount
 are implemented for generated sources and gated banks. The Strings page and
 Auto parameter selector expose them. String-aware strums, connected legato and
 slides, external MIDI articulation mappings and new captured gestures remain
-planned. The experimental parallel-processing branch has not been implemented.
+planned.
+
+Package 56 implements the experimental branch as a native per-instrument insert:
+parallel clean, independently waveshaped dirty and envelope-following noise;
+oversampled soft/hard clipping, folding and rectification; mono modulated comb;
+and bounded upward compression. Shared cabinet/tone/post-cab cuts follow the
+blend. Three opt-in Industrial presets leave normal Rock/Metal sets alone.
+Arbitrary FX graph routing and multiband dynamics remain future work.
 
 ## What the references contribute
 
@@ -39,18 +46,14 @@ planned. The experimental parallel-processing branch has not been implemented.
 
 ## Current engine gaps
 
-The native engine already has plucked-string synthesis, recorded DI banks,
-modeled damping, oversampled drive, amp-style EQ and channel compression. The
-cabinet stage in `proceduralsyntheffects.hpp` is four low-pass poles with three
-bandwidth choices. It does not reproduce a captured cabinet/microphone response.
-Its fixed chain and the current note controls also limit evolving excitation,
-effect ordering, parallel processing and explicit guitar articulations.
-
-Package 53's density fix, drum gain staging and different guitar voicings are
-useful foundations. RMS/peak checks establish balance and headroom; they do not
-establish convincing tone. New samples alone would still feed the same limited
-cabinet path. Conversely, a stronger generated source and processing chain can
-make useful guitar-like patches without requiring a recording for every gesture.
+The native engine now has plucked strings, recorded DI banks, modeled pick and
+articulation controls, oversampled nonlinear processing, captured cabinets,
+amp/channel EQ, compression and the opt-in parallel insert. Simple speaker
+filters remain for legacy patches. The next gaps are connected/string-aware
+performance, more captured gestures where useful, and full-band listening work.
+A bounded mono comb does not replace room reflections or provide an arbitrary
+FX-routing graph. Peak/RMS and compatibility checks establish headroom and
+unchanged old paths; they do not establish convincing album tone.
 
 ## Delivery order
 

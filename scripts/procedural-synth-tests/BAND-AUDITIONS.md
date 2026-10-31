@@ -1,5 +1,22 @@
 # Band sound foundation auditions
 
+## Original parallel-processing exercise (package 56)
+
+```powershell
+New-Item -ItemType Directory -Force build/studio-parallel-auditions | Out-Null
+lua scripts/procedural-synth-tests/export-parallel-auditions.lua build/studio-parallel-auditions
+cmake --build build/synth-core-tests --config Release --target score-audition
+foreach ($mode in @('reference','chug','saw','bass')) {
+    & build/synth-core-tests/Release/score-audition.exe "build/studio-parallel-auditions/$mode.bin" "build/studio-parallel-auditions/$mode.tsv" files/server/optional-assets/fetcher.studio-samples "build/studio-parallel-auditions/$mode.wav" 0 9 all
+}
+```
+
+The original four-bar riff includes drums/bass. Reference disables only the
+Chug preset's parallel blend; Chug enables it. Saw replaces the guitar source;
+Bass keeps Chug and replaces the bass. All schedule the same 184 strikes.
+Compare Reference/Chug at matched levels. Optional guitar/drums stems isolate
+changes. No imported song, sample bank or external plugin is required.
+
 ## String expression exercises (package 55)
 
 ```powershell

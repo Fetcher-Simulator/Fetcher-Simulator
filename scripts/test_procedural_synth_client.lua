@@ -281,6 +281,9 @@ for name in pairs(e.controls) do seen[name]=true end
 e.page='strings';e:render()
 check(e.controls.stringArticulation and e.controls.pickAttack and e.controls.stringResonance and e.controls.pickDirection,'dedicated Strings page exposes note expression controls')
 for name in pairs(e.controls) do seen[name]=true end
+e.page='parallel';e:render()
+check(e.controls.parallelMix and e.controls.parallelShape and e.controls.parallelLift,'Parallel page exposes layers, shaper and lift')
+for name in pairs(e.controls) do seen[name]=true end
 for name in pairs(schema.specs) do check(seen[name],'parameter has an editable field: '..name) end
 e.page='sound';e.params.instrumentType=0;e.params.drumType=0;e:render();e:frame(200.2)
 -- Native Window events and scaled hit testing exercise the actual editor tree.
@@ -651,7 +654,7 @@ api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrum
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
 -- Reproduce loaded-song reuse from the actual Studio callbacks, including Band.
-package.loaded['openmw.synth'].version=23
+package.loaded['openmw.synth'].version=24
 local paths={'midi/a.mid','midi/b.mid'};local files={}
 local function midiBytes(pitch,count)
     local events={};for n=1,count or 1 do events[#events+1]=string.char(0,144,pitch,100,96,128,pitch,0) end
@@ -1240,7 +1243,7 @@ local function testContinuousSliders()
     local bank;for _,p in ipairs(schema.builtins) do if p.id=='b:sampled-electric-clean' then bank=p end end
     for _,variant in ipairs{{state={},page='sound'},{state={instrumentType=1},page='sound'},
         {state={drumType=2},page='sound'},{state={},page='effects'},{state=bank.state,page='sound'},
-        {state={instrumentType=1},page='strings'},{state=bank.state,page='strings'}} do
+        {state={instrumentType=1},page='strings'},{state=bank.state,page='strings'},{state={},page='parallel'},{state=bank.state,page='parallel'}} do
         local editor=Editor.new(schema.state(variant.state),{change=function() end,command=function() end,noteOff=function() end,meter=function() return 0,0 end})
         editor.page=variant.page;editor:render();local rootWidget=editor.root
         local sliders={};for _,child in ipairs(editor.children) do local content=child.layout.content;if content and content[2] and content[2].events and content[2].events.mouseMove and content[3] and content[3].layout then sliders[#sliders+1]=child end end
