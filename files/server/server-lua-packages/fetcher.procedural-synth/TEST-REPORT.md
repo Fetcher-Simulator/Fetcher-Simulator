@@ -1,5 +1,22 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 31: recorded clip versus shared range (package 59 / API 25)
+
+A regression reproduces a captured four-bar piano recording with four saved
+notes, a one-bar shared loop, and only its first long gate compiled for playback.
+The new Fit clips action expands it to four bars and all four note events,
+without changing the saved note bytes/gates or placements. It commits one stopped
+range change with exact Undo/Redo; an already fitting range creates no history.
+Playback warns about authored material beyond a shorter shared range. Source
+audition still plays all four notes independently of that shared range.
+
+Tests cover later saved drum steps, no extension for drum one-shot tails, empty
+material, over-16-bar rejection without mutation, and active/failed-take protection.
+UI regressions click Piano's Fit action, verify the Clips N header, distinguish
+Play source, and retain the existing slider/fullscreen tests. All 30 Lua suites
+pass. Native code/API and audio executable are unchanged by this slice; no live
+session is interrupted by the automated tests.
+
 ## October 31: connected mono legato/slides (package 58 / native API 25)
 
 All 29 Lua suites and the native synth/Studio suite pass; the client build passes.

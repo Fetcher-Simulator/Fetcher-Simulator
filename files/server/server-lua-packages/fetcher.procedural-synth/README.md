@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 58 / native synth API 25 / multiplayer protocol 27.
+Current source: package 59 / native synth API 25 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,33 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Shared clip-loop range and Fit clips (package 59)
+
+**Play clips** uses one shared pattern range for piano, edited MIDI, placed clips
+and drum lanes. The header's **Clips N** selector controls that range; the Drums
+page uses the same setting. A captured recording can be longer than this range:
+the notes stay saved, but only its beginning plays until the loop is expanded.
+A long first gate can then sound continuously as that short range repeats.
+
+On **Piano**, click **Fit clips**, or choose **Fit clips** from the header's
+**Clips N** dropdown. It fits the shared range to all authored/converted notes,
+placed clip ends and later saved drum steps, rounded to the next pattern bar.
+The limit remains 16 four-quarter pattern bars. Over-limit arrangements get a
+**Play song** suggestion instead of being clamped. Unedited imported MIDIs and
+unplaced clip-library entries are not included in fitting.
+
+Fit stops current playback when the range changes; press Play clips again.
+The range change is one Undo step and never trims the original notes, gates,
+placements or hidden later drum data. Active/failed recording takes are protected.
+If a manually shortened range excludes authored material, playback now reports
+that explicitly and points to Fit clips or Play song.
+
+**Play song** follows the full arrangement and song timing map. While editing a
+reusable clip source, the playback button says **Play source** and uses that
+source's own length independently of the shared pattern range. Song length and
+saved clip-source lengths are not changed by Fit clips. Native API stays 25;
+this Lua/UI update needs a package reload, not a new client executable.
 
 ## Connected mono slides and legato (package 58 / native API 25)
 

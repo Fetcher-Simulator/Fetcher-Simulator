@@ -11,6 +11,13 @@ not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
 
+Package 59 clarifies the shared Play clips loop range, adds an explicit Piano /
+header Fit clips action, and warns when a shorter range crops authored material.
+Recorded clip notes are preserved; fitting changes only the bounded pattern
+range in one Undo, with source audition/song playback kept independent. The
+first-held-note reproduction and full-range recovery are covered by regressions.
+Native API remains 25. This is a workflow fix, not a change to the priority order.
+
 Package 58 / native API 25 adds opt-in last-note-priority mono legato and picked
 slides, shared by generated melodic sources and gated banks. Overlapping gates
 connect with finite semitone-space slides; legato preserves the source/envelopes
@@ -509,7 +516,7 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 58 / native synth API 25 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
+package 59 / native synth API 25 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented, together with initial seated keyboard/cello NPC staging.
 

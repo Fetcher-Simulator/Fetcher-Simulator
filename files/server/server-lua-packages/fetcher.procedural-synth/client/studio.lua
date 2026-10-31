@@ -540,7 +540,7 @@ function S:piano(content)
     self.roll=PianoRoll.new(self,content)
     local roll=self.roll;local footer=self.height-137
     content[#content+1]=self:button('Guitar / bass tools',320,tools,140,function() self:releaseAll();w:openGuitarTools() end)
-    content[#content+1]=label(string.format('%.2g qtrs',roll.steps/4),470,tools+5,90,12,c.muted)
+    content[#content+1]=self:button('Fit clips',470,tools,90,function() w:fitClipLoop() end)
     for row=0,roll.rows-1 do content[#content+1]=label(pitch(roll.base+roll.rows-1-row),20,roll.y+row*roll.rh+3,52,12,c.muted) end
     self.playhead=self:element(rect(76,roll.y-5,3,4,c.accent));content[#content+1]=self.playhead
     content[#content+1]=self:button('Oct -',20,footer,62,function() w.base=math.max(0,roll.base-12);w.revision=w.revision+1 end)
@@ -667,7 +667,7 @@ function S:drums(content)
     content[#content+1]=self:button('Duplicate to next bar',505,169,190,function() w:duplicateDrumBar() end)
     content[#content+1]=self:button('Clear bar',710,169,80,function() w:clearDrumBar() end)
     content[#content+1]=self:button('Delete bar',800,169,90,function() w:deletePatternBar() end)
-    content[#content+1]=label('Bar edits support Undo.',20,204,280,11,c.muted)
+    content[#content+1]=label('Shared clip loop: piano + drums. Edits support Undo.',20,204,280,11,c.muted)
     local gx,gy,cw=304,225,(self.width-334)/16
     for step=0,15 do content[#content+1]=label(tostring(step+1),gx+step*cw+6,204,cw,11,c.muted) end
     for row=1,8 do
@@ -881,7 +881,7 @@ function S:render()
     if self.pianoFocus then
         content={label('PIANO EDITOR',20,13,200,21,c.accent)}
         content[#content+1]=self:button('Play song',230,12,96,self.cb.playSong)
-        content[#content+1]=self:button('Play clips',335,12,96,self.cb.playClips)
+        content[#content+1]=self:button(w:clipSource() and 'Play source' or 'Play clips',335,12,96,self.cb.playClips)
         content[#content+1]=self:button('Stop',440,12,58,self.cb.stop)
         self.transport=self:element(label('',515,18,self.width-755,12,c.accent));content[#content+1]=self.transport
         content[#content+1]=self:button('Undo',self.width-226,12,80,function() w:undo() end,#w.undoStack>0)
@@ -899,15 +899,16 @@ function S:render()
     content[#content+1]=self:button('Undo',self.width-226,41,80,function() w:undo() end,#w.undoStack>0)
     content[#content+1]=self:button('Redo',self.width-133,41,80,function() w:redo() end,#w.redoStack>0)
     content[#content+1]=self:button('Play song',20,70,96,function() self.cb.playSong() end)
-    content[#content+1]=self:button('Play clips',125,70,96,function() self.cb.playClips() end)
+    content[#content+1]=self:button(w:clipSource() and 'Play source' or 'Play clips',125,70,96,function() self.cb.playClips() end)
     content[#content+1]=self:button('Stop',230,70,58,self.cb.stop)
     local tempo=Controls.slider(self,'bpm','BPM',{min=40,max=240,step=1},function() return w.project.bpm end,function(value) w:setTempo(value) end,309,64,180)
     content[#content+1]=tempo
-    local swing=Controls.slider(self,'swing','Swing',{min=0,max=0.6,unit='%',step=0.01},function() return p.swing end,function(value) p.swing=value;w:touch('swing',true) end,504,64,113)
+    local swing=Controls.slider(self,'swing','Swing',{min=0,max=0.6,unit='%',step=0.01},function() return p.swing end,function(value) p.swing=value;w:touch('swing',true) end,504,64,99)
     content[#content+1]=swing
-    content[#content+1]=self:button(p.length/16 ..' bars v',self.width-310,70,70,function()
-        local choices={};for n=1,Project.maxSteps/16 do choices[#choices+1]={id=n*16,label=n..' pattern bars'} end
-        Dropdown.open(self,choices,p.length,function(value) w:length(value) end,self.width-310,102,250)
+    content[#content+1]=self:button('Clips '..p.length/16 ..' v',self.width-324,70,84,function()
+        local choices={{id='fit',label='Fit clips: recorded/placed material'}}
+        for n=1,Project.maxSteps/16 do choices[#choices+1]={id=n*16,label=n..' shared clip bars (piano + drums)'} end
+        Dropdown.open(self,choices,p.length,function(value) if value=='fit' then w:fitClipLoop() else w:length(value) end end,self.width-410,102,390)
     end)
     content[#content+1]=self:button('Clip loop',self.width-228,70,61,function() p.loop=not p.loop;w:touch() end,p.loop)
     content[#content+1]=self:button('Save',self.width-156,70,54,function() w:save() end)

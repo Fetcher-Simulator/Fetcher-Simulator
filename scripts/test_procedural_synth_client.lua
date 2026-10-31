@@ -1307,6 +1307,8 @@ local function testGuitarPage()
         end
     end
     local function click(text) local target=assert(find(view.root.layout.content,text),text);target.events.mouseClick();view:render() end
+    assert(uw:storeNotes(1,{{n=40,s=0,l=4,v=.8},{n=47,s=0,l=4,v=.8},{n=52,s=0,l=4,v=.8},{n=64,s=32,l=4,v=.8}}));view:render()
+    click('Fit clips');check(uw.project.length==48 and find(view.root.layout.content,'Clips 3 v'),'Piano fits later recorded material and labels the shared range in the header')
     click('Guitar / bass tools');check(uw.page=='guitar','Piano exposes the new string-performance tool')
     local before=uw.generation;click('Preview plan')
     check(uw.guitarPreview and uw.generation==before and find(view.root.layout.content,'Apply / one Undo'),'preview displays an explicit apply action without changing notes')
@@ -1325,6 +1327,8 @@ local function testGuitarPage()
     local oldViewport=viewport;viewport=vector(2560,1440);view.window.full=true;view.window:bounds();view:render()
     click('Guitar / bass tools');click('Preview plan')
     check(view.bodyOffset>0 and find(view.root.layout.content,'Back to Piano [Esc]'),'fullscreen tool body remains centered below clickable navigation')
+    uw:selectAllNotes(1);assert(uw:captureClip(1));assert(uw:editClip(1,1));view:render()
+    check(find(view.root.layout.content,'Play source')~=nil,'editing a reusable source labels its independent playback accurately')
     view:destroy();viewport=oldViewport
 end
 testGuitarPage()

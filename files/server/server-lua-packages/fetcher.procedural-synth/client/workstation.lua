@@ -517,6 +517,30 @@ function W:length(length)
     -- The loop length never truncates composition data in later bars.
     self.project.length=length;self.bar=math.min(self.bar,length/16-1);self:touch();return true
 end
+function W:clipLoopExtent()
+    local finish=0
+    for _,t in ipairs(self.project.tracks) do
+        if t.kind=='drum' then
+            local last=(t.steps or ''):match('^.*()[1-9]');if last then finish=math.max(finish,last) end
+        else
+            local notes=t.edited and format.decodeNotes(t.edited) or t.kind=='piano' and t.notes or {}
+            for _,n in ipairs(notes or {}) do finish=math.max(finish,n.s+n.l) end
+            for _,r in ipairs(t.arrangement and t.arrangement.regions or {}) do finish=math.max(finish,r.s+r.l) end
+        end
+    end
+    return finish
+end
+function W:fitClipLoop()
+    if self.recording or self.failedTake then self.cb.message('Keep or cancel the take before fitting the clip loop.');return false end
+    local finish=self:clipLoopExtent()
+    if finish<=0 then self.cb.message('No authored clip material to fit. Use Play song for an unedited MIDI.');return false end
+    local length=math.max(16,math.ceil((finish-1e-7)/16)*16)
+    if length>format.maxSteps then self.cb.message('This material exceeds the 16-bar clip loop. Use Play song for the full arrangement.');return false end
+    if length==self.project.length then self.cb.message('The shared clip loop already fits '..(length/16)..' bars.');return true end
+    self.lastEditKey=nil
+    if not self:length(length) then return false end
+    self.cb.message('Shared clip loop fitted to '..(length/16)..' bars, including piano and drums. Press Play clips to hear the full range.');return true
+end
 function W:toggleStep(index,step)
     local t=self.project.tracks[index]
     if not t or t.kind~='drum' or step<0 or step>=self.project.length then return false end
@@ -812,6 +836,9 @@ function W:play(mode)
         for _,t in ipairs(self.project.tracks) do if t.edited then self.cb.message('Edited MIDI requires native Studio playback.');return false end end
     end
     if self.project.autoBand and not equal(self.managedProject,self:stageDescription()) then return self:setupNpcBand(false,mode) end
+    if mode=='clips' and self:clipLoopExtent()>self.project.length+1e-7 then
+        self.cb.message('Play clips uses the shared '..(self.project.length/16)..'-bar loop; longer notes/placed clips are outside it. Use Fit clips or Play song.')
+    end
     self:configureAll();self.time=0;self.beat=0;self.step=-1;self.pending={};self.counts={};self.playing=true;self.mode=mode
     if self.cb.schedule then
         local Sequence=require(prefix..'shared.sequence')
