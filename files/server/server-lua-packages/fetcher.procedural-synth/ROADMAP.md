@@ -1,6 +1,6 @@
 # FETCHER STUDIO roadmap
 
-Updated 2026-10-30. Completed work and subsequent planned slices are identified below.
+Updated 2026-10-31. Completed work and subsequent planned slices are identified below.
 
 **Sound-design direction after reviewing the supplied video references:** the
 first native audio slice adds a proper guitar cabinet/microphone IR stage, with
@@ -10,6 +10,16 @@ both synthesized and sampled sources. More samples are one possible improvement,
 not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
+
+Package 57 adds an opt-in Piano guitar/bass fingering and strum authoring tool.
+Standard/drop/seven-string and bass tunings, bounded fret/span checks and
+down/up/alternate strokes produce an explicit string/fret/timing preview. Apply
+preserves pitches/velocities, writes staggered attacks and selected-string gate
+shortening as one Undo, and retains source-free/linked/exported note playback.
+Invalid or stale plans leave the document intact. Native API remains 24. This
+begins string-aware arrangement authoring; live per-string allocation, connected
+legato/hammer-ons/slides, dedicated recorded gestures and finger animation remain
+pending, alongside full-band listening and performance acceptance.
 
 Package 56 / native API 24 implements the opt-in experimental branch: parallel
 clean/dirty/following-noise layers, four oversampled waveshapers, a damped mono
@@ -381,7 +391,7 @@ credited sheet booklet into the Yamaha rests and separate stand, and supplies
 stands to non-keyboard NPCs. Native spawned-actor teleport support and positional
 readback repair lineup changes that previously left reused NPCs in old slots.
 
-## Remaining roadmap (next: guitars, electric bass and a full drum kit)
+## Remaining roadmap (next: connected string performance and band acceptance)
 
 1. **Guitars, electric bass, full drum kit and convincing genre playback.**
    Prioritize electric guitar and bass, nylon-string classical guitar,
@@ -398,14 +408,13 @@ readback repair lineup changes that previously left reused NPCs in old slots.
      voices cannot deliver convincing attacks, sustain and timbre. Acceptance
      requires audible improvement in timbre, dynamics and articulation. Record
      sources, redistribution licenses and credits for new sound libraries.
-   - **Next guitar signal chain:** add bounded native cabinet/microphone IR
-     convolution after drive, independently controlled pre-drive filtering and
-     post-cabinet EQ/output compensation. Retain current filter cabinets for old
-     patches. Tune in a drum/bass mix; add a local solo-in-front audition mode
-     that dims other parts without editing or broadcasting their saved faders.
-     Then improve pick transients, evolving string resonance, dynamic muting,
-     retrigger/choke and articulation controls on the existing generated-string
-     and DI paths. Do not make fidelity depend solely on collecting more samples.
+   - **Guitar chain and performance follow-through:** captured cabinet IRs,
+     pre/post cuts, local focus/dim, first-pass pick/resonance/articulation and
+     opt-in parallel processing are implemented. Package 57 also supplies an
+     explicit string-aware fingering/strum note tool. Next are live per-string
+     ownership, connected legato/hammer-ons/slides and articulation/controller
+     mapping, plus listening-based refinement with drums and bass present.
+     Do not make fidelity depend solely on collecting more samples.
    - **Guitar and bass articulation:** clean, crunch, fuzz, high-gain rhythm and
      lead guitar; tight palm-muted/choked notes, sustained chords, picking,
      bends/slides and usable low-register/drop-tuned phrases. Electric bass
@@ -481,15 +490,15 @@ this order. Long-session performance and compatibility checks apply throughout.
 
 Studio can create songs from scratch, import/edit MIDI, record quantized takes,
 and arrange linked melodic/drum clips. The native engine provides subtractive,
-drum and plucked-string synthesis, drive/cabinet processing, channel EQ and
-compression, shared delay/reverb and eighty-four built-in sound starting points.
+drum and plucked-string synthesis, captured cabinets and parallel processing,
+channel EQ/compression, shared delay/reverb, curated banks and recorded instruments.
 Personal patches, 16 named projects and three recovery snapshots save per character.
 
 Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 44 / native synth API 17 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
+package 57 / native synth API 24 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented, together with initial seated keyboard/cello NPC staging.
 

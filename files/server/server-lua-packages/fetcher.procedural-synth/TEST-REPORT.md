@@ -1,5 +1,38 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 31: string-aware fingering/strum authoring (package 57 / API 24)
+
+All 29 Lua suites pass. Dedicated tests cover open E-major fingering, standard /
+drop / seven-string / bass tunings, coarse Tune compensation without pitch edits,
+down/up/alternate timing, preserved velocities/endpoints, selected gate shortening,
+unselected-note protection, invalid/unison/oversized chords, short-note and next-
+attack boundaries, fractional tuning rejection, and a 4,096-note bounded plan
+(about 0.025 seconds here, informational). Preview leaves history/generation/
+project state unchanged; Apply updates notes in one Undo and marks native live
+replacement dirty. Stale options, edits and selection changes reject atomically.
+
+Tests exercise tempo-map crossing, source-free validation/reload, native score
+attack offsets, MIDI export/reimport, linked-source/placement preservation,
+read-only imports and failed takes. UI tests click Piano → tools → preview →
+apply, verify persistent spacing-slider widgets with preview invalidation,
+Escape return and centered fullscreen navigation. No live desktop test is claimed.
+
+Native score-audition renders an original four-bar progression before/after,
+with generated and recorded steel-string sources. Each retains 84 strikes across
+16 gestures; the plan delays 68 picks. Generated reference/strum peak/RMS are
+0.48236/0.05560 and 0.41705/0.05586; recorded reference/strum are 0.23651/0.03444
+and 0.19822/0.02894. Artifacts are under `build/studio-strum-auditions/`. This
+slice changes Lua authoring only; existing native API 24/audio code is unchanged.
+Fingering metadata is preview-only. Real per-string voices, connected slides/
+legato, live gesture input and detailed finger animation are not implemented here.
+
+The usual port-25567 fixture has package 57 installed. Its native executable
+remains byte-identical to the API-24 installation. All 65 protected user-state
+files were preserved and 109 asset hashes verified; one server listener is active
+with empty startup stderr. The client remains closed. No public build or VPS
+deployment was started. Matched-level WAVs and gain metadata accompany the raw
+auditions; these are not a claim of live listening acceptance.
+
 ## October 30: experimental parallel insert (package 56 / native API 24)
 
 All 28 Lua suites, the native synth/Studio tests and the client build pass.

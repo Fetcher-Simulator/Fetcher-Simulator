@@ -613,6 +613,58 @@ function W:selectedNotes(index)
     local ids={};if self.selectionTrack==index then for id in ipairs(self:noteData(index) or {}) do if self.noteSelection[id] then ids[#ids+1]=id end end end
     return ids
 end
+function W:openGuitarTools()
+    local t=self.project.tracks[self.selected]
+    if not t or t.kind=='drum' then self.cb.message('Choose a melodic part in Piano first.');return false end
+    if self.guitarToolIndex~=self.selected or not self.guitarOptions then
+        self.guitarOptions={profile=(t.instrument=='bass' or t.sourceRole=='bass') and 'bass' or 'guitar',spacing=8,direction=0,frets=24,span=5,scope='all'}
+    end
+    self.guitarToolIndex=self.selected;self.guitarPreview=nil;self.guitarStatus=nil;self.guitarPage=0
+    self.page='guitar';self.revision=self.revision+1;return true
+end
+function W:previewGuitar()
+    local Tools=require(prefix..'client.guitar-tools');local index=self.selected;local t=self.project.tracks[index]
+    self.guitarPreview=nil
+    local function fail(message) self.guitarStatus=message;self.revision=self.revision+1;return false end
+    if self.recording or self.failedTake then return fail('Keep or cancel the take before planning guitar notes.') end
+    if not self:canEditNotes(index) then return fail('Use Edit MIDI first, or choose an editable melodic part.') end
+    if t.followPrograms or t.automation and t.automation.tune1 and #t.automation.tune1>0 then return fail('Disable program following / Tune automation before planning a fixed tuning.') end
+    local clip=self:clipSource(index);local timeline=t.edited and not clip and self.project.timeline
+    local data=t.edited and (clip and clip.notes or t.edited)
+    local clock={quantum=data and 4/data.division or 1/960}
+    clock.seconds=function(step) return timeline and format.seconds(timeline,step/4) or step*15/self.project.bpm end
+    clock.shift=function(step,delay,finish)
+        local low,high=step,finish;local target=clock.seconds(step)+delay
+        for _=1,32 do local middle=(low+high)/2;if clock.seconds(middle)<target then low=middle else high=middle end end
+        return (low+high)/2
+    end
+    local notes=self:noteData(index);local selection={};local ids=self:selectedNotes(index)
+    for _,id in ipairs(ids) do selection[id]=true end
+    local result,error=Tools.plan(notes,self.guitarOptions,clock,selection,t.params.tune1)
+    if not result then return fail(error) end
+    result.index=index;result.source=clip;result.project=self.project;result.generation=self.generation
+    result.original=copy(notes);result.selection=ids;result.transpose=t.params.tune1
+    self.guitarPreview=result;self.guitarPage=0
+    self.guitarStatus=string.format('%d notes / %d gestures; %d delayed picks, %d shortened gates. Preview only.',result.selected,result.groups,result.shifted,result.choked)
+    self.revision=self.revision+1;return true
+end
+function W:applyGuitar()
+    local Tools=require(prefix..'client.guitar-tools');local p=self.guitarPreview;local options=Tools.options(self.guitarOptions)
+    local t=self.project.tracks[self.selected]
+    if not p or not options or p.key~=Tools.key(options) or p.generation~=self.generation or p.project~=self.project
+        or p.index~=self.selected or p.source~=self:clipSource(self.selected) or not t or p.transpose~=t.params.tune1
+        or not equal(p.original,self:noteData(self.selected)) or options.scope=='selected' and not equal(p.selection,self:selectedNotes(self.selected)) then
+        self.guitarPreview=nil;self.guitarStatus='Preview again: the source, selection or settings changed.';self.revision=self.revision+1;return false
+    end
+    if self.recording or self.failedTake then self.cb.message('Keep or cancel the take before applying guitar notes.');return false end
+    if equal(p.original,p.notes) then
+        self.guitarStatus='Fingering fits; no timing or gate changes needed.';self.guitarPreview=nil;self.revision=self.revision+1;return true
+    end
+    self.lastEditKey=nil
+    local before=self.generation
+    if not self:storeNotes(p.index,p.notes,'note:guitar:'..p.index) then return false end
+    self.guitarPreview=nil;self.guitarStatus=self.generation==before and 'Fingering fits; no timing or gate changes needed.' or 'Applied. Play to hear it; Undo restores the previous notes.';self.revision=self.revision+1;return true
+end
 function W:storeNotes(index,notes,key,quiet)
     if self.recording then self.cb.message('End or cancel the take before editing notes.');return false end
     local t=self.project.tracks[index];if not self:canEditNotes(index) then return false end

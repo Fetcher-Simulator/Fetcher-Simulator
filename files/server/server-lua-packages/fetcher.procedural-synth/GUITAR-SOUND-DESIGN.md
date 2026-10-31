@@ -24,6 +24,12 @@ and bounded upward compression. Shared cabinet/tone/post-cab cuts follow the
 blend. Three opt-in Industrial presets leave normal Rock/Metal sets alone.
 Arbitrary FX graph routing and multiband dynamics remain future work.
 
+Package 57 adds explicit string-aware fingering/strum authoring on Piano, with
+pitch-preserving previews, tuning/span constraints, down/up/alternate attacks,
+selected gate shortening and one-step Undo. These are ordinary saved note
+edits, not live per-string synthesis or connected slides/legato. Those remain
+within the playable-string branch alongside dedicated recorded gestures.
+
 ## What the references contribute
 
 - [CyberBlitz: How to DOOM Like Mick Gordon](https://www.youtube.com/watch?v=-9rTxQr1194):

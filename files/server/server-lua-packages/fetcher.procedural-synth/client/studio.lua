@@ -538,7 +538,8 @@ function S:piano(content)
     content[#content+1]=self:button(self.pianoFocus and 'Back to Piano [Esc]' or 'Expand editor',self.width-370,tools,165,function() self:setPianoFocus(not self.pianoFocus) end)
     self.roll=PianoRoll.new(self,content)
     local roll=self.roll;local footer=self.height-137
-    content[#content+1]=label(string.format('%.2g quarters in view',roll.steps/4),320,tools+5,180,12,c.muted)
+    content[#content+1]=self:button('Guitar / bass tools',320,tools,140,function() self:releaseAll();w:openGuitarTools() end)
+    content[#content+1]=label(string.format('%.2g qtrs',roll.steps/4),470,tools+5,90,12,c.muted)
     for row=0,roll.rows-1 do content[#content+1]=label(pitch(roll.base+roll.rows-1-row),20,roll.y+row*roll.rh+3,52,12,c.muted) end
     self.playhead=self:element(rect(76,roll.y-5,3,4,c.accent));content[#content+1]=self.playhead
     content[#content+1]=self:button('Oct -',20,footer,62,function() w.base=math.max(0,roll.base-12);w.revision=w.revision+1 end)
@@ -922,7 +923,7 @@ function S:render()
     content[#content+1]=self:button('Import',self.width-229,112,92,self.cb.import)
     content[#content+1]=self:button('Export MIDI',self.width-125,112,100,function() w:exportMidi() end)
     local body={};self.bodyOffset=(w.page=='piano' or w.page=='drums' or w.page=='auto' or w.page=='arrange') and 0 or math.max(0,(self.width-940)/2)
-    if w.page=='timing' then self:timing(body) elseif w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='recordsetup' then self:recordSetup(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
+    if w.page=='guitar' then require('scripts.multiplayer.fetcher.procedural-synth.client.guitar-page')(self,body) elseif w.page=='timing' then self:timing(body) elseif w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='recordsetup' then self:recordSetup(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
     -- Keep the header above centered page containers in native hit testing.
     if self.bodyOffset>0.1 then table.insert(content,1,{type=ui.TYPE.Widget,props={position=v(self.bodyOffset,0),size=v(940,self.height)},content=ui.content(body)})
     else for _,item in ipairs(body) do content[#content+1]=item end end
@@ -955,7 +956,7 @@ function S:key(code,on)
     if not on and self.recordKeys[code] then self:recordKey(self.recordKeys[code],false);self.recordKeys[code]=nil;return end
     if self.dropdown then if on and code==input.KEY.Escape then Dropdown.close(self);self.restoreInterfaceFrames=2 end;return end
     if on and code==input.KEY.Escape and self.pianoFocus then self:setPianoFocus(false);self.restoreInterfaceFrames=2;return end
-    if on and code==input.KEY.Escape then if self.w.page=='rename' and self.cancelRename then self.cancelRename();self.restoreInterfaceFrames=2 else self.cb.hide() end;return end
+    if on and code==input.KEY.Escape then if self.w.page=='guitar' then self.w.page='piano';self.w.revision=self.w.revision+1;self.restoreInterfaceFrames=2 elseif self.w.page=='rename' and self.cancelRename then self.cancelRename();self.restoreInterfaceFrames=2 else self.cb.hide() end;return end
     if not on or self.typing then return end
     local ctrl=input.isCtrlPressed and input.isCtrlPressed()
     if self.w.page=='recordsetup' and not ctrl and code==input.KEY.Space then if self.w.recorder then self.w.recorder:tap() end;return end

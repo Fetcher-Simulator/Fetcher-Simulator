@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 56 / native synth API 24 / multiplayer protocol 27.
+Current source: package 57 / native synth API 24 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,51 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Guitar/bass fingering and strum authoring (package 57)
+
+Open **Piano → Guitar / bass tools** on an editable melodic part or shared clip
+source. An imported unedited part needs **Edit MIDI first**. Choose a standard,
+Drop D, Drop C, seven-string, four-string bass or five-string bass tuning; set
+the allowed fret range/span, pick spacing and Down/Up/Alternate stroke direction.
+The planner preserves written pitches and velocities, accounting for the sound's
+static **Tune** offset when choosing strings/frets. It does not load a different
+sound, change the held instrument or infer missing chord notes/octaves.
+
+**Preview plan** displays the string/fret assignments and actual pick delays.
+String 1 is the highest string; tuning labels list open strings from low to high.
+Down runs low to high, Up reverses it, and Alternate flips once per edited
+gesture. Equal-onset notes form a gesture; naturally staggered imported notes are
+not automatically regrouped. Open strings do not count toward the fretted span.
+The bounded, deterministic search prefers low positions, smaller movement and
+free strings. It makes local choices; it is not an exhaustive whole-song solver.
+
+**Apply / one Undo** writes ordinary note starts/gates. Later picks keep their
+original note-off positions. Reusing a string can shorten its previous selected
+gate; the instrument's release envelope still applies. All pitches/velocities
+remain unchanged. All-notes scope edits the active source; Selected-notes scope
+protects every other note, while analyzing the whole source for context. Use a
+separate clip for a smaller phrase if other notes cannot fit the chosen tuning.
+Unplayable/oversized chords, duplicate simultaneous unisons, delays that erase a
+note or cross the next attack, and exhausted search budgets reject the complete
+plan instead of dropping notes. Reduce spacing/fret range, widen the span or split
+the source as appropriate. Empty selection never means All notes.
+
+Pick spacing is milliseconds per physical string at the source tempo. Full-song
+edits follow tempo changes; pattern/clip sources use project BPM, and linked
+placements then scale musically with their playback tempo. The source's existing
+tick resolution quantizes the actual delay shown in the preview. Settings/source/
+selection changes invalidate the plan. Recording and uncommitted failed takes are
+protected; disable program following or Tune automation before fixed-tuning
+analysis. Fractional coarse Tune offsets are unsupported by the fingering tool.
+
+Apply is one undoable note edit, supports normal native bar-boundary replacement,
+and survives project save/load, source-free playback, linked placements and MIDI
+export. Preview and tool options are transient; the resulting notes are saved.
+Escape returns to Piano. This is an explicit composition tool, not live hardware
+strum input, persistent per-string voice ownership, fret/finger animation, or
+connected legato/hammer-on/slide synthesis. Those remain later work. Native API
+24 is unchanged; no client rebuild or new assets are required for this Lua slice.
 
 ## Experimental parallel processing (package 56 / native API 24)
 

@@ -1,5 +1,23 @@
 # Band sound foundation auditions
 
+## Original string-performance exercise (package 57)
+
+```powershell
+New-Item -ItemType Directory -Force build/studio-strum-auditions | Out-Null
+lua scripts/procedural-synth-tests/export-strum-auditions.lua build/studio-strum-auditions
+foreach ($source in @('guitar-steel','sampled-guitar-steel')) {
+    foreach ($mode in @('reference','strum')) {
+        & build/synth-core-tests/Release/score-audition.exe "build/studio-strum-auditions/$source-$mode.bin" "build/studio-strum-auditions/$source-$mode.tsv" files/server/optional-assets/fetcher.studio-samples "build/studio-strum-auditions/$source-$mode.wav" 0 9 all
+    }
+}
+```
+
+The original E minor / G / A minor / D progression contains 84 notes. The tool
+delays 68 picks across 16 alternating gestures, preserving pitches, velocities
+and note-off positions. Recorded playback needs the credited steel bank already
+available in the optional sample assets. Compare each source before/after at
+matched level; this demonstrates authored timing, not connected articulation.
+
 ## Original parallel-processing exercise (package 56)
 
 ```powershell

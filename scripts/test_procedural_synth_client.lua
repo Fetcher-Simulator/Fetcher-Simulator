@@ -92,6 +92,8 @@ package.loaded[prefix..'client.piano-roll']=dofile(root..'client/piano-roll.lua'
 package.loaded[prefix..'client.dropdown']=dofile(root..'client/dropdown.lua')
 package.loaded[prefix..'client.arrangement']=dofile(root..'client/arrangement.lua')
 package.loaded[prefix..'client.pattern-tools']=dofile(root..'client/pattern-tools.lua')
+package.loaded[prefix..'client.guitar-tools']=dofile(root..'client/guitar-tools.lua')
+package.loaded[prefix..'client.guitar-page']=dofile(root..'client/guitar-page.lua')
 package.loaded[prefix..'client.arranger']=dofile(root..'client/arranger.lua')
 package.loaded[prefix..'client.library']=dofile(root..'client/library.lua')
 local Studio=dofile(root..'client/studio.lua')
@@ -1289,5 +1291,42 @@ do
     player.engineHandlers.onFrame(.01);check(frames==2,'switching back restores playing pose')
     handler{version=1,op='close',id=7,epoch=101,seq=3}
     mp.getPlayerObject=oldPlayer;performance.new=oldNew
+end
+do
+local function testGuitarPage()
+    local Workstation=dofile(root..'client/workstation.lua');local Studio=dofile(root..'client/studio.lua')
+    local uw=Workstation.new{configure=function() end,panic=function() end,message=function() end,meter=function() return 0 end}
+    assert(uw:newSong(120,4,4,8))
+    assert(uw:storeNotes(1,{{n=40,s=0,l=4,v=.8},{n=47,s=0,l=4,v=.8},{n=52,s=0,l=4,v=.8}}))
+    uw.page='piano'
+    local view=Studio.new(uw,{midiLabel=function() return '' end,hide=function() error('guitar tools must return to Piano') end})
+    local function find(entries,text)
+        for _,entry in ipairs(entries) do local layout=entry.layout or entry
+            if layout.content and layout.content[1] and layout.content[1].props and layout.content[1].props.text==text and layout.events and layout.events.mouseClick then return layout end
+            if layout.content then local found=find(layout.content,text);if found then return found end end
+        end
+    end
+    local function click(text) local target=assert(find(view.root.layout.content,text),text);target.events.mouseClick();view:render() end
+    click('Guitar / bass tools');check(uw.page=='guitar','Piano exposes the new string-performance tool')
+    local before=uw.generation;click('Preview plan')
+    check(uw.guitarPreview and uw.generation==before and find(view.root.layout.content,'Apply / one Undo'),'preview displays an explicit apply action without changing notes')
+    local rootWidget=view.root;local slider
+    for _,element in ipairs(view.children) do local content=element.layout.content
+        if content and content[1] and content[1].layout and content[1].layout.props.text=='Pick spacing (ms / string)' then slider=element;break end
+    end
+    check(slider~=nil,'pick spacing has a shared persistent numeric slider')
+    local track=slider.layout.content[2];local fill=track.content[1]
+    mouseDown=true;track.events.mousePress{button=1,offset=vector(track.props.size.x*.3,0)}
+    track.events.mouseMove{button=1,offset=vector(track.props.size.x*.6,0)};view:frame(now+2)
+    check(view.root==rootWidget and slider.layout.content[2]==track and track.content[1]==fill and not uw.guitarPreview,'spacing drag preserves widgets and invalidates only the preview')
+    mouseDown=false;click('Preview plan');local undo=#uw.undoStack;click('Apply / one Undo')
+    check(#uw.undoStack==undo+1 and uw.guitarPreview==nil,'UI apply commits the transformed phrase in one history step')
+    view:key(input.KEY.Escape,true);view:render();check(uw.page=='piano','Escape returns from guitar tools to Piano')
+    local oldViewport=viewport;viewport=vector(2560,1440);view.window.full=true;view.window:bounds();view:render()
+    click('Guitar / bass tools');click('Preview plan')
+    check(view.bodyOffset>0 and find(view.root.layout.content,'Back to Piano [Esc]'),'fullscreen tool body remains centered below clickable navigation')
+    view:destroy();viewport=oldViewport
+end
+testGuitarPage()
 end
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))
