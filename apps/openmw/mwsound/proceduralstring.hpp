@@ -8,6 +8,22 @@
 
 namespace MWSound
 {
+    // A finite slide in semitone space. Retargeting starts at the currently
+    // sounding pitch; the duration is latched at the gesture, not at each block.
+    class ProceduralPitchSlide
+    {
+    public:
+        void start(double offset,double seconds)
+        {
+            mFrames=offset!=0?static_cast<unsigned>(std::round(seconds*48000)):0;
+            mOffset=mFrames?offset:0;mStep=mFrames?-offset/mFrames:0;
+        }
+        double offset() const {return mOffset;}
+        void next() {if(mFrames && !--mFrames)mOffset=0;else if(mFrames)mOffset+=mStep;}
+    private:
+        double mOffset=0,mStep=0;
+        unsigned mFrames=0;
+    };
     // Per-strike expression shared by generated strings and gated melodic banks.
     // No allocation, randomness from a global generator, or timing changes.
     class ProceduralStringExpression

@@ -30,6 +30,12 @@ selected gate shortening and one-step Undo. These are ordinary saved note
 edits, not live per-string synthesis or connected slides/legato. Those remain
 within the playable-string branch alongside dedicated recorded gestures.
 
+Package 58 supplies an initial native mono connected-performance layer: overlap-
+gated legato or picked slides, finite pitch retargets and held-note return. It
+preserves the previous source on unpicked transitions and supports generated and
+gated sampled instruments. Per-string/polyphonic ownership and dedicated recorded
+slide/hammer-on/release gestures remain outside this slice.
+
 ## What the references contribute
 
 - [CyberBlitz: How to DOOM Like Mick Gordon](https://www.youtube.com/watch?v=-9rTxQr1194):

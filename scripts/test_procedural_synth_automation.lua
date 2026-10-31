@@ -37,6 +37,15 @@ do
     check(saved.tracks[1].params.parallelLift==8 and saved.tracks[1].params.parallelShape==2,'parallel snapshots survive strict project validation')
     check(format.automationSpecs.parallelLift.code==209 and format.automationSpecs.pitchBend.code==183,'parallel extension preserves MIDI performance codes')
 end
+do
+    local probe=assert(format.project(w.project));local t=probe.tracks[1]
+    t.params.stringLegato=1;t.params.stringSlideTime=.1
+    t.automation={stringLegato={{s=0,v=1,linear=false},{s=8,v=2,linear=false}},stringSlideTime={{s=0,v=.1,linear=true},{s=8,v=.2,linear=false}}}
+    local saved=assert(format.project(probe));local plan=Sequence.compile(saved,nil,MIDI,'song',format,SoundSets.programPatch)
+    check(records(plan,210)[1].v==32768 and records(plan,210)[2].v==65535 and records(plan,210)[1].mode==0,'legato/picked modes compile to a stepped extension slot')
+    check(records(plan,211)[1].mode==128 and saved.tracks[1].params.stringSlideTime==.1,'slide timing and connection settings survive save/compile')
+    check(format.automationSpecs.pitchBend.code==183 and schema.state({}).stringLegato==0,'new fields preserve MIDI codes and default old sounds to polyphonic')
+end
 check(w:setAutomation(1,'cutoff',0,100,true) and w:setAutomation(1,'cutoff',16,18000,false),'editable continuous curve')
 check(w:automationValue(1,'cutoff',8)==9050,'linear musical interpolation')
 check(w:setAutomation(1,'pedal',0,1,true) and not w.project.tracks[1].automation.pedal[1].linear,'discrete controls always step')

@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 57 / native synth API 24 / multiplayer protocol 27.
+Current source: package 58 / native synth API 25 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,51 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Connected mono slides and legato (package 58 / native API 25)
+
+Open **Mixer → a track's Sound → Strings**, or **Strings** in the standalone
+Synth editor. **Connect** selects **Poly / off**, **Mono legato**, or **Mono
+picked**. **Slide time** displays milliseconds; 80 ms is a starting point.
+Three explicit presets are available: **Legato Electric Lead**, **Legato Finger
+Bass**, and **Legato Sampled Lead** (the last needs the existing electric DI bank).
+Ordinary sound sets stay polyphonic. These mono modes are intended for a single
+melodic line, not an entire polyphonic guitar arrangement.
+
+Hold one key and press another before releasing it, or overlap successive note
+gates in Piano. Overlapping active gates connect; separate phrases attack at
+their target pitch normally. **Mono legato** keeps the same source cursor/string
+resonator, envelopes, picked velocity and latched pick/articulation while pitch
+slides to the new note. **Mono picked** reattacks the source with the new velocity
+while sliding. Repeated same-pitch note-ons reattack normally. Zero slide time
+changes pitch immediately without the legato reattack; duration latches at each
+connection and reaches the exact target in finite time, including mid-slide
+retargets. Changing the time control does not retime an already running slide.
+
+The most recently held key has priority. Releasing it returns to the newest
+remaining held key; releasing an older key cannot cut the current note. Sustain-
+retained gates can also connect. Stop, panic, track release, sample-source change and
+seek clear the appropriate transient held-note state. Enabling mono fades other
+held voices; switching back to Poly permits new chords without recreating earlier
+suppressed notes. A source-type change starts a fresh attack on its next note.
+
+Generated melodic sources and gated multisample banks use the native path.
+One-shot percussion and ordinary unzoned voice/effect clips bypass it. Recorded
+legato retunes the previous recording; it does not supply captured slide/hammer-on
+transitions, new release samples or infinite sustain loops. A source that naturally
+ends or is muted to silence needs another picked attack. Independent per-string
+ownership, polyphonic string-specific slides and detailed finger animation remain
+future work. Use Poly or Mono picked when a new pick/articulation must take effect.
+
+Connect and Slide time save with sounds/projects, replicate to band listeners and
+are available under **Auto → String connect mode / Slide time**. Auto uses seconds
+for slide time (0.08 = 80 ms). Modes use stepped slot 210; time uses slot 211.
+Existing control IDs remain stable; old saves default to Poly / off. Normal MIDI
+exports retain overlapping notes but do not encode these custom Studio FX/mode
+settings as GM events. This native slice requires the updated API-25 client.
+Seek/late-join playback retains the existing future-attack behavior: earlier
+held voices and their connected source history are not reconstructed. That
+remains part of the multiplayer timing work.
 
 ## Guitar/bass fingering and strum authoring (package 57)
 

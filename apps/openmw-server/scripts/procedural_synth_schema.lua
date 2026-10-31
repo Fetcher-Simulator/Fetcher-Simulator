@@ -30,6 +30,7 @@ p('stringResonance',0,1,0);p('pickPitch',-2,2,0);p('pickVariation',0,1,0);p('pic
 p('parallelMix',0,1,0);p('parallelClean',0,1,.35);p('parallelDirty',0,1,.75);p('parallelNoise',0,1,0)
 p('parallelDrive',0,48,18);p('parallelShape',0,3,0,true);p('parallelComb',0,1,0);p('parallelDelay',.5,20,3.5)
 p('parallelFeedback',-.85,.85,.35);p('parallelRate',0,12,.5);p('parallelDepth',0,1,0);p('parallelLift',0,18,0)
+p('stringLegato',0,2,0,true);p('stringSlideTime',0,1,.08)
 function M.valid(name, value)
     local s = M.specs[name]
     return s and type(value) == 'number' and value == value and value >= s.min and value <= s.max
@@ -283,6 +284,15 @@ add('doom-parallel-bass','Industrial Parallel Bass','Bass','Experimental / Indus
     cutoff=3500,preHighpass=35,cabinetHighpass=30,cabinetLowpass=6500,fxOutput=.8,volume=.5,polyphony=8,
     parallelMix=.85,parallelClean=.65,parallelDirty=.5,parallelNoise=.04,parallelDrive=22,parallelShape=1,
     parallelComb=.18,parallelDelay=6,parallelFeedback=.2,parallelRate=.4,parallelDepth=.08,parallelLift=4})
+-- Explicit mono sounds: ordinary guitar/bass sets retain polyphonic playback.
+for _,entry in ipairs{{'connected-guitar-lead','Legato Electric Lead','b:guitar-lead'},
+    {'connected-bass','Legato Finger Bass','b:bass-finger'},
+    {'connected-sampled-lead','Legato Sampled Lead','b:sampled-electric-lead'}} do
+    local base;for _,preset in ipairs(M.builtins) do if preset.id==entry[3] then base=preset;break end end
+    local state={};for k,value in pairs(assert(base).state) do state[k]=value end
+    state.stringLegato=1;state.stringSlideTime=.08
+    add(entry[1],entry[2],base.role,base.bank,state)
+end
 for _, preset in ipairs(M.builtins) do
     preset.state = assert(M.state(preset.state),'Invalid built-in: '..preset.id)
     preset.bank=preset.bank or 'General';preset.role=preset.role or (preset.state.drumType>0 and 'Drums' or 'Synth')

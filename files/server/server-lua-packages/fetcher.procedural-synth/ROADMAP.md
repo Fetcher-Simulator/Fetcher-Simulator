@@ -11,6 +11,15 @@ not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
 
+Package 58 / native API 25 adds opt-in last-note-priority mono legato and picked
+slides, shared by generated melodic sources and gated banks. Overlapping gates
+connect with finite semitone-space slides; legato preserves the source/envelopes
+and picked mode reattacks. Held-key return, source changes, sustain, Stop/panic/
+track release, seek and loop boundaries are covered. Strings/Auto controls and
+three explicit legato presets retain old polyphonic defaults and control IDs.
+This is a mono performance layer; independent per-string ownership, captured
+hammer-on/slide transitions and detailed finger animation remain future work.
+
 Package 57 adds an opt-in Piano guitar/bass fingering and strum authoring tool.
 Standard/drop/seven-string and bass tunings, bounded fret/span checks and
 down/up/alternate strokes produce an explicit string/fret/timing preview. Apply
@@ -391,7 +400,7 @@ credited sheet booklet into the Yamaha rests and separate stand, and supplies
 stands to non-keyboard NPCs. Native spawned-actor teleport support and positional
 readback repair lineup changes that previously left reused NPCs in old slots.
 
-## Remaining roadmap (next: connected string performance and band acceptance)
+## Remaining roadmap (next: per-string performance and band acceptance)
 
 1. **Guitars, electric bass, full drum kit and convincing genre playback.**
    Prioritize electric guitar and bass, nylon-string classical guitar,
@@ -412,8 +421,10 @@ readback repair lineup changes that previously left reused NPCs in old slots.
      pre/post cuts, local focus/dim, first-pass pick/resonance/articulation and
      opt-in parallel processing are implemented. Package 57 also supplies an
      explicit string-aware fingering/strum note tool. Next are live per-string
-     ownership, connected legato/hammer-ons/slides and articulation/controller
-     mapping, plus listening-based refinement with drums and bass present.
+     ownership, richer/captured hammer-ons and slides, articulation/controller
+     mapping and listening-based refinement with drums and bass present. Mono
+     connected legato/picked slides are implemented in package 58; independent
+     polyphonic string performance is still pending.
      Do not make fidelity depend solely on collecting more samples.
    - **Guitar and bass articulation:** clean, crunch, fuzz, high-gain rhythm and
      lead guitar; tight palm-muted/choked notes, sustained chords, picking,
@@ -498,7 +509,7 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 57 / native synth API 24 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
+package 58 / native synth API 25 / protocol 27 (matching builds required). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented, together with initial seated keyboard/cello NPC staging.
 

@@ -111,7 +111,7 @@ void parallelTests()
         check(pcm==studioRender(*b,36000,137),"parallel noise/modulation/control rendering is block invariant");
         check(pcm!=studioRender(*raw,36000,480) && a->strikes()==2,"parallel changes tone while retaining scheduled note strikes");
         check(!a->loadScore(scoreNote(0,1,1,203,128),36000,false),"waveshaper modes cannot ramp continuously");
-        check(!a->loadScore(scoreNote(0,1,1,210,0),36000,false),"unknown parallel control rejected");
+        check(!a->loadScore(scoreNote(0,1,1,212,0),36000,false),"unknown parallel control rejected");
     }
     {
         std::vector<std::unique_ptr<Synth>> band;

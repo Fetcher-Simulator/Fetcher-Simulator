@@ -1,5 +1,24 @@
 # Band sound foundation auditions
 
+## Original connected-performance exercise (package 58)
+
+```powershell
+New-Item -ItemType Directory -Force build/studio-legato-auditions | Out-Null
+lua scripts/procedural-synth-tests/export-legato-auditions.lua build/studio-legato-auditions
+cmake --build build/synth-core-tests --config Release --target score-audition
+foreach ($source in @('guitar-lead','sampled-electric-lead')) {
+    foreach ($mode in @('poly','legato','picked')) {
+        & build/synth-core-tests/Release/score-audition.exe "build/studio-legato-auditions/$source-$mode.bin" "build/studio-legato-auditions/$source-$mode.tsv" files/server/optional-assets/fetcher.studio-samples "build/studio-legato-auditions/$source-$mode.wav" 0 5 all
+    }
+}
+```
+
+Six original note events exercise overlapping gates, held-note return and a gap
+before a fresh phrase. Poly is the unchanged baseline; Legato retains its source
+and picked velocity; Picked reattacks during connections. Recorded output needs
+the existing credited electric DI bank. Compare at matched levels. This models
+pitch connections; it does not add captured fret/hammer-on/release recordings.
+
 ## Original string-performance exercise (package 57)
 
 ```powershell

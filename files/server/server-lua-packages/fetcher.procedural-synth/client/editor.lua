@@ -82,7 +82,8 @@ function E:slider(name,title,x,y,width)
     local base=schema.specs[name];local spec={min=base.min,max=base.max,discrete=base.discrete}
     local times={attack=true,decay=true,release=true,filterAttack=true,filterDecay=true,filterRelease=true,pitchDecay=true,bodyDecay=true,noiseDecay=true,drumPitchDecay=true,stringDecay=true}
     local hz={cutoff=true,lfoRate=true,bodyFrequency=true,noiseHighpass=true,noiseLowpass=true,driveTone=true}
-    if times[name] then spec.unit='s';spec.log=true;spec.step=0.001
+    if name=='stringSlideTime' then spec.unit='s';spec.step=.001
+    elseif times[name] then spec.unit='s';spec.log=true;spec.step=0.001
     elseif hz[name] then spec.unit='Hz';spec.log=true;spec.step=1
     elseif name:find('Level') or name:find('volume') or name=='sustain' or name=='filterSustain' or name=='fxMix' or name=='stringDamping' or name=='stringMute' or name=='stringPick' then spec.unit='%';spec.step=0.01
     elseif name=='parallelDrive' or name=='parallelLift' then spec.unit='dB';spec.step=.5
@@ -93,7 +94,7 @@ function E:slider(name,title,x,y,width)
     elseif name:find('tune') or name:find('fine') or name:find('Amount') then spec.step=1 end
     local labels={wave1=waves,wave2=waves,enabled2={'Off','On'},lfoTarget={'Pitch','Filter','Amplitude'},drumType={'Synth','Kick','Snare','Closed hat','Open hat'},
         instrumentType={'Oscillators','Plucked string'},driveType={'Off','Overdrive','Distortion','Fuzz'},cabinet={'Off','Small speaker','Open speaker','Dark stack','IR V30 / SM57','IR DV77 / SM57','IR Rockdriver / e606'},
-        stringArticulation={'Patch','Open','Palm mute','Dead / choked'},pickDirection={'Down','Up','Alternate'},parallelShape={'Soft clip','Hard clip','Wavefold','Rectify'}}
+        stringArticulation={'Patch','Open','Palm mute','Dead / choked'},pickDirection={'Down','Up','Alternate'},parallelShape={'Soft clip','Hard clip','Wavefold','Rectify'},stringLegato={'Poly / off','Mono legato','Mono picked'}}
     local caption=labels[name] and function() return title..' / '..(labels[name][self.params[name]+1] or '') end or title
     local element,refresh=Controls.slider(self,name,caption,spec,function() return self.params[name] end,function(value)
         self.params[name]=value;self.cb.change(name,value)
@@ -271,10 +272,12 @@ function E:render()
         slider('stringResonance','String resonance',x3,185,col-20)
         if not params.sample and params.instrumentType==1 then slider('stringPick','Pick position',x3,240,col-20) end
         slider('release','Note-off release',x3,295,col-20)
-        content[#content+1]=label('Pick / articulation latch at note-on.',x1,435,col-20,11,colors.muted)
+        content[#content+1]=label('Pick / articulation latch at picked attacks.',x1,435,col-20,11,colors.muted)
         content[#content+1]=label('Use Auto for phrase changes.',x1,460,col-20,11,colors.muted)
-        content[#content+1]=label('Dead mode shortens new notes.',x3,420,col-20,11,colors.muted)
-        content[#content+1]=label(params.sample and 'Recorded source + modeled expression' or 'Generated source + modeled expression',x3,380,col-20,11,colors.muted)
+        slider('stringLegato','Connect',x3,350,col-20)
+        slider('stringSlideTime','Slide time',x3,405,col-20)
+        content[#content+1]=label('Overlap keys/notes for Mono connections.',x3,477,col-20,11,colors.muted)
+        content[#content+1]=label('Separate phrases attack normally.',x3,500,col-20,11,colors.muted)
         content[#content+1]=label('Pick variation changes tone, not timing.',x1,492,col*2-20,11,colors.accent)
     elseif self.page=='effects' then
         for n,item in ipairs({{'driveType','Character'},{'drive','Input drive (dB)'},{'driveTone','Drive tone (Hz)'},{'fxMix','Wet / dry'},{'preHighpass','Pre-drive low cut (Hz)'}}) do slider(item[1],item[2],x1,185+(n-1)*55,col-20) end

@@ -1,5 +1,39 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 31: connected mono legato/slides (package 58 / native API 25)
+
+All 29 Lua suites and the native synth/Studio suite pass; the client build passes.
+Lua checks cover both new Strings controls, continuous drag behavior on generated
+and sampled pages, strict saved state and stepped/time automation slots 210/211
+without moving MIDI IDs. Ordinary sound sets retain Poly defaults; three named
+mono presets are opt-in. A fresh Recorded Thrash import of the same Master of
+Puppets excerpt is byte-identical to the prior full-band render with mode off.
+
+Native tests exercise finite semitone-space slides and mid-slide retargeting;
+first-frame source/pitch/envelope continuity; one connected voice on oscillator,
+physical-string and recorded-bank sources; held-note return, older-key release,
+separate phrases, picked versus unpicked excitation, polyphonic mode restoration,
+panic and fresh input. One-shots, ordinary voice/effect clips and generated drums
+produce exact bypass PCM. Native score tests cover cold first attacks, controls,
+Stop/track release/seek, sustained gates and overlapping same-pitch loop counts,
+with exact PCM under 480- versus 137-frame blocks. Unknown controls and mode ramps
+are rejected. Held-key storage is allocated once on the control thread and reused.
+
+Original six-note phrases render poly/legato/picked variants on generated and
+recorded lead sources under `build/studio-legato-auditions/`. Each retains six
+scheduled note events. Generated RMS values are 0.03650/0.02595/0.03771; recorded
+RMS values are 0.05875/0.04594/0.05401. Matched variants accompany raw output.
+These establish signal/gesture behavior, not live listening or captured guitar
+transition realism. Independent per-string voices and captured gestures remain
+pending. No new asset downloads or runtime plugins are introduced.
+
+The port-25567 fixture is installed with package 58/API 25 and its matching client
+executable. Installation preserved all 65 protected user-state files and verified
+109 asset hashes. One server listener is active with empty startup stderr, and
+the client remains closed. No public workflow/release or VPS deployment was started.
+Seek and late joins retain the existing future-attack limitation rather than
+reconstructing earlier held-note/source history.
+
 ## October 31: string-aware fingering/strum authoring (package 57 / API 24)
 
 All 29 Lua suites pass. Dedicated tests cover open E-major fingering, standard /

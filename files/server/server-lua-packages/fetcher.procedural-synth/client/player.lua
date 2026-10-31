@@ -8,9 +8,9 @@ local util=require('openmw.util')
 local stageLayout=require('scripts.multiplayer.fetcher.procedural-synth.shared.band-layout')
 local StagePreflight=require('scripts.multiplayer.fetcher.procedural-synth.client.stage-preflight')(nearby,util,stageLayout)
 local supported, synth = pcall(require,'openmw.synth')
-if not supported or (synth.version and synth.version<24) then
+if not supported or (synth.version and synth.version<25) then
     return {eventHandlers={Synth_Activate=function()
-        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 24.')
+        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 25.')
     end}}
 end
 local schema = require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -775,7 +775,7 @@ end
 return {
     interfaceName='ProceduralSynth',
     interface={
-        version=24,
+        version=25,
         status=function()
             local out={}
             for id,i in pairs(instances) do

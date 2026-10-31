@@ -172,13 +172,16 @@ namespace MWSound
     void ProceduralStudio::clearVoices()
     {
         mOffCount = 0;
+        for(const auto& slot:mTracks)if(auto track=std::atomic_load(&slot))track->resetConnections();
         resetControls();
         for (unsigned n = 0; n < MaxTracks; ++n)
         {
             mHeld[n].fill(0); mLiveHeld[n].fill(false); mPedalHeld[n].fill(false); ++mGeneration[n];
             for (auto& bits : mNoteBits[n]) bits = 0;
             if (auto track = std::atomic_load(&mTracks[n]))
+            {
                 for (auto& voice : track->mVoices) { voice.amp.release(); voice.filter.release(); voice.drumChoke = true; }
+            }
         }
     }
     void ProceduralStudio::chokeSampleGroup(unsigned n,int pitch,float velocity)
@@ -322,6 +325,9 @@ namespace MWSound
                     for (auto parameter : {std::size_t(25), std::size_t(28), std::size_t(41)}) track->mCurrent[parameter] = track->mTarget[parameter];
                     for(unsigned i=ProceduralSynth::StringArticulation;i<=ProceduralSynth::PickDirection;++i)
                         if(i!=ProceduralSynth::StringResonance && !track->mAutomated[i] && !track->mProgrammed[i])track->mCurrent[i]=track->mTarget[i];
+                    for(auto i:{ProceduralSynth::StringLegato,ProceduralSynth::StringSlideTime})
+                        if(!track->mAutomated[i] && !track->mProgrammed[i])track->mCurrent[i]=track->mTarget[i];
+                    track->reconcileConnections();
                 }
             }
         {
@@ -357,6 +363,7 @@ namespace MWSound
                     {
                         if (command.velocity == -2)
                         {
+                            track->resetConnections();
                             mHeld[command.track].fill(0); mLiveHeld[command.track].fill(false); ++mGeneration[command.track];
                             for (auto& bits : mNoteBits[command.track]) bits = 0;
                             for (auto& voice : track->mVoices) { voice.amp.release(); voice.filter.release(); voice.drumChoke = true; }

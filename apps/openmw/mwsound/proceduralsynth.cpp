@@ -83,6 +83,8 @@ namespace MWSound
         { "parallelRate", 0, 12, .5f },
         { "parallelDepth", 0, 1, 0 },
         { "parallelLift", 0, 18, 0 },
+        { "stringLegato", 0, 2, 0, true },
+        { "stringSlideTime", 0, 1, .08f },
     } };
 
     namespace
@@ -246,6 +248,7 @@ namespace MWSound
     {
         if (mSampleCurrent == mSampleTarget) return;
         for (auto& voice : mVoices) voice = Voice{};
+        resetConnections();
         mSampleCurrent = mSampleTarget;
         mSampleAlternates.fill(0);
     }
@@ -273,13 +276,86 @@ namespace MWSound
         for(auto& voice:mVoices)if(voice.note>=0 && voice.sampleGroup==group)
             {voice.amp.release();voice.filter.release();voice.drumChoke=true;}
     }
+    bool ProceduralSynth::connectionReady() const
+    {
+        return mSampleCurrent.data ? sampleReady() && !mSampleCurrent.oneShot && !mSampleCurrent.data->zones.empty()
+            : mCurrent[DrumType]==0;
+    }
+    void ProceduralSynth::resetConnections()
+    {
+        mConnectionKeys->fill({});mConnectionSerial=0;mConnectionVoice=-1;
+    }
+    void ProceduralSynth::reconcileConnections()
+    {
+        const bool eligible=connectionReady();
+        if(eligible!=mConnectionEligible){resetConnections();mConnectionEligible=eligible;}
+        const int mode=eligible?int(mCurrent[StringLegato]):0;
+        if(mode==mConnectionMode)return;
+        mConnectionMode=mode;mConnectionVoice=-1;
+        if(!mode)return;
+        std::uint64_t newest=0;
+        for(unsigned i=0;i<mVoices.size();++i)
+        {
+            auto& v=mVoices[i];if(v.note<0 || v.drumType || v.sampleOneShot || !v.amp.stage || v.amp.stage==4
+                || v.instrumentType!=(mSampleCurrent.data?0:int(mCurrent[InstrumentType])))continue;
+            const auto& key=(*mConnectionKeys)[v.note];
+            if(key.velocity>0 && key.order>newest){newest=key.order;mConnectionVoice=int(i);}
+        }
+        if(mConnectionVoice>=0)for(unsigned i=0;i<mVoices.size();++i)if(int(i)!=mConnectionVoice)
+        {
+            auto& v=mVoices[i];if(v.note>=0 && !v.drumType && !v.sampleOneShot)
+                {v.amp.release();v.filter.release();v.drumChoke=true;}
+        }
+    }
     void ProceduralSynth::apply(Command command)
     {
         if (mSampleCurrent.data && command.velocity >= 0 && !sampleReady()) return;
         const auto* zone=command.velocity>=0?sampleZone(command.note,command.velocity,true):nullptr;
         if(mSampleCurrent.data && command.velocity>=0 && !mSampleCurrent.data->zones.empty() && !zone)return;
-        if(zone)chokeSamples(zone->offBy);
         const bool oneShot=mSampleCurrent.oneShot || (zone && (zone->flags&1));
+        reconcileConnections();
+        const bool connectible=mConnectionEligible && (!mSampleCurrent.data || (zone && !oneShot));
+        const bool releasing=command.velocity<0;
+        auto& keys=*mConnectionKeys;
+        if(command.velocity<0)keys[command.note]={};
+        else if(connectible)keys[command.note]={command.velocity,++mConnectionSerial};
+        Voice* pickedConnection=nullptr;double connectedOffset=0;
+        if(mConnectionMode && (command.velocity<0 || connectible))
+        {
+            Voice* v=mConnectionVoice>=0?&mVoices[mConnectionVoice]:nullptr;
+            if(v && (v->note<0 || !v->amp.stage || v->amp.stage==4 || v->drumType || v->sampleOneShot
+                || v->instrumentType!=(mSampleCurrent.data?0:int(mCurrent[InstrumentType]))))v=nullptr;
+            bool connect=false;
+            if(command.velocity<0)
+            {
+                if(!v || command.note!=v->note)return;
+                std::uint64_t newest=0;int target=-1;
+                for(unsigned n=0;n<keys.size();++n)if(keys[n].velocity>0 && keys[n].order>newest){newest=keys[n].order;target=int(n);}
+                if(target>=0){command={target,keys[target].velocity};connect=true;}
+            }
+            else connect=v && v->note!=command.note && keys[v->note].velocity>0;
+            if(connect)
+            {
+                connectedOffset=v->note+v->slide.offset()-command.note;
+                if(mConnectionMode==1)
+                {
+                    v->note=command.note;v->slide.start(connectedOffset,mCurrent[StringSlideTime]);v->age=++mAge;
+                    return; // Retain source cursor, resonator, envelopes and picked velocity.
+                }
+                v->note=command.note;pickedConnection=v;
+                if(releasing)zone=sampleZone(command.note,command.velocity,true);
+            }
+        }
+        if(zone && command.velocity>=0)chokeSamples(zone->offBy);
+        const auto prepareConnection=[&](Voice& v) {
+            v.slide.start(&v==pickedConnection?connectedOffset:0,mCurrent[StringSlideTime]);
+            if(mConnectionMode && connectible)
+            {
+                mConnectionVoice=int(&v-mVoices.data());
+                for(auto& other:mVoices)if(&other!=&v && other.note>=0 && !other.drumType && !other.sampleOneShot)
+                    {other.amp.release();other.filter.release();other.drumChoke=true;}
+            }
+        };
         const auto sampleVoice=[&](Voice& voice) {
             if(!mSampleCurrent.data)return;
             voice.sampleStart=zone?zone->start:0;
@@ -330,6 +406,7 @@ namespace MWSound
                 voice.age = ++mAge;
                 voice.drumChoke = false;
                 voice.instrumentType = mSampleCurrent.data ? 0 : static_cast<int>(mCurrent[InstrumentType]);
+                prepareConnection(voice);
                 expression(voice);
                 if (voice.instrumentType != 0)
                     pluck(voice);
@@ -362,6 +439,7 @@ namespace MWSound
         slot->age = ++mAge;
         slot->drumChoke = false;
         slot->instrumentType = mSampleCurrent.data ? 0 : static_cast<int>(mCurrent[InstrumentType]);
+        prepareConnection(*slot);
         expression(*slot);
         if (slot->instrumentType != 0)
             pluck(*slot);
@@ -371,7 +449,9 @@ namespace MWSound
         // Noise-excited, fractional-delay Karplus-Strong string. A comb in the
         // excitation controls pick position. Excitation uses per-voice state;
         // there is no shared random generator or audio-thread allocation.
-        const double frequency = 440 * std::exp2((voice.note - 69 + mCurrent[2] + mCurrent[3] / 100) / 12);
+        const double frequency = voice.slide.offset()==0
+            ? 440 * std::exp2((voice.note - 69 + mCurrent[2] + mCurrent[3] / 100) / 12)
+            : 440 * std::exp2((voice.note - 69 + voice.slide.offset() + mCurrent[2] + mCurrent[3] / 100) / 12);
         const auto period = static_cast<std::size_t>(std::clamp(std::round(SampleRate / frequency), 3.0, 8190.0));
         const double offset=voice.expression.pickOffset();
         const auto pick = std::max(std::size_t(1), static_cast<std::size_t>(offset==0
@@ -410,6 +490,8 @@ namespace MWSound
         // Strike controls are latched per voice, including continuous pick curves.
         for(unsigned i=StringArticulation;i<=PickDirection;++i)
             if(i!=StringResonance && (mAutomated[i] || mProgrammed[i]))mCurrent[i]=static_cast<float>(mAutomated[i]?mAutomation[i]:mProgram[i]);
+        for(auto i:{StringLegato,StringSlideTime})if(mAutomated[i] || mProgrammed[i])mCurrent[i]=static_cast<float>(mAutomated[i]?mAutomation[i]:mProgram[i]);
+        reconcileConnections();
     }
     void ProceduralSynth::render(float* output, std::size_t frames)
     {
@@ -433,13 +515,18 @@ namespace MWSound
                 mCurrent[InstrumentType] = target[InstrumentType];
                 for(unsigned i=StringArticulation;i<=PickDirection;++i)
                     if(i!=StringResonance && !mAutomated[i] && !mProgrammed[i])mCurrent[i]=target[i];
+                for(auto i:{StringLegato,StringSlideTime})if(!mAutomated[i] && !mProgrammed[i])mCurrent[i]=target[i];
+                reconcileConnections();
                 if (mPanic.exchange(false))
+                {
+                    resetConnections();
                     for (auto& v : mVoices)
                     {
                         v.amp.release();
                         v.filter.release();
                         v.drumChoke = true;
                     }
+                }
                 for (std::size_t i = 0; i < mCommandCount; ++i)
                     apply(mCommands[i]);
                 mCommandCount = 0;
@@ -606,7 +693,9 @@ namespace MWSound
                 }
                 const float env = v.filter.next(mCurrent[16], mCurrent[17], mCurrent[18], mCurrent[19]);
                 const double pitchLfo = performancePitch + (effective[22] == 0 ? lfo * 2 : 0);
-                const double pitchEnvelope = v.pitchEnvelope * mCurrent[26] + v.expression.pitch();
+                double pitchEnvelope = v.pitchEnvelope * mCurrent[26] + v.expression.pitch();
+                if(v.slide.offset()!=0)pitchEnvelope+=v.slide.offset();
+                v.slide.next();
                 v.pitchEnvelope = ProceduralDsp::silence(v.pitchEnvelope * pitchDecay);
                 v.noise ^= v.noise << 13; v.noise ^= v.noise >> 17; v.noise ^= v.noise << 5;
                 const double noise = static_cast<double>(v.noise) / 2147483648.0 - 1;

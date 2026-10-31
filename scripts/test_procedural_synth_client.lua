@@ -281,7 +281,7 @@ e.page='effects';e:render()
 check(e.controls.driveType and e.controls.cabinet,'effects controls exposed per instrument')
 for name in pairs(e.controls) do seen[name]=true end
 e.page='strings';e:render()
-check(e.controls.stringArticulation and e.controls.pickAttack and e.controls.stringResonance and e.controls.pickDirection,'dedicated Strings page exposes note expression controls')
+check(e.controls.stringArticulation and e.controls.pickAttack and e.controls.stringResonance and e.controls.pickDirection and e.controls.stringLegato and e.controls.stringSlideTime,'dedicated Strings page exposes note expression and connection controls')
 for name in pairs(e.controls) do seen[name]=true end
 e.page='parallel';e:render()
 check(e.controls.parallelMix and e.controls.parallelShape and e.controls.parallelLift,'Parallel page exposes layers, shaper and lift')
@@ -656,7 +656,7 @@ api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrum
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
 -- Reproduce loaded-song reuse from the actual Studio callbacks, including Band.
-package.loaded['openmw.synth'].version=24
+package.loaded['openmw.synth'].version=25
 local paths={'midi/a.mid','midi/b.mid'};local files={}
 local function midiBytes(pitch,count)
     local events={};for n=1,count or 1 do events[#events+1]=string.char(0,144,pitch,100,96,128,pitch,0) end
