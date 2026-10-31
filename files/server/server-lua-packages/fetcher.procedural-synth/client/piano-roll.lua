@@ -4,7 +4,7 @@ local ui=require('openmw.ui');local util=require('openmw.util');local async=requ
 local Project=require('scripts.multiplayer.fetcher.procedural-synth.shared.project')(require('scripts.multiplayer.fetcher.procedural-synth.shared.schema'))
 local R={};R.__index=R;local v=util.vector2;local white=ui.texture{path='white'}
 local colors={bg=util.color.rgb(0.035,0.045,0.063),row=util.color.rgb(0.075,0.09,0.12),line=util.color.rgb(0.14,0.17,0.21),
-    note=util.color.rgb(0.35,0.65,0.95),selected=util.color.rgb(0.2,0.85,0.72)}
+    note=util.color.rgb(0.35,0.65,0.95),selected=util.color.rgb(0.2,0.85,0.72),pending=util.color.rgb(1,.65,.25)}
 local function rect(x,y,w,h,color) return {type=ui.TYPE.Image,props={position=v(x,y),size=v(w,h),resource=white,color=color}} end
 local function cb(fn) return async:callback(function(e) fn(e);return false end) end
 local function clamp(n,a,b) return math.max(a,math.min(b,n)) end
@@ -24,7 +24,9 @@ function R.new(owner,content)
     local finish=t.kind=='midi' and math.max(w.project.timeline and w.project.timeline.beats*4 or w.song and w.song.beats*4 or 16,16) or Project.maxSteps
     local clip=w:clipSource(self.index);if clip then finish=clip.length end
     for _,n in ipairs(notes) do finish=math.max(finish,n.s+n.l) end
-    self.maximum=math.max(0,finish-self.steps);self.start=clamp(self.start,0,self.maximum)
+    local take=w.recording
+    if take and take.index==self.index then finish=math.max(finish,take.limit-take.origin) end
+    self.maximum=math.max(0,finish-self.steps);self.start=clamp(self.start,0,self.maximum);w.rollStart=self.start
     local grid=rect(self.x,self.y,self.width,self.height,colors.bg);local cells={}
     for row=0,self.rows-1 do
         local note=self.base+self.rows-1-row;local black=({[1]=true,[3]=true,[6]=true,[8]=true,[10]=true})[note%12]
@@ -52,7 +54,7 @@ function R.new(owner,content)
     self.barGrid=owner:element{type=ui.TYPE.Widget,props={position=v(self.x,self.y),size=v(self.width,self.height)},content=ui.content{}}
     self.barGrid.layout.events=grid.events
     content[#content+1]=self.barGrid
-    for slot=1,math.min(512,#notes) do
+    for slot=1,math.min(512,math.max(#notes,take and take.index==self.index and 512 or 0)) do
         local r=rect(0,0,1,1,colors.note);r.props.visible=false
         r.events={mousePress=cb(function(e) self:press(slot,e) end),mouseMove=cb(function(e) self:move(e) end)}
         self.pool[slot]=owner:element(r);content[#content+1]=self.pool[slot]
@@ -111,6 +113,21 @@ function R:finish(cancel)
 end
 function R:frame()
     if not input.isMouseButtonPressed(1) then self:finish(false) end
+    local take=self.w.recording
+    if take and take.index==self.index and self.w.wall-(self.lastRecordDraw or -1)>=1/30 then
+        self.lastRecordDraw=self.w.wall
+        local step=self.w:recordClock()
+        if step then
+            local localStep=step-take.origin
+            if localStep<self.start or localStep>=self.start+self.steps then self:pan(localStep-self.start-self.steps/4) end
+            local newest,pitch=-math.huge,nil
+            for note,held in pairs(take.held) do if held.raw>newest or held.raw==newest and note<(pitch or 128) then newest,pitch=held.raw,note end end
+            if pitch and (pitch<self.base or pitch>=self.base+self.rows) then
+                self.w.base=clamp(math.floor(pitch/12)*12,0,128-self.rows);self.w.revision=self.w.revision+1
+            end
+        end
+        self:drawNotes()
+    end
 end
 function R:pan(delta)
     self.start=clamp(self.start+delta,0,self.maximum);self.w.rollStart=self.start;self.w.bar=math.floor(self.start/16);self:draw()
@@ -135,27 +152,52 @@ function R:draw()
         end
     end
     self.barGrid.layout.content=ui.content(bars);self.owner.window:update(self.barGrid)
-    for id,source in ipairs(w:noteData(self.index) or {}) do
-        local n,s,l=source.n,source.s,source.l
-        if self.drag and w.noteSelection[id] then local d=self.drag.change;n=n+(d.pitch or 0);s=s+(d.step or 0);l=l+(d.length or 0) end
-        if n>=self.base and n<self.base+self.rows and s<self.start+self.steps and s+math.max(l,0.06)>self.start then
-            shown=shown+1
-            if slot<#self.pool then
-                slot=slot+1;self.visible[slot]=id;local r=self.pool[slot].layout.props
-                local left,right=math.max(s,self.start),math.min(s+l,self.start+self.steps)
-                r.visible=true;r.position=v(self.x+(left-self.start)*self.cw,self.y+(self.base+self.rows-1-n)*self.rh)
-                r.size=v(math.max(3,(right-left)*self.cw-1),self.rh-2)
-                r.color=w.selectionTrack==self.index and w.noteSelection[id] and colors.selected or colors.note
-                self.owner.window:update(self.pool[slot])
-            end
-        end
-    end
-    for n=slot+1,#self.pool do self.pool[n].layout.props.visible=false;self.owner.window:update(self.pool[n]) end
+    self:drawNotes()
     self.thumbWidth=math.max(18,self.width*self.steps/(self.maximum+self.steps))
     self.thumb.layout.props.position=v(self.maximum>0 and (self.width-self.thumbWidth)*self.start/self.maximum or 0,0)
     self.thumb.layout.props.size=v(self.thumbWidth,12);self.owner.window:update(self.thumb)
+
+end
+function R:drawNotes()
+    local w=self.w;local slot,shown=0,0;self.visible={};self.geometry=self.geometry or {}
+    local function draw(source,id,pending)
+        local n,s,l=source.n,source.s,source.l
+        if id and self.drag and w.noteSelection[id] then local d=self.drag.change;n=n+(d.pitch or 0);s=s+(d.step or 0);l=l+(d.length or 0) end
+        if n>=self.base and n<self.base+self.rows and s<self.start+self.steps and s+math.max(l,.06)>self.start then
+            shown=shown+1
+            if slot<#self.pool then
+                slot=slot+1;self.visible[slot]=id
+                local left,right=math.max(s,self.start),math.min(s+l,self.start+self.steps)
+                local color=pending and colors.pending or w.selectionTrack==self.index and w.noteSelection[id] and colors.selected or colors.note
+                local key={n,left,right,color,self.start,self.base};local old=self.geometry[slot]
+                local changed=not old
+                if old then for i,value in ipairs(key) do if value~=old[i] then changed=true;break end end end
+                if changed or not self.pool[slot].layout.props.visible then
+                    local props=self.pool[slot].layout.props;props.visible=true
+                    props.position=v(self.x+(left-self.start)*self.cw,self.y+(self.base+self.rows-1-n)*self.rh)
+                    props.size=v(math.max(3,(right-left)*self.cw-1),self.rh-2);props.color=color
+                    self.owner.window:update(self.pool[slot]);self.geometry[slot]=key
+                end
+            end
+        end
+    end
+    local take=w.recording
+    if take and take.index==self.index then
+        local step=w:recordClock() or take.last or take.startStep
+        for note,held in pairs(take.held) do
+            local start=round(held.raw-take.origin,take.snap)
+            draw({n=note,s=start,l=math.max(.06,step-take.origin-start),v=held.v},nil,true)
+        end
+        for i=#take.notes,1,-1 do draw(take.notes[i],nil,true) end
+    end
+    for id,source in ipairs(w:noteData(self.index) or {}) do draw(source,id,false) end
+    for i=slot+1,(self.usedSlots or #self.pool) do
+        if self.pool[i].layout.props.visible then self.pool[i].layout.props.visible=false;self.owner.window:update(self.pool[i]) end
+    end
+    self.usedSlots=slot
     self.caption.layout.props.text=string.format('Bars %.2f - %.2f  |  %d selected%s',self.songGrid and Project.barPosition(w.project,self.start/4) or self.start/16+1,self.songGrid and Project.barPosition(w.project,(self.start+self.steps)/4) or (self.start+self.steps)/16+1,#w:selectedNotes(self.index),shown>512 and '  |  Zoom in to see remaining notes' or '')
     self.owner.window:update(self.caption)
     if not self.drag and self.owner.noteVelocityRefresh then self.owner.noteVelocityRefresh() end
 end
+
 return R

@@ -7,12 +7,14 @@ local function cb(fn) return async:callback(function(e) fn(e);return false end) 
 local function clamp(n,a,b) return math.max(a,math.min(b,n)) end
 function R.new(owner,content)
     local w=owner.w
-    local self=setmetatable({owner=owner,w=w,x=190,y=292,width=owner.width-240,height=math.max(264,(owner.height or 695)-431),pool={},labels={},grids={},page=w.arrangePage or 0},R)
+    local self=setmetatable({owner=owner,w=w,x=190,y=owner.arrangeFocus and 181 or 292,width=owner.width-240,height=math.max(264,(owner.height or 695)-(owner.arrangeFocus and 320 or 431)),pool={},labels={},grids={},page=w.arrangePage or 0},R)
     self.rh=self.height/8
     self.bars=w.arrangeBars or 8
     local finish=w.project.timeline and w.project.timeline.beats*4 or Format.barStart(w.project,self.bars+1)*4
     for _,t in ipairs(w.project.tracks) do for _,r in ipairs(t.arrangement and t.arrangement.regions or {}) do finish=math.max(finish,r.s+r.l) end end
-    self.maximum=math.max(0,Format.barAt(w.project,math.max(0,finish/4-1e-8))-self.bars)
+    self.contentBars=Format.barAt(w.project,math.max(0,finish/4-1e-8))
+    self.workspaceBars=w.project.composition and 256 or math.min(4096,math.max(256,self.contentBars+self.bars))
+    self.maximum=math.max(0,self.workspaceBars-self.bars)
     w.arrangeBar=clamp(w.arrangeBar or 0,0,self.maximum);self:view()
     for row=1,8 do
         local index=self.page*8+row;local t=w.project.tracks[index]
@@ -22,7 +24,7 @@ function R.new(owner,content)
             end,w.selected==index)
             local grid=rect(self.x,self.y+(row-1)*self.rh,self.width,self.rh-3,c.bg);local cells={}
             for b=0,self.bars-1 do
-                if row==1 then local label=owner:element{type=ui.TYPE.Text,props={position=v(self.x+b*self.width/self.bars,269),size=v(50,20),text=tostring(w.arrangeBar+b+1),textSize=11,textColor=c.selected}};self.labels[#self.labels+1]=label;content[#content+1]=label end
+                if row==1 then local label=owner:element{type=ui.TYPE.Text,props={position=v(self.x+b*self.width/self.bars,self.y-23),size=v(50,20),text=tostring(w.arrangeBar+b+1),textSize=11,textColor=c.selected}};self.labels[#self.labels+1]=label;content[#content+1]=label end
             end
             self.grids[#self.grids+1]=owner:element(grid);grid=self.grids[#self.grids].layout
             grid.content=ui.content(cells);grid.events={mousePress=cb(function(e)
@@ -100,7 +102,18 @@ function R:finish(cancel)
 end
 function R:frame()
     if not input.isMouseButtonPressed(1) then self:finish(false) end
-    local step=self.w.beat*4;local visible=self.w.playing and self.w.mode=='song' and step>=self.start and step<self.start+self.steps
+end
+function R:updatePlayhead()
+    local step=self.w.beat*4
+    if self.w.mode=='clips' then step=step%self.w.project.length end
+    local active=self.w.playing and not self.w.awaiting and (self.w.mode=='song' or self.w.mode=='clips')
+    if active and self.owner.arrangePlaySerial~=self.w.playSerial then
+        self.owner.arrangePlaySerial=self.w.playSerial
+        if step<self.start or step>=self.start+self.steps then
+            self.w.arrangeBar=clamp(Format.barAt(self.w.project,step/4)-1,0,self.maximum);self:draw()
+        end
+    end
+    local visible=active and step>=self.start and step<self.start+self.steps
     self.playhead.layout.props.visible=visible
     self.playhead.layout.props.position=v(self.x+(step-self.start)*self.cw,self.y);self.owner.window:update(self.playhead)
 end
@@ -113,7 +126,7 @@ function R:draw()
     self:view();local cells={}
     for index,label in ipairs(self.labels) do
         local bar=self.w.arrangeBar+index;local at=(Format.barStart(self.w.project,bar)*4-self.start)*self.cw
-        label.layout.props.text=tostring(bar);label.layout.props.position=v(self.x+at,269);self.owner.window:update(label)
+        label.layout.props.text=tostring(bar);label.layout.props.position=v(self.x+at,self.y-23);self.owner.window:update(label)
         cells[#cells+1]=rect(at,0,1,self.rh-3,c.line)
     end
     for _,grid in ipairs(self.grids) do grid.layout.content=ui.content(cells);self.owner.window:update(grid) end

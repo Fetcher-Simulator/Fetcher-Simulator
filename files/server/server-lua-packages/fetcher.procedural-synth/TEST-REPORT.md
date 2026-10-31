@@ -1,5 +1,28 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## October 31: recording and editor navigation (package 60 / API 25)
+
+Deterministic UI regressions exercise Record/Keep/Cancel on an initially empty
+Piano part, persistent growing held-note widgets, uncommitted note isolation,
+time following, keyboard/Piano navigation and expanded-editor Escape during a
+take. Workstation checks cover recording beyond the original end, starting past
+the old end, atomic complete-bar song growth with Undo/Redo, cancellation,
+explicit bounded mode, shared-source/overdub boundaries and the 256-bar safety
+end preserving its final gate.
+
+Native-clock adapter tests validate split count-in/record-click schedules, local
+preference persistence, live mute/level changes preserving the clock and held
+physical MIDI gates, a self-closing click test, timestamp compensation and the
+30-minute bound. Count-in patch, gate, pitch and velocities retain their old
+values; the user's missing-count-in report was resolved by monitor volume.
+
+UI tests also scroll beyond existing clips without history/length mutations,
+Ctrl-wheel zoom, expand/restore the arrangement, and update first-start Piano /
+arrangement playheads below the meter-refresh interval. Manual scrolling stays
+put across subsequent playback redraws. All 30 Lua suites pass. No native code
+or executable changes are needed. These are automated checks; a fresh in-game
+visual/audio review remains for the next user test session.
+
 ## October 31: recorded clip versus shared range (package 59 / API 25)
 
 A regression reproduces a captured four-bar piano recording with four saved

@@ -2,6 +2,7 @@ local root='files/server/server-lua-packages/fetcher.procedural-synth/';local pr
 local schema=dofile(root..'shared/schema.lua');local factory=dofile(root..'shared/project.lua');local format=factory(schema)
 package.loaded[prefix..'shared.schema']=schema;package.loaded[prefix..'shared.project']=factory
 package.loaded[prefix..'client.midi']=dofile(root..'client/midi.lua');package.loaded[prefix..'client.soundsets']=dofile(root..'client/soundsets.lua')
+package.loaded[prefix..'client.arrangement']=dofile(root..'client/arrangement.lua')
 local W=dofile(root..'client/workstation.lua');local now,playing,time=100,false,0;local on,off=0,0
 local checks=0;local function check(b,m) checks=checks+1;assert(b,m) end
 local function make()
@@ -50,4 +51,28 @@ check(not q:endTake(false) and q.failedTake and #q.failedTake.notes==1,'failed c
 q.project.tracks[1].notes={};check(q:recoverTake() and #q:noteData(1)==1 and not q.failedTake,'Retry commits the preserved take after capacity is freed')
 q.playing=true;q.native=true;q.mode='clips';playing=false;q.awaiting=false;q:startTake(1);q.playing=false;q:recordFrame()
 check(not q.recording,'transport ending before capture does not leave a permanently armed take')
-print('PASS quantized takes, count-in, native overdub, chords, loop/end cleanup, cancel, history and saved MIDI timing; '..checks..' assertions')
+-- Long stopped takes keep the saved song unchanged until Keep, then grow it atomically.
+do
+    local q=make();assert(q:newSong(120,4,4,1));q.cb.recordOptions=function() return {countIn=0,latency=0,untilStop=true} end
+    now=500;local history=#q.undoStack;local generation=q.generation
+    assert(q:startTake(1));now=503;assert(q:recordOn(60,.8));now=506;assert(q:recordOff(60));q:recordFrame()
+    check(q.recording and q.project.composition.bars==1 and q.generation==generation,'stopped song recording survives original end without editing saved length')
+    assert(q:endTake(false));check(q.project.composition.bars==3 and q.project.timeline.beats==12 and q.project.composition.loopEnd==3,'Keep grows song and old full-song loop to complete bars')
+    check(#q.undoStack==history+1 and q:noteData(1)[1].s==24 and q:noteData(1)[1].l==24,'long take and length growth are one musical edit')
+    assert(q:undo());check(q.project.composition.bars==1 and #q:noteData(1)==0,'Undo removes recording and restores length together')
+    assert(q:redo());check(q.project.composition.bars==3 and #q:noteData(1)==1,'Redo restores recording and matching length')
+    q.rollStart=64;now=507;assert(q:startTake(1));check(q.recording.startStep==64,'until Keep allows starting from a view beyond the current song end');q:endTake(true);q.rollStart=0
+    now=510;history=#q.undoStack;assert(q:startTake(1));now=520;assert(q:recordOn(64,1));assert(q:endTake(true))
+    check(q.project.composition.bars==3 and #q.undoStack==history and #q:noteData(1)==1,'Cancel beyond the original end preserves project and history')
+    q.cb.recordOptions=function() return {countIn=0,latency=0,untilStop=false} end
+    now=530;assert(q:startTake(1));now=537;q:recordFrame();check(not q.recording,'explicit bounded recording preference retains song-end behavior')
+    q.cb.recordOptions=function() return {countIn=0,latency=0,untilStop=true} end
+    q:selectAllNotes(1);assert(q:captureClip(1));assert(q:editClip(1,1));now=540;assert(q:startTake(1))
+    check(q.recording.limit==q:clipSource(1).length,'shared-source recording cannot extend linked clip length implicitly');q:endTake(true)
+    assert(q:leaveClip());now=550;q.playing=true;q.native=true;q.mode='song';q.awaiting=false;playing=true;time=.1
+    assert(q:startTake(1));check(q.recording.overdub and q.recording.limit==q.project.timeline.beats*4,'until Keep never expands a running overdub range');q:endTake(true)
+    q.playing=false;playing=false;assert(q:newSong(120,4,4,1));now=600;assert(q:startTake(1));q.rollStart=0
+    now=1111.5;assert(q:recordOn(67,.8));now=1112.1;q:recordFrame()
+    check(not q.recording and q.project.composition.bars==256 and q:noteData(1)[1].s+q:noteData(1)[1].l==4096,'safety end keeps the final held gate inside the authored 256-bar limit')
+end
+print('PASS quantized takes, count-in, native overdub, long takes/growth/Undo, cancel, history and saved MIDI timing; '..checks..' assertions')

@@ -8,9 +8,10 @@ local checks=0;local function check(ok,msg) checks=checks+1;assert(ok,msg) end
 local now=100;local messages,ons,offs,created={},{},{},{}
 local store={};local section={get=function(_,k) return store[k] end,set=function(_,k,v) store[k]=v end}
 local function engineClock()
-    local a={playing=false,audiblePosition=0,closed=false}
-    function a:configure(_,p) check(schema.state(p),'click patch validates');return true end
-    function a:effects() return true end
+    local a={playing=false,audiblePosition=0,closed=false,patches={}}
+    function a:configure(lane,p) check(schema.state(p),'click patch validates');self.patches[lane]=p;return true end
+    function a:set(lane,key,value) self.patches[lane][key]=value;return true end
+    function a:effects(_,master) self.master=master;return true end
     function a:loadScore(bytes,length,loop) self.bytes=bytes;self.length=length;self.loop=loop;return #bytes==0 or Sequence.validate(bytes,length,loop) end
     function a:start(delay,offset) self.playing=true;self.delay=delay;self.offset=offset;return true end
     function a:close() self.closed=true;self.playing=false end
@@ -24,19 +25,25 @@ local engine={createMonitor=engineClock,midiDevices=function() return {{id=0,nam
 local r=R.new(w,engine,{getRealTime=function() return now end},{},section,function(m) messages[#messages+1]=m end)
 w.recorder=r;w.cb.recordOptions=function() return R.options(r.settings) end;w.cb.recordStart=function(t) return r:start(t) end;w.cb.recordEnd=function() r:ended() end
 assert(w:newSong(120,4,4,8));w.snap=0
-check(r.settings.countIn==1 and not r.settings.metronome and r.settings.latency==0,'recording defaults are local and click is opt-in')
+check(r.settings.countIn==1 and not r.settings.metronome and r.settings.recordClick and r.settings.untilStop and r.settings.latency==0,'recording click/long takes default on independently of opt-in playback click')
+assert(r:set('untilStop',false))
 check(r.settings.countClick,'count-in clicks default on independently of continuous metronome')
-assert(w:startTake(1));check(#r.clock.bytes/11==4,'default count-in has four audible clicks without song metronome');w:endTake(true)
-assert(r:set('countClick',false));assert(w:startTake(1));check(#r.clock.bytes==0,'explicit silent count-in remains available');w:endTake(true)
+assert(w:startTake(1));check(#r.clock.bytes/11==36 and r.clock.patches[1].volume==.55 and r.clock.patches[2].volume==.55,'default count-in and independent recording clicks share one native clock');w:endTake(true)
+assert(r:set('countClick',false));assert(w:startTake(1));check(r.clock.patches[1].volume==0 and r.clock.patches[2].volume==.55,'explicit silent count-in leaves recording click enabled');w:endTake(true)
 assert(r:set('countClick',true))
 local gen=w.generation;assert(r:set('countIn',2));assert(r:set('metronome',true));assert(r:set('latency',100))
 check(w.generation==gen and not r:set('countIn',3) and not r:set('latency',math.huge),'settings avoid document history and reject unsupported values')
 check(w:startTake(1) and math.abs(w.recording.starts-now-4.15)<1e-7,'two-bar native count-in includes scheduled lead: '..table.concat(messages,' / '))
 local a=r.clock;check(a and #a.bytes/11==40 and a.delay==.15,'count-in and song click are one native schedule')
 check(not r:set('latency',0),'settings cannot move an armed take clock')
+local clockStart=w.recording.starts
+assert(r:set('recordClick',false));assert(r:set('clickVolume',.7))
+check(r.clock==a and not a.closed and a.patches[2].volume==0 and a.patches[1].volume==.55 and a.master==.7 and w.recording.starts==clockStart,'live record-click mute/volume preserve count-in, clock and onset')
+assert(r:set('recordClick',true))
 now=104.25;a.audiblePosition=4.1
 check(w:recordOn(60,.8) and math.abs(w.recording.held[60].raw)<1e-6,'positive compensation clamps to capture origin')
 now=104.65;a.audiblePosition=4.5
+assert(r:set('clickVolume',.55));check(w.recording.held[60]~=nil,'adjusting click volume never releases a held recorded note')
 w:recordOff(60,nil,.1);check(w:endTake(false) and #w:noteData(1)==1,'timestamped off keeps the captured take')
 check(math.abs(w:noteData(1)[1].l-2.4)<.01 and a.closed,'event age and compensation are applied once; Keep closes click')
 assert(r:set('countIn',0));assert(r:set('latency',0));now=200;assert(w:startTake(1));a=r.clock
@@ -90,14 +97,21 @@ check(ons[#ons][1]==0 and r.inputTrack==0,'manual Synth monitors channel zero ra
 before=#offs;r:frame('piano',1)
 check(#offs==before+1 and offs[#offs][1]==0 and not r.counts[61] and r.input==input,'destination switch releases manual gate without disconnecting')
 check(w.generation==generation,'unarmed playing does not insert notes or edit history')
+batch={{status=144,channel=1,a=69,b=90,age=0}};r:frame('piano',1);before=#offs
+assert(r:set('recordClick',false));assert(r:set('clickVolume',.45))
+check(r.counts[69]==1 and #offs==before and r.input==input,'live click controls preserve physical MIDI gates and connection')
 r:frame(false);check(closed and not r.input,'Hide still closes device after normal-page monitoring')
+assert(r:testClick());a=r.clock
+check(r.clockKind=='test' and #a.bytes/11==4 and a.master==.45,'Test click uses the saved level without arming a take')
+a.playing=false;now=now+3;r:frame('recordsetup')
+check(not r.clock and a.closed,'short click test cleans itself up')
 -- Tap calibration computes timing bias robustly, with explicit Apply and local persistence.
 local bias,jitter=R.calculation{80,81,79,82,80,81,79,190};check(bias==80.5 and jitter==1,'median/MAD calibration resists an isolated bad tap')
 check(not R.calculation{10,11},'too few calibration taps cannot produce a result')
 local calibrationGeneration=w.generation;assert(r:beginCalibration());a=r.clock
 for beat=2,9 do a.audiblePosition=beat*.5+.08;assert(r:tap()) end
 check(r:applyCalibration() and r.settings.latency==80 and store.latency==80 and a.closed,'eight taps apply local compensation and stop calibration')
-local reload=R.new(w,engine,{},{},section,function() end);check(reload.settings.latency==80 and reload.settings.countIn==0,'recording preferences survive local recreation')
+local reload=R.new(w,engine,{},{},section,function() end);check(reload.settings.latency==80 and reload.settings.countIn==0 and not reload.settings.recordClick and not reload.settings.untilStop,'recording preferences survive local recreation')
 check(w.generation==calibrationGeneration,'calibration does not change musical document history')
 now=300;assert(w:startTake(1));r.clock.closed=true;r:frame('record')
 check(not w.recording and not r.clock,'failed native clock during count-in cannot leave an armed take stuck')

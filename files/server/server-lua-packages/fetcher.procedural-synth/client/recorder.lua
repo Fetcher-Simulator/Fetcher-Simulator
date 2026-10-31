@@ -7,20 +7,20 @@ local function pack(n) local a=n%256;n=math.floor(n/256);local b=n%256;n=math.fl
 function R.options(values)
     values=values or {};local bars=values.countIn
     return {countIn=({[0]=true,[1]=true,[2]=true,[4]=true})[bars] and bars or 1,
-        metronome=values.metronome==true,countClick=values.countClick~=false,clickVolume=finite(values.clickVolume,0,1) and values.clickVolume or .55,
+        metronome=values.metronome==true,recordClick=values.recordClick~=false,untilStop=values.untilStop~=false,countClick=values.countClick~=false,clickVolume=finite(values.clickVolume,0,1) and values.clickVolume or .55,
         latency=finite(values.latency,-250,250) and values.latency or 0,
         channel=finite(values.channel,0,16) and values.channel%1==0 and values.channel or 0}
 end
-function R.plan(w,mode,first,last,loop,count,enabled,countClick)
+function R.plan(w,mode,first,last,loop,count,enabled,countClick,split)
     local song=mode=='song';local p=song and {timeline=w.project.timeline or w.song,composition=w.project.composition} or {}
     local function seconds(beat) return song and Format.seconds(p.timeline,beat) or beat*60/w.project.bpm end
     local origin=seconds(first);local duration=seconds(last)-origin+(count and count.duration or 0)
     assert(duration>0 and duration<=1800,'Count-in plus recording length must fit within 30 minutes.')
     local length=math.max(1,math.floor(duration*48000+.5));local bytes={};local previous=-2400
-    local function add(time,accent)
+    local function add(time,accent,lane)
         local frame=math.max(0,math.floor(time*48000+.5))
         if frame>=length or frame-previous<2400 then return end -- bounded 20 Hz at extreme meters/tempos
-        previous=frame;bytes[#bytes+1]=pack(frame)..pack(math.min(720,length-frame))..string.char(1,accent and 84 or 76,accent and 110 or 75)
+        previous=frame;bytes[#bytes+1]=pack(frame)..pack(math.min(720,length-frame))..string.char(lane or 1,accent and 84 or 76,accent and 110 or 75)
     end
     if enabled or countClick and count and count.duration>0 then
         assert(Format.barBoundaries(p,first,last,4097),'Metronome supports at most 4096 bars per take.')
@@ -33,14 +33,17 @@ function R.plan(w,mode,first,last,loop,count,enabled,countClick)
             while Format.barStart(p,bar)<last-1e-8 do
                 local start,finish=Format.barStart(p,bar),math.min(last,Format.barStart(p,bar+1));local _,d=Format.meterAt(p,start)
                 local beat=start;while beat<finish-1e-8 do
-                    if beat>=first-1e-8 then add((count and count.duration or 0)+seconds(beat)-origin,beat==start) end
+                    if beat>=first-1e-8 then add((count and count.duration or 0)+seconds(beat)-origin,beat==start,split and 2 or 1) end
                     beat=beat+4/d
                 end
                 bar=bar+1
             end
         end
     end
-    return {bytes=table.concat(bytes),length=length,loop=loop}
+    return {bytes=table.concat(bytes),length=length,loop=loop,split=split}
+end
+function R.clickPatch(enabled)
+    return schema.state{volume=enabled and .55 or 0,wave1=0,attack=.002,decay=.018,sustain=0,release=.01,cutoff=16000,polyphony=2}
 end
 function R.calculation(taps)
     if #taps<8 then return end
@@ -50,23 +53,34 @@ function R.calculation(taps)
     return value,median(deviations)
 end
 function R.new(w,engine,core,self,storage,message)
-    local saved={};for _,key in ipairs{'countIn','countClick','metronome','clickVolume','latency','channel'} do saved[key]=storage:get(key) end
+    local saved={};for _,key in ipairs{'countIn','countClick','recordClick','untilStop','metronome','clickVolume','latency','channel'} do saved[key]=storage:get(key) end
     return setmetatable({w=w,engine=engine,core=core,self=self,storage=storage,message=message,settings=R.options(saved),keys={},counts={},pedal={},taps={},inputStatus='Disconnected'},R)
 end
 function R:set(key,value)
-    if self.w.recording then self.message('Keep or cancel the take before changing recording settings.');return false end
+    local live=key=='recordClick' or key=='countClick' or key=='clickVolume'
+    if self.w.recording and not live then self.message('Keep or cancel the take before changing timing or input settings.');return false end
     local candidate={};for k,v in pairs(self.settings) do candidate[k]=v end;candidate[key]=value;candidate=R.options(candidate)
     if candidate[key]~=value then return false end
-    self:releaseInput();self.settings=candidate;self.storage:set(key,value);self:stopClock();self.w.revision=self.w.revision+1;return true
+    if not live then self:releaseInput();self:stopClock() end
+    self.settings=candidate;self.storage:set(key,value)
+    if live and self.clock then
+        self.clock:effects({},self.settings.clickVolume)
+        if self.clockSplit then
+            self.clock:set(1,'volume',self.settings.countClick and .55 or 0)
+            self.clock:set(2,'volume',self.settings.recordClick and .55 or 0)
+        end
+    end
+    self.w.revision=self.w.revision+1;return true
 end
-function R:stopClock() if self.clock then self.clock:close();self.clock=nil end;self.clockKind=nil;self.calibrating=false end
+function R:stopClock() if self.clock then self.clock:close();self.clock=nil end;self.clockKind=nil;self.clockSplit=nil;self.calibrating=false end
 function R:clockFor(plan,delay,offset)
     self:stopClock();assert(self.engine.createMonitor,'Recording clock requires native synth API 15.')
-    local a=self.engine.createMonitor(self.self);self.clock=a;self.clockLength=plan.length/48000
+    local a=self.engine.createMonitor(self.self);self.clock=a;self.clockLength=plan.length/48000;self.clockSplit=plan.split
     if #plan.bytes>0 then
-        assert(a:configure(1,schema.state{volume=.55,wave1=0,attack=.002,decay=.018,sustain=0,release=.01,cutoff=16000,polyphony=2},self.settings.clickVolume))
+        assert(a:configure(1,R.clickPatch(not plan.split or self.settings.countClick),1))
+        if plan.split then assert(a:configure(2,R.clickPatch(self.settings.recordClick),1)) end
     end
-    assert(a:effects({},1) and a:loadScore(plan.bytes,plan.length,plan.loop) and a:start(delay or .15,offset or 0),'Local recording clock could not start.')
+    assert(a:effects({},self.settings.clickVolume) and a:loadScore(plan.bytes,plan.length,plan.loop) and a:start(delay or .15,offset or 0),'Local recording clock could not start.')
     return a
 end
 function R:start(r)
@@ -77,11 +91,23 @@ function R:start(r)
     local ok,err=pcall(function()
         assert(count.duration<1800,'Count-in exceeds the native 30-minute clock limit.')
         r.limit=math.min(r.limit,self.w:beatAt(r.seconds+1800-count.duration,r.mode)*4)
-        local a=self:clockFor(R.plan(self.w,r.mode,r.startStep/4,r.limit/4,false,count,r.options.metronome,r.options.countClick))
+        local timing=r.mode=='song' and {timeline=self.w.project.timeline or self.w.song,composition=self.w.project.composition} or {}
+        r.limit=math.min(r.limit,Format.barStart(timing,Format.barAt(timing,r.startStep/4)+4096)*4)
+        local a=self:clockFor(R.plan(self.w,r.mode,r.startStep/4,r.limit/4,false,count,true,true,true))
         self.clockKind='take';r.starts=r.starts+.15
         r.clock=function() if not self.clock or not a.playing then return end;return a.audiblePosition-count.duration end
     end)
     if not ok then self:stopClock();self.message(tostring(err));return false end;return true
+end
+function R:testClick()
+    if self.w.recording then self.message('The take is using the recording clock; change Click volume or Record click instead.');return false end
+    if self.clockKind=='test' then self:stopClock();self.w.revision=self.w.revision+1;return true end
+    local ok,err=pcall(function()
+        self:clockFor(R.plan({project={bpm=120}},'clips',0,4,false,nil,true),.15)
+        self.clockKind='test';self.testStarted=self.core.getRealTime()
+    end)
+    if not ok then self:stopClock();self.message(tostring(err));return false end
+    self.w.revision=self.w.revision+1;return true
 end
 function R:ended() self:releaseInput();if self.clockKind=='take' then self:stopClock() end end
 function R:devices() return self.engine.midiDevices and self.engine.midiDevices() or {} end
@@ -167,7 +193,7 @@ function R:frame(visible,track)
     if self.clockKind=='take' and self.clock and w.recording then
         if self.clock.closed or (self.clock.fault or 0)~=0 or not self.clock.playing and self.core.getRealTime()>w.recording.starts+.75 then
             local complete=(self.clock.position or 0)>=(self.clockLength or math.huge)
-            w:endTake(false,complete and w.recording.limit or nil);self:stopClock()
+            if complete then w:autoEndTake(w.recording.limit) else w:endTake(false) end;self:stopClock()
             if not complete then self.message('Recording clock stopped; partial take kept.') end
         end
     end
@@ -181,9 +207,11 @@ function R:frame(visible,track)
             if visible then if not self:event(e) then self:releaseInput() end end
         end end
     end
-    if not self.calibrating and self.clockKind~='take' then
+    if self.clockKind=='test' and self.clock and not self.clock.playing and self.core.getRealTime()>(self.testStarted or 0)+.75 then self:stopClock();w.revision=w.revision+1 end
+    if not self.calibrating and self.clockKind~='take' and self.clockKind~='test' then
         local playing,time=false,0;if w.cb.progress then playing,time=w.cb.progress() end
-        if self.settings.metronome and w.playing and w.native and not w.awaiting and playing then
+        local wanted=w.recording and self.settings.recordClick or not w.recording and self.settings.metronome
+        if wanted and w.playing and w.native and not w.awaiting and playing then
             if not self.clock then
                 local mode=w.mode=='song' and 'song' or 'clips';local first,last=Format.songRange(w.project)
                 if mode~='song' or not first then first=0;last=mode=='song' and (w.project.timeline or w.song).beats or (w:clipSource() and w:clipSource().length or w.project.length)/4 end

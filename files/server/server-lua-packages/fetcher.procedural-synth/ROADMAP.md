@@ -11,6 +11,13 @@ not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
 
+Package 60 adds direct Piano recording with live uncommitted notes, independent
+recording clicks and stopped Record until Keep with atomic song-length growth.
+Fixed shared-source/overdub limits remain explicit. The arranger gains blank
+workspace, Ctrl-wheel zoom and an expanded editor; playheads update on first
+start and after redraws. Count-in tone/level are unchanged. Native API remains 25.
+These workflow fixes precede the remaining instrument and sound-design work.
+
 Package 59 clarifies the shared Play clips loop range, adds an explicit Piano /
 header Fit clips action, and warns when a shorter range crops authored material.
 Recorded clip notes are preserved; fitting changes only the bounded pattern

@@ -205,42 +205,44 @@ function S:openArranger()
 end
 function S:arrange(content)
     local w,p=self.w,self.w.project;local index=w.selected;local t=p.tracks[index]
+    local top=self.arrangeFocus and 55 or 166
     local footer=self.height-103
-    local function zoom(factor) w.arrangeBars=math.max(1,math.min(64,(w.arrangeBars or 8)*factor));w.revision=w.revision+1 end
-    content[#content+1]=self:button('< time',20,166,65,function() w.arrangeBar=math.max(0,(w.arrangeBar or 0)-(w.arrangeBars or 8));w.revision=w.revision+1 end)
-    content[#content+1]=label('From bar '..((w.arrangeBar or 0)+1),98,172,140,12,c.accent)
-    content[#content+1]=self:button('time >',250,166,65,function() w.arrangeBar=(w.arrangeBar or 0)+(w.arrangeBars or 8);w.revision=w.revision+1 end)
-    content[#content+1]=self:button((w.arrangeBars or 8)..' bars in view v',330,166,145,function()
+    local function zoom(factor) self:zoomArrange(factor) end
+    content[#content+1]=self:button('< time',20,top,65,function() w.arrangeBar=math.max(0,(w.arrangeBar or 0)-(w.arrangeBars or 8));w.revision=w.revision+1 end)
+    content[#content+1]=label('From bar '..((w.arrangeBar or 0)+1),98,top+6,140,12,c.accent)
+    content[#content+1]=self:button('time >',250,top,65,function() w.arrangeBar=(w.arrangeBar or 0)+(w.arrangeBars or 8);w.revision=w.revision+1 end)
+    content[#content+1]=self:button((w.arrangeBars or 8)..' bars in view v',330,top,145,function()
         local choices={};for _,n in ipairs{1,2,4,8,16,32,64} do choices[#choices+1]={id=n,label=n..' bars'} end
-        Dropdown.open(self,choices,w.arrangeBars or 8,function(id) w.arrangeBars=id;w.revision=w.revision+1 end,390,198,390)
+        Dropdown.open(self,choices,w.arrangeBars or 8,function(id) w.arrangeBars=id;w.revision=w.revision+1 end,390,top+32,390)
     end)
-    self:pageSelector(content,'arrangePage','Tracks',625,166,265)
-    content[#content+1]=label(t and t.name or 'Select a track',20,212,210,13,c.accent)
-    content[#content+1]=self:button('Zoom -',485,166,60,function() zoom(2) end)
-    content[#content+1]=self:button('Zoom +',550,166,60,function() zoom(.5) end)
+    self:pageSelector(content,'arrangePage','Tracks',625,top,125)
+    content[#content+1]=label(t and t.name or 'Select a track',20,top+46,210,13,c.accent)
+    content[#content+1]=self:button('Zoom -',485,top,60,function() zoom(2) end)
+    content[#content+1]=self:button('Zoom +',550,top,60,function() zoom(.5) end)
+    content[#content+1]=self:button(self.arrangeFocus and 'Back [Esc]' or 'Expand',760,top,130,function() self:setArrangeFocus(not self.arrangeFocus) end)
     local id=w.arrangeClip or 1;local clips=t and t.arrangement and t.arrangement.clips or {};local clip=clips[id]
-    content[#content+1]=self:button((clip and clip.name or 'Choose source clip')..' v',240,205,240,function()
+    content[#content+1]=self:button((clip and clip.name or 'Choose source clip')..' v',240,top+39,240,function()
         local choices={};for n,source in ipairs(clips) do choices[#choices+1]={id=n,label=source.name} end
-        Dropdown.open(self,choices,id,function(value) w.arrangeClip=value;w.regionSelection={};w.regionIndex=nil;w.revision=w.revision+1 end,240,237,470)
+        Dropdown.open(self,choices,id,function(value) w.arrangeClip=value;w.regionSelection={};w.regionIndex=nil;w.revision=w.revision+1 end,240,top+71,470)
     end)
-    content[#content+1]=self:button('Edit source',495,205,110,function() if clip then self:releaseAll();w:editClip(index,id) end end)
-    content[#content+1]=self:button('Capture pattern',620,205,125,function() self:releaseAll();w:capturePattern() end)
-    content[#content+1]=self:button('+ Empty clip',760,240,130,function() if w:newClip(index) then w.revision=w.revision+1 end end)
-    content[#content+1]=self:button('Delete source',760,205,130,function() w:deleteClip(index,id) end)
+    content[#content+1]=self:button('Edit source',495,top+39,110,function() if clip then self:releaseAll();w:editClip(index,id) end end)
+    content[#content+1]=self:button('Capture pattern',620,top+39,125,function() self:releaseAll();w:capturePattern() end)
+    content[#content+1]=self:button('+ Empty clip',760,top+74,130,function() if w:newClip(index) then w.revision=w.revision+1 end end)
+    content[#content+1]=self:button('Delete source',760,top+39,130,function() w:deleteClip(index,id) end)
     if clip then
         local draft=clip.name
         local function rename() self.typing=false;if draft~=clip.name then w:setClip(index,id,{name=draft}) end end
-        content[#content+1]=self:element{type=ui.TYPE.TextEdit,props={position=v(20,241),size=v(190,25),text=clip.name,textSize=12,textColor=c.text},events={
+        content[#content+1]=self:element{type=ui.TYPE.TextEdit,props={position=v(20,top+75),size=v(190,25),text=clip.name,textSize=12,textColor=c.text},events={
             textChanged=cb(function(text) draft=text:gsub('%c',''):sub(1,32) end),focusGain=cb(function() self.typing=true end),focusLoss=cb(rename),
             keyPress=cb(function(e) if e.code==input.KEY.Escape then self:key(e.code,true) elseif e.code==input.KEY.Enter or e.code==input.KEY.NP_Enter then rename() end end)}}
-        content[#content+1]=self:button(string.format('Source: %.2g quarters v',clip.length/4),225,240,175,function()
+        content[#content+1]=self:button(string.format('Source: %.2g quarters v',clip.length/4),225,top+74,175,function()
             local choices={};local bar=4
             for n=1,math.floor(Project.maxSteps/bar) do choices[#choices+1]={id=n*bar,label=n..' quarters'} end
-            Dropdown.open(self,choices,clip.length,function(length) w:setClip(index,id,{length=length}) end,225,272,430)
+            Dropdown.open(self,choices,clip.length,function(length) w:setClip(index,id,{length=length}) end,225,top+106,430)
         end)
     end
     local selected=p.tracks[w.regionTrack or 0];local region=selected and selected.arrangement and selected.arrangement.regions[w.regionIndex or 0]
-    content[#content+1]=label(region and string.format('Placement: bar %.2f, %.2f bars, %+d semitones',Project.barPosition(p,region.s/4),Project.barPosition(p,(region.s+region.l)/4)-Project.barPosition(p,region.s/4),region.transpose) or 'Click an empty bar to place a source.',420,246,330,11,c.muted)
+    content[#content+1]=label(region and string.format('Placement: bar %.2f, %.2f bars, %+d semitones',Project.barPosition(p,region.s/4),Project.barPosition(p,(region.s+region.l)/4)-Project.barPosition(p,region.s/4),region.transpose) or 'Click an empty bar to place a source.',420,top+80,330,11,c.muted)
     self.arranger=Arranger.new(self,content)
     content[#content+1]=self:button('Duplicate placement',20,footer,170,function() w:batchRegions('duplicate') end)
     content[#content+1]=self:button('Remove placement',205,footer,165,function() w:batchRegions('remove') end)
@@ -266,7 +268,7 @@ function S:arrange(content)
         content[#content+1]=Controls.slider(self,'regionOffset','Source offset (quarters)',{min=0,max=math.max(0,source.length/4-1/960),step=.0625},
             function() return (w.project.tracks[offsetTrack].arrangement.regions[offsetRegion].offset or 0)/4 end,function(value) w:changeRegion(offsetTrack,offsetRegion,{offset=value*4}) end,605,footer+36,285)
     end
-    content[#content+1]=label('Shift-click selects; drag moves the group in time. Right edge resizes one. Unique separates sources. Ctrl+A/D, Delete, arrows.',20,footer+87,880,10,c.muted)
+    content[#content+1]=label('Wheel: time; Ctrl-wheel: zoom. Shift-click selects; drag moves; right edge resizes. Ctrl+A/D, Delete, arrows.',20,footer+87,self.width-45,10,c.muted)
 end
 function S:automation(content)
     local w,p=self.w,self.w.project;local t=p.tracks[w.selected]
@@ -542,7 +544,7 @@ function S:piano(content)
     content[#content+1]=self:button('Guitar / bass tools',320,tools,140,function() self:releaseAll();w:openGuitarTools() end)
     content[#content+1]=self:button('Fit clips',470,tools,90,function() w:fitClipLoop() end)
     for row=0,roll.rows-1 do content[#content+1]=label(pitch(roll.base+roll.rows-1-row),20,roll.y+row*roll.rh+3,52,12,c.muted) end
-    self.playhead=self:element(rect(76,roll.y-5,3,4,c.accent));content[#content+1]=self.playhead
+    self.playhead=self:element(rect(76,roll.y,2,roll.height,c.accent));content[#content+1]=self.playhead
     content[#content+1]=self:button('Oct -',20,footer,62,function() w.base=math.max(0,roll.base-12);w.revision=w.revision+1 end)
     content[#content+1]=self:button('Oct +',90,footer,62,function() w.base=math.min(128-roll.rows,roll.base+12);w.revision=w.revision+1 end)
     content[#content+1]=self:button('< time',175,footer,70,function() self.roll:pan(-roll.steps) end)
@@ -562,8 +564,14 @@ function S:piano(content)
         {'Duplicate',function() w:duplicateNotes(w.selected) end},{'Delete',function() w:deleteNotes(w.selected) end}} do
         content[#content+1]=self:button(entry[1],20+(n-1)*116,self.height-93,106,entry[2])
     end
-    content[#content+1]=self:button('Record keyboard >',self.width-330,self.height-93,285,function() w.page='record';w.revision=w.revision+1 end)
-    content[#content+1]=label(source and 'Shared source: edits update all linked placements. Record while stopped; Play source auditions this clip.' or t.kind=='midi' and not t.edited and 'Read only: Edit MIDI creates saved notes; the original file stays intact.' or 'Click adds. Right-click deletes. Shift-click selects. Drag moves; drag the right edge resizes.',20,self.height-51,self.width-45,12,c.muted)
+    content[#content+1]=self:button(w.recording and 'RECORDING' or 'Record',self.width-330,self.height-93,100,function()
+        if w.recording then w:endTake(false) else if self.roll then self.roll:finish(false) end;w:startTake(w.selected) end
+    end,w.recording~=nil)
+    content[#content+1]=self:button('Keep',self.width-220,self.height-93,80,function() w:endTake(false) end)
+    content[#content+1]=self:button('Cancel',self.width-130,self.height-93,85,function() w:endTake(true) end)
+    content[#content+1]=self:button('Keyboard / setup',self.width-330,self.height-56,135,function() w.page='record';w.revision=w.revision+1 end)
+    if w.recorder then content[#content+1]=self:button(w.recorder.settings.recordClick and 'Record click: On' or 'Record click: Off',self.width-185,self.height-56,140,function() w.recorder:set('recordClick',not w.recorder.settings.recordClick) end,w.recorder.settings.recordClick) end
+    content[#content+1]=label(source and 'Shared source: edits update all linked placements. Record while stopped; Play source auditions this clip.' or t.kind=='midi' and not t.edited and 'Read only: Edit MIDI creates saved notes; the original file stays intact.' or 'Click adds. Right-click deletes. Shift-click selects. Drag moves; drag the right edge resizes.',20,self.height-51,self.width-380,11,c.muted)
     if source then content[#content+1]=self:button('Play source',self.width-195,tools,150,function() w:playClip() end) end
     content[#content+1]=label('Ctrl+A/C/V/D, Delete, arrow keys. Wheel: pitch; Shift-wheel: time; Ctrl-wheel: zoom.',20,self.height-25,self.width-45,12,c.muted)
 end
@@ -586,11 +594,12 @@ function S:record(content)
     content[#content+1]=self:button('Start take',20,265,150,function() w:startTake(w.selected) end)
     content[#content+1]=self:button('Keep take',185,265,150,function() w:endTake(false) end)
     content[#content+1]=self:button('Cancel take',350,265,150,function() w:endTake(true) end)
-    content[#content+1]=self:button('Recording setup >',515,265,220,function() self:releaseAll();w.page='recordsetup';w.revision=w.revision+1 end)
+    content[#content+1]=self:button('Recording setup >',515,265,220,function() self:releaseRecordKeys();w.page='recordsetup';w.revision=w.revision+1 end)
     if w.failedTake then content[#content+1]=self:button('Retry take',750,265,145,function() w:recoverTake() end) end
     self.recordText=self:element(label(w:recordStatus(),20,320,875,17,c.accent));content[#content+1]=self.recordText
-    content[#content+1]=label('Stopped: configured count-in from the piano view. Setup controls click, MIDI input and timing compensation.',20,365,880,12,c.muted)
-    content[#content+1]=label(source and 'Shared source: record while stopped. The take ends at source length and updates all linked placements.' or 'Piano clips record to the next loop boundary. Edited MIDI records on the full song timeline.',20,393,880,12,c.muted)
+    if w.recorder then content[#content+1]=self:button(w.recorder.settings.recordClick and 'Record click: On' or 'Record click: Off',20,360,190,function() w.recorder:set('recordClick',not w.recorder.settings.recordClick) end,w.recorder.settings.recordClick)
+    content[#content+1]=self:button(w.recorder.settings.untilStop and 'Record until Keep: On' or 'Record until Keep: Off',225,360,250,function() w.recorder:set('untilStop',not w.recorder.settings.untilStop) end,w.recorder.settings.untilStop) end
+    content[#content+1]=label(source and 'Shared source has a fixed length. Record on a song part for a longer take.' or 'Stopped song takes can grow the song until Keep. Overdubs retain the playback range/loop limit.',20,402,880,11,c.muted)
     content[#content+1]=self:button('Oct -',20,430,80,function() w.recordBase=math.max(0,base-12);w.revision=w.revision+1 end)
     content[#content+1]=self:button('Oct +',110,430,80,function() w.recordBase=math.min(103,base+12);w.revision=w.revision+1 end)
     content[#content+1]=label('Grid: '..(w.snap>0 and (w.snap..' sixteenth steps') or 'Off')..'  |  Notes use the selected track sound and band destination.',210,436,680,12,c.muted)
@@ -608,18 +617,20 @@ function S:record(content)
 end
 function S:recordSetup(content)
     local w=self.w;local r=w.recorder
-    content[#content+1]=self:button('< Recording',20,163,165,function() if r then r:stopClock() end;w.page='record';w.revision=w.revision+1 end)
+    content[#content+1]=self:button('< Recording',20,163,165,function() if r and not w.recording then r:stopClock() end;w.page='record';w.revision=w.revision+1 end)
     content[#content+1]=label('RECORDING SETUP / local player preferences',210,171,680,16,c.accent)
     if not r then content[#content+1]=label('Recording setup requires native synth API 15.',20,218,870,16);return end
     local o=r.settings
     content[#content+1]=self:button('Count-in: '..o.countIn..' bars v',20,217,240,function()
         Dropdown.open(self,{{id=0,label='No count-in'},{id=1,label='1 bar'},{id=2,label='2 bars'},{id=4,label='4 bars'}},o.countIn,function(n) r:set('countIn',n) end,20,249,470)
     end)
-    content[#content+1]=self:button(o.metronome and 'Metronome: On' or 'Metronome: Off',280,217,240,function() r:set('metronome',not o.metronome) end,o.metronome)
+    content[#content+1]=self:button(o.metronome and 'Playback click: On' or 'Playback click: Off',280,217,240,function() r:set('metronome',not o.metronome) end,o.metronome)
     content[#content+1]=Controls.slider(self,'clickVolume','Click volume',{min=0,max=1,unit='%',step=.01},function() return r.settings.clickVolume end,function(value) r:set('clickVolume',value) end,545,210,345)
+    content[#content+1]=self:button(r.clockKind=='test' and 'Stop test click' or 'Test click',20,253,240,function() r:testClick() end)
+    content[#content+1]=self:button(o.recordClick and 'Record click: On' or 'Record click: Off',280,253,240,function() r:set('recordClick',not o.recordClick) end,o.recordClick)
     content[#content+1]=self:button(o.countClick and 'Count-in click: On' or 'Count-in click: Off',545,253,345,function() r:set('countClick',not o.countClick) end,o.countClick)
-    content[#content+1]=Controls.slider(self,'recordLatency','Input compensation (ms)',{min=-250,max=250,unit='ms',step=1},function() return r.settings.latency end,function(value) r:set('latency',value) end,20,278,400)
-    content[#content+1]=label('Positive shifts captured notes earlier; negative later. Monitoring remains immediate.',445,291,445,12,c.muted)
+    content[#content+1]=Controls.slider(self,'recordLatency','Input compensation (ms)',{min=-250,max=250,unit='ms',step=1},function() return r.settings.latency end,function(value) r:set('latency',value) end,20,294,400)
+    content[#content+1]=label('Positive shifts captured notes earlier; negative later. Monitoring remains immediate.',445,307,445,12,c.muted)
     content[#content+1]=self:button((r.deviceName or 'Choose MIDI input')..' v',20,347,385,function()
         local choices={};for _,d in ipairs(r:devices()) do choices[#choices+1]={id=d.id,label=d.name} end
         if #choices==0 then ui.showMessage('No MIDI inputs detected. Connect a Windows MIDI device, then refresh.');return end
@@ -634,17 +645,30 @@ function S:recordSetup(content)
         local choices={{id=0,label='All channels'}};for n=1,16 do choices[#choices+1]={id=n,label='Channel '..n} end
         Dropdown.open(self,choices,o.channel,function(value) r:set('channel',value) end,20,350,450)
     end)
-    content[#content+1]=label('Input: '..r.inputStatus..' | Notes/velocity + sustain. Works across Studio tabs; Hide disconnects.',300,407,590,12,c.accent)
+    content[#content+1]=label('Input: '..r.inputStatus..' | Notes/velocity + sustain. Works across Studio tabs; Hide disconnects.',20,438,870,12,c.accent)
     content[#content+1]=self:button('Start tap calibration',20,464,245,function() r:beginCalibration() end)
     content[#content+1]=self:button('Tap / Space',280,464,180,function() r:tap() end,r.calibrating)
     content[#content+1]=self:button('Apply timing',475,464,180,function() r:applyCalibration() end)
-    content[#content+1]=self:button('Stop click',675,464,180,function() r:stopClock();w.revision=w.revision+1 end)
+    content[#content+1]=self:button(w.recording and 'Mute record click' or 'Stop click',675,464,180,function()
+        if w.recording then r:set('recordClick',false) else r:stopClock();w.revision=w.revision+1 end
+    end)
     local value,jitter=r.calculation(r.taps)
     content[#content+1]=label('Taps: '..#r.taps..(value and string.format(' | median %+.0f ms | spread %.0f ms',value,jitter) or ' | 8 steady taps required'),20,521,870,15,c.accent)
+    content[#content+1]=self:button(o.untilStop and 'Record until Keep: On' or 'Record until Keep: Off',545,395,345,function() r:set('untilStop',not o.untilStop) end,o.untilStop)
     content[#content+1]=label('Calibration stops song playback. Listen for 2 beats, then tap with the 120 BPM click (or MIDI keys).',20,563,870,12,c.muted)
     content[#content+1]=label('This measures your tap/input timing bias, not automatic hardware round-trip latency. Apply only a steady result.',20,593,870,12,c.muted)
     content[#content+1]=label('Count-in uses the local meter/tempo. Metronome is local, follows the song map and is never exported or relayed.',20,633,870,12,c.muted)
-    content[#content+1]=label('Settings stay on this player profile. Keep/Cancel a take before changing them. MIDI controllers/clock are later work.',20,665,870,11,c.muted)
+    content[#content+1]=label('Settings stay on this player profile. Click toggles/volume can change during a take; timing/input changes need Keep/Cancel.',20,665,870,11,c.muted)
+end
+function S:setArrangeFocus(active)
+    self.arrangeFocus=active;self.window.expanded=active
+    self.window.restoreExpanded=active and function() self:setArrangeFocus(false) end or nil
+    self.window:bounds();self.window.changed=true;self.w.revision=self.w.revision+1
+end
+function S:zoomArrange(factor)
+    local old=self.w.arrangeBars or 8;local bars=math.max(1,math.min(64,old*factor))
+    self.w.arrangeBar=math.max(0,math.floor((self.w.arrangeBar or 0)+old/2-bars/2+.5))
+    self.w.arrangeBars=bars;self.w.revision=self.w.revision+1
 end
 function S:zoomRoll(factor)
     local source=self.w:clipSource();local minimum=source and math.min(8,source.length) or 8
@@ -652,6 +676,7 @@ function S:zoomRoll(factor)
 end
 function S:wheel(delta)
     if self.arranger and self.w.page=='arrange' then
+        if input.isCtrlPressed and input.isCtrlPressed() then self:zoomArrange(delta>0 and .5 or 2);return end
         self.w.arrangeBar=math.max(0,math.min(self.arranger.maximum,(self.w.arrangeBar or 0)-math.floor(delta)));self.w.revision=self.w.revision+1;return
     end
     if not self.roll or self.w.page~='piano' then return end
@@ -860,12 +885,13 @@ function S:projects(content)
     content[#content+1]=label('Projects and recovery drafts belong to this character in the server database. MIDI exports stay local.',20,644,880,12,c.muted)
 end
 function S:render()
+    if self.arrangeFocus and self.w.page~='arrange' then self.arrangeFocus=false;self.window.expanded=false;self.window.restoreExpanded=nil end
     if self.pianoFocus and self.w.page~='piano' then self.pianoFocus=false;self.window.expanded=false;self.window.restoreExpanded=nil end
     self.window:bounds();self.width,self.height=self.window.canvasWidth,self.window.canvasHeight
     if self.samples and self.w.page~='samples' then self.samples:stop() end
     self.sampleStatus=nil
     if self.lastPage=='recordsetup' and self.w.page~='recordsetup' and self.w.recorder and self.w.recorder.calibrating then self.w.recorder:stopClock() end
-    if self.lastPage=='record' and self.w.page~='record' then self:releaseAll() end;self.lastPage=self.w.page
+    if self.lastPage=='record' and self.w.page~='record' then self:releaseRecordKeys() end;self.lastPage=self.w.page
     self.recordText=nil;self.recordKeyboard=nil
     self.controlEpoch=(self.controlEpoch or 0)+1;self.noteVelocityRefresh=nil
     if self.roll then self.roll:finish(true);self.roll=nil end
@@ -878,15 +904,15 @@ function S:render()
     for _,e in ipairs(self.children) do e:destroy() end
     self.children={};self.meters={};self.meterLabels={};self.returnMeter=nil;self.playhead=nil;self.grid=nil
     local w,p=self.w,self.w.project;local content={label('FETCHER STUDIO',20,15,215,18)}
-    if self.pianoFocus then
-        content={label('PIANO EDITOR',20,13,200,21,c.accent)}
+    if self.pianoFocus or self.arrangeFocus then
+        content={label(self.arrangeFocus and 'CLIP ARRANGEMENT' or 'PIANO EDITOR',20,13,200,21,c.accent)}
         content[#content+1]=self:button('Play song',230,12,96,self.cb.playSong)
         content[#content+1]=self:button(w:clipSource() and 'Play source' or 'Play clips',335,12,96,self.cb.playClips)
         content[#content+1]=self:button('Stop',440,12,58,self.cb.stop)
         self.transport=self:element(label('',515,18,self.width-755,12,c.accent));content[#content+1]=self.transport
         content[#content+1]=self:button('Undo',self.width-226,12,80,function() w:undo() end,#w.undoStack>0)
         content[#content+1]=self:button('Redo',self.width-133,12,80,function() w:redo() end,#w.redoStack>0)
-        self.bodyOffset=0;self:piano(content)
+        self.bodyOffset=0;if self.arrangeFocus then self:arrange(content) else self:piano(content) end
         self.root=self.window:root(content);self.revision=w.revision;return
     end
     local tabs={{'Synth',self.cb.synth},{'Song',function() w.page='song';w.revision=w.revision+1 end},{'Mixer',function() w.page='mixer';w.revision=w.revision+1 end},
@@ -944,8 +970,11 @@ function S:releaseAll()
     if self.roll then self.roll:finish(true) end
     if self.automationRoll then self.automationRoll:finish(true) end
     if self.arranger then self.arranger:finish(true) end
+    self:releaseRecordKeys();self.w:endTake(false)
+end
+function S:releaseRecordKeys()
     for note in pairs(self.recordHeld or {}) do self.w:recordOff(note) end
-    self.recordHeld={};self.recordKeys={};self.mouseRecord=nil;self.w:endTake(false)
+    self.recordHeld={};self.recordKeys={};self.mouseRecord=nil
 end
 function S:key(code,on)
     -- Focused native Lua widgets can consume key presses before onKeyPress.
@@ -957,12 +986,13 @@ function S:key(code,on)
     self.recordKeys=self.recordKeys or {}
     if not on and self.recordKeys[code] then self:recordKey(self.recordKeys[code],false);self.recordKeys[code]=nil;return end
     if self.dropdown then if on and code==input.KEY.Escape then Dropdown.close(self);self.restoreInterfaceFrames=2 end;return end
+    if on and code==input.KEY.Escape and self.arrangeFocus then self:setArrangeFocus(false);self.restoreInterfaceFrames=2;return end
     if on and code==input.KEY.Escape and self.pianoFocus then self:setPianoFocus(false);self.restoreInterfaceFrames=2;return end
     if on and code==input.KEY.Escape then if self.w.page=='guitar' then self.w.page='piano';self.w.revision=self.w.revision+1;self.restoreInterfaceFrames=2 elseif self.w.page=='rename' and self.cancelRename then self.cancelRename();self.restoreInterfaceFrames=2 else self.cb.hide() end;return end
     if not on or self.typing then return end
     local ctrl=input.isCtrlPressed and input.isCtrlPressed()
     if self.w.page=='recordsetup' and not ctrl and code==input.KEY.Space then if self.w.recorder then self.w.recorder:tap() end;return end
-    if self.w.page=='record' and not ctrl then
+    if (self.w.page=='record' or self.w.page=='piano' and self.w.recording) and not ctrl then
         for n,key in ipairs{input.KEY.Z,input.KEY.S,input.KEY.X,input.KEY.D,input.KEY.C,input.KEY.V,input.KEY.G,input.KEY.B,input.KEY.H,input.KEY.N,input.KEY.J,input.KEY.M,input.KEY.Comma} do
             if key==code and not self.recordKeys[code] then local note=(self.w.recordBase or 60)+n-1;self:recordKey(note,true);self.recordKeys[code]=note end
         end
@@ -1000,6 +1030,33 @@ function S:key(code,on)
         elseif code==input.KEY.DownArrow then w:editSelected(w.selected,{pitch=-1}) end
     end
 end
+function S:updatePlayheads()
+    local w=self.w
+    if self.arranger then self.arranger:updatePlayhead() end
+    if self.playhead and self.roll then
+        local roll=self.roll;local source=w:clipSource();local take=w.recording
+        local recording=take and take.index==roll.index
+        local step=recording and w:recordClock() or nil
+        local active
+        if recording then
+            active=step~=nil;step=step and step-take.origin or 0
+        else
+            step=w.mode=='song' and w.beat*4 or w.beat*4%(source and source.length or w.project.length)
+            active=w.playing and not w.awaiting and not (source and w.mode=='song')
+            if active and self.pianoPlaySerial~=w.playSerial then
+                self.pianoPlaySerial=w.playSerial
+                if step<roll.start or step>=roll.start+roll.steps then roll:pan(step-roll.start) end
+            end
+        end
+        self.playhead.layout.props.visible=active and step>=roll.start and step<roll.start+roll.steps
+        self.playhead.layout.props.position=v(roll.x+(step-roll.start)*roll.cw,roll.y)
+        self.window:update(self.playhead)
+    elseif self.playhead then
+        self.playhead.layout.props.visible=w.playing and not w.awaiting
+        self.playhead.layout.props.position=v(self.grid.x+math.max(0,w.step%16)*self.grid.cw,self.grid.y)
+        self.window:update(self.playhead)
+    end
+end
 function S:frame(now)
     self.window:frame(self)
     Dropdown.frame(self)
@@ -1019,6 +1076,7 @@ function S:frame(now)
     -- Autosave/roster/status replies may revise the background while a chooser
     -- owns focus. Apply the pending redraw after selection or dismissal.
     if self.revision~=self.w.revision and not self.dropdown and not input.isMouseButtonPressed(1) then self:render() end
+    self:updatePlayheads()
     if now-self.lastFrame<0.1 then return end;self.lastFrame=now
     self.transport.layout.props.text=string.format('%s  |  %.1fs  |  Beat %.1f  |  %s%s',self.w.awaiting and 'BUFFER' or (self.w.playing and 'PLAY' or 'STOP'),self.w.time,self.w.beat+1,self.w.project.name,self.w.dirty and ' *' or '')
     if self.w.mode=='song' and (self.w.project.timeline or self.w.song) then
@@ -1049,13 +1107,6 @@ function S:frame(now)
         local delay,reverb=self.w.cb.returnMeters()
         self.returnMeter.layout.props.text='Delay return '..db(delay)..' dBFS  |  Reverb return '..db(reverb)..' dBFS'
         self.window:update(self.returnMeter)
-    end
-    if self.playhead and self.roll then
-        local source=self.w:clipSource();local step=self.w.mode=='song' and self.w.beat*4 or self.w.beat*4%(source and source.length or self.w.project.length)
-        self.playhead.layout.props.visible=not (source and self.w.mode=='song') and step>=self.roll.start and step<self.roll.start+self.roll.steps
-        self.playhead.layout.props.position=v(self.roll.x+(step-self.roll.start)*self.roll.cw,self.roll.y-5);self.window:update(self.playhead)
-    elseif self.playhead then
-        self.playhead.layout.props.position=v(self.grid.x+math.max(0,self.w.step%16)*self.grid.cw,self.grid.y);self.window:update(self.playhead)
     end
 end
 function S:destroy()

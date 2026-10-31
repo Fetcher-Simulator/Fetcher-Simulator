@@ -684,7 +684,7 @@ for n=1,10 do now=now+0.01;player.engineHandlers.onFrame(0.01) end
 check(w.project.midi==paths[1] and w.song.events[1].note==60,'cancelled asynchronous parse cannot overwrite newer selection')
 local Format=package.loaded[prefix..'shared.project'](schema)
 w:load(Format.new());w:add('piano');w.page='piano';w.revision=w.revision+1;now=now+0.01;player.engineHandlers.onFrame(0.01)
-button('Record keyboard >').events.mouseClick();now=now+0.01;player.engineHandlers.onFrame(0.01)
+button('Keyboard / setup').events.mouseClick();now=now+0.01;player.engineHandlers.onFrame(0.01)
 check(w.page=='record','piano roll opens the dedicated recording keyboard')
 button('Start take').events.mouseClick();now=now+2.13;player.engineHandlers.onFrame(0.01)
 lastStudio:key(input.KEY.Z,true);lastStudio:key(input.KEY.Z,true)
@@ -696,8 +696,8 @@ check(w.page=='recordsetup' and button('Count-in: 1 bars v'),'Recording exposes 
 local gen=w.generation
 button('Count-in: 1 bars v').events.mouseClick();lastStudio.dropdown.rows[3].layout.events.mouseClick();now=now+.01;lastStudio:frame(now)
 check(w.recorder.settings.countIn==2 and w.generation==gen,'count-in picker is a local two-bar preference')
-button('Metronome: Off').events.mouseClick();now=now+.01;lastStudio:frame(now)
-check(w.recorder.settings.metronome and button('Metronome: On'),'metronome toggle updates local state')
+button('Playback click: Off').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(w.recorder.settings.metronome and button('Playback click: On'),'metronome toggle updates local state')
 w.recorder:set('countIn',1);w.recorder:set('metronome',false);now=now+.01;lastStudio:frame(now)
 button('< Recording').events.mouseClick();now=now+.01;lastStudio:frame(now)
 check(w.page=='record','setup returns to recording keyboard')
@@ -1332,5 +1332,58 @@ local function testGuitarPage()
     view:destroy();viewport=oldViewport
 end
 testGuitarPage()
+end
+do
+local function testRecordingAndViews()
+    local Workstation=dofile(root..'client/workstation.lua');local Studio=dofile(root..'client/studio.lua')
+    local uw=Workstation.new{now=function() return now end,configure=function() end,panic=function() end,message=function() end,
+        meter=function() return 0 end,on=function() return true end,off=function() end,
+        recordOptions=function() return {countIn=0,latency=0,untilStop=true} end}
+    assert(uw:newSong(120,4,4,1));uw.page='piano';uw.wall=now
+    local view=Studio.new(uw,{midiLabel=function() return '' end,hide=function() error('editor must remain open') end})
+    local function find(entries,text)
+        for _,entry in ipairs(entries) do local layout=entry.layout or entry
+            if layout.content and layout.content[1] and layout.content[1].props and layout.content[1].props.text==text and layout.events and layout.events.mouseClick then return layout end
+            if layout.content then local found=find(layout.content,text);if found then return found end end
+        end
+    end
+    local function click(text) assert(find(view.root.layout.content,text),text).events.mouseClick();view:render() end
+    click('Record');check(uw.recording~=nil and #view.roll.pool==512,'Piano arms recording and reserves widgets for a previously empty part')
+    now=now+.25;uw.wall=now;view:key(input.KEY.Z,true);view:frame(now)
+    check(view.roll.pool[1].layout.props.visible and view.playhead.layout.props.visible,'first Piano take displays held notes and its cursor immediately')
+    local widget=view.roll.pool[1];local width=widget.layout.props.size.x
+    now=now+.5;uw.wall=now;view:frame(now)
+    check(view.roll.pool[1]==widget and widget.layout.props.size.x>width and #uw:noteData(1)==0,'held note grows in the same widget without saving musical data')
+    view:key(input.KEY.Z,false)
+    click('Keyboard / setup');click('Piano roll')
+    check(uw.recording~=nil,'returning from keyboard to Piano does not end the active take')
+    click('Expand editor');view:key(input.KEY.Escape,true);view:key(input.KEY.Escape,false);view:render()
+    check(uw.recording~=nil and not view.pianoFocus,'expanded editor Escape preserves the take')
+    click('Cancel');check(not uw.recording and #uw:noteData(1)==0,'Piano Cancel discards pending preview')
+    click('Record');now=now+.25;assert(uw:recordOn(64,.8));now=now+3;uw.wall=now;uw:recordFrame();view:frame(now)
+    check(uw.recording and view.roll.start>0,'long recording follows the current time past the first view')
+    uw:recordOff(64);click('Keep');check(uw.project.composition.bars==2 and #uw:noteData(1)==1,'Piano Keep commits live notes and extends the song')
+    uw.rollStart=100;view:render();uw.playing=true;uw.mode='song';uw.awaiting=false;uw.playSerial=1;uw.beat=0
+    view.lastFrame=now;view:frame(now+.001)
+    check(view.playhead.layout.props.visible and view.roll.start==0 and math.abs(view.playhead.layout.props.size.y-view.roll.height*view.window.scale)<1e-6,'first-start Piano cursor updates below the meter throttle and spans the editor')
+    local x=view.playhead.layout.props.position.x;uw.beat=.1;view:frame(now+.002)
+    check(view.playhead.layout.props.position.x>x,'Piano playhead advances every frame')
+    uw.playing=false;uw:selectAllNotes(1);assert(uw:captureClip(1));uw.page='arrange';view:render()
+    local bars=uw.project.composition.bars;local history=#uw.undoStack
+    check(view.arranger.maximum>=248,'arranger offers blank workspace past the last clip')
+    click('time >');check(uw.arrangeBar>bars and uw.project.composition.bars==bars and #uw.undoStack==history,'scrolling past the end never modifies song length or history')
+    local zoom=uw.arrangeBars or 8;ctrl=true;view:wheel(1);ctrl=false;view:render()
+    check(uw.arrangeBars==zoom/2,'Ctrl-wheel zooms the arrangement')
+    local height=view.arranger.height;click('Expand')
+    check(view.arrangeFocus and view.arranger.height>height,'dedicated arranger expands its editing area')
+    view:key(input.KEY.Escape,true);view:render();check(not view.arrangeFocus and uw.page=='arrange','Escape restores normal arranger')
+    uw.playing=true;uw.mode='song';uw.awaiting=false;uw.beat=0;uw.playSerial=2;view.lastFrame=now;view:frame(now+.003)
+    check(view.arranger.playhead.layout.props.visible and uw.arrangeBar==0,'first-start arrangement cursor reveals the actual start before meter refresh')
+    uw.arrangeBar=8;uw.revision=uw.revision+1;view:frame(now+.004)
+    check(uw.arrangeBar==8,'background redraw during playback preserves manual arranger scrolling')
+    uw.playing=false;view:frame(now+.005);check(not view.arranger.playhead.layout.props.visible,'stopped arrangement hides its playhead')
+    view:destroy()
+end
+testRecordingAndViews()
 end
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

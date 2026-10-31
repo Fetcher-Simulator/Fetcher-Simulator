@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 59 / native synth API 25 / multiplayer protocol 27.
+Current source: package 60 / native synth API 25 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,37 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Piano recording and arrangement workspace (package 60)
+
+On **Piano**, click **Record**, play after the count-in, then **Keep** or **Cancel**.
+Amber notes preview the uncommitted take, including held gates. The editor follows
+recording time/pitch; saved notes and history change only on Keep. Switching
+between the recording keyboard, setup and Piano no longer finishes a take.
+
+**Record until Keep** defaults on in Recording / Recording setup. A stopped song
+take can outlast the current song; Keep grows it to complete bars in the same
+Undo action. Cancel leaves length and notes untouched. Authored songs retain
+their 256-bar limit, legacy piano patterns 16 bars, native clocks 30 minutes
+including count-in, and existing note-capacity limits still apply. Shared clip
+sources keep their fixed source length; live overdubs keep the playback/loop
+boundary. Automatic ends explain the relevant limit and preserve the take.
+
+**Record click** defaults on independently of **Playback click** and
+**Count-in click**. The count-in tone and level are unchanged. Change click
+toggles/volume during a take without resetting its clock or releasing MIDI notes.
+**Test click** in Recording setup plays a short local test. Timing/input changes
+still require Keep/Cancel; these preferences stay with the local player profile.
+
+The clip arranger can scroll beyond existing material (up to bar 256 for authored
+songs), without changing song length until you place material. Use the scrollbar,
+wheel or time buttons; Ctrl-wheel / Zoom buttons change the visible bar count.
+**Expand** fills the window with the arrangement editor; Escape restores it.
+Piano and arrangement playheads appear on the first start and update each frame,
+after any UI redraw, independently of slower meter/text updates. Playback reveals
+the starting position once and preserves subsequent manual scrolling.
+
+This is a Lua package update; native API 25 and the client executable are unchanged.
 
 ## Shared clip-loop range and Fit clips (package 59)
 

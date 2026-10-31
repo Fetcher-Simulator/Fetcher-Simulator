@@ -839,7 +839,7 @@ function W:play(mode)
     if mode=='clips' and self:clipLoopExtent()>self.project.length+1e-7 then
         self.cb.message('Play clips uses the shared '..(self.project.length/16)..'-bar loop; longer notes/placed clips are outside it. Use Fit clips or Play song.')
     end
-    self:configureAll();self.time=0;self.beat=0;self.step=-1;self.pending={};self.counts={};self.playing=true;self.mode=mode
+    self:configureAll();self.time=0;self.beat=0;self.step=-1;self.pending={};self.counts={};self.playing=true;self.mode=mode;self.playSerial=(self.playSerial or 0)+1
     if self.cb.schedule then
         local Sequence=require(prefix..'shared.sequence')
         local ok,plan=pcall(Sequence.compile,self.project,self.song,MIDI,mode,format,SoundSets.programPatch)
@@ -871,7 +871,7 @@ end
 function W:playClip()
     if not self:clipSource() or not self.cb.schedule then return false end
     if not self:prepareSamples(self.selected) then return false end
-    self:stop(true);self:configureAll();self.mode='pattern';self.time=0;self.beat=0;self.step=-1
+    self:stop(true);self:configureAll();self.mode='pattern';self.time=0;self.beat=0;self.step=-1;self.playSerial=(self.playSerial or 0)+1
     local ok,plan=pcall(self.compilePlan,self)
     if not ok then self.cb.message(tostring(plan));return false end
     self.playing=true;self.native=true;self.nativeStarted=false;self.awaiting=true;self.sequenceDirty=false
@@ -942,11 +942,16 @@ function W:startTake(index)
         if not self.playing then limit=self.project.timeline.beats*4 end
     end
     if clip then limit=clip.length;minimum=0 end
-    if step>=limit then self.cb.message('Move the view inside the playback length before recording.');return false end
-    local snap=math.min(self.snap>0 and self.snap or (t.edited and 4/t.edited.division or 1/240),limit-origin-minimum)
     local countBeats=t.edited and not clip and format.barBeats(self.project,step/4) or 4
     local countTempo=t.edited and not clip and format.tempoAt(self.project,step/4)/1000000 or 60/self.project.bpm
     local options=self.cb.recordOptions and self.cb.recordOptions() or {countIn=1,latency=0,metronome=false}
+    if options.untilStop and not self.playing and not clip then
+        if t.edited then
+            limit=self.project.composition and format.barStart(self.project,257)*4 or format.maxSongBeats*4
+        else limit=format.maxSteps end
+    end
+    if step>=limit then self.cb.message('Move the view inside the playback length before recording.');return false end
+    local snap=math.min(self.snap>0 and self.snap or (t.edited and 4/t.edited.division or 1/240),limit-origin-minimum)
     local _,denominator=4,4
     if t.edited and not clip then _,denominator=format.meterAt(self.project,step/4) end
     self.recording={index=index,track=t,clip=clip,mode=mode,overdub=self.playing,origin=origin,limit=limit,notes={},held={},capacity=capacity,
@@ -957,7 +962,7 @@ function W:startTake(index)
 end
 function W:recordOn(note,velocity,age)
     local r=self.recording;local step=self:recordClock(age)
-    if r and step and r.overdub and self.project.composition and self.project.composition.loop and r.last and step<r.last then self:endTake(false,r.limit);return false end
+    if r and step and r.overdub and self.project.composition and self.project.composition.loop and r.last and step<r.last then self:autoEndTake(r.limit);return false end
     if not r or not step or step>=r.limit or type(note)~='number' or note%1~=0 or note<0 or note>127 or r.held[note] then return false end
     velocity=velocity or self.velocity
     if type(velocity)~='number' or velocity~=velocity or velocity<0.01 or velocity>1 then return false end
@@ -978,6 +983,36 @@ function W:recordOff(note,step,age)
     s=math.max(r.minimum or 0,math.min(limit-r.snap,s));finish=math.max(s+r.snap,math.min(limit,finish))
     r.notes[#r.notes+1]={n=note,s=s,l=finish-s,v=held.v};r.last=step;return true
 end
+function W:storeRecordedNotes(r,notes)
+    if not (r.options and r.options.untilStop) or r.overdub or r.clip then return self:storeNotes(r.index,notes) end
+    local p=copy(self.project);local t=p.tracks[r.index];local finish=0
+    for _,n in ipairs(notes) do finish=math.max(finish,n.s+n.l) end
+    if t.edited then
+        local data=format.encodeNotes(notes,t.edited.division);if not data then return false end;t.edited=data
+        if format.seconds(p.timeline,finish/4)>1800 then return false end
+        if finish/4>p.timeline.beats then
+            if p.composition then
+                local bars=math.ceil(format.barPosition(p,finish/4)-1e-8)-1
+                if bars>256 then return false end
+                local old=p.composition.bars;p.composition.bars=math.max(old,bars)
+                if p.composition.loopEnd==old then p.composition.loopEnd=p.composition.bars end
+                p.timeline.beats=format.barStart(p,p.composition.bars+1)
+            else p.timeline.beats=finish/4 end
+        end
+    else
+        t.notes=notes;p.length=math.max(p.length,math.ceil((finish-1e-7)/16)*16)
+    end
+    p=format.project(p);if not p then return false end
+    self.project=p;self.noteCache={};self.lastEditKey=nil;self:touch('sequence');return true
+end
+function W:autoEndTake(finish)
+    local r=self.recording;if not r then return end
+    if not self:endTake(false,finish or r.limit) then return end
+    self.cb.message(r.clip and 'Shared clip reached its fixed end; take kept. Record on a song part for a longer take.'
+        or r.overdub and 'Playback range/loop boundary reached; overdub kept.'
+        or r.options.untilStop and 'Recording reached its safety limit; take kept.'
+        or 'Song/pattern end reached; take kept. Enable Record until Keep for a longer stopped take.')
+end
 function W:endTake(cancel,finish)
     local r=self.recording
     if not r then if cancel then self.failedTake=nil;self.revision=self.revision+1 end;return false end
@@ -991,14 +1026,14 @@ function W:endTake(cancel,finish)
     if self.project.tracks[r.index]~=r.track or self:clipSource(r.index)~=r.clip then self.cb.message('Recording destination changed; take discarded.');return false end
     local notes=copy(self:noteData(r.index));local first=#notes+1
     for _,n in ipairs(r.notes) do notes[#notes+1]=n end
-    if not self:storeNotes(r.index,notes) then self.failedTake={index=r.index,track=r.track,clip=r.clip,notes=copy(r.notes)};self.cb.message('Take not committed. Free note capacity, then Retry take; Cancel discards recovery.');return false end
+    if not self:storeRecordedNotes(r,notes) then self.failedTake={index=r.index,track=r.track,clip=r.clip,notes=copy(r.notes),options=copy(r.options),overdub=r.overdub};self.cb.message('Take not committed. Free note capacity, then Retry take; Cancel discards recovery.');return false end
     self:selectNote(r.index);for id=first,#notes do self.noteSelection[id]=true end
     return true
 end
 function W:recoverTake()
     local r=self.failedTake;if not r or self.recording or self.project.tracks[r.index]~=r.track or self:clipSource(r.index)~=r.clip or not self:canEditNotes(r.index) then return false end
     local notes=copy(self:noteData(r.index));for _,n in ipairs(r.notes) do notes[#notes+1]=copy(n) end
-    if not self:storeNotes(r.index,notes) then return false end
+    if not self:storeRecordedNotes(r,notes) then return false end
     self.failedTake=nil;return true
 end
 function W:recordFrame()
@@ -1006,9 +1041,9 @@ function W:recordFrame()
     if r.overdub and not self.playing and not self.awaiting then self:endTake(false);return end
     if self.cb.canMonitor and not self.cb.canMonitor(r.index) then self:endTake(false);self.cb.message('Recording stopped because its instrument became unavailable.');return end
     local step=self:recordClock()
-    if step and r.overdub and self.project.composition and self.project.composition.loop and r.last and step<r.last then self:endTake(false,r.limit);return end
-    if step then r.started=true;r.last=step;if step>=r.limit then self:endTake(false) end
-    elseif (r.overdub or r.clock) and r.started and not self.awaiting then self:endTake(false,r.limit) end
+    if step and r.overdub and self.project.composition and self.project.composition.loop and r.last and step<r.last then self:autoEndTake(r.limit);return end
+    if step then r.started=true;r.last=step;if step>=r.limit then self:autoEndTake(r.limit) end
+    elseif (r.overdub or r.clock) and r.started and not self.awaiting then self:autoEndTake(r.limit) end
 end
 function W:recordStatus()
     local r=self.recording;if not r then return 'No active take' end
