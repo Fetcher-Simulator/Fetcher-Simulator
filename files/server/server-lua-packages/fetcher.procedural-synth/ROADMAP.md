@@ -1,6 +1,6 @@
 # FETCHER STUDIO roadmap
 
-Updated 2026-10-31. Completed work and subsequent planned slices are identified below.
+Updated 2026-11-01. Completed work and subsequent planned slices are identified below.
 
 **Sound-design direction after reviewing the supplied video references:** the
 first native audio slice adds a proper guitar cabinet/microphone IR stage, with
@@ -10,6 +10,13 @@ both synthesized and sampled sources. More samples are one possible improvement,
 not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
+
+Package 61 fixes grid lines painting over cached Piano notes on selection/drag.
+Piano also exposes source length and an explicit match-to-selected-placement
+action, distinguishing a longer source from repeated/trimmed placements. Saved
+notes stay intact; source length and edits support Undo within existing limits.
+Native API stays 25. Independent held-note spillover beyond placements remains
+future work; envelope release tails already run separately from note gates.
 
 Package 60 adds direct Piano recording with live uncommitted notes, independent
 recording clicks and stopped Record until Keep with atomic song-length growth.

@@ -268,7 +268,7 @@ function S:arrange(content)
         content[#content+1]=Controls.slider(self,'regionOffset','Source offset (quarters)',{min=0,max=math.max(0,source.length/4-1/960),step=.0625},
             function() return (w.project.tracks[offsetTrack].arrangement.regions[offsetRegion].offset or 0)/4 end,function(value) w:changeRegion(offsetTrack,offsetRegion,{offset=value*4}) end,605,footer+36,285)
     end
-    content[#content+1]=label('Wheel: time; Ctrl-wheel: zoom. Shift-click selects; drag moves; right edge resizes. Ctrl+A/D, Delete, arrows.',20,footer+87,self.width-45,10,c.muted)
+    content[#content+1]=label('Placement edge repeats/trims the source. Piano > Source length enlarges it. Ctrl-wheel: zoom; Shift-click: select; Ctrl+A/D, Delete.',20,footer+87,self.width-45,10,c.muted)
 end
 function S:automation(content)
     local w,p=self.w,self.w.project;local t=p.tracks[w.selected]
@@ -571,9 +571,16 @@ function S:piano(content)
     content[#content+1]=self:button('Cancel',self.width-130,self.height-93,85,function() w:endTake(true) end)
     content[#content+1]=self:button('Keyboard / setup',self.width-330,self.height-56,135,function() w.page='record';w.revision=w.revision+1 end)
     if w.recorder then content[#content+1]=self:button(w.recorder.settings.recordClick and 'Record click: On' or 'Record click: Off',self.width-185,self.height-56,140,function() w.recorder:set('recordClick',not w.recorder.settings.recordClick) end,w.recorder.settings.recordClick) end
-    content[#content+1]=label(source and 'Shared source: edits update all linked placements. Record while stopped; Play source auditions this clip.' or t.kind=='midi' and not t.edited and 'Read only: Edit MIDI creates saved notes; the original file stays intact.' or 'Click adds. Right-click deletes. Shift-click selects. Drag moves; drag the right edge resizes.',20,self.height-51,self.width-380,11,c.muted)
+    if source then
+        local index,id=w.clipEdit.track,w.clipEdit.clip
+        content[#content+1]=self:button(string.format('Source length: %.3g quarters v',source.length/4),20,self.height-56,225,function()
+            local choices={};for n=1,Project.maxSteps/4 do choices[#choices+1]={id=n*4,label=n..' quarter notes'} end
+            Dropdown.open(self,choices,source.length,function(length) w:setClip(index,id,{length=length}) end,20,math.max(50,self.height-400),420)
+        end)
+        content[#content+1]=self:button('Use placement length',255,self.height-56,200,function() w:fitClipToPlacement(index,id) end)
+    else content[#content+1]=label(t.kind=='midi' and not t.edited and 'Read only: Edit MIDI creates saved notes; the original file stays intact.' or 'Click adds. Right-click deletes. Shift-click selects. Drag moves; drag the right edge resizes.',20,self.height-51,self.width-380,11,c.muted) end
     if source then content[#content+1]=self:button('Play source',self.width-195,tools,150,function() w:playClip() end) end
-    content[#content+1]=label('Ctrl+A/C/V/D, Delete, arrow keys. Wheel: pitch; Shift-wheel: time; Ctrl-wheel: zoom.',20,self.height-25,self.width-45,12,c.muted)
+    content[#content+1]=label(source and 'Source length limits notes and changes all linked repeats. Wheel: pitch; Shift-wheel: time; Ctrl-wheel: zoom.' or 'Ctrl+A/C/V/D, Delete, arrow keys. Wheel: pitch; Shift-wheel: time; Ctrl-wheel: zoom.',20,self.height-25,self.width-45,12,c.muted)
 end
 function S:recordKey(note,on,velocity)
     self.recordHeld=self.recordHeld or {}

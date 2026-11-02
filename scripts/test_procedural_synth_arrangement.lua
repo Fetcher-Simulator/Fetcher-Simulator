@@ -88,4 +88,21 @@ check(not f.project(dense),'direct and source notes share one saved-note budget'
 local server=dofile('apps/openmw-server/scripts/procedural_synth_project.lua')(schema)
 check(server.project(saved).tracks[1].arrangement.clips[1].notes.bytes==before,'server accepts identical compact arrangement data')
 check(dofile('apps/openmw-server/scripts/procedural_synth_sequence.lua').compile(p,nil,MIDI,'song',server).bytes==Sequence.compile(p,nil,MIDI,'song',f).bytes,'server/client arrangement compilation matches')
+do
+    local q=make();assert(q:newSong(120,4,4,8));assert(q:storeNotes(1,{{n=60,s=0,l=16,v=.8}}));q:selectAllNotes(1);assert(q:captureClip(1))
+    assert(q:changeRegion(1,1,{l=32}));assert(q:duplicateRegion(1,1));assert(q:selectRegion(1,1,false))
+    local source=q.project.tracks[1].arrangement.clips[1];local bytes=source.notes.bytes;local undo=#q.undoStack
+    check(q:fitClipToPlacement(1,1),'explicit action matches source length to the selected placement')
+    source=q.project.tracks[1].arrangement.clips[1]
+    check(source.length==32 and source.notes.bytes==bytes and #q.undoStack==undo+1,'source extension preserves note bytes and is one history action')
+    assert(q:editClip(1,1));q:selectAllNotes(1);assert(q:editSelected(1,{length=8}))
+    local rendered=notes(Sequence.compile(q.project,nil,MIDI,'song',f))
+    check(#rendered==2 and rendered[1].gate==144000 and rendered[2].gate==144000,'longer last note compiles as a continuous three-second gate in both linked placements')
+    local before=copy(q.project);undo=#q.undoStack
+    check(not q:setClip(1,1,{length=16}) and q.project.tracks[1].arrangement.clips[1].notes.bytes==before.tracks[1].arrangement.clips[1].notes.bytes and #q.undoStack==undo,'shrinking source across a saved note fails without trimming data/history')
+    assert(q:selectRegion(1,1,false));assert(q:changeRegion(1,1,{l=300}));undo=#q.undoStack
+    check(not q:fitClipToPlacement(1,1) and q.project.tracks[1].arrangement.clips[1].length==32 and #q.undoStack==undo,'over-limit placements cannot silently enlarge a source past 64 quarters')
+    assert(q:changeRegion(1,1,{l=32,offset=4}));assert(q:fitClipToPlacement(1,1))
+    check(q.project.tracks[1].arrangement.clips[1].length==36,'matching a trimmed placement includes its source offset')
+end
 print('PASS linked clips, capture, repeat/trim, transpose/mute, shared editing/recording, history, persistence and budgets; '..checks..' assertions')

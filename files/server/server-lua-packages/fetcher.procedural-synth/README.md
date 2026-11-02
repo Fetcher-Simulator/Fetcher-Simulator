@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 60 / native synth API 25 / multiplayer protocol 27.
+Current source: package 61 / native synth API 25 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,24 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Extending a source and its final note (package 61)
+
+Dragging a placement's right edge in Arrange clips repeats/trims its source;
+it does not change the source's note-editing boundary. Open **Edit source**, then
+in Piano use **Use placement length** to match that selected placement, or choose
+a larger **Source length** in quarter notes. Then drag the last note's right
+edge to lengthen its gate. This changes the shared source for all linked
+placements; use **Make unique** first if only one placement should change.
+
+The source retains its 64-quarter-note limit (16 bars in 4/4). Matching includes
+any source offset. Length changes preserve existing note bytes and support Undo;
+shrinking through a saved note is rejected without trimming it. Playback still
+clips held gates at placement/song boundaries; release-envelope tails are separate.
+
+Piano selection and drag previews no longer refresh/reattach the background grid
+above cached note images. Scrolling refreshes the grid first and repaints visible
+notes afterward, so continuous notes remain visually solid.
 
 ## Piano recording and arrangement workspace (package 60)
 

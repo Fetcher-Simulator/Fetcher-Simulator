@@ -1,5 +1,22 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## November 1: source-length editing and solid Piano notes (package 61 / API 25)
+
+UI regressions reproduce a one-bar source inside a two-bar placement, match it
+to the placement using Piano's new action, and resize its last note beyond the
+old source boundary through actual mouse callbacks. Source length supports Undo
+without note-byte changes; the quarter-note picker leaves placement lengths
+unchanged. Compilation checks produce continuous three-second gates in both
+linked placements. Shrinking through saved notes and exceeding the 64-quarter
+limit preserve notes/history; matching includes a trimmed placement's offset.
+
+The selection regression asserts that grid/bar widgets are not updated while
+cached notes remain unchanged. Time scrolling updates the grid and repaints
+visible notes afterward. This addresses Lua UI's detach/reattach ordering, which
+let refreshed grid lines paint above unchanged note images. All 30 Lua suites
+pass; the native API and executable are unchanged. These are automated UI and
+compilation checks; native visual confirmation follows a package reload.
+
 ## October 31: recording and editor navigation (package 60 / API 25)
 
 Deterministic UI regressions exercise Record/Keep/Cancel on an initially empty

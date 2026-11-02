@@ -137,21 +137,27 @@ function R:scroll(e)
     self:pan((width>0 and clamp((point.x-self.thumbWidth/2)/width,0,1)*self.maximum or 0)-self.start)
 end
 function R:draw()
-    local w=self.w;local slot,shown=0,0;self.visible={}
-    local first=math.ceil(self.start)
-    for index,line in ipairs(self.lines) do
-        local step=first+index-1;local props=line.layout.props
-        props.position=v((step-self.start)*self.cw,0)
-        props.size=v(not self.songGrid and step%self.barSteps==0 and 3 or step%4==0 and 2 or 1,self.height)
-        self.owner.window:update(line)
-    end
-    local bars={}
-    if self.songGrid then
-        for _,marker in ipairs(Project.barBoundaries(w.project,self.start/4,(self.start+self.steps)/4,1030) or {}) do
-            bars[#bars+1]=rect((marker.beat*4-self.start)*self.cw,0,3,self.height,colors.line)
+    local w=self.w
+    -- Lua UI updates detach/re-attach grid children. Do not lift the grid over
+    -- cached note images merely because selection or a drag preview changed.
+    if self.gridStart~=self.start then
+        local first=math.ceil(self.start)
+        for index,line in ipairs(self.lines) do
+            local step=first+index-1;local props=line.layout.props
+            props.position=v((step-self.start)*self.cw,0)
+            props.size=v(not self.songGrid and step%self.barSteps==0 and 3 or step%4==0 and 2 or 1,self.height)
+            self.owner.window:update(line)
         end
+        local bars={}
+        if self.songGrid then
+            for _,marker in ipairs(Project.barBoundaries(w.project,self.start/4,(self.start+self.steps)/4,1030) or {}) do
+                bars[#bars+1]=rect((marker.beat*4-self.start)*self.cw,0,3,self.height,colors.line)
+            end
+        end
+        self.barGrid.layout.content=ui.content(bars);self.owner.window:update(self.barGrid)
+        self.gridStart=self.start
+        self.geometry={} -- all visible notes must paint after a changed grid
     end
-    self.barGrid.layout.content=ui.content(bars);self.owner.window:update(self.barGrid)
     self:drawNotes()
     self.thumbWidth=math.max(18,self.width*self.steps/(self.maximum+self.steps))
     self.thumb.layout.props.position=v(self.maximum>0 and (self.width-self.thumbWidth)*self.start/self.maximum or 0,0)

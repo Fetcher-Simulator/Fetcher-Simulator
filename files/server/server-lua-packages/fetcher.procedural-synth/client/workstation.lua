@@ -587,6 +587,7 @@ function W:changeRegion(index,id,changes) return require(prefix..'client.arrange
 function W:duplicateRegion(index,id) return require(prefix..'client.arrangement').duplicate(self,index,id) end
 function W:removeRegion(index,id) return require(prefix..'client.arrangement').remove(self,index,id) end
 function W:setClip(index,id,changes) return require(prefix..'client.arrangement').clip(self,index,id,changes) end
+function W:fitClipToPlacement(index,id) return require(prefix..'client.arrangement').fitSourceToPlacement(self,index,id) end
 function W:deleteClip(index,id) return require(prefix..'client.arrangement').deleteClip(self,index,id) end
 function W:selectRegion(index,id,toggle) return require(prefix..'client.arrangement').select(self,index,id,toggle) end
 function W:selectedRegions() return require(prefix..'client.arrangement').selection(self) end

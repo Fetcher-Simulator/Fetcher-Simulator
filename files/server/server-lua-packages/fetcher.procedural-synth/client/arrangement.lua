@@ -209,8 +209,24 @@ function M.remove(w,index,id)
 end
 function M.clip(w,index,id,changes)
     local t=w.project.tracks[index];if not (t and t.arrangement and t.arrangement.clips[id]) then return false end
+    if changes.length~=nil then
+        if not finite(changes.length) or changes.length<.25 or changes.length>Format.maxSteps then
+            w.cb.message('A source can span at most 64 quarter notes (16 bars in 4/4). Placement length is separate.');return false
+        end
+        for _,n in ipairs(Format.decodeNotes(t.arrangement.clips[id].notes)) do
+            if n.s+n.l>changes.length+1e-8 then w.cb.message('Source length would cut saved notes. Shorten those notes first; previous source kept.');return false end
+        end
+    end
     local candidate=copy(t);for k,value in pairs(changes) do candidate.arrangement.clips[id][k]=value end
     return M.commit(w,index,candidate)
+end
+function M.fitSourceToPlacement(w,index,id)
+    local t=w.project.tracks[index];local clip=t and t.arrangement and t.arrangement.clips[id]
+    local region=w.regionTrack==index and t and t.arrangement and t.arrangement.regions[w.regionIndex or 0]
+    if not clip or not region or region.clip~=id then w.cb.message('Select this source\'s placement in Arrange clips first.');return false end
+    local length=region.l+(region.offset or 0)
+    if length==clip.length then return true end
+    return M.clip(w,index,id,{length=length})
 end
 function M.deleteClip(w,index,id)
     local t=w.project.tracks[index];if not (t and t.arrangement and t.arrangement.clips[id]) then return false end

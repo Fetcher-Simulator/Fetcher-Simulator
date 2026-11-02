@@ -1386,4 +1386,44 @@ local function testRecordingAndViews()
 end
 testRecordingAndViews()
 end
+do
+local function testSourceLengthAndNotePaint()
+    local Workstation=dofile(root..'client/workstation.lua');local Studio=dofile(root..'client/studio.lua')
+    local uw=Workstation.new{configure=function() end,panic=function() end,message=function() end,meter=function() return 0 end}
+    assert(uw:newSong(120,4,4,8));assert(uw:storeNotes(1,{{n=60,s=0,l=4,v=.8},{n=64,s=12,l=4,v=.8}}))
+    uw:selectAllNotes(1);assert(uw:captureClip(1));assert(uw:changeRegion(1,1,{l=32}));assert(uw:editClip(1,1));uw.rollSteps=32
+    local view=Studio.new(uw,{midiLabel=function() return '' end,hide=function() error('source editor should stay open') end})
+    local function find(entries,text)
+        for _,entry in ipairs(entries) do local layout=entry.layout or entry
+            if layout.content and layout.content[1] and layout.content[1].props and layout.content[1].props.text==text and layout.events and layout.events.mouseClick then return layout end
+            if layout.content then local found=find(layout.content,text);if found then return found end end
+        end
+    end
+    local function click(text) assert(find(view.root.layout.content,text),text).events.mouseClick();view:render() end
+    local bytes=uw:clipSource().notes.bytes;local history=#uw.undoStack
+    check(uw:clipSource().length==16 and find(view.root.layout.content,'Source length: 4 quarters v'),'Piano exposes the source boundary independently of its longer placement')
+    click('Use placement length')
+    check(uw:clipSource().length==32 and uw:clipSource().notes.bytes==bytes and #uw.undoStack==history+1,'matching placement grows source without stretching/splitting saved notes, in one Undo')
+    assert(uw:undo());check(uw.project.tracks[1].arrangement.clips[1].length==16 and uw.project.tracks[1].arrangement.clips[1].notes.bytes==bytes,'source length Undo preserves exact note bytes');assert(uw:redo());assert(uw:editClip(1,1));uw.rollSteps=32;view:render()
+    local roll=view.roll;local gridUpdates=roll.barGrid.updateCount;local lineUpdates=roll.lines[1].updateCount
+    local first=roll.pool[1];local firstUpdates=first.updateCount;uw:selectNote(1,2);roll:draw();roll:draw()
+    check(roll.barGrid.updateCount==gridUpdates and roll.lines[1].updateCount==lineUpdates,'selection does not reattach the grid above cached solid notes')
+    check(first.updateCount==firstUpdates and uw:clipSource().notes.bytes==bytes,'selecting another note preserves unrelated note widgets and musical gates')
+    local widget=roll.pool[2];local props=widget.layout.props;local scale=view.window.scale;local rootPos=view.root.layout.props.position
+    local point=vector(rootPos.x+props.position.x+props.size.x-1,rootPos.y+38*scale+props.position.y+5)
+    mouseDown=true;widget.layout.events.mousePress{button=1,position=point,offset=vector(props.size.x-1,5)}
+    widget.layout.events.mouseMove{button=1,position=vector(point.x+8*roll.cw*scale,point.y),offset=vector(1,5)}
+    check(roll.drag and roll.drag.resize and roll.drag.change.length==8,'last note right edge previews past the old source end')
+    mouseDown=false;roll:frame()
+    check(uw:noteData(1)[2].s+uw:noteData(1)[2].l==24 and #uw:noteData(1)==2,'resizing commits one continuous note beyond the previous boundary')
+    view:render();local moved=view.roll;local noteUpdates=moved.pool[1].updateCount or 0;gridUpdates=moved.barGrid.updateCount
+    moved.maximum=32;moved:pan(4)
+    check(moved.barGrid.updateCount>gridUpdates and moved.pool[1].updateCount>noteUpdates,'panning repaints notes after the moved grid even if their clipped geometry is unchanged')
+    assert(find(view.root.layout.content,'Source length: 8 quarters v')).events.mouseClick();check(view.dropdown~=nil,'source length opens a quarter-note picker directly in Piano')
+    view.dropdown:scrollTo(8);view.dropdown.rows[4].layout.events.mouseClick();view:render()
+    check(uw:clipSource().length==48 and uw.project.tracks[1].arrangement.regions[1].l==32,'source picker changes the shared source without silently resizing placements')
+    view:destroy()
+end
+testSourceLengthAndNotePaint()
+end
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))
