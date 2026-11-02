@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 61 / native synth API 25 / multiplayer protocol 27.
+Current source: package 62 / native synth API 25 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,21 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Outdoor band staging (package 62)
+
+Auto NPC band / Restage grid follow each performer's measured ground height on
+slopes up to 35 degrees, including ascending/descending and gently rolling ground.
+The floor check allows height to vary with the surface normal instead of demanding
+an almost-flat footprint. The server bounds each floor hint by its grid slot's
+distance from the leader, with an absolute 512-unit rise/drop cap. Missing ground,
+abrupt ledges, steep faces, walls and blocked headroom still reject placement.
+An uphill retry reaches floors above the initial cast without exceeding eight
+collision rays per frame; ordinary indoor casts start low to avoid selecting roofs.
+
+Actors, stools and instruments remain upright; this does not add foot IK or tilt
+furniture to terrain. A Lua package/server-script reload is sufficient; native
+API 25, protocol 27 and the existing asset bundle are unchanged.
 
 ## Extending a source and its final note (package 61)
 

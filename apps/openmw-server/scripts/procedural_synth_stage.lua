@@ -94,7 +94,10 @@ function S:begin(s,project,requestId,sessions,restage,clear,ground)
             if difference>(key=='rz' and .05 or 16) then return reject('Leader moved during the stage check. Retry.') end
         end
         for key in pairs(h) do if type(key)~='number' or key%1~=0 or key<1 or key>#plan then return reject('Invalid stage floor array.') end end
-        for index=1,#plan do local z=h[index];if not finite(z) or math.abs(z-anchor.z)>64 then return reject('Stage floor height is out of range.') end end
+        for index=1,#plan do
+            local p=Layout.position(anchor,index,#plan,plan.wideSpacing);local z=h[index]
+            if not finite(z) or math.abs(z-anchor.z)>Layout.floorLimit(anchor,p) then return reject('Stage floor height is out of range.') end
+        end
     end
     local busy=busyActors(sessions,s.id,s.characterId)
     local pool={};for _,e in ipairs(registry.entries) do local actor=e.mpNum and mp.getActorByMpNum(e.mpNum)

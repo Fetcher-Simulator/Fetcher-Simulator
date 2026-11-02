@@ -153,6 +153,9 @@ check(Format.project(seated).stageLayout=='seated','layout persists in the valid
 seated.stageLayout='invalid';check(not Format.project(seated),'unknown layout rejected');seated.stageLayout='seated'
 local before=#teleports;floor.heights[1]=500
 check(not S:begin(session,seated,19,sessions,false,false,floor) and #teleports==before,'unbounded floor cannot teleport an owned NPC')
+floor.heights[1]=120
+check(S:begin(session,seated,19,sessions,false,false,floor),'measured uphill floor beyond the old 64-unit limit is accepted');pump()
+check(actors[entry.mpNum].position.z==120,'native placement request uses the approved per-NPC slope height')
 floor.heights[1]=3;floor.anchor.x=100
 check(not S:begin(session,seated,20,sessions,false,false,floor),'stale leader anchor rejected')
 floor.anchor.x=leader.position.x

@@ -1,6 +1,6 @@
 # FETCHER STUDIO roadmap
 
-Updated 2026-11-01. Completed work and subsequent planned slices are identified below.
+Updated 2026-11-02. Completed work and subsequent planned slices are identified below.
 
 **Sound-design direction after reviewing the supplied video references:** the
 first native audio slice adds a proper guitar cabinet/microphone IR stage, with
@@ -10,6 +10,12 @@ both synthesized and sampled sources. More samples are one possible improvement,
 not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
+
+Package 62 permits sloped/rolling outdoor stages with per-NPC floor heights,
+normal-aware footprint checks, bounded uphill retries and matching server height
+validation. Void/cliff/headroom/wall checks remain. Upright poses and furniture
+are unchanged; terrain foot IK and furniture leveling are separate future work.
+This is Lua-only, retaining API 25 / protocol 27 and the published content bundle.
 
 Package 61 fixes grid lines painting over cached Piano notes on selection/drag.
 Piano also exposes source length and an explicit match-to-selected-placement

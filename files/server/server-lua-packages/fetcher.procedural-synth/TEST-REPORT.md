@@ -1,5 +1,21 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## November 2: sloped outdoor staging (package 62 / API 25)
+
+Terrain-ray regressions cover ascending, descending and cross slopes through
+all four leader headings with 32 individually measured NPC positions; a 30-degree
+uphill surface above the initial ray; rolling ground under the wider drum-kit
+footprint; and flat interiors below a roof. Steep 40-degree faces, voids, abrupt
+ledges, sloped ceilings and walls still fail. Every frame remains bounded to
+eight rays, including uphill retries. Server checks accept an approved 120-unit
+floor rise, use it in the actor placement request, and retain rejection of a
+500-unit forged floor hint at the same slot, stale anchors and malformed arrays.
+
+All 30 Lua suites pass. Shared client/server formation policies are byte-identical.
+Only Lua/package documentation changed; native API 25, protocol 27, executables
+and published assets are unchanged. These are deterministic terrain/server tests;
+the user's outdoor in-game check follows package reload.
+
 ## November 1: source-length editing and solid Piano notes (package 61 / API 25)
 
 UI regressions reproduce a one-bar source inside a two-bar placement, match it

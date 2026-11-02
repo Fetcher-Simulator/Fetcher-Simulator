@@ -1,6 +1,10 @@
 -- Server-selected standing formation. World yaw is clockwise from +Y.
-local M={spacing=140,rowSpacing=180,front=240}
+local M={spacing=140,rowSpacing=180,front=240,
+    floorSlope=math.tan(math.rad(35)),floorNormalZ=math.cos(math.rad(35)),floorRoughness=24,floorMaxRise=512}
 local function finite(n) return type(n)=='number' and n==n and math.abs(n)<1e8 end
+function M.floorLimit(anchor,p)
+    return math.min(M.floorMaxRise,64+math.sqrt((p.x-anchor.x)^2+(p.y-anchor.y)^2)*M.floorSlope)
+end
 function M.position(anchor,index,count,wide)
     if type(anchor)~='table' or not finite(anchor.x) or not finite(anchor.y) or not finite(anchor.z)
         or not finite(anchor.rz or 0) or count<1 or count>32 or index<1 or index>count then return end
