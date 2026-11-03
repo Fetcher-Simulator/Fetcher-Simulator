@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 63 / native synth API 25 / multiplayer protocol 27.
+Current source: package 64 / native synth API 25 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,22 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Composer movement (package 64)
+
+Set **Leader plays: Off**, start the band, then use **Hide [F8]** to walk around
+the performance. A composer can cross exterior-cell boundaries while the keyboard
+remains in their loaded stage area. A short 2,000-unit transition allowance covers
+cell changes arriving before the refreshed loaded-cell list. Heartbeats, score,
+NPC formation and local Studio project remain intact; observers can also cross
+outdoor seams while listening. The stage stays where it was placed.
+
+Finish, disconnect, an expired lease, a removed keyboard, moving into a different
+interior or leaving the loaded stage area still ends the session. Picking up or
+acquiring the keyboard remains proximity-limited; Leader plays: On keeps its
+instrument-range rules. Session cleanup reasons log under `[SynthSession]`.
+This fixes unconditional client/server cleanup on any cell change, separately
+from package 63's performer-placement correction. It is Lua-only.
 
 ## Exterior cell boundaries (package 63)
 

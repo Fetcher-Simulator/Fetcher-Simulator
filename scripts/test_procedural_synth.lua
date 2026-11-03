@@ -108,6 +108,36 @@ test('non-playing leader roams in the same cell; pickup remains local',function(
     players[1].position.x=0;request('pickup');check(#pickups==1,'nearby pickup still works')
 end)
 
+test('conductor keeps score and control across loaded exterior cell borders',function()
+    local format=require('procedural_synth_project')(schema)
+    objects[7].cell='EXT:0,0';objects[7].position={x=8190,y=100,z=0}
+    players[1].cell='EXT:0,0';players[1].position={x=8190,y=100,z=0}
+    acquire();request('band',{band=format.band(),routes={},leaderPlays=false})
+    local project=format.new();project.tracks[1]=format.newTrack('piano','Conductor',16);project.tracks[1].notes={{n=60,s=0,l=2,v=1}}
+    local score=require('procedural_synth_sequence').compile(project,nil,nil,'clips',format)
+    request('channel',{channel=1,params={},level=1})
+    request('scoreBegin',{playId=1,count=#score.bytes/11,length=score.length,loop=true,quantum=score.quantum,replace=false})
+    request('scoreChunk',{playId=1,index=1,bytes=score.bytes});request('scoreCommit',{playId=1})
+    players[1].cell='EXT:1,0';players[1].position.x=8195;sent={}
+    module.eventHandlers.OnPlayerCellChange{guid=1}
+    for _,e in ipairs(sent) do check(e.data.op~='close','nearby cell change survives an initially stale loaded-cell list') end
+    now=now+2.1;request('heartbeat');sent={};module.engineHandlers.onUpdate()
+    local alive=false;for _,e in ipairs(sent) do check(e.data.op~='close');if e.guid==1 and e.data.op=='alive' then alive=true end end
+    check(alive,'owner liveness reaches the conductor while the loaded-cell list catches up')
+    players[1].loadedActorCells={'EXT:0,0'};players[1].position.x=12000
+    now=now+2.1;request('heartbeat');sent={};module.engineHandlers.onUpdate()
+    for _,e in ipairs(sent) do check(e.data.op~='close','loaded exterior conductor can move beyond the short transition fallback') end
+    players[2].loadedActorCells={'EXT:0,0'}
+    request('edit',{params={cutoff=2468}});check(sent[#sent].data.op=='params','controls remain usable beyond the keyboard cell')
+    players[2].loadedActorCells={'EXT:0,0'};sent={};request('sync',{pid=2});local running=false
+    for _,e in ipairs(sent) do if e.data.op=='scoreReady' then running=true end end
+    check(running,'the original running score survives exterior movement')
+    request('pickup');check(#pickups==0 and sent[#sent].data.pickupFailed,'composer roaming cannot pick up a distant keyboard')
+    players[1].loadedActorCells={};players[1].position.x=30000;players[1].cell='EXT:3,0';sent={}
+    module.eventHandlers.OnPlayerCellChange{guid=1}
+    check(sent[#sent].data.op=='close','leaving the loaded stage region still releases the session')
+end)
+
 test('leader mode validates ownership and retains lease cleanup',function()
     local format=require('procedural_synth_project')(schema)
     acquire();sent={}
@@ -177,7 +207,7 @@ test('disconnect, timeout, cell change and activator removal release locks',func
     for _,cause in ipairs({'disconnect','timeout','cell','remove'}) do
         reset(); sequence=0; acquire(); sent={}
         if cause=='disconnect' then module.eventHandlers.OnPlayerDisconnect{guid=1}
-        elseif cause=='cell' then module.eventHandlers.OnPlayerCellChange{guid=1}
+        elseif cause=='cell' then players[1].cell='INT:B';module.eventHandlers.OnPlayerCellChange{guid=1}
         elseif cause=='remove' then objects[7]=nil; now=now+1; module.engineHandlers.onUpdate()
         else now=now+9; module.engineHandlers.onUpdate() end
         check(#sent==2 and sent[1].data.op=='close')

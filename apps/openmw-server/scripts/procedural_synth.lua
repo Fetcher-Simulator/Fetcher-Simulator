@@ -26,10 +26,11 @@ local function emit(guid, data) data.version = 1; mp.send(guid, 'Synth_Message',
 local hostedMidi=require('procedural_synth_midi')(mp,emit)
 local performers=require('procedural_synth_performers')(mp,projectFormat,emit)
 local stage=require('procedural_synth_stage')(mp,projectFormat,performers,emit,config.PROCEDURAL_SYNTH_MODEL)
+local Layout=require('procedural_synth_band_layout')
 local function broadcast(s, out, except)
     out.id, out.epoch, out.seq, out.revision, out.owner = s.id, s.epoch, s.outSeq, s.revision, s.owner
     for _, player in ipairs(mp.getPlayers()) do
-        if player.guid ~= except and relevant(player, s.cell) then
+        if player.guid ~= except and (player.guid==s.owner or relevant(player, s.cell)) then
             if out.op == 'state' then s.recipients[player.guid] = true end
             if out.op == 'on' and not s.recipients[player.guid] then
                 emit(player.guid, {op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq-1,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
@@ -51,7 +52,11 @@ sendTransport=function(guid,s,t)
     emit(guid,{op='scoreReady',id=s.id,epoch=s.epoch,playId=t.playId})
 end
 local function nextEvent(s) s.outSeq = s.outSeq + 1 end
-local function release(s)
+local function release(s,reason)
+    if reason then
+        local owner=mp.getPlayer(s.owner)
+        print('[SynthSession] close keyboard='..s.id..' composer='..tostring(s.leaderPlays==false)..' reason='..reason..' ownerCell='..tostring(owner and owner.cell)..' stageCell='..tostring(s.cell))
+    end
     hostedMidi.cancel(s.owner)
     nextEvent(s); broadcast(s, {op='close'})
     sessions[s.id] = nil;stage:release(s,sessions);performers:release(s)
@@ -101,11 +106,18 @@ local function near(player, obj)
     if not a or not b then return false end
     return (a.x-b.x)^2 + (a.y-b.y)^2 + (a.z-b.z)^2 <= 300^2
 end
--- A non-playing leader controls the band from anywhere in the keyboard's cell.
+-- A non-playing leader may roam around the loaded exterior stage, across seams.
 -- Acquiring and picking up the keyboard still require physical proximity.
 local function canControl(player,s)
     local obj=objectFor(s.id)
-    return obj and player.cell==obj.cell and (s.leaderPlays==false or near(player,obj))
+    if not player or not obj then return false end
+    if s.leaderPlays~=false then return near(player,obj) end
+    if not Layout.sameWorld(player.cell,obj.cell) then return false end
+    if relevant(player,obj.cell) then return true end
+    -- Cell-change events can precede the refreshed loaded-cell list. A nearby
+    -- exterior crossing must not tear down an otherwise active conductor lease.
+    local a,b=player.position,obj.position
+    return a and b and (a.x-b.x)^2+(a.y-b.y)^2+(a.z-b.z)^2<=2000^2
 end
 local function catalog(guid, character)
     local saved = mp.getCharacterStorageForCharacter(character, 'ProceduralSynth', 'presets')
@@ -215,13 +227,13 @@ local function request(data)
     local s = sessions[data.id]
     if not s or s.owner ~= data.pid or s.epoch ~= data.epoch or not integer(data.seq,1,2147483647)
         or data.seq <= s.inSeq then return end
-    if now > s.expires or not canControl(player,s) then release(s); return end
+    if now > s.expires or not canControl(player,s) then release(s,now>s.expires and 'lease-expired' or 'outside-stage-region'); return end
     s.inSeq = data.seq
     local channel=data.channel or 0
     if not integer(channel,0,projectFormat.maxTracks) then return end
     local noteKey=channel*128+(integer(data.note,0,127) and data.note or 0)
     -- Safety operations bypass musical/edit rate limits.
-    if data.op == 'close' then release(s); return end
+    if data.op == 'close' then release(s,'finish'); return end
     if data.op == 'heartbeat' then
         if budget(data.pid,now,'heartbeat',1,2) then s.expires=now+8 end
         return
@@ -481,7 +493,7 @@ local function sweep()
         if s.upload and now>s.upload.expires then s.upload=nil end
         if s.transport and not s.transport.loop and now>s.transport.started+s.transport.length/48000+8 then s.transport=nil end
         local owner=mp.getPlayer(s.owner)
-        if not owner or now>s.expires or not canControl(owner,s) then release(s)
+        if not owner or now>s.expires or not canControl(owner,s) then release(s,not owner and 'owner-offline' or now>s.expires and 'lease-expired' or 'outside-stage-region')
         elseif now-s.lastAlive >= 2 then
             s.lastAlive=now
             -- New listeners receive parameters only, never a historical note-on.
@@ -547,12 +559,13 @@ return {
         OnPlayerDisconnect=function(data)
             hostedMidi.cancel(data.guid)
             budgets[data.guid]=nil;performers:disconnect(data.guid)
-            for _,s in pairs(sessions) do if s.owner==data.guid then release(s) end end
+            for _,s in pairs(sessions) do if s.owner==data.guid then release(s,'disconnect') end end
         end,
         OnPlayerCellChange=function(data)
+            local player=mp.getPlayer(data.guid)
             for _,s in pairs(sessions) do
                 s.recipients[data.guid]=nil
-                if s.owner==data.guid then release(s) end
+                if s.owner==data.guid and not canControl(player,s) then release(s,'cell-change-outside-stage') end
             end
         end,
     },

@@ -1,5 +1,23 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## November 2: composer cell-transition cleanup (package 64 / API 25)
+
+VPS logs showed Garbage crossing EXT:4,-15 / EXT:4,-14 followed by owned-band
+removal. Server OnPlayerCellChange unconditionally released the owner's session;
+canControl also required the keyboard's exact cell, and the client discarded every
+instance on a cell change. Server regressions retain an uploaded looping score,
+editing, liveness and later-listener score sync across a nearby crossing before
+the loaded-cell list updates and farther movement within the loaded exterior
+stage. Distant pickup still fails; leaving the loaded region releases the session.
+
+Client regressions cross exterior seams while hidden in composer mode, retaining
+the same project, audio instance and held gate beyond the previous lease interval.
+Authoritative close still clears it. Playing-leader cell changes still release;
+exterior observers retain audio, and unrelated interiors clear it. All 30 Lua
+suites pass. This is Lua-only, retaining native API 25 / protocol 27 and assets.
+These are log-based deterministic lifecycle checks; the next in-game session
+confirms the roaming experience on the user's stage.
+
 ## November 2: exterior boundary timeout (package 63 / API 25)
 
 Garbage's live client log recorded performer 489 at (36134.7, -114551, 212.838),

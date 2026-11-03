@@ -11,6 +11,12 @@ not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
 
+Package 64 preserves a non-playing composer's session, score, owned band and
+hidden Studio state across outdoor cell seams while the keyboard remains loaded.
+Short transition grace handles loaded-cell list timing; performer proximity,
+interior isolation, pickup checks, disconnect/lease/unloaded-region cleanup stay.
+Session-end reasons are logged. Native API 25 / protocol 27 remain unchanged.
+
 Package 63 fixes exterior boundary staging/availability/rendering. Grid slots
 spawn and teleport into their canonical coordinate cell; completion readback
 uses that cell. Nearby exterior performers retain the 2,000-unit range limit,

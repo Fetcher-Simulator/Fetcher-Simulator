@@ -1445,4 +1445,29 @@ local function testExteriorSources()
 end
 testExteriorSources()
 end
+do
+local function testComposerCellContinuity()
+    api.close();connected=false;player.engineHandlers.onFrame(.01);connected=true
+    local oldCell=self.cell;local home={id='EXT:4,-15',isExterior=true};local neighbour={id='EXT:4,-14',isExterior=true}
+    self.cell=home
+    handler{version=1,op='granted',id=7,epoch=501,seq=1,owner=1,leaderPlays=false,params=schema.state({})}
+    local work=api.workstation();local audio=audios[#audios]
+    handler{version=1,op='on',id=7,epoch=501,seq=2,note=60,velocity=.8};api.hide();self.cell=neighbour
+    now=now+.1;player.engineHandlers.onFrame(.01)
+    check(not audio.closed and audio.voices==1 and api.workstation()==work,'hidden composer crosses an exterior border without clearing audio or replacing its project')
+    for n=1,10 do now=now+1;handler{version=1,op='alive',id=7,epoch=501,seq=2+n};player.engineHandlers.onFrame(.01) end
+    check(not audio.closed and #api.status()==1 and api.status()[1].editing and not api.status()[1].editorVisible,'composer lease and hidden session survive beyond the old expiry interval across the seam')
+    handler{version=1,op='close',id=7,epoch=501,seq=13};check(audio.closed and #api.status()==0,'authoritative server close still cleans the roaming composer')
+    self.cell=home;handler{version=1,op='granted',id=7,epoch=502,seq=1,owner=1,leaderPlays=true,params=schema.state({})}
+    audio=audios[#audios];self.cell=neighbour;now=now+.1;player.engineHandlers.onFrame(.01)
+    check(audio.closed and #api.status()==0,'playing leader still releases the instrument on a cell transition')
+    self.cell=home;handler{version=1,op='state',id=7,epoch=503,seq=1,owner=9,leaderPlays=false,params=schema.state({})}
+    audio=audios[#audios];self.cell=neighbour;now=now+.1;player.engineHandlers.onFrame(.01)
+    check(not audio.closed and #api.status()==1,'loaded exterior observers also retain band audio across a seam')
+    self.cell={id='Interior',isExterior=false};player.engineHandlers.onFrame(.01)
+    check(audio.closed and #api.status()==0,'entering another environment still clears the listener')
+    self.cell=oldCell
+end
+testComposerCellContinuity()
+end
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

@@ -699,7 +699,10 @@ local function frame(dt)
     if session and session.workstation.cb.flushChannels then session.workstation.cb.flushChannels() end
     if synth.createStudio then transport:frame(instances) end
     for id,i in pairs(instances) do
-        if not i.source:isValid() or self.cell~=i.cell or now-i.seen>7 or i.audio.closed then destroy(id)
+        local exterior=self.cell and i.cell and self.cell.isExterior and i.cell.isExterior
+        local ownerSession=session and session.id==id
+        local compatibleCell=self.cell==i.cell or exterior and (not ownerSession or i.leaderPlays==false)
+        if not i.source:isValid() or not compatibleCell or now-i.seen>7 or i.audio.closed then destroy(id)
         else
             if now-(i.sampleCheckAt or -10)>0.5 and synth.sampleInfo then
                 i.sampleCheckAt=now;i.sampleStates=i.sampleStates or {}
