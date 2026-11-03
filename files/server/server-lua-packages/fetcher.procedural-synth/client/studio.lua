@@ -38,7 +38,7 @@ end
 function S:element(layout)
     local e=self.window:create(layout);self.children[#self.children+1]=e;return e
 end
-function S:slider(x,y,width,value,fn)
+function S:slider(x,y,width,value,fn,get)
     local epoch=self.controlEpoch
     local fill=self:element(rect(0,0,math.max(1,width*value),14,c.accent))
     local r=rect(x,y,width,14,c.track);r.content=ui.content{fill}
@@ -47,6 +47,9 @@ function S:slider(x,y,width,value,fn)
         local value=math.max(0,math.min(1,e.offset.x/(width*self.window.scale)))
         fn(value);fill.layout.props.size=v(math.max(1,width*value),14);self.window:update(fill)
     end
+    if get then self.simpleRefresh=self.simpleRefresh or {};self.simpleRefresh[#self.simpleRefresh+1]=function()
+        fill.layout.props.size=v(math.max(1,width*get()),14);self.window:update(fill)
+    end end
     r.events={mousePress=cb(set),mouseMove=cb(function(e) if e.button==1 then set(e) end end)};return r
 end
 function S:select(delta)
@@ -354,7 +357,7 @@ function S:mixer(content)
                 Dropdown.open(self,choices,t.presetId,function(id) w:preset(index,id) end,294,math.min(y+29,290),590)
             end)
             content[#content+1]=self:button('>',505,y,24,function() w:cyclePreset(index,1) end)
-            content[#content+1]=self:slider(546,y+5,94,t.level,function(value) w:setTrack(index,'level',value) end)
+            content[#content+1]=self:slider(546,y+5,94,t.level,function(value) w:setTrack(index,'level',value) end,function() return t.level end)
             content[#content+1]=self:button('M',650,y,30,function() w:setTrack(index,'mute',not t.mute) end,t.mute)
             content[#content+1]=self:button('S',686,y,30,function() w:setTrack(index,'solo',not t.solo) end,t.solo)
             content[#content+1]=self:button('Sound',726,y,57,function() self.cb.sound(index) end)
@@ -367,7 +370,7 @@ function S:mixer(content)
     content[#content+1]=self:button('+ Piano clip',20,578,120,function() if w:add('piano') then w.page='piano' end end)
     content[#content+1]=self:button('+ Drum lane',150,578,120,function() if w:add('drum') then w.page='drums' end end)
     content[#content+1]=label('MASTER',302,582,72,12,c.muted)
-    content[#content+1]=self:slider(380,584,190,p.master,function(value) w:setMaster(value) end)
+    content[#content+1]=self:slider(380,584,190,p.master,function(value) w:setMaster(value) end,function() return p.master end)
     self:pageSelector(content,'mixerPage','Tracks',620,578,240)
     local t=p.tracks[w.selected]
     content[#content+1]=self:button('Rename track',20,614,155,function() if t then self:renameTrack(w.selected) end end)
@@ -682,9 +685,10 @@ end
 function S:midiMappings(content)
     local w=self.w;local r=w.recorder
     content[#content+1]=self:button('< Recording setup',20,163,200,function() w.page='recordsetup';w.revision=w.revision+1 end)
-    content[#content+1]=label('MIDI ARTICULATION / local controller bindings',240,171,650,16,c.accent)
+    content[#content+1]=label('MIDI CONTROLLERS / local bindings',240,171,650,16,c.accent)
     if not r then return end
     local m=r.mapping
+    content[#content+1]=self:button('Knobs / faders >',610,163,280,function() w.page='controllers';w.revision=w.revision+1 end)
     content[#content+1]=self:button(m.enabled and 'Mappings: On' or 'Mappings: Off',20,211,270,function() r:setMapping('enabled',not m.enabled) end,m.enabled)
     content[#content+1]=self:button(w.automationWriting and 'End Auto write' or 'Write mappings to Auto',310,211,280,function() r:writeMappings() end,w.automationWriting)
     content[#content+1]=self:button('Reset live expression',610,211,280,function() r:releaseInput();w.revision=w.revision+1 end)
@@ -930,6 +934,7 @@ function S:projects(content)
     content[#content+1]=label('Projects and recovery drafts belong to this character in the server database. MIDI exports stay local.',20,644,880,12,c.muted)
 end
 function S:render()
+    self.numericRefresh={};self.simpleRefresh={};self.controllerStatus=nil
     if self.arrangeFocus and self.w.page~='arrange' then self.arrangeFocus=false;self.window.expanded=false;self.window.restoreExpanded=nil end
     if self.pianoFocus and self.w.page~='piano' then self.pianoFocus=false;self.window.expanded=false;self.window.restoreExpanded=nil end
     self.window:bounds();self.width,self.height=self.window.canvasWidth,self.window.canvasHeight
@@ -996,7 +1001,7 @@ function S:render()
     content[#content+1]=self:button('Import',self.width-229,112,92,self.cb.import)
     content[#content+1]=self:button('Export MIDI',self.width-125,112,100,function() w:exportMidi() end)
     local body={};self.bodyOffset=(w.page=='piano' or w.page=='drums' or w.page=='auto' or w.page=='arrange') and 0 or math.max(0,(self.width-940)/2)
-    if w.page=='guitar' then require('scripts.multiplayer.fetcher.procedural-synth.client.guitar-page')(self,body) elseif w.page=='timing' then self:timing(body) elseif w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='midimapping' then self:midiMappings(body) elseif w.page=='recordsetup' then self:recordSetup(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
+    if w.page=='guitar' then require('scripts.multiplayer.fetcher.procedural-synth.client.guitar-page')(self,body) elseif w.page=='timing' then self:timing(body) elseif w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='controllers' then require('scripts.multiplayer.fetcher.procedural-synth.client.controller-page')(self,body) elseif w.page=='midimapping' then self:midiMappings(body) elseif w.page=='recordsetup' then self:recordSetup(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
     -- Keep the header above centered page containers in native hit testing.
     if self.bodyOffset>0.1 then table.insert(content,1,{type=ui.TYPE.Widget,props={position=v(self.bodyOffset,0),size=v(940,self.height)},content=ui.content(body)})
     else for _,item in ipairs(body) do content[#content+1]=item end end
@@ -1123,6 +1128,11 @@ function S:frame(now)
     if self.revision~=self.w.revision and not self.dropdown and not input.isMouseButtonPressed(1) then self:render() end
     self:updatePlayheads()
     if now-self.lastFrame<0.1 then return end;self.lastFrame=now
+    for _,refresh in ipairs(self.numericRefresh or {}) do refresh() end
+    for _,refresh in ipairs(self.simpleRefresh or {}) do refresh() end
+    if self.controllerStatus then
+        self.controllerStatus.layout.props.text=self.w.recorder.controllers.status or 'Move a mapped knob or fader.';self.window:update(self.controllerStatus)
+    end
     self.transport.layout.props.text=string.format('%s  |  %.1fs  |  Beat %.1f  |  %s%s',self.w.awaiting and 'BUFFER' or (self.w.playing and 'PLAY' or 'STOP'),self.w.time,self.w.beat+1,self.w.project.name,self.w.dirty and ' *' or '')
     if self.w.mode=='song' and (self.w.project.timeline or self.w.song) then
         local view={timeline=self.w.project.timeline or self.w.song,composition=self.w.project.composition}

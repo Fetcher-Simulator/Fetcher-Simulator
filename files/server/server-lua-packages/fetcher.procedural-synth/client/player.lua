@@ -381,6 +381,13 @@ makeWorkstation=function(i)
             i.pendingChannels[n]={channel=n,params=params,level=level,mixer=i.channels[n].mixer};flushChannels()
         end,
         currentParams=function() return i.params end,
+        manualParameter=function(name,value)
+            if not session or session.id~=i.id or not schema.valid(name,value) then return false end
+            i.params[name]=value;i.presetId='';local audio=channelAudio(i,0,false)
+            if audio then audio:set(name,value) end
+            if editor and editor.kind~='studio' and session.editTrack==0 and editor.controls[name] then editor.controls[name]() end
+            dirty=true;return true
+        end,
         prune=function(count)
             for n,channel in pairs(i.channels) do if n>count then i.pendingChannels[n]=nil;if channel.audio then channel.audio:close() end;i.channels[n]=nil;send('channelRemove',{channel=n}) end end
         end,

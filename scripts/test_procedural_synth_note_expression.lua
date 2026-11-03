@@ -4,7 +4,8 @@ local MIDI=dofile(root..'client/midi.lua');local Sequence=dofile(root..'shared/s
 package.loaded[prefix..'shared.schema']=schema;package.loaded[prefix..'shared.project']=factory;package.loaded[prefix..'shared.sequence']=Sequence
 package.loaded[prefix..'client.midi']=MIDI;package.loaded[prefix..'client.soundsets']=dofile(root..'client/soundsets.lua')
 package.loaded[prefix..'client.arrangement']=dofile(root..'client/arrangement.lua')
-local W=dofile(root..'client/workstation.lua');local R=dofile(root..'client/recorder.lua');local Export=dofile(root..'client/midi-export.lua')
+local W=dofile(root..'client/workstation.lua');package.loaded[prefix..'client.controller-map']=dofile(root..'client/controller-map.lua')
+local R=dofile(root..'client/recorder.lua');local Export=dofile(root..'client/midi-export.lua')
 local Tools=dofile(root..'client/guitar-tools.lua')
 local checks=0;local function check(ok,msg) checks=checks+1;assert(ok,msg) end
 local function copy(t) if type(t)~='table' then return t end;local out={};for k,v in pairs(t) do out[k]=copy(v) end;return out end

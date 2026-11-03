@@ -40,7 +40,7 @@ function C.slider(owner,name,title,spec,get,set,x,y,width)
     local editing,draft=false,nil
     local epoch=owner.controlEpoch
     local startX,startValue
-    local field,refresh
+    local field,refresh,lastWidth
     local function apply(value)
         if owner.uiClosed or owner.controlEpoch~=epoch then return end
         if value==get() then return end
@@ -93,9 +93,16 @@ function C.slider(owner,name,title,spec,get,set,x,y,width)
         if owner.uiClosed or owner.controlEpoch~=epoch then return end
         local text=type(title)=='function' and title() or title
         if caption.layout.props.text~=text then caption.layout.props.text=text;owner.window:update(caption) end
-        fill.layout.props.size=v(math.max(1,trackWidth*C.normalized(get(),spec)),10);owner.window:update(fill)
-        if not editing then field.layout.props.text=C.format(get(),spec);field.layout.props.textColor=colors.accent;owner.window:update(field) end
+        local width=math.max(1,trackWidth*C.normalized(get(),spec))
+        if lastWidth~=width then lastWidth=width;fill.layout.props.size=v(width,10);owner.window:update(fill) end
+        if not editing then
+            local value=C.format(get(),spec)
+            if field.layout.props.text~=value or field.layout.props.textColor~=colors.accent then
+                field.layout.props.text=value;field.layout.props.textColor=colors.accent;owner.window:update(field)
+            end
+        end
     end
+    owner.numericRefresh=owner.numericRefresh or {};owner.numericRefresh[#owner.numericRefresh+1]=refresh
     owner.window:update(element);refresh();return element,refresh
 end
 return C

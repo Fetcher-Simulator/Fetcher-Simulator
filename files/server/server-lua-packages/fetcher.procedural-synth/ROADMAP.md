@@ -11,14 +11,23 @@ not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
 
+Package 68 / native API 28 adds up to 16 general local CC Learn bindings for
+synth parameters, fixed/current track faders, channel processing, master and
+returns. Pickup prevents abrupt target jumps. Explicit synth Auto capture uses
+compensated timing and one Undo; mixer/return automation, relative/high-resolution
+controllers and per-device profiles remain follow-ups. Widgets refresh in place
+and input polls checkpoint once without changing CC/note order. This is Lua-only
+and local-only, retaining protocol 27. Band listening acceptance, richer captured
+gestures, same-pitch string unisons and visual calibration remain next.
+
 Package 67 / native API 28 captures articulation/string/pick overrides with each
 recorded note, including same-time mixed attacks and reusable clip sources.
 Piano can edit/clear selected note expression. Shared-source edits, repeat/offset/
 transpose, copy/paste, private saves and take Undo/recovery preserve it. Compact
 sidecars and adjacent native companions leave old notes unchanged; companions
 share the existing transport budget and are excluded from note-rate accounting.
-This is local-only, retaining protocol 27. General knob/fader Learn and listening
-acceptance are next; captured gestures/same-pitch string unisons remain pending.
+This is local-only, retaining protocol 27. General knob/fader Learn follows in
+package 68; listening acceptance, captured gestures/same-pitch string unisons remain pending.
 
 Package 66 / native API 27 adds opt-in local CC Learn/bindings and four-note
 articulation keyswitches, with per-attack articulation/string/pick snapshots on
@@ -485,17 +494,18 @@ readback repair lineup changes that previously left reused NPCs in old slots.
      pre/post cuts, local focus/dim, first-pass pick/resonance/articulation and
      opt-in parallel processing are implemented. Package 57 also supplies an
      explicit string-aware fingering/strum note tool. Next are live per-string
-     richer/captured hammer-ons and slides, general controller mapping and
+     richer/captured hammer-ons and slides, controller follow-ups and
      listening-based refinement with drums and bass present. Mono connected
      legato/picked slides are implemented in package 58; independent string
      allocation and explicit stepped string selection ship in package 65.
      Persistent per-note fingering and same-pitch string unisons remain pending.
      Package 66 adds live CC/keyswitch mapping and explicit track-level Auto write;
      package 67 retains individual attack expression in takes and reusable clips.
-     Add general physical-controller Learn/assignments for synth/effect knobs and
-     mixer faders (volume, filter cutoff, drive and other exposed controls), with
-     appropriate continuous/discrete ranges, local bindings and explicit automation
-     capture. Package 66 maps only articulation, string and pick selection.
+     Package 68 adds general physical-controller Learn/assignments for synth,
+     channel processing, track/master faders and return controls, with native
+     ranges, pickup, local bindings and explicit synth automation capture.
+     Mixer/return automation, relative/14-bit encoders, per-device profiles and
+     custom subranges remain follow-ups. Package 66's attack mappings stay separate.
      Do not make fidelity depend solely on collecting more samples.
    - **Guitar and bass articulation:** clean, crunch, fuzz, high-gain rhythm and
      lead guitar; tight palm-muted/choked notes, sustained chords, picking,

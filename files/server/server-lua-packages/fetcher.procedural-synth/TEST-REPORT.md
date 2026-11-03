@@ -1,5 +1,28 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## November 3: general MIDI controllers (package 68 / API 28; local only)
+
+All 33 Lua suites pass. The new controller suite checks all 128 CC values for
+every offered target, endpoint/discrete/logarithmic ranges, strict bounded local
+persistence, duplicate/reserved CC rejection in both mapping families, Learn,
+sustain/channel filtering and absent fixed-track handling. Pickup acquisition,
+rearming after edits/target switches, manual Synth versus fixed/current Studio
+routing, level/channel/master/return updates and disconnect cleanup are covered.
+Compensated continuous/stepped Auto capture, project validation and one-step
+Undo/Redo pass. A busy poll makes one checkpoint while preserving event order.
+
+The player/UI harness exercises actual navigation, searchable target/track
+pickers, Learn, pickup and deletion. Manual Synth CC changes reach its real editor
+and authenticated edit relay, and follow selection after returning to Studio.
+Existing slider identity/dropdown lifecycle tests pass with periodic in-place
+numeric refresh. Unchanged numeric text/fill values avoid redundant updates.
+
+Evidence: build/studio68-lua-tests.json. This is Lua-only: no native client/server,
+protocol or sound-asset change. The API-28 local executable is reused. Installation
+is limited to the existing port-25567 fixture with user data and asset hashes
+verified, and the client left closed. Physical Axiom and audible band acceptance
+remain pending; no VPS/public/workflow changes are part of this slice.
+
 ## November 3: recorded per-note expression (package 67 / API 28; local only)
 
 All 32 Lua suites pass. The new note-expression suite covers all 180 compact

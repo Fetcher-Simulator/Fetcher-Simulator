@@ -171,6 +171,7 @@ function E.new(params,cb)
     self.window.pickup=cb.pickup;self:render();I.UI.addMode('Interface',{windows={}});return self
 end
 function E:render()
+    self.numericRefresh={}
     if self.dropdown and self.dropdown.page==self.page then self.pendingRender=true;return end
     self.pendingRender=nil
     Dropdown.close(self)
@@ -367,6 +368,7 @@ function E:frame(now)
     if self.mouseNote and not input.isMouseButtonPressed(1) then self:note(self.mouseNote,false); self.mouseNote=nil end
     if now-self.lastMeter>0.1 then
         self.lastMeter=now
+        for _,refresh in ipairs(self.numericRefresh or {}) do refresh() end
         local peak,voices=self.cb.meter()
         self.meter.layout.props.text=string.format('OUTPUT  %s  %d voices',string.rep('|',math.floor(peak*25)),voices)
         self.window:update(self.meter)

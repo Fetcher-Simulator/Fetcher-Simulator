@@ -163,6 +163,13 @@ function W:configure(index)
     local t=self.project.tracks[index]
     if t then self.cb.configure(index,t.params,self:audible(index) and t.level or 0,t.mixer) end
 end
+function W:setParameter(index,name,value)
+    if not schema.valid(name,value) or name=='polyphony' and index>0 and value>8 then return false end
+    if index==0 then return self.cb.manualParameter and self.cb.manualParameter(name,value) or false end
+    local t=self.project.tracks[index];if not t then return false end
+    if t.params[name]==value then return true end
+    t.params[name]=value;t.presetId='';self:configure(index);self:touch('sound:'..index..':'..name,true);return true
+end
 function W:setMixer(index,name,value)
     local t=self.project.tracks[index];local spec=format.mixerSpecs[name]
     if not t or not spec then return false end

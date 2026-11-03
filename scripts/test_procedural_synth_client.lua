@@ -85,6 +85,7 @@ local monitor=1
 package.loaded['openmw.synth'].getMonitorVolume=function() return monitor end
 package.loaded['openmw.synth'].setMonitorVolume=function(value) monitor=value end
 package.loaded[prefix..'client.window']=dofile(root..'client/window.lua')
+package.loaded[prefix..'client.controller-map']=dofile(root..'client/controller-map.lua')
 package.loaded[prefix..'client.recorder']=dofile(root..'client/recorder.lua')
 package.loaded[prefix..'client.workstation']=dofile(root..'client/workstation.lua')
 package.loaded[prefix..'client.controls']=dofile(root..'client/controls.lua')
@@ -97,6 +98,7 @@ package.loaded[prefix..'client.guitar-tools']=dofile(root..'client/guitar-tools.
 package.loaded[prefix..'client.guitar-page']=dofile(root..'client/guitar-page.lua')
 package.loaded[prefix..'client.arranger']=dofile(root..'client/arranger.lua')
 package.loaded[prefix..'client.library']=dofile(root..'client/library.lua')
+package.loaded[prefix..'client.controller-page']=dofile(root..'client/controller-page.lua')
 local Studio=dofile(root..'client/studio.lua')
 local lastStudio
 local newStudio=Studio.new
@@ -729,7 +731,16 @@ do
     api.sound(0);check(not sounding(64),'switching to manual Synth releases track gate')
     midi(144,65,80)
     check(sounding(65) and sent[#sent].channel==0 and w.recorder.inputTrack==0,'main manual Synth uses channel zero instead of selected drum lane')
+    assert(w.recorder.controllers:edit(1,{cc=21,target='param:drive',pickup=false}))
+    assert(w.recorder:setMapping('enabled',true));midi(176,21,127)
+    check(lastEditor.params.drive==36,'physical knob updates the actual manual Synth editor state')
+    now=now+.2;player.engineHandlers.onFrame(.2)
+    local replicated=false;for _,m in ipairs(sent) do if m.op=='edit' and m.params.drive==36 then replicated=true end end
+    check(replicated,'manual Synth controller edit uses the authenticated normal edit relay')
     api.studio();check(not sounding(65) and w.recorder.input==port,'returning to Studio releases manual voice and keeps device')
+    w.selected=1;midi(176,21,64)
+    check(w.project.tracks[1].params.drive==36*64/127,'same physical knob follows Studio selection after leaving manual Synth')
+    w.recorder.controllers:edit(1,nil,true);w.recorder:setMapping('enabled',false)
     w.selected=1;w.page='piano';w.revision=w.revision+1;midi(144,67,100)
     api.hide();check(closed and not w.recorder.input and not sounding(67),'Hide immediately closes MIDI port and releases physical held note')
     api.show();native.openMidiInput=previous
@@ -1273,6 +1284,23 @@ local function testContinuousSliders()
         uw.recorder:setMapping(entry[2],-1);view:frame(now+.2)
     end
     check(control(view,'First keyswitch: C1 / MIDI 24'),'mapping page exposes a note-name and numeric keyswitch base')
+    local function click(text)
+        for _,item in ipairs(view.root.layout.content) do if item.content and item.content[1] and item.content[1].props and item.content[1].props.text==text then
+            item.events.mouseClick();view:frame(now+.3);return
+        end end
+        error('Missing controller button '..text)
+    end
+    click('Knobs / faders >');check(uw.page=='controllers','new mapping page opens through real navigation')
+    click('+ Add binding');check(#uw.recorder.controllers.bindings==1 and control(view,'CC (-1 = off)'),'new binding exposes editable numeric CC')
+    click('1  Synth / cutoff v');check(view.dropdown and #view.dropdown.entries>100,'target dropdown contains synth, mixer and return targets')
+    local picker=view.dropdown;picker.field.layout.events.textChanged('Mixer / track level');picker.rows[1].layout.events.mouseClick();view:frame(now+.5)
+    check(uw.recorder.controllers.bindings[1].target=='level','filtered target picker assigns the actual binding')
+    click('Current track / Synth v');picker=view.dropdown;picker.field.layout.events.textChanged('Track 2 /');picker.rows[1].layout.events.mouseClick();view:frame(now+.7)
+    check(uw.recorder.controllers.bindings[1].track==2,'fixed-track dropdown assignment persists')
+    click('Learn CC');uw.recorder:event{status=176,a=19,b=100,age=0,channel=1};view:frame(now+.9)
+    check(uw.recorder.controllers.bindings[1].cc==19 and not uw.recorder.learn,'real Learn button assigns the next controller')
+    click('Pickup: On');check(not uw.recorder.controllers.bindings[1].pickup,'pickup toggle allows immediate control')
+    click('X');check(#uw.recorder.controllers.bindings==0,'binding deletion works through the UI')
     view:destroy()
     local requested
     local editor=Editor.new(schema.state(bank.state),{change=function() end,command=function(op,args) requested=args.presetId end,noteOff=function() end,meter=function() return 0,0 end})
@@ -1308,7 +1336,8 @@ do
 end
 do
 local function testGuitarPage()
-    local Workstation=dofile(root..'client/workstation.lua');local Studio=dofile(root..'client/studio.lua')
+    local Workstation=dofile(root..'client/workstation.lua');package.loaded[prefix..'client.controller-page']=dofile(root..'client/controller-page.lua')
+local Studio=dofile(root..'client/studio.lua')
     local uw=Workstation.new{configure=function() end,panic=function() end,message=function() end,meter=function() return 0 end}
     assert(uw:newSong(120,4,4,8))
     assert(uw:storeNotes(1,{{n=40,s=0,l=4,v=.8},{n=47,s=0,l=4,v=.8},{n=52,s=0,l=4,v=.8}}))
@@ -1349,7 +1378,8 @@ testGuitarPage()
 end
 do
 local function testRecordingAndViews()
-    local Workstation=dofile(root..'client/workstation.lua');local Studio=dofile(root..'client/studio.lua')
+    local Workstation=dofile(root..'client/workstation.lua');package.loaded[prefix..'client.controller-page']=dofile(root..'client/controller-page.lua')
+local Studio=dofile(root..'client/studio.lua')
     local uw=Workstation.new{now=function() return now end,configure=function() end,panic=function() end,message=function() end,
         meter=function() return 0 end,on=function() return true end,off=function() end,
         recordOptions=function() return {countIn=0,latency=0,untilStop=true} end}
@@ -1402,7 +1432,8 @@ testRecordingAndViews()
 end
 do
 local function testSourceLengthAndNotePaint()
-    local Workstation=dofile(root..'client/workstation.lua');local Studio=dofile(root..'client/studio.lua')
+    local Workstation=dofile(root..'client/workstation.lua');package.loaded[prefix..'client.controller-page']=dofile(root..'client/controller-page.lua')
+local Studio=dofile(root..'client/studio.lua')
     local uw=Workstation.new{configure=function() end,panic=function() end,message=function() end,meter=function() return 0 end}
     assert(uw:newSong(120,4,4,8));assert(uw:storeNotes(1,{{n=60,s=0,l=4,v=.8},{n=64,s=12,l=4,v=.8}}))
     uw:selectAllNotes(1);assert(uw:captureClip(1));assert(uw:changeRegion(1,1,{l=32}));assert(uw:editClip(1,1));uw.rollSteps=32

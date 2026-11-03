@@ -3,7 +3,8 @@ local schema=dofile(root..'shared/schema.lua');local factory=dofile(root..'share
 local MIDI=dofile(root..'client/midi.lua');local Sequence=dofile(root..'shared/sequence.lua')
 package.loaded[prefix..'shared.schema']=schema;package.loaded[prefix..'shared.project']=factory
 package.loaded[prefix..'client.midi']=MIDI;package.loaded[prefix..'client.soundsets']=dofile(root..'client/soundsets.lua')
-local W=dofile(root..'client/workstation.lua');local R=dofile(root..'client/recorder.lua')
+local W=dofile(root..'client/workstation.lua');package.loaded[prefix..'client.controller-map']=dofile(root..'client/controller-map.lua')
+local R=dofile(root..'client/recorder.lua')
 local checks=0;local function check(ok,msg) checks=checks+1;assert(ok,msg) end
 local now,position=100,1;local ons,offs,messages,store={},{},{},{}
 local w=W.new{configure=function() end,panic=function() end,message=function(s) messages[#messages+1]=s end,

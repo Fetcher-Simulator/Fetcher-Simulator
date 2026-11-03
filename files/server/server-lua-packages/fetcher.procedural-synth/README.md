@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 67 / native synth API 28 / multiplayer protocol 27.
+Current source: package 68 / native synth API 28 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,47 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Physical knobs and faders (package 68 / native API 28)
+
+Open **Piano > Record keyboard / Keyboard setup > Recording setup > MIDI mappings >
+Knobs / faders**. Connect your Axiom from the recording/input setup as before.
+Turn **Mappings: On**, choose **Add binding**, select a target and click **Learn CC**.
+Move the physical knob or fader once to assign its controller number. Bindings
+work while the Synth, Piano, Drums and other Studio pages are open.
+
+Up to 16 local absolute 7-bit CC bindings can control synth parameters (including
+volume, cutoff and drive), track levels, channel EQ/compression/sends, master
+volume and delay/reverb returns. **Current track / Synth** follows the selected
+Studio part or the sound currently open in Synth, including the manual instrument.
+A fixed track number lets several physical faders mix different parts at once;
+these are numbered slots, so review assignments after reordering/deleting tracks.
+Missing fixed tracks are ignored. Master/return bindings apply to the whole song.
+
+**Pickup: On** waits until the knob reaches or crosses the current saved value.
+Selection, preset/document changes, external value edits, Hide/disconnect and
+Reset controllers rearm pickup. Turn it off for immediate jumps. Continuous
+controls span their native range; frequency/envelope controls use logarithmic
+travel and discrete controls use valid even bins. CC 64 remains sustain; channel
+mode CCs 120–127 cannot be assigned. All bindings share the input-channel filter
+and cannot reuse the articulation/string/pick CCs. Relative encoders, 14-bit CC,
+per-device profiles and custom subranges remain future work.
+
+During native song/clips playback, **Write synth CCs to Auto** captures mapped
+synth-parameter movements with input-age/latency compensation, alongside existing
+articulation mappings, as one Undo transaction. Continuous targets use the current
+Auto linear/step choice; discrete targets stay stepped. Knob movements also edit
+the saved sound. Mixer/return faders are live saved edits; they do not yet have
+score automation lanes. Keyboard takes retain notes and attack expression; use
+explicit Auto write for continuous curves. Mapping configuration stays locked
+during a keyboard take or Auto write.
+
+Bindings stay in local player preferences; musical values and curves use the
+existing private project/preset and authenticated multiplayer paths. UI value
+fields/fills update in place. Busy MIDI polls keep CC/note order and make one
+checkpoint per poll. This Lua-only slice keeps native API 28 and protocol 27;
+only the usual local fixture is installed. Physical Axiom/listening acceptance
+is still pending.
 
 ## Recorded note expression (package 67 / native API 28)
 

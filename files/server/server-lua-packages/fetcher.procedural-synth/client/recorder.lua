@@ -1,6 +1,7 @@
 -- Local recording preferences, native click clock and timestamped input routing.
 local prefix='scripts.multiplayer.fetcher.procedural-synth.'
 local schema=require(prefix..'shared.schema');local Format=require(prefix..'shared.project')(schema)
+local Controllers=require(prefix..'client.controller-map')
 local R={};R.__index=R
 local function finite(v,a,b) return type(v)=='number' and v==v and v>=a and v<=b end
 local function pack(n) local a=n%256;n=math.floor(n/256);local b=n%256;n=math.floor(n/256);return string.char(a,b,n%256,math.floor(n/256)) end
@@ -67,34 +68,37 @@ function R.calculation(taps)
 end
 function R.new(w,engine,core,self,storage,message)
     local saved={};for _,key in ipairs{'countIn','countClick','recordClick','untilStop','metronome','clickVolume','latency','channel'} do saved[key]=storage:get(key) end
-    return setmetatable({w=w,engine=engine,core=core,self=self,storage=storage,message=message,settings=R.options(saved),keys={},counts={},pedal={},taps={},inputStatus='Disconnected',
+    local self=setmetatable({w=w,engine=engine,core=core,self=self,storage=storage,message=message,settings=R.options(saved),keys={},counts={},pedal={},taps={},inputStatus='Disconnected',
         mapping=R.mappingOptions(storage:get('midiMapping')) or R.mappingOptions(),expression={}},R)
+    self.controllers=Controllers.new(self,storage:get('controllerBindings'));return self
 end
 function R:setMapping(key,value)
     if self.w.recording or self.w.automationWriting then self.message('End the take or Auto write before changing MIDI mappings.');return false end
     local candidate={};for k,v in pairs(self.mapping) do candidate[k]=v end;candidate[key]=value
     candidate=R.mappingOptions(candidate)
-    if not candidate then self.message('Choose unique CCs from 0–119; CC 64 is reserved for sustain.');return false end
+    if not candidate or not Controllers.options(self.controllers.bindings,candidate) then self.message('Choose unique CCs from 0–119; CC 64 is reserved for sustain.');return false end
     self:releaseInput();self.mapping=candidate;self.storage:set('midiMapping',candidate);self.learn=nil
     self.w.revision=self.w.revision+1;return true
 end
 function R:learnMapping(key)
-    if not mappingNames[key] or self.w.recording or self.w.automationWriting then return false end
+    if not (mappingNames[key] or type(key)=='number' and self.controllers.bindings[key]) or self.w.recording or self.w.automationWriting then return false end
     self.learn=self.learn==key and nil or key;self.w.revision=self.w.revision+1;return true
 end
 function R:setExpression(name,value,age)
     if self.expression[name]==value then return end
     self.expression[name]=value;self.mappingStatus=name..' = '..value;self.mappingChanged=true
-    if self.w.automationWriting and self:target()>0 then
-        local adjusted=(age or 0)+self.settings.latency/1000
-        if self.mappingWriting and self.mappingStart and self.w.cb.progress then
-            local _,time=self.w.cb.progress()
-            if time-(age or 0)<self.mappingStart then return end
-            adjusted=math.min(adjusted,math.max(0,time-self.mappingStart))
-        end
-        self.w:recordAutomation(self:target(),name,value,adjusted)
-    end
+    if self.w.automationWriting and self:target()>0 then self:recordMapped(self:target(),name,value,age) end
 end
+function R:recordMapped(index,name,value,age)
+    local adjusted=(age or 0)+self.settings.latency/1000
+    if self.mappingWriting and self.mappingStart and self.w.cb.progress then
+        local _,time=self.w.cb.progress()
+        if time-(age or 0)<self.mappingStart then return false end
+        adjusted=math.min(adjusted,math.max(0,time-self.mappingStart))
+    end
+    return self.w:recordAutomation(index,name,value,adjusted)
+end
+
 function R:writeMappings()
     if self.w.automationWriting then self.w:endAutomationWrite();self.mappingWriting=false;return true end
     if not self.mapping.enabled or not self.w:beginAutomationWrite() or self:target()==0 then
@@ -106,18 +110,23 @@ function R:writeMappings()
     for key,name in pairs(mappingNames) do if self.mapping[key]>=0 or name=='stringArticulation' and self.mapping.switches then
         self.w:recordAutomation(self:target(),name,self.expression[name] or t.params[name],0)
     end end
+    for _,b in ipairs(self.controllers.bindings) do if b.cc>=0 then
+        local target,index,_,value=self.controllers:context(b)
+        if target.automatable and index>0 and value~=nil then self.w:recordAutomation(index,target.name,value,0) end
+    end end
     self.w.revision=self.w.revision+1;return true
 end
 function R:mappedEvent(e)
     if self.learn and e.status==176 then
-        if e.a==64 or e.a>=120 then self.message('Sustain and channel-mode CCs cannot be learned as articulations.');return false end
-        self:setMapping(self.learn,e.a);return true
+        if e.a==64 or e.a>=120 then self.message('Sustain and channel-mode CCs cannot be learned as controllers.');return false end
+        if type(self.learn)=='number' then self.controllers:edit(self.learn,{cc=e.a}) else self:setMapping(self.learn,e.a) end;return true
     end
     if not self.mapping.enabled or self.calibrating then return false end
     if e.status==176 then
         for key,name in pairs(mappingNames) do if e.a==self.mapping[key] then
             local max=schema.specs[name].max;self:setExpression(name,math.min(max,math.floor(e.b*(max+1)/128)),e.age);return true
         end end
+        return self.controllers:event(e)
     elseif self.mapping.switches and (e.status==144 or e.status==128) and e.a>=self.mapping.switchBase and e.a<=self.mapping.switchBase+3 then
         if e.status==144 and e.b>0 then self:setExpression('stringArticulation',e.a-self.mapping.switchBase,e.age) end
         return true
@@ -189,6 +198,7 @@ function R:connect(id)
     self.input=input;self.inputStatus='Connected';self.w.revision=self.w.revision+1;return true
 end
 function R:releaseInput()
+    self.controllers:reset()
     if self.mappingWriting then self.w:endAutomationWrite();self.mappingWriting=false end
     for note in pairs(self.counts) do
         if self.w.recording and self.w.recording.held[note] then self.w:recordOff(note)
@@ -233,12 +243,27 @@ function R:event(e)
     elseif e.status==128 or e.status==144 and e.b==0 then
         if entry then entry.down=false;if not self.pedal[e.channel] then self:release(key,e.age) end end
     elseif e.status==176 and (e.a==64 or e.a==120 or e.a==121 or e.a==123) then
-        if e.a~=64 then self.expression={};self.mappingStatus=nil;self.mappingChanged=true end
+        if e.a~=64 then self.controllers:reset();self.expression={};self.mappingStatus=nil;self.mappingChanged=true end
         self.pedal[e.channel]=e.a==64 and e.b>=64
         local release={};for id,k in pairs(self.keys) do if k.channel==e.channel and (e.a~=64 or not k.down and not self.pedal[e.channel]) then release[#release+1]=id end end
         for _,id in ipairs(release) do self:release(id,e.age) end
     end
     return true
+end
+-- Preserve event order (especially CC -> note attacks) while making one bounded
+-- document checkpoint per input poll, rather than copying a large song for each CC.
+function R:events(events,visible,input)
+    local w=self.w
+    local grouped=self.mapping.enabled and #self.controllers.bindings>0 and not w.recording and not w.automationWriting
+    if grouped then w.editDepth=(w.editDepth or 0)+1 end
+    for _,e in ipairs(events) do
+        if input and self.input~=input then break end
+        if visible and not self:event(e) then self:releaseInput() end
+    end
+    if grouped then
+        w.editDepth=w.editDepth-1
+        if w.editDepth==0 and w.transactionTouched then w.transactionTouched=false;w:touch('controller',true) end
+    end
 end
 function R:beginCalibration()
     if self.w.recording then self.message('Keep or cancel the take before calibration.');return false end
@@ -279,10 +304,7 @@ function R:frame(visible,track)
         local input=self.input;local ok,batch=pcall(input.poll,input)
         if not ok or not batch.connected or batch.dropped>0 then
             if w.recording then w:endTake(false) end;self:disconnect();self.message('MIDI disconnected or input overflowed; held notes released and partial take kept.');w.revision=w.revision+1
-        else for _,e in ipairs(batch.events) do
-            if self.input~=input then break end
-            if visible then if not self:event(e) then self:releaseInput() end end
-        end end
+        else self:events(batch.events,visible,input) end
     end
     if self.clockKind=='test' and self.clock and not self.clock.playing and self.core.getRealTime()>(self.testStarted or 0)+.75 then self:stopClock();w.revision=w.revision+1 end
     if not self.calibrating and self.clockKind~='take' and self.clockKind~='test' then
