@@ -43,7 +43,7 @@ local project=Format.new();project.leaderPlays=false
 for n=1,32 do project.tracks[n]=Format.newTrack('midi','Part '..n,16);project.tracks[n].sourceRole=n%2==0 and 'guitar' or 'keys';project.tracks[n].params.fine1=n end
 local function drain()
  for _,p in ipairs(queue) do nextActor=nextActor+1;p.mpNum=nextActor
-  actors[nextActor]={mpNum=nextActor,actorInstanceId=nextActor,refId=p.refId,cell=p.cell,position=p.position,isDead=false}
+  actors[nextActor]={mpNum=nextActor,actorInstanceId=nextActor,refId=p.refId,cell=Layout.cellAt(p.cell,p.position),position=p.position,isDead=false}
   P:spawned(p,sessions)
  end;queue={}
 end
@@ -212,4 +212,23 @@ for n,target in ipairs(kitResult.targets) do
  kitSession.band[n].target=target
 end
 local _,drummer=P:resolve(kitSession,1,kitResult.targets[1]);check(drummer and drummer.posture=='seated','kit performer is seated independently of the other stage layout')
+do
+ local old=copy(leader.position);local oldCell=leader.cell;local oldHome=mp.getObjectByMpNum
+ leader.position={x=36134.7,y=-114791,z=212.838,rz=0};leader.cell='EXT:4,-15'
+ local border={id=701,epoch=1,owner=1,characterId=701,cell=leader.cell,band=Format.band()};sessions[701]=border
+ local home=copy(leader.position);mp.getObjectByMpNum=function() return {position=home,cell=border.cell} end
+ check(S:begin(border,one,701,sessions,false),'logged exterior-boundary case begins');pump()
+ local result
+ for _,m in ipairs(sent) do if m.data.op=='bandSetup' and m.data.requestId==701 then result=m.data end end
+ check(result and not result.error and #result.targets==1,'a grid slot in the neighbouring exterior cell completes staging')
+ local t=result.targets[1];local actor=actors[t.mpNum]
+ check(actor.cell=='EXT:4,-14' and math.abs(actor.position.y+114551)<.01,'the logged placement is spawned into its actual canonical exterior cell')
+ check(P:resolve(border,1,t)=='Ready','neighbouring exterior performer remains available to its leader')
+ border.band[1].target=t;local serial=P:registry(701).nextId;leader.position.rz=math.pi/2
+ check(S:begin(border,nil,702,sessions,true),'owned neighbour can be restaged across the boundary');pump()
+ check(actors[t.mpNum].cell==Layout.cellAt(border.cell,actors[t.mpNum].position) and P:registry(701).nextId==serial,'restaging uses canonical destination cells and reuses the same performer')
+ check(Layout.cellAt('EXT:0,0',{x=-.01,y=-8192.01})=='EXT:-1,-2','negative exterior coordinates use floor rather than truncation')
+ check(Layout.cellAt('A',{x=99999,y=99999})=='A' and not Layout.sameWorld('A','B') and not Layout.sameWorld(nil,nil),'interiors and missing cells remain isolated')
+ leader.position=old;leader.cell=oldCell;mp.getObjectByMpNum=oldHome
+end
 print('PASS orchestra formation, full-kit grouping/spacing, 32-part routing, restaging, failure recovery, Undo and stand controller; '..checks..' assertions')

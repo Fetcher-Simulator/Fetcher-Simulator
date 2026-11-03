@@ -2,6 +2,12 @@
 local M={spacing=140,rowSpacing=180,front=240,
     floorSlope=math.tan(math.rad(35)),floorNormalZ=math.cos(math.rad(35)),floorRoughness=24,floorMaxRise=512}
 local function finite(n) return type(n)=='number' and n==n and math.abs(n)<1e8 end
+local function exterior(cell) return type(cell)=='string' and cell:match('^EXT:%-?%d+,%-?%d+$')~=nil end
+function M.sameWorld(a,b) return type(a)=='string' and type(b)=='string' and (a==b or exterior(a) and exterior(b)) end
+function M.cellAt(cell,p)
+    if exterior(cell) then return string.format('EXT:%d,%d',math.floor(p.x/8192),math.floor(p.y/8192)) end
+    return cell
+end
 function M.floorLimit(anchor,p)
     return math.min(M.floorMaxRise,64+math.sqrt((p.x-anchor.x)^2+(p.y-anchor.y)^2)*M.floorSlope)
 end

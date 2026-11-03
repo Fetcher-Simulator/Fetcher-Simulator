@@ -13,7 +13,7 @@ local function inventory(p)
 end
 local function nearby(p,s)
     local home=mp.getObjectByMpNum(s.id);local a,b=p and p.position,home and home.position
-    return p and home and p.cell==s.cell and a and b and (a.x-b.x)^2+(a.y-b.y)^2+(a.z-b.z)^2<=2000^2
+    return p and home and Layout.sameWorld(p.cell,s.cell) and a and b and (a.x-b.x)^2+(a.y-b.y)^2+(a.z-b.z)^2<=2000^2
 end
 function P:registry(character)
     if self.registries[character] then return self.registries[character] end
@@ -123,14 +123,15 @@ function P:hire(s,slot,options)
     if not position then return false end
     local serial=registry.nextId or (#registry.entries+1);registry.nextId=serial+1
     local id='fetcher_synth_bard_'..s.characterId..'_'..serial
-    local entry={refId=id,cell=s.cell};registry.entries[#registry.entries+1]=entry
+    local cell=Layout.cellAt(s.cell,position)
+    local entry={refId=id,cell=cell};registry.entries[#registry.entries+1]=entry
     if not mp.setCharacterStorageForCharacter(s.characterId,'ProceduralSynth','performers',registry) then table.remove(registry.entries);return false end
     if not mp.upsertDynamicRecord('npc',id,{baseId='fargoth',name='Studio Performer '..#registry.entries,mwscript='',isEssential=false,isRespawning=false},
         {scope='permanent',persistent=true}) then
         table.remove(registry.entries);mp.setCharacterStorageForCharacter(s.characterId,'ProceduralSynth','performers',registry);return false
     end
     self.spawning[id]={id=s.id,epoch=s.epoch,slot=slot,character=s.characterId,instrument=options.instrument or 'lute',complete=options.complete}
-    if not mp.spawnActor(id,0,0,s.cell,position,{persistent=true,authorityGuid=s.owner}) then
+    if not mp.spawnActor(id,0,0,cell,position,{persistent=true,authorityGuid=s.owner}) then
         self.spawning[id]=nil;table.remove(registry.entries)
         mp.setCharacterStorageForCharacter(s.characterId,'ProceduralSynth','performers',registry);return false
     end

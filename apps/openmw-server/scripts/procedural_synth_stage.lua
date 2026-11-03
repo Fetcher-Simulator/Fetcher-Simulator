@@ -31,6 +31,7 @@ function S:release(s,sessions)
 end
 function S:finish(job,error,sessions)
     self.jobs[job.character]=nil
+    if error then print(string.format('[SynthStage] character=%s request=%s slot=%s anchorCell=%s error=%s',job.character,job.requestId,job.cursor,job.cell,error)) end
     local removed,retained=0,0
     if not error and not job.restage then removed,retained=self:prune(job.session,job.used,sessions) end
     if not error and job.clear then job.session.managedBand=false end
@@ -41,7 +42,10 @@ function S:finish(job,error,sessions)
     if s and not error then
         local registry=performers:registry(job.character)
         for _,entry in ipairs(registry and registry.entries or {}) do
-            if job.used[entry.mpNum] then entry.posture=job.layout=='seated' and 'seated' or nil end
+            if job.used[entry.mpNum] then
+                entry.posture=job.layout=='seated' and 'seated' or nil
+                local actor=mp.getActorByMpNum(entry.mpNum);if actor then entry.cell=actor.cell end
+            end
         end
         if registry then mp.setCharacterStorageForCharacter(job.character,'ProceduralSynth','performers',registry) end
         performers:roster(s)
@@ -129,12 +133,12 @@ function S:tick(sessions)
             -- that the actor actually moved (or was eligible to teleport).
             local pending=job.moving;local actor=mp.getActorByMpNum(pending.target.mpNum)
             local p=actor and actor.position;local q=pending.position
-            if actor and actor.refId==pending.target.refId and actor.cell==job.cell and p
+            if actor and actor.refId==pending.target.refId and actor.cell==pending.cell and p
                 and (p.x-q.x)^2+(p.y-q.y)^2<=12^2 and math.abs(p.z-q.z)<=16 then
                 job.moving=nil;job.cursor=pending.index+1
             elseif now>=pending.deadline then
                 if pending.attempts<2 and actor and actor.refId==pending.target.refId and not actor.isDead
-                    and actor.actorInstanceId and mp.teleportActorByInstanceId(actor.actorInstanceId,job.cell,q,job.owner) then
+                    and actor.actorInstanceId and mp.teleportActorByInstanceId(actor.actorInstanceId,pending.cell,q,job.owner) then
                     pending.attempts=pending.attempts+1;pending.deadline=now+2
                 else self:finish(job,'An NPC did not reach its stage slot. Refresh the roster and retry; playback was not started.',sessions) end
             end
@@ -151,22 +155,23 @@ function S:tick(sessions)
             end
             local position=Layout.position(job.anchor,index,#job.plan,job.plan.wideSpacing)
             position.z=job.ground and job.ground[index] or position.z
+            local cell=Layout.cellAt(job.cell,position)
             if entry then
                 position.isTeleporting=true
                 local actor=mp.getActorByMpNum(entry.mpNum)
                 if not actor or actor.refId~=entry.refId or actor.isDead or not actor.actorInstanceId
-                    or busyActors(sessions,job.id,job.character)[entry.mpNum] or not mp.teleportActorByInstanceId(actor.actorInstanceId,job.cell,position,job.owner) then
+                    or busyActors(sessions,job.id,job.character)[entry.mpNum] or not mp.teleportActorByInstanceId(actor.actorInstanceId,cell,position,job.owner) then
                     self:finish(job,'An owned performer could not be staged. Refresh the roster and retry.',sessions);return
                 end
                 job.used[entry.mpNum]=true
                 job.targets[index]={kind='npc',mpNum=entry.mpNum,refId=entry.refId,instrument=part.instrument or entry.instrument}
-                job.moving={index=index,target=job.targets[index],position=position,attempts=1,deadline=now+2}
+                job.moving={index=index,target=job.targets[index],position=position,cell=cell,attempts=1,deadline=now+2}
             else
                 job.waiting=true
                 local ok=performers:hire(s,index,{instrument=part.instrument,position=position,complete=function(target)
                     if self.jobs[job.character]~=job then return false end
                     job.targets[index]=target;job.used[target.mpNum]=true;job.waiting=nil
-                    job.moving={index=index,target=target,position=position,attempts=1,deadline=mp.getUptime()+2}
+                    job.moving={index=index,target=target,position=position,cell=cell,attempts=1,deadline=mp.getUptime()+2}
                     return true
                 end})
                 if not ok then self:finish(job,'An NPC could not be hired. Retry to reuse completed hires.',sessions) end

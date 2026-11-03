@@ -1426,4 +1426,23 @@ local function testSourceLengthAndNotePaint()
 end
 testSourceLengthAndNotePaint()
 end
+do
+local function testExteriorSources()
+ local Actors=package.loaded[prefix..'client.actors']
+ local observer={cell={id='EXT:4,-15',isExterior=true}}
+ local npc={cell={id='EXT:4,-14',isExterior=true},isValid=function() return true end}
+ local actors=Actors.new({getObjectMpNum=function() return 901 end},{actors={npc}},observer)
+ local instance={leaderPlays=false,performers={[1]={kind='npc',mpNum=901,instrument='lute'}},availability={[1]='Ready'}}
+ actors:frame({[7]=instance},.01,now)
+ check(actors:source(instance.performers[1])==npc and #actors:targets('lute')==1,'nearby exterior-cell performer remains a visual/audio source across the border')
+ npc.cell={id='Interior',isExterior=false};actors:frame({[7]=instance},.01,now)
+ check(not actors:source(instance.performers[1]),'an unrelated interior cannot become the exterior band audio source')
+ npc.isValid=function() return false end;actors:frame({[7]=instance},.01,now)
+ check(not actors:source(instance.performers[1]),'invalid streamed actors are discarded safely')
+ local Workstation=dofile(root..'client/workstation.lua');local diagnostic,shown
+ local uw=Workstation.new{message=function(m) shown=m end,stageDiagnostic=function(m) diagnostic=m end}
+ uw.bandSetup={requestId=7};check(not uw:receiveBandSetup{requestId=7,error='Cell boundary test'} and diagnostic==shown and shown=='Cell boundary test','stage rejection reaches both UI and log diagnostics')
+end
+testExteriorSources()
+end
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

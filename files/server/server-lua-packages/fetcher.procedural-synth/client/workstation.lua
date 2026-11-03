@@ -287,7 +287,10 @@ function W:receiveBandSetup(data)
     local pending=self.bandSetup
     if not pending or data.requestId~=pending.requestId then return false end
     self.bandSetup=nil;self.revision=self.revision+1
-    if data.error then self.cb.message(tostring(data.error));return false end
+    if data.error then
+        if self.cb.stageDiagnostic then self.cb.stageDiagnostic(tostring(data.error)) end
+        self.cb.message(tostring(data.error));return false
+    end
     if data.restage~=pending.restage or (data.clear==true)~=pending.clear then return false end
     if pending.restage then self.cb.message('NPC formation faces your captured leader position.');return true end
     if pending.clear then

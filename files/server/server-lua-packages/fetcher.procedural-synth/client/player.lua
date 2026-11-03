@@ -395,6 +395,7 @@ makeWorkstation=function(i)
         end,
         importMidi=function(path) playSong(path,'restore') end,
         message=ui.showMessage,
+        stageDiagnostic=function(message) print('[SynthStage] keyboard='..i.id..' cell='..tostring(i.serverCell)..' error='..message) end,
         returnMeters=function()
             local delay,reverb=0,0
             transport:each(i,function(a) delay=math.max(delay,a.delayPeak or 0);reverb=math.max(reverb,a.reverbPeak or 0) end)

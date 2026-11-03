@@ -1,5 +1,23 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## November 2: exterior boundary timeout (package 63 / API 25)
+
+Garbage's live client log recorded performer 489 at (36134.7, -114551, 212.838),
+initially labelled EXT:4,-15, then migrated to EXT:4,-14; the VPS log confirmed
+the same migration. The user's UI reported that the NPC did not reach its stage
+slot. Its floor had already passed, while setup's cell readback still expected
+the leader's cell. The earlier ray-only tests did not cover this boundary.
+
+A regression reproduces those coordinates and canonicalizes spawned actors as
+the native engine does. It checks completion in the neighbour cell, availability,
+restaging without duplicate hires, saved cell bookkeeping and negative-coordinate
+flooring. Performer tests retain distance/ownership/consent and interior isolation.
+Client tests retain neighbouring exterior actors as audio/visual targets, reject
+unrelated interiors and invalid actors, and send setup errors to diagnostic logs.
+All 30 Lua suites pass; shared formation policies remain byte-identical. Native
+API 25, protocol 27 and asset hashes are unchanged. These are log-based regression
+tests; the user's next live session verifies the corrected outdoor formation.
+
 ## November 2: sloped outdoor staging (package 62 / API 25)
 
 Terrain-ray regressions cover ascending, descending and cross slopes through

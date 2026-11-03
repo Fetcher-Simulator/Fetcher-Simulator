@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 62 / native synth API 25 / multiplayer protocol 27.
+Current source: package 63 / native synth API 25 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,20 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Exterior cell boundaries (package 63)
+
+NPC formation slots may span adjacent exterior cells. Each spawn/teleport and
+completion check uses the canonical exterior cell for that slot's coordinates.
+An owned performer remains Ready across a nearby exterior boundary, within the
+existing 2,000-unit workstation range, and remains a loaded visual/audio source.
+Different interiors remain isolated; ownership and player consent are unchanged.
+Restaging reuses existing performers and updates their saved cell locations.
+
+This fixes an outdoor setup timeout where a correctly grounded NPC migrated to
+the next cell immediately after spawning, but setup still waited in the leader's
+cell. Stage failures now log as `[SynthStage]` on the client/server for diagnosis.
+This is a Lua-only update using the same client executable and asset bundle.
 
 ## Outdoor band staging (package 62)
 

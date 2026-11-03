@@ -43,7 +43,9 @@ function A:frame(instances,dt,now)
         for slot,r in pairs(i.performers or {}) do
             if i.availability[slot]=='Ready' then
                 local actor=r.kind=='player' and self.mp.getPlayerObject(r.guid) or npcs[r.mpNum]
-                if actor and actor:isValid() and actor.cell==self.self.cell and (not types.Actor.isDead or not types.Actor.isDead(actor)) then self.objects[self:key(r)]=actor end
+                local valid=actor and actor:isValid();local cell=valid and actor.cell;local observer=self.self.cell
+                local sameWorld=cell==observer or cell and observer and cell.isExterior and observer.isExterior
+                if valid and sameWorld and (not types.Actor.isDead or not types.Actor.isDead(actor)) then self.objects[self:key(r)]=actor end
                 if self.objects[self:key(r)] then self.targetActors[self:key(r)]={actor=actor,instrument=r.instrument} end
                 local group=i.outputs and i.outputs[slot]
                 if group and (not actor or self:source(r)~=group.source) then group.audio:close();i.outputs[slot]=nil;group=nil end

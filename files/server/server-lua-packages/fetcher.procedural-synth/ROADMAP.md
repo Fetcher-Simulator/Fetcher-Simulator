@@ -11,6 +11,12 @@ not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
 
+Package 63 fixes exterior boundary staging/availability/rendering. Grid slots
+spawn and teleport into their canonical coordinate cell; completion readback
+uses that cell. Nearby exterior performers retain the 2,000-unit range limit,
+ownership/consent and interior isolation. Stage failures gain log diagnostics.
+This follows the observed EXT:4,-15 → EXT:4,-14 timeout after the floor passed.
+
 Package 62 permits sloped/rolling outdoor stages with per-NPC floor heights,
 normal-aware footprint checks, bounded uphill retries and matching server height
 validation. Void/cliff/headroom/wall checks remain. Upright poses and furniture

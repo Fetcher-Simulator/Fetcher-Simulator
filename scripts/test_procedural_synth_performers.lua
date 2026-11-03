@@ -68,4 +68,13 @@ P:hire(s,2);check(spawns[#spawns]=='fetcher_synth_bard_11_3','dismiss does not r
 local legacy=format.new();legacy.band[1].target={kind='player',characterId=22,instrument='lute'};legacy.band[2].target=target
 check(format.project(legacy).band[1].target.characterId==22,'actor routing persists stable identity without GUID or consent')
 check(not format.target({kind='player',characterId=22,guid=2,instrument='lute'}) and not format.target({kind='npc',mpNum=80,refId='fargoth',instrument='lute'}),'unbounded identities and arbitrary NPC records are rejected')
+do
+ local ref='fetcher_synth_bard_99_1';storage['99:performers']={version=1,entries={{refId=ref,mpNum=901}}}
+ local border={id=7,owner=1,characterId=99,epoch=1,cell='EXT:0,0',band=format.band()}
+ local t={kind='npc',mpNum=901,refId=ref,instrument='lute'}
+ actors[901]={mpNum=901,refId=ref,cell='EXT:0,-1',position={x=10,y=-10,z=0},isDead=false}
+ check(P:resolve(border,1,t)=='Ready','nearby owned performers across exterior borders stay available')
+ actors[901].position.x=2100;check(P:resolve(border,1,t)=='Out of range','cross-cell performers retain the 2000-unit range limit')
+ actors[901].position.x=10;actors[901].cell='A';check(P:resolve(border,1,t)=='Out of range','exterior and interior performers cannot mix')
+end
 print('PASS player consent, inventory readiness, expiry/epoch/leave/death/reconnect, owned NPCs and actor-route persistence; '..checks..' assertions')
