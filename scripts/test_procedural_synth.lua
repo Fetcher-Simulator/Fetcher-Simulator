@@ -280,12 +280,15 @@ end)
 test('guitar effects round trip in personal patches and late listener snapshots',function()
     acquire();local patch
     for _,p in ipairs(schema.builtins) do if p.id=='b:guitar-metal' then patch=copy(p.state) end end
+    patch.stringLayout=3;patch.stringSelect=1;patch.stringLegato=2
     request('saveAs',{name='QA Guitar',params=patch})
     check(storage[11].entries[1].state.stringMute==0.7 and storage[11].entries[1].state.drive==32,'personal patch includes string and effects')
     request('channel',{channel=1,params=patch,level=0.7})
     players[3].cell='INT:A';sent={};request('on',{channel=1,note=40,velocity=0.8})
     local snapshot;for _,event in ipairs(sent) do if event.guid==3 and event.data.op=='state' then snapshot=event.data end end
     check(snapshot and snapshot.channels[1].params.cabinet==3 and snapshot.channels[1].params.instrumentType==1,'late listener gets the full guitar insert')
+    check(snapshot.channels[1].params.stringLayout==3 and snapshot.channels[1].params.stringSelect==1
+        and storage[11].entries[1].state.stringLegato==2,'late listeners and private patch saves retain independent string settings')
     now=now+3;request('list')
     local entries=sent[#sent].data.entries
     check(entries and #entries==#schema.builtins+1 and entries[#entries].bank=='Personal','catalog keeps personal patches and metadata')
@@ -315,7 +318,8 @@ test('native scores are validated, timestamped and included in late sync',functi
 end)
 test('native automation uploads replicate with the shared clock and remain owner controlled',function()
     local f=require('procedural_synth_project')(schema);local p=f.new();p.tracks[1]=f.newTrack('piano','Curve',16)
-    p.tracks[1].notes={{n=60,s=0,l=2,v=1}};p.tracks[1].automation={expression={{s=0,v=0,linear=true},{s=8,v=1,linear=false}}}
+    p.tracks[1].notes={{n=60,s=0,l=2,v=1}};p.tracks[1].params.stringLayout=1;p.tracks[1].params.stringLegato=1
+    p.tracks[1].automation={expression={{s=0,v=0,linear=true},{s=8,v=1,linear=false}},stringSelect={{s=0,v=1,linear=false},{s=8,v=2,linear=false}},stringLayout={{s=0,v=1,linear=false}}}
     local score=require('procedural_synth_sequence').compile(p,nil,nil,'clips',f)
     acquire();request('channel',{channel=1,params={},level=1});sent={}
     request('scoreBegin',{playId=1,count=#score.bytes/11,length=score.length,loop=score.loop,quantum=score.quantum,replace=false})
@@ -327,6 +331,7 @@ test('native automation uploads replicate with the shared clock and remain owner
     local bytes='';for _,e in ipairs(sent) do if e.data.op=='scoreChunk' then bytes=bytes..e.data.bytes end end
     check(bytes==score.bytes,'late observer receives identical curve bytes for native chase')
     request('dawSave',{project=p});check(storage['project:11'].tracks[1].automation.expression[2].v==1,'saved curves stay with character project')
+    check(storage['project:11'].tracks[1].params.stringLayout==1 and storage['project:11'].tracks[1].automation.stringSelect[2].v==2,'per-string settings and score controls remain in the private character project')
 end)
 test('tempo/meter bar grids schedule replacements and persist privately',function()
     local f=require('procedural_synth_project')(schema);local seq=require('procedural_synth_sequence')

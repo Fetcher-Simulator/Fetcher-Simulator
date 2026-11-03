@@ -1,5 +1,33 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## November 2: independent string ownership (package 65 / API 26; local only)
+
+Native regressions cover six independent guitar strings on generated oscillator,
+plucked and gated recorded sources, both connected modes, nearest-string overflow,
+explicit selection, string-local held returns, older key-offs and selector changes
+before release. All six tuning profiles connect their lowest open string to fret
+two. Unplayable notes and nonexistent strings retain normal gates. Voice stealing,
+tuning changes, panic, track release, Stop and seek do not resurrect old held keys.
+Spectral checks verify two simultaneous slide targets plus an unchanged drone on
+oscillator and recorded sources. Disabled connections and unsupported sample
+sources retain exact output. Native score automation is identical under 480- and
+137-frame render blocks; discrete tuning/string ramps are rejected.
+
+All 30 Lua suites pass, including strict project/preset migration, stepped
+212/213 compilation/validation, private server persistence, late-listener patch
+snapshots, score relay and the continuous-drag audit for the new controls on both
+generated and recorded Strings pages. Existing 210/211 and MIDI control values
+stay stable. Native API is 26; package is 65; multiplayer protocol stays 27.
+
+The native synth suite passes and the RelWithDebInfo client builds. Eight original
+phrase renders compare poly, mono, independent legato and independent picked
+strings on generated/recorded electric sources with unchanged bass/drums. Each
+retains 35 strikes and finite unclipped output (peak 0.164–0.227). These fixed-fader
+diagnostics are not matched-loudness perceptual acceptance or a live multiplayer
+listening test. Evidence is in build/studio65-native-tests.log,
+build/studio65-lua-tests.json and build/studio65-string-auditions/report.json.
+Only the existing local port-25567 fixture is updated; VPS/public assets stay put.
+
 ## November 2: composer cell-transition cleanup (package 64 / API 25)
 
 VPS logs showed Garbage crossing EXT:4,-15 / EXT:4,-14 followed by owned-band

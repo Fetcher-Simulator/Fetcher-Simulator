@@ -85,6 +85,8 @@ namespace MWSound
         { "parallelLift", 0, 18, 0 },
         { "stringLegato", 0, 2, 0, true },
         { "stringSlideTime", 0, 1, .08f },
+        { "stringLayout", 0, 6, 0, true },
+        { "stringSelect", 0, 7, 0, true },
     } };
 
     namespace
@@ -283,28 +285,68 @@ namespace MWSound
     }
     void ProceduralSynth::resetConnections()
     {
-        mConnectionKeys->fill({});mConnectionSerial=0;mConnectionVoice=-1;
+        mConnectionKeys->fill({});mConnectionSerial=0;mConnectionVoices.fill(-1);
+        for(auto& voice:mVoices)voice.connection=-1;
+    }
+    int ProceduralSynth::connectionGroup(int note) const
+    {
+        if(!mConnectionLayout)return 0;
+        // Low to high, matching the Piano fingering tool. Never transpose notes
+        // to fit a string: an unplayable pitch uses ordinary polyphonic playback.
+        static constexpr int opens[6][7]={{40,45,50,55,59,64,-1},{38,45,50,55,59,64,-1},
+            {36,43,48,53,57,62,-1},{35,40,45,50,55,59,64},{28,33,38,43,-1,-1,-1},{23,28,33,38,43,-1,-1}};
+        const auto& tuning=opens[mConnectionLayout-1];
+        const int selected=int(mCurrent[StringSelect])-1;
+        const auto playable=[&](int group){return tuning[group]>=0 && note>=tuning[group] && note<=tuning[group]+24;};
+        if(selected>=0)return playable(selected)?selected:-1;
+        const auto& previous=(*mConnectionKeys)[note];
+        if(previous.velocity>0 && previous.group>=0 && playable(previous.group))return previous.group;
+        int best=-1,bestCost=100000;
+        for(int group=0;group<7;++group)if(playable(group))
+        {
+            const int index=mConnectionVoices[group];
+            const auto* voice=index>=0?&mVoices[index]:nullptr;
+            const bool held=voice && voice->connection==group && voice->note>=0 && voice->amp.stage!=0
+                && voice->amp.stage!=4 && (*mConnectionKeys)[voice->note].velocity>0;
+            const int cost=held?1000+std::abs(note-voice->note)*32+note-tuning[group]:note-tuning[group];
+            if(cost<bestCost){best=group;bestCost=cost;}
+        }
+        return best;
     }
     void ProceduralSynth::reconcileConnections()
     {
         const bool eligible=connectionReady();
         if(eligible!=mConnectionEligible){resetConnections();mConnectionEligible=eligible;}
         const int mode=eligible?int(mCurrent[StringLegato]):0;
-        if(mode==mConnectionMode)return;
-        mConnectionMode=mode;mConnectionVoice=-1;
+        const int layout=eligible?int(mCurrent[StringLayout]):0;
+        if(mode==mConnectionMode && layout==mConnectionLayout)return;
+        if(layout!=mConnectionLayout)
+        {
+            // A tuning change ends owned gestures; stale held keys must not
+            // return under the new tuning. Ordinary polyphonic tails keep gates.
+            for(auto& v:mVoices)if(v.connection>=0 && v.note>=0)
+                {v.amp.release();v.filter.release();v.drumChoke=true;}
+            resetConnections();
+        }
+        mConnectionMode=mode;mConnectionLayout=layout;mConnectionVoices.fill(-1);
+        for(auto& v:mVoices)v.connection=-1;
         if(!mode)return;
-        std::uint64_t newest=0;
+        // Reconstruct held ownership on mode changes, without reviving releases.
         for(unsigned i=0;i<mVoices.size();++i)
         {
             auto& v=mVoices[i];if(v.note<0 || v.drumType || v.sampleOneShot || !v.amp.stage || v.amp.stage==4
                 || v.instrumentType!=(mSampleCurrent.data?0:int(mCurrent[InstrumentType])))continue;
-            const auto& key=(*mConnectionKeys)[v.note];
-            if(key.velocity>0 && key.order>newest){newest=key.order;mConnectionVoice=int(i);}
-        }
-        if(mConnectionVoice>=0)for(unsigned i=0;i<mVoices.size();++i)if(int(i)!=mConnectionVoice)
-        {
-            auto& v=mVoices[i];if(v.note>=0 && !v.drumType && !v.sampleOneShot)
-                {v.amp.release();v.filter.release();v.drumChoke=true;}
+            auto& key=(*mConnectionKeys)[v.note];if(key.velocity<=0)continue;
+            const int group=connectionGroup(v.note);if(group<0)continue;
+            const int previous=mConnectionVoices[group];
+            if(previous>=0)
+            {
+                auto& other=mVoices[previous];
+                if((*mConnectionKeys)[other.note].order>key.order)
+                    {key.group=group;v.amp.release();v.filter.release();v.drumChoke=true;continue;}
+                other.amp.release();other.filter.release();other.drumChoke=true;other.connection=-1;
+            }
+            key.group=group;v.connection=group;mConnectionVoices[group]=int(i);
         }
     }
     void ProceduralSynth::apply(Command command)
@@ -317,20 +359,28 @@ namespace MWSound
         const bool connectible=mConnectionEligible && (!mSampleCurrent.data || (zone && !oneShot));
         const bool releasing=command.velocity<0;
         auto& keys=*mConnectionKeys;
+        const int group=releasing?keys[command.note].group:connectible?connectionGroup(command.note):-1;
         if(command.velocity<0)keys[command.note]={};
-        else if(connectible)keys[command.note]={command.velocity,++mConnectionSerial};
+        else if(connectible)keys[command.note]={command.velocity,++mConnectionSerial,group};
         Voice* pickedConnection=nullptr;double connectedOffset=0;
-        if(mConnectionMode && (command.velocity<0 || connectible))
+        if(mConnectionMode && group>=0 && (command.velocity<0 || connectible))
         {
-            Voice* v=mConnectionVoice>=0?&mVoices[mConnectionVoice]:nullptr;
+            const int index=mConnectionVoices[group];
+            Voice* v=index>=0?&mVoices[index]:nullptr;
             if(v && (v->note<0 || !v->amp.stage || v->amp.stage==4 || v->drumType || v->sampleOneShot
-                || v->instrumentType!=(mSampleCurrent.data?0:int(mCurrent[InstrumentType]))))v=nullptr;
+                || v->connection!=group || v->instrumentType!=(mSampleCurrent.data?0:int(mCurrent[InstrumentType]))))v=nullptr;
+            if(!v)for(unsigned n=0;n<keys.size();++n)if(int(n)!=command.note && keys[n].group==group)keys[n]={};
             bool connect=false;
             if(command.velocity<0)
             {
-                if(!v || command.note!=v->note)return;
+                if(!v || command.note!=v->note)
+                {
+                    // A stolen/expired string voice has no return target. Still
+                    // release any ordinary voice with this pitch below.
+                    if(v)return;
+                }
                 std::uint64_t newest=0;int target=-1;
-                for(unsigned n=0;n<keys.size();++n)if(keys[n].velocity>0 && keys[n].order>newest){newest=keys[n].order;target=int(n);}
+                if(v)for(unsigned n=0;n<keys.size();++n)if(keys[n].group==group && keys[n].velocity>0 && keys[n].order>newest){newest=keys[n].order;target=int(n);}
                 if(target>=0){command={target,keys[target].velocity};connect=true;}
             }
             else connect=v && v->note!=command.note && keys[v->note].velocity>0;
@@ -349,10 +399,11 @@ namespace MWSound
         if(zone && command.velocity>=0)chokeSamples(zone->offBy);
         const auto prepareConnection=[&](Voice& v) {
             v.slide.start(&v==pickedConnection?connectedOffset:0,mCurrent[StringSlideTime]);
-            if(mConnectionMode && connectible)
+            v.connection=mConnectionMode && connectible?group:-1;
+            if(v.connection>=0)
             {
-                mConnectionVoice=int(&v-mVoices.data());
-                for(auto& other:mVoices)if(&other!=&v && other.note>=0 && !other.drumType && !other.sampleOneShot)
+                mConnectionVoices[group]=int(&v-mVoices.data());
+                for(auto& other:mVoices)if(&other!=&v && other.connection==group && other.note>=0 && !other.drumType && !other.sampleOneShot)
                     {other.amp.release();other.filter.release();other.drumChoke=true;}
             }
         };
@@ -490,7 +541,7 @@ namespace MWSound
         // Strike controls are latched per voice, including continuous pick curves.
         for(unsigned i=StringArticulation;i<=PickDirection;++i)
             if(i!=StringResonance && (mAutomated[i] || mProgrammed[i]))mCurrent[i]=static_cast<float>(mAutomated[i]?mAutomation[i]:mProgram[i]);
-        for(auto i:{StringLegato,StringSlideTime})if(mAutomated[i] || mProgrammed[i])mCurrent[i]=static_cast<float>(mAutomated[i]?mAutomation[i]:mProgram[i]);
+        for(auto i:{StringLegato,StringSlideTime,StringLayout,StringSelect})if(mAutomated[i] || mProgrammed[i])mCurrent[i]=static_cast<float>(mAutomated[i]?mAutomation[i]:mProgram[i]);
         reconcileConnections();
     }
     void ProceduralSynth::render(float* output, std::size_t frames)
@@ -515,7 +566,7 @@ namespace MWSound
                 mCurrent[InstrumentType] = target[InstrumentType];
                 for(unsigned i=StringArticulation;i<=PickDirection;++i)
                     if(i!=StringResonance && !mAutomated[i] && !mProgrammed[i])mCurrent[i]=target[i];
-                for(auto i:{StringLegato,StringSlideTime})if(!mAutomated[i] && !mProgrammed[i])mCurrent[i]=target[i];
+                for(auto i:{StringLegato,StringSlideTime,StringLayout,StringSelect})if(!mAutomated[i] && !mProgrammed[i])mCurrent[i]=target[i];
                 reconcileConnections();
                 if (mPanic.exchange(false))
                 {

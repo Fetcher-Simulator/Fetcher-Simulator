@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 64 / native synth API 25 / multiplayer protocol 27.
+Current source: package 65 / native synth API 26 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,43 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Independent guitar/bass strings (package 65 / native API 26)
+
+Open **Mixer → Sound → Strings** (or the standalone Synth's **Strings** page).
+Choose **Connect: Legato** or **Picked slides**, then set **Voices / tuning**:
+**Guitar E**, **Drop D**, **Drop C**, **7-string B**, **Bass E**, or **5-string B**.
+**Single voice** retains the previous mono behavior. **Poly / off** keeps ordinary
+polyphonic playback regardless of the tuning; existing patches keep that default.
+
+**String: Auto** prefers an available playable string with the lowest fret. When
+all playable strings are held it connects to the closest held pitch on one of
+them. This is a deterministic allocator, not an inferred guitar transcription.
+For deliberate hammer-on/slide passages, select **String 1–7**, counting from
+lowest to highest, or author **Auto → String selection** as stepped automation.
+Overlap notes assigned to the same string to connect them. Other strings keep
+their notes, source cursors and envelopes; releasing a connected note returns to
+the newest held note on that string alone. Selector changes apply to new attacks;
+key-off still uses the note's original string. Separate phrases attack normally.
+
+Legato preserves the picked source and velocity; Picked slides reattacks it.
+Slide time uses the existing finite pitch transition. Each tuning allows 24 frets
+and tests the incoming MIDI pitch before patch transposition. Unplayable pitches
+or nonexistent selected strings use ordinary polyphonic gates without dropping
+or transposing notes. The existing voice budget still applies. Tuning changes end
+owned connected gestures and clear their held keys. Stop, panic, track release,
+source changes and seek retain their cleanup behavior.
+
+Generated melodic voices and gated recorded banks share this path. Drums,
+one-shots and unzoned sample clips bypass it. Settings save with patches/projects,
+Undo and replicated sound snapshots; tuning/selection use stepped Auto slots
+212/213, preserving previous control IDs and values. Earlier held notes are still
+not reconstructed on seek or late join. Same-pitch unisons on separate strings,
+per-note stored fingering, new recorded gestures and finger animation remain
+future work. MIDI export preserves notes, not these custom Studio sound controls.
+
+This slice is installed only in the local port-25567 fixture. It needs its updated
+API-26 client; it has not been published or deployed to the VPS servers.
 
 ## Composer movement (package 64)
 
@@ -137,7 +174,7 @@ this Lua/UI update needs a package reload, not a new client executable.
 
 Open **Mixer → a track's Sound → Strings**, or **Strings** in the standalone
 Synth editor. **Connect** selects **Poly / off**, **Mono legato**, or **Mono
-picked**. **Slide time** displays milliseconds; 80 ms is a starting point.
+picked**. **Slide time** uses seconds; 0.08 (80 ms) is a starting point.
 Three explicit presets are available: **Legato Electric Lead**, **Legato Finger
 Bass**, and **Legato Sampled Lead** (the last needs the existing electric DI bank).
 Ordinary sound sets stay polyphonic. These mono modes are intended for a single
@@ -164,9 +201,9 @@ Generated melodic sources and gated multisample banks use the native path.
 One-shot percussion and ordinary unzoned voice/effect clips bypass it. Recorded
 legato retunes the previous recording; it does not supply captured slide/hammer-on
 transitions, new release samples or infinite sustain loops. A source that naturally
-ends or is muted to silence needs another picked attack. Independent per-string
-ownership, polyphonic string-specific slides and detailed finger animation remain
-future work. Use Poly or Mono picked when a new pick/articulation must take effect.
+ends or is muted to silence needs another picked attack. Package 65 adds independent
+strings as described above; detailed finger animation and recorded gestures remain
+future work. Use Poly or Picked slides when a new pick/articulation must take effect.
 
 Connect and Slide time save with sounds/projects, replicate to band listeners and
 are available under **Auto → String connect mode / Slide time**. Auto uses seconds

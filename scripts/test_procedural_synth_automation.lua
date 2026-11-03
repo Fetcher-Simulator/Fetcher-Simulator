@@ -46,6 +46,24 @@ do
     check(records(plan,211)[1].mode==128 and saved.tracks[1].params.stringSlideTime==.1,'slide timing and connection settings survive save/compile')
     check(format.automationSpecs.pitchBend.code==183 and schema.state({}).stringLegato==0,'new fields preserve MIDI codes and default old sounds to polyphonic')
 end
+do
+    local probe=assert(format.project(w.project));local t=probe.tracks[1]
+    t.params.stringLegato=1;t.params.stringLayout=3;t.params.stringSelect=0
+    t.automation={stringLayout={{s=0,v=3,linear=false}},stringSelect={{s=0,v=1,linear=false},{s=8,v=2,linear=false}}}
+    local saved=assert(format.project(probe));local plan=Sequence.compile(saved,nil,MIDI,'song',format,SoundSets.programPatch)
+    check(records(plan,212)[1].v==32768 and records(plan,212)[1].mode==0,'string tuning uses new stepped slot 212')
+    check(#records(plan,213)==2 and records(plan,213)[1].mode==0,'explicit string ownership compiles through stepped slot 213')
+    check(saved.tracks[1].params.stringLayout==3 and saved.tracks[1].params.stringSelect==0,'independent string snapshots survive strict project serialization')
+    check(format.automationSpecs.stringLegato.max==2 and format.automationSpecs.stringSlideTime.code==211 and format.automationSpecs.pitchBend.code==183,'existing connection values and MIDI wire IDs remain stable')
+    local defaults=schema.state({});check(defaults.stringLayout==0 and defaults.stringSelect==0,'old saves retain their single-voice connection and automatic selection defaults')
+    check(not schema.state({stringLayout=7}) and not schema.state({stringSelect=8}) and not schema.state({stringSelect=.5}),'invalid tuning and string selectors are rejected')
+    for _,code in ipairs{212,213} do
+        local record=records(plan,code)[1]
+        -- Reuse a valid packed record but change its velocity flag to a ramp.
+        local bad=record and string.char(0,0,0,0,0,0,0,0,1,code,128)
+        check(bad and not Sequence.validate(bad,48000,false),'per-string discrete controls reject forged ramps')
+    end
+end
 check(w:setAutomation(1,'cutoff',0,100,true) and w:setAutomation(1,'cutoff',16,18000,false),'editable continuous curve')
 check(w:automationValue(1,'cutoff',8)==9050,'linear musical interpolation')
 check(w:setAutomation(1,'pedal',0,1,true) and not w.project.tracks[1].automation.pedal[1].linear,'discrete controls always step')

@@ -123,6 +123,7 @@ int main(int argc, char** argv)
         stringTests();
         parallelTests();
         legatoTests();
+        stringOwnershipTests();
         Synth silentRelease;
         silentRelease.set("attack",0.002f);silentRelease.set("decay",0.002f);silentRelease.set("sustain",1);
         silentRelease.noteOn(38,1);render(silentRelease,2400);

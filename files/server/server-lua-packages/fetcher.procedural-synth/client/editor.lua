@@ -94,7 +94,8 @@ function E:slider(name,title,x,y,width)
     elseif name:find('tune') or name:find('fine') or name:find('Amount') then spec.step=1 end
     local labels={wave1=waves,wave2=waves,enabled2={'Off','On'},lfoTarget={'Pitch','Filter','Amplitude'},drumType={'Synth','Kick','Snare','Closed hat','Open hat'},
         instrumentType={'Oscillators','Plucked string'},driveType={'Off','Overdrive','Distortion','Fuzz'},cabinet={'Off','Small speaker','Open speaker','Dark stack','IR V30 / SM57','IR DV77 / SM57','IR Rockdriver / e606'},
-        stringArticulation={'Patch','Open','Palm mute','Dead / choked'},pickDirection={'Down','Up','Alternate'},parallelShape={'Soft clip','Hard clip','Wavefold','Rectify'},stringLegato={'Poly / off','Mono legato','Mono picked'}}
+        stringArticulation={'Patch','Open','Palm mute','Dead / choked'},pickDirection={'Down','Up','Alternate'},parallelShape={'Soft clip','Hard clip','Wavefold','Rectify'},stringLegato={'Poly / off','Legato','Picked slides'},
+        stringLayout={'Single voice','Guitar E','Drop D','Drop C','7-string B','Bass E','5-string B'},stringSelect={'Auto','1 / lowest','2','3','4','5','6','7 / highest'}}
     local caption=labels[name] and function() return title..' / '..(labels[name][self.params[name]+1] or '') end or title
     local element,refresh=Controls.slider(self,name,caption,spec,function() return self.params[name] end,function(value)
         self.params[name]=value;self.cb.change(name,value)
@@ -269,16 +270,14 @@ function E:render()
     elseif self.page=='strings' then
         for n,item in ipairs({{'stringArticulation','New-note articulation'},{'stringMute','Patch / palm mute amount'},{'stringDecay','String / muted decay'},{'stringDamping','String damping'}}) do slider(item[1],item[2],x1,185+(n-1)*55,col-20) end
         for n,item in ipairs({{'pickAttack','Pick attack'},{'pickDecay','Pick decay (seconds)'},{'pickPitch','Pick pitch (semitones)'},{'pickDirection','Pick direction'},{'pickVariation','Modeled pick variation'}}) do slider(item[1],item[2],x2,185+(n-1)*55,col-20) end
-        slider('stringResonance','String resonance',x3,185,col-20)
-        if not params.sample and params.instrumentType==1 then slider('stringPick','Pick position',x3,240,col-20) end
-        slider('release','Note-off release',x3,295,col-20)
-        content[#content+1]=label('Pick / articulation latch at picked attacks.',x1,435,col-20,11,colors.muted)
-        content[#content+1]=label('Use Auto for phrase changes.',x1,460,col-20,11,colors.muted)
-        slider('stringLegato','Connect',x3,350,col-20)
-        slider('stringSlideTime','Slide time',x3,405,col-20)
-        content[#content+1]=label('Overlap keys/notes for Mono connections.',x3,477,col-20,11,colors.muted)
-        content[#content+1]=label('Separate phrases attack normally.',x3,500,col-20,11,colors.muted)
-        content[#content+1]=label('Pick variation changes tone, not timing.',x1,492,col*2-20,11,colors.accent)
+        for n,item in ipairs({{'stringResonance','String resonance'},{'release','Note-off release'},{'stringLegato','Connect'},
+            {'stringSlideTime','Slide time'},{'stringLayout','Voices / tuning'},{'stringSelect','String'}}) do slider(item[1],item[2],x3,185+(n-1)*44,col-20) end
+        if not params.sample and params.instrumentType==1 then slider('stringPick','Pick position',x1,405,col-20) end
+        content[#content+1]=label('Pick / articulation latch at picked attacks.',x1,455,col-20,11,colors.muted)
+        content[#content+1]=label('Use Auto for phrase / string changes.',x1,478,col-20,11,colors.muted)
+        content[#content+1]=label('Strings count from lowest to highest.',x3,455,col-20,11,colors.muted)
+        content[#content+1]=label('Auto uses free strings, then connects.',x3,478,col-20,11,colors.muted)
+        content[#content+1]=label('Out-of-range notes play normally; 24 frets.',x3,500,col-20,11,colors.muted)
     elseif self.page=='effects' then
         for n,item in ipairs({{'driveType','Character'},{'drive','Input drive (dB)'},{'driveTone','Drive tone (Hz)'},{'fxMix','Wet / dry'},{'preHighpass','Pre-drive low cut (Hz)'}}) do slider(item[1],item[2],x1,185+(n-1)*55,col-20) end
         for n,item in ipairs({{'ampBass','Pre-drive bass (dB)'},{'ampMid','Pre-drive mid (dB)'},{'ampTreble','Pre-drive treble (dB)'},{'cabinetHighpass','Post-cab low cut (Hz)'},{'cabinetLowpass','Post-cab high cut (Hz)'}}) do slider(item[1],item[2],x2,185+(n-1)*55,col-20) end

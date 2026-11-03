@@ -36,6 +36,13 @@ preserves the previous source on unpicked transitions and supports generated and
 gated sampled instruments. Per-string/polyphonic ownership and dedicated recorded
 slide/hammer-on/release gestures remain outside this slice.
 
+Package 65 supplies independent connected string ownership, standard/drop/seven-
+string guitar and four/five-string bass tunings, deterministic automatic selection
+and explicit attack-time string automation. Chords retain separate sources and
+slides; held-note returns stay within their original string. Unplayable pitches
+use normal polyphonic gates. Per-note stored fingering, same-pitch string unisons,
+captured gestures and detailed finger animation remain outside this local slice.
+
 ## What the references contribute
 
 - [CyberBlitz: How to DOOM Like Mick Gordon](https://www.youtube.com/watch?v=-9rTxQr1194):

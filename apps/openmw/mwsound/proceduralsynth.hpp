@@ -28,7 +28,7 @@ namespace MWSound
             bool discrete = false;
         };
         static constexpr unsigned SampleRate = 48000;
-        static constexpr std::size_t ParameterCount = 79;
+        static constexpr std::size_t ParameterCount = 81;
         // Wire slots 55-59 retain their original MIDI-performance meaning.
         static constexpr unsigned decodeControl(unsigned wire)
         { return wire<55?wire:wire<60?ParameterCount+wire-55:wire-5; }
@@ -61,7 +61,7 @@ namespace MWSound
             StringArticulation, PickAttack, PickDecay, StringResonance, PickPitch, PickVariation, PickDirection,
             ParallelMix, ParallelClean, ParallelDirty, ParallelNoise, ParallelDrive, ParallelShape,
             ParallelComb, ParallelDelay, ParallelFeedback, ParallelRate, ParallelDepth, ParallelLift,
-            StringLegato, StringSlideTime
+            StringLegato, StringSlideTime, StringLayout, StringSelect
         };
         struct Command
         {
@@ -106,6 +106,7 @@ namespace MWSound
             double stringPrevious = 0, stringAge = 0, stringLast = 0, stringCarry = 0;
             ProceduralStringExpression expression;
             ProceduralPitchSlide slide;
+            int connection = -1;
             unsigned long long age = 0;
         };
         std::mutex mMutex;
@@ -143,15 +144,17 @@ namespace MWSound
         std::array<Command, 256> mCommands{};
         std::size_t mCommandCount = 0;
         std::array<Voice, 32> mVoices{};
-        struct ConnectionKey {float velocity=0;std::uint64_t order=0;};
+        struct ConnectionKey {float velocity=0;std::uint64_t order=0;int group=-1;};
         using ConnectionKeys=std::array<ConnectionKey,128>;
         std::unique_ptr<ConnectionKeys> mConnectionKeys=std::make_unique<ConnectionKeys>();
         std::uint64_t mConnectionSerial=0;
-        int mConnectionVoice=-1,mConnectionMode=0;
+        std::array<int,7> mConnectionVoices{{-1,-1,-1,-1,-1,-1,-1}};
+        int mConnectionMode=0,mConnectionLayout=0;
         bool mConnectionEligible=false;
         bool connectionReady() const;
         void resetConnections();
         void reconcileConnections();
+        int connectionGroup(int note) const;
         static constexpr std::size_t StringCapacity = 8192;
         using Strings = std::array<std::array<float, StringCapacity>, 32>;
         // Allocated once on the control thread; never allocated in render().

@@ -31,6 +31,7 @@ p('parallelMix',0,1,0);p('parallelClean',0,1,.35);p('parallelDirty',0,1,.75);p('
 p('parallelDrive',0,48,18);p('parallelShape',0,3,0,true);p('parallelComb',0,1,0);p('parallelDelay',.5,20,3.5)
 p('parallelFeedback',-.85,.85,.35);p('parallelRate',0,12,.5);p('parallelDepth',0,1,0);p('parallelLift',0,18,0)
 p('stringLegato',0,2,0,true);p('stringSlideTime',0,1,.08)
+p('stringLayout',0,6,0,true);p('stringSelect',0,7,0,true)
 function M.valid(name, value)
     local s = M.specs[name]
     return s and type(value) == 'number' and value == value and value >= s.min and value <= s.max

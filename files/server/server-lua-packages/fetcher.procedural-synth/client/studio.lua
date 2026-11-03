@@ -275,7 +275,7 @@ function S:automation(content)
     if not t then content[#content+1]=label('Add a part on Song or Mixer first.',20,175,880,16,c.accent);return end
     local name=w.automationName or 'cutoff';local spec=Project.automationSpecs[name]
     local names={stringMute='Palm mute',stringDecay='Muted / string decay',stringDamping='Muted / string tone',
-        stringLegato='String connect mode',stringSlideTime='Slide time',stringArticulation='String articulation',pickAttack='Pick attack',pickDecay='Pick decay',
+        stringLegato='String connect mode',stringSlideTime='Slide time',stringLayout='String voices / tuning',stringSelect='String selection',stringArticulation='String articulation',pickAttack='Pick attack',pickDecay='Pick decay',
         stringResonance='String resonance',pickPitch='Pick pitch',pickVariation='Pick variation',pickDirection='Pick direction',parallelMix='Parallel blend',parallelClean='Clean layer',parallelDirty='Dirty layer',
         parallelNoise='Following noise',parallelDrive='Parallel drive',parallelShape='Parallel shape',parallelComb='Comb amount',
         parallelDelay='Comb delay',parallelFeedback='Comb feedback',parallelRate='Comb rate',parallelDepth='Comb depth',parallelLift='Quiet-signal lift'}
@@ -291,7 +291,9 @@ function S:automation(content)
     end)
     content[#content+1]=self:button('Import MIDI controls',500,163,185,function() w:importControls(w.selected) end)
     content[#content+1]=self:button('Follow programs',700,163,185,function() w:followPrograms(w.selected,not t.followPrograms) end,t.followPrograms)
-    if name=='stringLegato' then content[#content+1]=label('0 Poly / off | 1 Mono legato | 2 Mono picked',500,197,390,10,c.muted)
+    if name=='stringLegato' then content[#content+1]=label('0 Off | 1 Legato | 2 Picked; Voices/tuning sets strings.',500,197,390,10,c.muted)
+    elseif name=='stringLayout' then content[#content+1]=label('0 Mono | 1 E | 2 Drop D | 3 Drop C | 4 Seven | 5 Bass | 6 Five',500,197,390,10,c.muted)
+    elseif name=='stringSelect' then content[#content+1]=label('0 Auto | 1-7 strings from lowest to highest; applies on attack.',500,197,390,10,c.muted)
     elseif name=='stringArticulation' then content[#content+1]=label('0 Patch | 1 Open | 2 Palm | 3 Dead',500,197,390,10,c.muted)
     elseif name=='parallelShape' then content[#content+1]=label('0 Soft | 1 Hard | 2 Fold | 3 Rectify',500,197,390,10,c.muted)
     elseif name=='pickDirection' then content[#content+1]=label('0 Down | 1 Up | 2 Alternate',500,197,390,10,c.muted) end

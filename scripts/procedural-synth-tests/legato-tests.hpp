@@ -83,7 +83,7 @@ void legatoTests()
         a->releaseTrack(1);studioRender(*a,4800);check(!a->trackVoices(1),"track release clears connected held keys");
         a->stop();studioRender(*a,4800);check(!a->trackVoices(1),"Studio Stop clears held-note priority");
         check(!a->loadScore(scoreNote(0,1,1,210,128),36000,false),"connection modes cannot ramp");
-        check(!a->loadScore(scoreNote(0,1,1,212,0),36000,false),"unknown connected control rejected");
+        check(!a->loadScore(scoreNote(0,1,1,214,0),36000,false),"unknown connected control rejected");
         check(a->start(0,18000.0/48000),"connected score supports seek");studioRender(*a,24000,137);
         check(!a->trackVoices(1),"seek does not leave unheard earlier gates in a held stack");
     }
@@ -109,4 +109,104 @@ void legatoTests()
         check(!a->trackVoices(1),"fresh live playing after sustained Stop cannot resurrect earlier notes");
     }
     std::cout<<"PASS finite pitch slides, legato/picked connections, held-note fallback, source bypass, panic/Stop/seek and block-invariant scores\n";
+}
+
+void stringOwnershipTests()
+{
+    using Sample=MWSound::ProceduralSample;
+    const std::string hash(32,'b');auto bank=std::make_shared<Sample>();bank->hash=hash;
+    for(unsigned n=0;n<192000;++n)bank->pcm.push_back(float(.2*std::sin(2*3.141592653589793*261.625565*n/48000)));
+    bank->zones={{0,127,1,127,60,0,1,0,192000}};bank->status.store(Sample::Ready);
+    const auto prepare=[&](int source,int mode=1,int layout=1) {
+        auto s=std::make_unique<Synth>();s->set("attack",.002f);s->set("sustain",1);s->set("release",.01f);
+        s->set("cutoff",18000);s->set("resonance",0);s->set("stringLegato",float(mode));s->set("stringLayout",float(layout));s->set("stringSlideTime",.05f);
+        if(source==1)s->set("instrumentType",1);
+        if(source==2)check(s->sample(bank,60,false,hash),"per-string bank setup");
+        render(*s,4800);return s;
+    };
+    for(int source:{0,1,2})for(int mode:{1,2})
+    {
+        auto s=prepare(source,mode);
+        for(int note:{40,45,50,55,59,64})s->noteOn(note,.6f);
+        render(*s,4800);check(s->voices()==6,"automatic guitar allocation retains six independent strings");
+        s->noteOn(66,.8f);render(*s,4800);check(s->voices()==6,"saturated playable strings connect on the nearest string only");
+        s->noteOff(66);render(*s,4800);check(s->voices()==6,"per-string release returns to its own earlier held note");
+        s->noteOff(64);render(*s,4800);check(s->voices()==5,"returning high string releases independently of the other five");
+        s->set("stringSelect",1);s->noteOn(42,.8f);render(*s,4800);
+        check(s->voices()==5,"explicit low-string slides leave the other strings sounding");
+        s->noteOff(40);render(*s,4800);check(s->voices()==5,"older low-string release does not cut the new note");
+        s->set("stringSelect",2);s->noteOff(42);render(*s,4800);
+        check(s->voices()==4,"key-off uses original ownership after the string selector changes");
+        s->allNotesOff();render(*s,4800);check(!s->voices(),"panic clears every string and held-note return");
+        s->noteOn(47,.5f);render(*s,1000);s->noteOff(47);render(*s,4800);check(!s->voices(),"fresh phrase cannot resurrect pre-panic strings");
+        auto unplayable=prepare(source,mode);unplayable->noteOn(20,.7f);unplayable->noteOn(120,.7f);render(*unplayable,4800);
+        check(unplayable->voices()==2,"out-of-range notes retain original pitches and ordinary polyphonic gates");
+        unplayable->noteOff(20);unplayable->noteOff(120);render(*unplayable,4800);check(!unplayable->voices(),"fallback notes release normally");
+        auto plain=prepare(source,0,0),disabled=prepare(source,0,4);
+        for(int note:{40,45,50,55,59,64,67}){plain->noteOn(note,.7f);disabled->noteOn(note,.7f);check(render(*plain,500)==render(*disabled,500),"disabled connection bypasses string allocation audibly exactly");}
+    }
+    for(const auto& entry:std::array<std::pair<int,int>,6>{{{1,40},{2,38},{3,36},{4,35},{5,28},{6,23}}})
+    {
+        auto s=prepare(0,1,entry.first);s->set("stringSelect",1);
+        s->noteOn(entry.second,.7f);render(*s,500);s->noteOn(entry.second+2,.7f);render(*s,4800);
+        check(s->voices()==1,"each tuning connects its lowest open string through fret two");
+        s->set("stringLayout",0);render(*s,4800);check(!s->voices(),"tuning changes retire old owned gestures and held keys");
+        s->noteOn(72,.7f);render(*s,500);s->noteOff(72);render(*s,4800);check(!s->voices(),"tuning change cannot return to notes from the old layout");
+    }
+    {
+        // Inspect pitch as well as voice counts: both independently connected
+        // strings must reach their targets, while a drone string keeps its pitch.
+        const auto power=[](const std::vector<float>& pcm,double frequency) {
+            double re=0,im=0;for(unsigned n=0;n<pcm.size();++n)
+            {const double phase=2*3.141592653589793*frequency*n/48000;re+=pcm[n]*std::cos(phase);im+=pcm[n]*std::sin(phase);}
+            return (re*re+im*im)/(pcm.size()*pcm.size());
+        };
+        for(int source:{0,2})
+        {
+            auto s=prepare(source);s->set("stringSelect",1);s->noteOn(40,.6f);render(*s,1000);
+            s->set("stringSelect",2);s->noteOn(45,.6f);render(*s,1000);
+            s->set("stringSelect",3);s->noteOn(50,.6f);render(*s,1000);
+            s->set("stringSelect",1);s->noteOn(43,.6f);render(*s,1000);
+            s->set("stringSelect",2);s->noteOn(48,.6f);render(*s,4800);
+            const auto pcm=render(*s,24000);
+            for(int note:{43,48,50})check(power(pcm,440*std::exp2((note-69)/12.0))>1e-6,"two independent string targets and an unchanged drone are audible at their own pitches");
+            for(int note:{43,48,50,40,45})s->noteOff(note);render(*s,4800);check(!s->voices(),"all independent pitch probes release cleanly");
+        }
+    }
+    {
+        auto s=prepare(0);s->set("stringSelect",7);s->noteOn(64,.7f);s->noteOn(67,.7f);render(*s,4800);
+        check(s->voices()==2,"nonexistent selected strings fall back without discarding notes");
+        s->allNotesOff();render(*s,4800);
+        s->set("polyphony",1);s->set("stringSelect",1);s->noteOn(40,.7f);render(*s,500);
+        s->set("stringSelect",2);s->noteOn(45,.7f);render(*s,500);
+        s->set("stringSelect",1);s->noteOn(42,.7f);render(*s,500);s->noteOff(42);render(*s,4800);
+        check(!s->voices(),"voice stealing invalidates old string returns rather than resurrecting stolen keys");
+    }
+    for(bool ordinary:{false,true})
+    {
+        auto source=std::make_shared<Sample>();source->hash=hash;source->pcm=bank->pcm;
+        if(!ordinary)source->zones={{0,127,1,127,60,0,1,0,192000,1,1,0}};
+        source->status.store(Sample::Ready);
+        auto a=std::make_unique<Synth>(),b=std::make_unique<Synth>();
+        for(auto* s:{a.get(),b.get()})s->sample(source,60,false,hash);
+        b->set("stringLayout",1);b->set("stringSelect",1);b->set("stringLegato",2);
+        for(int note:{40,43,47}){a->noteOn(note,.8f);b->noteOn(note,.8f);check(render(*a,500)==render(*b,500),"sample one-shots and ordinary clips bypass per-string mode exactly");}
+    }
+    {
+        auto a=std::make_unique<NativeStudio>(),b=std::make_unique<NativeStudio>();
+        Synth::State state;for(unsigned i=0;i<state.size();++i)state[i]=Synth::Parameters[i].initial;
+        state[9]=.002f;state[11]=1;state[12]=.01f;
+        const auto score=scoreNote(0,32768,1,210,0)+scoreNote(0,10923,1,212,0)+scoreNote(0,9362,1,213,0)
+            +scoreNote(0,24000,1,40)+scoreNote(1000,18724,1,213,0)+scoreNote(1000,24000,1,45)
+            +scoreNote(3000,9362,1,213,0)+scoreNote(3000,8000,1,43)+scoreNote(5000,18724,1,213,0)+scoreNote(5000,8000,1,47);
+        for(auto* studio:{a.get(),b.get()})check(studio->configure(1,state,1) && studio->loadScore(score,36000,false) && studio->start(0,0),"per-string automation loads on native score clock");
+        check(studioRender(*a,18000,480)==studioRender(*b,18000,137),"independent simultaneous string slides and returns are block invariant");
+        check(a->trackVoices(1)==2 && a->strikes()==4,"independent score connections retain the two sustained strings");
+        a->releaseTrack(1);studioRender(*a,4800);check(!a->trackVoices(1),"track release clears all per-string held notes");
+        a->stop();studioRender(*a,4800);check(!a->trackVoices(1),"Stop clears all per-string state");
+        check(!a->loadScore(scoreNote(0,1,1,212,128),36000,false) && !a->loadScore(scoreNote(0,1,1,213,128),36000,false),"tuning and explicit string automation cannot ramp");
+        check(a->loadScore(score,36000,false) && a->start(0,20000.0/48000),"per-string score supports seeking");
+        studioRender(*a,20000);check(!a->trackVoices(1),"seek cannot reconstruct unheard old string gates");
+    }
+    std::cout<<"PASS independent string allocation, tunings, owned returns, source compatibility, voice stealing and block-invariant native string automation\n";
 }
