@@ -1,5 +1,34 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## November 3: recorded per-note expression (package 67 / API 28; local only)
+
+All 32 Lua suites pass. The new note-expression suite covers all 180 compact
+partial snapshots, exact legacy note encoding, malformed sidecar rejection,
+same-snapped-time mapped hardware attacks with reversed release order, immutable
+snapshot capture and one-step take Undo/Redo. Direct shared-source recording,
+expression-only edits, clearing overrides, note/source copies, linked/transposed
+placements, source-free reload and standard MIDI export retain the intended data.
+Guitar authoring retains articulation and respects saved explicit string choices.
+
+Server tests save per-note data privately and relay the exact compiled companions
+to later listeners. Physical-output tests keep each companion adjacent to its note
+in independent performer partitions. Actual Piano widget tests apply/clear Palm
+from the dropdown, update the caption and verify source controls do not overlap.
+
+The native suite passes. Generated and gated-recorded same-frame mixed attacks
+produce PCM identical to their live snapshots. Companions do not count as attacks;
+invalid/orphan/mismatched/interleaved pairs reject. Loop/seek/Stop and 480-/137-frame
+render-block comparisons pass, and the existing burst-512 allowance still accepts
+512 expressive musical notes. Lua additionally checks full-rate expressive loops
+without counting metadata as notes. Note companions share the unchanged 68,192
+transfer-record budget; expanded scores fail explicitly at that bound.
+
+Evidence: build/studio67-lua-tests.json, build/studio67-native-tests.log and
+build/studio67-client-build.log. The RelWithDebInfo client builds. This is an
+offline native/Lua/UI validation, not physical Axiom listening acceptance. Only
+the existing local port-25567 fixture is installed, preserving user data and
+leaving the test client closed. VPS/public binaries, scripts and assets stay put.
+
 ## November 2: live MIDI articulation mapping (package 66 / API 27; local only)
 
 All 31 Lua suites pass. The new mapping suite checks disabled migration, bounded

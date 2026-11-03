@@ -137,28 +137,34 @@ local function pack32(n)
 end
 local function read32(s,at) local a,b,c,d=s:byte(at,at+3);return a+b*256+c*65536+d*16777216 end
 function M.decodeNotes(data)
-    if not keys(data,{division=true,bytes=true},2) or not int(data.division,1,32767) or type(data.bytes)~='string'
+    if not keys(data,{division=true,bytes=true,expression=true},3) or not int(data.division,1,32767) or type(data.bytes)~='string'
         or #data.bytes%10~=0 or #data.bytes>M.maxPartNotes*10 then return nil end
+    if data.expression~=nil and (type(data.expression)~='string' or #data.expression~=#data.bytes/10) then return nil end
     local out={};local maximum=M.maxSongBeats*data.division
     for at=1,#data.bytes,10 do
         local s,l=read32(data.bytes,at),read32(data.bytes,at+4);local n,v=data.bytes:byte(at+8,at+9)
         if s>=maximum or s+l>maximum or n>127 or v<1 or v>127 then return nil end
-        out[#out+1]={n=n,s=s/data.division*4,l=l/data.division*4,v=v/127}
+        local code=data.expression and data.expression:byte((at-1)/10+1) or 0
+        local e=schema.byteStrike(code);if not e then return nil end
+        out[#out+1]={n=n,s=s/data.division*4,l=l/data.division*4,v=v/127,e=code>0 and e or nil}
     end
     return out
 end
 function M.encodeNotes(notes,division)
     if not array(notes,M.maxPartNotes) or not int(division,1,32767) then return nil end
-    local bytes={}
+    local bytes,expression,hasExpression={},{},false
     for _,n in ipairs(notes) do
-        if not keys(n,{n=true,s=true,l=true,v=true},4) or not int(n.n,0,127) or not num(n.s,0,M.maxSongBeats*4)
+        if not keys(n,{n=true,s=true,l=true,v=true,e=true},5) or not int(n.n,0,127) or not num(n.s,0,M.maxSongBeats*4)
             or not num(n.l,0,M.maxSongBeats*4) or not num(n.v,0.001,1) then return nil end
+        local code=schema.strikeByte(n.e);if not code then return nil end
+        expression[#expression+1]=string.char(code);hasExpression=hasExpression or code>0
         local s,l=math.floor(n.s*division/4+0.5),math.max(0,math.floor(n.l*division/4+0.5))
         bytes[#bytes+1]=pack32(s)..pack32(l)..string.char(n.n,math.max(1,math.floor(n.v*127+0.5)))
     end
-    local data={division=division,bytes=table.concat(bytes)}
+    local data={division=division,bytes=table.concat(bytes),expression=hasExpression and table.concat(expression) or nil}
     return M.decodeNotes(data) and data or nil
 end
+M.expressionByte=schema.strikeByte
 function M.timeline(value)
     if not keys(value,{beats=true,tempos=true,meters=true},3) or not num(value.beats,0,M.maxSongBeats) or not array(value.tempos,1024) then return nil end
     local out={beats=value.beats,tempos={}};local previous=-1
@@ -268,7 +274,7 @@ function M.arrangement(value)
             low=math.min(low,n.n);high=math.max(high,n.n)
         end
         pitches[#pitches+1]={low,high}
-        out.clips[#out.clips+1]={name=clip.name,length=clip.length,notes={division=clip.notes.division,bytes=clip.notes.bytes}}
+        out.clips[#out.clips+1]={name=clip.name,length=clip.length,notes={division=clip.notes.division,bytes=clip.notes.bytes,expression=clip.notes.expression}}
     end
     for _,r in ipairs(value.regions) do
         if not keys(r,{clip=true,s=true,l=true,transpose=true,mute=true,offset=true},6) or not int(r.clip,1,#out.clips)
@@ -321,7 +327,7 @@ function M.eachRegionNote(t,emit)
             for _,n in ipairs(notes) do local at=base+n.s
                 if at<r.l-1e-8 and (at>=0 or at+n.l>0) then
                     local start=math.max(0,at)
-                    emit(n.n+r.transpose,r.s+start,math.min(at+n.l,r.l)-start,n.v)
+                    emit(n.n+r.transpose,r.s+start,math.min(at+n.l,r.l)-start,n.v,n.e)
                 end
             end
         end end
@@ -343,7 +349,7 @@ function M.track(t,length)
     if t.instrument~=nil then if not M.instruments[t.instrument] then return nil end;out.instrument=t.instrument end
     if t.edited~=nil then
         if t.kind~='midi' or not M.decodeNotes(t.edited) then return nil end
-        out.edited={division=t.edited.division,bytes=t.edited.bytes}
+        out.edited={division=t.edited.division,bytes=t.edited.bytes,expression=t.edited.expression}
     end
     if t.arrangement~=nil then
         if not out.edited then return nil end
@@ -355,9 +361,10 @@ function M.track(t,length)
         out.followPrograms=t.followPrograms
     end
     for _,n in ipairs(t.notes) do
-        if not keys(n,{n=true,s=true,l=true,v=true},4) or not int(n.n,0,127) or not num(n.s,0,M.maxSteps-0.000001)
+        if not keys(n,{n=true,s=true,l=true,v=true,e=true},5) or not int(n.n,0,127) or not num(n.s,0,M.maxSteps-0.000001)
             or not num(n.l,1/960,M.maxSteps) or not num(n.v,0.001,1) then return nil end
-        out.notes[#out.notes+1]={n=n.n,s=n.s,l=n.l,v=n.v}
+        local code=schema.strikeByte(n.e);if not code then return nil end
+        out.notes[#out.notes+1]={n=n.n,s=n.s,l=n.l,v=n.v,e=code>0 and schema.byteStrike(code) or nil}
     end
     return out
 end

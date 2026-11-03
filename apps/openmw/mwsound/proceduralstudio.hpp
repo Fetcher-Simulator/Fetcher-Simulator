@@ -22,6 +22,8 @@ namespace MWSound
             keepAlive();
         }
         static constexpr unsigned MaxTracks = 32, MaxNotes = 60000, MaxControls = 8192, MaxCurves = MaxTracks * (2*ProceduralSynth::ParameterCount+5), MaxActive = 4096;
+        // Attack companions share the established transfer budget.
+        static constexpr unsigned MaxRecords = MaxNotes+MaxControls;
         // Preloaded scores are scheduled on the audio clock, independently of live network notes.
         static constexpr unsigned NoteRate = 256, NoteBurst = 512;
         static constexpr std::uint32_t MaxFrames = 48000 * 1800;
@@ -29,6 +31,7 @@ namespace MWSound
         {
             std::uint32_t frame, duration;
             unsigned char track, pitch, velocity;
+            ProceduralSynth::Strike expression;
         };
         struct Point { std::uint32_t frame, value; bool linear; };
         struct Curve { unsigned track, code; bool program; std::vector<Point> points; };

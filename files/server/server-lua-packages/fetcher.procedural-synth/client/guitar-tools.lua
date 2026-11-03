@@ -27,7 +27,7 @@ function M.plan(notes,input,clock,selection,transpose)
     for id,n in ipairs(notes) do
         if not number(n.n,0,127) or n.n%1~=0 or not number(n.s,0,1000000) or not number(n.l,clock.quantum,1000000)
             or not number(n.v,.001,1) then return nil,'Invalid source note.' end
-        out[id]={n=n.n,s=n.s,l=n.l,v=n.v};order[#order+1]=id
+        out[id]={n=n.n,s=n.s,l=n.l,v=n.v,e=n.e};order[#order+1]=id
         if o.scope=='all' or selection and selection[id] then chosenIds[id]=true;chosen=chosen+1 end
     end
     if chosen==0 then return nil,'Select notes in Piano first, or choose All notes.' end
@@ -50,7 +50,8 @@ function M.plan(notes,input,clock,selection,transpose)
             if seen[pitch] then return fail(g,'duplicate unison notes; remove duplicates before fingering.') end
             seen[pitch]=true;candidates[index]={}
             for s,open in ipairs(profile.opens) do local fret=pitch-open
-                if fret>=0 and fret<=o.frets then
+                local fixed=notes[id].e and notes[id].e.stringSelect
+                if fret>=0 and fret<=o.frets and (not fixed or fixed==0 or fixed==s) then
                     candidates[index][#candidates[index]+1]={string=s,fret=fret,
                         cost=fret*.1+(fret>0 and .5 or 0)+math.abs(fret-(last[s] or fret))*.08+(active[s] and 4 or 0)}
                 end

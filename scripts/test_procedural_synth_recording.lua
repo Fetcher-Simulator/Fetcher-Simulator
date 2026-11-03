@@ -45,10 +45,11 @@ check(format.project(w.project).tracks[1].edited.bytes==w.project.tracks[1].edit
 local q=make();q:add('piano');now=400;q:startTake(1);now=403;q:recordOn(60,1)
 q.cb.canMonitor=function() return false end;q:recordFrame()
 check(not q.recording and #q:noteData(1)==1,'lost instrument readiness commits/releases the partial take')
-q.cb.canMonitor=nil;now=410;q:startTake(1);now=413;q:recordOn(62,1);q:recordOff(62)
+q.cb.canMonitor=nil;now=410;q:startTake(1);now=413;q:recordOn(62,1,nil,{stringArticulation=2,stringSelect=1});q:recordOff(62)
 for n=2,128 do q.project.tracks[1].notes[n]={n=60,s=0,l=1,v=1} end
 check(not q:endTake(false) and q.failedTake and #q.failedTake.notes==1,'failed commit retains a bounded recoverable take')
 q.project.tracks[1].notes={};check(q:recoverTake() and #q:noteData(1)==1 and not q.failedTake,'Retry commits the preserved take after capacity is freed')
+check(q:noteData(1)[1].e.stringArticulation==2 and q:noteData(1)[1].e.stringSelect==1,'failed-take recovery keeps per-note attack expression')
 q.playing=true;q.native=true;q.mode='clips';playing=false;q.awaiting=false;q:startTake(1);q.playing=false;q:recordFrame()
 check(not q.recording,'transport ending before capture does not leave a permanently armed take')
 -- Long stopped takes keep the saved song unchanged until Keep, then grow it atomically.

@@ -43,6 +43,8 @@ namespace MWSound
         {
             int articulation = -1, selection = -1, direction = -1;
             bool valid() const { return articulation>=-1 && articulation<=3 && selection>=-1 && selection<=7 && direction>=-1 && direction<=2; }
+            static Strike fromByte(unsigned value)
+            { return {int(value%5)-1,int(value/5%9)-1,int(value/45)-1}; }
         };
         bool strike(int note, float velocity, Strike expression);
         bool noteOff(int note);

@@ -90,4 +90,14 @@ transport:audition(i,0)
 check(i.studio.tracks[1].monitor==1 and i.outputs[1].audio.tracks[2].monitor==1,'full mix restores every output')
 check(i.studio.tracks[1].level==keyboardLevel and i.outputs[1].audio.tracks[2].level==memberLevel,'focus never overwrites saved/routed faders')
 transport:close(i)
+p.tracks[1].notes[1].e={stringArticulation=1,stringSelect=1};p.tracks[2].notes[1].e={stringArticulation=3,stringSelect=2}
+p.tracks[1].automation=nil;p.tracks[2].automation=nil
+local expressive=Sequence.compile(p,nil,nil,'clips',format)
+transport:band(i,band,{0,1},{'Ready'});transport:finish(i,{bytes=expressive.bytes,chunks={expressive.bytes},length=expressive.length,loop=true,started=101,activate=101,playId=5})
+for lane,audio in pairs{[1]=i.studio,[2]=i.outputs[1].audio} do
+    check(#audio.bytes==22 and audio.bytes:byte(11)==130 and audio.bytes:byte(8+1)==lane and audio.bytes:byte(19+1)==lane,
+        'physical partition keeps each companion immediately beside its matching note')
+    check(Sequence.validate(audio.bytes,expressive.length,true),'each routed expressive partition validates independently')
+end
+transport:close(i)
 print('PASS physical band routing, exact partition, shared starts/replacement, missing/rejoin, gain/mute and bounded cleanup; '..checks..' assertions')

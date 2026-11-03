@@ -157,7 +157,6 @@ function R:clockFor(plan,delay,offset)
 end
 function R:start(r)
     self:releaseInput();self:stopClock()
-    if self.mapping.enabled then self.message('Keyboard takes save notes/velocity, not mapped expression. Use MIDI mappings > Auto write for track expression curves.');end
     if not self.engine.createMonitor then return true end -- older test/legacy callback hosts retain visual count-in
     if r.overdub then return true end
     local count={duration=r.countDuration,beats=r.countBeats,bars=r.options.countIn,tempo=r.countTempo,denominator=r.countDenominator}

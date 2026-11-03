@@ -660,7 +660,7 @@ api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrum
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
 -- Reproduce loaded-song reuse from the actual Studio callbacks, including Band.
-package.loaded['openmw.synth'].version=27
+package.loaded['openmw.synth'].version=28
 local paths={'midi/a.mid','midi/b.mid'};local files={}
 local function midiBytes(pitch,count)
     local events={};for n=1,count or 1 do events[#events+1]=string.char(0,144,pitch,100,96,128,pitch,0) end
@@ -1436,6 +1436,16 @@ local function testSourceLengthAndNotePaint()
     assert(find(view.root.layout.content,'Source length: 8 quarters v')).events.mouseClick();check(view.dropdown~=nil,'source length opens a quarter-note picker directly in Piano')
     view.dropdown:scrollTo(8);view.dropdown.rows[4].layout.events.mouseClick();view:render()
     check(uw:clipSource().length==48 and uw.project.tracks[1].arrangement.regions[1].l==32,'source picker changes the shared source without silently resizing placements')
+    uw:selectNote(1,1);view.roll:draw();local before=uw:clipSource().notes.bytes
+    local expressionButton=assert(find(view.root.layout.content,'Note expression v'))
+    local keyboardButton=assert(find(view.root.layout.content,'Keyboard / setup'))
+    check(expressionButton.props.position.x+expressionButton.props.size.x<=keyboardButton.props.position.x,'source expression button fits beside the existing source/keyboard controls')
+    expressionButton.events.mouseClick();check(view.dropdown~=nil,'Piano exposes the scrollable per-note expression picker')
+    view.dropdown.rows[4].layout.events.mouseClick();view:render()
+    check(uw:noteData(1)[1].e.stringArticulation==2 and uw:clipSource().notes.bytes==before,'Piano picker applies Palm without changing pitch or timing')
+    check(view.roll.caption.layout.props.text:find('Palm')~=nil,'selected-note caption reports its saved articulation')
+    assert(find(view.root.layout.content,'Note expression v')).events.mouseClick();view.dropdown.rows[1].layout.events.mouseClick();view:render()
+    check(not uw:noteData(1)[1].e,'Piano picker clears note overrides back to the track sound')
     view:destroy()
 end
 testSourceLengthAndNotePaint()

@@ -1,6 +1,6 @@
 # FETCHER STUDIO roadmap
 
-Updated 2026-11-02. Completed work and subsequent planned slices are identified below.
+Updated 2026-11-03. Completed work and subsequent planned slices are identified below.
 
 **Sound-design direction after reviewing the supplied video references:** the
 first native audio slice adds a proper guitar cabinet/microphone IR stage, with
@@ -10,6 +10,15 @@ both synthesized and sampled sources. More samples are one possible improvement,
 not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
+
+Package 67 / native API 28 captures articulation/string/pick overrides with each
+recorded note, including same-time mixed attacks and reusable clip sources.
+Piano can edit/clear selected note expression. Shared-source edits, repeat/offset/
+transpose, copy/paste, private saves and take Undo/recovery preserve it. Compact
+sidecars and adjacent native companions leave old notes unchanged; companions
+share the existing transport budget and are excluded from note-rate accounting.
+This is local-only, retaining protocol 27. General knob/fader Learn and listening
+acceptance are next; captured gestures/same-pitch string unisons remain pending.
 
 Package 66 / native API 27 adds opt-in local CC Learn/bindings and four-note
 articulation keyswitches, with per-attack articulation/string/pick snapshots on
@@ -455,7 +464,7 @@ credited sheet booklet into the Yamaha rests and separate stand, and supplies
 stands to non-keyboard NPCs. Native spawned-actor teleport support and positional
 readback repair lineup changes that previously left reused NPCs in old slots.
 
-## Remaining roadmap (next: per-note expression capture and band acceptance)
+## Remaining roadmap (next: general controller mapping and band acceptance)
 
 1. **Guitars, electric bass, full drum kit and convincing genre playback.**
    Prioritize electric guitar and bass, nylon-string classical guitar,
@@ -476,14 +485,17 @@ readback repair lineup changes that previously left reused NPCs in old slots.
      pre/post cuts, local focus/dim, first-pass pick/resonance/articulation and
      opt-in parallel processing are implemented. Package 57 also supplies an
      explicit string-aware fingering/strum note tool. Next are live per-string
-     richer/captured hammer-ons and slides, per-note expression capture and
+     richer/captured hammer-ons and slides, general controller mapping and
      listening-based refinement with drums and bass present. Mono connected
      legato/picked slides are implemented in package 58; independent string
      allocation and explicit stepped string selection ship in package 65.
      Persistent per-note fingering and same-pitch string unisons remain pending.
      Package 66 adds live CC/keyswitch mapping and explicit track-level Auto write;
-     keyboard-take/clip capture must retain individual attack expression before
-     claiming mixed-articulation recording or reusable expressive clip sources.
+     package 67 retains individual attack expression in takes and reusable clips.
+     Add general physical-controller Learn/assignments for synth/effect knobs and
+     mixer faders (volume, filter cutoff, drive and other exposed controls), with
+     appropriate continuous/discrete ranges, local bindings and explicit automation
+     capture. Package 66 maps only articulation, string and pick selection.
      Do not make fidelity depend solely on collecting more samples.
    - **Guitar and bass articulation:** clean, crunch, fuzz, high-gain rhythm and
      lead guitar; tight palm-muted/choked notes, sustained chords, picking,
@@ -568,7 +580,7 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 66 / native synth API 27 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
+package 67 / native synth API 28 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented, together with initial seated keyboard/cello NPC staging.
 

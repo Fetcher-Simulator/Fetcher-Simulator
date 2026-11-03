@@ -47,6 +47,19 @@ function M.strike(input)
     end
     return out
 end
+-- Mixed radix: absent/4 articulations x absent/8 selections x absent/3 picks.
+-- Zero means no per-note override; 1..179 are complete or partial snapshots.
+function M.strikeByte(input)
+    if input==nil then return 0 end
+    local e=M.strike(input);if not e then return nil end
+    return (e.stringArticulation and e.stringArticulation+1 or 0)
+        +5*(e.stringSelect and e.stringSelect+1 or 0)+45*(e.pickDirection and e.pickDirection+1 or 0)
+end
+function M.byteStrike(value)
+    if type(value)~='number' or value<0 or value>179 or value%1~=0 then return nil end
+    local a=value%5;local s=math.floor(value/5)%9;local d=math.floor(value/45)
+    return {stringArticulation=a>0 and a-1 or nil,stringSelect=s>0 and s-1 or nil,pickDirection=d>0 and d-1 or nil}
+end
 function M.sample(input)
     if type(input)~='table' then return nil end
     local fields={path=true,offset=true,duration=true,root=true,oneShot=true,hash=true}

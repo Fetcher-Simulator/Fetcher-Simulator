@@ -82,7 +82,7 @@ namespace MWLua
                     return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 27;
+            api["version"] = 28;
             api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
                 const auto path = manager->exportStudioMidi(name, bytes);
                 sol::table result(lua, sol::create);

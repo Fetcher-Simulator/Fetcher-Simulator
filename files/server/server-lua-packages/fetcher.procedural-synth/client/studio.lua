@@ -580,8 +580,17 @@ function S:piano(content)
             Dropdown.open(self,choices,source.length,function(length) w:setClip(index,id,{length=length}) end,20,math.max(50,self.height-400),420)
         end)
         content[#content+1]=self:button('Use placement length',255,self.height-56,200,function() w:fitClipToPlacement(index,id) end)
-    else content[#content+1]=label(t.kind=='midi' and not t.edited and 'Read only: Edit MIDI creates saved notes; the original file stays intact.' or 'Click adds. Right-click deletes. Shift-click selects. Drag moves; drag the right edge resizes.',20,self.height-51,self.width-380,11,c.muted) end
+    else content[#content+1]=label(t.kind=='midi' and not t.edited and 'Read only: use Edit MIDI first.' or 'Right-click deletes. Drag moves; edge resizes.',195,self.height-51,self.width-575,11,c.muted) end
     if source then content[#content+1]=self:button('Play source',self.width-195,tools,150,function() w:playClip() end) end
+    content[#content+1]=self:button('Note expression v',source and 470 or 20,self.height-56,source and 130 or 160,function()
+        local choices={{id='clear',label='Use track sound / clear note overrides'}}
+        for _,item in ipairs{{'stringArticulation',{'Patch','Open','Palm','Dead'}},{'stringSelect',{'Auto','String 1 / lowest','String 2','String 3','String 4','String 5','String 6','String 7'}},{'pickDirection',{'Down pick','Up pick','Alternate pick'}}} do
+            for n,title in ipairs(item[2]) do choices[#choices+1]={id=item[1]..':'..(n-1),label=(item[1]=='stringArticulation' and 'Attack: ' or '')..title} end
+        end
+        Dropdown.open(self,choices,nil,function(id)
+            local name,value=id:match('^(%a+):(%d+)$');w:editNoteExpression(w.selected,name,tonumber(value));if self.roll then self.roll:draw() end
+        end,source and 470 or 20,math.max(70,self.height-425),440)
+    end)
     content[#content+1]=label(source and 'Source length limits notes and changes all linked repeats. Wheel: pitch; Shift-wheel: time; Ctrl-wheel: zoom.' or 'Ctrl+A/C/V/D, Delete, arrow keys. Wheel: pitch; Shift-wheel: time; Ctrl-wheel: zoom.',20,self.height-25,self.width-45,12,c.muted)
 end
 function S:recordKey(note,on,velocity)
@@ -693,8 +702,8 @@ function S:midiMappings(content)
     content[#content+1]=label('-1 = off. CC values split evenly into Patch/Open/Palm/Dead, Auto/strings 1–7, or Down/Up/Alternate.',20,550,870,12,c.muted)
     content[#content+1]=label('Four keys from '..pitch(m.switchBase)..': Patch, Open, Palm, Dead. Enabled keyswitches are consumed, including key-off.',20,581,870,12,c.muted)
     content[#content+1]=label('Bindings save locally; live expression does not overwrite sounds. Hide, target changes and disconnect reset it.',20,612,870,12,c.muted)
-    content[#content+1]=label('Auto write saves track-level stepped curves during playback. Keyboard takes currently save notes/velocity only.',20,643,870,12,c.muted)
-    content[#content+1]=label('For different articulations on simultaneous notes, use separate tracks. Native synth API 27 is required.',20,674,870,11,c.muted)
+    content[#content+1]=label('Keyboard takes save each attack choice with its note, including clips. Auto write saves track-level curves.',20,643,870,12,c.muted)
+    content[#content+1]=label('Piano > Note expression edits/clears saved note overrides. Native synth API 28 is required.',20,674,870,11,c.muted)
 end
 function S:setArrangeFocus(active)
     self.arrangeFocus=active;self.window.expanded=active

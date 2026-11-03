@@ -332,7 +332,7 @@ test('native scores are validated, timestamped and included in late sync',functi
 end)
 test('native automation uploads replicate with the shared clock and remain owner controlled',function()
     local f=require('procedural_synth_project')(schema);local p=f.new();p.tracks[1]=f.newTrack('piano','Curve',16)
-    p.tracks[1].notes={{n=60,s=0,l=2,v=1}};p.tracks[1].params.stringLayout=1;p.tracks[1].params.stringLegato=1
+    p.tracks[1].notes={{n=60,s=0,l=2,v=1,e={stringArticulation=2,stringSelect=2,pickDirection=1}}};p.tracks[1].params.stringLayout=1;p.tracks[1].params.stringLegato=1
     p.tracks[1].automation={expression={{s=0,v=0,linear=true},{s=8,v=1,linear=false}},stringSelect={{s=0,v=1,linear=false},{s=8,v=2,linear=false}},stringLayout={{s=0,v=1,linear=false}}}
     local score=require('procedural_synth_sequence').compile(p,nil,nil,'clips',f)
     acquire();request('channel',{channel=1,params={},level=1});sent={}
@@ -346,6 +346,7 @@ test('native automation uploads replicate with the shared clock and remain owner
     check(bytes==score.bytes,'late observer receives identical curve bytes for native chase')
     request('dawSave',{project=p});check(storage['project:11'].tracks[1].automation.expression[2].v==1,'saved curves stay with character project')
     check(storage['project:11'].tracks[1].params.stringLayout==1 and storage['project:11'].tracks[1].automation.stringSelect[2].v==2,'per-string settings and score controls remain in the private character project')
+    check(storage['project:11'].tracks[1].notes[1].e.stringArticulation==2,'per-note expression survives the same authenticated private project save')
 end)
 test('tempo/meter bar grids schedule replacements and persist privately',function()
     local f=require('procedural_synth_project')(schema);local seq=require('procedural_synth_sequence')

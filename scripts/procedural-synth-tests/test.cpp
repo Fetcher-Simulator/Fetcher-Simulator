@@ -92,6 +92,7 @@ void writePreview(const std::string& path)
 #include "parallel-tests.hpp"
 #include "legato-tests.hpp"
 #include "strike-tests.hpp"
+#include "note-expression-tests.hpp"
 
 void testMidiQueue()
 {
@@ -126,6 +127,7 @@ int main(int argc, char** argv)
         legatoTests();
         stringOwnershipTests();
         strikeExpressionTests();
+        noteExpressionTests();
         Synth silentRelease;
         silentRelease.set("attack",0.002f);silentRelease.set("decay",0.002f);silentRelease.set("sustain",1);
         silentRelease.noteOn(38,1);render(silentRelease,2400);

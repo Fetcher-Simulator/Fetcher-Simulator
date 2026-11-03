@@ -202,6 +202,14 @@ function R:drawNotes()
     end
     self.usedSlots=slot
     self.caption.layout.props.text=string.format('Bars %.2f - %.2f  |  %d selected%s',self.songGrid and Project.barPosition(w.project,self.start/4) or self.start/16+1,self.songGrid and Project.barPosition(w.project,(self.start+self.steps)/4) or (self.start+self.steps)/16+1,#w:selectedNotes(self.index),shown>512 and '  |  Zoom in to see remaining notes' or '')
+    local selected=w:selectedNotes(self.index);local e=#selected==1 and w:noteData(self.index)[selected[1]].e
+    if e then
+        local parts={}
+        if e.stringArticulation~=nil then parts[#parts+1]=({'Patch','Open','Palm','Dead'})[e.stringArticulation+1] end
+        if e.stringSelect~=nil then parts[#parts+1]=e.stringSelect==0 and 'String Auto' or 'String '..e.stringSelect end
+        if e.pickDirection~=nil then parts[#parts+1]=({'Down','Up','Alternate'})[e.pickDirection+1] end
+        self.caption.layout.props.text=self.caption.layout.props.text..' | '..table.concat(parts,', ')
+    end
     self.owner.window:update(self.caption)
     if not self.drag and self.owner.noteVelocityRefresh then self.owner.noteVelocityRefresh() end
 end

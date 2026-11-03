@@ -99,21 +99,32 @@ namespace MWSound
     bool ProceduralStudio::loadScore(std::string_view bytes, std::uint32_t length, bool loop)
     {
         // A routed output may have no notes while retaining the song clock.
-        if (closed() || bytes.size() % 11 || bytes.size() / 11 > MaxNotes + MaxControls || !length || length > MaxFrames) return false;
+        if (closed() || bytes.size() % 11 || bytes.size() / 11 > MaxRecords || !length || length > MaxFrames) return false;
         auto score = std::make_shared<Score>(); score->length = length; score->loop = loop;
-        score->notes.reserve(bytes.size() / 11);
+        score->notes.reserve(std::min<std::size_t>(MaxNotes,bytes.size() / 11));
         auto u32 = [&](std::size_t offset) {
             std::uint32_t value = 0;
             for (unsigned i = 0; i < 4; ++i) value |= static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[offset + i])) << (8 * i);
             return value;
         };
         double tokens = NoteBurst; std::uint32_t previous = 0, previousNote = 0; unsigned controls = 0;
+        Note pending{};bool hasExpression=false;
         for (std::size_t at = 0; at < bytes.size(); at += 11)
         {
             Note note{ u32(at), u32(at + 4), static_cast<unsigned char>(bytes[at + 8]),
                 static_cast<unsigned char>(bytes[at + 9]), static_cast<unsigned char>(bytes[at + 10]) };
             if (note.frame < previous || note.frame >= length || note.track < 1 || note.track > MaxTracks || !hasTrack(note.track)) return false;
             previous = note.frame;
+            if(note.pitch<128 && note.velocity==130)
+            {
+                if(hasExpression || !note.duration || note.duration>179)return false;
+                pending=note;hasExpression=true;continue;
+            }
+            if(hasExpression)
+            {
+                if(note.pitch>=128 || note.frame!=pending.frame || note.track!=pending.track || note.pitch!=pending.pitch)return false;
+                note.expression=ProceduralSynth::Strike::fromByte(pending.duration);hasExpression=false;
+            }
             if (note.pitch >= 128)
             {
                 const unsigned wire = note.pitch - 128;
@@ -140,6 +151,7 @@ namespace MWSound
             if (tokens < 1 - 1e-9) return false;
             --tokens; previousNote = note.frame; score->notes.push_back(note);
         }
+        if(hasExpression)return false;
         if (loop && score->notes.size() * 48000.0 > NoteRate * double(length)) return false;
         if (loop)
             for (const auto& note : score->notes)
@@ -213,7 +225,7 @@ namespace MWSound
         const unsigned n = note.track - 1;
         ++mHeld[n][note.pitch]; mNoteBits[n][note.pitch / 64].fetch_or(std::uint64_t(1) << (note.pitch % 64));
         chokeSampleGroup(n,note.pitch,note.velocity/127.f);
-        track->apply({ note.pitch, note.velocity / 127.f }); ++mStrikes;
+        track->apply({ note.pitch, note.velocity / 127.f, note.expression }); ++mStrikes;
         mOffs[mOffCount++] = { mTime + note.duration, n, note.pitch, mGeneration[n] };
         std::push_heap(mOffs.begin(), mOffs.begin() + mOffCount);
     }

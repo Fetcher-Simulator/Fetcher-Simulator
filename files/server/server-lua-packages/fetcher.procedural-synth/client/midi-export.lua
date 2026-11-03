@@ -12,7 +12,7 @@ function M.encode(project,song,MIDI,format,mode)
     if p.composition then p.composition.loop=false;p.composition.loopStart=1;p.composition.loopEnd=p.composition.bars end
     local SoundSets=require('scripts.multiplayer.fetcher.procedural-synth.client.soundsets')
     local plan=Sequence.compile(p,song,MIDI,mode,format,SoundSets.programPatch)
-    local noteCount=0;for at=1,#plan.bytes,11 do if plan.bytes:byte(at+9)<128 then noteCount=noteCount+1 end end
+    local noteCount=0;for at=1,#plan.bytes,11 do if plan.bytes:byte(at+9)<128 and plan.bytes:byte(at+10)~=130 then noteCount=noteCount+1 end end
     assert(noteCount<=M.maxNotes,'MIDI export supports at most 29000 expanded notes')
     local tempos=mode=='song' and ((p.timeline or song).tempos or {}) or {{beat=0,tempo=60000000/p.bpm}}
     local map={};local seconds,beat,tempo=0,0,500000
@@ -74,7 +74,7 @@ function M.encode(project,song,MIDI,format,mode)
     local function le(at) local a,b,c,d=plan.bytes:byte(at,at+3);return a+b*256+c*65536+d*16777216 end
     for at=1,#plan.bytes,11 do
         local frame,gate=le(at),le(at+4);local lane,note,velocity=plan.bytes:byte(at+8,at+10)
-        if note<128 then
+        if note<128 and velocity~=130 then
         local first,last=tick(frame/Sequence.rate),tick((frame+gate)/Sequence.rate);last=math.max(first+1,last);finish=math.max(finish,last)
         event(lane+1,first,string.char(144+channels[lane],note,velocity),1)
         event(lane+1,last,string.char(128+channels[lane],note,0),0)

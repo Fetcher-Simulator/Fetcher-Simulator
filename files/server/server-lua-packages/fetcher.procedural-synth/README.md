@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 66 / native synth API 27 / multiplayer protocol 27.
+Current source: package 67 / native synth API 28 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,41 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Recorded note expression (package 67 / native API 28)
+
+Mapped articulation, string selection and pick direction now save with each
+recorded note. Use the physical controller/keyswitch mappings during a normal
+keyboard take, then **Keep**. Two notes snapped to the same time can retain
+different attacks. Their order follows the original attacks rather than key
+release order. Notes and expression share the take's Undo/Cancel/recovery path.
+Unmapped fields continue to follow the track's patch/automation.
+
+This also works when recording into a reusable clip source. Capture into clips,
+linked repeats, placement transpose/offset, source copies and note copy/paste
+retain the expression. The existing string tuning/playability rules still apply
+after transposition. The selected note's Piano caption shows its saved choices.
+Use **Piano → Note expression** to assign articulation, string or pick direction
+to selected notes, or **Use track sound / clear note overrides** to let the patch
+and track automation control them again. Expression-only edits support Undo.
+
+Saved note overrides take priority over the same track-level attack controls.
+**Write mappings to Auto** remains useful for track-level gestures, while normal
+recording now captures individual attack choices directly. Same-pitch unisons on
+separate strings remain outside the current pitch-owned gate model. Ordinary
+MIDI export writes the musical notes; Studio-specific expression stays in the
+project, not in portable GM MIDI.
+
+Old notes retain their original timing/velocity encoding. Edited/source notes
+use an optional bounded one-byte-per-note expression sidecar; legacy piano notes
+use a validated optional expression table. Native scores attach one validated
+companion record to each expressive attack. These do not consume the 60,000-note
+or note-rate allowance, but share the existing 68,192-record transfer budget with
+notes/automation. Excessive expanded expressive arrangements fail clearly rather
+than dropping notes. Existing document/clip/voice limits remain in force.
+
+This candidate is installed only in the usual local port-25567 fixture and needs
+the matching API-28 client. No VPS/public deployment or new asset package.
 
 ## MIDI articulation mapping (package 66 / native API 27)
 
@@ -46,11 +81,10 @@ Move controllers/use keyswitches, then **End Auto write**. Stepped track curves
 use the native audible position, event age and input compensation, save with the
 project, and commit as one Undo. Disconnect ends this write transaction. Like
 other Auto writes, playback updates use the existing scheduled score replacement.
-These are track-level curves: use separate tracks for different simultaneous
-articulations. **Keyboard takes still save notes/velocity only**, although their
-live monitoring uses the mapped attack. Record notes first, then make an Auto
-write pass to retain expression. Per-note expression capture, including reusable
-clip sources and same-time mixed articulations, is a remaining roadmap item.
+These are track-level curves. Package 67 also saves distinct attack expression
+with individual recorded notes and reusable sources, as described above; a second
+Auto write pass is optional for those attacks. General CC assignments for volume,
+filter, drive and other synth/mixer controls remain planned.
 
 This is a local-only candidate using native synth API 27; network protocol stays
 27 and no new sound assets are needed. Actual controller listening acceptance is

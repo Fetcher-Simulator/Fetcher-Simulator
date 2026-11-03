@@ -1,5 +1,7 @@
 -- Bounded, portable score format: LE u32 onset, LE u32 gate, lane, pitch, velocity.
 -- The server validates the same bytes that native clients consume.
+-- Velocity 130 / pitch <128: an expression-byte companion immediately before
+-- its matching frame/lane/pitch note. Companions are not notes or automation.
 local M={maxTracks=32,rate=48000,maxNotes=60000,maxControls=8192,maxEvents=68192,maxFrames=86400000,recordSize=11,chunkSize=2816,noteRate=256,noteBurst=512}
 local function integer(n,a,b) return type(n)=='number' and n==n and n>=a and n<=b and n%1==0 end
 local function u32(bytes,at)
@@ -14,11 +16,20 @@ function M.validate(bytes,length,loop,channels)
         or not integer(length,1,M.maxFrames) or type(loop)~='boolean' then return nil,'Invalid score size or duration.' end
     local tokens,previous,previousNote,base,intervals,noteCount,controlCount=M.noteBurst,0,0,0,{},0,0
     local curves={};local discrete={[128]=true,[132]=true,[133]=true,[150]=true,[153]=true,[156]=true,[169]=true,[174]=true,[182]=true,[187]=true,[191]=true,[197]=true,[203]=true,[210]=true,[212]=true,[213]=true}
+    local pending
     for at=1,#bytes,11 do
         local frame,duration=u32(bytes,at),u32(bytes,at+4)
         local lane,note,velocity=bytes:byte(at+8,at+10)
         if frame<previous or frame>=length or lane<1 or lane>M.maxTracks or channels and not channels[lane] then return nil,'Invalid score lane or time.' end
         previous=frame
+        if note<128 and velocity==130 then
+            if pending or duration<1 or duration>179 then return nil,'Invalid attack expression.' end
+            pending={frame=frame,lane=lane,note=note}
+        else
+        if pending then
+            if note>=128 or pending.frame~=frame or pending.lane~=lane or pending.note~=note then return nil,'Unpaired attack expression.' end
+            pending=nil
+        end
         if note>=128 then
             controlCount=controlCount+1
             if controlCount>M.maxControls or note>213 or duration>65535 or velocity~=0 and velocity~=128 and velocity~=129
@@ -40,10 +51,12 @@ function M.validate(bytes,length,loop,channels)
             else intervals[#intervals+1]={frame+gate,-1} end
             if gate>0 then intervals[#intervals+1]={frame,1} end
         end
+        end
     end
+    if pending then return nil,'Incomplete attack expression.' end
     if loop and noteCount*M.rate>M.noteRate*length then return nil,'Loop exceeds 256 notes/sec.' end
     if loop then
-        for at=1,#bytes,11 do if bytes:byte(at+9)<128 then
+        for at=1,#bytes,11 do if bytes:byte(at+9)<128 and bytes:byte(at+10)~=130 then
             local frame=u32(bytes,at)+length;tokens=math.min(M.noteBurst,tokens+(frame-previousNote)*M.noteRate/M.rate)
             if tokens<1-1e-9 then return nil,'Loop boundary exceeds burst-512 limit.' end
             tokens=tokens-1;previousNote=frame
@@ -72,10 +85,10 @@ function M.nextBoundary(frames,length,loop,elapsed,lead)
     for _,frame in ipairs(frames) do if frame>phase+1e-7 then return (cycle*length+frame)/M.rate end end
 end
 function M.compile(project,song,MIDI,mode,format,programPatch)
-    local notes={};local function add(lane,pitch,velocity,time,gate)
+    local notes={};local function add(lane,pitch,velocity,time,gate,expression)
         local frame=math.max(0,math.floor(time*M.rate+0.5))
         notes[#notes+1]={frame=frame,duration=math.max(1,math.floor(gate*M.rate+0.5)),lane=lane,note=pitch,
-            velocity=math.max(1,math.min(127,math.floor(velocity*127+0.5))),order=#notes+1}
+            velocity=math.max(1,math.min(127,math.floor(velocity*127+0.5))),order=#notes+1,expression=expression}
         assert(#notes<=M.maxNotes,'Compiled score exceeds 60,000 notes.')
         return notes[#notes]
     end
@@ -118,41 +131,41 @@ function M.compile(project,song,MIDI,mode,format,programPatch)
     end
     if songMode then for lane,t in ipairs(project.tracks) do if t.edited then
         for _,n in ipairs(assert(format.decodeNotes(t.edited))) do
-            local time=seconds(n.s/4);add(lane,n.n,n.v,time,seconds((n.s+n.l)/4)-time)
+            local time=seconds(n.s/4);add(lane,n.n,n.v,time,seconds((n.s+n.l)/4)-time,n.e)
         end
-        if t.arrangement then format.eachRegionNote(t,function(pitch,step,length,velocity)
-            local time=seconds(step/4);add(lane,pitch,velocity,time,seconds((step+length)/4)-time)
+        if t.arrangement then format.eachRegionNote(t,function(pitch,step,length,velocity,expression)
+            local time=seconds(step/4);add(lane,pitch,velocity,time,seconds((step+length)/4)-time,expression)
         end) end
     end end end
     if not songMode then for lane,t in ipairs(project.tracks) do if t.kind=='midi' then
         local data=t.edited and assert(format.decodeNotes(t.edited)) or song and MIDI.editableSpans(song,t.part) or {}
-        local function patternNote(pitch,step,length,velocity)
+        local function patternNote(pitch,step,length,velocity,expression)
             if step<project.length then
                 local time=seconds(step/4)
                 local gate=seconds(length/4)
                 if not project.loop then gate=math.min(gate,total-time) end
-                if gate>0 then add(lane,pitch,velocity,time,gate) end
+                if gate>0 then add(lane,pitch,velocity,time,gate,expression) end
             end
         end
-        for _,n in ipairs(data) do patternNote(n.n,n.s,n.l,n.v) end
+        for _,n in ipairs(data) do patternNote(n.n,n.s,n.l,n.v,n.e) end
         if t.arrangement then format.eachRegionNote(t,patternNote) end
     end end end
     local period=project.length/4
     local cycles=songMode and (project.loop and math.ceil(beats/period) or 1) or 1
     for cycle=0,cycles-1 do
         for lane,t in ipairs(project.tracks) do
-            local function clip(note,velocity,step,length,gateSeconds)
+            local function clip(note,velocity,step,length,gateSeconds,expression)
                 local beat=cycle*period+step/4;beat=beat+(step%2==1 and project.swing/4 or 0)
                 if step>=project.length or beat>=beats then return end
                 local time=seconds(beat);local gate=gateSeconds or seconds(beat+length/4)-time
                 if songMode or not project.loop then gate=math.min(gate,total-time) end
-                if gate>0 then add(lane,note,velocity,time,gate) end
+                if gate>0 then add(lane,note,velocity,time,gate,expression) end
             end
             if t.kind=='drum' then
                 for step=0,project.length-1 do local velocity=tonumber(t.steps:sub(step+1,step+1)) or 0
                     if velocity>0 then clip(t.note,velocity/9,step,1,t.gate) end
                 end
-            elseif t.kind=='piano' then for _,n in ipairs(t.notes) do clip(n.n,n.v,n.s,n.l) end end
+            elseif t.kind=='piano' then for _,n in ipairs(t.notes) do clip(n.n,n.v,n.s,n.l,nil,n.e) end end
         end
     end
     table.sort(notes,function(a,b) return a.frame==b.frame and a.order<b.order or a.frame<b.frame end)
@@ -209,8 +222,16 @@ function M.compile(project,song,MIDI,mode,format,programPatch)
         end
     end end
     table.sort(events,function(a,b) return a.frame==b.frame and a.order<b.order or a.frame<b.frame end)
-    for _,n in ipairs(events) do bytes[#bytes+1]=pack(n.frame)..pack(n.duration)..string.char(n.lane,n.note,n.velocity) end
-    bytes=table.concat(bytes);assert(#bytes>0,'No notes to play. Add notes or choose another playback view.');local loop=songMode and project.composition and project.composition.loop or not songMode and project.loop
+    for _,n in ipairs(events) do
+        if n.expression then
+            local code=assert(format and format.expressionByte(n.expression),'Invalid per-note expression.')
+            if code>0 then bytes[#bytes+1]=pack(n.frame)..pack(code)..string.char(n.lane,n.note,130) end
+        end
+        bytes[#bytes+1]=pack(n.frame)..pack(n.duration)..string.char(n.lane,n.note,n.velocity)
+    end
+    bytes=table.concat(bytes);assert(#bytes>0,'No notes to play. Add notes or choose another playback view.')
+    assert(#bytes<=M.maxEvents*11,'Score exceeds 68,192 transport records; per-note expression uses one extra record per attack.')
+    local loop=songMode and project.composition and project.composition.loop or not songMode and project.loop
     local ok,err=M.validate(bytes,length,loop);assert(ok,err)
     local grid
     if songMode and format then

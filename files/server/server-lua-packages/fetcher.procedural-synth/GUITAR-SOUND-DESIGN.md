@@ -49,6 +49,11 @@ including earlier held-note returns; routed listeners receive the same bounded
 snapshot. Keyboard-take/clip per-note expression capture remains pending, as do
 new recorded gestures and listening-based acceptance. This is local-only.
 
+Package 67 records those snapshots per note, preserves them in reusable sources,
+and replays distinct same-frame attacks natively. Piano can edit/clear overrides;
+existing patch and track controls still supply unmapped fields. General knob/fader
+assignments, more recorded gestures and full-band listening remain planned.
+
 ## What the references contribute
 
 - [CyberBlitz: How to DOOM Like Mick Gordon](https://www.youtube.com/watch?v=-9rTxQr1194):

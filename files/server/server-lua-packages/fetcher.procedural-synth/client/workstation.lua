@@ -703,7 +703,7 @@ function W:storeNotes(index,notes,key,quiet)
         local data=format.encodeNotes(notes,old.division);local total=format.savedNotes(self.project)-#old.bytes/10+#notes
         if not data or total>format.maxEditedNotes then self.cb.message('Edited note limit reached; change cancelled.');return false end
         for _,n in ipairs(notes) do if format.seconds(self.project.timeline,(n.s+n.l)/4)>1800 then self.cb.message('Song limit: 30 minutes.');return false end end
-        if data.bytes==old.bytes then return true end
+        if data.bytes==old.bytes and data.expression==old.expression then return true end
         if clip or t.arrangement then
             local candidate=copy(self.project)
             if clip then candidate.tracks[index].arrangement.clips[self.clipEdit.clip].notes=data else candidate.tracks[index].edited=data end
@@ -741,6 +741,17 @@ function W:deleteNotes(index)
     if #notes==#self:noteData(index) then return false end
     if not self:storeNotes(index,notes) then return false end
     self.noteSelection={};return true
+end
+function W:editNoteExpression(index,name,value)
+    if not self:canEditNotes(index) then return false end
+    local ids=self:selectedNotes(index);if #ids==0 then self.cb.message('Select notes in Piano first.');return false end
+    local allowed={stringArticulation=true,stringSelect=true,pickDirection=true}
+    if name~=nil and (not allowed[name] or not schema.valid(name,value)) then return false end
+    local notes=copy(self:noteData(index))
+    for _,id in ipairs(ids) do
+        if name then notes[id].e=notes[id].e or {};notes[id].e[name]=value else notes[id].e=nil end
+    end
+    self.lastEditKey=nil;return self:storeNotes(index,notes)
 end
 function W:copyNotes(index)
     local ids=self:selectedNotes(index);if #ids==0 then return false end
@@ -977,7 +988,8 @@ function W:recordOn(note,velocity,age,expression)
     if count>=r.capacity then self.cb.message('Take note limit reached; keep or cancel this take.');return false end
     if self.cb.on(r.index,note,velocity,expression)==false then return false end
     if self.recording~=r then return false end
-    r.held[note]={n=note,raw=step,v=velocity};r.last=step;return true
+    r.noteSerial=(r.noteSerial or 0)+1
+    r.held[note]={n=note,raw=step,v=velocity,e=expression,order=r.noteSerial};r.last=step;return true
 end
 function W:recordOff(note,step,age)
     local r=self.recording;local held=r and r.held[note];if not held then return false end
@@ -988,7 +1000,8 @@ function W:recordOff(note,step,age)
     local finish=math.floor((step-r.origin)/r.snap+0.5)*r.snap
     local limit=r.limit-r.origin
     s=math.max(r.minimum or 0,math.min(limit-r.snap,s));finish=math.max(s+r.snap,math.min(limit,finish))
-    r.notes[#r.notes+1]={n=note,s=s,l=finish-s,v=held.v};r.last=step;return true
+    local n={n=note,s=s,l=finish-s,v=held.v,e=held.e};r.notes[#r.notes+1]=n
+    r.onsets=r.onsets or {};r.onsets[n]=held.order or 0;r.last=step;return true
 end
 function W:storeRecordedNotes(r,notes)
     if not (r.options and r.options.untilStop) or r.overdub or r.clip then return self:storeNotes(r.index,notes) end
@@ -1030,6 +1043,7 @@ function W:endTake(cancel,finish)
     for _,note in ipairs(held) do self:recordOff(note,step) end
     self.recording=nil;if self.cb.recordEnd then self.cb.recordEnd(r) end;self.revision=self.revision+1
     if cancel or #r.notes==0 then return true end
+    if r.onsets then table.sort(r.notes,function(a,b) return a.s==b.s and r.onsets[a]<r.onsets[b] or a.s<b.s end) end
     if self.project.tracks[r.index]~=r.track or self:clipSource(r.index)~=r.clip then self.cb.message('Recording destination changed; take discarded.');return false end
     local notes=copy(self:noteData(r.index));local first=#notes+1
     for _,n in ipairs(r.notes) do notes[#notes+1]=n end
