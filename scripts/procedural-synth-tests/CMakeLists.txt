@@ -18,3 +18,9 @@ add_executable(score-audition score-audition.cpp ../../apps/openmw/mwsound/proce
   ../../apps/openmw/mwsound/proceduralstudio.cpp ../../components/files/hash.cpp ../../extern/smhasher/MurmurHash3.cpp)
 target_compile_features(score-audition PRIVATE cxx_std_17)
 target_include_directories(score-audition PRIVATE ../../extern/smhasher/include ../../extern/smhasher/include/smhasher)
+
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME score-audition-config COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/test-score-audition.py" "$<TARGET_FILE:score-audition>")
+endif()

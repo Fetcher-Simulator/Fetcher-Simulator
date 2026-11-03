@@ -1,5 +1,42 @@
 # Band sound foundation auditions
 
+## Original full-band checks (package 70)
+
+In game: New Song -> Band sound checks -> choose exercise and sound set -> Open
+sound check. Normal unsaved-work protection applies. Play song or clips, edit
+individual notes and compare whole sound sets or Focus selected. Opening does
+not start playback or automatically create NPCs.
+
+```powershell
+New-Item -ItemType Directory -Force build/studio70-band-checks | Out-Null
+lua scripts/procedural-synth-tests/export-band-checks.lua build/studio70-band-checks
+cmake --build build/synth-core-tests --config Release --target score-audition
+& build/synth-core-tests/Release/score-audition.exe build/studio70-band-checks/heavy-authored.bin build/studio70-band-checks/heavy-authored.tsv files/server/optional-assets/fetcher.studio-samples build/studio70-band-checks/heavy.wav 0 9.5714285714 all
+ctest --test-dir build/synth-core-tests -C Release -R score-audition-config --output-on-failure
+```
+
+Five four-bar projects use the same runtime factory: heavy rhythm (112 BPM),
+thrash (184), funk (104), clean chords/lead (92) and acoustic/classical (96).
+`exercises.tsv` lists exact render lengths (one cycle plus a one-second tail).
+`patch` removes only attack snapshots; `authored` retains them; `source` bypasses
+instrument amp/parallel/cab processing while retaining the performed notes.
+Use `guitar`, `bass` or `drums` to render corresponding stems. No copied melody
+or external MIDI is required. Clean/open phrases may differ little between
+patch and authored modes; this is a control comparison, not an asserted upgrade.
+
+TSV configurations now accept `master=`, `effects.<name>=`, `mix.<name>=`, and
+an optional fourth track-header field for audibility (`@lane level group 0/1`).
+Legacy three-field headers retain audible tracks, default channel strips and
+master 1. New exporters write actual project levels and channel/return settings.
+Dry/amp-bypass comparisons isolate a stage; they do not simulate game-room
+reflections, source distance or physical controller timing.
+
+The package-70 local review files pair Patch first, a half-second pause, then
+Authored at 0.08 RMS with 0.85 peak protection. Gains apply only to review audio.
+Raw measurements and per-pair gains are retained alongside the WAVs. Do not
+change a saved sound merely because a louder example appears more impressive.
+Dedicated captured mutes/releases/slap and listening acceptance remain open.
+
 ## Original connected-performance exercise (package 58)
 
 ```powershell

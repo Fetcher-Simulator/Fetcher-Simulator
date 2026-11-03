@@ -36,6 +36,22 @@ function W:touch(key,quiet)
     end
     self.dirty=true;if not quiet then self.revision=self.revision+1 end;self.generation=self.generation+1
 end
+function W:loadExercise(id,setId)
+    if self.recording or self.failedTake then self.cb.message('Keep or cancel the take before opening a sound check.');return false end
+    local candidate=require(prefix..'client.band-exercises').create(id,setId);if not candidate then return false end
+    candidate.band=copy(self.project.band);candidate.autoBand=self.project.autoBand
+    candidate.leaderPlays=self.project.leaderPlays;candidate.stageLayout=self.project.stageLayout
+    candidate=assert(format.project(candidate))
+    self:setAudition(0);self:stop(true)
+    if self.recorder then self.recorder:releaseInput() end
+    if self.cb.documentChanged then self.cb.documentChanged() end
+    if self.library then self.library:detach() end
+    self.song=nil;self.spans={};self.project=candidate;self.noteCache={};self.noteSelection={};self.clipEdit=nil
+    self.selected=1;self.bar=0;self.base=36;self.rollStart=0;self.rollSteps=16
+    self.regionIndex=nil;self.regionSelection={};self.arrangeClip=nil;self.arrangeBar=0
+    self.page='mixer';self.managedProject=nil;self:clampPages(true)
+    self:configureAll();self:touch();return true
+end
 function W:clampPages(reset)
     local drums=0;for _,t in ipairs(self.project.tracks) do if t.kind=='drum' then drums=drums+1 end end
     for _,key in ipairs{'songPage','mixerPage','arrangePage','bandPage','memberPage','drumPage'} do

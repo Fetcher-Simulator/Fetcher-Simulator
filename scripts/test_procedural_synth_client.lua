@@ -20,6 +20,7 @@ package.loaded[prefix..'client.soundsets']=dofile(root..'client/soundsets.lua')
 package.loaded[prefix..'shared.sequence']=dofile(root..'shared/sequence.lua')
 package.loaded[prefix..'client.transport']=dofile(root..'client/transport.lua')
 package.loaded[prefix..'shared.project']=dofile(root..'shared/project.lua')
+package.loaded[prefix..'client.band-exercises']=dofile(root..'client/band-exercises.lua')
 package.loaded['openmw.util']={vector2=vector,color={rgb=function(...) return {...} end,rgba=function(...) return {...} end}}
 do
     local V={}
@@ -773,6 +774,24 @@ lastStudio.cb.playSong();acceptRecovery()
 check(w.project.composition and w.project.midi=='' and score.bytes:byte(10)==65,'load clears explicit file selection before authored-song Play')
 lastStudio.cb.midiSelect(paths[1]);lastStudio.cb.playSong();acceptRecovery();now=now+0.01;player.engineHandlers.onFrame(0.01)
 check(w.project.midi==paths[1] and not w.project.composition,'explicit file selection still replaces an authored song')
+-- Sound checks are real guarded project replacements, not hidden MIDI imports.
+do
+button('New Song').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(button('Heavy rhythm v') and button('Open sound check'),'New Song exposes editable original band checks')
+button('Heavy rhythm v').events.mouseClick();lastStudio.dropdown.rows[2].layout.events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(button('Tight thrash v') and button('Recorded Band / Thrash v'),'exercise choice supplies the corresponding starting sound set')
+local previousProject=w.project
+button('Open sound check').events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(w.project==previousProject and w.library.action and w.page=='projects','opening an exercise waits for the normal unsaved-work choice')
+w.library:cancel();now=now+.01;lastStudio:frame(now)
+check(w.project==previousProject and w.page=='newsong','Cancel retains the current musical document')
+button('Open sound check').events.mouseClick();acceptRecovery();now=now+.01;lastStudio:frame(now)
+check(w.project.name=='Sound check - Tight thrash' and w.project.midi=='' and w.page=='mixer' and w.library.active==0,'acknowledged recovery opens a detached editable exercise')
+local oldStatus=w.cb.sampleStatus;w.cb.sampleStatus=function(ref) return {status='Ready',hash=ref.hash} end
+local previous=score;lastStudio.cb.playSong();w.cb.sampleStatus=oldStatus
+check(score~=previous and w.project.midi=='' and w.project.composition.bars==4,'Play uses the exercise score despite an installed MIDI selection')
+w:stop(true)
+end
 -- Exercise Timing map controls and actual song ruler widget geometry.
 w:newSong(120,4,4,8);w.page='song';now=now+.01;lastStudio:frame(now)
 button('Timing map >').events.mouseClick();now=now+.01;lastStudio:frame(now)

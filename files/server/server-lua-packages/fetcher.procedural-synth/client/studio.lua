@@ -74,6 +74,7 @@ local function meters()
     end end;return out
 end
 function S:newSong(content)
+    local w=self.w
     self.songDraft=self.songDraft or {bpm=120,numerator=4,denominator=4,bars=8}
     local d=self.songDraft
     content[#content+1]=label('CREATE A NEW SONG',20,175,870,20,c.accent)
@@ -91,7 +92,23 @@ function S:newSong(content)
     end)
     content[#content+1]=self:button('Create song',20,407,200,function() self.cb.newSong(d.bpm,d.numerator,d.denominator,d.bars) end)
     content[#content+1]=self:button('Back',240,407,140,function() self.w.page='song';self.w.revision=self.w.revision+1 end)
-    content[#content+1]=label('Save stores your project on this character. Export MIDI writes a local .mid file.',20,473,880,12,c.muted)
+    local exercises=require('scripts.multiplayer.fetcher.procedural-synth.client.band-exercises')
+    local entry=exercises.find(self.exerciseId) or exercises.entries[1]
+    local setId=self.exerciseSet or entry.set;local soundSet=SoundSets.find(setId)
+    content[#content+1]=label('BAND SOUND CHECKS / original editable four-bar exercises',20,467,870,16,c.accent)
+    content[#content+1]=self:button(entry.name..' v',20,508,285,function()
+        local choices={};for _,e in ipairs(exercises.entries) do choices[#choices+1]={id=e.id,label=e.name} end
+        Dropdown.open(self,choices,entry.id,function(id) self.exerciseId=id;self.exerciseSet=nil;w.revision=w.revision+1 end,20,290,550)
+    end)
+    content[#content+1]=self:button((soundSet and soundSet.name or setId)..' v',320,508,335,function()
+        local choices={};for _,e in ipairs(SoundSets.entries) do choices[#choices+1]={id=e.id,label=e.name} end
+        Dropdown.open(self,choices,setId,function(id) self.exerciseSet=id;w.revision=w.revision+1 end,320,290,565)
+    end)
+    content[#content+1]=self:button('Open sound check',675,508,215,function() if self.cb.exercise then self.cb.exercise(entry.id,setId) end end)
+    content[#content+1]=label(entry.description,20,553,880,12,c.muted)
+    content[#content+1]=label('Opens a new unsaved project. Play song, cycle sound sets, or Focus selected to compare parts.',20,588,880,12,c.muted)
+    content[#content+1]=label('Your current project uses Save / Keep recovery / Cancel before replacement. Undo restores it.',20,620,880,12,c.muted)
+    content[#content+1]=label('Save stores your project on this character. Export MIDI writes a local .mid file.',20,657,880,12,c.muted)
 end
 function S:song(content)
     local w,p=self.w,self.w.project;local s=p.composition

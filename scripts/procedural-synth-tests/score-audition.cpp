@@ -25,6 +25,8 @@ int main(int argc,char** argv)
         MWSound::ProceduralStudio studio;
         std::map<std::string,std::shared_ptr<MWSound::ProceduralSample>> banks;
         std::map<unsigned,bool> selected;
+        std::map<unsigned,MWSound::ProceduralMixer::State> mixers;
+        auto returns=MWSound::ProceduralReturns::defaults();float master=1;
         unsigned lane=0,length=0;std::string line;
         while(std::getline(config,line))
         {
@@ -36,11 +38,28 @@ int main(int argc,char** argv)
                 selected[lane]=std::string(argv[7])=="all" || group==argv[7];
                 MWSound::ProceduralSynth::State state;
                 for(unsigned n=0;n<state.size();++n) state[n]=MWSound::ProceduralSynth::Parameters[n].initial;
-                if(!studio.configure(lane,state,level)) throw std::runtime_error("Track configuration rejected");
+                std::string gate;bool audible=true;
+                if(fields>>gate) {if(gate!="0" && gate!="1")throw std::runtime_error("Invalid audibility gate");audible=gate=="1";}
+                if(!studio.configure(lane,state,level,audible)) throw std::runtime_error("Track configuration rejected");
+                mixers[lane]=MWSound::ProceduralMixer::defaults();
                 continue;
             }
             const auto at=line.find('=');const auto name=line.substr(0,at),value=line.substr(at+1);
             if(name=="length") length=std::stoul(value);
+            else if(name=="master") master=std::stof(value);
+            else if(name.rfind("effects.",0)==0)
+            {
+                bool found=false;for(unsigned i=0;i<returns.size();++i)if(name.substr(8)==MWSound::ProceduralReturns::Parameters[i].name)
+                    {returns[i]=std::stof(value);found=true;break;}
+                if(!found)throw std::runtime_error("Unknown return setting: "+name);
+            }
+            else if(name.rfind("mix.",0)==0)
+            {
+                if(!lane)throw std::runtime_error("Mixer setting before track header");
+                bool found=false;for(unsigned i=0;i<MWSound::ProceduralMixer::Parameters.size();++i)if(name.substr(4)==MWSound::ProceduralMixer::Parameters[i].name)
+                    {mixers.at(lane)[i]=std::stof(value);found=true;break;}
+                if(!found)throw std::runtime_error("Unknown channel setting: "+name);
+            }
             else if(name=="sample")
             {
                 const auto path=std::string(argv[3])+"/"+value;auto& data=banks[path];
@@ -58,6 +77,8 @@ int main(int argc,char** argv)
             }
             else if(!studio.set(lane,name,std::stof(value))) throw std::runtime_error("Invalid parameter: "+name);
         }
+        if(!studio.effects(returns,master))throw std::runtime_error("Invalid return/master settings");
+        for(const auto& [track,state]:mixers)if(!studio.mixer(track,state))throw std::runtime_error("Invalid mixer settings");
         std::string filtered;
         for(std::size_t at=0;at+11<=score.size();at+=11)
             if(selected[static_cast<unsigned char>(score[at+8])]) filtered+=score.substr(at,11);

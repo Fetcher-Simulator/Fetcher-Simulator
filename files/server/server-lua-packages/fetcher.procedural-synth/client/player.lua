@@ -469,6 +469,7 @@ showEditor=function()
             sound=function(index) w.selected=index;switchPage('synth',index) end,
             playSong=playSelected,
             newSong=function(bpm,numerator,denominator,bars) return session.library:guard(function() if editor then editor:releaseAll() end;w:newSong(bpm,numerator,denominator,bars) end,'create a new song') end,
+            exercise=function(id,setId) return session.library:guard(function() if editor then editor:releaseAll() end;w:loadExercise(id,setId) end,'open a band sound check') end,
             playClips=function() stopPlayback();if w.clipEdit then w:playClip() else w:play('clips') end end,
             stop=function() stopPlayback(true) end,
             load=function() w.page='projects';w.revision=w.revision+1;session.library:list() end,

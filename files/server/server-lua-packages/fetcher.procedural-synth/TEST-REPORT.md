@@ -1,5 +1,39 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## November 3: repeatable band sound checks (package 70 / API 29; local only)
+
+All 35 Lua suites pass. The new exercise suite checks all five original source-free
+projects and all 18 sound sets, native loop validation, exact private save/reload
+score bytes, all-part MIDI export, register/GM-kit identities, bounded gates,
+per-note articulation, band/layout/leader preservation and one-step project Undo.
+The actual New Song controls select a style/set, wait for unsaved-work handling,
+retain the old project on Cancel, and open only after recovery acknowledgement.
+Play uses the new arrangement rather than a previously selected external MIDI.
+
+The native audition configuration CTest passes: master, channel compressor,
+post-fader send/return, separate mute gate, sample clock and malformed controls.
+The renderer now reproduces the saved mix rather than omitting channel/return
+state. Thirty native original renders (five styles; full patch/authored mixes,
+guitar/bass/drum stems and amp-bypass guitar) finish without faults. Paired strike
+counts match: 165 heavy, 277 thrash, 177 funk, 160 clean and 161 acoustic. Maximum
+raw peak is 0.204936. Review pairs target 0.08 RMS with a 0.85 peak cap; all five
+pairs reach matched RMS without hitting the cap. Loudness changes are confined
+to review WAVs, with raw measurements and normalization gains retained.
+
+Private local MIDI checks compile Master of Puppets at all 19 parts / 13,682
+notes / 473.181 seconds. A 60-second seek followed by 12 seconds renders 438
+attacks, peak/RMS 0.286424/0.0645036. Enter Sandman at the same seek/duration renders
+226 attacks, peak/RMS 0.318651/0.0593317. Imported MIDIs and their WAVs stay outside
+source control. These are scheduling/headroom observations, not listening approval.
+
+Evidence: build/studio70-lua-tests.json, build/studio70-audition-tests.log,
+build/studio70-band-checks/raw-metrics.json and per-style comparison JSON/WAVs,
+plus build/studio70-midi-checks. The usual local port-25567 fixture is installed
+with protected data/hash checks and the client left closed. Native API 29 is
+reused; there are no engine/server C++ or sound/model asset changes. No VPS/public
+release, git push or workflow is included. In-game spatial/physical controller,
+perceptual genre balance and captured-articulation acceptance remain pending.
+
 ## November 3: track mix automation (package 69 / API 29; local only)
 
 All 34 Lua suites and native synth tests pass. Mix lanes 214-216 validate finite

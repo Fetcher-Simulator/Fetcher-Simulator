@@ -11,6 +11,16 @@ not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
 
+Package 70 / native API 29 adds five original, editable four-bar full-band sound
+checks, saved attack expression, guarded project opening and normal Save/Undo/MIDI
+export. Native offline comparisons retain the actual master/channel/send/return
+settings, with matched-level patch/authored pairs and isolated stems. Thirty
+original renders plus private imported-score excerpts provide a repeatable sound
+reference; they do not establish perceptual fidelity. Current banks still need
+richer captured articulations and in-game/listening acceptance. This is local-only,
+with no engine/server C++ or hosted-asset changes. Priority one remains open;
+sample editing follows it at priority two.
+
 Package 69 / native API 29 adds absolute track-fader and delay/reverb-send
 curves, mouse and hardware capture, initial-value preservation and one-step Undo.
 A separate audibility gate protects Mute/Solo. Native smoothing/chase/reset follows
@@ -550,39 +560,39 @@ readback repair lineup changes that previously left reused NPCs in old slots.
    acoustic strums and complete imported rock/metal songs. Verify MIDI program/
    percussion mapping, save/load, Undo, late listeners, concurrent bands and
    sustained performance at matched listening levels before calling it complete.
-2. **Section layouts and conductor presentation.** Add saved spacing/layout
+2. **Further sample tools and sound libraries.** Sustained loops, chopping,
+   reverse, crossfades and sound-library expansion beyond the priority band set. Continue
+   listening/balance refinement alongside the orchestral instrument work.
+3. **Section layouts and conductor presentation.** Add saved spacing/layout
    presets, instrument sections, conductor gestures and formation previews.
    Extend seating to players and additional instruments, with chair interaction
    and custom-rig/body-height support. Keep explicit safe restaging and the
    standing grid; avoid moving a formation when its leader walks away. Improve
    client-assisted footprint checks for cramped/uneven stages and furniture.
-3. **Orchestral instrument expansion and sound refinement.** Add remaining families
+4. **Orchestral instrument expansion and sound refinement.** Add remaining families
    (including double bass, oboe, bassoon, horn and trombone), articulation, rig/body
    variation support and better acoustic presets/multisamples. Refine grips and
    seated performance across rigs. Balance a Star Wars-theme-scale score;
    the six initial synthetic patches are starting points, not a complete orchestra.
-4. **Large orchestra performance and multiplayer timing.** Profile 32 sounding
+5. **Large orchestra performance and multiplayer timing.** Profile 32 sounding
    physical performers, late joins, separate concurrent bands and long sessions.
    Improve output/voice culling, spatial section grouping and device-drift/latency
    correction before increasing score/performer limits further. Imports over the
    current 32-part budget fail clearly; do not silently drop orchestral parts.
-5. **Acoustic and monitoring refinement.** Add authored room zones and acoustic
+6. **Acoustic and monitoring refinement.** Add authored room zones and acoustic
    presets, connected-room propagation, material-aware absorption, diffraction
    and more accurate direct/reflected balance. Refine the bounded geometric
    estimate in irregular rooms and outdoor transitions. Retain one shared room
    return, user controls and bounded geometry work outside the audio callback.
    Explore stereo monitoring and optional world/monitor blending after profiling.
-6. **Recording follow-ups.** Physical MIDI controller acceptance, live controller
+7. **Recording follow-ups.** Physical MIDI controller acceptance, live controller
    monitoring/capture, shared-source overdub during playback and additional record
    modes. Automatic hardware round-trip measurement and non-Windows input remain
    planned; tap-based timing compensation is available now.
-7. **Mixer/effects routing.** Stereo/panning, group buses, flexible effect chains
+8. **Mixer/effects routing.** Stereo/panning, group buses, flexible effect chains
    and remaining master/return/EQ/compressor automation. Track-fader/send curves
    are available in package 69. Native EQ/compression, instrument drive/cabinet
    and shared delay/reverb already exist.
-8. **Further sample tools and sound libraries.** Sustained loops, chopping,
-   reverse, crossfades and sound-library expansion beyond the priority band set. Continue
-   listening/balance refinement alongside the orchestral instrument work.
 
 This section is the current priority order. Completed-slice notes below describe
 what was available at each milestone; their older follow-up lists do not override
@@ -601,7 +611,7 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 67 / native synth API 28 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
+package 70 / native synth API 29 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented, together with initial seated keyboard/cello NPC staging.
 

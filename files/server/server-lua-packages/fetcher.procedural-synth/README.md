@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 69 / native synth API 29 / multiplayer protocol 27.
+Current source: package 70 / native synth API 29 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,43 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Band sound checks (package 70 / native API 29)
+
+Open **New Song**, then use **Band sound checks** below the blank-song settings.
+Choose **Heavy rhythm**, **Tight thrash**, **Funk groove**, **Clean chords / lead**
+or **Acoustic / classical**, select its starting sound set, and **Open sound check**.
+The ordinary Save / Keep recovery / Cancel choice protects unsaved work. Each
+check opens as a detached, unsaved project; Undo restores the previous document.
+Existing named saves, personal sounds and physical band/leader/layout preferences
+stay intact. Nothing starts playing or spawns automatically when opening it.
+
+Use **Play song** or **Play clips** for the complete four-bar loop, switch sound
+sets in Mixer, and use **Focus selected** to hear an individual part against the
+band. Every part is editable on Piano, exports as MIDI, and saves normally. The
+checks contain original notes rather than an external MIDI dependency. They
+include bass in concert register, a five-part kit, deliberately varied velocities,
+and saved open/palm/dead/down/up choices on melodic attacks. Clean strums are
+staggered and acoustic parts use fingerpicked voicings. Authored returns start
+dry to expose the instruments; world acoustics/distance are separate.
+
+These are evaluation and composing starting points using the existing sounds,
+not a newly captured library or a claim of artist-specific realism. Dedicated
+recorded muted/release/slap/hammer-on/slide gestures and animation refinement
+remain priority-one work. Current recorded guitar muting still processes regular
+DI plucks; bass banks retain regular finger/pick layers without release/ghost
+samples. Source manifests document those limits.
+
+Offline auditions use the real compiler/native renderer. Package 70 corrects the
+renderer/exporter to include master volume, channel processing, sends/returns and
+an optional independent audibility gate. The original exercises have patch-only,
+authored-expression and amp-bypass variants, plus guitar/bass/drum stems. Compare
+full-band pairs at matched RMS; normalization affects only review WAVs, never
+presets, faders or saved projects. See scripts/procedural-synth-tests/BAND-AUDITIONS.md.
+
+This local-only package keeps native API 29 and protocol 27; no new client/server
+engine build or hosted sound/model assets are needed. Physical controller,
+in-game spatial and listening acceptance remain separate checks.
 
 ## Track fader and send automation (package 69 / native API 29)
 

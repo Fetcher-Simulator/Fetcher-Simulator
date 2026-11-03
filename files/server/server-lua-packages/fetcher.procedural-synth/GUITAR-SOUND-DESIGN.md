@@ -54,6 +54,21 @@ and replays distinct same-frame attacks natively. Piano can edit/clear overrides
 existing patch and track controls still supply unmapped fields. General knob/fader
 assignments, more recorded gestures and full-band listening remain planned.
 
+Package 70 supplies original heavy/thrash/funk/clean/acoustic full-band projects
+inside New Song, plus reproducible offline patch-only/authored-expression pairs,
+amp-bypass guitar and rhythm-section stems. Auditions now include the saved
+master, channel processing and return settings. All pairs retain identical note
+counts and are level-matched only in review files. Full-band output and actual
+private rock MIDI excerpts render without faults. This establishes repeatable
+material for listening, not a new source recording or accepted artist tone.
+
+The shipped electric bank remains regular DI plucks; muted attacks are modeled.
+The bass bank manifests explicitly exclude release/ghost/keyswitch layers, while
+the acquired source maps include staccato material not currently integrated.
+Use the checks to choose captured-articulation and mix work; do not replace it
+with another blanket distortion boost. Physical grips/sticks/pedals and same-pitch
+string unisons remain within priority one.
+
 ## What the references contribute
 
 - [CyberBlitz: How to DOOM Like Mick Gordon](https://www.youtube.com/watch?v=-9rTxQr1194):
