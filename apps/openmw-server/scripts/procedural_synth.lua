@@ -175,6 +175,7 @@ local function request(data)
         fields = fields + 1
         if fields > 14 or not text(k,24) then return end
         if type(v) == 'table' then if k=='params' then if not schema.state(v) then return end
+            elseif k=='expression' and data.op=='on' then if not schema.strike(v) then return end
             elseif k=='effects' and data.op=='effects' then if not projectFormat.effects(v) then return end
             elseif k=='mixer' and data.op=='channel' then if not projectFormat.mixer(v) then return end
             elseif k=='band' and data.op=='band' then if not projectFormat.band(v) then return end
@@ -373,6 +374,8 @@ local function request(data)
         if channel>0 and not s.channels[channel] then return end
         if not integer(data.note,0,127) or type(data.velocity) ~= 'number'
             or data.velocity ~= data.velocity or data.velocity < 0 or data.velocity > 1 then return end
+        local expression=data.expression~=nil and schema.strike(data.expression) or nil
+        if data.expression~=nil and not expression then return end
         if not budget(data.pid,now,'notes',40,80) then
             -- End all remote voices when an optimistic local batch is rejected.
             if budget(data.pid,now,'errors',1,1) then
@@ -384,7 +387,7 @@ local function request(data)
         s.notes[noteKey] = true
         local params=channel==0 and s.params or s.channels[channel].params
         if params.drumType>0 or (params.sample and params.sample.oneShot) then s.drumPending=true end
-        nextEvent(s); broadcast(s,{op='on',note=data.note,velocity=data.velocity,channel=channel},s.owner); return
+        nextEvent(s); broadcast(s,{op='on',note=data.note,velocity=data.velocity,channel=channel,expression=expression},s.owner); return
     end
     if data.op=='channelRemove' then
         if channel==0 or not s.channels[channel] or not budget(data.pid,now,'channels',12,32) then return end

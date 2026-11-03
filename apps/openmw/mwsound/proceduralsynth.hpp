@@ -39,6 +39,12 @@ namespace MWSound
         bool set(std::string_view name, float value);
         bool sample(std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash);
         bool noteOn(int note, float velocity);
+        struct Strike
+        {
+            int articulation = -1, selection = -1, direction = -1;
+            bool valid() const { return articulation>=-1 && articulation<=3 && selection>=-1 && selection<=7 && direction>=-1 && direction<=2; }
+        };
+        bool strike(int note, float velocity, Strike expression);
         bool noteOff(int note);
         void allNotesOff();
         void close() { mClosed = true; }
@@ -67,6 +73,7 @@ namespace MWSound
         {
             int note;
             float velocity;
+            Strike expression;
         };
         struct Envelope
         {
@@ -144,7 +151,7 @@ namespace MWSound
         std::array<Command, 256> mCommands{};
         std::size_t mCommandCount = 0;
         std::array<Voice, 32> mVoices{};
-        struct ConnectionKey {float velocity=0;std::uint64_t order=0;int group=-1;};
+        struct ConnectionKey {float velocity=0;std::uint64_t order=0;int group=-1;Strike expression;};
         using ConnectionKeys=std::array<ConnectionKey,128>;
         std::unique_ptr<ConnectionKeys> mConnectionKeys=std::make_unique<ConnectionKeys>();
         std::uint64_t mConnectionSerial=0;
@@ -154,7 +161,7 @@ namespace MWSound
         bool connectionReady() const;
         void resetConnections();
         void reconcileConnections();
-        int connectionGroup(int note) const;
+        int connectionGroup(int note, int selection = -1) const;
         static constexpr std::size_t StringCapacity = 8192;
         using Strings = std::array<std::array<float, StringCapacity>, 32>;
         // Allocated once on the control thread; never allocated in render().
@@ -167,7 +174,7 @@ namespace MWSound
         std::atomic<float> mPeak{ 0 };
         std::atomic<unsigned> mVoiceCount{ 0 };
         std::atomic<long long> mAlive{ 0 };
-        bool enqueue(int note, float velocity);
+        bool enqueue(int note, float velocity, Strike expression);
         void apply(Command command);
         void pluck(Voice& voice);
     };

@@ -43,6 +43,12 @@ slides; held-note returns stay within their original string. Unplayable pitches
 use normal polyphonic gates. Per-note stored fingering, same-pitch string unisons,
 captured gestures and detailed finger animation remain outside this local slice.
 
+Package 66 adds attack-time CC/keyswitch mapping and explicit track-level Auto
+write. Native queued attacks retain separate articulation/string/direction values,
+including earlier held-note returns; routed listeners receive the same bounded
+snapshot. Keyboard-take/clip per-note expression capture remains pending, as do
+new recorded gestures and listening-based acceptance. This is local-only.
+
 ## What the references contribute
 
 - [CyberBlitz: How to DOOM Like Mick Gordon](https://www.youtube.com/watch?v=-9rTxQr1194):

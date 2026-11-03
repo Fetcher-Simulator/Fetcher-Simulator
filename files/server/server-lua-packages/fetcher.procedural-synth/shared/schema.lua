@@ -37,6 +37,16 @@ function M.valid(name, value)
     return s and type(value) == 'number' and value == value and value >= s.min and value <= s.max
         and (not s.discrete or value % 1 == 0)
 end
+M.strikeOrder={'stringArticulation','stringSelect','pickDirection'}
+function M.strike(input)
+    if type(input)~='table' then return nil end
+    local out={};local allowed={stringArticulation=true,stringSelect=true,pickDirection=true};local count=0
+    for name,value in pairs(input) do
+        count=count+1;if count>3 or not allowed[name] or not M.valid(name,value) then return nil end
+        out[name]=value
+    end
+    return out
+end
 function M.sample(input)
     if type(input)~='table' then return nil end
     local fields={path=true,offset=true,duration=true,root=true,oneShot=true,hash=true}

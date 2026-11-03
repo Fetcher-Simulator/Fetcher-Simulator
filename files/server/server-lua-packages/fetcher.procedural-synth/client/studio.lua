@@ -654,6 +654,7 @@ function S:recordSetup(content)
         local choices={{id=0,label='All channels'}};for n=1,16 do choices[#choices+1]={id=n,label='Channel '..n} end
         Dropdown.open(self,choices,o.channel,function(value) r:set('channel',value) end,20,350,450)
     end)
+    content[#content+1]=self:button('MIDI mappings >',295,395,235,function() w.page='midimapping';w.revision=w.revision+1 end)
     content[#content+1]=label('Input: '..r.inputStatus..' | Notes/velocity + sustain. Works across Studio tabs; Hide disconnects.',20,438,870,12,c.accent)
     content[#content+1]=self:button('Start tap calibration',20,464,245,function() r:beginCalibration() end)
     content[#content+1]=self:button('Tap / Space',280,464,180,function() r:tap() end,r.calibrating)
@@ -668,6 +669,32 @@ function S:recordSetup(content)
     content[#content+1]=label('This measures your tap/input timing bias, not automatic hardware round-trip latency. Apply only a steady result.',20,593,870,12,c.muted)
     content[#content+1]=label('Count-in uses the local meter/tempo. Metronome is local, follows the song map and is never exported or relayed.',20,633,870,12,c.muted)
     content[#content+1]=label('Settings stay on this player profile. Click toggles/volume can change during a take; timing/input changes need Keep/Cancel.',20,665,870,11,c.muted)
+end
+function S:midiMappings(content)
+    local w=self.w;local r=w.recorder
+    content[#content+1]=self:button('< Recording setup',20,163,200,function() w.page='recordsetup';w.revision=w.revision+1 end)
+    content[#content+1]=label('MIDI ARTICULATION / local controller bindings',240,171,650,16,c.accent)
+    if not r then return end
+    local m=r.mapping
+    content[#content+1]=self:button(m.enabled and 'Mappings: On' or 'Mappings: Off',20,211,270,function() r:setMapping('enabled',not m.enabled) end,m.enabled)
+    content[#content+1]=self:button(w.automationWriting and 'End Auto write' or 'Write mappings to Auto',310,211,280,function() r:writeMappings() end,w.automationWriting)
+    content[#content+1]=self:button('Reset live expression',610,211,280,function() r:releaseInput();w.revision=w.revision+1 end)
+    for n,item in ipairs{{'articulationCC','Articulation CC'},{'stringCC','String selection CC'},{'pickCC','Pick direction CC'}} do
+        local key,title=item[1],item[2];local y=257+(n-1)*64
+        content[#content+1]=Controls.slider(self,'mapping:'..key,title,{min=-1,max=119,step=1,discrete=true},
+            function() return r.mapping[key] end,function(value) r:setMapping(key,value) end,20,y,500)
+        content[#content+1]=self:button(r.learn==key and 'Listening... / cancel' or 'Learn CC',545,y+8,190,function() r:learnMapping(key) end,r.learn==key)
+        content[#content+1]=self:button('Off',755,y+8,135,function() r:setMapping(key,-1) end)
+    end
+    content[#content+1]=self:button(m.switches and 'Keyswitches: On' or 'Keyswitches: Off',20,461,280,function() r:setMapping('switches',not m.switches) end,m.switches)
+    content[#content+1]=Controls.slider(self,'mapping:base',function() return 'First keyswitch: '..pitch(r.mapping.switchBase)..' / MIDI '..r.mapping.switchBase end,
+        {min=0,max=124,step=1,discrete=true},function() return r.mapping.switchBase end,function(value) r:setMapping('switchBase',value) end,330,453,560)
+    content[#content+1]=label(r.learn and 'Move the controller to learn its CC. Sustain/channel-mode messages are reserved.' or r.mappingStatus or 'No live override. A mapped gesture affects subsequent picked attacks.',20,514,870,12,c.accent)
+    content[#content+1]=label('-1 = off. CC values split evenly into Patch/Open/Palm/Dead, Auto/strings 1–7, or Down/Up/Alternate.',20,550,870,12,c.muted)
+    content[#content+1]=label('Four keys from '..pitch(m.switchBase)..': Patch, Open, Palm, Dead. Enabled keyswitches are consumed, including key-off.',20,581,870,12,c.muted)
+    content[#content+1]=label('Bindings save locally; live expression does not overwrite sounds. Hide, target changes and disconnect reset it.',20,612,870,12,c.muted)
+    content[#content+1]=label('Auto write saves track-level stepped curves during playback. Keyboard takes currently save notes/velocity only.',20,643,870,12,c.muted)
+    content[#content+1]=label('For different articulations on simultaneous notes, use separate tracks. Native synth API 27 is required.',20,674,870,11,c.muted)
 end
 function S:setArrangeFocus(active)
     self.arrangeFocus=active;self.window.expanded=active
@@ -960,7 +987,7 @@ function S:render()
     content[#content+1]=self:button('Import',self.width-229,112,92,self.cb.import)
     content[#content+1]=self:button('Export MIDI',self.width-125,112,100,function() w:exportMidi() end)
     local body={};self.bodyOffset=(w.page=='piano' or w.page=='drums' or w.page=='auto' or w.page=='arrange') and 0 or math.max(0,(self.width-940)/2)
-    if w.page=='guitar' then require('scripts.multiplayer.fetcher.procedural-synth.client.guitar-page')(self,body) elseif w.page=='timing' then self:timing(body) elseif w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='recordsetup' then self:recordSetup(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
+    if w.page=='guitar' then require('scripts.multiplayer.fetcher.procedural-synth.client.guitar-page')(self,body) elseif w.page=='timing' then self:timing(body) elseif w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='midimapping' then self:midiMappings(body) elseif w.page=='recordsetup' then self:recordSetup(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
     -- Keep the header above centered page containers in native hit testing.
     if self.bodyOffset>0.1 then table.insert(content,1,{type=ui.TYPE.Widget,props={position=v(self.bodyOffset,0),size=v(940,self.height)},content=ui.content(body)})
     else for _,item in ipairs(body) do content[#content+1]=item end end

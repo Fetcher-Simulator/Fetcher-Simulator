@@ -8,9 +8,9 @@ local util=require('openmw.util')
 local stageLayout=require('scripts.multiplayer.fetcher.procedural-synth.shared.band-layout')
 local StagePreflight=require('scripts.multiplayer.fetcher.procedural-synth.client.stage-preflight')(nearby,util,stageLayout)
 local supported, synth = pcall(require,'openmw.synth')
-if not supported or (synth.version and synth.version<26) then
+if not supported or (synth.version and synth.version<27) then
     return {eventHandlers={Synth_Activate=function()
-        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 26.')
+        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 27.')
     end}}
 end
 local schema = require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -173,7 +173,8 @@ local function channelAudio(i,n,create)
     end
     return channel.audio
 end
-local function playNote(i,channel,note,velocity)
+local function playNote(i,channel,note,velocity,expression)
+    if expression~=nil then expression=schema.strike(expression);if not expression then return false end end
     local params=channel==0 and i.params or i.channels[channel] and i.channels[channel].params
     if params and params.drumType==3 then
         -- Every listener applies the same kit choke locally from the note event.
@@ -184,7 +185,9 @@ local function playNote(i,channel,note,velocity)
         if i.params.drumType==4 then i.audio:allNotesOff();for key in pairs(i.notes) do if key<128 then i.notes[key]=nil end end end
     end
     local audio=channelAudio(i,channel,true);if not audio then return false end
-    if audio:noteOn(note,velocity)==false then return false end
+    if expression then
+        if not audio.strike or audio:strike(note,velocity,expression)==false then return false end
+    elseif audio:noteOn(note,velocity)==false then return false end
     i.notes[channel*128+note]=true;i.strikes=(i.strikes or 0)+1;return true
 end
 local function releaseNote(i,channel,note)
@@ -381,12 +384,12 @@ makeWorkstation=function(i)
         prune=function(count)
             for n,channel in pairs(i.channels) do if n>count then i.pendingChannels[n]=nil;if channel.audio then channel.audio:close() end;i.channels[n]=nil;send('channelRemove',{channel=n}) end end
         end,
-        on=function(channel,note,velocity)
+        on=function(channel,note,velocity,expression)
             local now=core.getRealTime();tokens=math.min(80,tokens+math.max(0,now-last)*40);last=now
             if tokens<1 then stopPlayback();ui.showMessage('DAW note density exceeds the multiplayer limit.');return false end
             tokens=tokens-1
-            if not playNote(i,channel,note,velocity) then stopPlayback();return false end
-            send('on',{channel=channel,note=note,velocity=velocity});return true
+            if not playNote(i,channel,note,velocity,expression) then stopPlayback();return false end
+            send('on',{channel=channel,note=note,velocity=velocity,expression=expression});return true
         end,
         off=function(channel,note) releaseNote(i,channel,note);send('off',{channel=channel,note=note}) end,
         panic=function() silence(i);send('panic') end,
@@ -649,7 +652,7 @@ local function message(data)
         local params=schema.state(data.params)
         if params and channel>=1 and channel<=Project.maxTracks and channel%1==0 then applyChannel(i,channel,params,data.level,data.mixer) end
     elseif data.op=='effects' then applyEffects(i,data.effects,data.master)
-    elseif data.op=='on' then playNote(i,channel,data.note,data.velocity)
+    elseif data.op=='on' then playNote(i,channel,data.note,data.velocity,data.expression)
     elseif data.op=='off' then releaseNote(i,channel,data.note)
     elseif data.op=='panic' then if session and session.id==data.id then stopPlayback() end;silence(i)
     elseif data.op=='params' or data.op=='preset' then
@@ -779,7 +782,7 @@ end
 return {
     interfaceName='ProceduralSynth',
     interface={
-        version=26,
+        version=27,
         status=function()
             local out={}
             for id,i in pairs(instances) do

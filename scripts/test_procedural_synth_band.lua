@@ -24,6 +24,7 @@ local native={createStudio=function(object)
     function a:trackReduction() return 0 end
     function a:trackVoices() return self.closed and 0 or 1 end
     function a:releaseTrack() end
+    function a:strike(track,note,velocity,expression) self.attack={track=track,note=note,velocity=velocity,expression=expression};return true end
     outputs[#outputs+1]=a;return a
 end}
 local errors={};local transport=T.new(native,{sendToServer=function() end},{getRealTime=function() return now end},
@@ -41,6 +42,8 @@ check(home.source==source and remote.source==physical,'each native stream uses t
 check(#home.bytes==11 and home.bytes:byte(9)==1 and #remote.bytes==11 and remote.bytes:byte(9)==2,'each note appears in exactly one physical score')
 check(home.starts[1].delay==1 and remote.starts[1].delay==1,'all outputs share one future server start')
 check(home.tracks[2]==nil and remote.tracks[1]==nil,'routed lanes do not allocate duplicate synthesizers')
+local routed=transport:audio(i,2);check(routed:strike(45,.8,{stringArticulation=2,stringSelect=1})
+    and remote.attack and remote.attack.track==2 and remote.attack.expression.stringArticulation==2,'expressive attacks route to the physical performer rather than duplicating the workstation output')
 local updated=copy(band);updated[1].level=0.3;updated[1].mute=true
 transport:band(i,updated,{0,1},{'Ready'})
 check(remote.master==0 and home.master==0.7 and #remote.starts==1,'member mute/gain affects only that output without restarting score')

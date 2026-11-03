@@ -104,6 +104,7 @@ function T:audio(i,n)
     self:configure(i,n);local owner=self;local closed=false;local audio={}
     function audio:set(name,value) local a=owner:laneStudio(i,n,false);return a and a:set(n,name,value) end
     function audio:noteOn(note,velocity) owner:configure(i,n);local a=owner:laneStudio(i,n,false);return not a or a:noteOn(n,note,velocity) end
+    function audio:strike(note,velocity,expression) owner:configure(i,n);local a=owner:laneStudio(i,n,false);return not a or a:strike(n,note,velocity,expression) end
     function audio:noteOff(note) local a=owner:laneStudio(i,n,false);return not a or a:noteOff(n,note) end
     function audio:allNotesOff() local a=owner:laneStudio(i,n,false);if a then a:releaseTrack(n) end end
     function audio:close() local a=owner:laneStudio(i,n,false);if a then a:releaseTrack(n);a:set(n,'volume',0) end;closed=true end

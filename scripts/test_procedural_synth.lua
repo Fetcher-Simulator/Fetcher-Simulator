@@ -79,6 +79,20 @@ test('authenticated note relay, sequence and 3D cell eligibility',function()
     request('off',{note=60}); check(#sent==2 and sent[2].data.op=='off')
 end)
 
+test('live attack expression is bounded and relayed without changing patches',function()
+    acquire();sent={}
+    request('on',{note=45,velocity=.8,expression={stringArticulation=2,stringSelect=1,pickDirection=1}})
+    check(#sent==1 and sent[1].guid==2 and sent[1].data.expression.stringArticulation==2
+        and sent[1].data.expression.stringSelect==1,'authenticated attack expression reaches the observer')
+    sent={}
+    for _,expression in ipairs{{stringArticulation=4},{stringSelect=8},{pickDirection=.5},{cutoff=100},{stringArticulation={}}, {stringArticulation=0/0}} do
+        request('on',{note=47,velocity=.8,expression=expression})
+    end
+    request('on',{pid=2,note=47,velocity=.8,expression={stringSelect=1}})
+    check(#sent==0,'invalid overrides and non-owner attacks cannot reach listeners')
+    request('off',{note=45});check(sent[#sent].data.op=='off','expressive notes retain ordinary gate ownership')
+end)
+
 test('non-playing leader roams in the same cell; pickup remains local',function()
     acquire();check(sent[#sent].data.leaderPlays==true,'legacy sessions default to playing')
     local format=require('procedural_synth_project')(schema)

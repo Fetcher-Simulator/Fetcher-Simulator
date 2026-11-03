@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 65 / native synth API 26 / multiplayer protocol 27.
+Current source: package 66 / native synth API 27 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,50 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## MIDI articulation mapping (package 66 / native API 27)
+
+Open **Piano → Keyboard / setup → Recording setup → MIDI mappings**. Connect
+your controller in Recording setup first. Bindings are local player preferences
+and default to disabled. Enable **Mappings**, then enter a CC number or press
+**Learn CC** and move the desired controller. **-1** turns a binding off. CC 64
+remains sustain; channel-mode CCs and duplicate bindings are rejected.
+
+Three destinations are available. Articulation divides CC values into four
+equal ranges: **Patch / Open / Palm / Dead**. String selection divides them into
+**Auto / strings 1–7**, counting lowest to highest. Pick direction divides them
+into **Down / Up / Alternate**. String selection needs a per-string tuning and
+Connect enabled on the sound's Strings page. Legato keeps its previous picked
+articulation until a fresh attack; **Picked slides** reattacks on connections.
+
+Optional keyswitches consume four consecutive MIDI notes, including releases:
+the base key selects Patch, followed by Open, Palm and Dead. The default base is
+MIDI 24 / C1; change it to avoid the register you play. No musical notes are
+reserved until both Mappings and Keyswitches are enabled. The normal input
+channel filter also applies to mappings. Saved bindings apply to the active input
+device and target; expression is shared across accepted MIDI channels, not MPE.
+
+Live changes affect subsequent attacks without editing the patch or document.
+Native Synth/Studio queues carry immutable attack snapshots, so differently
+mapped notes in one MIDI poll batch keep their own settings. Authenticated live
+events carry the same three bounded values to the routed performer/listeners.
+Hide, disconnect, target changes and controller reset clear transient overrides;
+saved bindings remain. Sustained notes keep their normal release ownership.
+
+To save gestures, play the song or clips and press **Write mappings to Auto**.
+Move controllers/use keyswitches, then **End Auto write**. Stepped track curves
+use the native audible position, event age and input compensation, save with the
+project, and commit as one Undo. Disconnect ends this write transaction. Like
+other Auto writes, playback updates use the existing scheduled score replacement.
+These are track-level curves: use separate tracks for different simultaneous
+articulations. **Keyboard takes still save notes/velocity only**, although their
+live monitoring uses the mapped attack. Record notes first, then make an Auto
+write pass to retain expression. Per-note expression capture, including reusable
+clip sources and same-time mixed articulations, is a remaining roadmap item.
+
+This is a local-only candidate using native synth API 27; network protocol stays
+27 and no new sound assets are needed. Actual controller listening acceptance is
+separate from the deterministic MIDI/native/UI tests.
 
 ## Independent guitar/bass strings (package 65 / native API 26)
 

@@ -57,6 +57,7 @@ namespace MWSound
         float mixPeak() const { return mMixPeak; }
         bool set(unsigned track, std::string_view name, float value);
         bool noteOn(unsigned track, int note, float velocity);
+        bool strike(unsigned track, int note, float velocity, ProceduralSynth::Strike expression);
         bool noteOff(unsigned track, int note);
         void releaseTrack(unsigned track);
         float trackPeak(unsigned track) const;
@@ -121,10 +122,10 @@ namespace MWSound
         std::size_t mOffCount = 0, mIndex = 0;
         std::uint64_t mTime = 0, mCycle = 0, mDelay = 0;
         std::mutex mControl;
-        struct Live { unsigned track; int pitch; float velocity; };
+        struct Live { unsigned track; int pitch; float velocity; ProceduralSynth::Strike expression; };
         std::array<Live, 256> mLive{};
         std::size_t mLiveCount = 0;
-        bool enqueue(unsigned track, int pitch, float velocity);
+        bool enqueue(unsigned track, int pitch, float velocity, ProceduralSynth::Strike expression = {});
         std::shared_ptr<const Score> mLoaded, mActive;
         std::shared_ptr<const Score> mReplacement;
         std::uint64_t mReplaceDelay = 0;

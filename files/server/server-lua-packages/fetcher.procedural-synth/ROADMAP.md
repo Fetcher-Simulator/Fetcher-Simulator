@@ -11,6 +11,14 @@ not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
 
+Package 66 / native API 27 adds opt-in local CC Learn/bindings and four-note
+articulation keyswitches, with per-attack articulation/string/pick snapshots on
+native Synth/Studio and authenticated routed live events. Explicit Auto write
+captures compensated track-level stepped curves in one Undo. Keyboard takes
+still capture notes/velocity only; per-note/clip expression capture remains next.
+It also fixes saved tunings applying after the first cold Studio attacks.
+This slice is local-only, retaining protocol 27 and existing sound assets.
+
 Package 65 / native API 26 adds opt-in independent connected string voices,
 six guitar/bass tunings, automatic playable-string allocation and explicit
 attack-time string selection, including stepped automation. Each string retains
@@ -447,7 +455,7 @@ credited sheet booklet into the Yamaha rests and separate stand, and supplies
 stands to non-keyboard NPCs. Native spawned-actor teleport support and positional
 readback repair lineup changes that previously left reused NPCs in old slots.
 
-## Remaining roadmap (next: articulation mapping and band acceptance)
+## Remaining roadmap (next: per-note expression capture and band acceptance)
 
 1. **Guitars, electric bass, full drum kit and convincing genre playback.**
    Prioritize electric guitar and bass, nylon-string classical guitar,
@@ -468,11 +476,14 @@ readback repair lineup changes that previously left reused NPCs in old slots.
      pre/post cuts, local focus/dim, first-pass pick/resonance/articulation and
      opt-in parallel processing are implemented. Package 57 also supplies an
      explicit string-aware fingering/strum note tool. Next are live per-string
-     richer/captured hammer-ons and slides, articulation/controller mapping and
+     richer/captured hammer-ons and slides, per-note expression capture and
      listening-based refinement with drums and bass present. Mono connected
      legato/picked slides are implemented in package 58; independent string
      allocation and explicit stepped string selection ship in package 65.
      Persistent per-note fingering and same-pitch string unisons remain pending.
+     Package 66 adds live CC/keyswitch mapping and explicit track-level Auto write;
+     keyboard-take/clip capture must retain individual attack expression before
+     claiming mixed-articulation recording or reusable expressive clip sources.
      Do not make fidelity depend solely on collecting more samples.
    - **Guitar and bass articulation:** clean, crunch, fuzz, high-gain rhythm and
      lead guitar; tight palm-muted/choked notes, sustained chords, picking,
@@ -557,7 +568,7 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 65 / native synth API 26 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
+package 66 / native synth API 27 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented, together with initial seated keyboard/cello NPC staging.
 

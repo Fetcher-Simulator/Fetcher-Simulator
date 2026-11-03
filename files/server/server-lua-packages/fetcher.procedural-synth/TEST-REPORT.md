@@ -1,5 +1,36 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## November 2: live MIDI articulation mapping (package 66 / API 27; local only)
+
+All 31 Lua suites pass. The new mapping suite checks disabled migration, bounded
+unique CCs, protected sustain/channel messages, CC bins, keyswitch consumption,
+immutable same-batch snapshots, input filtering, Learn, local binding persistence,
+controller/target/Hide cleanup and unchanged unarmed document history. Explicit
+Auto capture compensates native position for event age/input bias, emits stepped
+curves, passes strict project/score validation and commits as one Undo. Take
+monitoring receives attack overrides while the UI explicitly says note takes do
+not persist them. Bindings cannot change during a take/write transaction.
+
+Server regressions verify authenticated bounded expression relay, malformed/
+unknown-field rejection and gate ownership. Client and physical-output tests
+forward the snapshot to the native attack. UI regressions cover the new mapping
+page and all three CC sliders retaining their captured widgets during drags.
+
+The native suite passes: attack expression matches equivalent patch-latched
+controls exactly across all four articulations/three pick directions; different
+same-frame string selections survive both native queues; invalid expressions
+reject; empty snapshots preserve noteOn; percussion bypasses overrides; picked
+held-note return restores the original attack's articulation. Added cold-start
+coverage found and fixed StringLayout/StringSelect being omitted from Studio's
+pre-attack target sync. A saved per-string patch now sounds independent notes
+from the first frame without needing tuning automation or a replay.
+
+The RelWithDebInfo client builds. Evidence: build/studio66-native-tests.log,
+build/studio66-lua-tests.json and build/studio66-client-build.log. No hardware
+controller listening/visual acceptance is claimed. Only the established local
+port-25567 fixture is updated, with projects/preferences/MIDIs preserved and the
+test client left closed; no VPS/public deployment or new assets.
+
 ## November 2: independent string ownership (package 65 / API 26; local only)
 
 Native regressions cover six independent guitar strings on generated oscillator,

@@ -72,16 +72,21 @@ namespace MWSound
     {
         return pitch >= 0 && pitch <= 127 && enqueue(n, pitch, -1);
     }
+    bool ProceduralStudio::strike(unsigned n, int pitch, float velocity, ProceduralSynth::Strike expression)
+    {
+        return expression.valid() && pitch>=0 && pitch<=127 && std::isfinite(velocity) && velocity>=0 && velocity<=1
+            && enqueue(n,pitch,velocity,expression);
+    }
     void ProceduralStudio::releaseTrack(unsigned n)
     {
         enqueue(n, 0, -2);
     }
-    bool ProceduralStudio::enqueue(unsigned n, int pitch, float velocity)
+    bool ProceduralStudio::enqueue(unsigned n, int pitch, float velocity, ProceduralSynth::Strike expression)
     {
         if (!hasTrack(n) || closed()) return false;
         std::lock_guard<std::mutex> lock(mControl);
         if (mLiveCount == mLive.size()) { mLiveCount = 0; mStopPending = true; return false; }
-        mLive[mLiveCount++] = {n - 1, pitch, velocity}; return true;
+        mLive[mLiveCount++] = {n - 1, pitch, velocity, expression}; return true;
     }
     float ProceduralStudio::trackPeak(unsigned n) const
     {
@@ -325,7 +330,7 @@ namespace MWSound
                     for (auto parameter : {std::size_t(25), std::size_t(28), std::size_t(41)}) track->mCurrent[parameter] = track->mTarget[parameter];
                     for(unsigned i=ProceduralSynth::StringArticulation;i<=ProceduralSynth::PickDirection;++i)
                         if(i!=ProceduralSynth::StringResonance && !track->mAutomated[i] && !track->mProgrammed[i])track->mCurrent[i]=track->mTarget[i];
-                    for(auto i:{ProceduralSynth::StringLegato,ProceduralSynth::StringSlideTime})
+                    for(auto i:{ProceduralSynth::StringLegato,ProceduralSynth::StringSlideTime,ProceduralSynth::StringLayout,ProceduralSynth::StringSelect})
                         if(!track->mAutomated[i] && !track->mProgrammed[i])track->mCurrent[i]=track->mTarget[i];
                     track->reconcileConnections();
                 }
@@ -376,7 +381,7 @@ namespace MWSound
                             {
                                 mReturns.resume();mNoteBits[command.track][command.pitch/64].fetch_or(mask);
                                 chokeSampleGroup(command.track,command.pitch,command.velocity);
-                                track->apply({command.pitch,command.velocity});
+                                track->apply({command.pitch,command.velocity,command.expression});
                             }
                             else if (!mHeld[command.track][command.pitch])
                             {

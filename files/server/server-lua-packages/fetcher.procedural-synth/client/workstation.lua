@@ -237,9 +237,11 @@ function W:beginAutomationWrite()
     if not self.automationWriting then self.lastEditKey=nil;self.automationWriting=true;self.editDepth=(self.editDepth or 0)+1 end
     return true
 end
-function W:recordAutomation(index,name,value)
+function W:recordAutomation(index,name,value,age)
     if not self.native or not self.playing or self.awaiting then return false end
-    local step=math.max(0,math.floor(self.beat*4*4+0.5)/4)
+    local beat=self.beat
+    if age and self.cb.progress then local _,time=self.cb.progress();beat=self:playbackBeat(math.max(0,time-age)) end
+    local step=math.max(0,math.floor(beat*4*4+0.5)/4)
     if self.mode~='song' then step=step%self.project.length end
     return self:setAutomation(index,name,step,value,self.automationLinear~=false)
 end
@@ -964,15 +966,16 @@ function W:startTake(index)
     if self.cb.recordStart and self.cb.recordStart(self.recording)==false then self.recording=nil;return false end
     self.revision=self.revision+1;return true
 end
-function W:recordOn(note,velocity,age)
+function W:recordOn(note,velocity,age,expression)
     local r=self.recording;local step=self:recordClock(age)
     if r and step and r.overdub and self.project.composition and self.project.composition.loop and r.last and step<r.last then self:autoEndTake(r.limit);return false end
     if not r or not step or step>=r.limit or type(note)~='number' or note%1~=0 or note<0 or note>127 or r.held[note] then return false end
     velocity=velocity or self.velocity
     if type(velocity)~='number' or velocity~=velocity or velocity<0.01 or velocity>1 then return false end
+    if expression~=nil then expression=schema.strike(expression);if not expression then return false end end
     local count=#r.notes;for _ in pairs(r.held) do count=count+1 end
     if count>=r.capacity then self.cb.message('Take note limit reached; keep or cancel this take.');return false end
-    if self.cb.on(r.index,note,velocity)==false then return false end
+    if self.cb.on(r.index,note,velocity,expression)==false then return false end
     if self.recording~=r then return false end
     r.held[note]={n=note,raw=step,v=velocity};r.last=step;return true
 end

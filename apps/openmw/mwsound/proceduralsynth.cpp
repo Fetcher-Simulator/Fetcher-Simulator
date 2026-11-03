@@ -159,7 +159,7 @@ namespace MWSound
             }
         return false;
     }
-    bool ProceduralSynth::enqueue(int note, float velocity)
+    bool ProceduralSynth::enqueue(int note, float velocity, Strike expression)
     {
         if (closed() || note < 0 || note > 127 || !std::isfinite(velocity) || velocity > 1)
             return false;
@@ -171,16 +171,20 @@ namespace MWSound
             mPanic = true;
             return false;
         }
-        mCommands[mCommandCount++] = { note, velocity };
+        mCommands[mCommandCount++] = { note, velocity, expression };
         return true;
     }
     bool ProceduralSynth::noteOn(int note, float velocity)
     {
-        return velocity >= 0 && enqueue(note, velocity);
+        return velocity >= 0 && enqueue(note, velocity, {});
+    }
+    bool ProceduralSynth::strike(int note, float velocity, Strike expression)
+    {
+        return expression.valid() && velocity>=0 && enqueue(note,velocity,expression);
     }
     bool ProceduralSynth::noteOff(int note)
     {
-        return enqueue(note, -1);
+        return enqueue(note, -1, {});
     }
     void ProceduralSynth::allNotesOff()
     {
@@ -288,7 +292,7 @@ namespace MWSound
         mConnectionKeys->fill({});mConnectionSerial=0;mConnectionVoices.fill(-1);
         for(auto& voice:mVoices)voice.connection=-1;
     }
-    int ProceduralSynth::connectionGroup(int note) const
+    int ProceduralSynth::connectionGroup(int note, int selection) const
     {
         if(!mConnectionLayout)return 0;
         // Low to high, matching the Piano fingering tool. Never transpose notes
@@ -296,7 +300,7 @@ namespace MWSound
         static constexpr int opens[6][7]={{40,45,50,55,59,64,-1},{38,45,50,55,59,64,-1},
             {36,43,48,53,57,62,-1},{35,40,45,50,55,59,64},{28,33,38,43,-1,-1,-1},{23,28,33,38,43,-1,-1}};
         const auto& tuning=opens[mConnectionLayout-1];
-        const int selected=int(mCurrent[StringSelect])-1;
+        const int selected=(selection>=0?selection:int(mCurrent[StringSelect]))-1;
         const auto playable=[&](int group){return tuning[group]>=0 && note>=tuning[group] && note<=tuning[group]+24;};
         if(selected>=0)return playable(selected)?selected:-1;
         const auto& previous=(*mConnectionKeys)[note];
@@ -337,7 +341,7 @@ namespace MWSound
             auto& v=mVoices[i];if(v.note<0 || v.drumType || v.sampleOneShot || !v.amp.stage || v.amp.stage==4
                 || v.instrumentType!=(mSampleCurrent.data?0:int(mCurrent[InstrumentType])))continue;
             auto& key=(*mConnectionKeys)[v.note];if(key.velocity<=0)continue;
-            const int group=connectionGroup(v.note);if(group<0)continue;
+            const int group=connectionGroup(v.note,key.expression.selection);if(group<0)continue;
             const int previous=mConnectionVoices[group];
             if(previous>=0)
             {
@@ -359,9 +363,9 @@ namespace MWSound
         const bool connectible=mConnectionEligible && (!mSampleCurrent.data || (zone && !oneShot));
         const bool releasing=command.velocity<0;
         auto& keys=*mConnectionKeys;
-        const int group=releasing?keys[command.note].group:connectible?connectionGroup(command.note):-1;
+        const int group=releasing?keys[command.note].group:connectible?connectionGroup(command.note,command.expression.selection):-1;
         if(command.velocity<0)keys[command.note]={};
-        else if(connectible)keys[command.note]={command.velocity,++mConnectionSerial,group};
+        else if(connectible)keys[command.note]={command.velocity,++mConnectionSerial,group,command.expression};
         Voice* pickedConnection=nullptr;double connectedOffset=0;
         if(mConnectionMode && group>=0 && (command.velocity<0 || connectible))
         {
@@ -381,7 +385,7 @@ namespace MWSound
                 }
                 std::uint64_t newest=0;int target=-1;
                 if(v)for(unsigned n=0;n<keys.size();++n)if(keys[n].group==group && keys[n].velocity>0 && keys[n].order>newest){newest=keys[n].order;target=int(n);}
-                if(target>=0){command={target,keys[target].velocity};connect=true;}
+                if(target>=0){command={target,keys[target].velocity,keys[target].expression};connect=true;}
             }
             else connect=v && v->note!=command.note && keys[v->note].velocity>0;
             if(connect)
@@ -421,9 +425,9 @@ namespace MWSound
                 || (!voice.sampleOneShot && !mSampleCurrent.data->zones.empty()));
             if(melodic)
             {
-                settings.articulation=unsigned(mCurrent[StringArticulation]);settings.attack=mCurrent[PickAttack];
+                settings.articulation=unsigned(command.expression.articulation>=0?command.expression.articulation:int(mCurrent[StringArticulation]));settings.attack=mCurrent[PickAttack];
                 settings.attackDecay=mCurrent[PickDecay];settings.resonance=mCurrent[StringResonance];
-                settings.pitch=mCurrent[PickPitch];settings.variation=mCurrent[PickVariation];settings.direction=unsigned(mCurrent[PickDirection]);
+                settings.pitch=mCurrent[PickPitch];settings.variation=mCurrent[PickVariation];settings.direction=unsigned(command.expression.direction>=0?command.expression.direction:int(mCurrent[PickDirection]));
                 settings.mute=mCurrent[StringMute];settings.decay=mCurrent[StringDecay];settings.damping=mCurrent[StringDamping];
             }
             voice.expression.trigger(settings,voice.velocity,voice.age);

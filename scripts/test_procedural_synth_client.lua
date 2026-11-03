@@ -72,6 +72,7 @@ package.loaded['openmw.synth']={create=function(obj)
     local audio={closed=false,peak=0,voices=0,notes={},params={},alive=0}
     function audio:set(name,value) self.params[name]=value end
     function audio:noteOn(note,velocity) self.notes[note]=true; self.voices=self.voices+1 end
+    function audio:strike(note,velocity,expression) self.lastExpression=expression;self:noteOn(note,velocity);return true end
     function audio:noteOff(note) self.notes[note]=nil; self.voices=math.max(0,self.voices-1) end
     function audio:allNotesOff() self.notes={}; self.voices=0 end
     function audio:close() self.closed=true end
@@ -199,7 +200,10 @@ handler{version=1,op='state',id=7,epoch=2,seq=1,params=schema.state({})}
 check(#api.status()==1 and not api.status()[1].editing,'listener has spatial audio without editor')
 handler{version=1,op='on',id=7,epoch=2,seq=2,note=60,velocity=1}
 check(audios[2].voices==1,'listener plays relayed note')
-handler{version=1,op='off',id=7,epoch=2,seq=3,note=60}
+handler{version=1,op='on',id=7,epoch=2,seq=3,note=62,velocity=1,expression={stringArticulation=2,stringSelect=1,pickDirection=1}}
+check(audios[2].lastExpression and audios[2].lastExpression.stringArticulation==2,'listener passes authenticated expression to a native attack snapshot')
+handler{version=1,op='off',id=7,epoch=2,seq=4,note=62}
+handler{version=1,op='off',id=7,epoch=2,seq=5,note=60}
 check(audios[2].voices==0,'listener releases note')
 self.cell={id='Other'};player.engineHandlers.onFrame()
 check(audios[2].closed and #api.status()==0,'cell transition cleans listener')
@@ -656,7 +660,7 @@ api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrum
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
 -- Reproduce loaded-song reuse from the actual Studio callbacks, including Band.
-package.loaded['openmw.synth'].version=26
+package.loaded['openmw.synth'].version=27
 local paths={'midi/a.mid','midi/b.mid'};local files={}
 local function midiBytes(pitch,count)
     local events={};for n=1,count or 1 do events[#events+1]=string.char(0,144,pitch,100,96,128,pitch,0) end
@@ -1260,6 +1264,16 @@ local function testContinuousSliders()
         mouseDown=false;editor:destroy()
     end
     check(tested>=60,'audit exercises oscillator, string, drum and effects slider sets')
+    local Recorder=dofile(root..'client/recorder.lua')
+    uw.recorder=Recorder.new(uw,{}, {getRealTime=function() return now end},{},
+        {get=function() end,set=function() end},function() end)
+    uw.page='midimapping';uw.revision=uw.revision+1;view=Studio.new(uw,{midiLabel=function() return 'Mapping QA' end})
+    for _,entry in ipairs{{'Articulation CC','articulationCC'},{'String selection CC','stringCC'},{'Pick direction CC','pickCC'}} do
+        numeric(entry[1]);check(uw.recorder.mapping[entry[2]]==89,'mapping drag applies its discrete CC value smoothly')
+        uw.recorder:setMapping(entry[2],-1);view:frame(now+.2)
+    end
+    check(control(view,'First keyswitch: C1 / MIDI 24'),'mapping page exposes a note-name and numeric keyswitch base')
+    view:destroy()
     local requested
     local editor=Editor.new(schema.state(bank.state),{change=function() end,command=function(op,args) requested=args.presetId end,noteOff=function() end,meter=function() return 0,0 end})
     check(not editor.controls.wave1 and editor.controls.tune1 and editor.controls.cutoff and editor.controls.release,'recorded source exposes tuning/filter/envelopes instead of unused oscillator controls')

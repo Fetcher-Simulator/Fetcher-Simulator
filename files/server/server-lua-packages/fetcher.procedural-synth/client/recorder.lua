@@ -4,6 +4,19 @@ local schema=require(prefix..'shared.schema');local Format=require(prefix..'shar
 local R={};R.__index=R
 local function finite(v,a,b) return type(v)=='number' and v==v and v>=a and v<=b end
 local function pack(n) local a=n%256;n=math.floor(n/256);local b=n%256;n=math.floor(n/256);return string.char(a,b,n%256,math.floor(n/256)) end
+local mappingNames={articulationCC='stringArticulation',stringCC='stringSelect',pickCC='pickDirection'}
+function R.mappingOptions(input)
+    input=input or {};if type(input)~='table' then return nil end
+    local out={enabled=false,articulationCC=-1,stringCC=-1,pickCC=-1,switches=false,switchBase=24}
+    for key,value in pairs(input) do if out[key]==nil then return nil end;out[key]=value end
+    if type(out.enabled)~='boolean' or type(out.switches)~='boolean' or not finite(out.switchBase,0,124) or out.switchBase%1~=0 then return nil end
+    local used={}
+    for key in pairs(mappingNames) do local cc=out[key]
+        if not finite(cc,-1,119) or cc%1~=0 or cc==64 or cc>=0 and used[cc] then return nil end
+        if cc>=0 then used[cc]=true end
+    end
+    return out
+end
 function R.options(values)
     values=values or {};local bars=values.countIn
     return {countIn=({[0]=true,[1]=true,[2]=true,[4]=true})[bars] and bars or 1,
@@ -54,7 +67,66 @@ function R.calculation(taps)
 end
 function R.new(w,engine,core,self,storage,message)
     local saved={};for _,key in ipairs{'countIn','countClick','recordClick','untilStop','metronome','clickVolume','latency','channel'} do saved[key]=storage:get(key) end
-    return setmetatable({w=w,engine=engine,core=core,self=self,storage=storage,message=message,settings=R.options(saved),keys={},counts={},pedal={},taps={},inputStatus='Disconnected'},R)
+    return setmetatable({w=w,engine=engine,core=core,self=self,storage=storage,message=message,settings=R.options(saved),keys={},counts={},pedal={},taps={},inputStatus='Disconnected',
+        mapping=R.mappingOptions(storage:get('midiMapping')) or R.mappingOptions(),expression={}},R)
+end
+function R:setMapping(key,value)
+    if self.w.recording or self.w.automationWriting then self.message('End the take or Auto write before changing MIDI mappings.');return false end
+    local candidate={};for k,v in pairs(self.mapping) do candidate[k]=v end;candidate[key]=value
+    candidate=R.mappingOptions(candidate)
+    if not candidate then self.message('Choose unique CCs from 0–119; CC 64 is reserved for sustain.');return false end
+    self:releaseInput();self.mapping=candidate;self.storage:set('midiMapping',candidate);self.learn=nil
+    self.w.revision=self.w.revision+1;return true
+end
+function R:learnMapping(key)
+    if not mappingNames[key] or self.w.recording or self.w.automationWriting then return false end
+    self.learn=self.learn==key and nil or key;self.w.revision=self.w.revision+1;return true
+end
+function R:setExpression(name,value,age)
+    if self.expression[name]==value then return end
+    self.expression[name]=value;self.mappingStatus=name..' = '..value;self.mappingChanged=true
+    if self.w.automationWriting and self:target()>0 then
+        local adjusted=(age or 0)+self.settings.latency/1000
+        if self.mappingWriting and self.mappingStart and self.w.cb.progress then
+            local _,time=self.w.cb.progress()
+            if time-(age or 0)<self.mappingStart then return end
+            adjusted=math.min(adjusted,math.max(0,time-self.mappingStart))
+        end
+        self.w:recordAutomation(self:target(),name,value,adjusted)
+    end
+end
+function R:writeMappings()
+    if self.w.automationWriting then self.w:endAutomationWrite();self.mappingWriting=false;return true end
+    if not self.mapping.enabled or not self.w:beginAutomationWrite() or self:target()==0 then
+        self.w:endAutomationWrite();self.message('Enable mappings and play a song or clips on a Studio track before Auto write.');return false
+    end
+    self.mappingWriting=true
+    if self.w.cb.progress then local _,time=self.w.cb.progress();self.mappingStart=time end
+    local t=self.w.project.tracks[self:target()]
+    for key,name in pairs(mappingNames) do if self.mapping[key]>=0 or name=='stringArticulation' and self.mapping.switches then
+        self.w:recordAutomation(self:target(),name,self.expression[name] or t.params[name],0)
+    end end
+    self.w.revision=self.w.revision+1;return true
+end
+function R:mappedEvent(e)
+    if self.learn and e.status==176 then
+        if e.a==64 or e.a>=120 then self.message('Sustain and channel-mode CCs cannot be learned as articulations.');return false end
+        self:setMapping(self.learn,e.a);return true
+    end
+    if not self.mapping.enabled or self.calibrating then return false end
+    if e.status==176 then
+        for key,name in pairs(mappingNames) do if e.a==self.mapping[key] then
+            local max=schema.specs[name].max;self:setExpression(name,math.min(max,math.floor(e.b*(max+1)/128)),e.age);return true
+        end end
+    elseif self.mapping.switches and (e.status==144 or e.status==128) and e.a>=self.mapping.switchBase and e.a<=self.mapping.switchBase+3 then
+        if e.status==144 and e.b>0 then self:setExpression('stringArticulation',e.a-self.mapping.switchBase,e.age) end
+        return true
+    end
+    return false
+end
+function R:liveExpression()
+    if not self.mapping.enabled or next(self.expression)==nil then return nil end
+    local out={};for name,value in pairs(self.expression) do out[name]=value end;return out
 end
 function R:set(key,value)
     local live=key=='recordClick' or key=='countClick' or key=='clickVolume'
@@ -85,6 +157,7 @@ function R:clockFor(plan,delay,offset)
 end
 function R:start(r)
     self:releaseInput();self:stopClock()
+    if self.mapping.enabled then self.message('Keyboard takes save notes/velocity, not mapped expression. Use MIDI mappings > Auto write for track expression curves.');end
     if not self.engine.createMonitor then return true end -- older test/legacy callback hosts retain visual count-in
     if r.overdub then return true end
     local count={duration=r.countDuration,beats=r.countBeats,bars=r.options.countIn,tempo=r.countTempo,denominator=r.countDenominator}
@@ -117,11 +190,12 @@ function R:connect(id)
     self.input=input;self.inputStatus='Connected';self.w.revision=self.w.revision+1;return true
 end
 function R:releaseInput()
+    if self.mappingWriting then self.w:endAutomationWrite();self.mappingWriting=false end
     for note in pairs(self.counts) do
         if self.w.recording and self.w.recording.held[note] then self.w:recordOff(note)
         elseif self.inputTrack then self.w.cb.off(self.inputTrack,note) end
     end
-    self.keys={};self.counts={};self.pedal={};self.inputTrack=nil
+    self.keys={};self.counts={};self.pedal={};self.inputTrack=nil;self.expression={};self.mappingTrack=nil;self.mappingStatus=nil;self.learn=nil;self.mappingChanged=true
 end
 function R:disconnect() self:releaseInput();if self.input then self.input:close();self.input=nil end;self.inputStatus='Disconnected' end
 function R:release(key,age)
@@ -139,8 +213,10 @@ function R:target()
     return self.w.selected
 end
 function R:event(e)
-    if not finite(e.age,0,2) or not finite(e.channel,1,16) or e.channel%1~=0 or not finite(e.a,0,127) or not finite(e.b,0,127) then return false end
+    if not finite(e.age,0,2) or not finite(e.channel,1,16) or e.channel%1~=0 or not finite(e.a,0,127) or e.a%1~=0 or not finite(e.b,0,127) or e.b%1~=0 then return false end
     if self.settings.channel~=0 and self.settings.channel~=e.channel then return true end
+    if self.mappingTrack~=self:target() then self.expression={};self.mappingTrack=self:target();self.mappingStatus=nil;self.mappingChanged=true end
+    if not self.calibrating and self:mappedEvent(e) then return true end
     local key=e.channel*128+e.a;local entry=self.keys[key]
     if e.status==144 and e.b>0 then
         if self.calibrating then self:tap(e.age);return true end
@@ -149,15 +225,16 @@ function R:event(e)
         if target~=0 and not self.w.project.tracks[target] then return true end
         if not self.counts[n] then
             local ok
-            if take then ok=self.w:recordOn(n,e.b/127,e.age)
-            else if target>0 then self.w:configure(target) end;ok=self.w.cb.on(target,n,e.b/127)~=false end
+            if take then ok=self.w:recordOn(n,e.b/127,e.age,self:liveExpression())
+            else if target>0 then self.w:configure(target) end;ok=self.w.cb.on(target,n,e.b/127,self:liveExpression())~=false end
             if not ok then return true end
         end
         self.inputTrack=target
         self.counts[n]=(self.counts[n] or 0)+1;self.keys[key]={note=n,channel=e.channel,take=take,down=true}
     elseif e.status==128 or e.status==144 and e.b==0 then
         if entry then entry.down=false;if not self.pedal[e.channel] then self:release(key,e.age) end end
-    elseif e.status==176 and (e.a==64 or e.a==120 or e.a==123) then
+    elseif e.status==176 and (e.a==64 or e.a==120 or e.a==121 or e.a==123) then
+        if e.a~=64 then self.expression={};self.mappingStatus=nil;self.mappingChanged=true end
         self.pedal[e.channel]=e.a==64 and e.b>=64
         local release={};for id,k in pairs(self.keys) do if k.channel==e.channel and (e.a~=64 or not k.down and not self.pedal[e.channel]) then release[#release+1]=id end end
         for _,id in ipairs(release) do self:release(id,e.age) end
@@ -187,7 +264,7 @@ function R:frame(visible,track)
     local w=self.w
     self.monitorTrack=visible and track or nil
     if not visible then
-        if self.input or next(self.keys) then self:disconnect() end
+        if self.input or next(self.keys) or next(self.expression) or self.learn then self:disconnect() end
         if self.calibrating then self:stopClock() end
     end
     if self.clockKind=='take' and self.clock and w.recording then
@@ -198,6 +275,7 @@ function R:frame(visible,track)
         end
     end
     if self.inputTrack and self.inputTrack~=self:target() then self:releaseInput() end
+    if self.mappingTrack~=nil and self.mappingTrack~=self:target() then self.expression={};self.mappingTrack=nil;self.mappingStatus=nil;self.mappingChanged=true end
     if self.input then
         local input=self.input;local ok,batch=pcall(input.poll,input)
         if not ok or not batch.connected or batch.dropped>0 then
@@ -222,6 +300,8 @@ function R:frame(visible,track)
         elseif self.clockKind=='play' then self:stopClock() end
     end
     if self.clock then self.clock:keepAlive() end
+    local now=self.core.getRealTime and self.core.getRealTime() or w.wall or 0
+    if self.mappingChanged and now>=(self.mappingRefresh or 0) then self.mappingChanged=false;self.mappingRefresh=now+.1;w.revision=w.revision+1 end
 end
 function R:close() self:disconnect();self:stopClock() end
 return R

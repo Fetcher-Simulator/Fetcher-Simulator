@@ -45,6 +45,25 @@ namespace MWLua
             return result;
         }
     }
+    namespace
+    {
+        MWSound::ProceduralSynth::Strike readStrike(const sol::table& values)
+        {
+            MWSound::ProceduralSynth::Strike out;
+            for(const auto& entry:values)
+            {
+                if(!entry.first.is<std::string>() || !entry.second.is<double>())throw std::invalid_argument("Invalid strike expression");
+                const auto key=entry.first.as<std::string>();const double value=entry.second.as<double>();
+                if(!std::isfinite(value) || value<0 || value>7 || std::floor(value)!=value)throw std::invalid_argument("Invalid strike expression");
+                if(key=="stringArticulation")out.articulation=int(value);
+                else if(key=="stringSelect")out.selection=int(value);
+                else if(key=="pickDirection")out.direction=int(value);
+                else throw std::invalid_argument("Unknown strike expression field");
+            }
+            if(!out.valid())throw std::invalid_argument("Strike expression out of range");
+            return out;
+        }
+    }
     sol::table initSynthPackage(const Context& context)
     {
         return context.cachePackage("openmw_synth", [&context]() {
@@ -53,7 +72,8 @@ namespace MWLua
             lua.new_usertype<Synth>(
                 "ProceduralSynth", sol::no_constructor, "set", &Synth::set, "setMonitorEligible",
                 [](Synth& s, bool value) { s.monitorEligible(value); }, "setObstruction",
-                [](Synth& s, float value) { return s.obstruction(value); }, "noteOn", &Synth::noteOn, "noteOff",
+                [](Synth& s, float value) { return s.obstruction(value); }, "noteOn", &Synth::noteOn,
+                "strike", [](Synth& s,int note,float velocity,const sol::table& values){return s.strike(note,velocity,readStrike(values));}, "noteOff",
                 &Synth::noteOff, "allNotesOff", &Synth::allNotesOff, "close", &Synth::close, "keepAlive",
                 &Synth::keepAlive, "closed", sol::property(&Synth::closed), "peak", sol::property(&Synth::peak),
                 "voices", sol::property(&Synth::voices), "sample",
@@ -62,7 +82,7 @@ namespace MWLua
                     return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 26;
+            api["version"] = 27;
             api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
                 const auto path = manager->exportStudioMidi(name, bytes);
                 sol::table result(lua, sol::create);
@@ -108,6 +128,7 @@ namespace MWLua
                 }),
                 "fault", sol::property(&Studio::fault), "peak", sol::property(&Studio::peak), "voices",
                 sol::property(&Studio::voices), "strikes", sol::property(&Studio::strikes), "noteOn", &Studio::noteOn,
+                "strike", [](Studio& s,unsigned track,int note,float velocity,const sol::table& values){return s.strike(track,note,velocity,readStrike(values));},
                 "noteOff", &Studio::noteOff, "releaseTrack", &Studio::releaseTrack, "trackPeak", &Studio::trackPeak,
                 "trackVoices", &Studio::trackVoices, "delayPeak", sol::property(&Studio::delayPeak), "reverbPeak",
                 sol::property(&Studio::reverbPeak), "effects",
