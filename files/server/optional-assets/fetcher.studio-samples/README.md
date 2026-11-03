@@ -5,7 +5,9 @@ Source: https://freepats.zenvoid.org/ElectricGuitar/clean-electric-guitar.html
 License: CC0 1.0 Universal. The original license and README are in `licenses/`.
 This is a Fetcher adaptation; it does not imply endorsement by FreePats or Fender.
 
-The six banks require Studio package 49 / native synth API 19 or newer. Add this folder as an OpenMW
+The original six banks require Studio package 49 / native synth API 19 or newer;
+the two additional bass attack presets require package 71 (the bank format stays
+compatible with native API 19). Add this folder as an OpenMW
 data directory, or copy its `sound/` tree into an existing data directory.
 No content plugin is required. The local test fixture already uses its existing
 `synth-assets` data directory. Public distribution through the launcher requires
@@ -75,7 +77,7 @@ independently mixed lanes sharing the same recorded drum bank.
 All are CC0 1.0, with original license text in `licenses/`. Source links, pinned
 archive hashes, individual sample hashes, zone maps and output identities are in
 `catalog.json`, `manifests/` and the repository's `sample-sources.json`.
-Combined with electric DI, all banks reserve 238,012,916 decoded bytes (227 MiB)
+Combined with electric DI, the original six banks reserve 238,012,916 decoded bytes (227 MiB)
 inside the shared 256-MiB PCM budget. PCM is shared across referencing lanes and
 performers; it is not copied once per track. Encoded content totals about 114 MiB.
 
@@ -120,7 +122,41 @@ The converter validates source archives against the tracked hashes and checks
 the production reader's output. `sample-bank-tool <bank> <preview.wav> bass`,
 `acoustic` or `drums` renders an appropriate native audition phrase.
 
-## Package 50: modeled note articulation
+## Package 71: captured finger-bass attacks
+
+**Sampled Short Finger Bass** uses the central Darkblack staccato map, with one
+recorded dynamic and two real alternates. **Sampled Ghost Finger Bass** uses its
+soft/loud ghost maps (velocity 1-63 / 64-127), also with two real alternates.
+Both cover concert MIDI 23-64, using 15 sampled roots and nearest-root zones.
+The source's written-bass root correction is -12, as for regular bass. No detuned
+unison copies or synthetic alternates are included. Original relative recording
+levels are retained. The new presets add no pick excitation or modeled damping.
+
+| Bank | Zones | Decoded PCM bytes | Encoded bytes |
+| --- | ---: | ---: | ---: |
+| `bass-short-v1` | 30 | 6,943,172 | 3,472,210 |
+| `bass-ghost-v1` | 60 | 8,640,000 | 4,321,224 |
+
+The eight-bank catalog totals 253,596,088 decoded bytes, leaving 14,839,368 bytes
+inside the existing shared 256-MiB limit. Old files and identities stay intact.
+These are ordinary gated v2 banks: note-off releases them and long gates cannot
+extend their finite natural tails. They do not supply automatic per-note bank
+selection, palm-mute/slap/pop recordings or release-trigger samples.
+
+The converter retains 3 ms before onset above -65 dB, averages stereo to mono
+48-kHz PCM16, caps short tails at 1.25 s and ghost tails at .75 s, and fades the
+last 20 ms. All source/archive/output hashes and per-zone trims are in the new
+manifests. CC0 source licenses are retained in `licenses/`.
+
+```powershell
+python scripts/procedural-synth-assets/build-bass-attack-banks.py <source-cache> build/synth-core-tests/Release/sample-bank-tool.exe files/server/optional-assets/fetcher.studio-samples
+ctest --test-dir build/synth-core-tests -C Release -R recorded-bass-attacks --output-on-failure
+```
+
+Rebuilding either bank family preserves the other's catalog entries. The runtime
+never evaluates SFZ; the offline converter reads only pinned explicit zone maps.
+
+## Package 50: modeled note articulation (original banks)
 
 Studio package 50 / native API 20 adds modeled damping to gated guitar/bass bank
 notes. **Palm mute (modeled)** controls the amount, **Muted decay** its decay

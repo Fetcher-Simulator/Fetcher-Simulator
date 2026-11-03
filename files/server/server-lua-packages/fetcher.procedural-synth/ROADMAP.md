@@ -11,6 +11,14 @@ not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
 
+Package 71 / native API 29 adds actual CC0 captured short/ghost finger-bass banks,
+two explicit presets and an editable regular/short/ghost comparison project.
+Existing sounds and sound-set assignments stay intact. Both new banks and the
+original six fit the existing shared PCM budget. No runtime C++ or API changes;
+local-only content/Lua installation. Per-note bank switching, guitar palm-mute
+captures, picked-bass short notes, slap/pop, release triggers and perceptual
+acceptance remain open. Priority one continues; sample editing is still second.
+
 Package 70 / native API 29 adds five original, editable four-bar full-band sound
 checks, saved attack expression, guarded project opening and normal Save/Undo/MIDI
 export. Native offline comparisons retain the actual master/channel/send/return
@@ -611,7 +619,7 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 70 / native synth API 29 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
+package 71 / native synth API 29 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented, together with initial seated keyboard/cello NPC staging.
 

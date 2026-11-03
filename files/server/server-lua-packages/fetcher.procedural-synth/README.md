@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 70 / native synth API 29 / multiplayer protocol 27.
+Current source: package 71 / native synth API 29 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,35 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Captured bass attacks (package 71 / native API 29)
+
+Mixer's sound dropdown and Synth's **CC Sampled Instruments** bank now offer
+**Sampled Short Finger Bass** and **Sampled Ghost Finger Bass**. These use actual
+CC0 Karoryfer Darkblack staccato/ghost recordings, with two real alternate takes;
+ghost attacks retain two recorded dynamic layers. Short attacks have one
+recorded dynamic with ordinary MIDI velocity scaling. They are separate sounds,
+so select them for a track or split a phrase between tracks. Palm/Dead expression
+does not automatically switch between the new banks. No existing sound set or
+saved sound is retuned or reassigned.
+
+For a comparison, open **New Song > Band sound checks > Recorded bass attacks >
+Open sound check**. Bars 1, 2 and 3 play the identical bass phrase using regular,
+short and ghost recordings; bar 4 alternates them. Guitar and kit provide mix
+context. The three bass sounds remain explicit when selecting another starting
+set, which changes the backing instruments. Focus or Solo the bass tracks in
+Mixer to inspect each recording. Ghost attacks are deliberately quieter than
+normal plucks. Ordinary Save, Undo, Piano editing and MIDI export apply.
+
+The two additional banks add about 7.4 MiB of content and 14.9 MiB of decoded
+audio. All eight banks fit the existing 256-MiB shared limit, leaving about
+14.2 MiB for other clips; large additional samples can still reach that budget.
+Old banks/fingerprints remain intact. This is installed locally only and uses
+the existing client; public users need a future matching content update.
+
+These are finger-bass short/ghost attacks, not captured guitar palm mutes,
+picked-bass staccato, slap/pop, slides or release-trigger playback. Those and
+full-band listening acceptance remain priority-one work.
 
 ## Band sound checks (package 70 / native API 29)
 
@@ -35,8 +64,8 @@ These are evaluation and composing starting points using the existing sounds,
 not a newly captured library or a claim of artist-specific realism. Dedicated
 recorded muted/release/slap/hammer-on/slide gestures and animation refinement
 remain priority-one work. Current recorded guitar muting still processes regular
-DI plucks; bass banks retain regular finger/pick layers without release/ghost
-samples. Source manifests document those limits.
+DI plucks; the original bass banks retain regular finger/pick layers without
+release/ghost samples. Package 71 adds separate captured attack banks above.
 
 Offline auditions use the real compiler/native renderer. Package 70 corrects the
 renderer/exporter to include master volume, channel processing, sends/returns and

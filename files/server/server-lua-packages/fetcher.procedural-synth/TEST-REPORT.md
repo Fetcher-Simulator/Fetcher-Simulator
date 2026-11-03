@@ -1,5 +1,36 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## November 3: captured bass attacks (package 71 / API 29; local only)
+
+All 35 Lua suites pass, including the new captured presets, save/Undo/Redo,
+six source-free exercise projects, exact note/gate/velocity equality for the
+regular/short/ghost comparison, and unchanged sound-set/GM assignment tests.
+The native `recorded-bass-attacks` and `score-audition-config` CTests pass.
+The former decodes all eight banks through the production reader and verifies
+catalog/output identities, 23-64 key coverage, soft/loud boundaries, distinct
+alternate source hashes, finite gated tails, onset preroll and shared PCM bounds.
+The original six bank identities remain unchanged.
+
+The new CC0 banks reserve 15,583,172 decoded bytes; all eight total 253,596,088,
+below 256 MiB with 14,839,368 bytes left for other samples. Short finger bass has
+30 zones (one recorded dynamic/two alternates); ghost bass has 60 (two recorded
+dynamics/two alternates). The source converter verifies the pinned archive and
+retains archive/sample/output provenance plus original licenses. Rerunning it
+produces the same bank/manifests/catalog bytes.
+
+Native 11-second full-band/isolated renders complete with 177/32 strikes and
+peaks 0.180035/0.0679513. Equal-phrase raw bass RMS is approximately 0.00955
+regular, 0.00968 short and 0.00435 ghost; no normalization conceals the quieter
+ghost attacks. Source pitch-period checks at concert MIDI 23/35/47/59/64 confirm
+the staccato bank's written-root octave correction, with normal captured tuning
+variation. These are scheduling/data/headroom checks, not listening acceptance.
+
+No runtime C++ changes or executable rebuild are needed. Local installation
+preserves user databases, profiles, settings, MIDIs and old bank identities.
+The client stays closed; no VPS, hosted bundle, push or workflow changes.
+Automatic per-note recorded-bank selection, guitar/picked-bass/slap/release
+captures and subjective full-band approval remain open.
+
 ## November 3: repeatable band sound checks (package 70 / API 29; local only)
 
 All 35 Lua suites pass. The new exercise suite checks all five original source-free

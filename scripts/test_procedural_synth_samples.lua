@@ -80,3 +80,10 @@ end end
 check(articulations==4,'recorded metal, rock, funk and thrash have distinct damping starting points')
 check(w:preset(1,'b:sampled-electric-muted') and project.project(w.project).tracks[1].params.stringMute==.7,'muted bank sound persists through project validation')
 check(w:undo() and w:redo() and w.project.tracks[1].params.stringDecay==.8,'modeled mute controls survive Undo/Redo')
+for _,id in ipairs{'b:sampled-bass-short','b:sampled-bass-ghost'} do
+ check(w:preset(1,id) and schema.isBank(w.project.tracks[1].params.sample),'captured bass attack can be selected as a normal sound')
+ local ref=w.project.tracks[1].params.sample
+ check(project.project(w.project).tracks[1].params.sample.hash==ref.hash,'captured attack identity persists')
+ check(w:undo() and w:redo() and w.project.tracks[1].params.sample.hash==ref.hash,'captured attack selection supports Undo/Redo')
+ check(w.project.tracks[1].params.stringMute==0 and w.project.tracks[1].params.pickAttack==0,'captured attacks do not acquire synthetic damping or pick transients')
+end

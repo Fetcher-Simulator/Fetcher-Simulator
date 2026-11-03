@@ -1,5 +1,20 @@
 # Band sound foundation auditions
 
+## Captured bass comparison (package 71)
+
+**Recorded bass attacks** adds a sixth original project to the same exporter.
+Bars 1/2/3 retain identical pitches, velocity and gates with regular/short/ghost
+finger-bass recordings; the last bar alternates them. The bass recordings have
+no extra expression markers or pick/damping excitation. Guitar/kit remain mix
+context. The captured sounds are explicit across starting-set changes.
+
+Render `bass-attacks-authored.bin` / `.tsv` with group `all` or `bass`, for 11 s.
+The latter isolates all three successive bass tracks. Keep the raw relative
+levels: ghost notes are intentionally quieter. A separate loudness-matched
+comparison can reveal timbre but should not replace this balance check.
+The asset CTest `recorded-bass-attacks` checks all eight bank hashes through the
+production reader, alternate/layer coverage, trims, tails and the shared budget.
+
 ## Original full-band checks (package 70)
 
 In game: New Song -> Band sound checks -> choose exercise and sound set -> Open

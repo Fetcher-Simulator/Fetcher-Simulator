@@ -1,7 +1,7 @@
 {
   "license": "CC0-1.0",
   "nativeApi": 19,
-  "decodedBytesAllBanks": 238012916,
+  "decodedBytesAllBanks": 253596088,
   "banks": [
     {
       "id": "electric-di-v1",
@@ -80,6 +80,32 @@
       },
       "source": "https://shop.karoryfer.com/pages/free-big-rusty-drums",
       "description": "Three selected velocity layers/two recorded alternates; close mics only, snare top mic. GM aliases share recordings. Open hats choke within/across lanes; closed/pedal hats stop open hats. One-shot tails ignore note gates."
+    },
+    {
+      "id": "bass-short-v1",
+      "path": "sound/fetcher/banks/bass-short-v1.fsb",
+      "bytes": 3472210,
+      "sha256": "b69a710107a7f2efa5e201fb95b39245141841d9612e392af81f0f4930769e1c",
+      "native": {
+        "hash": "f6bc8a20d8dba535d86ddae52879548b",
+        "zones": 30,
+        "pcmBytes": 6943172
+      },
+      "source": "https://shop.karoryfer.com/pages/free-black-and-blue-basses",
+      "description": "Captured Darkblack staccato finger plucks: one recorded dynamic, two real alternates; not palm-muted or picked bass."
+    },
+    {
+      "id": "bass-ghost-v1",
+      "path": "sound/fetcher/banks/bass-ghost-v1.fsb",
+      "bytes": 4321224,
+      "sha256": "0a6308ba4e359c0aec40b4f24fd0cc84b531d9669ba9913149bf2df23c53e027",
+      "native": {
+        "hash": "3209879caee5a143b3f8e6e5906b1245",
+        "zones": 60,
+        "pcmBytes": 8640000
+      },
+      "source": "https://shop.karoryfer.com/pages/free-black-and-blue-basses",
+      "description": "Captured Darkblack ghost finger attacks: two recorded dynamics, two real alternates; not slap/pop or a synthesized dead-note envelope."
     }
   ]
 }

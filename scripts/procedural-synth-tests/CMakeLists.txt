@@ -21,6 +21,8 @@ target_include_directories(score-audition PRIVATE ../../extern/smhasher/include 
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
+  add_test(NAME recorded-bass-attacks COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/test-bass-attack-banks.py" "$<TARGET_FILE:sample-bank-tool>")
   add_test(NAME score-audition-config COMMAND "${Python3_EXECUTABLE}"
     "${CMAKE_CURRENT_SOURCE_DIR}/test-score-audition.py" "$<TARGET_FILE:score-audition>")
 endif()

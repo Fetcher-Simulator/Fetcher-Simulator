@@ -220,6 +220,8 @@ end
 for _,entry in ipairs{
     {'sampled-bass-finger','Sampled Finger Bass','Bass','bass-finger-v1','39efa33c8b8f5daf6ac4d7dd976b2f8a',33},
     {'sampled-bass-picked','Sampled Picked Bass','Bass','bass-picked-v1','b7f0d9845a771ae849ba6a4eea3665da',34},
+    {'sampled-bass-short','Sampled Short Finger Bass','Bass','bass-short-v1','f6bc8a20d8dba535d86ddae52879548b',33},
+    {'sampled-bass-ghost','Sampled Ghost Finger Bass','Bass','bass-ghost-v1','3209879caee5a143b3f8e6e5906b1245',33},
     {'sampled-guitar-nylon','Sampled Classical Nylon','Guitar','guitar-nylon-v1','cd9934832ec1764a29047688618930b5',24},
     {'sampled-guitar-steel','Sampled Acoustic Steel','Guitar','guitar-steel-v1','cdbfbd10733a5c4e6a8a3eb567ef59b8',25},
     {'sampled-drum-kit','Sampled Acoustic Drum Kit','Drums','drum-kit-v1','57fde34599e1a0562d255490162fecc2'},

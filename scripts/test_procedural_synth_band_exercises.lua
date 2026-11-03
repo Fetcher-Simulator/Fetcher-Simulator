@@ -19,7 +19,7 @@ for _,entry in ipairs(Exercises.entries) do
         if t.sourceRole=='bass' then bass=bass+1;check(t.sourceProgram==33 or t.sourceProgram==34,'bass has a numeric GM source and the correct register') end
         if t.instrument=='drumkit' then drums=drums+1;check(t.note==36 or t.note==38 or t.note==42 or t.note==45 or t.note==49,'kit parts use deliberate GM notes') end
     end
-    check(count>100 and expressive>40 and drums==5 and bass==1,'exercise includes meaningful string performance and a complete split rhythm section')
+    check(count>100 and expressive>40 and drums==5 and bass==(entry.id=='bass-attacks' and 3 or 1),'exercise includes meaningful string performance and a complete split rhythm section')
     local plan=Sequence.compile(p,nil,MIDI,'song',F,Sets.programPatch)
     check(Sequence.validate(plan.bytes,plan.length,true),'native looping score validates with saved attack expression')
     local saved=assert(F.project(p));local loaded=Sequence.compile(saved,nil,MIDI,'song',F,Sets.programPatch)
@@ -29,6 +29,26 @@ for _,entry in ipairs(Exercises.entries) do
     for _,set in ipairs(Sets.entries) do local alt=assert(Exercises.create(entry.id,set.id))
         check(F.project(alt) and Sequence.compile(alt,nil,MIDI,'song',F,Sets.programPatch),'sound-set comparisons compile without external MIDI')
     end
+end
+do
+    local p=assert(Exercises.create('bass-attacks'));local parts={}
+    for _,t in ipairs(p.tracks) do if t.sourceRole=='bass' then parts[#parts+1]=t end end
+    check(#parts==3,'comparison has three independently selectable recorded bass sounds')
+    for variant,t in ipairs(parts) do
+        check(t.presetId==({'b:sampled-bass-finger','b:sampled-bass-short','b:sampled-bass-ghost'})[variant],'comparison pins the actual recording family')
+        local phrase={}
+        for _,n in ipairs(assert(F.decodeNotes(t.edited))) do
+            local bar=math.floor(n.s/16)
+            check(not n.e and (bar==variant-1 or bar==3),'bass recordings remain exposed and only play in their comparison slots')
+            if bar<3 then phrase[#phrase+1]={n=n.n,s=n.s%16,l=n.l,v=n.v} end
+        end
+        check(#phrase==8,'each recording gets the complete same eight-note phrase')
+        parts[variant]=phrase
+    end
+    for n,item in ipairs(parts[1]) do for variant=2,3 do
+        local other=parts[variant][n]
+        check(item.n==other.n and item.s==other.s and item.l==other.l and item.v==other.v,'comparison retains identical pitch, timing, velocity and gates')
+    end end
 end
 local messages,changed,released,detached={};local w=W.new{configure=function() end,panic=function() end,
     message=function(s) messages[#messages+1]=s end,documentChanged=function() changed=true end}

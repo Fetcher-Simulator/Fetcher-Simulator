@@ -8,10 +8,12 @@ M.entries={
     {id='funk',name='Funk groove',bpm=104,set='recorded-funk',description='Short chord stabs, dead strokes, syncopated bass and velocity-varied hats.'},
     {id='clean',name='Clean chords / lead',bpm=92,set='recorded-clean',description='Six-string strums and an overlapping lead phrase over restrained bass and drums.'},
     {id='acoustic',name='Acoustic / classical',bpm=96,set='recorded-clean',description='Steel-string fingerpicking, nylon melody and a quiet acoustic rhythm section.'},
+    {id='bass-attacks',name='Recorded bass attacks',bpm=104,set='recorded-funk',description='Bars 1/2/3: regular, captured short, captured ghost bass. Bar 4 alternates the three; guitar and kit stay constant.'},
 }
 function M.find(id) for _,entry in ipairs(M.entries) do if entry.id==id then return entry end end end
 function M.create(id,setId)
     local entry=M.find(id);if not entry or setId and not Sets.find(setId) then return nil end
+    local bassComparison=id=='bass-attacks';if bassComparison then id='funk' end
     local p=F.new();p.name='Sound check - '..entry.name;p.bpm=entry.bpm;p.length=64;p.soundSet=setId or entry.set
     p.timeline={beats=16,tempos={{beat=0,tempo=math.floor(60000000/entry.bpm+.5)}}}
     p.composition={bars=4,numerator=4,denominator=4,loopStart=1,loopEnd=4,loop=true}
@@ -40,7 +42,7 @@ function M.create(id,setId)
     end
     local chords={{40,47,52,55,59,64},{43,47,50,55,59,67},{45,52,57,60,64},{50,57,62,66}}
     for bar=0,3 do
-        local start=bar*16;local root=({40,43,45,42})[bar+1]
+        local start=bar*16;local root=bassComparison and 40 or ({40,43,45,42})[bar+1]
         if id=='heavy' or id=='thrash' then
             for step=0,15,id=='thrash' and 1 or 2 do
                 local open=step==0 or step==12;local gate=open and 2.6 or (id=='thrash' and .58 or .85)
@@ -80,6 +82,30 @@ function M.create(id,setId)
     for index,t in ipairs(p.tracks) do
         table.sort(notes[index],function(a,b) return a.s==b.s and a.n<b.n or a.s<b.s end)
         t.edited=assert(F.encodeNotes(notes[index],960))
+    end
+    if bassComparison then
+        -- Separate, explicit recorded sounds; no claim that the engine switches
+        -- samples from a Palm/Dead expression marker. Ordinary sound sets stay
+        -- unchanged. The other instruments may still use the selected set.
+        local source=assert(F.project(p)).tracks[bass]
+        for variant,preset in ipairs{'b:sampled-bass-finger','b:sampled-bass-short','b:sampled-bass-ghost'} do
+            local t=variant==1 and p.tracks[bass] or F.newTrack('midi','Bass',64)
+            local patch;for _,candidate in ipairs(schema.builtins) do if candidate.id==preset then patch=candidate end end
+            t.name=({'Regular finger bass','Captured short bass','Captured ghost bass'})[variant]
+            t.sourceRole='bass';t.sourceProgram=33;t.instrument=source.instrument;t.note=source.note;t.level=source.level
+            t.params=assert(schema.state(assert(patch).state));t.presetId=preset;t.followPrograms=false
+            local selected={}
+            for n,item in ipairs(notes[bass]) do
+                local bar=math.floor(item.s/16)
+                if bar==variant-1 or bar==3 and (n-1)%3==variant-1 then
+                    -- Keep the recordings exposed: no added pick/resonance or
+                    -- damping model, and the same velocity/gate for each phrase.
+                    selected[#selected+1]={n=item.n,s=item.s,l=item.l,v=item.v}
+                end
+            end
+            t.edited=assert(F.encodeNotes(selected,960))
+            if variant>1 then p.tracks[#p.tracks+1]=t end
+        end
     end
     return assert(F.project(p))
 end
