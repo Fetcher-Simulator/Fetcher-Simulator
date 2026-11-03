@@ -35,6 +35,14 @@ for _,entry in ipairs{{'recorded-clean','Recorded Band / Clean','sampled-electri
     s.electricRhythm=entry[1]=='recorded-thrash'
     M.entries[#M.entries+1]=s
 end
+for _,entry in ipairs{{'captured-rock','Captured Band / Rock','captured-guitar-rock'},
+    {'captured-thrash','Captured Band / Thrash','captured-guitar-thrash'},
+    {'captured-funk','Captured Band / Funk','captured-guitar-funk'},
+    {'captured-clean','Captured Band / Clean','captured-guitar-clean'}} do
+    local s=set(entry[1],entry[2],9,'studio-keys','sampled-bass-expressive',entry[3],'studio-strings','captured-guitar-lead','pad','glass-bell','studio-brass','studio-reed','studio-organ')
+    s.recorded=true;s.captured=true;s.electricRhythm=entry[1]=='captured-thrash';s.muted=entry[1]=='captured-rock' and 'captured-guitar-rock-muted' or entry[3]
+    M.entries[#M.entries+1]=s
+end
 local recordedDrums={};for _,note in ipairs{35,36,37,38,40,41,42,43,44,45,46,47,48,49,50,51,52,53,57,59} do recordedDrums[note]=true end
 local builtins={};for _,p in ipairs(schema.builtins) do builtins[p.id]=p end
 local percussion={
@@ -100,13 +108,13 @@ function M.assignment(id,role,midi,note,instrument,program,name)
     if s.recorded then
         if percussionRoles[role] and recordedDrums[note] then presetId='b:sampled-drum-kit'
         elseif role=='guitar' then
-            local recorded={[24]='sampled-guitar-nylon',[25]='sampled-guitar-steel',[27]=s.electricRhythm and s.patches.guitar or (id=='recorded-funk' and 'sampled-funk-muted' or 'sampled-electric-clean'),[28]=s.muted,
-                [29]=s.patches.guitar,[30]=s.patches.guitar,[31]='sampled-electric-lead'}
+            local recorded={[24]='sampled-guitar-nylon',[25]='sampled-guitar-steel',[27]=s.electricRhythm and s.patches.guitar or (s.captured and 'captured-guitar-clean' or id=='recorded-funk' and 'sampled-funk-muted' or 'sampled-electric-clean'),[28]=s.muted,
+                [29]=s.patches.guitar,[30]=s.patches.guitar,[31]=s.captured and 'captured-guitar-lead' or 'sampled-electric-lead'}
             if recorded[program] then presetId='b:'..recorded[program] end
             local label=(name or ''):lower()
-            if (program==29 or program==30) and (label:find('solo',1,true) or label:find('lead',1,true)) then presetId='b:sampled-electric-lead' end
+            if (program==29 or program==30) and (label:find('solo',1,true) or label:find('lead',1,true)) then presetId=s.captured and 'b:captured-guitar-lead' or 'b:sampled-electric-lead' end
         elseif role=='bass' and (program==33 or program==34) then
-            presetId=program==33 and 'b:sampled-bass-finger' or 'b:sampled-bass-picked'
+            presetId=program==33 and (s.captured and 'b:sampled-bass-expressive' or 'b:sampled-bass-finger') or 'b:sampled-bass-picked'
         elseif role=='bass' and (program==38 or program==39) then
             presetId=program==38 and 'b:house-bass' or 'b:acid-bass'
         end

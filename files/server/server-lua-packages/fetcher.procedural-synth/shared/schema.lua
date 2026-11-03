@@ -60,9 +60,10 @@ function M.byteStrike(value)
     local a=value%5;local s=math.floor(value/5)%9;local d=math.floor(value/45)
     return {stringArticulation=a>0 and a-1 or nil,stringSelect=s>0 and s-1 or nil,pickDirection=d>0 and d-1 or nil}
 end
-function M.sample(input)
+M.attackOrder={'open','short','dead'}
+function M.sample(input,leaf)
     if type(input)~='table' then return nil end
-    local fields={path=true,offset=true,duration=true,root=true,oneShot=true,hash=true}
+    local fields={path=true,offset=true,duration=true,root=true,oneShot=true,hash=true,attacks=not leaf}
     for key in pairs(input) do if not fields[key] then return nil end end
     local path=input.path
     if type(path)~='string' or #path>240 or not (path:sub(1,6)=='sound/' or path:sub(1,6)=='music/')
@@ -74,13 +75,28 @@ function M.sample(input)
         or type(input.hash)~='string' or #input.hash~=32 or input.hash:find('[^0-9a-f]') then return nil end
     if path:sub(-4)=='.fsb' and (path:sub(1,20)~='sound/fetcher/banks/' or input.offset~=0
         or input.duration~=1 or input.root~=60 or input.oneShot) then return nil end
-    return {path=path,offset=math.floor(input.offset*1000+0.5)/1000,
+    local result={path=path,offset=math.floor(input.offset*1000+0.5)/1000,
         duration=math.floor(input.duration*1000+0.5)/1000,root=input.root,oneShot=input.oneShot,hash=input.hash}
+    if input.attacks~=nil then
+        if leaf or path:sub(-4)~='.fsb' or type(input.attacks)~='table' then return nil end
+        local allowed={open=true,short=true,dead=true};local count=0;result.attacks={}
+        for key,value in pairs(input.attacks) do
+            if not allowed[key] then return nil end
+            local ref=M.sample(value,true);if not ref or ref.path:sub(-4)~='.fsb' then return nil end
+            result.attacks[key]=ref;count=count+1
+        end
+        if count==0 then return nil end
+    end
+    return result
 end
 function M.isBank(sample) return sample and sample.path:sub(-4)=='.fsb' or false end
 function M.sampleKey(sample)
     if not sample then return '' end
-    return table.concat({sample.path,sample.offset,sample.duration,sample.root,tostring(sample.oneShot),sample.hash},'|')
+    local key=table.concat({sample.path,sample.offset,sample.duration,sample.root,tostring(sample.oneShot),sample.hash},'|')
+    for _,attack in ipairs(M.attackOrder) do if sample.attacks and sample.attacks[attack] then
+        key=key..'|'..attack..'='..M.sampleKey(sample.attacks[attack])
+    end end
+    return key
 end
 function M.state(input)
     if type(input) ~= 'table' or (input.version ~= nil and input.version ~= 1) then return nil end
@@ -294,6 +310,34 @@ for _,preset in ipairs(M.builtins) do
     end
 end
 -- Opt-in experimental patches; no conventional band sound set selects these.
+for _,entry in ipairs{
+    {'captured-guitar-clean','Captured Humbucker Clean',0,0,6,.55,0,.10,27},
+    {'captured-guitar-rock','Captured Humbucker Rock',1,18,6,.42,0,.045,29},
+    {'captured-guitar-rock-muted','Captured Humbucker Muted Rock',1,18,6,.42,2,.025,28},
+    {'captured-guitar-thrash','Captured Humbucker Thrash',2,22,4,.38,2,.018,30},
+    {'captured-guitar-funk','Captured Humbucker Funk',0,0,6,.6,2,.025,28},
+    {'captured-guitar-lead','Captured Humbucker Lead',2,20,5,.4,1,.16,31},
+} do
+    add(entry[1],entry[2],'Guitar','CC Sampled Instruments',{attack=.002,sustain=1,release=entry[8],cutoff=16000,
+        driveType=entry[3],drive=entry[4],driveTone=12000,cabinet=entry[5],volume=entry[6],stringArticulation=entry[7],
+        polyphony=8,preHighpass=entry[3]==0 and 65 or 100,cabinetHighpass=65,cabinetLowpass=9500,
+        ampBass=entry[3]==0 and 0 or -3,ampMid=entry[3]==2 and -1 or 1,ampTreble=entry[3]==2 and 2 or 0,
+        sample={path='sound/fetcher/banks/guitar-techs-open-v1.fsb',offset=0,duration=1,root=60,oneShot=false,hash='4f971050d335c3b9a553d1904e57096f',
+            attacks={short={path='sound/fetcher/banks/guitar-techs-palm-v1.fsb',offset=0,duration=1,root=60,oneShot=false,hash='a57077f8d89a1b9f71c29c952e12bafa'}}}})
+    M.builtins[#M.builtins].midiProgram=entry[9]
+end
+M.sampledStrings['sound/fetcher/banks/guitar-techs-open-v1.fsb']=true
+do
+    local base;for _,preset in ipairs(M.builtins) do if preset.id=='b:sampled-bass-finger' then base=preset end end
+    local state=assert(M.state(assert(base).state))
+    state.sample.attacks={
+        short={path='sound/fetcher/banks/bass-short-v1.fsb',offset=0,duration=1,root=60,oneShot=false,hash='f6bc8a20d8dba535d86ddae52879548b'},
+        dead={path='sound/fetcher/banks/bass-ghost-v1.fsb',offset=0,duration=1,root=60,oneShot=false,hash='3209879caee5a143b3f8e6e5906b1245'},
+    }
+    state.pickAttack=0;state.stringResonance=0;state.pickPitch=0;state.pickVariation=0
+    add('sampled-bass-expressive','Sampled Expressive Finger Bass','Bass','CC Sampled Instruments',state)
+    M.builtins[#M.builtins].midiProgram=33
+end
 add('doom-parallel-chug','Industrial Parallel Chug','Guitar','Experimental / Industrial',{
     instrumentType=1,stringDecay=1.6,stringDamping=.25,stringMute=.65,stringArticulation=2,
     attack=.002,sustain=1,release=.06,cutoff=14000,pickAttack=.22,pickVariation=.3,

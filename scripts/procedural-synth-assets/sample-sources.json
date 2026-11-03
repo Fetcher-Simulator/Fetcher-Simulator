@@ -1,6 +1,6 @@
 {
   "acquired": "2026-10-29",
-  "license": "CC0-1.0",
+  "license": "Per-source: CC0-1.0 or CC-BY-4.0",
   "status": "curated native electric, regular finger/picked bass, captured short/ghost finger bass, nylon/steel guitar and drum banks in optional-assets/fetcher.studio-samples; Growlybass articulation source remains unintegrated",
   "sources": [
     {
@@ -122,6 +122,32 @@
         }
       ],
       "sfzMapCount": 1
+    },
+    {
+      "repository": "Guitar-TECHS",
+      "release": "Zenodo 14963133 v1",
+      "asset": "P2_singlenotes.zip",
+      "url": "https://zenodo.org/api/records/14963133/files/P2_singlenotes.zip/content",
+      "bytes": 116133457,
+      "sha256": "d6b54e40d22113d6c0a663165cb2af63735897a35bb45fc6d0ed49c944b548d9",
+      "upstreamDigestVerified": true,
+      "upstreamMd5": "md5:40fbf03d8b04bb2cf42df20f36dc2254",
+      "licenseExpected": "CC-BY-4.0",
+      "licenseSource": "https://guitar-techs.github.io/",
+      "description": "Original player 2 direct-input recordings and per-string MIDI annotations. See conversion manifests for sample cuts and strength gains."
+    },
+    {
+      "repository": "Guitar-TECHS",
+      "release": "Zenodo 14963133 v1",
+      "asset": "P2_techniques.zip",
+      "url": "https://zenodo.org/api/records/14963133/files/P2_techniques.zip/content",
+      "bytes": 395839610,
+      "sha256": "05fc065c010add9e5348095d7198fdc45b967c657e3e12ef8afdb74808371816",
+      "upstreamDigestVerified": true,
+      "upstreamMd5": "md5:f4189251ce50be25f06a173b2c2bba00",
+      "licenseExpected": "CC-BY-4.0",
+      "licenseSource": "https://guitar-techs.github.io/",
+      "description": "Original player 2 direct-input recordings and per-string MIDI annotations. See conversion manifests for sample cuts and strength gains."
     }
   ]
 }

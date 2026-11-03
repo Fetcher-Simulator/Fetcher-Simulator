@@ -1,5 +1,29 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## November 3: recorded attack selection and guitar captures (package 72 / API 30)
+
+All 36 Lua suites and four native CTests pass, including new bounded sample-map
+validation/readiness/project tests and native mixed-recording/PCM-lifetime
+checks. Missing mappings retain old modeled articulation; configured loading or
+mismatched recordings stay silent. Tests cover per-note/patch selection,
+simultaneous sources, Stop/loop block independence, legacy behavior and
+control-thread reclamation. All ten banks pass the production reader with exact
+catalog hashes, bounded zones/cuts/coverage and shared PCM accounting.
+
+The matching Windows client builds. No server C++ changes are present. Original
+Guitar-TECHS P2 archives match Zenodo MD5s and tracked SHA-256; source MIDI/audio
+identities, exact cuts and strength gains are retained. CC BY 4.0 credits/legal
+text ship with the banks. These are one sparse performance per pitch, not
+invented dynamics or alternate takes. New cuts use the first transient above a
+local noise floor, avoiding old ringing-note tails and later vibration peaks;
+all cuts are within 100 ms of the source MIDI annotations. All ten banks total
+262,831,288 decoded bytes, leaving 5,604,168 in the existing 256-MiB budget.
+
+A captured-thrash full-band render completes 277 strikes with peak 0.200070 /
+RMS 0.0351267. These are data/clock/headroom checks, not subjective acceptance.
+Local installation preserves profiles, databases, MIDI files and old assets.
+No VPS changes, push, workflow or public content publication are included.
+
 ## November 3: captured bass attacks (package 71 / API 29; local only)
 
 All 35 Lua suites pass, including the new captured presets, save/Undo/Redo,

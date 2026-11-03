@@ -1,7 +1,7 @@
 {
-  "license": "CC0-1.0",
+  "license": "Per-bank: CC0-1.0 or CC-BY-4.0",
   "nativeApi": 19,
-  "decodedBytesAllBanks": 253596088,
+  "decodedBytesAllBanks": 262831288,
   "banks": [
     {
       "id": "electric-di-v1",
@@ -14,7 +14,8 @@
         "pcmBytes": 68121812
       },
       "source": "https://freepats.zenvoid.org/ElectricGuitar/clean-electric-guitar.html",
-      "description": "FreePats electric DI: two real alternates and original velocity layers, six-second tails."
+      "description": "FreePats electric DI: two real alternates and original velocity layers, six-second tails.",
+      "license": "CC0-1.0"
     },
     {
       "id": "bass-finger-v1",
@@ -27,7 +28,8 @@
         "pcmBytes": 34560000
       },
       "source": "https://shop.karoryfer.com/pages/free-black-and-blue-basses",
-      "description": "Regular finger/pick plucks, two velocity layers/two real alternates, roots shifted down 12 to match recorded concert pitch; no release/ghost/keyswitch layers."
+      "description": "Regular finger/pick plucks, two velocity layers/two real alternates, roots shifted down 12 to match recorded concert pitch; no release/ghost/keyswitch layers.",
+      "license": "CC0-1.0"
     },
     {
       "id": "bass-picked-v1",
@@ -40,7 +42,8 @@
         "pcmBytes": 34560000
       },
       "source": "https://shop.karoryfer.com/pages/free-black-and-blue-basses",
-      "description": "Regular finger/pick plucks, two velocity layers/two real alternates, roots shifted down 12 to match recorded concert pitch; no release/ghost/keyswitch layers."
+      "description": "Regular finger/pick plucks, two velocity layers/two real alternates, roots shifted down 12 to match recorded concert pitch; no release/ghost/keyswitch layers.",
+      "license": "CC0-1.0"
     },
     {
       "id": "guitar-nylon-v1",
@@ -53,7 +56,8 @@
         "pcmBytes": 27900376
       },
       "source": "https://github.com/facebookincubator/Meta-open-sound",
-      "description": "Channel-1 first-position string selection, three recorded velocity layers; hard layer splits, gated MIDI notes and keyboard polyphony. Stereo averaged to mono. No invented round robins or SFZ keyswitch/string choking."
+      "description": "Channel-1 first-position string selection, three recorded velocity layers; hard layer splits, gated MIDI notes and keyboard polyphony. Stereo averaged to mono. No invented round robins or SFZ keyswitch/string choking.",
+      "license": "CC0-1.0"
     },
     {
       "id": "guitar-steel-v1",
@@ -66,7 +70,8 @@
         "pcmBytes": 31398728
       },
       "source": "https://github.com/facebookincubator/Meta-open-sound",
-      "description": "Channel-1 first-position string selection, three recorded velocity layers; hard layer splits, gated MIDI notes and keyboard polyphony. Stereo averaged to mono. No invented round robins or SFZ keyswitch/string choking."
+      "description": "Channel-1 first-position string selection, three recorded velocity layers; hard layer splits, gated MIDI notes and keyboard polyphony. Stereo averaged to mono. No invented round robins or SFZ keyswitch/string choking.",
+      "license": "CC0-1.0"
     },
     {
       "id": "drum-kit-v1",
@@ -79,7 +84,8 @@
         "pcmBytes": 41472000
       },
       "source": "https://shop.karoryfer.com/pages/free-big-rusty-drums",
-      "description": "Three selected velocity layers/two recorded alternates; close mics only, snare top mic. GM aliases share recordings. Open hats choke within/across lanes; closed/pedal hats stop open hats. One-shot tails ignore note gates."
+      "description": "Three selected velocity layers/two recorded alternates; close mics only, snare top mic. GM aliases share recordings. Open hats choke within/across lanes; closed/pedal hats stop open hats. One-shot tails ignore note gates.",
+      "license": "CC0-1.0"
     },
     {
       "id": "bass-short-v1",
@@ -92,7 +98,8 @@
         "pcmBytes": 6943172
       },
       "source": "https://shop.karoryfer.com/pages/free-black-and-blue-basses",
-      "description": "Captured Darkblack staccato finger plucks: one recorded dynamic, two real alternates; not palm-muted or picked bass."
+      "description": "Captured Darkblack staccato finger plucks: one recorded dynamic, two real alternates; not palm-muted or picked bass.",
+      "license": "CC0-1.0"
     },
     {
       "id": "bass-ghost-v1",
@@ -105,7 +112,36 @@
         "pcmBytes": 8640000
       },
       "source": "https://shop.karoryfer.com/pages/free-black-and-blue-basses",
-      "description": "Captured Darkblack ghost finger attacks: two recorded dynamics, two real alternates; not slap/pop or a synthesized dead-note envelope."
+      "description": "Captured Darkblack ghost finger attacks: two recorded dynamics, two real alternates; not slap/pop or a synthesized dead-note envelope.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "guitar-techs-open-v1",
+      "path": "sound/fetcher/banks/guitar-techs-open-v1.fsb",
+      "bytes": 3744284,
+      "sha256": "ce2f9ee504d9466f25144ff8ea66186397a8a239ca2703abcd6e4daf3d23689d",
+      "native": {
+        "hash": "4f971050d335c3b9a553d1904e57096f",
+        "zones": 13,
+        "pcmBytes": 7488000
+      },
+      "source": "https://zenodo.org/records/14963133",
+      "description": "Guitar-TECHS player 2 EVH Wolfgang neck-pickup DI; recorded open notes; one recorded performance per sparse root, no invented alternates/layers. Keys 35-39 transpose the low-E capture.",
+      "license": "CC-BY-4.0"
+    },
+    {
+      "id": "guitar-techs-palm-v1",
+      "path": "sound/fetcher/banks/guitar-techs-palm-v1.fsb",
+      "bytes": 873884,
+      "sha256": "40c07ba35c2555e71d5f9f30ff8ec64f9d471dcc07c99843446fa02e6d2cdf2b",
+      "native": {
+        "hash": "a57077f8d89a1b9f71c29c952e12bafa",
+        "zones": 13,
+        "pcmBytes": 1747200
+      },
+      "source": "https://zenodo.org/records/14963133",
+      "description": "Guitar-TECHS player 2 EVH Wolfgang neck-pickup DI; recorded pitched palm mutes; one recorded performance per sparse root, no invented alternates/layers. Keys 35-39 transpose the low-E capture.",
+      "license": "CC-BY-4.0"
     }
   ]
 }

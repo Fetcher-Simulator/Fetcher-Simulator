@@ -88,6 +88,7 @@ void writePreview(const std::string& path)
 #include "soak-tests.hpp"
 #include "sample-tests.hpp"
 #include "instrument-tests.hpp"
+#include "attack-sample-tests.hpp"
 #include "string-tests.hpp"
 #include "parallel-tests.hpp"
 #include "legato-tests.hpp"
@@ -124,6 +125,7 @@ int main(int argc, char** argv)
         soundChangeSoakTests();
         sampleTests();
         instrumentTests();
+        attackSampleTests();
         stringTests();
         parallelTests();
         legatoTests();

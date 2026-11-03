@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 71 / native synth API 29 / multiplayer protocol 27.
+Current source: package 72 / native synth API 30 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,46 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Recorded per-note attacks (package 72 / native API 30)
+
+**Captured Band / Clean, Rock, Thrash and Funk** add opt-in sound sets with
+new **Captured Humbucker** presets. These use original Guitar-TECHS player 2
+neck-pickup DI open notes and pitched palm mutes, under CC BY 4.0. The dataset
+creators, license, source links and conversion changes are in the optional
+sample content's `licenses/guitar-techs-ATTRIBUTION.txt`. Existing sound sets
+and saved patch snapshots remain unchanged.
+
+A single patch can now contain optional recorded **open / short / dead** banks.
+Choose **Sampled Expressive Finger Bass** for recorded regular/staccato/ghost
+attacks. On Synth > Strings, **New-note articulation** chooses Patch, Open,
+Palm/short or Dead/ghost. On Piano, select notes and use **Note expression** to
+save each attack choice; the same existing MIDI CC/keyswitch mapping works live
+and in takes. Open uses the base recording unless an explicit open bank exists.
+The captured guitar presets have a Palm/short bank; Dead still uses modeled
+choking. The expressive finger bass has captured short and ghost banks.
+
+Captured variants bypass the extra mute/dead envelope, so the recording is not
+muted twice. Each voice owns its selected immutable PCM cursor and round-robin
+counter. Held legato retains its source; picked slides reselect on each attack.
+Missing mappings keep the existing modeled behavior. An explicitly configured
+but unavailable/mismatched file stays silent; readiness checks preload and
+validate all references. All selections persist in private/shared projects,
+personal sounds and network snapshots, with normal Undo and recorded expression.
+
+Imported MIDI usually lacks picking/muting information. Captured Thrash uses a
+muted rhythm starting patch; add Open expression to sustained accents as needed.
+Changing a sound set does not invent missing performance instructions. The new
+Guitar-TECHS adaptation has one actual recorded performance per sparse root,
+no extra velocity layers/round robins. MIDI 35-39 transpose low E downward;
+open tails cap at 3 seconds and palms at .7 seconds. No captured release,
+hammer-on or slide transitions are claimed.
+
+All ten banks reserve 262,831,288 decoded bytes, leaving 5,604,168 bytes inside
+the unchanged 256-MiB shared PCM budget. References share existing buffers;
+per-note switching does not concatenate or duplicate banks. The two guitar
+files add 4,618,168 encoded bytes. Local API-30 client installation is required;
+there is no server C++ change, public deployment or hosted-asset update here.
 
 ## Captured bass attacks (package 71 / native API 29)
 

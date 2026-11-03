@@ -314,7 +314,7 @@ function S:automation(content)
     if name=='stringLegato' then content[#content+1]=label('0 Off | 1 Legato | 2 Picked; Voices/tuning sets strings.',500,197,390,10,c.muted)
     elseif name=='stringLayout' then content[#content+1]=label('0 Mono | 1 E | 2 Drop D | 3 Drop C | 4 Seven | 5 Bass | 6 Five',500,197,390,10,c.muted)
     elseif name=='stringSelect' then content[#content+1]=label('0 Auto | 1-7 strings from lowest to highest; applies on attack.',500,197,390,10,c.muted)
-    elseif name=='stringArticulation' then content[#content+1]=label('0 Patch | 1 Open | 2 Palm | 3 Dead',500,197,390,10,c.muted)
+    elseif name=='stringArticulation' then content[#content+1]=label('0 Patch | 1 Open | 2 Palm/short | 3 Dead/ghost',500,197,390,10,c.muted)
     elseif name=='parallelShape' then content[#content+1]=label('0 Soft | 1 Hard | 2 Fold | 3 Rectify',500,197,390,10,c.muted)
     elseif name=='pickDirection' then content[#content+1]=label('0 Down | 1 Up | 2 Alternate',500,197,390,10,c.muted) end
     content[#content+1]=Controls.slider(self,'automationValue',title,spec,function() return w.automationDraft end,function(value)
@@ -613,7 +613,7 @@ function S:piano(content)
     if source then content[#content+1]=self:button('Play source',self.width-195,tools,150,function() w:playClip() end) end
     content[#content+1]=self:button('Note expression v',source and 470 or 20,self.height-56,source and 130 or 160,function()
         local choices={{id='clear',label='Use track sound / clear note overrides'}}
-        for _,item in ipairs{{'stringArticulation',{'Patch','Open','Palm','Dead'}},{'stringSelect',{'Auto','String 1 / lowest','String 2','String 3','String 4','String 5','String 6','String 7'}},{'pickDirection',{'Down pick','Up pick','Alternate pick'}}} do
+        for _,item in ipairs{{'stringArticulation',{'Patch','Open','Palm / short','Dead / ghost'}},{'stringSelect',{'Auto','String 1 / lowest','String 2','String 3','String 4','String 5','String 6','String 7'}},{'pickDirection',{'Down pick','Up pick','Alternate pick'}}} do
             for n,title in ipairs(item[2]) do choices[#choices+1]={id=item[1]..':'..(n-1),label=(item[1]=='stringArticulation' and 'Attack: ' or '')..title} end
         end
         Dropdown.open(self,choices,nil,function(id)

@@ -34,10 +34,19 @@ namespace MWSound
         { return wire<55?wire:wire<60?ParameterCount+wire-55:wire-5; }
         static const std::array<Parameter, ParameterCount> Parameters;
         using State = std::array<float, ParameterCount>;
+        struct AttackSample
+        {
+            std::shared_ptr<ProceduralSample> data;
+            int root = 60;
+            bool oneShot = false;
+            std::string hash;
+        };
+        using AttackSamples = std::array<AttackSample, 3>; // open, short/palm, dead/ghost
 
         ProceduralSynth();
         bool set(std::string_view name, float value);
-        bool sample(std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash);
+        bool sample(std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash,
+            const AttackSamples& attacks = {});
         bool noteOn(int note, float velocity);
         struct Strike
         {
@@ -98,6 +107,8 @@ namespace MWSound
             int sampleRoot = 60;
             double sampleRootFrequency = 440, sampleMuteEnvelope = 1, sampleMuteLow = 0;
             bool sampleOneShot = false;
+            ProceduralSample* sampleData = nullptr;
+            bool capturedAttack = false;
             unsigned char sampleGroup = 0;
             double filter1 = 0, filter2 = 0;
             double pitchEnvelope = 1;
@@ -131,13 +142,15 @@ namespace MWSound
             }
         };
         SampleSettings mSampleTarget, mSampleCurrent;
-        std::array<unsigned,512> mSampleAlternates{}; // audio-thread zone-group counters
+        std::array<SampleSettings,3> mAttackTarget{}, mAttackCurrent{};
+        std::array<std::array<unsigned,512>,4> mSampleAlternates{}; // independent audio-thread zone-group counters
         // Reclaimed on control calls only. The current audio pointer remains
         // pinned until a later call observes that the callback has switched.
         std::vector<std::shared_ptr<ProceduralSample>> mSamplePins;
-        bool sampleReady() const;
+        const SampleSettings& sampleSettings(unsigned variant) const { return variant ? mAttackCurrent[variant-1] : mSampleCurrent; }
+        bool sampleReady(unsigned variant = 0) const;
         void syncSample(); // mMutex held, audio thread only
-        const ProceduralSample::Zone* sampleZone(int note, float velocity, bool advance);
+        const ProceduralSample::Zone* sampleZone(int note, float velocity, bool advance, unsigned variant = 0);
         void chokeSamples(unsigned group);
         State mTarget{}, mCurrent{};
         // Score-owned overrides are audio-thread state, separate from the editable patch.

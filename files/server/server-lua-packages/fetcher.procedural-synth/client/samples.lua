@@ -21,6 +21,13 @@ function M.status(synth,reference)
     if info.status=='Ready' and reference.hash and info.hash~=reference.hash then
         return {status='Mismatch',error='Installed file differs from the saved sample'}
     end
+    local pending=info
+    for _,attack in ipairs(schema.attackOrder) do if reference.attacks and reference.attacks[attack] then
+        local status=M.status(synth,reference.attacks[attack])
+        if status.status=='Mismatch' or status.status=='Unavailable' then return {status=status.status,error=attack..' attack: '..(status.error or status.status)} end
+        if status.status~='Ready' then pending=status end
+    end end
+    if info.status=='Ready' then return pending end
     return info
 end
 function M.new(synth,vfs,source,dialogue)

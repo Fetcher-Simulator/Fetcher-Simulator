@@ -11,6 +11,16 @@ not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
 
+Package 72 / native API 30 adds recorded per-note open/short/dead bank selection
+without duplicating shared PCM, captured Guitar-TECHS open/palm DI banks, six
+Humbucker sounds, expressive finger bass and four opt-in captured band sets.
+Saved note expression, CC/keyswitches and patch articulation choose the source;
+readiness/identity checks cover every reference. Native voice cursors, alternates,
+looping and source lifetime remain bounded. Existing sounds remain compatible.
+No server C++ changes or public deployment. Same-pitch string unisons, automatic
+fingering persistence, acoustic models, further captured gestures and full-band
+listening/visual acceptance remain open within priority one.
+
 Package 71 / native API 29 adds actual CC0 captured short/ghost finger-bass banks,
 two explicit presets and an editable regular/short/ghost comparison project.
 Existing sounds and sound-set assignments stay intact. Both new banks and the
@@ -619,7 +629,7 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 71 / native synth API 29 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
+package 72 / native synth API 30 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented, together with initial seated keyboard/cello NPC staging.
 

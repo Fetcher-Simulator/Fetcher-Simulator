@@ -17,7 +17,10 @@ for n,t in ipairs(w.project.tracks) do
  f:write('@'..n..'\t'..t.level..'\t'..group..'\n')
  for _,key in ipairs(schema.order) do f:write(key..'='..string.format('%.9g',t.params[key])..'\n') end
  for _,key in ipairs(format.mixerOrder) do f:write('mix.'..key..'='..t.mixer[key]..'\n') end
- if sample then f:write('sample='..sample.path..'\n') end
+ if sample then
+  f:write('sample='..sample.path..'\n')
+  for _,attack in ipairs(schema.attackOrder) do local ref=sample.attacks and sample.attacks[attack];if ref then f:write('sample.'..attack..'='..ref.path..'\n') end end
+ end
  print(n..' '..t.name..' program='..tostring(t.sourceProgram)..' '..t.presetId)
 end
 f:close();print('score notes='..(#score.bytes/11)..' duration='..score.length/S.rate)

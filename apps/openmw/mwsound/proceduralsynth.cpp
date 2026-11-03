@@ -229,46 +229,60 @@ namespace MWSound
         }
         return value;
     }
-    bool ProceduralSynth::sample(std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash)
+    bool ProceduralSynth::sample(std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash,
+        const AttackSamples& attacks)
     {
-        if (root < 0 || root > 127 || (data && (hash.size() != 32
-            || hash.find_first_not_of("0123456789abcdef") != hash.npos))) return false;
+        const auto valid=[](const auto& data,int root,bool oneShot,std::string_view hash,bool variant) {
+            return root>=0 && root<=127 && (!data || (hash.size()==32
+                && hash.find_first_not_of("0123456789abcdef")==hash.npos && (!variant || !oneShot)));
+        };
+        if(!valid(data,root,oneShot,hash,false))return false;
+        for(const auto& attack:attacks)if(!valid(attack.data,attack.root,attack.oneShot,attack.hash,true)
+            || (attack.data && (!data || oneShot)))return false;
+        const auto settings=[](const auto& data,int root,bool oneShot,std::string_view hash) {
+            SampleSettings value;value.data=data.get();value.root=root;value.oneShot=oneShot;
+            if(data)std::copy(hash.begin(),hash.end(),value.hash.begin());return value;
+        };
+        const auto next=settings(data,root,oneShot,hash);std::array<SampleSettings,3> nextAttacks{};
+        for(unsigned n=0;n<3;++n)nextAttacks[n]=settings(attacks[n].data,attacks[n].root,attacks[n].oneShot,attacks[n].hash);
         std::lock_guard lock(mMutex);
-        SampleSettings next; next.data = data.get(); next.root = root; next.oneShot = oneShot;
-        if (data) std::copy(hash.begin(), hash.end(), next.hash.begin());
-        mSamplePins.erase(std::remove_if(mSamplePins.begin(), mSamplePins.end(), [this, &next](const auto& p) {
-            return p.get() != mSampleCurrent.data && p.get() != next.data;
-        }), mSamplePins.end());
-        if (next == mSampleTarget) return true;
-        if (data && std::none_of(mSamplePins.begin(), mSamplePins.end(), [&](const auto& p) { return p == data; }))
-            mSamplePins.push_back(std::move(data));
-        mSampleTarget = next; return true;
+        // All data a current voice could read stays pinned until a later control
+        // call observes the audio thread switching the whole immutable set.
+        mSamplePins.erase(std::remove_if(mSamplePins.begin(),mSamplePins.end(),[&](const auto& p) {
+            if(p.get()==mSampleCurrent.data || p.get()==next.data)return false;
+            for(unsigned n=0;n<3;++n)if(p.get()==mAttackCurrent[n].data || p.get()==nextAttacks[n].data)return false;
+            return true;
+        }),mSamplePins.end());
+        const auto pin=[&](const auto& value) {
+            if(value && std::none_of(mSamplePins.begin(),mSamplePins.end(),[&](const auto& p){return p==value;}))mSamplePins.push_back(value);
+        };
+        pin(data);for(const auto& attack:attacks)pin(attack.data);
+        mSampleTarget=next;mAttackTarget=nextAttacks;return true;
     }
-    bool ProceduralSynth::sampleReady() const
+    bool ProceduralSynth::sampleReady(unsigned variant) const
     {
-        const auto* data = mSampleCurrent.data;
-        return data && data->status.load(std::memory_order_acquire) == ProceduralSample::Ready
-            && data->pcm.size() > 1 && data->hash == std::string_view(mSampleCurrent.hash.data(), 32);
+        const auto& settings=sampleSettings(variant);const auto* data=settings.data;
+        return data && data->status.load(std::memory_order_acquire)==ProceduralSample::Ready
+            && data->pcm.size()>1 && data->hash==std::string_view(settings.hash.data(),32);
     }
     void ProceduralSynth::syncSample()
     {
-        if (mSampleCurrent == mSampleTarget) return;
-        for (auto& voice : mVoices) voice = Voice{};
-        resetConnections();
-        mSampleCurrent = mSampleTarget;
-        mSampleAlternates.fill(0);
+        if(mSampleCurrent==mSampleTarget && mAttackCurrent==mAttackTarget)return;
+        for(auto& voice:mVoices)voice=Voice{};
+        resetConnections();mSampleCurrent=mSampleTarget;mAttackCurrent=mAttackTarget;
+        for(auto& counters:mSampleAlternates)counters.fill(0);
     }
-    const ProceduralSample::Zone* ProceduralSynth::sampleZone(int note,float value,bool advance)
+    const ProceduralSample::Zone* ProceduralSynth::sampleZone(int note,float value,bool advance,unsigned variant)
     {
-        if(!sampleReady())return nullptr;
-        const auto& zones=mSampleCurrent.data->zones;
+        if(!sampleReady(variant))return nullptr;
+        const auto& zones=sampleSettings(variant).data->zones;
         const int velocity=std::clamp(static_cast<int>(std::lround(value*127)),1,127);
         for(std::size_t index=0;index<zones.size();++index)
         {
             const auto& z=zones[index];
             if(note<z.lowKey || note>z.highKey || velocity<z.lowVelocity || velocity>z.highVelocity)continue;
             if(!advance)return &z;
-            const unsigned alternate=mSampleAlternates[index]++%z.alternates;
+            const unsigned alternate=mSampleAlternates[variant][index]++%z.alternates;
             for(const auto& candidate:zones)if(candidate.lowKey==z.lowKey && candidate.highKey==z.highKey
                 && candidate.lowVelocity==z.lowVelocity && candidate.highVelocity==z.highVelocity
                 && candidate.alternate==alternate)return &candidate;
@@ -355,10 +369,17 @@ namespace MWSound
     }
     void ProceduralSynth::apply(Command command)
     {
-        if (mSampleCurrent.data && command.velocity >= 0 && !sampleReady()) return;
-        const auto* zone=command.velocity>=0?sampleZone(command.note,command.velocity,true):nullptr;
-        if(mSampleCurrent.data && command.velocity>=0 && !mSampleCurrent.data->zones.empty() && !zone)return;
-        const bool oneShot=mSampleCurrent.oneShot || (zone && (zone->flags&1));
+        unsigned variant=0;const ProceduralSample::Zone* zone=nullptr;bool oneShot=mSampleCurrent.oneShot;
+        const auto selectSample=[&] {
+            variant=0;const int articulation=command.expression.articulation>=0?command.expression.articulation:int(mCurrent[StringArticulation]);
+            if(articulation>0 && mAttackCurrent[articulation-1].data)variant=unsigned(articulation);
+            if(!mSampleCurrent.data)return true;
+            if(!sampleReady(variant))return false;
+            zone=sampleZone(command.note,command.velocity,true,variant);
+            if(!sampleSettings(variant).data->zones.empty() && !zone)return false;
+            oneShot=sampleSettings(variant).oneShot || (zone && (zone->flags&1));return true;
+        };
+        if(command.velocity>=0 && !selectSample())return;
         reconcileConnections();
         const bool connectible=mConnectionEligible && (!mSampleCurrent.data || (zone && !oneShot));
         const bool releasing=command.velocity<0;
@@ -396,8 +417,8 @@ namespace MWSound
                     v->note=command.note;v->slide.start(connectedOffset,mCurrent[StringSlideTime]);v->age=++mAge;
                     return; // Retain source cursor, resonator, envelopes and picked velocity.
                 }
+                if(releasing && !selectSample()){v->amp.release();v->filter.release();return;}
                 v->note=command.note;pickedConnection=v;
-                if(releasing)zone=sampleZone(command.note,command.velocity,true);
             }
         }
         if(zone && command.velocity>=0)chokeSamples(zone->offBy);
@@ -413,9 +434,10 @@ namespace MWSound
         };
         const auto sampleVoice=[&](Voice& voice) {
             if(!mSampleCurrent.data)return;
+            voice.sampleData=sampleSettings(variant).data;voice.capturedAttack=variant!=0;
             voice.sampleStart=zone?zone->start:0;
-            voice.sampleLength=zone?zone->length:static_cast<unsigned>(mSampleCurrent.data->pcm.size());
-            voice.sampleRoot=zone?zone->root:mSampleCurrent.root;
+            voice.sampleLength=zone?zone->length:static_cast<unsigned>(voice.sampleData->pcm.size());
+            voice.sampleRoot=zone?zone->root:sampleSettings(variant).root;
             voice.sampleRootFrequency=440*std::exp2((voice.sampleRoot-69)/12.0);
             voice.sampleOneShot=oneShot;voice.sampleGroup=zone?zone->group:0;
         };
@@ -425,7 +447,7 @@ namespace MWSound
                 || (!voice.sampleOneShot && !mSampleCurrent.data->zones.empty()));
             if(melodic)
             {
-                settings.articulation=unsigned(command.expression.articulation>=0?command.expression.articulation:int(mCurrent[StringArticulation]));settings.attack=mCurrent[PickAttack];
+                settings.articulation=voice.capturedAttack?1:unsigned(command.expression.articulation>=0?command.expression.articulation:int(mCurrent[StringArticulation]));settings.attack=mCurrent[PickAttack];
                 settings.attackDecay=mCurrent[PickDecay];settings.resonance=mCurrent[StringResonance];
                 settings.pitch=mCurrent[PickPitch];settings.variation=mCurrent[PickVariation];settings.direction=unsigned(command.expression.direction>=0?command.expression.direction:int(mCurrent[PickDirection]));
                 settings.mute=mCurrent[StringMute];settings.decay=mCurrent[StringDecay];settings.damping=mCurrent[StringDamping];
@@ -765,7 +787,7 @@ namespace MWSound
                 if (mSampleCurrent.data)
                 {
                     if (!sampleAvailable) { v = Voice{}; continue; }
-                    const auto& pcm = mSampleCurrent.data->pcm;
+                    const auto& pcm = v.sampleData->pcm;
                     const auto at = static_cast<std::size_t>(v.samplePosition);
                     if (at + 1 >= v.sampleLength) { v = Voice{}; continue; }
                     const double fraction = v.samplePosition - at;

@@ -1,0 +1,19 @@
+Guitar-TECHS — recorded open notes and palm mutes
+Creators: Hegel Emmanuel Pedroza Villalobos, Termeh Taheri, Wallace Abreu,
+Ryan Corey, Iran R. Roman. Guitar-TECHS dataset, 2025, player 2 DI.
+Source: https://zenodo.org/records/14963133
+Project: https://guitar-techs.github.io/
+Paper: Pedroza et al., Guitar-TECHS: An Electric Guitar Dataset Covering
+Techniques, Musical Excerpts, Chords and Scales Using a Diverse Array of
+Hardware, ICASSP 2025. https://arxiv.org/abs/2501.03720
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+https://creativecommons.org/licenses/by/4.0/
+
+Fetcher adaptation, 2026: selected sparse pitches from the original player 2
+EVH Wolfgang neck-pickup direct input, MIDI-guided attack alignment,
+mono averaging, per-root strength normalization, finite tails/end fades,
+48-kHz PCM16 conversion and bounded Fetcher bank maps. No harmonic restoration.
+One recorded performance per root; no invented velocity layers/round robins.
+Source/archive/sample/output identities and exact cuts/gains are recorded in
+manifests/guitar-techs-open-v1.json and guitar-techs-palm-v1.json.
+No endorsement by the authors or equipment manufacturers is implied.

@@ -94,7 +94,7 @@ function E:slider(name,title,x,y,width)
     elseif name:find('tune') or name:find('fine') or name:find('Amount') then spec.step=1 end
     local labels={wave1=waves,wave2=waves,enabled2={'Off','On'},lfoTarget={'Pitch','Filter','Amplitude'},drumType={'Synth','Kick','Snare','Closed hat','Open hat'},
         instrumentType={'Oscillators','Plucked string'},driveType={'Off','Overdrive','Distortion','Fuzz'},cabinet={'Off','Small speaker','Open speaker','Dark stack','IR V30 / SM57','IR DV77 / SM57','IR Rockdriver / e606'},
-        stringArticulation={'Patch','Open','Palm mute','Dead / choked'},pickDirection={'Down','Up','Alternate'},parallelShape={'Soft clip','Hard clip','Wavefold','Rectify'},stringLegato={'Poly / off','Legato','Picked slides'},
+        stringArticulation={'Patch','Open','Palm / short','Dead / ghost'},pickDirection={'Down','Up','Alternate'},parallelShape={'Soft clip','Hard clip','Wavefold','Rectify'},stringLegato={'Poly / off','Legato','Picked slides'},
         stringLayout={'Single voice','Guitar E','Drop D','Drop C','7-string B','Bass E','5-string B'},stringSelect={'Auto','1 / lowest','2','3','4','5','6','7 / highest'}}
     local caption=labels[name] and function() return title..' / '..(labels[name][self.params[name]+1] or '') end or title
     local element,refresh=Controls.slider(self,name,caption,spec,function() return self.params[name] end,function(value)
@@ -275,7 +275,7 @@ function E:render()
             {'stringSlideTime','Slide time'},{'stringLayout','Voices / tuning'},{'stringSelect','String'}}) do slider(item[1],item[2],x3,185+(n-1)*44,col-20) end
         if not params.sample and params.instrumentType==1 then slider('stringPick','Pick position',x1,405,col-20) end
         content[#content+1]=label('Pick / articulation latch at picked attacks.',x1,455,col-20,11,colors.muted)
-        content[#content+1]=label('Use Auto for phrase / string changes.',x1,478,col-20,11,colors.muted)
+        content[#content+1]=label(params.sample and params.sample.attacks and 'Captured attacks: 2 short/palm; 3 dead/ghost.' or 'Use Auto for phrase / string changes.',x1,478,col-20,11,colors.muted)
         content[#content+1]=label('Strings count from lowest to highest.',x3,455,col-20,11,colors.muted)
         content[#content+1]=label('Auto uses free strings, then connects.',x3,478,col-20,11,colors.muted)
         content[#content+1]=label('Out-of-range notes play normally; 24 frets.',x3,500,col-20,11,colors.muted)

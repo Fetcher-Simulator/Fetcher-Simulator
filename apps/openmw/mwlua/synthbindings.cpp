@@ -23,6 +23,7 @@ namespace MWLua
             int root = 60;
             bool oneShot = false;
             std::string hash;
+            MWSound::ProceduralSynth::AttackSamples attacks{};
         };
         SampleSettings readSample(const sol::object& value)
         {
@@ -41,6 +42,20 @@ namespace MWLua
             if(path.ends_with(".fsb") && (root!=60 || result.oneShot))
                 throw std::invalid_argument("Instrument banks use fixed zone roots and gated playback");
             result.root = static_cast<int>(root);
+            const sol::object attacks=table["attacks"];
+            if(attacks.valid() && attacks!=sol::nil)
+            {
+                if(!path.ends_with(".fsb"))throw std::invalid_argument("Attack variants require instrument banks");
+                const auto variants=attacks.as<sol::table>();const std::array<const char*,3> names{"open","short","dead"};
+                for(unsigned n=0;n<names.size();++n)
+                {
+                    const sol::object child=variants[names[n]];if(!child.valid() || child==sol::nil)continue;
+                    const auto settings=child.as<sol::table>();const sol::object nested=settings["attacks"];
+                    if((nested.valid() && nested!=sol::nil) || !settings["path"].get<std::string>().ends_with(".fsb"))
+                        throw std::invalid_argument("Invalid nested attack bank");
+                    auto ref=readSample(child);result.attacks[n]={std::move(ref.data),ref.root,ref.oneShot,std::move(ref.hash)};
+                }
+            }
             result.data = MWBase::Environment::get().getSoundManager()->requestSample(std::move(path), offset, duration);
             return result;
         }
@@ -79,10 +94,10 @@ namespace MWLua
                 "voices", sol::property(&Synth::voices), "sample",
                 [](Synth& synth, const sol::object& value) {
                     auto s = readSample(value);
-                    return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash);
+                    return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash, s.attacks);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 29;
+            api["version"] = 30;
             api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
                 const auto path = manager->exportStudioMidi(name, bytes);
                 sol::table result(lua, sol::create);
@@ -163,7 +178,7 @@ namespace MWLua
                         state[i] = values[Synth::Parameters[i].name].get_or(Synth::Parameters[i].initial);
                     auto sample = readSample(values["sample"]);
                     return studio.configure(n, state, level, audible.value_or(true))
-                        && studio.sample(n, std::move(sample.data), sample.root, sample.oneShot, sample.hash);
+                        && studio.sample(n, std::move(sample.data), sample.root, sample.oneShot, sample.hash, sample.attacks);
                 },
                 "start",
                 [](Studio& studio, double delay, double offset) {

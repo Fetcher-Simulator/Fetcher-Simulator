@@ -173,3 +173,35 @@ sets; GM program 28 selects the appropriate muted preset. These model a damped
 recorded note; dedicated muted/release/slap/slide recordings remain follow-up.
 For original riff/power-chord comparison renders, append `riff` after a tool
 mode (`metal`, `metal-muted`, `rock`, `rock-muted`, `funk`, `funk-muted`, `lead`).
+
+## Package 72: original Guitar-TECHS captures and per-note selection
+
+The new `guitar-techs-open-v1` / `guitar-techs-palm-v1` banks use original player 2
+EVH Wolfgang neck-pickup direct input, from Guitar-TECHS (Pedroza et al., 2025),
+https://zenodo.org/records/14963133 . The source is CC BY 4.0, verified in the
+published dataset metadata and https://guitar-techs.github.io/ . Preserve
+`licenses/guitar-techs-ATTRIBUTION.txt` and accompanying legal text. These banks
+are not CC0; each catalog entry records its own license.
+
+Thirteen sparse roots 40-86 cover keys 35-86; 35-39 transpose the low-E capture.
+One actual performance per root supplies ordinary velocity scaling without
+invented layers/round robins. The original MIDI selects the highest available
+string for each pitch. Cuts find the first transient above a local noise floor
+within 100 ms of each annotation, retaining 3-ms preroll. Dual-mono DI is averaged
+to 48-kHz PCM16. Each root's initial strength is normalized with a .75 peak cap;
+exact gains/cuts and hashes are in the manifests. Open tails cap at 3 s, palms
+at .7 s, with a 20-ms end fade. No harmonic restoration or external plugin.
+
+Encoded bytes: 3,744,284 open / 873,884 palm. Decoded PCM: 7,488,000 / 1,747,200.
+All ten banks total 262,831,288 decoded bytes, below 256 MiB with 5,604,168 bytes
+remaining. Large additional clips can still reach the budget. Old banks retain
+their identities. API-30 patch references bind existing banks as open/short/dead
+variants without duplicating their shared PCM buffers.
+
+```powershell
+python scripts/procedural-synth-assets/build-guitar-techs-banks.py <source-cache> build/synth-core-tests/Release/sample-bank-tool.exe files/server/optional-assets/fetcher.studio-samples
+```
+
+The converter requires numpy, mido and ffmpeg, verifies the published MD5s and
+records SHA-256 provenance. Runtime evaluates no source scripts or SFZ. Existing
+family converters preserve these separately curated catalog entries.
