@@ -23,7 +23,7 @@ local Published=dofile('files/server/server-lua-packages/fetcher.procedural-synt
 -- Accepted in-game poses are checked separately below against their exports.
 local P=setmetatable({}, {__index=Published});for name,p in pairs(Published.reference) do P[name]=p end
 local checks=0;local function check(value,why) checks=checks+1;assert(value,why) end
-for _,name in ipairs{'guitar','bass'} do
+for _,name in ipairs{'guitar','bass','acoustic','classical'} do
     local profile=Published[name];local neck=profile.rotation*v(0,30,0);local face=profile.rotation*v(0,0,1)
     check(neck.x<0 and neck.z>0 and face.y>.99,'new string model neck points left/up and its strings face away from the player')
     check(Published.defaults[name].LTarget and profile.model:find('/'..name..'.nif',1,true),'new string instrument has independent editable pose defaults')

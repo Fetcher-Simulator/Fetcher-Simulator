@@ -9,6 +9,10 @@ local state=assert(preset('b:sampled-bass-expressive')).state;local ref=assert(s
 check(ref.attacks.short.path:find('bass%-short') and ref.attacks.dead.path:find('bass%-ghost'),'expressive preset uses actual captured sources')
 local key=schema.sampleKey(ref);ref.attacks.short.hash=string.rep('b',32)
 check(schema.sampleKey(ref)~=key,'sample identity includes every attack fingerprint');ref=assert(schema.sample(state.sample))
+local calibrated=assert(schema.sample(ref));calibrated.gain=4;calibrated.attacks.short.gain=6
+check(schema.sample(calibrated).attacks.short.gain==6 and schema.sampleKey(calibrated)~=key,'source input calibration persists and invalidates the reference cache')
+for _,gain in ipairs{0,9,0/0,'2',false} do calibrated.gain=gain;check(not schema.sample(calibrated),'invalid or unbounded recording gain rejects') end
+calibrated=schema.sample(ref);calibrated.gain=1;check(schema.sample(calibrated).gain==nil and schema.sampleKey(schema.sample(calibrated))==key,'old unity sample references retain canonical identity')
 local p=F.new();p.tracks[1]=F.newTrack('piano','Expression',16);p.tracks[1].params=state
 check(F.project(p).tracks[1].params.sample.attacks.dead.hash==ref.attacks.dead.hash,'private/shared project validation retains attack maps')
 for _,bad in ipairs{

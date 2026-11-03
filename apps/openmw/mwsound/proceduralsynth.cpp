@@ -230,21 +230,22 @@ namespace MWSound
         return value;
     }
     bool ProceduralSynth::sample(std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash,
-        const AttackSamples& attacks)
+        const AttackSamples& attacks, float gain)
     {
         const auto valid=[](const auto& data,int root,bool oneShot,std::string_view hash,bool variant) {
             return root>=0 && root<=127 && (!data || (hash.size()==32
                 && hash.find_first_not_of("0123456789abcdef")==hash.npos && (!variant || !oneShot)));
         };
-        if(!valid(data,root,oneShot,hash,false))return false;
+        const auto validGain=[](float value){return std::isfinite(value) && value>=.25f && value<=8;};
+        if(!valid(data,root,oneShot,hash,false) || !validGain(gain))return false;
         for(const auto& attack:attacks)if(!valid(attack.data,attack.root,attack.oneShot,attack.hash,true)
-            || (attack.data && (!data || oneShot)))return false;
+            || !validGain(attack.gain) || (attack.data && (!data || oneShot)))return false;
         const auto settings=[](const auto& data,int root,bool oneShot,std::string_view hash) {
             SampleSettings value;value.data=data.get();value.root=root;value.oneShot=oneShot;
             if(data)std::copy(hash.begin(),hash.end(),value.hash.begin());return value;
         };
-        const auto next=settings(data,root,oneShot,hash);std::array<SampleSettings,3> nextAttacks{};
-        for(unsigned n=0;n<3;++n)nextAttacks[n]=settings(attacks[n].data,attacks[n].root,attacks[n].oneShot,attacks[n].hash);
+        auto next=settings(data,root,oneShot,hash);next.gain=gain;std::array<SampleSettings,3> nextAttacks{};
+        for(unsigned n=0;n<3;++n){nextAttacks[n]=settings(attacks[n].data,attacks[n].root,attacks[n].oneShot,attacks[n].hash);nextAttacks[n].gain=attacks[n].gain;}
         std::lock_guard lock(mMutex);
         // All data a current voice could read stays pinned until a later control
         // call observes the audio thread switching the whole immutable set.
@@ -317,7 +318,7 @@ namespace MWSound
         const int selected=(selection>=0?selection:int(mCurrent[StringSelect]))-1;
         const auto playable=[&](int group){return tuning[group]>=0 && note>=tuning[group] && note<=tuning[group]+24;};
         if(selected>=0)return playable(selected)?selected:-1;
-        const auto& previous=(*mConnectionKeys)[note];
+        const auto& previous=(*mConnectionKeys)[keyIndex(note,selection)];
         if(previous.velocity>0 && previous.group>=0 && playable(previous.group))return previous.group;
         int best=-1,bestCost=100000;
         for(int group=0;group<7;++group)if(playable(group))
@@ -325,7 +326,7 @@ namespace MWSound
             const int index=mConnectionVoices[group];
             const auto* voice=index>=0?&mVoices[index]:nullptr;
             const bool held=voice && voice->connection==group && voice->note>=0 && voice->amp.stage!=0
-                && voice->amp.stage!=4 && (*mConnectionKeys)[voice->note].velocity>0;
+                && voice->amp.stage!=4 && (*mConnectionKeys)[voice->key].velocity>0;
             const int cost=held?1000+std::abs(note-voice->note)*32+note-tuning[group]:note-tuning[group];
             if(cost<bestCost){best=group;bestCost=cost;}
         }
@@ -354,13 +355,13 @@ namespace MWSound
         {
             auto& v=mVoices[i];if(v.note<0 || v.drumType || v.sampleOneShot || !v.amp.stage || v.amp.stage==4
                 || v.instrumentType!=(mSampleCurrent.data?0:int(mCurrent[InstrumentType])))continue;
-            auto& key=(*mConnectionKeys)[v.note];if(key.velocity<=0)continue;
+            auto& key=(*mConnectionKeys)[v.key];if(key.velocity<=0)continue;
             const int group=connectionGroup(v.note,key.expression.selection);if(group<0)continue;
             const int previous=mConnectionVoices[group];
             if(previous>=0)
             {
                 auto& other=mVoices[previous];
-                if((*mConnectionKeys)[other.note].order>key.order)
+                if((*mConnectionKeys)[other.key].order>key.order)
                     {key.group=group;v.amp.release();v.filter.release();v.drumChoke=true;continue;}
                 other.amp.release();other.filter.release();other.drumChoke=true;other.connection=-1;
             }
@@ -384,9 +385,17 @@ namespace MWSound
         const bool connectible=mConnectionEligible && (!mSampleCurrent.data || (zone && !oneShot));
         const bool releasing=command.velocity<0;
         auto& keys=*mConnectionKeys;
-        const int group=releasing?keys[command.note].group:connectible?connectionGroup(command.note,command.expression.selection):-1;
-        if(command.velocity<0)keys[command.note]={};
-        else if(connectible)keys[command.note]={command.velocity,++mConnectionSerial,group,command.expression};
+        if(releasing && command.identity<0)
+        {
+            // Plain live note-off releases every explicit string at this pitch.
+            // Native score gates supply the exact attack-time identity instead.
+            for(unsigned string=0;string<8;++string)apply({command.note,-1,{},command.note+int(string*128)});
+            return;
+        }
+        unsigned key=command.identity>=0?unsigned(command.identity):keyIndex(command.note,command.expression.selection);
+        const int group=releasing?keys[key].group:connectible?connectionGroup(command.note,command.expression.selection):-1;
+        if(releasing)keys[key]={};
+        else if(connectible)keys[key]={command.velocity,++mConnectionSerial,group,command.expression};
         Voice* pickedConnection=nullptr;double connectedOffset=0;
         if(mConnectionMode && group>=0 && (command.velocity<0 || connectible))
         {
@@ -394,11 +403,11 @@ namespace MWSound
             Voice* v=index>=0?&mVoices[index]:nullptr;
             if(v && (v->note<0 || !v->amp.stage || v->amp.stage==4 || v->drumType || v->sampleOneShot
                 || v->connection!=group || v->instrumentType!=(mSampleCurrent.data?0:int(mCurrent[InstrumentType]))))v=nullptr;
-            if(!v)for(unsigned n=0;n<keys.size();++n)if(int(n)!=command.note && keys[n].group==group)keys[n]={};
+            if(!v)for(unsigned n=0;n<keys.size();++n)if(n!=key && keys[n].group==group)keys[n]={};
             bool connect=false;
             if(command.velocity<0)
             {
-                if(!v || command.note!=v->note)
+                if(!v || key!=v->key)
                 {
                     // A stolen/expired string voice has no return target. Still
                     // release any ordinary voice with this pitch below.
@@ -406,23 +415,24 @@ namespace MWSound
                 }
                 std::uint64_t newest=0;int target=-1;
                 if(v)for(unsigned n=0;n<keys.size();++n)if(keys[n].group==group && keys[n].velocity>0 && keys[n].order>newest){newest=keys[n].order;target=int(n);}
-                if(target>=0){command={target,keys[target].velocity,keys[target].expression};connect=true;}
+                if(target>=0){command={target%128,keys[target].velocity,keys[target].expression,target};key=unsigned(target);connect=true;}
             }
-            else connect=v && v->note!=command.note && keys[v->note].velocity>0;
+            else connect=v && v->key!=key && keys[v->key].velocity>0;
             if(connect)
             {
                 connectedOffset=v->note+v->slide.offset()-command.note;
                 if(mConnectionMode==1)
                 {
-                    v->note=command.note;v->slide.start(connectedOffset,mCurrent[StringSlideTime]);v->age=++mAge;
+                    v->note=command.note;v->key=key;v->slide.start(connectedOffset,mCurrent[StringSlideTime]);v->age=++mAge;
                     return; // Retain source cursor, resonator, envelopes and picked velocity.
                 }
                 if(releasing && !selectSample()){v->amp.release();v->filter.release();return;}
-                v->note=command.note;pickedConnection=v;
+                v->note=command.note;v->key=key;pickedConnection=v;
             }
         }
         if(zone && command.velocity>=0)chokeSamples(zone->offBy);
         const auto prepareConnection=[&](Voice& v) {
+            v.key=key;
             v.slide.start(&v==pickedConnection?connectedOffset:0,mCurrent[StringSlideTime]);
             v.connection=mConnectionMode && connectible?group:-1;
             if(v.connection>=0)
@@ -434,7 +444,7 @@ namespace MWSound
         };
         const auto sampleVoice=[&](Voice& voice) {
             if(!mSampleCurrent.data)return;
-            voice.sampleData=sampleSettings(variant).data;voice.capturedAttack=variant!=0;
+            voice.sampleData=sampleSettings(variant).data;voice.sampleGain=sampleSettings(variant).gain;voice.capturedAttack=variant!=0;
             voice.sampleStart=zone?zone->start:0;
             voice.sampleLength=zone?zone->length:static_cast<unsigned>(voice.sampleData->pcm.size());
             voice.sampleRoot=zone?zone->root:sampleSettings(variant).root;
@@ -455,7 +465,7 @@ namespace MWSound
             voice.expression.trigger(settings,voice.velocity,voice.age);
         };
         for (auto& voice : mVoices)
-            if (voice.note == command.note)
+            if (voice.note == command.note && voice.key == key)
             {
                 if (command.velocity < 0)
                 {
@@ -798,7 +808,7 @@ namespace MWSound
                     const double fade = std::min({1.0, v.samplePosition / 96,
                         (v.sampleLength - 1 - v.samplePosition) / std::max(96.0, 96 * step)});
                     const auto first=v.sampleStart+at;
-                    sample = (pcm[first] + (pcm[first + 1] - pcm[first]) * fraction) * fade;
+                    sample = (pcm[first] + (pcm[first + 1] - pcm[first]) * fraction) * fade * v.sampleGain;
                     if(!v.sampleOneShot) {
                         if(sampleMute>0 && v.expression.articulation()==0) {
                             const double frequency=std::clamp(v.sampleRootFrequency*step

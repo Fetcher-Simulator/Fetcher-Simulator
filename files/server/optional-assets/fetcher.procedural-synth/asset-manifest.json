@@ -5,13 +5,18 @@
   "files": [
     {
       "path": "ATTRIBUTION.txt",
-      "bytes": 10533,
-      "sha256": "89a8743b2e145352f07446f86157001b9704a265a3166d62e3787e021b80133a"
+      "bytes": 11505,
+      "sha256": "afcc67906f9af1979adc39baa218fcf6fd30ebee550656822ad2a840c2bdd3b4"
     },
     {
       "path": "conversion-report.json",
       "bytes": 1711,
       "sha256": "82793707d221bdb2110f28720cd6b1b7d7947c9044673be84397d909ef61d479"
+    },
+    {
+      "path": "icons/fetcher/orchestra/acoustic.dds",
+      "bytes": 22000,
+      "sha256": "396b647d3fc722f7cb840845607c33724c86a74cce72241f8501bb27638f94ee"
     },
     {
       "path": "icons/fetcher/orchestra/bass.dds",
@@ -32,6 +37,11 @@
       "path": "icons/fetcher/orchestra/clarinet.dds",
       "bytes": 22000,
       "sha256": "4018f71e934f7bf78bcb7c6fa6bb119b71340d14f4032cdc12d13bd89911efc2"
+    },
+    {
+      "path": "icons/fetcher/orchestra/classical.dds",
+      "bytes": 22000,
+      "sha256": "3d683e01a4311e3436f31a0e866512a34d4b5420db430db24151f87ed8799a6c"
     },
     {
       "path": "icons/fetcher/orchestra/drumkit.dds",
@@ -94,6 +104,11 @@
       "sha256": "93c5ae2faa89427183ebcada515ebfce48e578fd447483c9a18f5b596fd1ad21"
     },
     {
+      "path": "meshes/fetcher/orchestra/acoustic.nif",
+      "bytes": 444272,
+      "sha256": "0404976418ca515f83597f0f8cf7db46a081c22ceef2743eaad746117985c753"
+    },
+    {
       "path": "meshes/fetcher/orchestra/bass.nif",
       "bytes": 1613863,
       "sha256": "80201d15869556828c7a157693254743215d0d3251d75c51076facab86ecf2e3"
@@ -112,6 +127,11 @@
       "path": "meshes/fetcher/orchestra/clarinet.nif",
       "bytes": 663180,
       "sha256": "f4a7e3032a4093ac78ee91155d44c14768e66984f076bc07d0c2f9bfe59cf571"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/classical.nif",
+      "bytes": 205338,
+      "sha256": "0e939743e6bffc9629a10b6ea7803dd9d633a95c6e23b6a0ec07243ea112cbc3"
     },
     {
       "path": "meshes/fetcher/orchestra/drumkit.nif",
@@ -185,13 +205,13 @@
     },
     {
       "path": "ORCHESTRA-ASSETS.txt",
-      "bytes": 7817,
-      "sha256": "ef6d720364c51508b4b4db12c709eddb6a8ce879b4159c6cab3a049e3fb03610"
+      "bytes": 8789,
+      "sha256": "72b16ed3a5c582b26a88ec06f7f832836ec30c2d500e788f4a2485cf1253a729"
     },
     {
       "path": "orchestra-report.json",
-      "bytes": 5826,
-      "sha256": "9a79aac7f74685b7fd561b45b1af65c98ba5afc784737bfacb9c8d55de86418e"
+      "bytes": 6671,
+      "sha256": "c795fe8dd937319ddb45adfe2f6fb22c0c9ab0dc89fbc02dbca4b9552427d915"
     },
     {
       "path": "provenance.json",
@@ -205,13 +225,13 @@
     },
     {
       "path": "sketchfab-models.json",
-      "bytes": 9072,
-      "sha256": "f3580612a73cdf1d43990e75d417962cf9a52315a5b1bf009aabfd0c93c5a7f4"
+      "bytes": 10387,
+      "sha256": "57474404440fce327a161163905d816912c62d01a85f9b6de64a9535a8b054d1"
     },
     {
       "path": "sketchfab-orchestra-report.json",
-      "bytes": 5826,
-      "sha256": "9a79aac7f74685b7fd561b45b1af65c98ba5afc784737bfacb9c8d55de86418e"
+      "bytes": 6671,
+      "sha256": "c795fe8dd937319ddb45adfe2f6fb22c0c9ab0dc89fbc02dbca4b9552427d915"
     },
     {
       "path": "stage-provenance.json",
@@ -222,6 +242,21 @@
       "path": "stage-report.json",
       "bytes": 881,
       "sha256": "60e65f09d1cf97c5a205c1dec5cf5eb68e797b30067c497e67077933248686d4"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_acoustic_0.dds",
+      "bytes": 152,
+      "sha256": "1ced77a4395fffa9f2e33881840c3a8a08cad15044c05cbb4d009a0ff48ad3c6"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_acoustic_1.dds",
+      "bytes": 152,
+      "sha256": "70ba9aa4e462994a1af22814db849e9dfd7119581ba560b8ca18f5f4ebbf7ef8"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_acoustic_2.dds",
+      "bytes": 152,
+      "sha256": "6e201d06a0e25882341478801074c49aff709b051539afb189dc03f316f36694"
     },
     {
       "path": "textures/fetcher/orchestra/cc_bass_0.dds",
@@ -312,6 +347,76 @@
       "path": "textures/fetcher/orchestra/cc_clarinet_9.dds",
       "bytes": 152,
       "sha256": "07e5b249e425087969b1fc042a9acc06e3ef4e496ba1e01dda1eac8b8432db81"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_classical_0.dds",
+      "bytes": 699192,
+      "sha256": "e7597144b5b04f732bfbd36a48dec9ed63842dca42ed6a3ece95a1e8fc84b032"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_classical_0_n.dds",
+      "bytes": 1398256,
+      "sha256": "90034e007c44c96764da80df2f4ead62f0bd90486d50625ccf72416f46e1d240"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_classical_1.dds",
+      "bytes": 699192,
+      "sha256": "82a6cfa46b2e73f03620a4ea452e90a7c826bba7aefd951ede6640e026b5f31e"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_classical_1_n.dds",
+      "bytes": 1398256,
+      "sha256": "c7a4fe4a9d7ce2870f397ab8f073f6ee24ad14ea5e6c0fe2af1d911154455dfe"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_classical_2.dds",
+      "bytes": 699192,
+      "sha256": "51ae879fa24b3b0e520f3d2d4686879ccef426f68b67ea7a326ea6b63d81dbdb"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_classical_2_n.dds",
+      "bytes": 1398256,
+      "sha256": "2e1f7dafd4294309c6750d2c3a2735c6415fa9b87a6fbf528b5cfb7da170c5bf"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_classical_3.dds",
+      "bytes": 699192,
+      "sha256": "b838079476a11652798f2d2c0c6a22f6795e2585276594a21f425646a78c713f"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_classical_3_n.dds",
+      "bytes": 1398256,
+      "sha256": "67811aaddffd9994260ec03c84abd59e947ae1654f916f4c2aa562c222bbd7e9"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_classical_4.dds",
+      "bytes": 152,
+      "sha256": "95f2db3ea2be2f02ed19ae4c73ed41c7dce6e33c6aa5bd71e248e5448d71c26d"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_classical_5.dds",
+      "bytes": 699192,
+      "sha256": "82a6cfa46b2e73f03620a4ea452e90a7c826bba7aefd951ede6640e026b5f31e"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_classical_5_n.dds",
+      "bytes": 1398256,
+      "sha256": "c7a4fe4a9d7ce2870f397ab8f073f6ee24ad14ea5e6c0fe2af1d911154455dfe"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_classical_6.dds",
+      "bytes": 699192,
+      "sha256": "82a6cfa46b2e73f03620a4ea452e90a7c826bba7aefd951ede6640e026b5f31e"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_classical_6_n.dds",
+      "bytes": 1398256,
+      "sha256": "c7a4fe4a9d7ce2870f397ab8f073f6ee24ad14ea5e6c0fe2af1d911154455dfe"
+    },
+    {
+      "path": "textures/fetcher/orchestra/cc_classical_7.dds",
+      "bytes": 152,
+      "sha256": "1b1ba37c376c9df477e970d03813cb5db06afed26572510788f6ee299cde3a13"
     },
     {
       "path": "textures/fetcher/orchestra/cc_drumkit_0.dds",

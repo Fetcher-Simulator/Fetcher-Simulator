@@ -9,11 +9,14 @@ M.entries={
     {id='clean',name='Clean chords / lead',bpm=92,set='recorded-clean',description='Six-string strums and an overlapping lead phrase over restrained bass and drums.'},
     {id='acoustic',name='Acoustic / classical',bpm=96,set='recorded-clean',description='Steel-string fingerpicking, nylon melody and a quiet acoustic rhythm section.'},
     {id='bass-attacks',name='Recorded bass attacks',bpm=104,set='recorded-funk',description='Bars 1/2/3: regular, captured short, captured ghost bass. Bar 4 alternates the three; guitar and kit stay constant.'},
+    {id='bridge-thrash',name='Bridge thrash / C',bpm=184,set='captured-thrash',description='The reviewed C tone: bridge DI, calibrated amp input and an editable channel low-mid cut. Same phrase and backing as Tight thrash.'},
+    {id='string-unisons',name='Twin-string sustain',bpm=92,set='captured-clean',description='Two strings play the same pitch with different gate lengths. The shorter note releases while the other continues.'},
 }
 function M.find(id) for _,entry in ipairs(M.entries) do if entry.id==id then return entry end end end
 function M.create(id,setId)
     local entry=M.find(id);if not entry or setId and not Sets.find(setId) then return nil end
-    local bassComparison=id=='bass-attacks';if bassComparison then id='funk' end
+    local bassComparison=id=='bass-attacks';local stringUnisons=id=='string-unisons'
+    if bassComparison then id='funk' elseif stringUnisons then id='clean' elseif id=='bridge-thrash' then id='thrash' end
     local p=F.new();p.name='Sound check - '..entry.name;p.bpm=entry.bpm;p.length=64;p.soundSet=setId or entry.set
     p.timeline={beats=16,tempos={{beat=0,tempo=math.floor(60000000/entry.bpm+.5)}}}
     p.composition={bars=4,numerator=4,denominator=4,loopStart=1,loopEnd=4,loop=true}
@@ -24,7 +27,7 @@ function M.create(id,setId)
         local t=F.newTrack('midi',name,64);local index=#p.tracks+1;p.tracks[index]=t;notes[index]={}
         t.sourceRole=role;t.sourceProgram=program;t.note=note or 60;t.level=level;t.followPrograms=false
         t.instrument=F.instrumentFor(role,program)
-        t.params,t.presetId=Sets.assignment(p.soundSet,role,true,t.note,t.instrument,program,name)
+        Sets.apply(t,Sets.assignment(p.soundSet,role,true,t.note,t.instrument,program,name))
         return index
     end
     local guitar=track(entry.name..' guitar','guitar',id=='acoustic' and 25 or (id=='funk' and 28 or id=='clean' and 27 or 30),40,.6)
@@ -78,6 +81,16 @@ function M.create(id,setId)
         for step=0,14,2 do add(hat,42,start+step,.4,(soft and .35 or .58)+(step%4==0 and .13 or 0)) end
         if bar==0 or bar==2 then add(cymbal,49,start,.5,soft and .35 or .72) end
         if bar==3 then for n,step in ipairs{13,14,15} do add(tom,45,start+step,.5,.55+n*.09) end end
+    end
+    if stringUnisons then
+        notes[guitar]={};p.tracks[guitar].params.stringLayout=1;p.tracks[guitar].params.stringLegato=2
+        for bar=0,3 do for _,step in ipairs{0,8} do
+            local pitch=({64,66,67,69})[bar+1]
+            for _,string in ipairs{4,5} do
+                add(guitar,pitch,bar*16+step,string==4 and 2 or 6,.75,1)
+                notes[guitar][#notes[guitar]].e.stringSelect=string
+            end
+        end end
     end
     for index,t in ipairs(p.tracks) do
         table.sort(notes[index],function(a,b) return a.s==b.s and a.n<b.n or a.s<b.s end)

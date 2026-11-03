@@ -67,6 +67,6 @@ return function(owner,content)
         local row=p and p.rows[page*5+n];local text=row and string.format('%s / %.4g  >  %d : %d  /  %.2f ms  /  %s',pitch(row.n),row.step,row.string,row.fret,row.delay,row.up and 'Up' or 'Down') or ''
         rows[n]=owner:element(label(text,20,530+(n-1)*22,875,12));content[#content+1]=rows[n]
     end
-    content[#content+1]=label('Pitches/velocities stay intact; later picks keep original ends. Reusing a string can shorten a selected gate.',20,650,890,11)
+    content[#content+1]=label('Apply saves each string/stroke and track tuning. Reusing a string can shorten a selected gate.',20,650,890,11)
     content[#content+1]=label("Linked-source edits affect every placement. Their strum timing follows each placement's tempo.",20,673,890,11)
 end

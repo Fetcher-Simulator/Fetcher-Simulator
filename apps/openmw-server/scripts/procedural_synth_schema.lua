@@ -63,7 +63,7 @@ end
 M.attackOrder={'open','short','dead'}
 function M.sample(input,leaf)
     if type(input)~='table' then return nil end
-    local fields={path=true,offset=true,duration=true,root=true,oneShot=true,hash=true,attacks=not leaf}
+    local fields={path=true,offset=true,duration=true,root=true,oneShot=true,hash=true,gain=true,attacks=not leaf}
     for key in pairs(input) do if not fields[key] then return nil end end
     local path=input.path
     if type(path)~='string' or #path>240 or not (path:sub(1,6)=='sound/' or path:sub(1,6)=='music/')
@@ -77,6 +77,10 @@ function M.sample(input,leaf)
         or input.duration~=1 or input.root~=60 or input.oneShot) then return nil end
     local result={path=path,offset=math.floor(input.offset*1000+0.5)/1000,
         duration=math.floor(input.duration*1000+0.5)/1000,root=input.root,oneShot=input.oneShot,hash=input.hash}
+    if input.gain~=nil then
+        if not number(input.gain,.25,8) then return nil end
+        if input.gain~=1 then result.gain=math.floor(input.gain*1000+.5)/1000 end
+    end
     if input.attacks~=nil then
         if leaf or path:sub(-4)~='.fsb' or type(input.attacks)~='table' then return nil end
         local allowed={open=true,short=true,dead=true};local count=0;result.attacks={}
@@ -93,6 +97,7 @@ function M.isBank(sample) return sample and sample.path:sub(-4)=='.fsb' or false
 function M.sampleKey(sample)
     if not sample then return '' end
     local key=table.concat({sample.path,sample.offset,sample.duration,sample.root,tostring(sample.oneShot),sample.hash},'|')
+    if sample.gain then key=key..'|gain='..sample.gain end
     for _,attack in ipairs(M.attackOrder) do if sample.attacks and sample.attacks[attack] then
         key=key..'|'..attack..'='..M.sampleKey(sample.attacks[attack])
     end end
@@ -327,6 +332,19 @@ for _,entry in ipairs{
     M.builtins[#M.builtins].midiProgram=entry[9]
 end
 M.sampledStrings['sound/fetcher/banks/guitar-techs-open-v1.fsb']=true
+M.sampledStrings['sound/fetcher/banks/guitar-techs-bridge-open-v1.fsb']=true
+-- Bridge DI/input calibration selected after a guitar-level-matched listening
+-- comparison. Its genre/channel EQ is applied by soundsets.apply, separately
+-- from the player's editable instrument/amp preset.
+for _,preset in ipairs(M.builtins) do if preset.id=='b:captured-guitar-thrash' then
+    preset.name='Captured Bridge Thrash'
+    local s=preset.state
+    s.drive=36;s.ampBass=-6;s.ampMid=6;s.ampTreble=8;s.preHighpass=130
+    s.cabinetHighpass=100;s.cabinetLowpass=10000;s.fxOutput=1.219
+    s.sample={path='sound/fetcher/banks/guitar-techs-bridge-open-v1.fsb',offset=0,duration=1,root=60,oneShot=false,hash='909a30a8d7715bef9ef6e59f530f712c',gain=8,
+        attacks={short={path='sound/fetcher/banks/guitar-techs-bridge-palm-v1.fsb',offset=0,duration=1,root=60,oneShot=false,hash='955f9829af20fca5b6975a9b68c47363',gain=8}}}
+end end
+
 do
     local base;for _,preset in ipairs(M.builtins) do if preset.id=='b:sampled-bass-finger' then base=preset end end
     local state=assert(M.state(assert(base).state))

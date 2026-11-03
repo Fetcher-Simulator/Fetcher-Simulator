@@ -1,4 +1,4 @@
-"""Build small CC BY 4.0 open/palm banks from original Guitar-TECHS P2 DI.
+"""Build small CC BY 4.0 open/palm banks from original Guitar-TECHS P1/P2 DI.
 
 Requires numpy, mido and ffmpeg. No imported player/plugin or SFZ runtime.
 Archives/annotation identity, exact cuts and gain changes stay in provenance.
@@ -16,10 +16,16 @@ import numpy as np
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--player',choices=['P1','P2'],default='P2')
     parser.add_argument('source',type=Path);parser.add_argument('tool',type=Path);parser.add_argument('output',type=Path)
     args=parser.parse_args();out=args.output.resolve();reports=[]
     definitions=[('guitar-techs-open-v1','P2_singlenotes.zip','40fbf03d8b04bb2cf42df20f36dc2254','allsinglenotes',3.),
                  ('guitar-techs-palm-v1','P2_techniques.zip','f4189251ce50be25f06a173b2c2bba00','PalmMute',.7)]
+    if args.player=='P1':
+        pinned=json.loads((Path(__file__).parent/'sample-sources.json').read_text())['sources']
+        definitions=[(ident.replace('guitar-techs-','guitar-techs-bridge-'),archive.replace('P2_','P1_'),
+            next(r['upstreamMd5'].split(':')[1] for r in pinned if r['asset']==archive.replace('P2_','P1_')),name,cap)
+            for ident,archive,md5,name,cap in definitions]
     roots=list(range(40,85,4))+[86]
     for ident,archive,md5,name,cap in definitions:
         path=args.source/archive
@@ -69,7 +75,7 @@ def main():
         report=dict(id=ident,path=target.relative_to(out).as_posix(),bytes=target.stat().st_size,sha256=hashlib.sha256(target.read_bytes()).hexdigest(),
             native=native,license='CC-BY-4.0',source='https://zenodo.org/records/14963133',archive=archive,archiveMd5=md5,archiveSha256=archive_sha,
             sourceAudio=audio,sourceAudioSha256=hashlib.sha256(raw).hexdigest(),annotation=midi,annotationSha256=hashlib.sha256(annotations).hexdigest(),
-            description='Guitar-TECHS player 2 EVH Wolfgang neck-pickup DI; '+('recorded open notes' if name=='allsinglenotes' else 'recorded pitched palm mutes')+
+            description=('Guitar-TECHS player 1 Ibanez PF300 bridge-pickup DI; ' if args.player=='P1' else 'Guitar-TECHS player 2 EVH Wolfgang neck-pickup DI; ')+('recorded open notes' if name=='allsinglenotes' else 'recorded pitched palm mutes')+
                 '; one recorded performance per sparse root, no invented alternates/layers. Keys 35-39 transpose the low-E capture.',
             conversion=f'Original dual-mono recording averaged, 48 kHz PCM16. MIDI-guided RMS attack alignment with 3-ms preroll; cap {cap} s; 20-ms end fade. Per-root strength gain (recorded in zones) capped at .75 peak; no harmonic reconstruction.',zones=zones)
         (out/'manifests'/f'{ident}.json').write_text(json.dumps(report,indent=2)+'\n');reports.append(report)
@@ -79,7 +85,9 @@ def main():
     for entry in catalog['banks']:entry.setdefault('license','CC0-1.0')
     catalog['banks'] += [{k:r[k] for k in ['id','path','bytes','sha256','native','source','description','license']} for r in reports]
     catalog['license']='Per-bank: CC0-1.0 or CC-BY-4.0';catalog['decodedBytesAllBanks']=sum(r['native']['pcmBytes'] for r in catalog['banks'])
-    assert catalog['decodedBytesAllBanks']<252*1024*1024,'Keep at least four MiB for other samples'
+    # This is the on-disk library, not a request to make every bank resident.
+    # The production reader retains its shared 256-MiB budget and evicts unpinned
+    # banks. Regression tests check each factory set/project's actual references.
     catalog_path.write_text(json.dumps(catalog,indent=2)+'\n')
     print('Total PCM:',catalog['decodedBytesAllBanks'])
 

@@ -11,6 +11,20 @@ not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
 
+Package 73 / native API 32 adds independent same-pitch string keys/gates and
+per-string sustain/live ownership, plus saved automatic fingering/strokes and
+matching tuning in one Undo. Two credited acoustic/classical props join Auto NPC
+routing, inventory/ready controls and the poser. Model fronts, bounds and assets
+pass native NIF/front-side-back inspection. Old saved sounds/props stay intact.
+Client C++ changes only; server Lua changes, no C++ server work or public rollout.
+Detailed finger/stick/pedal presentation, further captured releases/slap/connected
+gestures and subjective/live multi-client acceptance remain within priority one.
+
+The rejected neck-pickup B render is not a tonal milestone. The revised bridge
+C recipe (calibrated input plus channel EQ) is accepted as a clearer starting
+point and available in Captured Band / Thrash and its editable sound check.
+Broader genre/real-song listening and visible-client checks remain open.
+
 Package 72 / native API 30 adds recorded per-note open/short/dead bank selection
 without duplicating shared PCM, captured Guitar-TECHS open/palm DI banks, six
 Humbucker sounds, expressive finger bass and four opt-in captured band sets.
@@ -629,7 +643,7 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 72 / native synth API 30 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
+package 73 / native synth API 32 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented, together with initial seated keyboard/cello NPC staging.
 

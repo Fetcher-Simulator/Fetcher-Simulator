@@ -44,11 +44,10 @@ function M.plan(notes,input,clock,selection,transpose)
     for groupIndex,g in ipairs(groups) do
         if #g.ids>strings then return fail(g,'more simultaneous notes than strings; split the part first.') end
         for s,a in pairs(active) do if out[a.id].s+out[a.id].l<=g.step+minimum*.1 then active[s]=nil end end
-        local candidates,seen={},{ }
+        local candidates={}
         for index,id in ipairs(g.ids) do
             local pitch=notes[id].n+transpose
-            if seen[pitch] then return fail(g,'duplicate unison notes; remove duplicates before fingering.') end
-            seen[pitch]=true;candidates[index]={}
+            candidates[index]={}
             for s,open in ipairs(profile.opens) do local fret=pitch-open
                 local fixed=notes[id].e and notes[id].e.stringSelect
                 if fret>=0 and fret<=o.frets and (not fixed or fixed==0 or fixed==s) then
@@ -87,8 +86,6 @@ function M.plan(notes,input,clock,selection,transpose)
                 if prior and out[prior.id].s+out[prior.id].l>start+minimum*.1 then
                     if not chosenIds[prior.id] or start-out[prior.id].s<minimum*.999 then return end
                 end
-                -- Native voices retrigger by pitch; keep a held unison on its string.
-                for s,a in pairs(active) do if out[a.id].n==n.n and s~=p.string and out[a.id].s+out[a.id].l>start then return end end
                 starts[i]=start
             end
             bestCost=cost;best={}
@@ -117,6 +114,8 @@ function M.plan(notes,input,clock,selection,transpose)
             end
             if chosenIds[id] then
                 local n=out[id];local finish=n.s+n.l
+                local expression={};for key,value in pairs(n.e or {}) do expression[key]=value end
+                expression.stringSelect=p.string;expression.pickDirection=up and 1 or 0;n.e=expression
                 if p.start~=n.s then
                     if math.abs(p.start-n.s)>minimum*.1 then report.shifted=report.shifted+1 end
                     n.s=p.start;n.l=finish-p.start

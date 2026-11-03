@@ -74,8 +74,9 @@ function M.effects(t)
     return out
 end
 M.instruments={keyboard='fetcher_procedural_keyboard_v1',lute='misc_de_lute_01',drum='misc_de_drum_01'}
+M.instrumentNames={acoustic='Acoustic guitar',classical='Classical guitar'}
 M.instrumentModels={}
-for _,name in ipairs{'violin','cello','trumpet','flute','clarinet','timpani','guitar','bass','drumkit'} do
+for _,name in ipairs{'violin','cello','trumpet','flute','clarinet','timpani','guitar','bass','drumkit','acoustic','classical'} do
     M.instruments[name]='fetcher_studio_'..name..'_v1'
     M.instrumentModels[name]={model='meshes/fetcher/orchestra/'..name..'.nif',icon='fetcher/orchestra/'..name..'.dds'}
 end
@@ -84,7 +85,7 @@ function M.instrumentFor(role,program)
     if program==42 or program==43 then return 'cello' end
     if program==47 then return 'timpani' end
     if role=='bass' then return 'bass' end
-    if role=='guitar' then return 'guitar' end
+    if role=='guitar' then return program==24 and 'classical' or program==25 and 'acoustic' or 'guitar' end
     if role=='pluck' then return 'lute' end
     return ({strings='violin',brass='trumpet',reed='clarinet',pipe='flute'})[role] or 'keyboard'
 end

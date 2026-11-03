@@ -1,5 +1,46 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## November 3: unison ownership, saved fingering and acoustic props (package 73)
+
+All 36 Lua suites pass. Guitar-tool tests now check saved string/stroke choices,
+matching track tuning, playable same-pitch unisons, impossible low unisons,
+unchanged pitch/velocity, protected selection, shared sources, save/reload,
+standard MIDI export and one-step Undo/reapply behavior. Band controls expose
+fourteen instruments; F9's new row leaves its footer accessible.
+
+Native unison tests cover two same-pitch strings with unequal gates, the
+aggregate pitch indicator, per-string sustain and pedal-up, plain live key-up,
+loop/block independence and Stop. Existing native sample/expression/automation/
+connection tests pass. Fixed key storage is allocated once on the control thread
+rather than inflating stack frames or allocating during render. The API-32
+Windows client builds; server changes are Lua only and protocol 27 is unchanged.
+
+The two downloaded CC BY models are source-hash/license verified and converted
+to separate NIFs/icons: 14,828 acoustic and 2,579 classical triangles. Their
+soundboard axes were corrected after inspecting the initial reversed previews.
+The actual converted NIFs are rendered from front/side/back alongside electric
+guitar, bass and kit. Asset validation checks all 130 files, 57 texture references
+and 15 credited sources. Runtime pose defaults share the canonical guitar axes
+and remain independently editable; in-game hand/actor fit is not yet accepted.
+
+Local installation preserves user state and old assets; no public/VPS changes.
+Full-band listening and visible-client/multi-user acceptance remain pending.
+
+The optional source-calibration gain validates finite .25–8 values on both
+Lua/native boundaries; unity retains old reference identity and PCM. Tests check
+base/variant persistence and native gain scaling. The native client API is 32.
+
+The user rejected B as quieter/muddier and accepted corrected C as a clearer
+starting point. Guitar-only integrated levels are -37.17/-37.19 LUFS before a
+common review gain; full-band levels -30.80/-30.81 LUFS, with unchanged backing.
+The production bridge sound-check render differs from C by at most 1/32768 PCM.
+Source, input gain and channel EQ round-trip together; tests check genre cycling,
+compression/send preservation, customized EQ preservation and Undo. Both new
+bridge bank identities/cuts/credits validate, alongside all ten older files.
+The on-disk bank library is distinct from the unchanged 256-MiB resident limit;
+each factory set's union of possible references and every exercise fit under
+252 MiB. No C++ server changes or network-control renumbering are required.
+
 ## November 3: recorded attack selection and guitar captures (package 72 / API 30)
 
 All 36 Lua suites and four native CTests pass, including new bounded sample-map

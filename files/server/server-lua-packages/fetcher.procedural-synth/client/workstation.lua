@@ -155,7 +155,7 @@ function W:addPart(role)
     local index=#self.project.tracks+1;local t=format.newTrack('midi',role..' '..index,self.project.length)
     t.part='';t.sourceRole=role;t.instrument=format.instrumentFor(role);t.edited=format.encodeNotes({},960)
     t.note=({kick=36,snare=38,hat=42,openhat=46,tom=45,pedalhat=44,rim=37,clap=39,crash=49,ride=51,ridebell=53,cowbell=56,tambourine=54,shaker=70,percussion=76})[role] or 60
-    t.params,t.presetId=SoundSets.assignment(SoundSets.find(self.project.soundSet) and self.project.soundSet or 'balanced',role,true,t.note,t.instrument)
+    SoundSets.apply(t,SoundSets.assignment(SoundSets.find(self.project.soundSet) and self.project.soundSet or 'balanced',role,true,t.note,t.instrument))
     self.project.tracks[index]=t;self.selected=index;self.noteSelection={};self.noteCache={}
     self.base=math.max(0,math.min(116,math.floor(t.note/12)*12));self:configureAll();self:touch();return true
 end
@@ -425,7 +425,7 @@ function W:preset(index,id)
             local params=schema.state(p.state);if not params then return false end
             params.polyphony=math.min(8,params.polyphony)
             local wasSample=t.params.sample~=nil
-            t.params=params;t.presetId=id;self.project.soundSet=''
+            SoundSets.apply(t,params,id);self.project.soundSet=''
             if params.sample then t.followPrograms=false end
             if t.kind=='drum' and params.sample and not schema.isBank(params.sample) then
                 if t.note~=params.sample.root and self.native and self.playing then self.sequenceDirty=true end
@@ -456,7 +456,7 @@ function W:applySoundSet(id)
     end
     local programChanged=false
     for n,t in ipairs(self.project.tracks) do
-        t.params=changes[n][1];t.presetId=changes[n][2]
+        SoundSets.apply(t,changes[n][1],changes[n][2])
         if t.params.sample and t.followPrograms then t.followPrograms=false;programChanged=true end
     end
     self.project.soundSet=id;self:configureAll();self:touch('soundset:'..self.generation)
@@ -719,12 +719,18 @@ function W:applyGuitar()
         self.guitarPreview=nil;self.guitarStatus='Preview again: the source, selection or settings changed.';self.revision=self.revision+1;return false
     end
     if self.recording or self.failedTake then self.cb.message('Keep or cancel the take before applying guitar notes.');return false end
-    if equal(p.original,p.notes) then
+    local layout
+    for n,profile in ipairs(Tools.profiles) do if profile.id==options.profile then layout=n end end
+    if equal(p.original,p.notes) and t.params.stringLayout==layout and not t.followPrograms then
         self.guitarStatus='Fingering fits; no timing or gate changes needed.';self.guitarPreview=nil;self.revision=self.revision+1;return true
     end
     self.lastEditKey=nil
     local before=self.generation
-    if not self:storeNotes(p.index,p.notes,'note:guitar:'..p.index) then return false end
+    local prior,follow,preset=t.params,t.followPrograms,t.presetId;local params=assert(schema.state(prior));params.stringLayout=layout
+    t.params=params;t.followPrograms=false;if prior.stringLayout~=layout then t.presetId='' end
+    if not self:storeNotes(p.index,p.notes,'note:guitar:'..p.index) then t.params=prior;t.followPrograms=follow;t.presetId=preset;return false end
+    if self.generation==before and (prior.stringLayout~=layout or follow) then self:touch('note:guitar:'..p.index) end
+    self:configure(p.index)
     self.guitarPreview=nil;self.guitarStatus=self.generation==before and 'Fingering fits; no timing or gate changes needed.' or 'Applied. Play to hear it; Undo restores the previous notes.';self.revision=self.revision+1;return true
 end
 function W:storeNotes(index,notes,key,quiet)
@@ -823,7 +829,7 @@ function W:import(song,path)
         local t=old[p.id] or format.newTrack('midi',p.name:sub(1,48),self.project.length)
         if not old[p.id] then
             t.instrument=format.instrumentFor(SoundSets.role(p),p.program)
-            t.params,t.presetId=SoundSets.assignment(SoundSets.find(self.project.soundSet) and self.project.soundSet or 'balanced',SoundSets.role(p),true,p.note,t.instrument,p.program,p.name)
+            SoundSets.apply(t,SoundSets.assignment(SoundSets.find(self.project.soundSet) and self.project.soundSet or 'balanced',SoundSets.role(p),true,p.note,t.instrument,p.program,p.name))
         end
         t.part=p.id;tracks[#tracks+1]=t
         if not t.edited then

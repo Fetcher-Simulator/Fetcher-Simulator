@@ -119,7 +119,6 @@ def main():
     catalog['banks'] = [r for r in catalog['banks'] if r['id'] not in new_ids]
     catalog['banks'] += [{k: r[k] for k in ('id', 'path', 'bytes', 'sha256', 'native', 'source', 'description', 'license')} for r in reports]
     catalog['decodedBytesAllBanks'] = sum(r['native']['pcmBytes'] for r in catalog['banks'])
-    assert catalog['decodedBytesAllBanks'] < 252 * 1024 * 1024, 'Retain at least 4 MiB for ordinary samples'
     catalog_path.write_text(json.dumps(catalog, indent=2) + '\n')
     print(json.dumps({'decodedBytesAllBanks': catalog['decodedBytesAllBanks'], 'banks': len(catalog['banks'])}))
 

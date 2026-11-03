@@ -663,7 +663,7 @@ api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrum
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
 -- Reproduce loaded-song reuse from the actual Studio callbacks, including Band.
-package.loaded['openmw.synth'].version=30
+package.loaded['openmw.synth'].version=32
 local paths={'midi/a.mid','midi/b.mid'};local files={}
 local function midiBytes(pitch,count)
     local events={};for n=1,count or 1 do events[#events+1]=string.char(0,144,pitch,100,96,128,pitch,0) end
@@ -1055,7 +1055,7 @@ do
     check(w.memberPage==3 and button('Members 25-32 v'),'member roster pages independently through all 32 performers')
     w.selected=1;w.revision=w.revision+1;now=now+.01;lastStudio:frame(now)
     button('Part 1: drumkit v').events.mouseClick()
-    check(#lastStudio.dropdown.entries==12,'Band exposes all twelve physical instruments and the full-kit fallback')
+    check(#lastStudio.dropdown.entries==14,'Band exposes fourteen physical instruments including acoustic/classical guitars')
     local popup=lastStudio.dropdown;popup.field.layout.events.textChanged('flute')
     w.selected=2;popup.rows[1].layout.events.mouseClick()
     check(w.project.tracks[1].instrument=='flute' and w.project.tracks[2].instrument==nil,'instrument picker retains its original part if selection changes while open')

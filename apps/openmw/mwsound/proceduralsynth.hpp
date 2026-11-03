@@ -1,6 +1,7 @@
 #ifndef OPENMW_MWSOUND_PROCEDURALSYNTH_H
 #define OPENMW_MWSOUND_PROCEDURALSYNTH_H
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -40,13 +41,14 @@ namespace MWSound
             int root = 60;
             bool oneShot = false;
             std::string hash;
+            float gain = 1;
         };
         using AttackSamples = std::array<AttackSample, 3>; // open, short/palm, dead/ghost
 
         ProceduralSynth();
         bool set(std::string_view name, float value);
         bool sample(std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash,
-            const AttackSamples& attacks = {});
+            const AttackSamples& attacks = {}, float gain = 1);
         bool noteOn(int note, float velocity);
         struct Strike
         {
@@ -85,6 +87,7 @@ namespace MWSound
             int note;
             float velocity;
             Strike expression;
+            int identity = -1; // internal note/string key; -1 releases all matching live keys
         };
         struct Envelope
         {
@@ -106,6 +109,7 @@ namespace MWSound
             unsigned sampleStart = 0, sampleLength = 0;
             int sampleRoot = 60;
             double sampleRootFrequency = 440, sampleMuteEnvelope = 1, sampleMuteLow = 0;
+            float sampleGain = 1;
             bool sampleOneShot = false;
             ProceduralSample* sampleData = nullptr;
             bool capturedAttack = false;
@@ -127,6 +131,7 @@ namespace MWSound
             ProceduralStringExpression expression;
             ProceduralPitchSlide slide;
             int connection = -1;
+            unsigned key = 0;
             unsigned long long age = 0;
         };
         std::mutex mMutex;
@@ -135,10 +140,11 @@ namespace MWSound
             ProceduralSample* data = nullptr;
             int root = 60;
             bool oneShot = false;
+            float gain = 1;
             std::array<char, 32> hash{};
             bool operator==(const SampleSettings& other) const
             {
-                return data == other.data && root == other.root && oneShot == other.oneShot && hash == other.hash;
+                return data == other.data && root == other.root && oneShot == other.oneShot && gain == other.gain && hash == other.hash;
             }
         };
         SampleSettings mSampleTarget, mSampleCurrent;
@@ -167,7 +173,7 @@ namespace MWSound
         std::size_t mCommandCount = 0;
         std::array<Voice, 32> mVoices{};
         struct ConnectionKey {float velocity=0;std::uint64_t order=0;int group=-1;Strike expression;};
-        using ConnectionKeys=std::array<ConnectionKey,128>;
+        using ConnectionKeys=std::array<ConnectionKey,1024>;
         std::unique_ptr<ConnectionKeys> mConnectionKeys=std::make_unique<ConnectionKeys>();
         std::uint64_t mConnectionSerial=0;
         std::array<int,7> mConnectionVoices{{-1,-1,-1,-1,-1,-1,-1}};
@@ -177,6 +183,11 @@ namespace MWSound
         void resetConnections();
         void reconcileConnections();
         int connectionGroup(int note, int selection = -1) const;
+        unsigned keyIndex(int note,int selection = -1) const
+        {
+            const int selected=selection>0?selection:mConnectionLayout ? (selection==0?0:int(mCurrent[StringSelect])) : 0;
+            return unsigned(note+128*std::max(0,selected));
+        }
         static constexpr std::size_t StringCapacity = 8192;
         using Strings = std::array<std::array<float, StringCapacity>, 32>;
         // Allocated once on the control thread; never allocated in render().

@@ -2,15 +2,76 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 72 / native synth API 30 / multiplayer protocol 27.
+Current source: package 73 / native synth API 32 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
 Standing grids, seated keyboard/cello NPCs and a seated full-kit drummer are
 available, with credited CC BY orchestral, guitar, bass, drum-kit and stage models.
-Acoustic/classical physical guitar models, more detailed articulation/animation
-and listening-based sound balancing remain next in this part of the roadmap.
+Acoustic/classical physical guitar models are available. More detailed articulation/animation
+and wider listening-based sound balancing remain in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Independent unison strings and acoustic props (package 73 / API 32)
+
+On Piano > Guitar / strum, Preview and Apply now save every chosen note's
+low-to-high string number and pick direction, together with the matching track
+tuning. Existing attack expression is retained. Source pitch and velocity stay
+intact; deliberate strum offsets and same-string gate shortening work as before.
+Apply freezes that track's program following so a later imported program change
+cannot undo the chosen tuning. The change is one Undo; reapplying an identical
+plan adds no history. Linked clips and private saves retain the assignments.
+
+Two strings can now play the same pitch with independent native gates, held-key
+return and sustain. A short note no longer waits for the other string's gate or
+releases it. Ordinary live key-up releases matching live strings while score
+ownership stays separate. Stop, loops, replacements and key indicators use the
+same fixed ownership state. No new wire controls or note-sidecar format are used.
+New Song > Band sound checks > **Twin-string sustain** demonstrates unequal gates
+on saved unison string assignments. The bank is still mapped by pitch/velocity;
+this does not claim distinct per-string recorded timbres.
+
+**Acoustic guitar** and **Classical guitar** join the Band instrument picker,
+Auto NPC routing, F9 inventory/ready choices and Pose tuner. New GM 25/24 guitar
+parts choose the corresponding physical prop, independently of their sound.
+Existing saved physical choices stay intact. Credited CC BY models have separate
+NIFs/icons and canonical string/neck axes matching the guitar grip. Defaults
+start from the guitar pose and each can be tuned independently. The F9 panel
+adapts to its fourth instrument row without overlapping its bottom controls.
+
+Native regression checks cover independent unison gates, sustain, live key-up,
+loop/block independence and Stop. Converted NIF front/side/back renders and all
+asset hashes pass; live actor hand fit and listening acceptance remain pending.
+This local-only update requires the API-32 client but no C++ server rebuild.
+
+## Reviewed bridge thrash starter (package 73 / API 32)
+
+**Mixer > Sound set > Captured Band / Thrash** now uses the brighter original
+Guitar-TECHS player 1 bridge DI, calibrated input gain, tightened pre-drive EQ and
+an editable channel low-mid cut/treble shelf. **New Song > Band sound checks >
+Bridge thrash / C** opens the exact original test phrase and backing. The guitar
+stem matches the reviewed C render within one PCM16 quantization step.
+
+The earlier neck-pickup B comparison was rejected as quieter/muddier. C was
+approved as a clearer starting point after matching guitar loudness (0.02 LU
+apart), with identical bass/drum backing. This is a starter acceptance, not a
+claim that every genre or imported MIDI now sounds convincing.
+
+The amp preset is **Captured Bridge Thrash**. Its channel EQ is separate from the
+instrument preset, visible under Mixer > Mix. Preset/genre selection in Studio
+installs that EQ while preserving compression and effect sends. Cycling away
+removes the exact built-in EQ recipe; a subsequently customized EQ is preserved.
+Undo and private project saves retain the entire sound. Old saved patch snapshots
+and every older bank retain their identities until the player explicitly changes
+sounds. Source gain is an optional sample-reference calibration (.25–8, default
+unity), applied before the filter/amp; musical control IDs are unchanged.
+
+All twelve installed banks total 272,066,488 decoded bytes if decoded together.
+The library now exceeds the unchanged 256-MiB resident sample cache; banks load on
+demand and unused, unpinned banks can be evicted. Each factory sound set's union
+of possible references and every sound-check project fit below 252 MiB. A custom
+project pinning too many different banks still gets the existing bounded-memory
+error rather than an unbounded allocation. CC BY credits cover both DI sources.
 
 ## Recorded per-note attacks (package 72 / native API 30)
 

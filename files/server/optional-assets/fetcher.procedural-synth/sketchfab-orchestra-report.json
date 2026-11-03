@@ -250,5 +250,41 @@
       ]
     ],
     "sha256": "87a8727a12a291d6c83207db05a5f7a73a8ea3a6cfddc69bd5c011f45c2c13d2"
+  },
+  "acoustic": {
+    "source": "acoustic",
+    "model": "meshes/fetcher/orchestra/acoustic.nif",
+    "triangles": 14828,
+    "bounds": [
+      [
+        -15.68537712097168,
+        -21.249996185302734,
+        -5.7523064613342285
+      ],
+      [
+        15.685378074645996,
+        63.75,
+        5.752302646636963
+      ]
+    ],
+    "sha256": "0404976418ca515f83597f0f8cf7db46a081c22ceef2743eaad746117985c753"
+  },
+  "classical": {
+    "source": "classical",
+    "model": "meshes/fetcher/orchestra/classical.nif",
+    "triangles": 2579,
+    "bounds": [
+      [
+        -17.564777374267578,
+        -21.250003814697266,
+        -6.676006317138672
+      ],
+      [
+        17.564777374267578,
+        63.7500114440918,
+        6.676006317138672
+      ]
+    ],
+    "sha256": "0e939743e6bffc9629a10b6ea7803dd9d633a95c6e23b6a0ec07243ea112cbc3"
   }
 }

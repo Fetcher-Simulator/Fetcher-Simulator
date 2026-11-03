@@ -458,9 +458,9 @@ function S:band(content)
     content[#content+1]=self:button('Restage grid',485,610,155,function() self:releaseAll();w:setupNpcBand(true) end)
     local selectedIndex=w.selected;local selected=p.tracks[selectedIndex]
     local instrument=selected and (selected.instrument or Project.instrumentFor(selected.kind=='drum' and 'percussion' or selected.sourceRole))
-    content[#content+1]=self:button('Part '..w.selected..': '..(instrument or 'Choose part')..' v',650,610,240,function()
+    content[#content+1]=self:button('Part '..w.selected..': '..(Project.instrumentNames[instrument] or instrument or 'Choose part')..' v',650,610,240,function()
         if not selected then return end
-        local choices={};for name in pairs(Project.instruments) do choices[#choices+1]={id=name,label=name} end
+        local choices={};for name in pairs(Project.instruments) do choices[#choices+1]={id=name,label=Project.instrumentNames[name] or name} end
         table.sort(choices,function(a,b) return a.label<b.label end)
         Dropdown.open(self,choices,instrument,function(name) w:setStageInstrument(selectedIndex,name) end,490,260,400)
     end)

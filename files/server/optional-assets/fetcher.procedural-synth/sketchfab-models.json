@@ -148,5 +148,27 @@
     "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
     "downloadSha256": "5db49d8cc0ee845e923154de2b75be924a258a3f6cbbc59126e5e15638b65509",
     "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes. Display plinth and loose spare cymbal omitted; dense hardware simplified for real-time use. Drums, cymbals, hi-hat and pedals retained."
+  },
+  {
+    "id": "acoustic",
+    "title": "Acoustic Guitar",
+    "author": "zackama",
+    "authorUrl": "https://sketchfab.com/zackama",
+    "source": "https://sketchfab.com/3d-models/acoustic-guitar-7ec9c643c9a243c0ac458cc942aa4082",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadSha256": "d94f3d7fed6da22a8a389356322813c95877f62d6268ebd1825d301d6267400c",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+  },
+  {
+    "id": "classical",
+    "title": "Low Poly Classical Guitar",
+    "author": "gazorpinhas",
+    "authorUrl": "https://sketchfab.com/gazorpinhas",
+    "source": "https://sketchfab.com/3d-models/low-poly-classical-guitar-90ca0a9c525e47d48a68146fd7bd97e3",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "downloadSha256": "8dab9e21391fdb97fb3bb68645626c611b015352cbab9bfdbe3c152ae1d26408",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
   }
 ]

@@ -193,7 +193,7 @@ namespace MWSound
         resetControls();
         for (unsigned n = 0; n < MaxTracks; ++n)
         {
-            mHeld[n].fill(0); mLiveHeld[n].fill(false); mPedalHeld[n].fill(false); ++mGeneration[n];
+            mHeld[n].fill(0); mHeldKeys->counts[n].fill(0); mHeldKeys->pedal[n].fill(false); mHeldKeys->live[n].fill(false); mLiveHeld[n].fill(false); mPedalHeld[n].fill(false); ++mGeneration[n];
             for (auto& bits : mNoteBits[n]) bits = 0;
             if (auto track = std::atomic_load(&mTracks[n]))
             {
@@ -219,42 +219,49 @@ namespace MWSound
             for (unsigned n = 0; n < MaxTracks; ++n)
                 if (auto open = std::atomic_load(&mTracks[n]); open && !open->mSampleCurrent.data && open->mCurrent[28] == 4)
                 {
-                    ++mGeneration[n]; mHeld[n].fill(0); mLiveHeld[n].fill(false); for (auto& bits : mNoteBits[n]) bits = 0;
+                    ++mGeneration[n]; mHeld[n].fill(0); mHeldKeys->counts[n].fill(0); mHeldKeys->pedal[n].fill(false); mHeldKeys->live[n].fill(false); mPedalHeld[n].fill(false); mLiveHeld[n].fill(false); for (auto& bits : mNoteBits[n]) bits = 0;
                     for (auto& voice : open->mVoices) { voice.amp.release(); voice.filter.release(); voice.drumChoke = true; }
                 }
         const unsigned n = note.track - 1;
         ++mHeld[n][note.pitch]; mNoteBits[n][note.pitch / 64].fetch_or(std::uint64_t(1) << (note.pitch % 64));
         chokeSampleGroup(n,note.pitch,note.velocity/127.f);
         track->apply({ note.pitch, note.velocity / 127.f, note.expression }); ++mStrikes;
-        mOffs[mOffCount++] = { mTime + note.duration, n, note.pitch, mGeneration[n] };
+        const unsigned key=track->keyIndex(note.pitch,note.expression.selection);++mHeldKeys->counts[n][key];
+        mOffs[mOffCount++] = { mTime + note.duration, n, note.pitch, mGeneration[n], key };
         std::push_heap(mOffs.begin(), mOffs.begin() + mOffCount);
     }
     void ProceduralStudio::releaseDue()
     {
-        while (mOffCount && mOffs[0].frame <= mTime)
+        while(mOffCount && mOffs[0].frame<=mTime)
         {
-            std::pop_heap(mOffs.begin(), mOffs.begin() + mOffCount); const auto off = mOffs[--mOffCount];
-            if (off.generation != mGeneration[off.track] || !mHeld[off.track][off.pitch]) continue;
-            if (--mHeld[off.track][off.pitch] == 0 && !mLiveHeld[off.track][off.pitch])
+            std::pop_heap(mOffs.begin(),mOffs.begin()+mOffCount);const auto off=mOffs[--mOffCount];
+            if(off.generation!=mGeneration[off.track] || !mHeld[off.track][off.pitch] || !mHeldKeys->counts[off.track][off.key])continue;
+            --mHeld[off.track][off.pitch];
+            const bool live=mHeldKeys->live[off.track][off.key];
+            if(--mHeldKeys->counts[off.track][off.key]==0 && !live)
             {
-                if (mPedal[off.track]) { mPedalHeld[off.track][off.pitch] = true; continue; }
-                mNoteBits[off.track][off.pitch / 64].fetch_and(~(std::uint64_t(1) << (off.pitch % 64)));
-                if (auto track = std::atomic_load(&mTracks[off.track])) track->apply({ static_cast<int>(off.pitch), -1 });
+                if(mPedal[off.track]) {mPedalHeld[off.track][off.pitch]=true;mHeldKeys->pedal[off.track][off.key]=true;continue;}
+                if(!mHeld[off.track][off.pitch] && !mLiveHeld[off.track][off.pitch])
+                    mNoteBits[off.track][off.pitch/64].fetch_and(~(std::uint64_t(1)<<(off.pitch%64)));
+                if(auto track=std::atomic_load(&mTracks[off.track]))track->apply({int(off.pitch),-1,{},int(off.key)});
             }
         }
     }
-    void ProceduralStudio::pedal(unsigned n, bool down)
+    void ProceduralStudio::pedal(unsigned n,bool down)
     {
-        mPedal[n] = down;
-        if (!down) for (unsigned pitch=0; pitch<128; ++pitch) if (mPedalHeld[n][pitch])
+        mPedal[n]=down;
+        if(down)return;
+        for(unsigned key=0;key<1024;++key)if(mHeldKeys->pedal[n][key])
         {
-            mPedalHeld[n][pitch] = false;
-            if (!mHeld[n][pitch] && !mLiveHeld[n][pitch])
+            mHeldKeys->pedal[n][key]=false;const unsigned pitch=key%128;
+            const bool live=mHeldKeys->live[n][key];
+            if(!mHeldKeys->counts[n][key] && !live)
             {
-                mNoteBits[n][pitch/64].fetch_and(~(std::uint64_t(1) << (pitch%64)));
-                if (auto track = std::atomic_load(&mTracks[n])) track->apply({static_cast<int>(pitch), -1});
+                if(!mHeld[n][pitch] && !mLiveHeld[n][pitch])mNoteBits[n][pitch/64].fetch_and(~(std::uint64_t(1)<<(pitch%64)));
+                if(auto track=std::atomic_load(&mTracks[n]))track->apply({int(pitch),-1,{},int(key)});
             }
         }
+        mPedalHeld[n].fill(false);
     }
     void ProceduralStudio::resetControls()
     {
@@ -383,7 +390,7 @@ namespace MWSound
                         if (command.velocity == -2)
                         {
                             track->resetConnections();
-                            mHeld[command.track].fill(0); mLiveHeld[command.track].fill(false); ++mGeneration[command.track];
+                            mHeld[command.track].fill(0); mHeldKeys->counts[command.track].fill(0); mHeldKeys->pedal[command.track].fill(false); mHeldKeys->live[command.track].fill(false); mPedalHeld[command.track].fill(false); mLiveHeld[command.track].fill(false); ++mGeneration[command.track];
                             for (auto& bits : mNoteBits[command.track]) bits = 0;
                             for (auto& voice : track->mVoices) { voice.amp.release(); voice.filter.release(); voice.drumChoke = true; }
                         }
@@ -396,12 +403,21 @@ namespace MWSound
                                 mReturns.resume();mNoteBits[command.track][command.pitch/64].fetch_or(mask);
                                 chokeSampleGroup(command.track,command.pitch,command.velocity);
                                 track->apply({command.pitch,command.velocity,command.expression});
+                                mHeldKeys->live[command.track][track->keyIndex(command.pitch,command.expression.selection)]=true;
                             }
-                            else if (!mHeld[command.track][command.pitch])
+                            else
                             {
-                                if (mPedal[command.track]) { mPedalHeld[command.track][command.pitch]=true; continue; }
-                                mNoteBits[command.track][command.pitch/64].fetch_and(~mask);
-                                track->apply({command.pitch,command.velocity});
+                                for(unsigned string=0;string<8;++string)
+                                {
+                                    const unsigned key=unsigned(command.pitch)+128*string;
+                                    if(!mHeldKeys->live[command.track][key])continue;
+                                    mHeldKeys->live[command.track][key]=false;
+                                    if(mHeldKeys->counts[command.track][key])continue;
+                                    if(mPedal[command.track]) {mPedalHeld[command.track][command.pitch]=true;mHeldKeys->pedal[command.track][key]=true;continue;}
+                                    track->apply({command.pitch,command.velocity,{},int(key)});
+                                }
+                                if(!mHeld[command.track][command.pitch] && !mPedalHeld[command.track][command.pitch])
+                                    mNoteBits[command.track][command.pitch/64].fetch_and(~mask);
                             }
                         }
                     }

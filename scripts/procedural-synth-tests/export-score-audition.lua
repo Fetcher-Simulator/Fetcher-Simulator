@@ -19,7 +19,8 @@ for n,t in ipairs(w.project.tracks) do
  for _,key in ipairs(format.mixerOrder) do f:write('mix.'..key..'='..t.mixer[key]..'\n') end
  if sample then
   f:write('sample='..sample.path..'\n')
-  for _,attack in ipairs(schema.attackOrder) do local ref=sample.attacks and sample.attacks[attack];if ref then f:write('sample.'..attack..'='..ref.path..'\n') end end
+  f:write('sampleGain='..(sample.gain or 1)..'\n')
+  for _,attack in ipairs(schema.attackOrder) do local ref=sample.attacks and sample.attacks[attack];if ref then f:write('sample.'..attack..'='..ref.path..'\nsampleGain.'..attack..'='..(ref.gain or 1)..'\n') end end
  end
  print(n..' '..t.name..' program='..tostring(t.sourceProgram)..' '..t.presetId)
 end

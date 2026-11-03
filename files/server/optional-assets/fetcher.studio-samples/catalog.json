@@ -1,7 +1,7 @@
 {
   "license": "Per-bank: CC0-1.0 or CC-BY-4.0",
   "nativeApi": 19,
-  "decodedBytesAllBanks": 262831288,
+  "decodedBytesAllBanks": 272066488,
   "banks": [
     {
       "id": "electric-di-v1",
@@ -141,6 +141,34 @@
       },
       "source": "https://zenodo.org/records/14963133",
       "description": "Guitar-TECHS player 2 EVH Wolfgang neck-pickup DI; recorded pitched palm mutes; one recorded performance per sparse root, no invented alternates/layers. Keys 35-39 transpose the low-E capture.",
+      "license": "CC-BY-4.0"
+    },
+    {
+      "id": "guitar-techs-bridge-open-v1",
+      "path": "sound/fetcher/banks/guitar-techs-bridge-open-v1.fsb",
+      "bytes": 3744284,
+      "sha256": "a83ec6f08f006c1eeee5fb073619957c180d4eafa8d1e1668c3d934c4bf9733e",
+      "native": {
+        "hash": "909a30a8d7715bef9ef6e59f530f712c",
+        "zones": 13,
+        "pcmBytes": 7488000
+      },
+      "source": "https://zenodo.org/records/14963133",
+      "description": "Guitar-TECHS player 1 Ibanez PF300 bridge-pickup DI; recorded open notes; one recorded performance per sparse root, no invented alternates/layers. Keys 35-39 transpose the low-E capture.",
+      "license": "CC-BY-4.0"
+    },
+    {
+      "id": "guitar-techs-bridge-palm-v1",
+      "path": "sound/fetcher/banks/guitar-techs-bridge-palm-v1.fsb",
+      "bytes": 873884,
+      "sha256": "1fcf89e636807465aea3151c361336fa04dd2a071270ef2f148a394a120cb0b3",
+      "native": {
+        "hash": "955f9829af20fca5b6975a9b68c47363",
+        "zones": 13,
+        "pcmBytes": 1747200
+      },
+      "source": "https://zenodo.org/records/14963133",
+      "description": "Guitar-TECHS player 1 Ibanez PF300 bridge-pickup DI; recorded pitched palm mutes; one recorded performance per sparse root, no invented alternates/layers. Keys 35-39 transpose the low-E capture.",
       "license": "CC-BY-4.0"
     }
   ]

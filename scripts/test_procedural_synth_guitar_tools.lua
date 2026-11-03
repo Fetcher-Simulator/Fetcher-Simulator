@@ -33,9 +33,15 @@ check(math.abs(plan.rows[6].delay-40)<.1,'eight milliseconds per string spans fo
 local up=assert(Tools.plan(original,{direction=1},clock));check(up.notes[6].s==0 and up.notes[1].s>0,'upstroke reverses physical string order')
 local alternate=assert(Tools.plan(append(chord(),chord(8)),{direction=2},clock))
 check(not alternate.rows[1].up and alternate.rows[7].up,'alternate flips once per edited gesture')
-local zero=assert(Tools.plan(original,{spacing=0},clock));check(same(zero.notes,original),'zero spacing preserves an already playable chord')
+local zero=assert(Tools.plan(original,{spacing=0},clock))
+for n,item in ipairs(zero.notes) do
+ check(item.n==original[n].n and item.s==original[n].s and item.l==original[n].l and item.v==original[n].v,'zero spacing preserves note geometry while adding explicit fingering')
+ check(item.e.stringSelect==n and item.e.pickDirection==0,'automatic low-to-high fingering and stroke persist per note')
+end
 check(not Tools.plan(chord(0,{20}),{},clock),'unplayable pitches are rejected without octave changes')
-check(not Tools.plan(chord(0,{40,40}),{},clock),'duplicate unisons are rejected instead of silently collapsing native voices')
+check(not Tools.plan(chord(0,{40,40}),{},clock),'a unison requiring two unavailable low-E strings still rejects')
+local unison=assert(Tools.plan(chord(0,{64,64}),{spacing=0},clock))
+check(unison.notes[1].e.stringSelect~=unison.notes[2].e.stringSelect,'playable unisons get separate saved string identities')
 check(not Tools.plan(chord(0,{40,45,50,55,59,64,69}),{},clock),'oversized six-string chords are not dropped or thinned')
 check(not Tools.plan(chord(0,{41,87}),{span=5},clock),'wide impossible stretches reject atomically')
 check(not Tools.plan(chord(0,nil,.01),{spacing=25},clock),'short notes cannot be erased by pick delay')
@@ -68,19 +74,22 @@ local w=make();local before=copy(w.project);local undo=#w.undoStack;local genera
 check(w:previewGuitar() and same(w.project,before) and #w.undoStack==undo and w.generation==generation,'workstation preview never changes project/history or playback')
 w.playing=true;w.native=true;w.sequenceDirty=false
 check(w:applyGuitar() and #w.undoStack==undo+1 and w.sequenceDirty,'apply commits once and schedules a native live replacement')
-check(same(w.project.tracks[1].params,before.tracks[1].params) and same(w.project.band,before.band) and same(w.project.effects,before.effects),'sound, effects and physical band routing are unchanged')
+local expected=copy(before.tracks[1].params);expected.stringLayout=1
+check(same(w.project.tracks[1].params,expected) and same(w.project.band,before.band) and same(w.project.effects,before.effects),'only matching string tuning changes; sounds/effects and band routing stay intact')
 local applied=copy(w.project);local validated=assert(f.project(applied));local saved=assert(f.project(copy(validated)))
 check(same(saved.tracks[1].edited,validated.tracks[1].edited),'source-free validation/reload retains transformed notes')
 local score=Sequence.compile(saved,nil,MIDI,'song',f)
 local frames={};local function u32(s,a) local x,y,z,k=s:byte(a,a+3);return x+y*256+z*65536+k*16777216 end
-for at=1,#score.bytes,11 do if score.bytes:byte(at+9)<128 then frames[#frames+1]=u32(score.bytes,at) end end
+for at=1,#score.bytes,11 do if score.bytes:byte(at+9)<128 and score.bytes:byte(at+10)~=130 then frames[#frames+1]=u32(score.bytes,at) end end
 check(#frames==6 and frames[1]==0 and frames[6]>frames[1],'native score contains six real staggered note attacks')
 local exported=assert(MIDI.parse(Export.encode(saved,nil,MIDI,f)))
 local parts=MIDI.parts(exported);local spans=MIDI.editableSpans(exported,parts[1].id)
 check(#spans==6 and spans[6].s>spans[1].s,'MIDI export/reimport keeps the strum timing')
 check(w:undo() and same(w.project,before) and w:redo() and same(w.project,applied),'single Undo/Redo restores exact documents')
 local noOp=make();noOp.guitarOptions.spacing=0;assert(noOp:previewGuitar());local noOpHistory=#noOp.undoStack
-check(noOp:applyGuitar() and #noOp.undoStack==noOpHistory,'a no-change fingering does not manufacture an Undo entry')
+check(noOp:applyGuitar() and #noOp.undoStack==noOpHistory+1,'first fingering application saves metadata even without timing changes')
+assert(noOp:previewGuitar());noOpHistory=#noOp.undoStack
+check(noOp:applyGuitar() and #noOp.undoStack==noOpHistory,'reapplying identical fingering makes no extra Undo')
 assert(w:previewGuitar());local current=copy(w.project);w.guitarOptions.spacing=12
 check(not w:applyGuitar() and same(w.project,current),'settings changes invalidate preview atomically')
 assert(w:previewGuitar());assert(w:setTrack(1,'level',.5));current=copy(w.project)

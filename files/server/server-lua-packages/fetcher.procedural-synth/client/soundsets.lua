@@ -127,6 +127,19 @@ function M.assignment(id,role,midi,note,instrument,program,name)
     if role=='tom' then state.bodyFrequency=M.tomFrequencies[note] or 130 end
     return assert(schema.state(state)),presetId
 end
+-- Genre EQ belongs to the channel, not to the DI recording. Retain all
+-- compressor/send settings. Leaving this patch removes only our exact recipe;
+-- a player's subsequently customized EQ is never mistaken for a default.
+M.bridgeTone={eqEnabled=1,highpass=90,bass=0,mid=-6,midFrequency=300,treble=6}
+local neutralTone={eqEnabled=0,highpass=20,bass=0,mid=0,midFrequency=1000,treble=0}
+function M.apply(track,state,presetId)
+    local mixer={};for k,v in pairs(track.mixer or {}) do mixer[k]=v end
+    local matched=track.presetId=='b:captured-guitar-thrash'
+    for k,v in pairs(M.bridgeTone) do if mixer[k]~=v then matched=false end end
+    local tone=presetId=='b:captured-guitar-thrash' and M.bridgeTone or matched and neutralTone
+    if tone then for k,v in pairs(tone) do mixer[k]=v end;track.mixer=mixer end
+    track.params=state;track.presetId=presetId
+end
 function M.trackProgram(track,part)
     if part and part.program~=nil then return part.program end
     if track.sourceProgram~=nil then return track.sourceProgram end

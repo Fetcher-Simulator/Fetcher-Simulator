@@ -205,3 +205,23 @@ python scripts/procedural-synth-assets/build-guitar-techs-banks.py <source-cache
 The converter requires numpy, mido and ffmpeg, verifies the published MD5s and
 records SHA-256 provenance. Runtime evaluates no source scripts or SFZ. Existing
 family converters preserve these separately curated catalog entries.
+
+## Package 73: bridge pickup and reviewed C starter
+
+`guitar-techs-bridge-open-v1` and `guitar-techs-bridge-palm-v1` adapt original
+player 1 Ibanez PF300 bridge DI under the same CC BY 4.0 notice. They use the
+same sparse roots, cut rules, 3-s/.7-s tails and actual-performance limits.
+Rebuild with the above converter plus `--player P1`. Source MD5/SHA-256 pins,
+annotations, exact cuts and conversion gains remain in source/manifests.
+
+Captured Band / Thrash and the Bridge thrash / C exercise use these recordings,
+8x pre-amp source calibration and the editable saved amp/channel EQ recipe. The
+user accepted C as a clearer starter after rejecting the neck-pickup B render.
+Old banks and saved references retain their identities.
+
+The twelve-bank on-disk library totals 272,066,488 possible decoded PCM bytes.
+It is loaded on demand, not made resident as a whole. The production reader's
+256-MiB cap, unpinned-entry eviction and safe pinned-budget failure remain intact.
+Regression checks enumerate each sound set's possible reference union and each
+sound-check project, with all below 252 MiB. Large custom projects may still
+reach the existing cap. No memory-budget increase accompanies the new content.

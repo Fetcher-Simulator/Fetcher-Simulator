@@ -29,8 +29,9 @@ for _,entry in ipairs(Exercises.entries) do
             for _,key in ipairs(F.mixerOrder) do f:write('mix.'..key..'='..string.format('%.9g',t.mixer[key])..'\n') end
             if t.params.sample then
                 f:write('sample='..t.params.sample.path..'\n')
+                f:write('sampleGain='..(t.params.sample.gain or 1)..'\n')
                 for _,attack in ipairs(schema.attackOrder) do local ref=t.params.sample.attacks and t.params.sample.attacks[attack]
-                    if ref then f:write('sample.'..attack..'='..ref.path..'\n') end
+                    if ref then f:write('sample.'..attack..'='..ref.path..'\nsampleGain.'..attack..'='..(ref.gain or 1)..'\n') end
                 end
             end
         end

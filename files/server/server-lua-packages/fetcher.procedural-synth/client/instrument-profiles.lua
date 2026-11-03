@@ -40,6 +40,11 @@ M.drumkit={kind='drumkit',anchor='feet',seated=true,model=path..'drumkit.nif',po
     targets={L=v(-57,25,90),R=v(-25,24,70)},musicStand=v(116,95,0),
     extras={{key='synth_mallet_l',model=path..'mallet.nif',hand='L',rotation=T.rotateZ(-.6)},
         {key='synth_mallet_r',model=path..'mallet.nif',hand='R',rotation=T.rotateZ(-.6)}}}
+-- Canonical neck/string axes and 85-unit scale match the electric grip.
+for _,name in ipairs{'acoustic','classical'} do
+    local profile={};for k,value in pairs(M.guitar) do profile[k]=value end
+    profile.model=path..name..'.nif';M[name]=profile
+end
 local function clamp(n,a,b) return math.max(a,math.min(b,n)) end
 local function copy(value)
     if type(value)~='table' then return value end
@@ -186,13 +191,13 @@ local function merge(target,source)
         if type(item)=='table' and type(target[key])=='table' then merge(target[key],item) else target[key]=copy(item) end
     end
 end
-for _,name in ipairs{'keyboard','lute','drum','violin','cello','trumpet','flute','clarinet','timpani','guitar','bass','drumkit'} do
+for _,name in ipairs{'keyboard','lute','drum','violin','cello','trumpet','flute','clarinet','timpani','guitar','bass','drumkit','acoustic','classical'} do
     M.reference[name]=M[name];local d=M.seed(M[name])
     -- The credited wooden stick drops five units from grip to tip. Leave room
     -- above the new timpani head for its six-unit downstroke.
     if name=='timpani' then d.LTarget[3]=91;d.RTarget[3]=91 end
     if name=='drumkit' then d.LFootTarget={-40,28,0};d.RFootTarget={-10,30,0};d.benchScale=.9 end
-    merge(d,approved.profiles[name] or {})
+    merge(d,approved.profiles[name] or ((name=='acoustic' or name=='classical') and approved.profiles.guitar) or {})
     M.defaults[name]=d;M[name]=M.compile(M.reference[name],d)
 end
 -- Seated profiles have independent tuner values; standing exports stay intact.
@@ -206,7 +211,7 @@ for _,kind in ipairs{'keyboard','cello'} do
     for _,side in ipairs{'L','R'} do
         for _,key in ipairs{'Rotation','Pole','CurlScale','CurlBias','MotionScale'} do d[side..key]=copy(M.defaults[kind][side..key]) end
     end
-    merge(d,approved.profiles[name] or {})
+    merge(d,approved.profiles[name] or ((name=='acoustic' or name=='classical') and approved.profiles.guitar) or {})
     M.defaults[name]=d;M[name]=M.compile(base,d)
 end
 return M

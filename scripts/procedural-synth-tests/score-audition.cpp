@@ -26,6 +26,7 @@ int main(int argc,char** argv)
         std::map<std::string,std::shared_ptr<MWSound::ProceduralSample>> banks;
         std::map<unsigned,std::shared_ptr<MWSound::ProceduralSample>> baseBanks;
         std::map<unsigned,MWSound::ProceduralSynth::AttackSamples> attackBanks;
+        std::map<unsigned,float> sampleGains;
         std::map<unsigned,bool> selected;
         std::map<unsigned,MWSound::ProceduralMixer::State> mixers;
         auto returns=MWSound::ProceduralReturns::defaults();float master=1;
@@ -62,6 +63,13 @@ int main(int argc,char** argv)
                     {mixers.at(lane)[i]=std::stof(value);found=true;break;}
                 if(!found)throw std::runtime_error("Unknown channel setting: "+name);
             }
+            else if(name=="sampleGain")sampleGains[lane]=std::stof(value);
+            else if(name.rfind("sampleGain.",0)==0)
+            {
+                const unsigned variant=name=="sampleGain.open"?0:name=="sampleGain.short"?1:name=="sampleGain.dead"?2:3;
+                if(variant>=3)throw std::runtime_error("Unknown sample input gain");
+                attackBanks[lane][variant].gain=std::stof(value);
+            }
             else if(name=="sample" || name.rfind("sample.",0)==0)
             {
                 const auto path=std::string(argv[3])+"/"+value;auto& data=banks[path];
@@ -80,14 +88,15 @@ int main(int argc,char** argv)
                 {
                     const unsigned variant=name=="sample.open"?0:name=="sample.short"?1:name=="sample.dead"?2:3;
                     if(variant>=3)throw std::runtime_error("Unknown sample attack");
-                    attackBanks[lane][variant]={data,60,false,data->hash};
+                    auto& attack=attackBanks[lane][variant];attack.data=data;attack.root=60;attack.oneShot=false;attack.hash=data->hash;
                 }
             }
             else if(!studio.set(lane,name,std::stof(value))) throw std::runtime_error("Invalid parameter: "+name);
         }
         for(const auto& [track,attacks]:attackBanks)if(!baseBanks.count(track))throw std::runtime_error("Attack banks require a base bank");
+        for(const auto& [track,gain]:sampleGains)if(!baseBanks.count(track))throw std::runtime_error("Sample gain requires a base bank");
         for(const auto& [track,data]:baseBanks)
-            if(!studio.sample(track,data,60,false,data->hash,attackBanks[track]))throw std::runtime_error("Bank configuration rejected");
+            if(!studio.sample(track,data,60,false,data->hash,attackBanks[track],sampleGains.count(track)?sampleGains[track]:1))throw std::runtime_error("Bank configuration rejected");
         if(!studio.effects(returns,master))throw std::runtime_error("Invalid return/master settings");
         for(const auto& [track,state]:mixers)if(!studio.mixer(track,state))throw std::runtime_error("Invalid mixer settings");
         std::string filtered;

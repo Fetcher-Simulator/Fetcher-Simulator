@@ -7,7 +7,7 @@ bpy.ops.preferences.addon_enable(module='io_scene_mw')
 bpy.context.preferences.addons['io_scene_mw'].preferences.scale_correction=1
 bpy.context.preferences.addons['io_scene_mw'].preferences.texture_paths.add().name=str(assets/'textures')
 views={}
-for name in ['guitar','bass','drumkit']:
+for name in ['guitar','bass','drumkit','acoustic','classical']:
  bpy.ops.object.select_all(action='SELECT');bpy.ops.object.delete(use_global=False)
  bpy.ops.import_scene.mw(filepath=str(assets/f'meshes/fetcher/orchestra/{name}.nif'));bpy.context.view_layer.update()
  points=[o.matrix_world@v.co for o in bpy.context.scene.objects if o.type=='MESH' for v in o.data.vertices]

@@ -152,4 +152,21 @@ live.native=true;live.playing=true;live.sequenceDirty=false
 check(live:applySoundSet('recorded-metal') and not live.project.tracks[1].followPrograms and live.sequenceDirty,'recorded set clears incompatible program following and recompiles its active score')
 check(format.project(live.project),'recorded sound-set switch leaves a savable document')
 check(live:undo() and live.project.tracks[1].followPrograms and not live.project.tracks[1].params.sample,'Undo restores the previous patch and program-follow setting together')
+do
+ local x=W.new(w.cb);assert(x:import(familySong,'midi/families.mid'))
+ local t=x.project.tracks[7] -- GM 30 distortion guitar
+ t.mixer.compEnabled=1;t.mixer.threshold=-23;t.mixer.delaySend=.24;t.mixer.reverbSend=.17
+ local before=assert(format.project(x.project))
+ check(x:applySoundSet('captured-thrash'),'reviewed captured set applies')
+ t=x.project.tracks[7]
+ check(t.params.sample.path:find('bridge%-open') and t.params.sample.gain==8 and t.params.sample.attacks.short.gain==8,'bridge recording and calibrated amp input travel together')
+ for k,v in pairs(sets.bridgeTone) do check(t.mixer[k]==v,'reviewed post-cab channel tone is applied') end
+ check(t.mixer.compEnabled==1 and t.mixer.threshold==-23 and t.mixer.delaySend==.24 and t.mixer.reverbSend==.17,'genre tone preserves compression and sends')
+ local saved=assert(format.project(x.project));x:load(saved)
+ check(x.project.tracks[7].mixer.mid==-6 and x.project.tracks[7].params.sample.gain==8,'saved projects retain the complete reviewed sound')
+ check(x:applySoundSet('recorded-thrash') and x.project.tracks[7].mixer.eqEnabled==0,'cycling away removes the exact built-in EQ recipe')
+ check(x:undo() and x.project.tracks[7].mixer.mid==-6 and x.project.tracks[7].params.sample.gain==8,'Undo restores source, input calibration and channel EQ together')
+ t=x.project.tracks[7];t.mixer.mid=-4
+ check(x:applySoundSet('recorded-thrash') and x.project.tracks[7].mixer.mid==-4,'cycling away preserves subsequently customized channel EQ')
+end
 print('PASS GM guitar/bass families, full kits, percussion routing, saved identities, live sound sets and undo; '..checks..' assertions')

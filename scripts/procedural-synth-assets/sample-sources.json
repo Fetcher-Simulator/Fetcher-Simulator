@@ -148,6 +148,32 @@
       "licenseExpected": "CC-BY-4.0",
       "licenseSource": "https://guitar-techs.github.io/",
       "description": "Original player 2 direct-input recordings and per-string MIDI annotations. See conversion manifests for sample cuts and strength gains."
+    },
+    {
+      "repository": "Guitar-TECHS",
+      "release": "Zenodo 14963133 v1",
+      "asset": "P1_singlenotes.zip",
+      "url": "https://zenodo.org/api/records/14963133/files/P1_singlenotes.zip/content",
+      "bytes": 108626613,
+      "sha256": "130592ae5555476ea8e4070c0f3421794ef8b5e252dfa780745d07eedd0eb4a4",
+      "upstreamDigestVerified": true,
+      "upstreamMd5": "md5:ca0c4674dde3805574685a313f7c39eb",
+      "licenseExpected": "CC-BY-4.0",
+      "licenseSource": "https://guitar-techs.github.io/",
+      "description": "Original player 1 Ibanez PF300 bridge-pickup DI and MIDI annotations; no reconstructed harmonics."
+    },
+    {
+      "repository": "Guitar-TECHS",
+      "release": "Zenodo 14963133 v1",
+      "asset": "P1_techniques.zip",
+      "url": "https://zenodo.org/api/records/14963133/files/P1_techniques.zip/content",
+      "bytes": 326280863,
+      "sha256": "1e4b80a464182d345e129f3e1158b6c05690c60b5f9be4bde3fb26f23263236e",
+      "upstreamDigestVerified": true,
+      "upstreamMd5": "md5:18634a41a6db5a8de10d07eb3122a872",
+      "licenseExpected": "CC-BY-4.0",
+      "licenseSource": "https://guitar-techs.github.io/",
+      "description": "Original player 1 Ibanez PF300 bridge-pickup DI and MIDI annotations; no reconstructed harmonics."
     }
   ]
 }

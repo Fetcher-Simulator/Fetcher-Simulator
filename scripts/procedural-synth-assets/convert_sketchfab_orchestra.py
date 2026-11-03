@@ -175,8 +175,12 @@ for name,item in plan.items():
         selected=[max(objects,key=lambda o:bounds([o])[0].z)]
         low,high=bounds(selected);center=(low+high)/2
         export(name,selected,matrix(Matrix.Rotation(-.25,4,'X')@Matrix.Rotation(math.pi/2,4,'Z'),24/(high.x-low.x),center,(0,8,-2)),name)
-    elif name in ('guitar','bass'):
-        export(name,objects,string_transform(objects,85 if name=='guitar' else 100,name),name)
+    elif name in ('guitar','bass','acoustic','classical'):
+        transform=string_transform(objects,100 if name=='bass' else 85,name)
+        # These two sources have their soundboard on the opposite thin axis.
+        # Keep +Y toward the headstock and +Z toward the strings, as the grips expect.
+        if name in ('acoustic','classical'):transform=Matrix.Rotation(math.pi,4,'Y')@transform
+        export(name,objects,transform,name)
     elif name=='drumkit':
         selected=[]
         for obj in objects:

@@ -44,9 +44,9 @@ namespace MWSound
         };
         bool configure(unsigned track, const ProceduralSynth::State& state, float level, bool audible = true);
         bool sample(unsigned n, std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash,
-            const ProceduralSynth::AttackSamples& attacks = {})
+            const ProceduralSynth::AttackSamples& attacks = {}, float gain = 1)
         {
-            return hasTrack(n) && std::atomic_load(&mTracks[n - 1])->sample(std::move(data), root, oneShot, hash, attacks);
+            return hasTrack(n) && std::atomic_load(&mTracks[n - 1])->sample(std::move(data), root, oneShot, hash, attacks, gain);
         }
         bool hasTrack(unsigned track) const;
         bool mixer(unsigned track, const ProceduralMixer::State& state);
@@ -88,7 +88,7 @@ namespace MWSound
         struct Off
         {
             std::uint64_t frame;
-            unsigned track, pitch, generation;
+            unsigned track, pitch, generation, key;
             bool operator<(const Off& other) const { return frame > other.frame; }
         };
         // Slots publish once and live until the stream is destroyed. Render only
@@ -96,6 +96,14 @@ namespace MWSound
         std::array<std::unique_ptr<ProceduralSynth>, MaxTracks> mOwnedTracks{};
         std::array<std::atomic<ProceduralSynth*>, MaxTracks> mTracks{};
         std::array<std::array<unsigned, 128>, MaxTracks> mHeld{};
+        struct HeldKeys
+        {
+            std::array<std::array<bool,1024>,MaxTracks> live{};
+            std::array<std::array<unsigned,1024>,MaxTracks> counts{};
+            std::array<std::array<bool,1024>,MaxTracks> pedal{};
+        };
+        // Fixed ownership storage allocated once on the control thread.
+        std::unique_ptr<HeldKeys> mHeldKeys=std::make_unique<HeldKeys>();
         std::array<std::array<bool, 128>, MaxTracks> mLiveHeld{}, mPedalHeld{};
         std::array<bool, MaxTracks> mPedal{};
         std::array<std::size_t, MaxCurves> mCurveIndices{};

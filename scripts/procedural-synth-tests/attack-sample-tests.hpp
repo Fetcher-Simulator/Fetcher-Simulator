@@ -8,6 +8,16 @@ void attackSampleTests()
         data->zones={{60,72,1,127,60,0,1,0,48000}};data->status.store(Sample::Ready);return data;
     };
     auto base=bank(220),shortAttack=bank(330),dead=bank(440);
+    {
+        Synth normal,boosted;
+        for(auto* s:{&normal,&boosted}){s->set("attack",.002f);s->set("sustain",1);s->set("volume",.1f);s->set("cutoff",18000);s->set("resonance",0);}
+        check(normal.sample(base,60,false,hash) && boosted.sample(base,60,false,hash,{},2),"bounded recording input gain accepted");
+        normal.noteOn(60,.8f);boosted.noteOn(60,.8f);
+        const double ratio=energy(render(boosted,12000))/energy(render(normal,12000));
+        check(ratio>3.95 && ratio<4.05,"unity-compatible input gain scales PCM before the amp");
+        check(!normal.sample(base,60,false,hash,{},0) && !normal.sample(base,60,false,hash,{},9)
+            && !normal.sample(base,60,false,hash,{},std::numeric_limits<float>::quiet_NaN()),"invalid source calibration gains reject");
+    }
     Synth::AttackSamples variants{};variants[1]={shortAttack,60,false,hash};variants[2]={dead,60,false,hash};
     const auto setup=[&](Synth& synth) {
         synth.set("attack",.002f);synth.set("sustain",1);synth.set("release",.01f);synth.set("resonance",0);synth.set("cutoff",18000);
