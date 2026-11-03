@@ -82,7 +82,7 @@ end
 function T:configure(i,n)
     local c=i.channels[n];local a=self:laneStudio(i,n,true)
     if not a then return end
-    assert(a:configure(n,c.params,c.level),'Native instrument budget reached ('..(self.synth.maxUnits or 32)..' units). Finish another performance.')
+    assert(a:configure(n,c.params,c.level,c.audible~=false),'Native instrument budget reached ('..(self.synth.maxUnits or 32)..' units). Finish another performance.')
     assert(a:mixer(n,c.mixer or {}),'Invalid mixer state')
     if a.monitor then a:monitor(n,not i.auditionTrack and 1 or i.auditionTrack==n and 1 or 0.25) end
 end

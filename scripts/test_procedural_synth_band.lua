@@ -8,7 +8,7 @@ local function copy(t) if type(t)~='table' then return t end;local out={};for k,
 local source={id=7,isValid=function() return true end};local physical={id=8,isValid=function() return true end}
 local native={createStudio=function(object)
     local a={source=object,closed=false,playing=false,tracks={},starts={},replaces=0,strikes=0,mixPeak=0.1,masterRms=0.05}
-    function a:configure(n,p,l) self.tracks[n]={params=p,level=l};return true end
+    function a:configure(n,p,l,audible) self.tracks[n]={params=p,level=l,audible=audible};return true end
     function a:mixer() return true end
     function a:monitor(n,gain) self.tracks[n].monitor=gain;return true end
     function a:effects(_,master) self.master=master;return true end
@@ -98,6 +98,19 @@ for lane,audio in pairs{[1]=i.studio,[2]=i.outputs[1].audio} do
     check(#audio.bytes==22 and audio.bytes:byte(11)==130 and audio.bytes:byte(8+1)==lane and audio.bytes:byte(19+1)==lane,
         'physical partition keeps each companion immediately beside its matching note')
     check(Sequence.validate(audio.bytes,expressive.length,true),'each routed expressive partition validates independently')
+end
+transport:close(i)
+p.tracks[1].automation={trackLevel={{s=0,v=.1,linear=true},{s=8,v=.9,linear=false}}}
+p.tracks[2].automation={delaySend={{s=0,v=.7,linear=false}},reverbSend={{s=0,v=.4,linear=false}}}
+i.channels[2].audible=false
+local mix=Sequence.compile(p,nil,nil,'clips',format)
+transport:band(i,band,{0,1},{'Ready'});transport:finish(i,{bytes=mix.bytes,chunks={mix.bytes},length=mix.length,loop=true,started=101,activate=101,playId=6})
+check(i.outputs[1].audio.tracks[2].audible==false,'physical output retains separate mute gate beside its saved fader')
+for lane,audio in pairs{[1]=i.studio,[2]=i.outputs[1].audio} do
+    local controls=0;for at=1,#audio.bytes,11 do local code=audio.bytes:byte(at+9)
+        if code>=214 then controls=controls+1;check(audio.bytes:byte(at+8)==lane and (lane==1 and code==214 or lane==2 and code>=215),'absolute mix curves stay with their intended performer') end
+    end
+    check(controls==2 and Sequence.validate(audio.bytes,mix.length,true),'routed mix partition retains two independently valid controls')
 end
 transport:close(i)
 print('PASS physical band routing, exact partition, shared starts/replacement, missing/rejoin, gain/mute and bounded cleanup; '..checks..' assertions')

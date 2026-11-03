@@ -1,5 +1,30 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## November 3: track mix automation (package 69 / API 29; local only)
+
+All 34 Lua suites and native synth tests pass. Mix lanes 214-216 validate finite
+unit ranges and use existing control/note/transport budgets. Lua tests exercise
+atomic initial-value seeds, mouse and age/latency-compensated hardware capture,
+shared arming boundaries, one-step Undo/Redo, strict persistence, loop crop/chase,
+program-patch isolation and ordinary MIDI note export. The actual Mixer/Channel
+buttons and persistent drag widgets are exercised through real UI callbacks.
+
+Server tests relay the independent Mute/Solo gate and saved fader separately,
+reject forged gate types, retain mix curves privately and relay identical score
+bytes to late listeners. Band tests partition mix curves with their corresponding
+physical output and preserve its audibility gate. Native tests verify absolute
+fader levels (including a saved zero), independent sends, mute protection, 10 ms
+smoothing, manual target takeover, Stop/seek/loop/replacement restoration, bounded
+invalid controls and exact 480-/137-frame PCM equality over three loops. Existing
+legacy mixer bypass, synth, expression, cabinet, sample and concurrency tests pass.
+
+The RelWithDebInfo client builds. Evidence: build/studio69-lua-tests.json,
+build/studio69-native-tests.log and build/studio69-client-build.log. Only the usual
+port-25567 fixture is installed with protected data and asset hashes checked, and
+the test client left closed. Native server C++/protocol and hosted assets do not
+change. Physical Axiom/audible band acceptance and replay-widget movement remain
+pending. No VPS deployment, public release, git push or workflow is included.
+
 ## November 3: general MIDI controllers (package 68 / API 28; local only)
 
 All 33 Lua suites pass. The new controller suite checks all 128 CC values for

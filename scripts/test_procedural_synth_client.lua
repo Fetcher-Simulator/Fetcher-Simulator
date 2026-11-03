@@ -662,7 +662,7 @@ api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrum
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
 -- Reproduce loaded-song reuse from the actual Studio callbacks, including Band.
-package.loaded['openmw.synth'].version=28
+package.loaded['openmw.synth'].version=29
 local paths={'midi/a.mid','midi/b.mid'};local files={}
 local function midiBytes(pitch,count)
     local events={};for n=1,count or 1 do events[#events+1]=string.char(0,144,pitch,100,96,128,pitch,0) end
@@ -1301,6 +1301,17 @@ local function testContinuousSliders()
     check(uw.recorder.controllers.bindings[1].cc==19 and not uw.recorder.learn,'real Learn button assigns the next controller')
     click('Pickup: On');check(not uw.recorder.controllers.bindings[1].pickup,'pickup toggle allows immediate control')
     click('X');check(#uw.recorder.controllers.bindings==0,'binding deletion works through the UI')
+    uw.cb.progress=function() return true,1,0 end;uw.native=true;uw.playing=true;uw.mode='song';uw.beat=2
+    uw.page='mixer';uw.revision=uw.revision+1;view:frame(now+1)
+    click('Write mix to Auto');check(uw.automationWriting,'Mixer arms native capture through its real button')
+    local gain=assert(plain(94));local rootWidget=view.root;local revision=uw.revision
+    mouseDown=true;gain.events.mousePress{button=1,offset=vector(94*view.window.scale*.3,0)}
+    gain.events.mouseMove{button=1,offset=vector(94*view.window.scale*.6,0)};view:frame(now+1.2)
+    check(view.root==rootWidget and uw.revision==revision and uw.project.tracks[1].automation.trackLevel[2].v==.6,'armed mixer drag captures its native lane without rebuilding widgets')
+    mouseDown=false;click('End Auto write')
+    uw.page='channel';uw.revision=uw.revision+1;view:frame(now+1.4);click('Write sends')
+    numeric('Delay send');check(math.abs(uw.project.tracks[1].automation.delaySend[2].v-.75)<1e-9,'channel send slider writes an absolute native automation lane')
+    click('End write');check(not uw.automationWriting,'channel End write commits the shared transaction')
     view:destroy()
     local requested
     local editor=Editor.new(schema.state(bank.state),{change=function() end,command=function(op,args) requested=args.presetId end,noteOff=function() end,meter=function() return 0,0 end})

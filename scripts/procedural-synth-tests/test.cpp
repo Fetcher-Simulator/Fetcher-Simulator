@@ -93,6 +93,7 @@ void writePreview(const std::string& path)
 #include "legato-tests.hpp"
 #include "strike-tests.hpp"
 #include "note-expression-tests.hpp"
+#include "mix-automation-tests.hpp"
 
 void testMidiQueue()
 {
@@ -118,6 +119,7 @@ int main(int argc, char** argv)
         guitarTests();
         studioTests();
         mixerTests();
+        mixAutomationTests();
         returnsTests();
         soundChangeSoakTests();
         sampleTests();

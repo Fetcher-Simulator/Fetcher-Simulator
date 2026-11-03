@@ -11,7 +11,7 @@ return function(s,content)
     content[#content+1]=text('KNOBS / FADERS — local absolute CC assignments',240,171,650)
     button(r.mapping.enabled and 'Mappings: On' or 'Mappings: Off',20,211,200,function() r:setMapping('enabled',not r.mapping.enabled) end,r.mapping.enabled)
     button('+ Add binding',230,211,180,function() if #map.bindings<Map.maxBindings then map:edit(#map.bindings+1,{}) end end)
-    button(w.automationWriting and 'End Auto write' or 'Write synth CCs to Auto',420,211,270,function() r:writeMappings() end,w.automationWriting)
+    button(w.automationWriting and 'End Auto write' or 'Write mapped CCs to Auto',420,211,270,function() r:writeMappings() end,w.automationWriting)
     local pages=math.max(1,math.ceil(#map.bindings/4));local page=math.min(s.controllerPage or 0,pages-1);s.controllerPage=page
     button('Bindings '..(page+1)..'/'..pages..' v',700,211,190,function()
         local entries={};for n=0,pages-1 do entries[#entries+1]={id=n,label='Bindings '..(n*4+1)..'–'..math.min(n*4+4,#map.bindings)} end

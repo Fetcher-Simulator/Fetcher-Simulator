@@ -277,7 +277,7 @@ function S:automation(content)
     local w,p=self.w,self.w.project;local t=p.tracks[w.selected]
     if not t then content[#content+1]=label('Add a part on Song or Mixer first.',20,175,880,16,c.accent);return end
     local name=w.automationName or 'cutoff';local spec=Project.automationSpecs[name]
-    local names={stringMute='Palm mute',stringDecay='Muted / string decay',stringDamping='Muted / string tone',
+    local names={trackLevel='Track fader',delaySend='Delay send',reverbSend='Reverb send',stringMute='Palm mute',stringDecay='Muted / string decay',stringDamping='Muted / string tone',
         stringLegato='String connect mode',stringSlideTime='Slide time',stringLayout='String voices / tuning',stringSelect='String selection',stringArticulation='String articulation',pickAttack='Pick attack',pickDecay='Pick decay',
         stringResonance='String resonance',pickPitch='Pick pitch',pickVariation='Pick variation',pickDirection='Pick direction',parallelMix='Parallel blend',parallelClean='Clean layer',parallelDirty='Dirty layer',
         parallelNoise='Following noise',parallelDrive='Parallel drive',parallelShape='Parallel shape',parallelComb='Comb amount',
@@ -301,7 +301,11 @@ function S:automation(content)
     elseif name=='parallelShape' then content[#content+1]=label('0 Soft | 1 Hard | 2 Fold | 3 Rectify',500,197,390,10,c.muted)
     elseif name=='pickDirection' then content[#content+1]=label('0 Down | 1 Up | 2 Alternate',500,197,390,10,c.muted) end
     content[#content+1]=Controls.slider(self,'automationValue',title,spec,function() return w.automationDraft end,function(value)
-        w.automationDraft=value;if w.automationWriting then w:recordAutomation(w.selected,name,value) end
+        w.automationDraft=value;if w.automationWriting then
+            if name=='trackLevel' then w:setTrack(w.selected,'level',value)
+            elseif name=='delaySend' or name=='reverbSend' then w:setMixer(w.selected,name,value)
+            else w:recordAutomation(w.selected,name,value) end
+        end
     end,20,206,360)
     content[#content+1]=self:button(w.automationLinear==false and 'Step' or 'Linear',400,215,110,function() w.automationLinear=not (w.automationLinear~=false);w.revision=w.revision+1 end)
     content[#content+1]=self:button(w.automationWriting and 'End write' or 'Write while playing',525,215,175,function()
@@ -340,7 +344,9 @@ function S:mixer(content)
         Dropdown.open(self,choices,p.soundSet,function(id) w:applySoundSet(id) end,55,181,590)
     end)
     content[#content+1]=self:button('>',362,150,28,function() w:cycleSoundSet(1) end)
-    content[#content+1]=label('Applies sounds to all tracks.',410,155,190,11,c.muted)
+    content[#content+1]=self:button(w.automationWriting and 'End Auto write' or 'Write mix to Auto',410,150,190,function()
+        if w.automationWriting then w:endAutomationWrite() else w:beginAutomationWrite() end;w.revision=w.revision+1
+    end,w.automationWriting)
     content[#content+1]=self:button(w.auditionTrack and 'Full mix (end focus)' or 'Focus selected (local)',610,150,275,function() w:setAudition(w.auditionTrack and 0 or w.selected) end,w.auditionTrack~=nil)
     content[#content+1]=label('PART / TRACK',28,183,240,10,c.muted)
     content[#content+1]=label('SAVED SOUND',295,183,225,10,c.muted)
@@ -487,6 +493,9 @@ function S:channel(content)
         content[#content+1]=Controls.slider(self,'send:'..key,n==1 and 'Delay send' or 'Reverb send',{min=0,max=1,unit='%',step=0.01},
             function() return t.mixer[key] end,function(value) w:setMixer(w.selected,key,value) end,20+(n-1)*455,603,265)
     end
+    content[#content+1]=self:button(w.automationWriting and 'End write' or 'Write sends',320,609,125,function()
+        if w.automationWriting then w:endAutomationWrite() else w:beginAutomationWrite() end;w.revision=w.revision+1
+    end,w.automationWriting)
     content[#content+1]=self:button('Returns',775,609,110,function() w.page='returns';w.revision=w.revision+1 end)
     content[#content+1]=label('Bypass preserves settings. Peak / RMS are dBFS; GR shows compressor reduction in dB.',20,658,890,10,c.muted)
     self:addMasterMeter(content,576)

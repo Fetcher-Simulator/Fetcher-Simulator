@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 68 / native synth API 28 / multiplayer protocol 27.
+Current source: package 69 / native synth API 29 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,38 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models, more detailed articulation/animation
 and listening-based sound balancing remain next in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Track fader and send automation (package 69 / native API 29)
+
+Start **Play song** or **Play clips**, then choose **Mixer > Write mix to Auto**.
+Move track faders and choose **End Auto write**. Channel **Mix > Write sends**
+records delay/reverb-send sliders through the same transaction. Hardware bindings
+for **Mixer / track level**, **Mixer / delaySend** and **Mixer / reverbSend** also
+record when **Write mapped CCs to Auto** is armed on the Knobs / faders page.
+The physical input connection and mappings work as before.
+
+On **Auto**, select **Track fader**, **Delay send** or **Reverb send** to edit the
+saved curve. Continuous curves follow Auto's Linear/Step choice. A first captured
+lane preserves its initial saved value at time zero before adding later moves.
+Captures use the native playhead; mapped hardware removes event age and input
+compensation once. End write, Undo/Redo and private project saves retain both the
+curves and the edited mix. Buffered pre-arm CCs are excluded whichever page arms
+capture. The existing per-lane/project/control-point budgets still apply.
+
+Native playback interprets faders as absolute levels, with independent post-fader
+sends and 10 ms smoothing. Mute/Solo is a separate gate, so a recorded fade cannot
+unmute a track and a saved zero fader can still fade up. Curves follow their
+physical performer, including late-listener seek and loop/replacement chase.
+Stop/removing a curve restores the saved manual target. Changing a manual mix
+target takes over its running lane until the next Stop/seek/loop/replacement;
+dedicated touch/latch write modes and moving replay fader widgets remain follow-ups.
+
+Master, shared return and channel EQ/compressor automation remain future work;
+those controls still make live saved edits. Studio mix lanes are not translated
+into standard MIDI controllers on export. Native control IDs 214-216 append to
+existing IDs; protocol 27 and the current score size budgets are unchanged.
+The updated local client needs API 29. No C++ server rebuild or new sound assets
+are required, and this slice is installed only on the usual local fixture.
 
 ## Physical knobs and faders (package 68 / native API 28)
 
@@ -33,7 +65,7 @@ Selection, preset/document changes, external value edits, Hide/disconnect and
 Reset controllers rearm pickup. Turn it off for immediate jumps. Continuous
 controls span their native range; frequency/envelope controls use logarithmic
 travel and discrete controls use valid even bins. CC 64 remains sustain; channel
-mode CCs 120–127 cannot be assigned. All bindings share the input-channel filter
+mode CCs 120â€“127 cannot be assigned. All bindings share the input-channel filter
 and cannot reuse the articulation/string/pick CCs. Relative encoders, 14-bit CC,
 per-device profiles and custom subranges remain future work.
 

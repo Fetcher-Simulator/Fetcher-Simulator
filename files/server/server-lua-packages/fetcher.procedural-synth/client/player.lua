@@ -8,9 +8,9 @@ local util=require('openmw.util')
 local stageLayout=require('scripts.multiplayer.fetcher.procedural-synth.shared.band-layout')
 local StagePreflight=require('scripts.multiplayer.fetcher.procedural-synth.client.stage-preflight')(nearby,util,stageLayout)
 local supported, synth = pcall(require,'openmw.synth')
-if not supported or (synth.version and synth.version<28) then
+if not supported or (synth.version and synth.version<29) then
     return {eventHandlers={Synth_Activate=function()
-        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 28.')
+        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 29.')
     end}}
 end
 local schema = require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -145,13 +145,13 @@ local function apply(instance, params)
     if instance.audio.sample then instance.audio:sample(params.sample) end
     instance.params=params
 end
-local function applyChannel(i,n,params,level,mixer)
+local function applyChannel(i,n,params,level,mixer,audible)
     local channel=i.channels[n] or {};i.channels[n]=channel
-    channel.params=params;channel.level=level;channel.mixer=Project.mixer(mixer) or Project.mixer()
+    channel.params=params;channel.level=level;channel.audible=audible~=false;channel.mixer=Project.mixer(mixer) or Project.mixer()
     if channel.audio then
         if i.studio then transport:configure(i,n);return end
         for name in pairs(schema.specs) do channel.audio:set(name,name=='polyphony' and math.min(8,params[name]) or params[name]) end
-        channel.audio:set('volume',params.volume*level)
+        channel.audio:set('volume',params.volume*level*(channel.audible and 1 or 0))
     end
 end
 local function applyEffects(i,effects,master)
@@ -169,7 +169,7 @@ local function channelAudio(i,n,create)
         end
         local ok,audio=pcall(synth.create,i.source)
         if not ok then ui.showMessage('DAW audio source unavailable: '..tostring(audio));return end
-        channel.audio=audio;applyChannel(i,n,channel.params,channel.level)
+        channel.audio=audio;applyChannel(i,n,channel.params,channel.level,channel.mixer,channel.audible)
     end
     return channel.audio
 end
@@ -371,14 +371,14 @@ makeWorkstation=function(i)
             return a and a.playing or false,a and a.audiblePosition or 0,a and a.fault or 0,
                 a and t and not t.loop and not a.playing and a.position>=t.length/48000 or false
         end,
-        configure=function(n,params,level,mixer)
-            local values={level};for _,name in ipairs(schema.order) do values[#values+1]=params[name] end
+        configure=function(n,params,level,mixer,audible)
+            local values={level,tostring(audible~=false)};for _,name in ipairs(schema.order) do values[#values+1]=params[name] end
             values[#values+1]=schema.sampleKey(params.sample)
             for _,name in ipairs(Project.mixerOrder) do values[#values+1]=(mixer or Project.mixer())[name] end
             local signature=table.concat(values,',')
             if i.channels[n] and i.channels[n].signature==signature then return end
-            applyChannel(i,n,params,level,mixer);i.channels[n].signature=signature
-            i.pendingChannels[n]={channel=n,params=params,level=level,mixer=i.channels[n].mixer};flushChannels()
+            applyChannel(i,n,params,level,mixer,audible);i.channels[n].signature=signature
+            i.pendingChannels[n]={channel=n,params=params,level=level,mixer=i.channels[n].mixer,audible=audible~=false};flushChannels()
         end,
         currentParams=function() return i.params end,
         manualParameter=function(name,value)
@@ -626,7 +626,7 @@ local function message(data)
         instances[data.id]=i;apply(i,params);applyEffects(i,data.effects,data.master);transport:band(i,data.band,data.routes,data.availability,data.performers)
         for n,channel in pairs(data.channels or {}) do
             local state=schema.state(channel.params)
-            if type(n)=='number' and n>=1 and n<=Project.maxTracks and n%1==0 and state then applyChannel(i,n,state,channel.level or 1,channel.mixer) end
+            if type(n)=='number' and n>=1 and n<=Project.maxTracks and n%1==0 and state then applyChannel(i,n,state,channel.level or 1,channel.mixer,channel.audible) end
         end
         if data.op=='granted' then
             refreshExports()
@@ -657,7 +657,7 @@ local function message(data)
         for key in pairs(i.notes) do if math.floor(key/128)==channel then i.notes[key]=nil end end
     elseif data.op=='channel' then
         local params=schema.state(data.params)
-        if params and channel>=1 and channel<=Project.maxTracks and channel%1==0 then applyChannel(i,channel,params,data.level,data.mixer) end
+        if params and channel>=1 and channel<=Project.maxTracks and channel%1==0 then applyChannel(i,channel,params,data.level,data.mixer,data.audible) end
     elseif data.op=='effects' then applyEffects(i,data.effects,data.master)
     elseif data.op=='on' then playNote(i,channel,data.note,data.velocity,data.expression)
     elseif data.op=='off' then releaseNote(i,channel,data.note)
@@ -789,7 +789,7 @@ end
 return {
     interfaceName='ProceduralSynth',
     interface={
-        version=28,
+        version=29,
         status=function()
             local out={}
             for id,i in pairs(instances) do

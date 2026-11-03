@@ -12,9 +12,9 @@ for _,name in ipairs(schema.order) do
     spec.log=spec.min>0 and not spec.discrete and (name:lower():find('frequency') or name:lower():find('cutoff') or name:lower():find('attack') or name:lower():find('decay') or name:lower():find('release'))~=nil
     add('param:'..name,'Synth / '..name,spec,'param',name,true)
 end
-add('level','Mixer / track level',{min=0,max=1},'level')
+add('level','Mixer / track level',{min=0,max=1},'level','trackLevel',true)
 for _,name in ipairs(F.mixerOrder) do local s=F.mixerSpecs[name]
-    add('mixer:'..name,'Mixer / '..name,{min=s[1],max=s[2],discrete=name=='eqEnabled' or name=='compEnabled'},'mixer',name)
+    add('mixer:'..name,'Mixer / '..name,{min=s[1],max=s[2],discrete=name=='eqEnabled' or name=='compEnabled'},'mixer',name,name=='delaySend' or name=='reverbSend')
 end
 add('master','Mixer / master',{min=0,max=1},'master')
 for _,name in ipairs(F.effectsOrder) do local s=F.effectsSpecs[name]
@@ -88,14 +88,14 @@ function M:event(e)
             if not s.acquired then self.status='Pickup: '..target.label;return true end
         end
         s.acquired=true
-        -- Mixer/return faders edit the document. Only synth parameters currently have score automation lanes.
-        if target.kind=='param' and w.automationWriting and index>0 then
+        -- Mixer/return faders edit the document. Level and sends have native score lanes; EQ/returns remain saved live edits.
+        if target.automatable and w.automationWriting and index>0 then
             if not r:recordMapped(index,target.name,value,e.age) then return true end
         end
         if current~=value then
             if target.kind=='param' then w:setParameter(index,target.name,value)
-            elseif target.kind=='level' then w:setTrack(index,'level',value)
-            elseif target.kind=='mixer' then w:setMixer(index,target.name,value)
+            elseif target.kind=='level' then w:setTrack(index,'level',value,true)
+            elseif target.kind=='mixer' then w:setMixer(index,target.name,value,true)
             elseif target.kind=='master' then w:setMaster(value)
             elseif target.kind=='effects' then w:setEffect(target.name,value) end
         end

@@ -82,7 +82,7 @@ namespace MWLua
                     return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 28;
+            api["version"] = 29;
             api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
                 const auto path = manager->exportStudioMidi(name, bytes);
                 sol::table result(lua, sol::create);
@@ -154,7 +154,7 @@ namespace MWLua
                     return notes;
                 },
                 "configure",
-                [](Studio& studio, unsigned n, const sol::table& values, float level) {
+                [](Studio& studio, unsigned n, const sol::table& values, float level, sol::optional<bool> audible) {
                     auto sound = MWBase::Environment::get().getSoundManager();
                     if (!studio.hasTrack(n) && sound->synthUnits() >= MWSound::ProceduralAudio::MaxUnits)
                         return false;
@@ -162,7 +162,7 @@ namespace MWLua
                     for (std::size_t i = 0; i < state.size(); ++i)
                         state[i] = values[Synth::Parameters[i].name].get_or(Synth::Parameters[i].initial);
                     auto sample = readSample(values["sample"]);
-                    return studio.configure(n, state, level)
+                    return studio.configure(n, state, level, audible.value_or(true))
                         && studio.sample(n, std::move(sample.data), sample.root, sample.oneShot, sample.hash);
                 },
                 "start",

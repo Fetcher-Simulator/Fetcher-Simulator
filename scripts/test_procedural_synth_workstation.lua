@@ -14,7 +14,7 @@ local events,config,messages,saved={},{},{},nil
 local function copy(t) if type(t)~='table' then return t end;local out={};for k,v in pairs(t) do out[k]=copy(v) end;return out end
 local w=Workstation.new{
     currentParams=function() return schema.state({wave1=2}) end,
-    configure=function(n,p,level,mixer) config[n]={params=copy(p),level=level,mixer=copy(mixer)} end,
+    configure=function(n,p,level,mixer,audible) config[n]={params=copy(p),level=level,mixer=copy(mixer),audible=audible} end,
     on=function(lane,note,velocity) events[#events+1]={'on',lane,note,velocity} end,
     off=function(lane,note) events[#events+1]={'off',lane,note} end,
     panic=function() events[#events+1]={'panic'} end,
@@ -41,9 +41,9 @@ check(w.project.tracks[1].steps:sub(1,1)~='0' and w.project.tracks[2].notes[1].l
 w:preset(2,'b:bass')
 check(config[2].params.tune1==-12,'saved timbre assigned per track')
 w:setTrack(2,'solo',true)
-check(config[1].level==0 and math.abs(config[2].level-0.8)<0.00001,'solo changes mix without overwriting timbres')
+check(not config[1].audible and config[2].audible and config[1].level==0.8 and math.abs(config[2].level-0.8)<0.00001,'solo changes mix without overwriting timbres')
 w:setTrack(2,'solo',false);w:setTrack(1,'mute',true)
-check(config[1].level==0 and w.project.tracks[1].level==0.8,'mute preserves fader setting')
+check(not config[1].audible and config[1].level==0.8 and w.project.tracks[1].level==0.8,'mute preserves fader setting')
 w:setTrack(1,'mute',false);w:setTrack(2,'level',0.3)
 check(math.abs(config[2].level-0.3)<0.00001,'independent mixer level')
 check(not w:setTrack(2,'level',0/0) and not w:setTrack(2,'level',2),'invalid level rejected')

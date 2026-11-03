@@ -21,7 +21,7 @@ namespace MWSound
             for (unsigned n=0;n<MaxTracks;++n) { mLanePeak[n]=0; mRms[n]=0; mReduction[n]=0; }
             keepAlive();
         }
-        static constexpr unsigned MaxTracks = 32, MaxNotes = 60000, MaxControls = 8192, MaxCurves = MaxTracks * (2*ProceduralSynth::ParameterCount+5), MaxActive = 4096;
+        static constexpr unsigned MaxTracks = 32, MaxNotes = 60000, MaxControls = 8192, MaxCurves = MaxTracks * (2*ProceduralSynth::ParameterCount+5+ProceduralMixer::AutomationCount), MaxActive = 4096;
         // Attack companions share the established transfer budget.
         static constexpr unsigned MaxRecords = MaxNotes+MaxControls;
         // Preloaded scores are scheduled on the audio clock, independently of live network notes.
@@ -42,7 +42,7 @@ namespace MWSound
             std::uint32_t length;
             bool loop;
         };
-        bool configure(unsigned track, const ProceduralSynth::State& state, float level);
+        bool configure(unsigned track, const ProceduralSynth::State& state, float level, bool audible = true);
         bool sample(unsigned n, std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash)
         {
             return hasTrack(n) && std::atomic_load(&mTracks[n - 1])->sample(std::move(data), root, oneShot, hash);
@@ -109,6 +109,7 @@ namespace MWSound
         std::array<ProceduralMixer, MaxTracks> mMixer{};
         std::array<ProceduralMixer::State, MaxTracks> mMixerTarget{};
         std::array<float, MaxTracks> mLevelTarget{};
+        std::array<bool, MaxTracks> mAudibleTarget{};
         std::array<bool, MaxTracks> mMixerDirty{};
         std::array<std::atomic<float>, MaxTracks> mLanePeak{}, mRms{}, mReduction{};
         std::array<double, MaxTracks> mPower{};

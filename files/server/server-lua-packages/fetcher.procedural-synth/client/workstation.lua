@@ -161,7 +161,7 @@ function W:audible(index)
 end
 function W:configure(index)
     local t=self.project.tracks[index]
-    if t then self.cb.configure(index,t.params,self:audible(index) and t.level or 0,t.mixer) end
+    if t then self.cb.configure(index,t.params,t.level,t.mixer,self:audible(index)) end
 end
 function W:setParameter(index,name,value)
     if not schema.valid(name,value) or name=='polyphony' and index>0 and value>8 then return false end
@@ -170,11 +170,12 @@ function W:setParameter(index,name,value)
     if t.params[name]==value then return true end
     t.params[name]=value;t.presetId='';self:configure(index);self:touch('sound:'..index..':'..name,true);return true
 end
-function W:setMixer(index,name,value)
+function W:setMixer(index,name,value,skipWrite)
     local t=self.project.tracks[index];local spec=format.mixerSpecs[name]
     if not t or not spec then return false end
     local state=copy(t.mixer or format.mixer());state[name]=value
     state=format.mixer(state);if not state then return false end
+    if not skipWrite and self.automationWriting and (name=='delaySend' or name=='reverbSend') and not self:recordAutomation(index,name,value) then return false end
     t.mixer=state;self:configure(index);self:touch('mixer:'..index..':'..name,true);return true
 end
 function W:setEffect(name,value)
@@ -192,7 +193,7 @@ function W:setMaster(value)
 end
 function W:automationValue(index,name,step)
     local t=self.project.tracks[index];local spec=format.automationSpecs[name];if not t or not spec then return end
-    local value=t.params[name] or spec.default;local points=t.automation and t.automation[name] or {}
+    local value=name=='trackLevel' and t.level or (name=='delaySend' or name=='reverbSend') and (t.mixer or format.mixer())[name] or t.params[name] or spec.default;local points=t.automation and t.automation[name] or {}
     for i,p in ipairs(points) do
         if p.s>step then break end
         value=p.v;local next=points[i+1]
@@ -200,11 +201,12 @@ function W:automationValue(index,name,step)
     end
     return value
 end
-function W:setAutomation(index,name,step,value,linear,remove,from)
+function W:setAutomation(index,name,step,value,linear,remove,from,initial)
     if self.recording then self.cb.message('End the keyboard take before editing automation.');return false end
     local t=self.project.tracks[index];local spec=format.automationSpecs[name]
     if not t or not spec or type(step)~='number' or step~=step or step<0 then return false end
     local lanes=copy(t.automation or {});local points=lanes[name] or {};lanes[name]=points
+    if initial~=nil and #points==0 and step>0 then points[1]={s=0,v=initial,linear=false} end
     for i=#points,1,-1 do if math.abs(points[i].s-step)<1e-7 or from and math.abs(points[i].s-from)<1e-7 then table.remove(points,i) end end
     if not remove then points[#points+1]={s=step,v=value,linear=not spec.discrete and linear==true} end
     table.sort(points,function(a,b) return a.s<b.s end)
@@ -236,12 +238,17 @@ function W:importControls(index)
 end
 function W:endAutomationWrite()
     if not self.automationWriting then return end
-    self.automationWriting=false;self.editDepth=math.max(0,(self.editDepth or 1)-1)
+    self.automationWriting=false;self.automationWriteTime=nil
+    if self.recorder then self.recorder.mappingWriting=false;self.recorder.mappingStart=nil end
+    self.editDepth=math.max(0,(self.editDepth or 1)-1)
     if self.editDepth==0 and self.transactionTouched then self.transactionTouched=false;self:touch('sequence') end
 end
 function W:beginAutomationWrite()
     if not self.native or not self.playing or self.awaiting or self.recording or self.mode=='pattern' then return false end
-    if not self.automationWriting then self.lastEditKey=nil;self.automationWriting=true;self.editDepth=(self.editDepth or 0)+1 end
+    if not self.automationWriting then
+        self.lastEditKey=nil;self.automationWriting=true;self.editDepth=(self.editDepth or 0)+1
+        if self.cb.progress then local _,time=self.cb.progress();self.automationWriteTime=time end
+    end
     return true
 end
 function W:recordAutomation(index,name,value,age)
@@ -250,7 +257,8 @@ function W:recordAutomation(index,name,value,age)
     if age and self.cb.progress then local _,time=self.cb.progress();beat=self:playbackBeat(math.max(0,time-age)) end
     local step=math.max(0,math.floor(beat*4*4+0.5)/4)
     if self.mode~='song' then step=step%self.project.length end
-    return self:setAutomation(index,name,step,value,self.automationLinear~=false)
+    local initial=(name=='trackLevel' or name=='delaySend' or name=='reverbSend') and self:automationValue(index,name,0) or nil
+    return self:setAutomation(index,name,step,value,self.automationLinear~=false,nil,nil,initial)
 end
 function W:configureBand()
     if self.cb.band then
@@ -496,12 +504,13 @@ function W:duplicateTrack(index) self:setAudition(0);return require(prefix..'cli
 function W:clearDrumBar() return require(prefix..'client.pattern-tools').clearBar(self) end
 function W:deletePatternBar() return require(prefix..'client.pattern-tools').deleteBar(self) end
 function W:capturePattern() return require(prefix..'client.pattern-tools').capture(self) end
-function W:setTrack(index,name,value)
+function W:setTrack(index,name,value,skipWrite)
     local t=self.project.tracks[index];if not t then return false end
     if name=='mute' or name=='solo' then
         if type(value)~='boolean' then return false end;t[name]=value;self:configureAll()
     elseif name=='level' then
         if type(value)~='number' or value~=value or value<0 or value>1 then return false end
+        if not skipWrite and self.automationWriting and not self:recordAutomation(index,'trackLevel',value) then return false end
         t.level=value;self:configure(index)
     elseif name=='note' then
         if type(value)~='number' or value%1~=0 or value<0 or value>127 then return false end;t.note=value

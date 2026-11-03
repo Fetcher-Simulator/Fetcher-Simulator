@@ -405,12 +405,13 @@ local function request(data)
     if data.op=='channel' then
         local params=schema.state(data.params)
         local mixer=projectFormat.mixer(data.mixer)
+        if data.audible~=nil and type(data.audible)~='boolean' then return end
         if not mixer or channel==0 or not params or type(data.level)~='number' or data.level~=data.level or data.level<0 or data.level>1
             or not budget(data.pid,now,'channels',12,32) then return end
         params.polyphony=math.min(8,params.polyphony)
-        s.channels[channel]={params=params,level=data.level,mixer=mixer}
+        s.channels[channel]={params=params,level=data.level,mixer=mixer,audible=data.audible~=false}
         s.revision=s.revision+1
-        nextEvent(s);broadcast(s,{op='channel',channel=channel,params=params,level=data.level,mixer=mixer},s.owner);return
+        nextEvent(s);broadcast(s,{op='channel',channel=channel,params=params,level=data.level,mixer=mixer,audible=data.audible~=false},s.owner);return
     end
     if type(data.op)=='string' and data.op:sub(1,3)=='lib' then
         if data.characterId~=player.characterId or not integer(data.requestId,1,2147483647) then return end

@@ -24,13 +24,13 @@ for i,name in ipairs(schema.order) do
     M.automationOrder[#M.automationOrder+1]=name;M.automationSpecs[name]=spec
 end
 for _,entry in ipairs{{'pitchBend',-2,2,0,183},{'modulation',0,1,0,184},{'expression',0,1,1,185},
-    {'midiVolume',0,1,1,186},{'pedal',0,1,0,187,true},{'program',0,127,0,nil,true}} do
+    {'midiVolume',0,1,1,186},{'pedal',0,1,0,187,true},{'program',0,127,0,nil,true},{'trackLevel',0,1,1,214},{'delaySend',0,1,0,215},{'reverbSend',0,1,0,216}} do
     local name=entry[1];M.automationOrder[#M.automationOrder+1]=name
     M.automationSpecs[name]={min=entry[2],max=entry[3],default=entry[4],code=entry[5],discrete=entry[6]}
 end
 function M.automation(input)
     if input==nil then return {} end
-    if not keys(input,M.automationSpecs,#schema.order+6) then return nil end
+    if not keys(input,M.automationSpecs,#schema.order+9) then return nil end
     local out={};local count=0
     for name,points in pairs(input) do
         local spec=M.automationSpecs[name];if not array(points,1024) then return nil end

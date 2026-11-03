@@ -11,6 +11,14 @@ not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
 
+Package 69 / native API 29 adds absolute track-fader and delay/reverb-send
+curves, mouse and hardware capture, initial-value preservation and one-step Undo.
+A separate audibility gate protects Mute/Solo. Native smoothing/chase/reset follows
+the shared score clock and physical routing; IDs 214-216 retain old controls and
+budgets. Master/return/EQ/compressor automation, moving replay widgets and explicit
+touch/latch modes remain follow-ups. This is local-only with protocol 27 unchanged;
+client audio/Lua bindings and server Lua change, with no C++ server rebuild.
+
 Package 68 / native API 28 adds up to 16 general local CC Learn bindings for
 synth parameters, fixed/current track faders, channel processing, master and
 returns. Pickup prevents abrupt target jumps. Explicit synth Auto capture uses
@@ -473,7 +481,7 @@ credited sheet booklet into the Yamaha rests and separate stand, and supplies
 stands to non-keyboard NPCs. Native spawned-actor teleport support and positional
 readback repair lineup changes that previously left reused NPCs in old slots.
 
-## Remaining roadmap (next: general controller mapping and band acceptance)
+## Remaining roadmap (next: band listening and performance acceptance)
 
 1. **Guitars, electric bass, full drum kit and convincing genre playback.**
    Prioritize electric guitar and bass, nylon-string classical guitar,
@@ -504,8 +512,10 @@ readback repair lineup changes that previously left reused NPCs in old slots.
      Package 68 adds general physical-controller Learn/assignments for synth,
      channel processing, track/master faders and return controls, with native
      ranges, pickup, local bindings and explicit synth automation capture.
-     Mixer/return automation, relative/14-bit encoders, per-device profiles and
-     custom subranges remain follow-ups. Package 66's attack mappings stay separate.
+     Package 69 captures absolute track faders and delay/reverb sends. Master/
+     shared-return/EQ/compressor automation, moving replay widgets, explicit touch/
+     latch modes, relative/14-bit encoders, per-device profiles and custom subranges
+     remain follow-ups. Package 66's attack mappings stay separate.
      Do not make fidelity depend solely on collecting more samples.
    - **Guitar and bass articulation:** clean, crunch, fuzz, high-gain rhythm and
      lead guitar; tight palm-muted/choked notes, sustained chords, picking,
@@ -567,7 +577,8 @@ readback repair lineup changes that previously left reused NPCs in old slots.
    modes. Automatic hardware round-trip measurement and non-Windows input remain
    planned; tap-based timing compensation is available now.
 7. **Mixer/effects routing.** Stereo/panning, group buses, flexible effect chains
-   and mixer/return automation. Native EQ/compression, instrument drive/cabinet
+   and remaining master/return/EQ/compressor automation. Track-fader/send curves
+   are available in package 69. Native EQ/compression, instrument drive/cabinet
    and shared delay/reverb already exist.
 8. **Further sample tools and sound libraries.** Sustained loops, chopping,
    reverse, crossfades and sound-library expansion beyond the priority band set. Continue

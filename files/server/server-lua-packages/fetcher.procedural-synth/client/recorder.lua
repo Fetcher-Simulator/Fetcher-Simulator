@@ -91,10 +91,11 @@ function R:setExpression(name,value,age)
 end
 function R:recordMapped(index,name,value,age)
     local adjusted=(age or 0)+self.settings.latency/1000
-    if self.mappingWriting and self.mappingStart and self.w.cb.progress then
+    local started=self.w.automationWriteTime or self.mappingStart
+    if started and self.w.cb.progress then
         local _,time=self.w.cb.progress()
-        if time-(age or 0)<self.mappingStart then return false end
-        adjusted=math.min(adjusted,math.max(0,time-self.mappingStart))
+        if time-(age or 0)<started then return false end
+        adjusted=math.min(adjusted,math.max(0,time-started))
     end
     return self.w:recordAutomation(index,name,value,adjusted)
 end

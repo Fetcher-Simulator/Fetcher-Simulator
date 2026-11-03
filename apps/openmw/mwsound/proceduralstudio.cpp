@@ -19,7 +19,7 @@ namespace MWSound
     {
         return n >= 1 && n <= MaxTracks && std::atomic_load(&mTracks[n - 1]) != nullptr;
     }
-    bool ProceduralStudio::configure(unsigned n, const ProceduralSynth::State& state, float level)
+    bool ProceduralStudio::configure(unsigned n, const ProceduralSynth::State& state, float level, bool audible)
     {
         if (closed() || n < 1 || n > MaxTracks || !std::isfinite(level) || level < 0 || level > 1) return false;
         for (std::size_t i = 0; i < state.size(); ++i)
@@ -38,7 +38,7 @@ namespace MWSound
         }
         for (std::size_t i = 0; i < state.size(); ++i)
             track->set(ProceduralSynth::Parameters[i].name, i == 25 ? std::min(8.f, state[i]) : state[i]);
-        mLevelTarget[n-1]=level; mMixerDirty[n-1]=true;
+        mLevelTarget[n-1]=level; mAudibleTarget[n-1]=audible; mMixerDirty[n-1]=true;
         if (fresh) { std::atomic_store(&mTracks[n - 1], track); ++mTrackCount; }
         keepAlive(); return true;
     }
@@ -128,9 +128,9 @@ namespace MWSound
             if (note.pitch >= 128)
             {
                 const unsigned wire = note.pitch - 128;
-                const unsigned code = ProceduralSynth::decodeControl(wire);
+                const unsigned code = wire >= ProceduralSynth::ControlCount ? wire : ProceduralSynth::decodeControl(wire);
                 const bool program = note.velocity == 129;
-                if (++controls > MaxControls || wire >= ProceduralSynth::ControlCount || note.duration > 65535
+                if (++controls > MaxControls || wire >= ProceduralSynth::ControlCount+ProceduralMixer::AutomationCount || note.duration > 65535
                     || (note.velocity != 0 && note.velocity != 128 && !program)
                     || (program && code >= ProceduralSynth::ParameterCount)
                     || (note.velocity == 128 && (code == ProceduralSynth::ParameterCount+4 || (code < ProceduralSynth::ParameterCount && ProceduralSynth::Parameters[code].discrete)))) return false;
@@ -260,7 +260,7 @@ namespace MWSound
     {
         for (unsigned n=0; n<MaxTracks; ++n)
         {
-            pedal(n, false);
+            pedal(n, false); mMixer[n].resetAutomation();
             if (auto track = std::atomic_load(&mTracks[n])) track->resetAutomation();
         }
     }
@@ -301,7 +301,9 @@ namespace MWSound
             if ((code==ProceduralSynth::ParameterCount || code==ProceduralSynth::PickPitch) && std::abs(value)<0.00004) value=0;
             if (code<ProceduralSynth::ParameterCount && ProceduralSynth::Parameters[code].discrete) value=std::round(value);
             if (code==25) value=std::min(8.0,value);
-            if (curve.program) { track->mProgrammed[code]=true; track->mProgram[code]=static_cast<float>(value); }
+            if (code>=ProceduralSynth::ControlCount)
+                mMixer[curve.track].automate(code-ProceduralSynth::ControlCount,value,slope,mChasingControls);
+            else if (curve.program) { track->mProgrammed[code]=true; track->mProgram[code]=static_cast<float>(value); }
             else { track->mAutomated[code]=true; track->mAutomation[code]=value; track->mAutomationSlope[code]=slope; }
             if (code==ProceduralSynth::ParameterCount+4) pedal(curve.track, value>=0.5);
         }
@@ -359,7 +361,7 @@ namespace MWSound
                 if (mStopPending) mReturns.stop();
                 if (mStartPending) mReturns.resume();
                 for (unsigned n=0;n<MaxTracks;++n) if (mMixerDirty[n])
-                { mMixer[n].target(mMixerTarget[n],mLevelTarget[n]); mMixerDirty[n]=false; }
+                { mMixer[n].target(mMixerTarget[n],mLevelTarget[n],mAudibleTarget[n]); mMixerDirty[n]=false; }
                 if (mStopPending || mStartPending) { clearVoices(); mPlaying = false; mStopPending = false; mReplacement.reset(); mReplacePending = false; }
                 if (mStartPending)
                 {

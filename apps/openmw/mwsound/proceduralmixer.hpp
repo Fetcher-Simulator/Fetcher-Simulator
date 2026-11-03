@@ -29,22 +29,43 @@ namespace MWSound
                     || ((i==0 || i==6) && s[i]!=0 && s[i]!=1)) return false;
             return true;
         }
-        void target(const State& state, float level)
+        void target(const State& state, float level, bool audible = true)
         {
-            mTarget=state; mLevelTarget=level;
-            if (!mInitialized) { mLevel=level; mInitialized=true; }
+            // A live fader move takes over its running curve until Stop/seek/
+            // loop/replacement chase. Other channel edits do not disturb it.
+            for (unsigned i=0;i<AutomationCount;++i)
+            {
+                const double value=i==0 ? level : state[i+11];
+                const double old=i==0 ? mLevelTarget : mTarget[i+11];
+                if (mAutomated[i] && value!=old) { mOverride[i]=true; mAutomation[i]=value; mSlope[i]=0; }
+            }
+            mTarget=state; mLevelTarget=level; mAudibleTarget=audible ? 1 : 0;
+            if (!mInitialized) { mLevel=level; mAudible=mAudibleTarget; mInitialized=true; }
         }
+        static constexpr unsigned AutomationCount = 3; // absolute fader, delay send, reverb send
+        void automate(unsigned code, double value, double slope, bool chase)
+        {
+            if (mOverride[code] && !chase) return;
+            mAutomated[code]=true; mAutomation[code]=value; mSlope[code]=slope;
+            if (chase) { if (code==0) mLevel=value; else mState[code+11]=value; }
+        }
+        void resetAutomation() { mAutomated.fill(false); mOverride.fill(false); }
         float process(float input)
         {
             // Continuous controls and bypass wet/dry ramps have a 10 ms time constant.
             constexpr double smoothing=0.0020811647;
             for (unsigned i=0;i<mState.size();++i)
             {
-                mState[i]+=(mTarget[i]-mState[i])*smoothing;
-                if (std::abs(mTarget[i]-mState[i])<1e-12) mState[i]=mTarget[i];
+                const double target=i>=12 && mAutomated[i-11] ? mAutomation[i-11] : mTarget[i];
+                mState[i]+=(target-mState[i])*smoothing;
+                if (std::abs(target-mState[i])<1e-12) mState[i]=target;
             }
-            mLevel+=(mLevelTarget-mLevel)*smoothing;
-            if (std::abs(mLevelTarget-mLevel)<1e-12) mLevel=mLevelTarget;
+            const double level=mAutomated[0] ? mAutomation[0] : mLevelTarget;
+            mLevel+=(level-mLevel)*smoothing;
+            if (std::abs(level-mLevel)<1e-12) mLevel=level;
+            mAudible+=(mAudibleTarget-mAudible)*smoothing;
+            if (std::abs(mAudibleTarget-mAudible)<1e-12) mAudible=mAudibleTarget;
+            for (unsigned i=0;i<AutomationCount;++i) if (mAutomated[i]) mAutomation[i]+=mSlope[i];
             if (!(mCounter++ % 32)) coefficients();
             double eq=input;
             for (auto& filter:mFilters) eq=filter.process(eq);
@@ -58,7 +79,7 @@ namespace MWSound
             const double slope=1-1/mState[8];
             const double reduction=over<=-3 ? 0 : (over>=3 ? slope*over : slope*(over+3)*(over+3)/12);
             mReduction=static_cast<float>(reduction*mState[6]);
-            value*=std::pow(10.0, (mState[11]-reduction)*mState[6]/20)*mLevel;
+            value*=std::pow(10.0, (mState[11]-reduction)*mState[6]/20)*mLevel*mAudible;
             return static_cast<float>(value);
         }
         float delaySend() const {return static_cast<float>(mState[12]);}
@@ -101,6 +122,9 @@ namespace MWSound
             }
             mAttack=std::exp(-1/(48*mState[9]));mRelease=std::exp(-1/(48*mState[10]));
         }
+        std::array<bool,AutomationCount> mAutomated{},mOverride{};
+        std::array<double,AutomationCount> mAutomation{},mSlope{};
+        double mAudible=1,mAudibleTarget=1;
         State mTarget=defaults();
         std::array<double,14> mState{{0,20,0,0,1000,0,0,-18,4,10,150,0,0,0}};
         std::array<Biquad,4> mFilters{};

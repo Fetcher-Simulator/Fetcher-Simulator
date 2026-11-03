@@ -89,7 +89,7 @@ local t=w.project.tracks[2];local point
 for _,p in ipairs(t.automation.cutoff) do if p.s==9 then point=p end end
 check(point and point.linear==true and point.v==Map.value(20,Map.targets['param:cutoff'].spec),'continuous curve records the compensated event in native units')
 check(t.automation.wave1[#t.automation.wave1].linear==false,'discrete mapped targets record stepped automation')
-check(not (w.project.tracks[1].automation or {}).level and w.project.tracks[1].level==100/127,'non-automatable mixer faders stay explicit saved edits without fabricated lanes')
+check(w.project.tracks[1].automation.trackLevel[3].s==9 and w.project.tracks[1].automation.trackLevel[3].v==100/127,'fixed mixer faders capture one age-compensated absolute-level lane')
 local project=assert(F.project(w.project));check(project.tracks[2].automation.cutoff and project.master==32/127,'result survives strict client/server document persistence')
 assert(w:undo());check(not (w.project.tracks[2].automation or {}).cutoff,'Undo removes the whole mapping take')
 assert(w:redo());check(w.project.tracks[2].automation.cutoff,'Redo restores mapping take')
