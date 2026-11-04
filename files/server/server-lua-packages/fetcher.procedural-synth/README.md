@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 75 / native synth API 34 / multiplayer protocol 27.
+Current source: package 76 / native synth API 35 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,25 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models are available. More detailed articulation/animation
 and wider listening-based sound balancing remain in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Captured heavy rig (package 76 / API 35; local only)
+
+On **Mixer > Sound set**, choose **Band / Captured Heavy Rig**. Individual sounds
+are **Captured Rig / Heavy**, **Captured Rig / Palm Mutes** and **Captured Rig /
+Lead**, also grouped in Synth's **Band / Captured Rig** bank. **Synth > Effects >
+Character > Captured high gain** exposes the native amp response directly.
+Drive 12 dB is the reviewed input calibration; these presets keep Cabinet Off
+because the capture already includes its cabinet. Use the normal output/fader
+to change listening level independently of input saturation.
+
+This is the third comparison's full captured rig, reviewed as much better than
+the previous two passages, implemented directly in the client engine with fixed
+weights and no plugin host. Two actual corrected bridge/neck DI takes per root
+supply independent alternates. Original v1 bank files and presets retain their
+identities. The MIT amp/model credits and CC BY 4.0 guitar credits are separate.
+This is an improved heavy starting point, not an accepted album-tone recreation.
+DOOM/reference refinement and remaining captured performance gestures stay open.
+
 
 ## Band sound candidates (package 75 / API 34; local only)
 

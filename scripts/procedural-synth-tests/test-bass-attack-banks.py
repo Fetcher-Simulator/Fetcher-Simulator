@@ -10,7 +10,7 @@ root = Path(__file__).resolve().parents[2]
 assets = root / 'files/server/optional-assets/fetcher.studio-samples'
 tool = Path(sys.argv[1]) if len(sys.argv) > 1 else root / 'build/synth-core-tests/Release/sample-bank-tool.exe'
 catalog = json.loads((assets / 'catalog.json').read_text())
-assert len(catalog['banks']) == 17
+assert len(catalog['banks']) == 19
 assert sum(r['native']['pcmBytes'] for r in catalog['banks']) == catalog['decodedBytesAllBanks']
 # The installed library may exceed the resident cache. Check every factory
 # sound set's union of possible referenced banks (not just one demo song).
@@ -44,13 +44,18 @@ for entry in catalog['banks']:
     if entry['id'].startswith('guitar-techs-'):
         report = json.loads((assets / 'manifests' / (entry['id'] + '.json')).read_text())
         assert entry['license'] == report['license'] == 'CC-BY-4.0'
-        assert len(report['zones']) == 13 and report['source'].startswith('https://zenodo.org/')
+        paired='paired-' in entry['id'];alternates=2 if paired else 1
+        assert len(report['zones']) == 13*alternates and report['source'].startswith('https://zenodo.org/')
         count = native['zones']; offset = 24 + count * 20
         records = [struct.unpack_from('<12BII', data, 24 + i * 20) for i in range(count)]
         for key in range(128):
-            assert sum(r[0] <= key <= r[1] for r in records) == (1 if 35 <= key <= 86 else 0)
+            assert sum(r[0] <= key <= r[1] for r in records) == (alternates if 35 <= key <= 86 else 0)
         for r, z in zip(records, report['zones']):
-            assert r[2:8] == (1, 127, z['root'], 0, 1, 0), 'One actual recorded dynamic/performance, gated'
+            assert r[2:8] == (1, 127, z['root'], z.get('alternate',0), alternates, 0), 'Actual recorded takes, gated'
+            if paired:
+                assert z['sourceString'] in 'EADGBe' and z['sourceVelocity']>0
+                source=next(x for x in report['sources'] if x['id']==z['sourceBank'])
+                assert source['license']=='CC-BY-4.0' and any(x['pcmSha256']==z['pcmSha256'] for x in source['zones'])
             assert z['sourceStartFrame'] == max(0, z['sourceOnsetFrame'] - 144)
             assert abs(z['sourceOnsetFrame'] / 48000 - z['annotationTime']) < .1, 'No late vibration or previous ringing note used as onset'
             pcm = data[offset + r[-2] * 2:offset + (r[-2] + r[-1]) * 2]

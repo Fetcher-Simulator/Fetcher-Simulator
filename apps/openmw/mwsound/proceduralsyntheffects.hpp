@@ -7,6 +7,7 @@
 #include "proceduraldsp.hpp"
 #include "cabinetconvolver.hpp"
 #include "proceduralparallel.hpp"
+#include "capturedamp.hpp"
 
 namespace MWSound
 {
@@ -53,6 +54,7 @@ namespace MWSound
                     mUp.fill(0); mDown.fill(0); mDry.fill(0); mCab.fill(0);
                     mBass = mUpper = mTone = mDcIn = mDcOut = 0;
                     mStageLow1=mStageLow2=mStageEnvelope=0;
+                    if(mCapturedActive){mCaptured->reset();mCapturedActive=false;}
                     mIrDry.fill(0);mIrDryAt=0;
                     mPreLow=mPostLow=mPostHigh=0;if(mIrActive){mConvolver.clear();mIrActive=false;}
                     mPreBlend=mPostHighBlend=mPostLowBlend=0;
@@ -122,6 +124,15 @@ namespace MWSound
                 mDownPosition = (mDownPosition + 1) % mDown.size();
             }
             mUpPosition = (mUpPosition + 1) % mUp.size();
+            if(mWeights[5]>1e-7)
+            {
+                mCapturedActive=true;
+                // The capture includes its cabinet. Drive=12 dB reproduces the
+                // reviewed .45 input trim. Align with the existing 16-frame
+                // insert latency; there is no additional model block latency.
+                wet+=mCaptured->process(shapedInput,mGain*.1130348894179311)*mWeights[5];
+            }
+            else if(mCapturedActive){mCaptured->reset();mCapturedActive=false;}
             wet=mParallel.process(shapedInput,wet,p.parallel,mFir);
             // Block fuzz DC and remove inaudible rumble before speaker coloration.
             const double dc = wet - mDcIn + 0.99738543 * mDcOut; // 20 Hz
@@ -164,7 +175,7 @@ namespace MWSound
         static double zap(double x) { return std::abs(x) < 1e-20 ? 0 : x; }
         std::array<double, 65> mFir{}, mDown{};
         std::array<double, 17> mUp{}, mDry{};
-        std::array<double, 5> mWeights{ 1, 0, 0, 0, 0 };
+        std::array<double, 6> mWeights{ 1, 0, 0, 0, 0, 0 };
         std::array<double, 7> mCabWeights{ 1, 0, 0, 0, 0, 0, 0 };
         std::array<double, 12> mCab{};
         std::array<double, 3> mEq{ 1, 1, 1 };
@@ -174,6 +185,8 @@ namespace MWSound
         double mBlend = 0, mBass = 0, mUpper = 0, mTone = 0, mDcIn = 0, mDcOut = 0;
         double mGain = 1, mCompensation = 1, mToneCoefficient = 1;
         double mStageLow1=0,mStageLow2=0,mStageEnvelope=0,mStageGain=2;
+        std::unique_ptr<CapturedAmp> mCaptured=std::make_unique<CapturedAmp>();
+        bool mCapturedActive=false;
         CabinetConvolver mConvolver;
         ProceduralParallel mParallel;
         std::array<double,65> mIrDry{};unsigned mIrDryAt=0,mLastIr=0;bool mIrActive=false;

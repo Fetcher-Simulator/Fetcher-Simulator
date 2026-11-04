@@ -52,7 +52,7 @@ namespace MWSound
         { "stringDamping", 0, 1, 0.35f },
         { "stringMute", 0, 1, 0 },
         { "stringPick", 0.05f, 0.95f, 0.23f },
-        { "driveType", 0, 4, 0, true },
+        { "driveType", 0, 5, 0, true },
         { "drive", 0, 36, 12 },
         { "driveTone", 200, 16000, 12000 },
         { "fxMix", 0, 1, 1 },

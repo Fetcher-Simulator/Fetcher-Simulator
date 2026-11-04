@@ -59,6 +59,13 @@ for _,e in ipairs{{'doom','Doom / Heavy Rock'},{'modern','Modern Metal'},{'alter
     s.kitPatch='band-'..((e[1]=='thrash-ref' or e[1]=='industrial') and 'modern' or e[1])..'-kit';s.slap=e[1]=='funk'
     M.entries[#M.entries+1]=s
 end
+do
+    local s=set('band-capture-metal','Band / Captured Heavy Rig',9,'studio-keys','sampled-bass-expressive',
+        'capture-heavy','studio-strings','capture-heavy-lead','pad','glass-bell','studio-brass','studio-reed','studio-organ')
+    s.recorded=true;s.captured=true;s.curated=true;s.electricRhythm=true
+    s.muted='capture-heavy-muted';s.cleanPatch='band-clean-guitar';s.kitPatch='band-modern-kit'
+    M.entries[#M.entries+1]=s
+end
 local recordedDrums={};for _,note in ipairs{35,36,37,38,40,41,42,43,44,45,46,47,48,49,50,51,52,53,57,59} do recordedDrums[note]=true end
 local builtins={};for _,p in ipairs(schema.builtins) do builtins[p.id]=p end
 local percussion={

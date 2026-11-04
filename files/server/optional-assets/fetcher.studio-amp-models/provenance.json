@@ -1,0 +1,35 @@
+{
+  "model": "RiffSmith Distorted full / eight-channel A2",
+  "creator": "Matt Hartman",
+  "license": "MIT",
+  "repository": "https://github.com/hartmamt/riffsmith",
+  "commit": "228b801ccc8b518d0a1fb53a8e63355a2fbd153f",
+  "file": "public/nam/models/riffsmith-distorted.nam",
+  "sha256": "ec52e16296f96fdd1d07d1aaa699e33e17df253f026f785f135080e1eb5db007",
+  "modelBytes": 294305,
+  "sampleRate": 48000,
+  "weights": 12146,
+  "runtime": "Fixed native inference; no arbitrary model loading or plugin runtime",
+  "equationsReference": {
+    "repository": "https://github.com/sdatkinson/NeuralAmpModelerCore",
+    "commit": "0b3d3c97b0859a3a8c92a8628c4dd89a25eb5842",
+    "file": "NAM/wavenet/a2_fast.cpp",
+    "license": "MIT",
+    "copyright": "2023 Steven Atkinson"
+  },
+  "inputCalibration": {
+    "drive12DbTrim": 0.45,
+    "preLowpassHz": 7500,
+    "tightHighpassHz": 181,
+    "midPeakHz": 800,
+    "midPeakDb": 3.75,
+    "midQ": 0.7,
+    "softClip": "tanh(2.55*x)/2.55",
+    "postBoostLowpassHz": 4975,
+    "outputHighpassHz": 30
+  },
+  "nativeLatencyFrames": 16,
+  "extraCabinet": false,
+  "referenceGolden": "scripts/procedural-synth-tests/captured-amp-golden.hpp",
+  "noArtistEndorsement": true
+}

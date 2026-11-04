@@ -1,5 +1,16 @@
 # Fetcher Studio recorded instrument content
 
+## Package 76: corrected paired guitar takes
+
+Two additional v2 banks combine the actual Guitar-TECHS P1 bridge and P2 neck
+recordings as two alternate takes per root. Physical string selection follows
+the source track names, fixing the P1 all-channels-zero ambiguity. The source
+manifests, exact cuts and original CC BY 4.0 credits accompany each pair.
+Existing v1 banks remain byte-identical. The nineteen-bank on-disk catalogue is
+loaded on demand; factory sound-set unions fit the same 256-MiB PCM budget.
+Build v2 banks for both players into a scratch asset directory, then use
+`scripts/procedural-synth-assets/pair-guitar-takes.py` to generate the pairs.
+
 ## Package 75: genuine slap and pop
 
 Five small banks add **BMC slap bass samples** by **Bruce H. McCosar (2008)**,

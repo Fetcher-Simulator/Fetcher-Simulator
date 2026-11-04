@@ -21,7 +21,7 @@ p('drumPitchAmount',0,48,8); p('drumPitchDecay',0.005,0.5,0.025)
 p('drumClick',0,1,0.12); p('drumDrive',1,8,1.3); p('ampCurve',0.25,4,1)
 p('instrumentType',0,1,0,true);p('stringDecay',0.1,10,3);p('stringDamping',0,1,0.35)
 p('stringMute',0,1,0);p('stringPick',0.05,0.95,0.23)
-p('driveType',0,4,0,true);p('drive',0,36,12);p('driveTone',200,16000,12000)
+p('driveType',0,5,0,true);p('drive',0,36,12);p('driveTone',200,16000,12000)
 p('fxMix',0,1,1);p('fxOutput',0,2,1)
 p('ampBass',-12,12,0);p('ampMid',-12,12,0);p('ampTreble',-12,12,0);p('cabinet',0,6,0,true)
 p('preHighpass',0,500,0);p('cabinetHighpass',0,500,0);p('cabinetLowpass',0,18000,0)
@@ -458,6 +458,27 @@ for _,entry in ipairs{{'connected-guitar-lead','Legato Electric Lead','b:guitar-
     state.stringLegato=1;state.stringSlideTime=.08
     add(entry[1],entry[2],base.role,base.bank,state)
 end
+M.banks[#M.banks+1]='Band / Captured Rig'
+-- Reviewed full-rig capture, independent of the legacy clipping/cabinet modes.
+-- It already includes a cabinet; paired sources are two real recorded players.
+do
+    for _,entry in ipairs{{'capture-heavy','Captured Rig / Heavy',0,.018,30},
+        {'capture-heavy-muted','Captured Rig / Palm Mutes',2,.018,28},
+        {'capture-heavy-lead','Captured Rig / Lead',1,.16,31}} do
+        add(entry[1],entry[2],'Guitar','Band / Captured Rig',{
+            attack=.002,decay=.2,sustain=1,release=entry[4],cutoff=18000,resonance=0,
+            driveType=5,drive=12,driveTone=16000,fxMix=1,fxOutput=.556,volume=.38,
+            stringArticulation=entry[3],polyphony=8,pickAttack=0,pickPitch=0,
+            stringResonance=0,pickVariation=0,cabinet=0,
+            sample={path='sound/fetcher/banks/guitar-techs-paired-open-v2.fsb',offset=0,duration=1,
+                root=60,oneShot=false,hash='76c796b8970164868193ff017429b3e9',gain=1,
+                attacks={short={path='sound/fetcher/banks/guitar-techs-paired-palm-v2.fsb',offset=0,duration=1,
+                    root=60,oneShot=false,hash='eae43415c32d16cbe2b872ad10d278f2',gain=1}}}})
+        M.builtins[#M.builtins].midiProgram=entry[5]
+    end
+    M.sampledStrings['sound/fetcher/banks/guitar-techs-paired-open-v2.fsb']=true
+end
+
 for _, preset in ipairs(M.builtins) do
     preset.state = assert(M.state(preset.state),'Invalid built-in: '..preset.id)
     preset.bank=preset.bank or 'General';preset.role=preset.role or (preset.state.drumType>0 and 'Drums' or 'Synth')
@@ -473,6 +494,8 @@ M.kits={
     {name='Trap',ids={'b:trap-kick','b:trap-snare','b:trap-hat','b:openhat'}},
     {name='DnB',ids={'b:dnb-kick','b:dnb-snare','b:hat','b:openhat'}},
 }
+
+
 local kitNotes={{'Kick',36,1},{'Snare',38,2},{'Closed hat',42,3},{'Open hat',46,4},
     {'Pedal hat',44,'b:kit-pedalhat'},{'High tom',50,'b:studio-tom'},{'Mid tom',47,'b:studio-tom'},
     {'Floor tom',43,'b:studio-tom'},{'Ride',51,'b:kit-ride'},{'Crash',49,'b:kit-crash'}}

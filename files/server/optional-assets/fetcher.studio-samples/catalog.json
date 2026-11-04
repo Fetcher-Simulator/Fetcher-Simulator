@@ -1,7 +1,7 @@
 {
   "license": "Per-bank: CC0-1.0, CC-BY-3.0 or CC-BY-4.0",
   "nativeApi": 19,
-  "decodedBytesAllBanks": 276805680,
+  "decodedBytesAllBanks": 295276080,
   "banks": [
     {
       "id": "electric-di-v1",
@@ -240,6 +240,34 @@
       "source": "https://ccmixter.org/files/bmccosar/13742",
       "description": "Recorded muted thumb thumps, two actual alternates.",
       "license": "CC-BY-3.0"
+    },
+    {
+      "id": "guitar-techs-paired-open-v2",
+      "path": "sound/fetcher/banks/guitar-techs-paired-open-v2.fsb",
+      "bytes": 7488544,
+      "sha256": "e55e91cf94cbb499be94fb03bb6b77e92cc48eb8195586f7c6526b346c6abc52",
+      "native": {
+        "hash": "76c796b8970164868193ff017429b3e9",
+        "zones": 26,
+        "pcmBytes": 14976000
+      },
+      "license": "CC-BY-4.0",
+      "source": "https://zenodo.org/records/14963133",
+      "description": "Two real Guitar-TECHS open takes per sparse root: P1 bridge/P2 neck, named-string v2 selection. No synthetic alternates or harmonic reconstruction."
+    },
+    {
+      "id": "guitar-techs-paired-palm-v2",
+      "path": "sound/fetcher/banks/guitar-techs-paired-palm-v2.fsb",
+      "bytes": 1747744,
+      "sha256": "1d880e681b955abc6fa5839df0b1fbc1b1ee774c8a4dfc1f08d55609de513343",
+      "native": {
+        "hash": "eae43415c32d16cbe2b872ad10d278f2",
+        "zones": 26,
+        "pcmBytes": 3494400
+      },
+      "license": "CC-BY-4.0",
+      "source": "https://zenodo.org/records/14963133",
+      "description": "Two real Guitar-TECHS palm takes per sparse root: P1 bridge/P2 neck, named-string v2 selection. No synthetic alternates or harmonic reconstruction."
     }
   ]
 }

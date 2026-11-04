@@ -189,4 +189,19 @@ do
   assert(x:applySoundSet('band-clean'));check(x.project.tracks[7].mixer.mid==t.mixer.mid,'customized channel EQ survives leaving '..id)
  end
 end
+do
+ local x=W.new(w.cb);assert(x:import(familySong,'midi/families.mid'))
+ assert(x:applySoundSet('captured-thrash'));local before=assert(format.project(x.project))
+ check(x:applySoundSet('band-capture-metal'),'captured heavy rig applies as one sound set')
+ local t=x.project.tracks[7]
+ check(t.presetId=='b:capture-heavy' and t.params.driveType==5 and t.params.cabinet==0,'capture includes cabinet; no second cabinet is selected')
+ check((t.params.sample.gain or 1)==1 and t.params.sample.path:find('paired%-open%-v2') and t.params.sample.attacks.short.path:find('paired%-palm%-v2'),'reviewed input gain and real paired attacks travel together')
+ check(t.mixer.eqEnabled==0,'old exact thrash EQ is removed from the new full-rig sound')
+ check(x.project.tracks[5].presetId=='b:capture-heavy-muted','GM muted guitar chooses its recorded palm-mute variant')
+ local saved=assert(format.project(x.project));assert(x:load(saved))
+ check(x.project.tracks[7].params.driveType==5 and x.project.tracks[7].params.sample.hash==t.params.sample.hash,'native capture and paired identity survive source-free persistence')
+ assert(x:applySoundSet('captured-thrash'))
+ check(x.project.tracks[7].params.driveType==before.tracks[7].params.driveType and x.project.tracks[7].params.sample.hash==before.tracks[7].params.sample.hash,'legacy C sound remains selectable with its original snapshot')
+ check(x:undo() and x.project.tracks[7].params.driveType==5,'Undo restores the complete captured rig')
+end
 print('PASS GM guitar/bass families, full kits, percussion routing, saved identities, live sound sets and undo; '..checks..' assertions')

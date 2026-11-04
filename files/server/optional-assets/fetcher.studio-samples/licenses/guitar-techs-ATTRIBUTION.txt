@@ -23,3 +23,11 @@ conversion and licensing. Exact cuts and identities are in
 manifests/guitar-techs-bridge-open-v1.json and guitar-techs-bridge-palm-v1.json.
 The amp input calibration and channel EQ are editable Fetcher processing,
 not modifications claimed to be part of the original dataset.
+
+Package 76 pairs two real P1 bridge/P2 neck performances per sparse root in
+manifests/guitar-techs-paired-open-v2.json and guitar-techs-paired-palm-v2.json.
+V2 identifies physical strings by their E/A/D/G/B/e track names, not MIDI
+channels (P1 shares channel zero). It selects the smallest available fret at
+unchanged concert pitch, excludes P1's velocity-10 pickup annotations, and
+retains exact source cuts/hashes for each take. These are actual alternate
+recordings, not synthesized variations. Existing v1 banks retain their bytes.

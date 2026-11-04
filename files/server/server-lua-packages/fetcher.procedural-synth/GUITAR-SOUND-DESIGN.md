@@ -1,5 +1,45 @@
 # Guitar and heavy sound-design direction
 
+## Native captured rig checkpoint (package 76 / API 35)
+
+Three matched-guitar-level passages isolated old C, corrected physical-string
+source selection through C, and corrected sources through the complete RiffSmith
+Distorted capture. The user rated passage three much better. Preserve this as an
+improved starting point; do not claim the artist target is finished. The earlier
+GuitarML IIC+ prototype was only some improvement and remained buzzy.
+
+Source audit: P1 writes all six string tracks on channel zero. The v1 builder
+therefore selected the earliest matching pitch despite its highest-string comment.
+V2 reads exact E/A/D/G/B/e track names and global tempo, excludes velocity-10 P1
+pickup annotations, and prefers the smallest available fret at concert pitch.
+P2 v2 audio is byte-identical to v1. All four old v1 banks rebuild identically.
+Paired v2 banks retain both actual performances and full source/cut provenance.
+
+The chosen capture is Matt Hartman's RiffSmith Distorted full eight-channel A2,
+MIT licensed explicitly alongside its repository. Fixed 48-kHz native inference
+uses the documented causal/residual/head equations and immutable generated
+weights. The reviewed boost/input trim precedes it; existing channel/return and
+spatial processing follow. It includes cabinet coloration, so presets select no
+extra cabinet. Preallocated fixed histories, cached silence, finite clamps and
+sleep after a half-second silent tail bound runtime work. There is no dynamic
+model parser or plugin host. See the optional amp-model asset provenance/licenses.
+
+The reference golden fixture is original synthetic input (noise, chord tones,
+level changes, silence), not commercial audio. The standalone native model
+matches the pinned reference renderer within 0.000001 on its 297 checkpoints.
+Four active model/boost chains cost approximately 0.47 seconds per second PCM on
+the development PC; this is a measurement, not a broad real-time guarantee.
+The first native dense-song guitar render matches the reviewed -30.25 LUFS stem
+level with the backing/faders preserved. Full-band sound and concurrent runtime
+acceptance remain separate from a mathematical golden comparison.
+The subsequent native two-client run passed more than seven minutes per client,
+including dense imported songs, simultaneous independent bands, live set changes,
+late joining, private server-backed saves/reload/replay and owned-NPC cleanup.
+Both clients closed and the normal local fixture was restored afterward. No
+original profile/database/MIDI files changed. Broader performance/artist-tone
+and captured connected/release gestures remain open.
+
+
 ## November 4 listening checkpoint (package 75 / API 34)
 
 User references: https://www.youtube.com/watch?v=E0ozmU9cJDg (Master of Puppets,

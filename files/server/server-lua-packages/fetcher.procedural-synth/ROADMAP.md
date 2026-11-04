@@ -2,6 +2,28 @@
 
 Updated 2026-11-04. Completed work and subsequent planned slices are identified below.
 
+Package 76 / native API 35 adds the reviewed full captured heavy rig as native
+fixed inference, three opt-in open/palm/lead sounds and Band / Captured Heavy Rig.
+It replaces the P1 channel-to-string assumption with named-track selection in
+new v2 paired banks. Both bridge and neck takes are real recordings; legacy v1
+banks rebuild byte-identically. The user rated the full-capture third passage
+much better than old C and source correction alone. This is meaningful progress,
+not acceptance as a finished Master of Puppets or Rip & Tear recreation.
+
+The 48-kHz fixed causal model includes its cabinet, has no plugin/model-loader
+runtime, preallocates its histories, caches silence/reset state and sleeps after
+silent tails. Golden comparisons against the pinned NAM Core renderer plus
+allocation/extreme/reset tests accompany existing DSP/Lua/bank checks. The MIT
+model/code provenance is separate from the CC BY guitar recording license.
+The new sound-set union fits the existing resident PCM budget. Client C++ and
+server Lua change; server C++ is unchanged. Local port-25567 testing only.
+Both native clients completed more than seven minutes each with the new rig
+in repeated live cycles, three dense imported scores, late-listener playback,
+Undo/Redo/resume, private save/reload/replay and owned-NPC cleanup. Original user
+files remain hash-identical. This is bounded acceptance, not proof of album-tone
+fidelity or unrestricted concurrent captured-amp/orchestra performance.
+
+
 Package 75 / native API 34 adds real CC BY thumb-slap/pop/short/thump bass
 recordings, independently selected real alternate takes on adjacent Studio lanes,
 curated genre candidates, gentler acoustic gate releases, original exercises and
@@ -672,7 +694,7 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 75 / native synth API 34 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
+package 76 / native synth API 35 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented, together with initial seated keyboard/cello NPC staging.
 

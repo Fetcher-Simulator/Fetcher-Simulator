@@ -93,7 +93,7 @@ function E:slider(name,title,x,y,width)
     elseif name=='drive' or name:find('^amp[BMT]') then spec.unit='dB';spec.step=0.5
     elseif name:find('tune') or name:find('fine') or name:find('Amount') then spec.step=1 end
     local labels={wave1=waves,wave2=waves,enabled2={'Off','On'},lfoTarget={'Pitch','Filter','Amplitude'},drumType={'Synth','Kick','Snare','Closed hat','Open hat'},
-        instrumentType={'Oscillators','Plucked string'},driveType={'Off','Overdrive','Distortion','Fuzz','Staged amp'},cabinet={'Off','Small speaker','Open speaker','Dark stack','IR V30 / SM57','IR DV77 / SM57','IR Rockdriver / e606'},
+        instrumentType={'Oscillators','Plucked string'},driveType={'Off','Overdrive','Distortion','Fuzz','Staged amp','Captured high gain'},cabinet={'Off','Small speaker','Open speaker','Dark stack','IR V30 / SM57','IR DV77 / SM57','IR Rockdriver / e606'},
         stringArticulation={'Patch','Open','Palm / short','Dead / ghost'},pickDirection={'Down','Up','Alternate'},parallelShape={'Soft clip','Hard clip','Wavefold','Rectify'},stringLegato={'Poly / off','Legato','Picked slides'},
         stringLayout={'Single voice','Guitar E','Drop D','Drop C','7-string B','Bass E','5-string B'},stringSelect={'Auto','1 / lowest','2','3','4','5','6','7 / highest'}}
     local caption=labels[name] and function() return title..' / '..(labels[name][self.params[name]+1] or '') end or title
