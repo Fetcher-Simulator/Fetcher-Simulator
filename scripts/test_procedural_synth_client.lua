@@ -15,6 +15,7 @@ package.loaded[prefix..'shared.schema']=schema
 package.loaded[prefix..'client.speech-catalog']=dofile(root..'client/speech-catalog.lua')
 package.loaded[prefix..'client.voice-text']=dofile(root..'client/voice-text.lua')
 package.loaded[prefix..'shared.voice-transcripts']=dofile(root..'shared/voice-transcripts.lua')
+package.loaded[prefix..'client.performance-notes']=dofile(root..'client/performance-notes.lua')
 package.loaded[prefix..'client.samples']=dofile(root..'client/samples.lua')
 package.loaded[prefix..'client.soundsets']=dofile(root..'client/soundsets.lua')
 package.loaded[prefix..'shared.sequence']=dofile(root..'shared/sequence.lua')
@@ -663,7 +664,7 @@ api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrum
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
 -- Reproduce loaded-song reuse from the actual Studio callbacks, including Band.
-package.loaded['openmw.synth'].version=32
+package.loaded['openmw.synth'].version=33
 local paths={'midi/a.mid','midi/b.mid'};local files={}
 local function midiBytes(pitch,count)
     local events={};for n=1,count or 1 do events[#events+1]=string.char(0,144,pitch,100,96,128,pitch,0) end

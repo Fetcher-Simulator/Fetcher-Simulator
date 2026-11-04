@@ -1,6 +1,6 @@
 # FETCHER STUDIO roadmap
 
-Updated 2026-11-03. Completed work and subsequent planned slices are identified below.
+Updated 2026-11-04. Completed work and subsequent planned slices are identified below.
 
 **Sound-design direction after reviewing the supplied video references:** the
 first native audio slice adds a proper guitar cabinet/microphone IR stage, with
@@ -10,6 +10,15 @@ both synthesized and sampled sources. More samples are one possible improvement,
 not a prerequisite for every convincing guitar sound. Evaluate the result with
 drums and bass present. Experimental DOOM-style parallel processing is a separate
 sound-design branch. See [reference notes and delivery order](GUITAR-SOUND-DESIGN.md).
+
+Package 74 / native API 33 adds read-only attack-time presentation snapshots,
+saved string/fret/stroke-aware guitar hands, alternating bass plucks and separate
+drumstick/kick/hi-hat foot gestures. The kit uses measured contact points and a
+seated fit; acoustic/electric grips have finger-length/body clearance. Front/side
+checks cover all five models on owner/late-listener clients. This is joint/arm
+IK presentation, not finished fingertip contact or moving pedal-mesh animation.
+Custom rigs/body heights, richer articulation gestures and broader musical/
+long-session acceptance remain open. Local only; server C++ is unchanged.
 
 Package 73 / native API 32 adds independent same-pitch string keys/gates and
 per-string sustain/live ownership, plus saved automatic fingering/strokes and
@@ -548,7 +557,8 @@ readback repair lineup changes that previously left reused NPCs in old slots.
      listening-based refinement with drums and bass present. Mono connected
      legato/picked slides are implemented in package 58; independent string
      allocation and explicit stepped string selection ship in package 65.
-     Persistent per-note fingering and same-pitch string unisons remain pending.
+     Saved per-note fingering and same-pitch string unisons ship in package 73.
+     Package 74 connects saved assignments to native attack-driven hand presentation.
      Package 66 adds live CC/keyswitch mapping and explicit track-level Auto write;
      package 67 retains individual attack expression in takes and reusable clips.
      Package 68 adds general physical-controller Learn/assignments for synth,

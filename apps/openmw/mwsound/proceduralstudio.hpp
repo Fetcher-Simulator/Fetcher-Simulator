@@ -75,6 +75,16 @@ namespace MWSound
         unsigned fault() const { return mFault; }
         std::uint64_t strikes() const { return mStrikes; }
         std::vector<unsigned> activeNotes() const;
+        struct PerformanceNote
+        {
+            unsigned track, note, selection, layout, articulation, direction;
+            int transpose;
+            std::uint32_t stamp;
+            double age;
+            bool held;
+        };
+        // Control-thread copy. No Lua, allocation or lock on the audio writer.
+        std::vector<PerformanceNote> performance() const;
         void render(float* output, std::size_t frames) override;
         void close() override { mClosed = true; }
         bool closed() const override { return mClosed; }
@@ -104,6 +114,17 @@ namespace MWSound
         };
         // Fixed ownership storage allocated once on the control thread.
         std::unique_ptr<HeldKeys> mHeldKeys=std::make_unique<HeldKeys>();
+        struct Presentation
+        {
+            std::array<std::array<std::atomic<std::uint64_t>,1024>,MaxTracks> keys{};
+        };
+        std::unique_ptr<Presentation> mPresentation=std::make_unique<Presentation>();
+        std::array<float,MaxTracks> mPresentationTune{};
+        void publishAttack(unsigned track,unsigned key,const ProceduralSynth::Strike& expression);
+        void releasePresentation(unsigned track,unsigned key)
+        { mPresentation->keys[track][key].fetch_and(~(std::uint64_t(1)<<16),std::memory_order_relaxed); }
+        void clearPresentation(unsigned track)
+        { for(auto& key:mPresentation->keys[track])key.store(0,std::memory_order_relaxed); }
         std::array<std::array<bool, 128>, MaxTracks> mLiveHeld{}, mPedalHeld{};
         std::array<bool, MaxTracks> mPedal{};
         std::array<std::size_t, MaxCurves> mCurveIndices{};

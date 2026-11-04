@@ -100,7 +100,7 @@ namespace MWLua
                     return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash, s.attacks, s.gain);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 32;
+            api["version"] = 33;
             api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
                 const auto path = manager->exportStudioMidi(name, bytes);
                 sol::table result(lua, sol::create);
@@ -170,6 +170,16 @@ namespace MWLua
                     for (unsigned key : studio.activeNotes())
                         notes[key] = true;
                     return notes;
+                },
+                "performance", [lua](const Studio& studio) {
+                    sol::table result(lua,sol::create);result["playing"]=studio.playing() && !studio.closed() && !studio.expired();unsigned index=0;
+                    for(const auto& n:studio.performance()) {
+                        sol::table row(lua,sol::create);
+                        row["track"]=n.track;row["note"]=n.note;row["stringSelect"]=n.selection;row["layout"]=n.layout;
+                        row["articulation"]=n.articulation;row["direction"]=n.direction;row["transpose"]=n.transpose;
+                        row["stamp"]=n.stamp;row["age"]=n.age;row["held"]=n.held;result[++index]=row;
+                    }
+                    return result;
                 },
                 "configure",
                 [](Studio& studio, unsigned n, const sol::table& values, float level, sol::optional<bool> audible) {

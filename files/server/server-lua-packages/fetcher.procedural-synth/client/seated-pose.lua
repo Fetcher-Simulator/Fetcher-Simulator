@@ -8,7 +8,7 @@ return function(anim,util,solve,between)
         end end
         return true
     end
-    function S.apply(p,root,profile,setBone)
+    function S.apply(p,root,profile,setBone,pedals)
         if not S.supported(p.bones) then return zero,false end
         local pelvis=p.bones['bip01 pelvis'];local world=anim.getBoneTransform(p.actor,pelvis,true,true)
         local localPose=anim.getBoneTransform(p.actor,pelvis,false,true)
@@ -24,7 +24,9 @@ return function(anim,util,solve,between)
             if u and f and h then
                 local footAt=h*zero;u,f,h=toModel*T.move(actual)*u,toModel*T.move(actual)*f,toModel*T.move(actual)*h
                 local a,b,c=u*zero,f*zero,h*zero
-                local target=toModel*(footAt+p.actor.rotation*seat.targets[side])
+                local rock=pedals and pedals[side] or 0
+                local lift=v(0,0,math.abs(rock)*2)
+                local target=toModel*(footAt+p.actor.rotation*(seat.targets[side]+lift))
                 local pole=toModel*(root*a+p.actor.rotation*seat.poles[side])-a
                 local knee,tip=solve(a,target,(b-a):length(),(c-b):length(),pole)
                 if knee then
@@ -32,6 +34,14 @@ return function(anim,util,solve,between)
                     local parentFore=adjusted*f;inverse=parentFore:inverse();local lower=between(inverse*(adjusted*c),inverse*tip)
                     local posed=parentFore*lower*parentFore:inverse()*adjusted*h
                     local desired=T.move(tip-h*zero)*h*seat.rotations[side]
+                    if rock~=0 then
+                        -- Pedal travel is about actor-side, not a guessed foot
+                        -- bone axis (different skeletons orient feet differently).
+                        local origin=toModel*p.actor.position
+                        local axis=toModel*(p.actor.position+p.actor.rotation*v(1,0,0))-origin
+                        axis=axis/axis:length()
+                        desired=T.move(tip)*T.rotate(-rock,axis)*T.move(-tip)*desired
+                    end
                     p.legReachError=math.max(p.legReachError,(root*target-root*tip):length())
                     -- Bone rotations require a quaternion, not a matrix transform.
                     local z,y,x=(posed:inverse()*desired):getAnglesZYX()

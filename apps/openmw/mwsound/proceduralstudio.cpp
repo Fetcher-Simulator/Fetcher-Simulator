@@ -193,7 +193,7 @@ namespace MWSound
         resetControls();
         for (unsigned n = 0; n < MaxTracks; ++n)
         {
-            mHeld[n].fill(0); mHeldKeys->counts[n].fill(0); mHeldKeys->pedal[n].fill(false); mHeldKeys->live[n].fill(false); mLiveHeld[n].fill(false); mPedalHeld[n].fill(false); ++mGeneration[n];
+            mHeld[n].fill(0); mHeldKeys->counts[n].fill(0); mHeldKeys->pedal[n].fill(false); mHeldKeys->live[n].fill(false); mLiveHeld[n].fill(false); mPedalHeld[n].fill(false); ++mGeneration[n];clearPresentation(n);
             for (auto& bits : mNoteBits[n]) bits = 0;
             if (auto track = std::atomic_load(&mTracks[n]))
             {
@@ -219,14 +219,14 @@ namespace MWSound
             for (unsigned n = 0; n < MaxTracks; ++n)
                 if (auto open = std::atomic_load(&mTracks[n]); open && !open->mSampleCurrent.data && open->mCurrent[28] == 4)
                 {
-                    ++mGeneration[n]; mHeld[n].fill(0); mHeldKeys->counts[n].fill(0); mHeldKeys->pedal[n].fill(false); mHeldKeys->live[n].fill(false); mPedalHeld[n].fill(false); mLiveHeld[n].fill(false); for (auto& bits : mNoteBits[n]) bits = 0;
+                    ++mGeneration[n]; mHeld[n].fill(0); mHeldKeys->counts[n].fill(0); mHeldKeys->pedal[n].fill(false); mHeldKeys->live[n].fill(false); mPedalHeld[n].fill(false); mLiveHeld[n].fill(false); for (auto& bits : mNoteBits[n]) bits = 0;clearPresentation(n);
                     for (auto& voice : open->mVoices) { voice.amp.release(); voice.filter.release(); voice.drumChoke = true; }
                 }
         const unsigned n = note.track - 1;
         ++mHeld[n][note.pitch]; mNoteBits[n][note.pitch / 64].fetch_or(std::uint64_t(1) << (note.pitch % 64));
         chokeSampleGroup(n,note.pitch,note.velocity/127.f);
         track->apply({ note.pitch, note.velocity / 127.f, note.expression }); ++mStrikes;
-        const unsigned key=track->keyIndex(note.pitch,note.expression.selection);++mHeldKeys->counts[n][key];
+        const unsigned key=track->keyIndex(note.pitch,note.expression.selection);++mHeldKeys->counts[n][key];publishAttack(n,key,note.expression);
         mOffs[mOffCount++] = { mTime + note.duration, n, note.pitch, mGeneration[n], key };
         std::push_heap(mOffs.begin(), mOffs.begin() + mOffCount);
     }
@@ -243,6 +243,7 @@ namespace MWSound
                 if(mPedal[off.track]) {mPedalHeld[off.track][off.pitch]=true;mHeldKeys->pedal[off.track][off.key]=true;continue;}
                 if(!mHeld[off.track][off.pitch] && !mLiveHeld[off.track][off.pitch])
                     mNoteBits[off.track][off.pitch/64].fetch_and(~(std::uint64_t(1)<<(off.pitch%64)));
+                releasePresentation(off.track,off.key);
                 if(auto track=std::atomic_load(&mTracks[off.track]))track->apply({int(off.pitch),-1,{},int(off.key)});
             }
         }
@@ -258,6 +259,7 @@ namespace MWSound
             if(!mHeldKeys->counts[n][key] && !live)
             {
                 if(!mHeld[n][pitch] && !mLiveHeld[n][pitch])mNoteBits[n][pitch/64].fetch_and(~(std::uint64_t(1)<<(pitch%64)));
+                releasePresentation(n,key);
                 if(auto track=std::atomic_load(&mTracks[n]))track->apply({int(pitch),-1,{},int(key)});
             }
         }
@@ -326,6 +328,39 @@ namespace MWSound
         }
         mChasingControls=false; return next;
     }
+    void ProceduralStudio::publishAttack(unsigned n,unsigned key,const ProceduralSynth::Strike& expression)
+    {
+        const auto track=std::atomic_load(&mTracks[n]);if(!track)return;
+        const auto choose=[&](int selected,unsigned code){return unsigned(selected>=0?selected:std::lround(track->mCurrent[code]));};
+        unsigned direction=choose(expression.direction,ProceduralSynth::PickDirection);
+        if(direction==2)direction=unsigned(track->mAge&1);
+        const unsigned layout=unsigned(std::lround(track->mCurrent[ProceduralSynth::StringLayout]));
+        const unsigned selection=choose(expression.selection,ProceduralSynth::StringSelect);
+        const unsigned articulation=choose(expression.articulation,ProceduralSynth::StringArticulation);
+        const double tune=track->mAutomated[2]?track->mAutomation[2]:track->mProgrammed[2]?track->mProgram[2]:mPresentationTune[n];
+        const unsigned transpose=unsigned(std::lround(tune)+24);
+        const std::uint64_t packed=layout|(selection<<3)|(articulation<<6)|(direction<<8)|(transpose<<10)
+            |(1u<<16)|(1u<<17)|(std::uint64_t(std::uint32_t(mRendered.load()))<<32);
+        mPresentation->keys[n][key].store(packed,std::memory_order_relaxed);
+    }
+    std::vector<ProceduralStudio::PerformanceNote> ProceduralStudio::performance() const
+    {
+        std::vector<PerformanceNote> result;if(closed() || expired())return result;
+        const auto now=std::uint32_t(mRendered.load());
+        for(unsigned n=0;n<MaxTracks;++n)if(hasTrack(n+1))for(unsigned key=0;key<1024;++key)
+        {
+            const auto bits=mPresentation->keys[n][key].load(std::memory_order_relaxed);
+            if(!(bits&(1u<<17)))continue;
+            const auto stamp=std::uint32_t(bits>>32);auto age=std::uint32_t(now-stamp);
+            // A writer can advance between the clock and packed-word reads.
+            if(age>UINT32_MAX-48000)age=0;
+            const bool held=bits&(1u<<16);
+            if(!held && age>12000)continue;
+            result.push_back({n+1,key%128,unsigned(bits>>3)&7,unsigned(bits)&7,unsigned(bits>>6)&3,
+                unsigned(bits>>8)&3,int((bits>>10)&63)-24,stamp,double(age)/48000,held});
+        }
+        return result;
+    }
     std::vector<unsigned> ProceduralStudio::activeNotes() const
     {
         std::vector<unsigned> result;
@@ -341,12 +376,13 @@ namespace MWSound
     void ProceduralStudio::render(float* output, std::size_t frames)
     {
         if (closed() || expired()) { std::fill_n(output, frames, 0.f); mPlaying = false; mVoiceCount = 0; mPeak = 0; return; }
-        for (const auto& slot : mTracks)
-            if (auto track = std::atomic_load(&slot))
+        for (unsigned n=0;n<MaxTracks;++n)
+            if (auto track = std::atomic_load(&mTracks[n]))
             {
                 std::unique_lock<std::mutex> lock(track->mMutex, std::try_to_lock);
                 if (lock.owns_lock())
                 {
+                    mPresentationTune[n]=track->mTarget[2];
                     track->syncSample();
                     for (auto parameter : {std::size_t(25), std::size_t(28), std::size_t(41)}) track->mCurrent[parameter] = track->mTarget[parameter];
                     for(unsigned i=ProceduralSynth::StringArticulation;i<=ProceduralSynth::PickDirection;++i)
@@ -391,7 +427,7 @@ namespace MWSound
                         {
                             track->resetConnections();
                             mHeld[command.track].fill(0); mHeldKeys->counts[command.track].fill(0); mHeldKeys->pedal[command.track].fill(false); mHeldKeys->live[command.track].fill(false); mPedalHeld[command.track].fill(false); mLiveHeld[command.track].fill(false); ++mGeneration[command.track];
-                            for (auto& bits : mNoteBits[command.track]) bits = 0;
+                            for (auto& bits : mNoteBits[command.track]) bits = 0;clearPresentation(command.track);
                             for (auto& voice : track->mVoices) { voice.amp.release(); voice.filter.release(); voice.drumChoke = true; }
                         }
                         else
@@ -403,7 +439,8 @@ namespace MWSound
                                 mReturns.resume();mNoteBits[command.track][command.pitch/64].fetch_or(mask);
                                 chokeSampleGroup(command.track,command.pitch,command.velocity);
                                 track->apply({command.pitch,command.velocity,command.expression});
-                                mHeldKeys->live[command.track][track->keyIndex(command.pitch,command.expression.selection)]=true;
+                                const unsigned key=track->keyIndex(command.pitch,command.expression.selection);
+                                mHeldKeys->live[command.track][key]=true;publishAttack(command.track,key,command.expression);
                             }
                             else
                             {
@@ -414,6 +451,7 @@ namespace MWSound
                                     mHeldKeys->live[command.track][key]=false;
                                     if(mHeldKeys->counts[command.track][key])continue;
                                     if(mPedal[command.track]) {mPedalHeld[command.track][command.pitch]=true;mHeldKeys->pedal[command.track][key]=true;continue;}
+                                    releasePresentation(command.track,key);
                                     track->apply({command.pitch,command.velocity,{},int(key)});
                                 }
                                 if(!mHeld[command.track][command.pitch] && !mPedalHeld[command.track][command.pitch])

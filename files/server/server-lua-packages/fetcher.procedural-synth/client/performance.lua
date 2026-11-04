@@ -3,6 +3,7 @@ local anim=require('openmw.animation')
 local util=require('openmw.util')
 local types=require('openmw.types')
 local Profiles=require('scripts.multiplayer.fetcher.procedural-synth.client.instrument-profiles')
+local Gestures=require('scripts.multiplayer.fetcher.procedural-synth.client.performance-notes')
 local M={}
 local v,T=util.vector3,util.transform
 local zero=v(0,0,0)
@@ -41,15 +42,16 @@ end
 local Seated=require('scripts.multiplayer.fetcher.procedural-synth.client.seated-pose')(anim,util,M.elbow,between)
 M.canSeat=Seated.supported
 function M.new(actor,calibration)
-    local p={actor=actor,bones={},amount=0,lastNotes='',strike=0,missing=false,applied=0,targets={},error=0,reachError=0,appliedBones={},fingers=0,fingerAxes={}}
+    local p={actor=actor,bones={},amount=0,lastNotes='',strike=0,missing=false,applied=0,targets={},error=0,reachError=0,appliedBones={},fingers=0,fingerAxes={},fingerNormals={}}
     if anim.boneTransformsVersion~=1 then p.missing=true;return p end
     if not anim.hasAnimation(actor) then return nil end
     for _,name in ipairs(anim.getBoneNames(actor)) do p.bones[name:lower()]=name end
     function p:clear()
         for name in pairs(self.appliedBones) do anim.clearBoneTransform(self.actor,name) end
         self.appliedBones={};self.applied=0;self.fingers=0
+        self.stringGesture=nil;self.drumGesture=nil;self.stickPulse=nil;self.stickRotations=nil;self.pedalMotion=nil;self.fretting=nil;self.fretPosition=nil
     end
-    function p:frame(dt,source,notes,now,strikes,profile)
+    function p:frame(dt,source,notes,now,strikes,profile,snapshot)
         self.error=0;self.reachError=0;self.legReachError=0;self.fingers=0
         local record=not profile and source.recordId=='fetcher_procedural_keyboard_v1' and types.Miscellaneous.record(source) or (not profile and types.Activator.record(source))
         local staged=record and record.model:lower():gsub('\\','/'):find('keyboard%-stand%.nif$')~=nil
@@ -87,9 +89,21 @@ function M.new(actor,calibration)
             self.strike=now;self.lastNotes=signature;self.strikes=strikes
         end
         self.amount=math.min(1,self.amount+math.min(dt,0.1)*4)
+        local gesture,drumming
+        if snapshot and profile then
+            if profile.kind=='guitar' or profile.kind=='bass' then
+                gesture,self.stringGesture=Gestures.strings(snapshot,profile.kind,self.stringGesture)
+                local wanted=gesture.position;self.fretPosition=self.fretPosition or wanted
+                self.fretPosition=self.fretPosition+(wanted-self.fretPosition)*(1-math.exp(-math.min(dt,.1)*22))
+                gesture.position=self.fretPosition;self.fretting=gesture
+            elseif profile.kind=='drumkit' then
+                drumming,self.drumGesture=Gestures.drums(snapshot,now,self.drumGesture)
+                self.stickPulse={L=drumming.hands.L.pulse,R=drumming.hands.R.pulse};self.stickRotations={};self.pedalMotion=drumming.feet
+            end
+        end
         local bodyShift=zero
         self.seated=false
-        if profile and profile.seated then bodyShift,self.seated=Seated.apply(self,root,profile,setBone) end
+        if profile and profile.seated then bodyShift,self.seated=Seated.apply(self,root,profile,setBone,drumming and drumming.feet) end
         local pulse=math.max(0,1-(now-self.strike)/0.13)
         self.bowTravel=profile and Profiles.bowTravel(profile,now-self.strike,#signature>0) or 0
         for _,side in ipairs{'L','R'} do
@@ -115,10 +129,14 @@ function M.new(actor,calibration)
                     -- Configurable keyboard-space targets: this small model has
                     -- a narrow key bed. No actor teleport or root motion is used.
                     local x=sign*halfWidth+clamp((pitch-(side=='L' and 53 or 67))*spacing,-spread,spread)
-                    local point,wrist,curl
+                    local point,wrist,curl,stickRotation
                     if profile then
-                        point,wrist,curl=Profiles.motion(profile,side,pitch,#group>0,pulse,strikes,#low+#high,self.bowTravel)
+                        local hand=drumming and drumming.hands[side]
+                        if hand then pitch=hand.note end
+                        point,wrist,curl,stickRotation=Profiles.motion(profile,side,pitch,hand and hand.pulse>0 or not hand and #group>0,
+                            hand and hand.pulse or pulse,strikes,#low+#high,self.bowTravel,gesture)
                     else point,wrist,curl=v(x,front,height+(#group>0 and -pulse or 0)),pulse*.08,0 end
+                    if stickRotation and self.stickRotations then self.stickRotations[side]=stickRotation end
                     local target=toModel*(source.position+source.rotation*point)
                     local a,b=(e-s):length(),(w-e):length()
                     if a>0.1 and b>0.1 then
@@ -151,7 +169,7 @@ function M.new(actor,calibration)
                                     local posedFore=adjusted*f
                                     local posedHand=posedFore*foreRotation*posedFore:inverse()*adjusted*h
                                     local inversePosed=posedHand:inverse()
-                                    local desiredForward,desiredNormal=Profiles.handDirections(profile,side)
+                                    local desiredForward,desiredNormal=Profiles.handDirections(profile,side,stickRotation)
                                     local origin=toModel*source.position
                                     local direction=toModel*(source.position+source.rotation*desiredForward)-origin
                                     local palm=toModel*(source.position+source.rotation*desiredNormal)-origin
@@ -171,7 +189,7 @@ function M.new(actor,calibration)
                             if profile then
                                 local stem=('bip01 '..side..' finger'):lower()
                                 for lower,name in pairs(self.bones) do if lower:sub(1,#stem)==stem then
-                                    local amount=Profiles.fingerCurl(profile,side,name,curl,pitch,#group>0)
+                                    local amount=Profiles.fingerCurl(profile,side,name,curl,pitch,#group>0,gesture)
                                     local cached=self.fingerAxes[name];local axis=cached or nil
                                     if cached==nil and unposedPalm then
                                         local _,segment=lower:match('finger(%d)(%d*)$')
@@ -186,12 +204,16 @@ function M.new(actor,calibration)
                                             if other then other=toModel*other;direction=child and other*zero-origin or origin-other*zero end
                                             local bend=M.bendAxis(direction,unposedPalm) or M.bendAxis(unposedForward,unposedPalm)
                                             if bend then local inverse=bone:inverse();axis=inverse*(origin+bend)-inverse*origin;axis=axis/axis:length();self.fingerAxes[name]=axis end
+                                            local inverse=bone:inverse();local normal=inverse*(origin+unposedPalm)-inverse*origin
+                                            if normal:length()>.001 then self.fingerNormals[name]=normal/normal:length() end
                                         end
                                     end
                                     -- Some rigs list unused finger nodes with no world transform.
                                     -- Retry while the pose initializes, then keep the fallback cheap.
                                     if not axis and self.amount>=1 then self.fingerAxes[name]=false end
                                     local rotation=axis and T.rotate(amount,axis) or T.rotateZ((side=='L' and -1 or 1)*amount)
+                                    local spread=Profiles.fingerSpread(profile,side,name,gesture)
+                                    if spread~=0 and self.fingerNormals[name] then rotation=T.rotate(spread,self.fingerNormals[name])*rotation end
                                     setBone(name,rotation)
                                     self.appliedBones[name]=true;self.fingers=self.fingers+1
                                 end end

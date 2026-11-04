@@ -36,14 +36,37 @@ M.guitar={kind='guitar',model=path..'guitar.nif',position=v(8,18,-12),rotation=s
     targets={L=v(-21,23,-1),R=v(12,23,-14)}}
 M.bass={kind='bass',model=path..'bass.nif',position=v(10,18,-13),rotation=stringRotation,centerNote=40,
     targets={L=v(-27,24,0),R=v(12,23,-15)}}
-M.drumkit={kind='drumkit',anchor='feet',seated=true,model=path..'drumkit.nif',position=v(0,50,0),rotation=T.identity,
+-- These untuned string defaults originally placed the wrist on the string
+-- contact point. Leave finger-length clearance so curled fingertips meet it.
+for _,p in ipairs{M.guitar,M.bass} do
+    p.targets.L=p.targets.L-p.rotation*v(-6,0,0)-v(0,6,0)
+    p.targets.R=p.targets.R-p.rotation*v(6,0,0)
+end
+-- Contact points measured on the shipped NIF, favoring reachable inner rims.
+local kitContacts={
+    [37]=v(-38,-17,66),[38]=v(-38,-17,66),[39]=v(-38,-17,66),[40]=v(-38,-17,66),
+    [41]=v(35,-16,63),[43]=v(35,-16,63),[45]=v(10,0,82),[47]=v(10,0,82),
+    [48]=v(-14,0,83),[50]=v(-14,0,83),[42]=v(-60,-5,84),[46]=v(-60,-5,84),
+    [49]=v(-40,0,99),[55]=v(-40,0,99),[57]=v(-40,0,99),
+    [51]=v(38,-10,89),[53]=v(38,-10,89),[59]=v(38,-10,89),
+}
+local stickTip=v(0,20,-5)
+local function kitGrip(profile,side,pitch)
+    local contact=profile.position+profile.rotation*(kitContacts[math.floor(pitch)] or kitContacts[38])
+    local yaw=math.atan2(contact.x-(side=='L' and -10 or 10),math.max(8,contact.y))
+    local rotation=T.rotateZ(yaw)
+    return contact-rotation*stickTip,rotation,contact
+end
+M.kitGrip=kitGrip
+M.drumkit={kind='drumkit',anchor='feet',seated=true,model=path..'drumkit.nif',position=v(24,38,0),rotation=T.scale(.75,.75,.75),
     targets={L=v(-57,25,90),R=v(-25,24,70)},musicStand=v(116,95,0),
-    extras={{key='synth_mallet_l',model=path..'mallet.nif',hand='L',rotation=T.rotateZ(-.6)},
-        {key='synth_mallet_r',model=path..'mallet.nif',hand='R',rotation=T.rotateZ(-.6)}}}
+    extras={{key='synth_mallet_l',model=path..'mallet.nif',hand='L',rotation=T.identity},
+        {key='synth_mallet_r',model=path..'mallet.nif',hand='R',rotation=T.identity}}}
+M.drumkit.targets.L=kitGrip(M.drumkit,'L',42);M.drumkit.targets.R=kitGrip(M.drumkit,'R',38)
 -- Canonical neck/string axes and 85-unit scale match the electric grip.
 for _,name in ipairs{'acoustic','classical'} do
     local profile={};for k,value in pairs(M.guitar) do profile[k]=value end
-    profile.model=path..name..'.nif';M[name]=profile
+    profile.model=path..name..'.nif';profile.targets={L=M.guitar.targets.L+v(0,1,0),R=M.guitar.targets.R+v(0,4,0)+M.guitar.rotation*v(0,8,0)};M[name]=profile
 end
 local function clamp(n,a,b) return math.max(a,math.min(b,n)) end
 local function copy(value)
@@ -98,8 +121,8 @@ end
 function M.bowTravel(profile,age,pressed)
     return (profile.kind=='violin' or profile.kind=='cello') and pressed and math.sin(age*math.pi*1.6)*5 or 0
 end
-function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel)
-    local point=profile.targets[side];local wrist,curl=0,.05
+function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel,gesture)
+    local point=profile.targets[side];local wrist,curl=0,.05;local stickRotation
     if profile.kind=='keyboard' then
         local shift=clamp((pitch-(side=='L' and 53 or 67))*.9,-16,16)
         point=point+v(shift,0,pressed and -pulse*1.2 or 0)
@@ -113,16 +136,11 @@ function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel)
             wrist=pressed and -.25*pulse or 0;curl=.2
         end
     elseif profile.kind=='drumkit' then
-        -- The left hand plays hats; the right covers snare/toms/cymbals.
-        local offsets={ [41]=v(45,0,-5),[43]=v(45,0,-5),[45]=v(28,14,10),[47]=v(28,14,10),
-            [48]=v(0,14,15),[50]=v(0,14,15),[49]=v(-20,0,28),[51]=v(68,0,20),[53]=v(68,0,20),[57]=v(-20,0,28),[59]=v(68,0,20)}
-        if pitch==42 or pitch==46 then
-            if side=='R' then point=point+v(-30,1,17) end
-        else
-            if side=='L' then point=point+v(30,-1,-17) end
-            point=point+(offsets[math.floor(pitch)] or v(0,0,0))
-        end
-        point=point+v(0,0,pressed and -pulse*5 or 0);wrist=pressed and -.18*pulse or .08;curl=.35
+        local grip,rotation=kitGrip(profile,side,pitch)
+        local reference=kitGrip(profile,side,side=='L' and 42 or 38)
+        local hit=pressed and pulse or 0
+        point=profile.targets[side]+grip-reference+v(0,0,4*(1-hit))
+        wrist=0;curl=.35;stickRotation=rotation*T.rotateX(-.35*(1-hit))
     elseif profile.kind=='drum' or profile.kind=='timpani' then
         local hit=pressed and ((count or 0)>1 or ((strikes or 0)%2==0)==(side=='L'))
         point=point+v(0,0,hit and -pulse*(profile.kind=='drum' and 4 or 6) or 0);wrist=hit and -.18*pulse or .08;curl=profile.kind=='timpani' and .35 or .03
@@ -138,12 +156,26 @@ function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel)
         curl=pressed and .32 or .2
         if profile.kind=='trumpet' and side=='R' then curl=.12 end
     end
+    if gesture and (profile.kind=='guitar' or profile.kind=='bass') then
+        if side=='L' then
+            -- Calibrated wrist anchor corresponds to fret five. Physical fret
+            -- spacing contracts toward the body rather than tracking mean pitch.
+            local length=profile.kind=='bass' and 72 or 60
+            local along=length*(2^(-gesture.position/12)-2^(-5/12))
+            point=profile.targets.L+profile.rotation*v(0,along,0);wrist=0;curl=.22
+        else
+            local excursion=gesture.strum and 3 or 1.1
+            local across=gesture.pickedString>0 and (gesture.pickedString-(gesture.stringCount+1)/2)*.55 or 0
+            point=profile.targets.R+profile.rotation*v(across,0,0)+v(0,0,(gesture.direction==1 and 1 or -1)*gesture.pulse*excursion)
+            wrist=-.20*gesture.pulse;curl=.2
+        end
+    end
     if profile.tuning then point=profile.targets[side]+(point-profile.targets[side])*(profile.tuning[side..'MotionScale'] or 1) end
-    return point,wrist,curl
+    return point,wrist,curl,stickRotation
 end
 local function handDirections(profile,side)
     if profile.kind=='lute' or profile.kind=='guitar' or profile.kind=='bass' then
-        return profile.rotation*v(side=='L' and -1 or 1,0,0),v(0,-1,0)
+        return profile.rotation*v(side=='L' and -1 or 1,0,0),v(0,side=='L' and profile.kind~='lute' and 1 or -1,0)
     end
     if profile.kind=='violin' then
         if side=='L' then return profile.rotation*v(1,0,.15),profile.rotation*v(-.15,0,1) end
@@ -161,8 +193,9 @@ local function handDirections(profile,side)
     end
     return v(0,1,0),v(0,0,-1)
 end
-function M.handDirections(profile,side)
+function M.handDirections(profile,side,stickRotation)
     local forward,normal=handDirections(profile,side)
+    if profile.kind=='drumkit' and stickRotation then forward=stickRotation*v(0,1,0) end
     local rotation=profile.tuning and profile.tuning[side..'Rotation']
     return rotation and rotation*forward or forward,rotation and rotation*normal or normal
 end
@@ -179,10 +212,24 @@ local function fingerCurl(profile,side,name,base,pitch,pressed)
     end
     return base
 end
-function M.fingerCurl(profile,side,name,base,pitch,pressed)
+function M.fingerCurl(profile,side,name,base,pitch,pressed,gesture)
     local amount=fingerCurl(profile,side,name,base,pitch,pressed)
+    if gesture and (profile.kind=='guitar' or profile.kind=='bass') then
+        local finger=tonumber(name:lower():match('finger(%d)')) or 0
+        if side=='L' and finger>0 then amount=gesture.frets[finger] and .34 or .16
+        elseif side=='R' and profile.kind=='bass' and finger>0 then
+            amount=.12+(finger==gesture.pickFinger and .24*gesture.pulse or 0)
+        end
+    end
     if profile.tuning then amount=amount*(profile.tuning[side..'CurlScale'] or 1)+(profile.tuning[side..'CurlBias'] or 0) end
     return clamp(amount,0,1.5)
+end
+function M.fingerSpread(profile,side,name,gesture)
+    if not gesture or side~='L' then return 0 end
+    local finger=tonumber(name:lower():match('finger(%d)')) or 0
+    local strings=gesture.frets[finger];if not strings then return 0 end
+    local mean=0;for _,string in ipairs(strings) do mean=mean+string end;mean=mean/#strings
+    return clamp((mean-(gesture.stringCount+1)/2)*.045,-.18,.18)
 end
 local approved=require('scripts.multiplayer.fetcher.procedural-synth.client.pose-defaults')
 M.calibrationVersion=approved.version;M.referenceVersion=approved.referenceVersion;M.reference={};M.defaults={}
@@ -196,7 +243,7 @@ for _,name in ipairs{'keyboard','lute','drum','violin','cello','trumpet','flute'
     -- The credited wooden stick drops five units from grip to tip. Leave room
     -- above the new timpani head for its six-unit downstroke.
     if name=='timpani' then d.LTarget[3]=91;d.RTarget[3]=91 end
-    if name=='drumkit' then d.LFootTarget={-40,28,0};d.RFootTarget={-10,30,0};d.benchScale=.9 end
+    if name=='drumkit' then d.LFootTarget={-22,22,0};d.RFootTarget={17,2,0};d.benchScale=.9 end
     merge(d,approved.profiles[name] or ((name=='acoustic' or name=='classical') and approved.profiles.guitar) or {})
     M.defaults[name]=d;M[name]=M.compile(M.reference[name],d)
 end

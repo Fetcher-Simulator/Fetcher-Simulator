@@ -1,5 +1,37 @@
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
+## November 4: note-driven instrument presentation (package 74 / API 33)
+
+All 37 Lua suites and four native CTests pass. Native tests cover independent
+same-pitch string snapshots, attack expression/tuning, short released history,
+live retriggers/key-up, track panic, Stop/close, and bit-exact audio with/without
+snapshot reads. New Lua cases cover fret/string assignment, open/drop/extended
+bass tuning, transposition, repeated-pitch bass fingers, separate stick/pedal
+histories, simultaneous hits, stale polling and cleanup. Geometry checks verify
+stick tips at measured contacts, raised recoil, fret travel and finger choices.
+
+The Windows client builds. The presentation store is fixed atomic storage on
+the heap, populated by the audio thread without new allocation or blocking. Lua
+copies are bounded control-thread reads. No server C++ or wire controls changed.
+
+Visible local tests use port 25567 and copies of the existing database/profiles,
+with two clients on monitor 2 and muted monitoring. Owner and late observer both
+report all four string profiles, both sticks, kick and open/closed hi-hat foot
+motion. Explicit hand/leg reach guards pass. Front/side close views cover electric
+guitar, bass, acoustic and classical guitar; front/side/lower views cover the kit.
+Earlier inspection caught oversized/cross-body kit targets and wrist-versus-
+fingertip placement; defaults were corrected and rechecked. Evidence remains in
+build/studio74-multiview-qa.json and build/studio74-qa/result.json/logs. Original
+user files remain unchanged by QA. The driver is absent from the shipped package.
+
+At the user's request a fresh ToddTest keyboard was placed through mp.placeObject
+at (2175,2256,-703), mpNum 309, and the fixture's pinned ID updated. The existing
+portable keyboard (302, exterior cell) was retained. The one-shot placement
+script was removed. This intentional local world change is separate from QA.
+
+This is a Fargoth-rig first pass, with no claim of exact fingertip contact,
+fully articulated/slap performance, animated pedal meshes or all-race acceptance.
+
 ## November 3: unison ownership, saved fingering and acoustic props (package 73)
 
 All 36 Lua suites pass. Guitar-tool tests now check saved string/stroke choices,

@@ -75,7 +75,7 @@ function A:frame(instances,dt,now)
                             local position=profile.anchor=='feet' and actor.position or torso*v(0,0,0)
                             local source={position=position,rotation=actor.rotation}
                             if p.pose and not p.pose.missing then
-                                p.pose:frame(math.min(.2,now-(p.frameAt or now-dt)),source,playing and group.audio:notes() or {},now,group and group.audio.strikes or 0,profile)
+                                p.pose:frame(math.min(.2,now-(p.frameAt or now-dt)),source,playing and group.audio:notes() or {},now,group and group.audio.strikes or 0,profile,group and group.audio.performance and group.audio:performance() or nil)
                             end
                             local transform=root:inverse()*T.move(position)*actor.rotation*T.move(profile.position)*profile.rotation
                             anim.setVisualAttachment(actor,'synth_instrument',profile.model,{bone='Bip01',transform=transform,timeout=.6})
@@ -83,6 +83,9 @@ function A:frame(instances,dt,now)
                                 local attachment
                                 if extra.hand and p.pose and p.pose.targets[extra.hand] then
                                     attachment=root:inverse()*T.move(p.pose.targets[extra.hand])*actor.rotation*T.move(extra.position or v(0,0,0))*(extra.rotation or T.identity)
+                                    if profile.kind=='drumkit' and p.pose.stickRotations and p.pose.stickRotations[extra.hand] then
+                                        attachment=root:inverse()*T.move(p.pose.targets[extra.hand])*actor.rotation*T.move(extra.position or v(0,0,0))*p.pose.stickRotations[extra.hand]*(extra.rotation or T.identity)
+                                    end
                                 elseif extra.position then
                                     local travel=extra.bow and p.pose and p.pose.bowTravel or 0
                                     local offset=extra.position+extra.rotation*v(travel,0,0)
@@ -121,7 +124,8 @@ function A:status()
     local result={}
     for key,p in pairs(self.poses) do local axes=0;for _,axis in pairs(p.pose and p.pose.fingerAxes or {}) do if axis then axes=axes+1 end end
         result[#result+1]={key=key,instrument=p.instrument,profile=p.profileKey,seated=p.pose and p.pose.seated==true,seatedUnsupported=p.seatedUnsupported,bones=p.pose and p.pose.applied or 0,fingerAxes=axes,
-        fingers=p.pose and p.pose.fingers or 0,error=p.pose and p.pose.error or 0,reachError=p.pose and p.pose.reachError or 0,missingModel=p.missingModel,
+        fret=p.pose and p.pose.fretting and p.pose.fretting.position,stickLeft=p.pose and p.pose.stickPulse and p.pose.stickPulse.L,stickRight=p.pose and p.pose.stickPulse and p.pose.stickPulse.R,footLeft=p.pose and p.pose.pedalMotion and p.pose.pedalMotion.L,footRight=p.pose and p.pose.pedalMotion and p.pose.pedalMotion.R,
+        fingers=p.pose and p.pose.fingers or 0,error=p.pose and p.pose.error or 0,reachError=p.pose and p.pose.reachError or 0,legReachError=p.pose and p.pose.legReachError or 0,missingModel=p.missingModel,
         attachments=anim.visualAttachmentCount and anim.visualAttachmentCount(p.actor) or 0} end
     return result
 end

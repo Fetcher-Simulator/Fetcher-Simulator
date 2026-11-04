@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 73 / native synth API 32 / multiplayer protocol 27.
+Current source: package 74 / native synth API 33 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,39 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models are available. More detailed articulation/animation
 and wider listening-based sound balancing remain in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Note-driven instrument presentation (package 74 / API 33)
+
+Guitar/bass performers now read the native audio engine's attack-time string,
+tuning, transpose and pick direction. Fretting hands travel by physical fret
+spacing; assigned fingers curl/spread toward their strings, open strings lift
+fretting fingers, and bass plucks alternate index/middle fingers. Picking and
+strumming follow each instrument's own recent attacks. No MIDI pitch, timing,
+velocity or sound changes are made by the presentation layer.
+
+Use **Piano > Guitar / strum > Preview / Apply** to save explicit string/stroke
+assignments and tuning. Unassigned notes receive a bounded visual Auto guess.
+The current hands use joint curls/spread and arm IK, not full fingertip contact
+IK; extreme stretches, some articulations and custom rigs still need refinement.
+
+The full-kit drummer has separate stick-hit and foot-event histories. Kick and
+pedal-hi-hat notes never create arm swings. Closed/open hat events set left-foot
+pressure; kick attacks rock the right foot. Stick tips use measured inner-rim
+contact points and recoil, with outer cymbals kept on their reachable hand side.
+Impossible simultaneous hits compete for the two visible sticks; all audio notes
+still play. Foot motion is presentation; the kit's pedal meshes remain static.
+
+The kit is scaled/repositioned for the seated actor, with updated default grips
+and pedal targets. Guitar wrists allow finger-length clearance; acoustic and
+classical bodies get independent picking-hand clearance. Your Pose tuner values
+remain authoritative: if a saved local override retains an old fit, reset that
+instrument in the poser to adopt the new defaults, then refine/export as usual.
+
+The read-only native snapshot uses fixed, once-allocated atomic storage. Its
+reader runs on the Lua/control thread; the audio writer allocates and locks
+nothing new. It includes short released attacks so fast drums remain visible
+between frames. Stop, release/panic, close and expiry clear presentation state.
+The API-33 client is required; server C++ and protocol 27 are unchanged.
 
 ## Independent unison strings and acoustic props (package 73 / API 32)
 

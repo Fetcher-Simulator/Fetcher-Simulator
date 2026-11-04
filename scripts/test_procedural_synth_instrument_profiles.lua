@@ -30,6 +30,15 @@ for _,name in ipairs{'guitar','bass','acoustic','classical'} do
 end
 check(Published.drumkit.seated and Published.drumkit.anchor=='feet' and #Published.drumkit.extras==2,'kit is floor anchored with a seated profile and two sticks')
 check(Published.defaults.drumkit.benchScale and Published.defaults.drumkit.LFootTarget,'drummer stool and both feet are exposed to the existing poser')
+for _,hit in ipairs{{'L',42},{'L',49},{'R',38},{'R',45},{'R',51}} do
+ local side,note=hit[1],hit[2]
+ local grip,rotation,contact=Published.kitGrip(Published.drumkit,side,note)
+ local point,_,_,stick=Published.motion(Published.drumkit,side,note,true,1,0,1)
+ local tip=point+stick*v(0,20,-5)
+ check(math.abs(tip.x-contact.x)+math.abs(tip.y-contact.y)+math.abs(tip.z-contact.z)<.001,'stick tip meets its measured drum/cymbal contact at impact')
+ local rest,_,_,raised=Published.motion(Published.drumkit,side,note,false,0,0,0)
+ check((rest+raised*v(0,20,-5)).z>contact.z+3,'idle stick clears the measured head instead of intersecting it')
+end
 local stickStrike=Published.motion(Published.timpani,'L',45,true,1,0,2)
 check(math.abs(stickStrike.z-(Published.timpani.targets.L.z-6*Published.defaults.timpani.LMotionScale))<.01,'timpani downstroke respects the accepted target and motion calibration')
 local neck=P.lute.position+P.lute.rotation*v(0,20,8)
@@ -38,6 +47,20 @@ local luteContact=P.lute.targets.L+P.lute.rotation*v(-4,0,0)-v(0,3,0)
 check(math.abs(neck.x-luteContact.x)<.2 and math.abs(neck.y-luteContact.y)<.2 and math.abs(neck.z-luteContact.z)<.2,'lute wrist leaves room for fingers to reach the measured string surface')
 local strings=P.lute.position+P.lute.rotation*v(0,-12,8)
 check(math.abs(strings.x-P.lute.targets.R.x)<.2 and math.abs(strings.z-P.lute.targets.R.z)<.2,'strumming hand meets the actual string/body surface')
+do
+ local g={position=2,frets={[1]={2}},stringCount=6,pulse=1,direction=0,pickedString=2,strum=false,pickFinger=1}
+ local lo=Published.motion(Published.guitar,'L',40,true,1,0,1,0,g)
+ g.position=12;local hi=Published.motion(Published.guitar,'L',40,true,1,0,1,0,g)
+ local neck=Published.guitar.rotation*v(0,1,0)
+ check((hi-lo).x*neck.x+(hi-lo).y*neck.y+(hi-lo).z*neck.z<0,'higher frets move toward the guitar body in calibrated model axes')
+ local pressed=Published.fingerCurl(Published.guitar,'L','Bip01 L Finger1',.2,40,true,g)
+ local free=Published.fingerCurl(Published.guitar,'L','Bip01 L Finger2',.2,40,true,g)
+ check(pressed>free,'saved fret contacts curl assigned fingers while lifting unused fingers')
+ check(Published.fingerSpread(Published.guitar,'L','Bip01 L Finger1',g)<0,'fret finger fans toward the assigned low-side string')
+ local down=Published.motion(Published.guitar,'R',40,true,1,0,1,0,g);g.direction=1
+ local up=Published.motion(Published.guitar,'R',40,true,1,0,1,0,g)
+ check(up.z>down.z,'explicit saved stroke overrides unrelated global strike parity')
+end
 local low=P.motion(P.keyboard,'L',48,true,1,1,1);local high=P.motion(P.keyboard,'L',60,true,1,1,1)
 check(high.x>low.x and high.x<0,'keyboard hand travels with pitch on its own half')
 local idle=P.motion(P.keyboard,'R',67,false,1,0,0);local strike,wrist,curl=P.motion(P.keyboard,'R',67,true,1,1,1)

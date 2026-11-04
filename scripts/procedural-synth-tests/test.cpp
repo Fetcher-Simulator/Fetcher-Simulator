@@ -90,6 +90,7 @@ void writePreview(const std::string& path)
 #include "instrument-tests.hpp"
 #include "attack-sample-tests.hpp"
 #include "string-unison-tests.hpp"
+#include "presentation-tests.hpp"
 #include "string-tests.hpp"
 #include "parallel-tests.hpp"
 #include "legato-tests.hpp"
@@ -128,6 +129,7 @@ int main(int argc, char** argv)
         instrumentTests();
         attackSampleTests();
         stringUnisonTests();
+        presentationTests();
         stringTests();
         parallelTests();
         legatoTests();
