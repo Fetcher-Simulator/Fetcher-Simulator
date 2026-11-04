@@ -664,7 +664,7 @@ api.readyInstrument('lute');check(sent[#sent].op=='hold' and sent[#sent].instrum
 api.leaveBand();check(sent[#sent].op=='leaveBand','member can leave without owning Studio')
 player.engineHandlers.onKeyPress{code=input.KEY.F9};check(mode==nil,'F9 closes the performer panel and releases the UI mode')
 -- Reproduce loaded-song reuse from the actual Studio callbacks, including Band.
-package.loaded['openmw.synth'].version=35
+package.loaded['openmw.synth'].version=36
 local paths={'midi/a.mid','midi/b.mid'};local files={}
 local function midiBytes(pitch,count)
     local events={};for n=1,count or 1 do events[#events+1]=string.char(0,144,pitch,100,96,128,pitch,0) end
@@ -1555,5 +1555,45 @@ local function testComposerCellContinuity()
     self.cell=oldCell
 end
 testComposerCellContinuity()
+end
+do
+ local function testBusControls()
+  local W=dofile(root..'client/workstation.lua');local Studio=dofile(root..'client/studio.lua')
+  local uw=W.new{configure=function() end,effects=function() end,band=function() end,panic=function() end,message=function() end,
+      meter=function() return 0 end,meters=function() return 0,0,0 end,busMeters=function() return .2,.1,4 end}
+  uw:newSong(120,4,4,4);uw.page='bus';uw.busSlot=1
+  local view=Studio.new(uw,{midiLabel=function() return 'Bus QA' end})
+  for _,slot in ipairs{1,0} do
+   uw.busSlot=slot;uw.revision=uw.revision+1;view:render()
+   local slider=assert(control(view,'Threshold (dB)'));local track=slider.layout.content[2];local rootWidget=view.root
+   mouseDown=true;track.events.mousePress{button=1,offset=vector(track.props.size.x*.5,0)}
+   now=now+.1;view:frame(now)
+   track.events.mouseMove{button=1,offset=vector(track.props.size.x*.7,0)};now=now+.1;view:frame(now)
+   local state=slot==0 and uw.project.masterMixer or uw.project.band[slot].mixer
+   check(math.abs(state.threshold+18)<.11 and view.root==rootWidget,'bus compressor slider updates continuously without rebuilding widgets')
+   check(view.busMeter.element.layout.props.text:find('4.0 dB',1,true),'bus meter reports gain reduction')
+   mouseDown=false;now=now+.1;view:frame(now)
+   check(control(view,slot==0 and 'Master level' or 'Member level'),'bus exposes its shared level control')
+  end
+  view:destroy()
+ end
+ testBusControls()
+end
+do
+ local function testGuitarNavigation()
+  local Editor=dofile(root..'client/editor.lua')
+  for _,id in ipairs{'b:capture-heavy','b:sampled-electric-metal','b:sampled-guitar-nylon','b:sampled-bass-picked','b:guitar-heavy'} do
+   local builtin;for _,p in ipairs(schema.builtins) do if p.id==id then builtin=p end end
+   local params=assert(schema.state(assert(builtin).state));params.drive=17;params.stringSlideTime=.123
+   local sample=schema.sampleKey(params.sample);local edits,commands=0,0
+   local view=Editor.new(params,{change=function() edits=edits+1 end,command=function() commands=commands+1 end,noteOff=function() end})
+   view.selected='p:987';view.name='My edited guitar'
+   for _,item in ipairs(view.root.layout.content) do if item.content and item.content[1] and item.content[1].props and item.content[1].props.text=='Guitar' then item.events.mouseClick();break end end
+   check(view.page=='strings' and commands==0 and edits==0,'Guitar opens existing sampled/procedural string settings without loading or editing a sound')
+   check(view.selected=='p:987' and view.name=='My edited guitar' and view.params==params and params.drive==17 and params.stringSlideTime==.123 and schema.sampleKey(params.sample)==sample,'Guitar navigation preserves personal identity, edited amp, string settings and complete sample identity')
+   view:destroy()
+  end
+ end
+ testGuitarNavigation()
 end
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

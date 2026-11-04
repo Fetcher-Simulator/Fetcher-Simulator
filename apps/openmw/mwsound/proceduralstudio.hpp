@@ -4,6 +4,7 @@
 #include "proceduralsynth.hpp"
 #include "proceduralmixer.hpp"
 #include "proceduralreturns.hpp"
+#include "proceduralmaster.hpp"
 #include <vector>
 
 namespace MWSound
@@ -55,6 +56,12 @@ namespace MWSound
         float trackRms(unsigned n) const { return hasTrack(n) ? mRms[n-1].load() : 0; }
         float trackReduction(unsigned n) const { return hasTrack(n) ? mReduction[n-1].load() : 0; }
         bool effects(const ProceduralReturns::State& state, float master);
+        bool buses(const ProceduralMixer::State& member,float level,bool audible,const ProceduralMixer::State& song);
+        bool linkMaster(std::shared_ptr<ProceduralMaster> master,unsigned slot);
+        float memberPeak() const{return mMemberPeak;}
+        float memberRms() const{return mMemberRms;}
+        float memberReduction() const{return mMemberReduction;}
+        float masterReduction() const{return mSongReduction;}
         float delayPeak() const {return mDelayPeak;}
         float reverbPeak() const {return mReverbPeak;}
         float masterRms() const { return mMasterRms; }
@@ -86,7 +93,9 @@ namespace MWSound
         // Control-thread copy. No Lua, allocation or lock on the audio writer.
         std::vector<PerformanceNote> performance() const;
         void render(float* output, std::size_t frames) override;
-        void close() override { mClosed = true; }
+        void close() override
+        {mClosed=true;if(auto* master=mMasterGroup.load())master->release(mMasterSlot,mMasterToken);}
+        ~ProceduralStudio() override {close();}
         bool closed() const override { return mClosed; }
         void keepAlive() override;
         bool expired() const override;
@@ -151,6 +160,14 @@ namespace MWSound
         ProceduralReturns::State mEffectsTarget=ProceduralReturns::defaults();
         float mMasterTarget=1,mMasterAudioTarget=1;double mMasterCurrent=1;
         bool mEffectsDirty=false,mMasterInitialized=false;
+        ProceduralMixer mMemberStrip,mSongStrip;
+        ProceduralMixer::State mMemberTarget=ProceduralMixer::defaults(),mSongTarget=ProceduralMixer::defaults();
+        float mMemberLevel=1;bool mMemberAudible=true,mBusesDirty=false,mBusesActive=false;
+        std::shared_ptr<ProceduralMaster> mMasterOwner;
+        std::atomic<ProceduralMaster*> mMasterGroup{nullptr};
+        unsigned mMasterSlot=0,mMasterToken=0,mBusFrames=0;
+        double mLinkedEnvelope=0,mMemberPower=0;
+        std::atomic<float> mMemberPeak{0},mMemberRms{0},mMemberReduction{0},mSongReduction{0};
         std::atomic<float> mDelayPeak{0},mReverbPeak{0};
         std::array<Off, MaxActive> mOffs{};
         std::size_t mOffCount = 0, mIndex = 0;

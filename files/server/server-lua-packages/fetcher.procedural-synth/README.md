@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 76 / native synth API 35 / multiplayer protocol 27.
+Current source: package 77 / native synth API 36 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,40 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models are available. More detailed articulation/animation
 and wider listening-based sound balancing remain in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Member and song-master EQ/compression (package 77 / API 36)
+
+- **Band > Mix** on a member row opens that performer's shared strip. Every
+  routed track plus that output's delay/reverb returns feeds one EQ/compressor.
+  The member Level/Mute controls act on the entire group. Individual track
+  settings stay independent.
+- **Mixer > Master Mix** opens the song master EQ/compressor and master fader.
+  All project outputs, including this keyboard, use the same master settings.
+  Compression links their detector envelopes while keeping the existing spatial
+  emitters. Another player's independent song has its own master link.
+- Both pages have bypass toggles, high-pass, bass/mid/treble EQ, threshold, ratio,
+  attack, release, makeup and live peak/RMS/gain-reduction meters. Values support
+  numeric entry and smooth dragging. Bus processing saves with the project and
+  supports Undo/Redo, live network changes and late listeners. Old songs migrate
+  with both strips bypassed. No recursive bus sends or bus automation are added.
+
+Signal order: track inserts/faders/sends; output dry plus returns; member
+EQ/compressor/level; song EQ/linked compressor/master fader; output limiter;
+existing world attenuation/acoustics and local monitor volume.
+
+The spatial master uses the energy sum of attack/release envelopes from the
+independent output queues, published every 32 frames at 48 kHz. It is a linked
+multi-output compressor, not a phase-coherent mono sum after world attenuation.
+Master peak/RMS show the loudest output; GR shows the linked detector response.
+Full stereo/group graph routing remains a later slice.
+
+**Guitar navigation:** clicking Guitar on an existing recorded or synthesized
+string sound opens its current controls. It preserves the source, selected
+personal patch, edited amp/articulation values and sample references. Explicit
+source changes remain separate actions.
+
+This source/build is local-only. Loading it needs the matching API-36 client and
+package-77 server Lua. No C++ server rebuild or public/VPS rollout is required.
 
 ## Captured heavy rig (package 76 / API 35; local only)
 

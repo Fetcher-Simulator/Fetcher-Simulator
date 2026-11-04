@@ -8,9 +8,9 @@ local util=require('openmw.util')
 local stageLayout=require('scripts.multiplayer.fetcher.procedural-synth.shared.band-layout')
 local StagePreflight=require('scripts.multiplayer.fetcher.procedural-synth.client.stage-preflight')(nearby,util,stageLayout)
 local supported, synth = pcall(require,'openmw.synth')
-if not supported or (synth.version and synth.version<35) then
+if not supported or (synth.version and synth.version<36) then
     return {eventHandlers={Synth_Activate=function()
-        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 35.')
+        ui.showMessage('This synthesizer requires an OpenMW client with openmw.synth API version 36.')
     end}}
 end
 local schema = require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
@@ -154,8 +154,8 @@ local function applyChannel(i,n,params,level,mixer,audible)
         channel.audio:set('volume',params.volume*level*(channel.audible and 1 or 0))
     end
 end
-local function applyEffects(i,effects,master)
-    i.effects=Project.effects(effects) or Project.effects();i.master=master or 0.7
+local function applyEffects(i,effects,master,masterMixer)
+    i.effects=Project.effects(effects) or Project.effects();i.master=master or 0.7;i.masterMixer=Project.bus(masterMixer) or Project.bus()
     transport:applyEffects(i)
 end
 local function channelAudio(i,n,create)
@@ -274,13 +274,16 @@ makeWorkstation=function(i)
     local tokens,last=80,core.getRealTime()
     local channelTokens,channelAt=16,core.getRealTime()
     local bandAt=-10
-    i.pendingChannels={}
+    i.pendingChannels={};i.pendingMemberBuses={}
     local function flushChannels()
         local now=core.getRealTime()
         if i.pendingBand and now-bandAt>=0.5 then send('band',i.pendingBand);i.pendingBand=nil;bandAt=now end
         channelTokens=math.min(16,channelTokens+math.max(0,now-channelAt)*10);channelAt=now
         for n=0,Project.maxTracks do if i.pendingChannels[n] and channelTokens>=1 then
             channelTokens=channelTokens-1;send(n==0 and 'effects' or 'channel',i.pendingChannels[n]);i.pendingChannels[n]=nil
+        end end
+        for slot=1,Project.maxMembers do if i.pendingMemberBuses[slot] and channelTokens>=1 then
+            channelTokens=channelTokens-1;send('memberMixer',{slot=slot,mixer=i.pendingMemberBuses[slot]});i.pendingMemberBuses[slot]=nil
         end end
     end
     local w=Workstation.new{
@@ -303,9 +306,15 @@ makeWorkstation=function(i)
                 local t=m.target;values[#values+1]=m.name;values[#values+1]=Project.targetKey(t)
                 values[#values+1]=t and t.cell or '';values[#values+1]=t and t.refId or ''
                 values[#values+1]=m.level;values[#values+1]=tostring(m.mute)
+                for _,name in ipairs(Project.mixerOrder) do values[#values+1]=(m.mixer or Project.bus())[name] end
+                local current=i.band and i.band[n]
+                if current and Project.targetKey(current.target)==Project.targetKey(m.target) then
+                    current.level=m.level;current.mute=m.mute;current.mixer=Project.bus(m.mixer)
+                end
             end
             for _,slot in ipairs(routes) do values[#values+1]=slot end
             local signature=table.concat(values,'|')
+            transport:applyEffects(i)
             if signature~=i.bandSignature then i.bandSignature=signature;i.pendingBand={band=Project.band(band),routes=Project.routes(routes),leaderPlays=i.leaderPlays};flushChannels() end
         end,
         bandStatus=function(slot)
@@ -357,12 +366,17 @@ makeWorkstation=function(i)
             table.sort(choices,function(a,b) return a.label<b.label end);return choices
         end,
         flushChannels=flushChannels,
-        effects=function(effects,master)
-            effects=effects or Project.effects()
+        memberMixer=function(slot,mixer)
+            transport:memberMixer(i,slot,mixer);i.pendingMemberBuses[slot]=mixer;flushChannels()
+        end,
+        busMeters=function(slot) return transport:busMetrics(i,slot) end,
+        effects=function(effects,master,masterMixer)
+            effects=effects or Project.effects();masterMixer=masterMixer or Project.bus()
             local values={master};for _,name in ipairs(Project.effectsOrder) do values[#values+1]=effects[name] end
+            for _,name in ipairs(Project.mixerOrder) do values[#values+1]=masterMixer[name] end
             local signature=table.concat(values,',');if i.effectsSignature==signature then return end
-            applyEffects(i,effects,master);i.effectsSignature=signature
-            i.pendingChannels[0]={effects=effects,master=master};flushChannels()
+            applyEffects(i,effects,master,masterMixer);i.effectsSignature=signature
+            i.pendingChannels[0]={effects=effects,master=master,masterMixer=masterMixer};flushChannels()
         end,
         schedule=synth.createStudio and function(plan,replace) return transport:queue(i,plan,replace,send) end or nil,
         stopSequence=function() transport:stop(i,send) end,
@@ -624,7 +638,7 @@ local function message(data)
         local ok,audio=pcall(synth.create,source)
         if not ok then ui.showMessage(tostring(audio)); return end
         i={id=data.id,audio=audio,source=source,cell=self.cell,owner=data.owner,leaderPlays=data.leaderPlays~=false,notes={},channels={},epoch=data.epoch,seq=data.seq,seen=core.getRealTime(),serverCell=data.cell}
-        instances[data.id]=i;apply(i,params);applyEffects(i,data.effects,data.master);transport:band(i,data.band,data.routes,data.availability,data.performers)
+        instances[data.id]=i;apply(i,params);applyEffects(i,data.effects,data.master,data.masterMixer);transport:band(i,data.band,data.routes,data.availability,data.performers)
         for n,channel in pairs(data.channels or {}) do
             local state=schema.state(channel.params)
             if type(n)=='number' and n>=1 and n<=Project.maxTracks and n%1==0 and state then applyChannel(i,n,state,channel.level or 1,channel.mixer,channel.audible) end
@@ -649,9 +663,22 @@ local function message(data)
         if data.leaderPlays~=nil then i.leaderPlays=data.leaderPlays~=false end
         local statusChanged=false
         for slot=1,Project.maxMembers do if (i.availability or {})[slot]~=(data.availability or {})[slot] then statusChanged=true end end
+        if i.workstation then
+            data.band=Project.band(data.band) or data.band
+            for slot,m in ipairs(data.band or {}) do
+                local localMember=i.workstation.project.band[slot]
+                if localMember and Project.targetKey(m.target)==Project.targetKey(localMember.target) then
+                    if i.pendingBand then m.level=localMember.level;m.mute=localMember.mute end
+                    m.mixer=Project.bus(localMember.mixer)
+                end
+            end
+        end
         local ok,err=pcall(transport.band,transport,i,data.band,data.routes,data.availability,data.performers)
         if not ok then transport:stop(i);ui.showMessage(tostring(err)) end
         if i.workstation and statusChanged then i.workstation.revision=i.workstation.revision+1 end
+    elseif data.op=='memberMixer' then
+        local state=Project.bus(data.mixer)
+        if state and type(data.slot)=='number' and data.slot%1==0 and data.slot>=1 and data.slot<=Project.maxMembers then transport:memberMixer(i,data.slot,state) end
     elseif data.op=='channelRemove' then
         local old=i.channels[channel]
         if old and old.audio then old.audio:close() end;i.channels[channel]=nil
@@ -659,7 +686,7 @@ local function message(data)
     elseif data.op=='channel' then
         local params=schema.state(data.params)
         if params and channel>=1 and channel<=Project.maxTracks and channel%1==0 then applyChannel(i,channel,params,data.level,data.mixer,data.audible) end
-    elseif data.op=='effects' then applyEffects(i,data.effects,data.master)
+    elseif data.op=='effects' then applyEffects(i,data.effects,data.master,data.masterMixer)
     elseif data.op=='on' then playNote(i,channel,data.note,data.velocity,data.expression)
     elseif data.op=='off' then releaseNote(i,channel,data.note)
     elseif data.op=='panic' then if session and session.id==data.id then stopPlayback() end;silence(i)
@@ -790,7 +817,7 @@ end
 return {
     interfaceName='ProceduralSynth',
     interface={
-        version=35,
+        version=36,
         status=function()
             local out={}
             for id,i in pairs(instances) do
@@ -801,14 +828,14 @@ return {
                     instrumentType=channel.params.instrumentType,driveType=channel.params.driveType,drive=channel.params.drive,cabinet=channel.params.cabinet,stringMute=channel.params.stringMute,mixer=channel.mixer,output=i.routes and i.routes[n] or 0,rms=select(2,transport:metrics(i,n)),reduction=select(3,transport:metrics(i,n))} end
                 local outputs={}
                 transport:each(i,function(a,slot) outputs[#outputs+1]={slot=slot,id=slot==0 and i.id or ((i.performers or {})[slot] and (i.performers[slot].guid or i.performers[slot].mpNum) or i.band[slot].target.mpNum),kind=(i.performers or {})[slot] and i.performers[slot].kind or 'keyboard',
-                    playing=a.playing,voices=a.voices,position=a.audiblePosition,peak=a.peak} end)
+                    playing=a.playing,voices=a.voices,position=a.audiblePosition,peak=a.peak,memberPeak=a.memberPeak,memberRms=a.memberRms,memberReduction=a.memberReduction,masterReduction=a.masterReduction} end)
                 local w=session and session.id==id and session.workstation
                 local phaseError=0
                 if i.studio and i.transport and transport.offset then
                     phaseError=i.studio.audiblePosition-math.max(0,core.getRealTime()+transport.offset-i.transport.started)
                     if i.transport.loop then local period=i.transport.length/48000;phaseError=(phaseError+period/2)%period-period/2 end
                 end
-                out[#out+1]={id=id,owner=i.owner,voices=voices,peak=peak,effects=i.effects,master=i.master,delayPeak=i.studio and i.studio.delayPeak or 0,reverbPeak=i.studio and i.studio.reverbPeak or 0,mixPeak=i.studio and i.studio.mixPeak or 0,masterRms=i.studio and i.studio.masterRms or 0,
+                out[#out+1]={id=id,owner=i.owner,voices=voices,peak=peak,effects=i.effects,master=i.master,masterMixer=i.masterMixer,delayPeak=i.studio and i.studio.delayPeak or 0,reverbPeak=i.studio and i.studio.reverbPeak or 0,mixPeak=i.studio and i.studio.mixPeak or 0,masterRms=i.studio and i.studio.masterRms or 0,
                 editing=session~=nil and session.id==id,editorVisible=editor~=nil and session.id==id,epoch=i.epoch,seq=i.seq,
                 cutoff=i.params.cutoff,wave1=i.params.wave1,poseBones=i.pose and i.pose.applied or 0,poseFingers=i.pose and i.pose.fingers or 0,
                 poseError=i.pose and i.pose.error or 0,poseReachError=i.pose and i.pose.reachError or 0,midi=(playback~=nil and playback.playing) or (w and w.playing and w.mode=='song') or false,

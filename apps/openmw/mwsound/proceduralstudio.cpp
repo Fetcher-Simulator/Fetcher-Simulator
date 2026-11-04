@@ -54,6 +54,23 @@ namespace MWSound
         std::lock_guard<std::mutex> lock(mControl);
         mEffectsTarget=state;mMasterTarget=master;mEffectsDirty=true;return true;
     }
+    bool ProceduralStudio::buses(const ProceduralMixer::State& member,float level,bool audible,const ProceduralMixer::State& song)
+    {
+        if(closed() || !ProceduralMixer::valid(member) || !ProceduralMixer::valid(song)
+            || member[12]!=0 || member[13]!=0 || song[12]!=0 || song[13]!=0
+            || !std::isfinite(level) || level<0 || level>1)return false;
+        std::lock_guard<std::mutex> lock(mControl);
+        mMemberTarget=member;mSongTarget=song;mMemberLevel=level;mMemberAudible=audible;mBusesDirty=true;return true;
+    }
+    bool ProceduralStudio::linkMaster(std::shared_ptr<ProceduralMaster> master,unsigned slot)
+    {
+        if(!master || closed())return false;
+        std::lock_guard<std::mutex> lock(mControl);
+        if(mMasterOwner)return mMasterOwner==master && mMasterSlot==slot;
+        const auto token=master->claim(slot);if(!token)return false;
+        mMasterSlot=slot;mMasterToken=token;mMasterOwner=std::move(master);
+        mMasterGroup.store(mMasterOwner.get(),std::memory_order_release);return true;
+    }
     bool ProceduralStudio::set(unsigned n, std::string_view name, float value)
     {
         if (!hasTrack(n) || closed() || !std::isfinite(value)) return false;
@@ -401,6 +418,16 @@ namespace MWSound
                     mReturns.target(mEffectsTarget);mMasterAudioTarget=mMasterTarget;mEffectsDirty=false;
                     if (!mMasterInitialized) {mMasterCurrent=mMasterTarget;mMasterInitialized=true;}
                 }
+                if(mBusesDirty)
+                {
+                    mMemberStrip.target(mMemberTarget,mMemberLevel,mMemberAudible);
+                    mSongStrip.target(mSongTarget,1);mBusesDirty=false;mBusesActive=true;
+                }
+                if(mStopPending || mStartPending)
+                {
+                    mMemberStrip.resetDetector();mSongStrip.resetDetector();mLinkedEnvelope=0;mBusFrames=0;
+                    if(auto* master=mMasterGroup.load())master->publish(mMasterSlot,mMasterToken,0);
+                }
                 if (mStopPending) mReturns.stop();
                 if (mStartPending) mReturns.resume();
                 for (unsigned n=0;n<MaxTracks;++n) if (mMixerDirty[n])
@@ -518,18 +545,37 @@ namespace MWSound
                     mReduction[n]=mMixer[n].reduction();
                 }
             float mixPeak=mMixPeak,delayPeak=mDelayPeak,reverbPeak=mReverbPeak;
+            float memberPeak=mMemberPeak;auto* const masterGroup=mMasterGroup.load(std::memory_order_acquire);
             for (std::size_t i=0;i<count;++i)
             {
                 const auto wet=mReturns.process(delayInput[i],reverbInput[i]);
                 delayPeak=std::max(std::abs(wet.delay),ProceduralDsp::silence(delayPeak*0.99993056f));reverbPeak=std::max(std::abs(wet.reverb),ProceduralDsp::silence(reverbPeak*0.99993056f));
                 mMasterCurrent+=(mMasterAudioTarget-mMasterCurrent)*0.0020811647;
                 if (std::abs(mMasterAudioTarget-mMasterCurrent)<1e-12) mMasterCurrent=mMasterAudioTarget;
-                mixed[i]=static_cast<float>((mixed[i]+wet.delay+wet.reverb)*mMasterCurrent);
+                float value=mixed[i]+wet.delay+wet.reverb;
+                if(mBusesActive)
+                {
+                    value=mMemberStrip.process(value);
+                    mMemberPower+=.00013888*(double(value)*value-mMemberPower);
+                    if(mMemberPower<1e-25)mMemberPower=0;
+                    memberPeak=std::max(std::abs(value),ProceduralDsp::silence(memberPeak*.99993056f));
+                    const double shaped=mSongStrip.equalize(value);
+                    const double detector=mSongStrip.detect(shaped);
+                    if(auto* master=masterGroup)
+                    {
+                        if((mBusFrames++&31)==0)
+                        {master->publish(mMasterSlot,mMasterToken,float(detector));mLinkedEnvelope=master->envelope();}
+                        value=mSongStrip.finish(shaped,mLinkedEnvelope);
+                    }
+                    else value=mSongStrip.finish(shaped,detector);
+                }
+                mixed[i]=static_cast<float>(value*mMasterCurrent);
                 mixPeak=std::max(std::abs(mixed[i]),ProceduralDsp::silence(mixPeak*0.99993056f));
                 output[done+i]=std::tanh(mixed[i]);peak=std::max(peak,std::abs(output[done+i]));
                 mMasterPower+=0.00013888*(output[done+i]*output[done+i]-mMasterPower);
                 if (mMasterPower<1e-25) mMasterPower=0;
             }
+            if(mBusesActive){mMemberPeak=memberPeak;mMemberRms=float(std::sqrt(mMemberPower));mMemberReduction=mMemberStrip.reduction();mSongReduction=mSongStrip.reduction();}
             mDelayPeak=delayPeak;mReverbPeak=reverbPeak;
             mMixPeak=mixPeak; mMasterRms=static_cast<float>(std::sqrt(mMasterPower));
             if (mPlaying)

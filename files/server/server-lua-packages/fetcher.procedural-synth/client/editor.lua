@@ -232,12 +232,17 @@ function E:render()
     content[#content+1]=self:button('<',20,107,28,function() cycle(-1) end)
     content[#content+1]=self:button('>',390,107,28,function() cycle(1) end)
     content[#content+1]=self:button('Load',428,107,65,function() cb.command('load',{presetId=self.selected}) end)
-    content[#content+1]=self:button(params.sample and 'Synth' or self.drums and 'Synth' or 'Drum',515,107,50,function()
-        if self.params.sample then cb.command('load',{presetId='b:studio-keys'});return end
+    content[#content+1]=self:button((params.sample or params.instrumentType==1 or self.drums) and 'Synth' or 'Drum',515,107,50,function()
+        if self.params.sample or self.params.instrumentType==1 then cb.command('load',{presetId='b:studio-keys'});return end
         self.params.instrumentType=0;cb.change('instrumentType',0)
         self.params.drumType=self.drums and 0 or 2;cb.change('drumType',self.params.drumType);self.page='sound';self:render()
     end)
-    content[#content+1]=self:button(params.instrumentType==1 and 'Synth' or 'Guitar',570,107,60,function()
+    content[#content+1]=self:button('Guitar',570,107,60,function()
+        -- Navigation on an existing string sound must not replace its source,
+        -- amp settings, articulation or personal preset with a factory patch.
+        if self.params.instrumentType==1 or self.params.sample and schema.sampledStrings[self.params.sample.path] then
+            self.page='strings';self:render();return
+        end
         if self.params.sample then cb.command('load',{presetId='b:guitar-clean'});return end
         self.params.drumType=0;cb.change('drumType',0);self.params.instrumentType=1-self.params.instrumentType;cb.change('instrumentType',self.params.instrumentType)
         self.page='sound';self:render()

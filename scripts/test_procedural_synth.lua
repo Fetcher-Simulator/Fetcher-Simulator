@@ -433,6 +433,31 @@ test('shared returns validate, persist and reach late listeners',function()
     local legacy=f.new();legacy.effects=nil;legacy.tracks[1]=f.newTrack('piano','Old',16);legacy.tracks[1].mixer=nil
     local migrated=f.project(legacy);check(migrated.effects.delayTime==250 and migrated.tracks[1].mixer.delaySend==0,'old songs remain dry')
 end)
+test('member/master buses persist, authorize and reach late listeners',function()
+ local f=require('procedural_synth_project')(schema);local p=f.new();p.tracks[1]=f.newTrack('piano','Grouped',16)
+ p.masterMixer.compEnabled=1;p.masterMixer.threshold=-27;p.masterMixer.bass=-3
+ p.band[1].mixer.compEnabled=1;p.band[1].mixer.ratio=7;p.band[1].mixer.mid=-4
+ acquire();request('dawSave',{project=p})
+ request('band',{band=p.band,routes={1}});check(sent[#sent].data.band[1].mixer.ratio==7,'member bus relayed with physical routing')
+ p.band[1].mixer.bass=-6;request('memberMixer',{slot=1,mixer=p.band[1].mixer})
+ check(sent[#sent].data.op=='memberMixer' and sent[#sent].data.slot==1 and sent[#sent].data.mixer.bass==-6 and not sent[#sent].data.band,'live member edits use a compact strip message, not a band rebuild')
+ request('effects',{effects=p.effects,master=p.master,masterMixer=p.masterMixer})
+ check(sent[#sent].data.masterMixer.threshold==-27,'master bus reaches existing listeners')
+ players[3].cell='INT:A';request('sync',{pid=3});local snapshot=sent[#sent].data
+ check(snapshot.masterMixer.bass==-3 and snapshot.band[1].mixer.mid==-4,'late snapshot includes member and master strips')
+ local count=#sent
+ request('memberMixer',{pid=2,slot=1,mixer={bass=4}});request('memberMixer',{slot=0,mixer={bass=4}})
+ request('memberMixer',{slot=33,mixer={bass=4}});request('memberMixer',{slot=1,mixer={reverbSend=1}})
+ request('effects',{pid=2,effects={},master=.7,masterMixer={compEnabled=1}})
+ request('effects',{effects={},master=.7,masterMixer={ratio=0/0}})
+ request('effects',{effects={},master=.7,masterMixer={delaySend=1}})
+ check(#sent==count,'unauthorized, non-finite and recursive master settings rejected')
+ reset(copy(storage));sequence=0;acquire();request('dawLoad');local restored=sent[#sent].data.project
+ check(restored.masterMixer.threshold==-27 and restored.band[1].mixer.ratio==7,'member/master bus survives server storage restart')
+ local old=f.new();old.masterMixer=nil;old.band[1].mixer=nil;local migrated=f.project(old)
+ check(migrated.masterMixer.compEnabled==0 and migrated.band[1].mixer.eqEnabled==0,'legacy projects get bypassed bus strips')
+end)
+
 test('portable keyboard registers a real inventory record and saves before pickup',function()
     module.eventHandlers.OnServerInit()
     local item=records.fetcher_procedural_keyboard_v1

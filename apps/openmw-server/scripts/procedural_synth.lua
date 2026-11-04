@@ -33,7 +33,7 @@ local function broadcast(s, out, except)
         if player.guid ~= except and (player.guid==s.owner or relevant(player, s.cell)) then
             if out.op == 'state' then s.recipients[player.guid] = true end
             if out.op == 'on' and not s.recipients[player.guid] then
-                emit(player.guid, {op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq-1,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
+                emit(player.guid, {op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq-1,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,masterMixer=s.masterMixer,band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
                 if s.transport then sendTransport(player.guid,s,s.transport) end
                 s.recipients[player.guid] = true
             end
@@ -148,10 +148,10 @@ local function acquire(player, obj)
     if count >= 8 then emit(player.guid, {op='error', message='All synthesizer sessions are in use.'}); return end
     epoch = epoch + 1
     s = { id=obj.mpNum, cell=obj.cell, owner=player.guid, characterId=player.characterId, epoch=epoch, inSeq=0, outSeq=1,
-        revision=1, params=schema.state({}), expires=now+8, lastAlive=now, recipients={}, notes={}, channels={}, effects=projectFormat.effects(),master=0.7,band=projectFormat.band(),leaderPlays=true,routes={},availability={},performers={} }
+        revision=1, params=schema.state({}), expires=now+8, lastAlive=now, recipients={}, notes={}, channels={}, effects=projectFormat.effects(),master=0.7,masterMixer=projectFormat.bus(),band=projectFormat.band(),leaderPlays=true,routes={},availability={},performers={} }
     sessions[s.id] = s;resolveBand(s)
-    broadcast(s, {op='state', params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell}, player.guid)
-    emit(player.guid, {op='granted', owner=s.owner, id=s.id, epoch=s.epoch, seq=s.outSeq, revision=s.revision, params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
+    broadcast(s, {op='state', params=s.params,channels=s.channels,effects=s.effects,master=s.master,masterMixer=s.masterMixer,band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell}, player.guid)
+    emit(player.guid, {op='granted', owner=s.owner, id=s.id, epoch=s.epoch, seq=s.outSeq, revision=s.revision, params=s.params,channels=s.channels,effects=s.effects,master=s.master,masterMixer=s.masterMixer,band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
 end
 policy.registerHandler('Activate', 'procedural-synth', function(context)
     local obj = context.object
@@ -176,7 +176,9 @@ local function request(data)
         if fields > 14 or not text(k,24) then return end
         if type(v) == 'table' then if k=='params' then if not schema.state(v) then return end
             elseif k=='expression' and data.op=='on' then if not schema.strike(v) then return end
+            elseif k=='masterMixer' and data.op=='effects' then if not projectFormat.bus(v) then return end
             elseif k=='effects' and data.op=='effects' then if not projectFormat.effects(v) then return end
+            elseif k=='mixer' and data.op=='memberMixer' then if not projectFormat.bus(v) then return end
             elseif k=='mixer' and data.op=='channel' then if not projectFormat.mixer(v) then return end
             elseif k=='band' and data.op=='band' then if not projectFormat.band(v) then return end
             elseif k=='routes' and data.op=='band' then if not projectFormat.routes(v) then return end
@@ -217,7 +219,7 @@ local function request(data)
         if not budget(data.pid,now,'sync',0.5,2) then return end
         for _, s in pairs(sessions) do
             if relevant(player,s.cell) then
-                emit(data.pid,{op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
+                emit(data.pid,{op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,masterMixer=s.masterMixer,band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
                 if s.transport then sendTransport(data.pid,s,s.transport) end
                 s.recipients[data.pid]=true
             end
@@ -395,12 +397,18 @@ local function request(data)
         for key in pairs(s.notes) do if math.floor(key/128)==channel then s.notes[key]=nil end end
         nextEvent(s);broadcast(s,{op='channelRemove',channel=channel},s.owner);return
     end
+    if data.op=='memberMixer' then
+        local mixer=projectFormat.bus(data.mixer)
+        if not mixer or not integer(data.slot,1,projectFormat.maxMembers) or not budget(data.pid,now,'channels',12,32) then return end
+        s.band[data.slot].mixer=mixer;s.revision=s.revision+1
+        nextEvent(s);broadcast(s,{op='memberMixer',slot=data.slot,mixer=mixer},s.owner);return
+    end
     if data.op=='effects' then
-        local effects=projectFormat.effects(data.effects)
-        if not effects or type(data.master)~='number' or data.master~=data.master or data.master<0 or data.master>1
+        local effects=projectFormat.effects(data.effects);local masterMixer=projectFormat.bus(data.masterMixer)
+        if not masterMixer or not effects or type(data.master)~='number' or data.master~=data.master or data.master<0 or data.master>1
             or not budget(data.pid,now,'channels',12,32) then return end
-        s.effects=effects;s.master=data.master;s.revision=s.revision+1
-        nextEvent(s);broadcast(s,{op='effects',effects=effects,master=s.master},s.owner);return
+        s.effects=effects;s.master=data.master;s.masterMixer=masterMixer;s.revision=s.revision+1
+        nextEvent(s);broadcast(s,{op='effects',effects=effects,master=s.master,masterMixer=s.masterMixer},s.owner);return
     end
     if data.op=='channel' then
         local params=schema.state(data.params)
@@ -504,7 +512,7 @@ local function sweep()
             for _, p in ipairs(mp.getPlayers()) do
                 if relevant(p,s.cell) and p.guid ~= s.owner then
                     if not s.recipients[p.guid] then
-                        emit(p.guid,{op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
+                        emit(p.guid,{op='state',owner=s.owner,id=s.id,epoch=s.epoch,seq=s.outSeq,revision=s.revision,params=s.params,channels=s.channels,effects=s.effects,master=s.master,masterMixer=s.masterMixer,band=s.band,leaderPlays=s.leaderPlays~=false,routes=s.routes,availability=s.availability,performers=s.performers,cell=s.cell})
                         if s.transport then sendTransport(p.guid,s,s.transport) end
                         s.recipients[p.guid]=true
                     end

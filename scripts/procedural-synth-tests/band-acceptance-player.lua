@@ -8,6 +8,7 @@ local Sets=require(prefix..'client.soundsets')
 local phase,started,at,role,playingAt,lastChange,lastLog,index=0,nil,0,nil,nil,0,0,0
 local flags={};local frames,slow,maxDt=0,0,0
 local styles={'band-thrash-ref','band-industrial','captured-thrash','band-doom','band-modern','band-alternative','band-funk','band-clean','band-blues','band-acoustic'}
+if synth.version>=35 then table.insert(styles,1,'band-capture-metal') end
 local function log(s) print('[StudioBandAcceptanceQA] '..tostring(role)..' '..s) end
 local function imported(n)
  local file=assert(vfs.open('midi/qa-acceptance-'..n..'.mid'));local bytes=file:read('*a');file:close()
@@ -22,6 +23,7 @@ local function run(dt)
  if role=='Synth B' and not flags.observer then
   for _,state in ipairs(states) do if state.nativePlaying and state.voices>0 and #state.channels>=8 then
    assert(state.nativeFault==0,'Late observer native fault');flags.observer=true
+   if synth.version>=36 then assert(state.masterMixer and state.masterMixer.compEnabled==1,'Late listener master settings missing');log('PASS late listener receives song master settings') end
    log('PASS late listener receives sounding captured band, routes and patches')
   end end
  end
@@ -35,6 +37,7 @@ local function run(dt)
   local library=api.projectLibrary();if not library or not library.ready or library.pending then return end
   local p=assert(Exercises.create(role=='Synth A' and 'acoustic-band' or 'modern-band'))
   p.leaderPlays=false;p.autoBand=role=='Synth A';p.stageLayout='standing'
+  if synth.version>=36 then p.masterMixer.compEnabled=1;p.masterMixer.threshold=-42;p.masterMixer.ratio=3 end
   assert(w:load(p));api.hide();phase=1;at=now
  elseif phase==1 then
   assert(now-at<60,'Initial band/sample preparation timed out')
@@ -43,6 +46,12 @@ local function run(dt)
   local own
   for _,s in ipairs(states) do if s.editing then own=s end end
   if not own or not own.nativePlaying or own.voices==0 then return end
+  if synth.version>=36 and not flags.busSetup then
+   for slot,m in ipairs(w.project.band) do if m.target then
+    assert(w:setBusMixer(slot,'compEnabled',1) and w:setBusMixer(slot,'threshold',-42) and w:setBusMixer(slot,'ratio',3))
+   end end
+   flags.busSetup=true
+  end
   assert(own.nativeFault==0);playingAt=now;lastChange=now;lastLog=now;phase=2
   log('READY own band sounding; '..#w.project.tracks..' independent lanes')
  elseif phase==2 then
@@ -55,10 +64,22 @@ local function run(dt)
    if s.editing then own=s end
   end
   assert(own and own.nativePlaying,'Own native transport lost')
+  if synth.version>=36 and own then
+   for _,output in ipairs(own.outputs or {}) do
+    if (output.masterReduction or 0)>.1 and not flags.masterProcessed then flags.masterProcessed=true;log('PASS native song master reduces sounding outputs') end
+    if output.slot>0 and (output.memberReduction or 0)>.1 and not flags.memberProcessed then flags.memberProcessed=true;log('PASS native member bus compresses grouped tracks') end
+   end
+  end
   if playing>=2 and not flags.concurrent then flags.concurrent=true;log('PASS two independent concurrent bands sounding') end
   if now-lastChange>18 then
    index=index+1;local style=styles[(index-1)%#styles+1]
    assert(w:applySoundSet(style));lastChange=now
+   if synth.version>=36 then
+    local track=w.project.tracks[1];local before=track and track.mixer.mid
+    assert(w:setBusMixer(0,'mid',index%2==0 and -1 or 1))
+    for slot,m in ipairs(w.project.band) do if m.target then assert(w:setBusMixer(slot,'bass',index%2==0 and -2 or 0)) end end
+    assert(not track or track.mixer.mid==before,'Bus edit rewrote a track strip')
+   end
    if role=='Synth A' and index%4==0 then
     assert(w:undo());assert(w:redo());phase=3;at=now;log('PASS genre undo/redo; explicitly resuming stopped transport')
    end
@@ -89,9 +110,11 @@ local function run(dt)
   flags.saved=assert(api.projectLibrary().active);assert(api.projectLibrary():open(flags.saved,false,true));phase=5;at=now
  elseif phase==5 and now-at>3 and not api.projectLibrary().pending then
   assert(w.project.tracks[1].params and F.project(w.project),'Saved bank/mixer references invalid')
+  if synth.version>=36 then assert(w.project.masterMixer.compEnabled==1 and w.project.masterMixer.threshold==-42,'Master strip persistence lost') end
   assert(w:play('song'));phase=6;at=now;log('PASS server-backed project save/reload/replay')
  elseif phase==6 and now-at>8 and not w.bandSetup then
   assert(w.playing);for _,s in ipairs(states) do assert(s.nativeFault==0) end
+  if synth.version>=36 then assert(flags.masterProcessed,'Master DSP was never observed');if role=='Synth A' then assert(flags.memberProcessed,'Member DSP was never observed') end end
   w:stop(true)
   if role=='Synth A' then assert(w:setupNpcBand(false,false,true));phase=7;at=now
   else api.close();phase=99;log('PASS complete: concurrent bands, dense imports, genre cycling, late listener and persistence');core.quit() end

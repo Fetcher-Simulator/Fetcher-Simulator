@@ -194,17 +194,34 @@ function W:setMixer(index,name,value,skipWrite)
     if not skipWrite and self.automationWriting and (name=='delaySend' or name=='reverbSend') and not self:recordAutomation(index,name,value) then return false end
     t.mixer=state;self:configure(index);self:touch('mixer:'..index..':'..name,true);return true
 end
+function W:setBusMixer(slot,name,value)
+    local source=slot==0 and self.project.masterMixer or self.project.band[slot] and self.project.band[slot].mixer
+    if not source or not format.mixerSpecs[name] or name=='delaySend' or name=='reverbSend' then return false end
+    local state=copy(source);state[name]=value;state=format.bus(state);if not state then return false end
+    if equal(source,state) then return true end
+    if slot==0 then
+        self.project.masterMixer=state
+        if self.cb.effects then self.cb.effects(self.project.effects,self.project.master,state) end
+        self:touch('masterMix:'..name,true)
+    else
+        self.project.band[slot].mixer=state
+        if self.cb.memberMixer then self.cb.memberMixer(slot,state) else self:configureBand() end
+        self:touch('memberMix:'..slot..':'..name,true)
+    end
+    return true
+end
+
 function W:setEffect(name,value)
     local state=copy(self.project.effects or format.effects());state[name]=value
     state=format.effects(state);if not state then return false end
-    self.project.effects=state;if self.cb.effects then self.cb.effects(state,self.project.master) end
+    self.project.effects=state;if self.cb.effects then self.cb.effects(state,self.project.master,self.project.masterMixer) end
     self:touch('effects:'..name,true);return true
 end
 function W:setMaster(value)
     if type(value)~='number' or value~=value or value<0 or value>1 then return false end
     if self.project.master==value then return true end
     self.project.master=value
-    if self.cb.effects then self.cb.effects(self.project.effects,value) end
+    if self.cb.effects then self.cb.effects(self.project.effects,value,self.project.masterMixer) end
     self:touch('master',true);return true
 end
 function W:automationValue(index,name,step)
@@ -381,7 +398,7 @@ function W:matchStageInstruments()
 end
 function W:setMember(slot,member)
     if not self.project.band[slot] then return false end
-    local band=copy(self.project.band);band[slot]=copy(member);band=format.band(band);if not band then return false end
+    local band=copy(self.project.band);member=copy(member);member.mixer=member.mixer or band[slot].mixer;band[slot]=member;band=format.band(band);if not band then return false end
     if not equal(band[slot].target,self.project.band[slot].target) then self:stop(true);self.project.autoBand=false end
     self.project.band=band;self:configureBand();self:touch('member:'..slot,true);return true
 end
@@ -389,7 +406,7 @@ function W:configureAll()
     self:configureBand()
     for n in ipairs(self.project.tracks) do self:configure(n) end
     if self.cb.prune then self.cb.prune(#self.project.tracks) end
-    if self.cb.effects then self.cb.effects(self.project.effects,self.project.master) end
+    if self.cb.effects then self.cb.effects(self.project.effects,self.project.master,self.project.masterMixer) end
 end
 function W:setCatalog(entries) self.catalog=entries or {};self.revision=self.revision+1 end
 function W:setSample(index,reference)

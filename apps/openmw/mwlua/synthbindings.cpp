@@ -100,7 +100,7 @@ namespace MWLua
                     return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash, s.attacks, s.gain);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 35;
+            api["version"] = 36;
             api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
                 const auto path = manager->exportStudioMidi(name, bytes);
                 sol::table result(lua, sol::create);
@@ -129,6 +129,8 @@ namespace MWLua
                 }
                 return LuaUtil::makeReadOnly(info);
             };
+            lua.new_usertype<MWSound::ProceduralMaster>("ProceduralMaster",sol::no_constructor);
+            api["createMasterBus"]=[]{return std::make_shared<MWSound::ProceduralMaster>();};
             using Studio = MWSound::ProceduralStudio;
             lua.new_usertype<Studio>(
                 "ProceduralStudio", sol::no_constructor, "setMonitorEligible",
@@ -163,6 +165,14 @@ namespace MWLua
                     for (std::size_t i = 0; i < state.size(); ++i)
                         state[i]=values[MWSound::ProceduralMixer::Parameters[i].name].get_or(MWSound::ProceduralMixer::Parameters[i].initial);
                     return studio.mixer(n, state);
+                },
+                "linkMaster",&Studio::linkMaster,
+                "memberPeak",sol::property(&Studio::memberPeak),"memberRms",sol::property(&Studio::memberRms),
+                "memberReduction",sol::property(&Studio::memberReduction),"masterReduction",sol::property(&Studio::masterReduction),
+                "buses",[](Studio& studio,const sol::table& member,float level,bool audible,const sol::table& song){
+                    MWSound::ProceduralMixer::State m,s;
+                    for(unsigned n=0;n<m.size();++n){const auto& p=MWSound::ProceduralMixer::Parameters[n];m[n]=member[p.name].get_or(p.initial);s[n]=song[p.name].get_or(p.initial);}
+                    return studio.buses(m,level,audible,s);
                 },
                 "set", &Studio::set, "monitor", &Studio::monitor, "loadScore", &Studio::loadScore, "notes",
                 [lua](const Studio& studio) {

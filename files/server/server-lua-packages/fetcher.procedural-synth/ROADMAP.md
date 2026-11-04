@@ -2,6 +2,26 @@
 
 Updated 2026-11-04. Completed work and subsequent planned slices are identified below.
 
+Package 77 / native API 36 implements member EQ/compressor strips on summed
+physical outputs and a linked spatial song master. Band > Mix edits a member;
+Mixer > Master Mix controls the whole project. Source/mix/routing data stays
+separate. Project migration, Undo/Redo, immediate local preview, bounded network
+updates, late snapshots and server storage preserve both stages. The master
+links output-envelope energy at control rate while retaining spatial emitters;
+it is not a post-listener mono sum. Member/track sends cannot feed buses back.
+Generation-tagged native publications isolate songs and reject retired outputs.
+The Guitar button also navigates existing string sounds without loading a new
+preset. All 37 Lua suites and seven native groups pass. Two clients completed
+more than seven minutes each with sounding member/master reduction, independent
+bands, dense imports, live edits, late snapshots, private save/reload/replay and
+NPC cleanup. A final two-client run on the rebuilt executable repeated these
+checks after meter-publication optimization. Member DSP updates use compact,
+coalesced messages rather than revalidating the whole performer roster. Original
+user files remain unchanged. This is bounded functional acceptance, not a broad
+frame-rate/orchestra guarantee. Local only; server Lua and client C++ change,
+with no server C++ changes or VPS/hosted-content update.
+
+
 Package 76 / native API 35 adds the reviewed full captured heavy rig as native
 fixed inference, three opt-in open/palm/lead sounds and Band / Captured Heavy Rig.
 It replaces the P1 channel-to-string assumption with named-track selection in
@@ -672,8 +692,10 @@ readback repair lineup changes that previously left reused NPCs in old slots.
    monitoring/capture, shared-source overdub during playback and additional record
    modes. Automatic hardware round-trip measurement and non-Windows input remain
    planned; tap-based timing compensation is available now.
-8. **Mixer/effects routing.** Stereo/panning, group buses, flexible effect chains
-   and remaining master/return/EQ/compressor automation. Track-fader/send curves
+8. **Mixer/effects routing.** Stereo/panning, arbitrary group buses, flexible effect chains
+   and remaining master/return/EQ/compressor automation. Package 77 adds member
+   processing and linked spatial master EQ/compression; arbitrary subgroup routing
+   remains separate. Track-fader/send curves
    are available in package 69. Native EQ/compression, instrument drive/cabinet
    and shared delay/reverb already exist.
 
@@ -694,7 +716,7 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 76 / native synth API 35 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
+package 77 / native synth API 36 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented, together with initial seated keyboard/cello NPC staging.
 

@@ -394,7 +394,8 @@ function S:mixer(content)
     content[#content+1]=self:button('+ Drum lane',150,578,120,function() if w:add('drum') then w.page='drums' end end)
     content[#content+1]=label('MASTER',302,582,72,12,c.muted)
     content[#content+1]=self:slider(380,584,190,p.master,function(value) w:setMaster(value) end,function() return p.master end)
-    self:pageSelector(content,'mixerPage','Tracks',620,578,240)
+    content[#content+1]=self:button('Master Mix',578,578,100,function() w.busSlot=0;w.page='bus';w.revision=w.revision+1 end)
+    self:pageSelector(content,'mixerPage','Tracks',690,578,195)
     local t=p.tracks[w.selected]
     content[#content+1]=self:button('Rename track',20,614,155,function() if t then self:renameTrack(w.selected) end end)
     content[#content+1]=label(t and ('Selected: '..t.name) or 'Select a track to edit its name.',195,623,320,14,c.accent)
@@ -433,9 +434,10 @@ function S:band(content)
         end)
         content[#content+1]=self:slider(320,y+6,110,m.level,function(value) update(slot,'level',value) end)
         content[#content+1]=self:button('M',440,y,32,function() update(slot,'mute',not m.mute);w.revision=w.revision+1 end,m.mute)
-        if m.target and m.target.kind=='player' then content[#content+1]=self:button('Invite',478,y,47,function() if w.cb.invite then w.cb.invite(slot) end end) end
+        content[#content+1]=self:button('Mix',478,y,47,function() w.busSlot=slot;w.page='bus';w.revision=w.revision+1 end)
+        if m.target and m.target.kind=='player' then content[#content+1]=self:button('Invite',445,y+27,70,function() if w.cb.invite then w.cb.invite(slot) end end) end
         local status=w.cb.bandStatus and w.cb.bandStatus(slot) or 'Unbound'
-        content[#content+1]=label(status,130,y+27,370,10,status=='Ready' and c.accent or c.muted)
+        content[#content+1]=label(status,130,y+27,300,10,status=='Ready' and c.accent or c.muted)
         local index=page*8+row;local track=p.tracks[index]
         if track then
             content[#content+1]=self:button(index..'  '..track.name:sub(1,18),550,y,165,function() w.selected=index;w.revision=w.revision+1 end,w.selected==index)
@@ -479,18 +481,25 @@ function S:addMasterMeter(content,y)
     local text=self:element(label('',20,y,890,12,c.accent));self.meterLabels[0]=text;content[#content+1]=text
 end
 function S:channel(content)
-    local w=self.w;local t=w.project.tracks[w.selected]
-    content[#content+1]=self:button('< track',20,169,75,function() self:select(-1) end)
-    content[#content+1]=label(t and ('MIX / '..t.name) or 'Select a track in Mixer',110,174,470,16,c.accent)
-    content[#content+1]=self:button('track >',610,169,75,function() self:select(1) end)
-    content[#content+1]=self:button('Back to mixer',710,169,175,function() w.page='mixer';w.revision=w.revision+1 end)
-    if not t then return end
-    local m=t.mixer or Project.mixer();t.mixer=m
+    local w=self.w;local bus=w.page=='bus';local slot=w.busSlot or 0;local t=w.project.tracks[w.selected]
+    if bus then
+        content[#content+1]=label(slot==0 and 'SONG MASTER / EQ + COMPRESSOR' or ('MEMBER MIX / '..w.project.band[slot].name),20,174,670,16,c.accent)
+        content[#content+1]=self:button(slot==0 and 'Back to mixer' or 'Back to Band',710,169,175,function() w.page=slot==0 and 'mixer' or 'band';w.revision=w.revision+1 end)
+    else
+        content[#content+1]=self:button('< track',20,169,75,function() self:select(-1) end)
+        content[#content+1]=label(t and ('MIX / '..t.name) or 'Select a track in Mixer',110,174,470,16,c.accent)
+        content[#content+1]=self:button('track >',610,169,75,function() self:select(1) end)
+        content[#content+1]=self:button('Back to mixer',710,169,175,function() w.page='mixer';w.revision=w.revision+1 end)
+        if not t then return end
+    end
+    local function get() return bus and (slot==0 and w.project.masterMixer or w.project.band[slot].mixer) or t.mixer end
+    local function set(key,value) if bus then return w:setBusMixer(slot,key,value) else return w:setMixer(w.selected,key,value) end end
+    local m=get()
     for n,entry in ipairs{{'EQ','eqEnabled',20},{'Compressor','compEnabled',475}} do
         local title,key,x=entry[1],entry[2],entry[3]
         content[#content+1]=label(title,x,218,260,18,c.accent)
         content[#content+1]=self:button(m[key]==1 and 'On' or 'Bypassed',x+290,212,120,function()
-            w:setMixer(w.selected,key,1-m[key]);w.revision=w.revision+1
+            set(key,1-m[key]);w.revision=w.revision+1
         end,m[key]==1)
     end
     local controls={
@@ -503,9 +512,15 @@ function S:channel(content)
     for _,entry in ipairs(controls) do
         local key,title,x,y,unit,log,step=entry[1],entry[2],entry[3],entry[4],entry[5],entry[6],entry[7];local spec=Project.mixerSpecs[key]
         content[#content+1]=Controls.slider(self,'mix:'..key,title,{min=spec[1],max=spec[2],unit=unit,log=log,step=step},
-            function() return t.mixer[key] end,function(value) w:setMixer(w.selected,key,value) end,x,y,410)
+            function() return get()[key] end,function(value) set(key,value) end,x,y,410)
     end
-    local text=self:element(label('',20,552,865,14,c.accent));self.meterLabels[w.selected]=text;content[#content+1]=text
+    local text=self:element(label('',20,552,865,14,c.accent));if bus then self.busMeter={element=text,slot=w.busSlot or 0} else self.meterLabels[w.selected]=text end;content[#content+1]=text
+    if bus then
+        content[#content+1]=Controls.slider(self,'bus:level',slot==0 and 'Master level' or 'Member level',{min=0,max=1,unit='%',step=.01},
+            function() return slot==0 and w.project.master or w.project.band[slot].level end,
+            function(value) if slot==0 then w:setMaster(value) else local m=w.project.band[slot];w:setMember(slot,{name=m.name,target=m.target,mute=m.mute,level=value,mixer=m.mixer}) end end,20,603,410)
+        content[#content+1]=label(slot==0 and 'All band outputs; linked compression preserves their world positions.' or 'All tracks and effect returns routed to this member are processed together.',20,669,880,11,c.muted)
+    else
     for n,key in ipairs{'delaySend','reverbSend'} do
         content[#content+1]=Controls.slider(self,'send:'..key,n==1 and 'Delay send' or 'Reverb send',{min=0,max=1,unit='%',step=0.01},
             function() return t.mixer[key] end,function(value) w:setMixer(w.selected,key,value) end,20+(n-1)*455,603,265)
@@ -516,7 +531,9 @@ function S:channel(content)
     content[#content+1]=self:button('Returns',775,609,110,function() w.page='returns';w.revision=w.revision+1 end)
     content[#content+1]=label('Bypass preserves settings. Peak / RMS are dBFS; GR shows compressor reduction in dB.',20,658,890,10,c.muted)
     self:addMasterMeter(content,576)
+    end
 end
+
 function S:returns(content)
     local w=self.w;local e=w.project.effects
     content[#content+1]=label('SHARED DELAY / REVERB',20,174,570,18,c.accent)
@@ -537,7 +554,7 @@ function S:returns(content)
             function() return w.project.effects[key] end,function(value) w:setEffect(key,value) end,x,y,410)
     end
     content[#content+1]=label('Set sends with Mix on each track. Each physical output has its own delay and reverb tails.',20,535,890,13,c.muted)
-    content[#content+1]=label('Each physical output: dry tracks + returns > master volume > member level > limiter',20,567,890,13,c.muted)
+    content[#content+1]=label('Dry tracks + returns > member EQ/comp/level > linked master EQ/comp/level > limiter',20,567,890,13,c.muted)
     content[#content+1]=label('Stop fades and clears effect tails. Delay time changes glide in pitch.',20,600,890,12,c.muted)
     self.returnMeter=self:element(label('',20,626,890,13,c.accent));content[#content+1]=self.returnMeter
     self:addMasterMeter(content,650)
@@ -978,7 +995,7 @@ function S:render()
     self.typing=false
     if self.root then self.root:destroy() end
     for _,e in ipairs(self.children) do e:destroy() end
-    self.children={};self.meters={};self.meterLabels={};self.returnMeter=nil;self.playhead=nil;self.grid=nil
+    self.children={};self.meters={};self.meterLabels={};self.busMeter=nil;self.returnMeter=nil;self.playhead=nil;self.grid=nil
     local w,p=self.w,self.w.project;local content={label('FETCHER STUDIO',20,15,215,18)}
     if self.pianoFocus or self.arrangeFocus then
         content={label(self.arrangeFocus and 'CLIP ARRANGEMENT' or 'PIANO EDITOR',20,13,200,21,c.accent)}
@@ -1027,7 +1044,7 @@ function S:render()
     content[#content+1]=self:button('Import',self.width-229,112,92,self.cb.import)
     content[#content+1]=self:button('Export MIDI',self.width-125,112,100,function() w:exportMidi() end)
     local body={};self.bodyOffset=(w.page=='piano' or w.page=='drums' or w.page=='auto' or w.page=='arrange') and 0 or math.max(0,(self.width-940)/2)
-    if w.page=='guitar' then require('scripts.multiplayer.fetcher.procedural-synth.client.guitar-page')(self,body) elseif w.page=='timing' then self:timing(body) elseif w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='controllers' then require('scripts.multiplayer.fetcher.procedural-synth.client.controller-page')(self,body) elseif w.page=='midimapping' then self:midiMappings(body) elseif w.page=='recordsetup' then self:recordSetup(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
+    if w.page=='guitar' then require('scripts.multiplayer.fetcher.procedural-synth.client.guitar-page')(self,body) elseif w.page=='timing' then self:timing(body) elseif w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='controllers' then require('scripts.multiplayer.fetcher.procedural-synth.client.controller-page')(self,body) elseif w.page=='midimapping' then self:midiMappings(body) elseif w.page=='recordsetup' then self:recordSetup(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' or w.page=='bus' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
     -- Keep the header above centered page containers in native hit testing.
     if self.bodyOffset>0.1 then table.insert(content,1,{type=ui.TYPE.Widget,props={position=v(self.bodyOffset,0),size=v(940,self.height)},content=ui.content(body)})
     else for _,item in ipairs(body) do content[#content+1]=item end end
@@ -1182,6 +1199,11 @@ function S:frame(now)
         if self.w.cb.meters then peak,rms,reduction=self.w.cb.meters(n) end
         local value=n==0 and string.format('OUTPUT MAX  pre-limiter peak %s dBFS  |  RMS %s dBFS%s',db(peak),db(rms),peak>1 and '  |  LIMITING - lower levels' or '')
             or string.format('Peak %s / RMS %s dBFS  |  GR %.1f dB',db(peak),db(rms),reduction)
+        if text.layout.props.text~=value then text.layout.props.text=value;self.window:update(text) end
+    end
+    if self.busMeter and self.w.cb.busMeters then
+        local peak,rms,gr=self.w.cb.busMeters(self.busMeter.slot)
+        local text=self.busMeter.element;local value=string.format(self.busMeter.slot==0 and 'OUTPUT MAX peak %s / RMS %s dBFS  |  Linked GR %.1f dB' or 'Member peak %s / RMS %s dBFS  |  GR %.1f dB',db(peak),db(rms),gr)
         if text.layout.props.text~=value then text.layout.props.text=value;self.window:update(text) end
     end
     if self.returnMeter and self.w.cb.returnMeters then

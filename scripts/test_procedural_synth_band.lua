@@ -113,4 +113,37 @@ for lane,audio in pairs{[1]=i.studio,[2]=i.outputs[1].audio} do
     check(controls==2 and Sequence.validate(audio.bytes,mix.length,true),'routed mix partition retains two independently valid controls')
 end
 transport:close(i)
+-- Exercise the linked-bus transport path independently of the legacy doubles.
+local nativeBus={createMasterBus=function() return {} end}
+function nativeBus.createStudio(object)
+ local a=native.createStudio(object)
+ function a:linkMaster(group,slot) self.group=group;self.slot=slot;return true end
+ function a:buses(member,level,audible,master) self.bus={member=member,level=level,audible=audible,master=master};return true end
+ return a
+end
+local routed=T.new(nativeBus,{}, {getRealTime=function() return now end},function(m) error(m) end,function() return physical end)
+local x={source=source,band=format.band(),channels={},master=.7,masterMixer=format.bus{compEnabled=1,threshold=-28}}
+x.band[1].target=band[1].target;x.band[1].level=.6;x.band[1].mixer.bass=-5;x.band[1].mixer.compEnabled=1
+routed:band(x,x.band,{0,1},{'Ready'});routed:studio(x,0);routed:studio(x,1)
+check(x.studio.group==x.outputs[1].audio.group and x.studio.slot==0 and x.outputs[1].audio.slot==1,'one performance links its distinct physical output slots')
+local out=x.outputs[1].audio
+check(out.master==.7 and out.bus.level==.6 and out.bus.member.bass==-5 and out.bus.master.threshold==-28,'member gain and processing stay separate from song master')
+local first=x.studio;local performer=x.outputs[1].audio;x.band[1].mixer.mid=-3;routed:band(x,x.band,{0,1},{'Ready'})
+check(x.studio==first and x.outputs[1].audio==performer and performer.bus.member.mid==-3,'bus changes update in place without replacing transports')
+routed:close(x);check(not x.masterBus,'close discards this performance link')
+
+package.loaded[prefix..'shared.schema']=schema
+package.loaded[prefix..'shared.project']=dofile(root..'shared/project.lua')
+package.loaded[prefix..'client.midi']=dofile(root..'client/midi.lua')
+package.loaded[prefix..'client.soundsets']=dofile(root..'client/soundsets.lua')
+local W=dofile(root..'client/workstation.lua');local writes,changes=0,0
+local work=W.new{effects=function() writes=writes+1 end,band=function() changes=changes+1 end,configure=function() end,panic=function() end,message=function() end}
+work.project.tracks[1]=format.newTrack('piano','Keep lane',16);work.project.tracks[1].mixer.mid=2
+check(work:setBusMixer(1,'bass',-4) and work:setBusMixer(0,'ratio',6),'member/master controls accept bounded strip values')
+check(work.project.tracks[1].mixer.mid==2 and writes==1 and changes==1,'bus processing preserves all individual track mix settings')
+check(not work:setBusMixer(0,'delaySend',1) and not work:setBusMixer(33,'bass',2),'unsupported sends and slots rejected')
+local saved=assert(format.project(work.project));check(saved.masterMixer.ratio==6 and saved.band[1].mixer.bass==-4,'project format retains both bus strips')
+check(work:undo() and work.project.masterMixer.ratio==4 and work:redo() and work.project.masterMixer.ratio==6,'master bus is undoable')
+local m=work.project.band[1];assert(work:setMember(1,{name='Drummer',level=m.level,mute=m.mute,target=m.target}))
+check(work.project.band[1].mixer.bass==-4,'renaming/rebinding legacy member input keeps its bus settings')
 print('PASS physical band routing, exact partition, shared starts/replacement, missing/rejoin, gain/mute and bounded cleanup; '..checks..' assertions')

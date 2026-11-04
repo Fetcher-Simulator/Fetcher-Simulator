@@ -20,15 +20,28 @@ function T:each(i,fn)
     for slot,group in pairs(i.outputs or {}) do if not group.audio.closed then fn(group.audio,slot) end end
 end
 function T:close(i)
-    self:each(i,function(a) a:close() end);i.studio=nil;i.outputs={}
+    self:each(i,function(a) a:close() end);i.studio=nil;i.outputs={};i.masterBus=nil
     for _,c in pairs(i.channels or {}) do c.audio=nil end
 end
-function T:applyEffects(i)
-    self:each(i,function(a,slot)
-        local m=slot>0 and i.band and i.band[slot]
-        a:effects(i.effects or {},(i.master or 0.7)*(m and (m.mute and 0 or m.level) or 1))
-    end)
+function T:applyOutput(i,a,slot)
+    if self.synth.createMasterBus and not i.masterBus then i.masterBus=self.synth.createMasterBus() end
+    local m=slot>0 and i.band and i.band[slot]
+    if a.buses then
+        if i.masterBus then assert(a:linkMaster(i.masterBus,slot),'Master bus slot unavailable') end
+        assert(a:buses(m and m.mixer or {},m and m.level or 1,not (m and m.mute),i.masterMixer or {}),'Invalid bus processing')
+        a:effects(i.effects or {},i.master or .7)
+    else a:effects(i.effects or {},(i.master or .7)*(m and (m.mute and 0 or m.level) or 1)) end
 end
+function T:applyEffects(i)
+    self:each(i,function(a,slot) self:applyOutput(i,a,slot) end)
+end
+function T:memberMixer(i,slot,mixer)
+    if not i.band or not i.band[slot] then return end
+    i.band[slot].mixer=mixer
+    local g=i.outputs and i.outputs[slot]
+    if g and not g.audio.closed then self:applyOutput(i,g.audio,slot) end
+end
+
 function T:band(i,band,routes,availability,performers)
     band=band or {};routes=routes or {};availability=availability or {}
     local structural=false
@@ -61,7 +74,7 @@ function T:studio(i,slot)
     if slot==0 then
         if not i.studio or i.studio.closed then
             i.studio=self.synth.createStudio(i.source)
-            assert(i.studio:effects(i.effects or {},i.master or 0.7),'Invalid return settings')
+            self:applyEffects(i)
         end
         return i.studio
     end
@@ -100,6 +113,16 @@ function T:metrics(i,n)
     self:each(i,function(output) peak=math.max(peak,output.mixPeak or 0);rms=math.max(rms,output.masterRms or 0) end)
     return peak,rms,0
 end
+function T:busMetrics(i,slot)
+    if slot==0 then
+        local peak,rms,reduction=0,0,0
+        self:each(i,function(a) peak=math.max(peak,a.mixPeak or 0);rms=math.max(rms,a.masterRms or 0);reduction=math.max(reduction,a.masterReduction or 0) end)
+        return peak,rms,reduction
+    end
+    local g=i.outputs and i.outputs[slot];local a=g and not g.audio.closed and g.audio
+    return a and a.memberPeak or 0,a and a.memberRms or 0,a and a.memberReduction or 0
+end
+
 function T:audio(i,n)
     self:configure(i,n);local owner=self;local closed=false;local audio={}
     function audio:set(name,value) local a=owner:laneStudio(i,n,false);return a and a:set(n,name,value) end

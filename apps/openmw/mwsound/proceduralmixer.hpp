@@ -50,7 +50,7 @@ namespace MWSound
             if (chase) { if (code==0) mLevel=value; else mState[code+11]=value; }
         }
         void resetAutomation() { mAutomated.fill(false); mOverride.fill(false); }
-        float process(float input)
+        double equalize(float input)
         {
             // Continuous controls and bypass wet/dry ramps have a 10 ms time constant.
             constexpr double smoothing=0.0020811647;
@@ -70,11 +70,19 @@ namespace MWSound
             double eq=input;
             for (auto& filter:mFilters) eq=filter.process(eq);
             double value=input+(eq-input)*mState[0];
+            return value;
+        }
+        double detect(double value)
+        {
             const double magnitude=std::abs(value);
             const double coefficient=magnitude>mEnvelope ? mAttack : mRelease;
             mEnvelope=coefficient*mEnvelope+(1-coefficient)*magnitude;
             if (mEnvelope<1e-25) mEnvelope=0;
-            const double over=20*std::log10(std::max(1e-12,mEnvelope))-mState[7];
+            return mEnvelope;
+        }
+        float finish(double value,double envelope)
+        {
+            const double over=20*std::log10(std::max(1e-12,envelope))-mState[7];
             // 6 dB soft knee, feed-forward peak detector; no look-ahead latency.
             const double slope=1-1/mState[8];
             const double reduction=over<=-3 ? 0 : (over>=3 ? slope*over : slope*(over+3)*(over+3)/12);
@@ -82,6 +90,12 @@ namespace MWSound
             value*=std::pow(10.0, (mState[11]-reduction)*mState[6]/20)*mLevel*mAudible;
             return static_cast<float>(value);
         }
+        float process(float input)
+        {
+            const double value=equalize(input);
+            return finish(value,detect(value));
+        }
+        void resetDetector(){mEnvelope=0;mReduction=0;}
         float delaySend() const {return static_cast<float>(mState[12]);}
         float reverbSend() const {return static_cast<float>(mState[13]);}
         float reduction() const { return mReduction; }
