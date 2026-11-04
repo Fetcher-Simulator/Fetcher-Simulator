@@ -52,7 +52,7 @@ test('schema defaults, validation, bounded payload and migration',function()
     check(not schema.state({drumType=5}) and not schema.state({noiseDecay=0}) and not schema.state({bodyFrequency=0/0}),'new drum controls validated')
     check(#schema.builtins>=40)
     check(legacy.instrumentType==0 and legacy.driveType==0 and legacy.cabinet==0 and legacy.ampBass==0,'legacy saves bypass new voices/effects')
-    check(not schema.state({driveType=4}) and not schema.state({drive=37}) and not schema.state({stringPick=0}),'new string/effects controls bounded')
+    check(not schema.state({driveType=5}) and not schema.state({drive=37}) and not schema.state({stringPick=0}),'new string/effects controls bounded')
     local ids={};for _,p in ipairs(schema.builtins) do check(not ids[p.id],'unique built-in ID');ids[p.id]=true end
     for _,kit in ipairs(schema.kits) do for _,id in ipairs(kit.ids) do check(ids[id],'kit refers to a built-in') end end
     for _,p in ipairs(schema.builtins) do check(schema.state(p.state)~=nil) end

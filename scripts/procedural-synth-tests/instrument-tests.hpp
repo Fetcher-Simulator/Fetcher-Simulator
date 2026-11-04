@@ -17,6 +17,8 @@ void instrumentTests()
     check(std::abs(int(crossings(hit(60,.8f)))-66)<=2,"first hard alternate selected");
     check(std::abs(int(crossings(hit(60,.8f)))-88)<=2,"second hard alternate selected");
     check(std::abs(int(crossings(hit(60,.8f)))-66)<=2,"alternate group wraps deterministically");
+    Synth secondLane(1);setup(secondLane);secondLane.noteOn(60,.8f);
+    check(std::abs(int(crossings(render(secondLane,14400)))-88)<=2,"adjacent lane starts with a different real recorded take");
     check(std::abs(int(crossings(hit(72,.8f)))-132)<=2,"zone root avoids transposing another zone twice");
     check(energy(hit(59,.8f))==0 && !s.voices(),"unmapped bank notes stay silent");
     s.noteOn(60,.3f);s.noteOn(72,.8f);render(s,2400);check(s.voices()==2,"bank chord keeps independent zones");
@@ -25,6 +27,18 @@ void instrumentTests()
     const auto score=scoreNote(0,4800,1,60,100)+scoreNote(6000,4800,1,60,100)+scoreNote(12000,4800,1,72,70);
     for(auto* studio:{a.get(),b.get()})check(studio->sample(1,data,60,false,hash) && studio->loadScore(score,24000,true) && studio->start(0,0),"bank native score starts");
     check(studioRender(*a,24000,480)==studioRender(*b,24000,137),"bank playback and alternates are independent of audio block size");
+    {
+        auto first=std::make_unique<NativeStudio>(),second=std::make_unique<NativeStudio>();
+        for(auto* studio:{first.get(),second.get()}) {
+            setupStudio(*studio);
+            check(studio->set(1,"resonance",0) && studio->set(2,"resonance",0),"paired lanes configure");
+        }
+        check(first->sample(1,data,60,false,hash) && second->sample(2,data,60,false,hash),"paired lanes share immutable PCM");
+        check(first->loadScore(scoreNote(0,14400,1,60,100),16000,false) && first->start(0,0)
+            && second->loadScore(scoreNote(0,14400,2,60,100),16000,false) && second->start(0,0),"paired scores start");
+        const auto left=studioRender(*first,14400),right=studioRender(*second,14400);
+        check(std::abs(int(crossings(left))-66)<=2 && std::abs(int(crossings(right))-88)<=2,"Studio lane identities choose different real takes for identical doubled notes");
+    }
     // Exercise the exact production binary reader, including alternate closure.
     auto encode=[](std::vector<Sample::Zone> zones,unsigned frames,bool v2=false) {
         std::string bytes(v2?"FSBANK2\0":"FSBANK1\0",8);

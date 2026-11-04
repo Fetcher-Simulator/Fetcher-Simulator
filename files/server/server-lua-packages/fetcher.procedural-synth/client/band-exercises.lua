@@ -11,11 +11,24 @@ M.entries={
     {id='bass-attacks',name='Recorded bass attacks',bpm=104,set='recorded-funk',description='Bars 1/2/3: regular, captured short, captured ghost bass. Bar 4 alternates the three; guitar and kit stay constant.'},
     {id='bridge-thrash',name='Bridge thrash / C',bpm=184,set='captured-thrash',description='The reviewed C tone: bridge DI, calibrated amp input and an editable channel low-mid cut. Same phrase and backing as Tight thrash.'},
     {id='string-unisons',name='Twin-string sustain',bpm=92,set='captured-clean',description='Two strings play the same pitch with different gate lengths. The shorter note releases while the other continues.'},
+    {id='slap-pop',name='Slap / pop groove',bpm=104,set='band-funk',description='Real thumb slaps and octave-up pops, followed by short/dead strokes. Two editable bass lanes; one rhythm section.'},
+    {id='doom-band',name='Doom band',bpm=112,set='band-doom',description='Neck-pickup fuzz, open power chords and a broad acoustic backbeat.'},
+    {id='modern-band',name='Modern metal band',bpm=184,set='band-modern',description='Bridge rhythm, a tighter low end and an attack-forward kit. Same notes as Tight thrash.'},
+    {id='alternative-band',name='Alternative metal band',bpm=112,set='band-alternative',description='Midrange crunch, picked bass and kit. Same notes as Heavy rhythm.'},
+    {id='clean-band',name='Clean electric band',bpm=92,set='band-clean',description='Warm clean strums and melody with a balanced restrained rhythm section.'},
+    {id='blues-band',name='Blues / jazz band',bpm=92,set='band-blues',description='Edge-of-breakup neck guitar and a darker kit. Compare with Clean electric band.'},
+    {id='acoustic-band',name='Natural acoustic band',bpm=96,set='band-acoustic',description='Recorded steel fingerpicking and nylon melody with natural gated releases.'},
+    {id='scooped-thrash',name='Scooped thrash band',bpm=184,set='band-thrash-ref',description='Staged bridge amp, interstage bass filtering and post-cab 750-Hz scoop. Same notes as Tight thrash.'},
+    {id='industrial-band',name='Industrial low-B band',bpm=112,set='band-industrial',description='Original low-B chug pattern, parallel fold/noise texture, driven bass and full kit; not a transcription of a soundtrack.'},
 }
 function M.find(id) for _,entry in ipairs(M.entries) do if entry.id==id then return entry end end end
 function M.create(id,setId)
     local entry=M.find(id);if not entry or setId and not Sets.find(setId) then return nil end
-    local bassComparison=id=='bass-attacks';local stringUnisons=id=='string-unisons'
+    local bassComparison=id=='bass-attacks';local stringUnisons=id=='string-unisons';local slapComparison=id=='slap-pop'
+    if slapComparison then id='funk' end
+    id=({['doom-band']='heavy',['modern-band']='thrash',['alternative-band']='heavy',
+        ['clean-band']='clean',['blues-band']='clean',['acoustic-band']='acoustic',
+        ['scooped-thrash']='thrash',['industrial-band']='industrial'})[id] or id
     if bassComparison then id='funk' elseif stringUnisons then id='clean' elseif id=='bridge-thrash' then id='thrash' end
     local p=F.new();p.name='Sound check - '..entry.name;p.bpm=entry.bpm;p.length=64;p.soundSet=setId or entry.set
     p.timeline={beats=16,tempos={{beat=0,tempo=math.floor(60000000/entry.bpm+.5)}}}
@@ -45,8 +58,8 @@ function M.create(id,setId)
     end
     local chords={{40,47,52,55,59,64},{43,47,50,55,59,67},{45,52,57,60,64},{50,57,62,66}}
     for bar=0,3 do
-        local start=bar*16;local root=bassComparison and 40 or ({40,43,45,42})[bar+1]
-        if id=='heavy' or id=='thrash' then
+        local start=bar*16;local root=bassComparison and 40 or (id=='industrial' and {35,35,38,36} or {40,43,45,42})[bar+1]
+        if id=='heavy' or id=='thrash' or id=='industrial' then
             for step=0,15,id=='thrash' and 1 or 2 do
                 local open=step==0 or step==12;local gate=open and 2.6 or (id=='thrash' and .58 or .85)
                 local velocity=step%4==0 and .92 or step%2==0 and .78 or .66
@@ -118,6 +131,23 @@ function M.create(id,setId)
             end
             t.edited=assert(F.encodeNotes(selected,960))
             if variant>1 then p.tracks[#p.tracks+1]=t end
+        end
+    end
+    if slapComparison then
+        local source=p.tracks[bass];local original=notes[bass]
+        for variant,preset in ipairs{'b:sampled-bass-slap','b:sampled-bass-pop'} do
+            local t=variant==1 and source or F.newTrack('midi','Popped bass',64)
+            local patch;for _,candidate in ipairs(schema.builtins) do if candidate.id==preset then patch=candidate end end
+            t.name=variant==1 and 'Thumb slaps' or 'Octave pops';t.sourceRole='bass';t.sourceProgram=35+variant
+            t.instrument='bass';t.note=40;t.level=.72;t.followPrograms=false
+            Sets.apply(t,assert(schema.state(patch.state)),preset)
+            local selected={}
+            for n,item in ipairs(original) do if n%2==(variant==1 and 1 or 0) then
+                local bar=math.floor(item.s/16)
+                selected[#selected+1]={n=item.n+(variant==2 and 12 or 0),s=item.s,l=item.l,v=item.v,
+                    e={stringArticulation=bar<2 and 1 or n%4<2 and 2 or 3}}
+            end end
+            t.edited=assert(F.encodeNotes(selected,960));if variant>1 then p.tracks[#p.tracks+1]=t end
         end
     end
     return assert(F.project(p))

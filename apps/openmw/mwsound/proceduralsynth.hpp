@@ -45,7 +45,7 @@ namespace MWSound
         };
         using AttackSamples = std::array<AttackSample, 3>; // open, short/palm, dead/ghost
 
-        ProceduralSynth();
+        explicit ProceduralSynth(unsigned alternateSeed = 0);
         bool set(std::string_view name, float value);
         bool sample(std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash,
             const AttackSamples& attacks = {}, float gain = 1);
@@ -150,6 +150,7 @@ namespace MWSound
         SampleSettings mSampleTarget, mSampleCurrent;
         std::array<SampleSettings,3> mAttackTarget{}, mAttackCurrent{};
         std::array<std::array<unsigned,512>,4> mSampleAlternates{}; // independent audio-thread zone-group counters
+        const unsigned mAlternateSeed; // distinct recorded takes on adjacent Studio lanes
         // Reclaimed on control calls only. The current audio pointer remains
         // pinned until a later call observes that the callback has switched.
         std::vector<std::shared_ptr<ProceduralSample>> mSamplePins;

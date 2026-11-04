@@ -21,7 +21,7 @@ p('drumPitchAmount',0,48,8); p('drumPitchDecay',0.005,0.5,0.025)
 p('drumClick',0,1,0.12); p('drumDrive',1,8,1.3); p('ampCurve',0.25,4,1)
 p('instrumentType',0,1,0,true);p('stringDecay',0.1,10,3);p('stringDamping',0,1,0.35)
 p('stringMute',0,1,0);p('stringPick',0.05,0.95,0.23)
-p('driveType',0,3,0,true);p('drive',0,36,12);p('driveTone',200,16000,12000)
+p('driveType',0,4,0,true);p('drive',0,36,12);p('driveTone',200,16000,12000)
 p('fxMix',0,1,1);p('fxOutput',0,2,1)
 p('ampBass',-12,12,0);p('ampMid',-12,12,0);p('ampTreble',-12,12,0);p('cabinet',0,6,0,true)
 p('preHighpass',0,500,0);p('cabinetHighpass',0,500,0);p('cabinetLowpass',0,18000,0)
@@ -355,6 +355,83 @@ do
     state.pickAttack=0;state.stringResonance=0;state.pickPitch=0;state.pickVariation=0
     add('sampled-bass-expressive','Sampled Expressive Finger Bass','Bass','CC Sampled Instruments',state)
     M.builtins[#M.builtins].midiProgram=33
+end
+-- Curated band candidates use new IDs: existing personal/project snapshots and
+-- the reviewed bridge-thrash recipe retain their identities.
+do
+    local function bank(id,hash,gain)
+        return {path='sound/fetcher/banks/'..id..'.fsb',offset=0,duration=1,root=60,oneShot=false,hash=hash,gain=gain}
+    end
+    local slap=bank('bass-slap-v1','1bad74c58007a5d2791a13688cedb054')
+    slap.attacks={short=bank('bass-slap-short-v1','3673df85f26d54fbc8fd9877d35e1a6f'),dead=bank('bass-thump-v1','bbfea9b7c59069e590a3356b74349849')}
+    local pop=bank('bass-pop-v1','4b06701f0d9fc1d2f7e9d31c92f840d0')
+    pop.attacks={short=bank('bass-pop-short-v1','6ca6d9e589f7de8d19400c0187dd9e92'),dead=bank('bass-thump-v1','bbfea9b7c59069e590a3356b74349849')}
+    for _,e in ipairs{{'sampled-bass-slap','Recorded Thumb Slap Bass',slap,36},
+        {'sampled-bass-pop','Recorded Popped Bass',pop,37}} do
+        e[3].gain=3;for _,ref in pairs(e[3].attacks) do ref.gain=3 end
+        add(e[1],e[2],'Bass','Band / Curated',{sample=e[3],volume=.72,gain=1,attack=.002,sustain=1,
+            release=.11,cutoff=16000,preHighpass=32,ampBass=1,ampMid=-2,ampTreble=2,polyphony=8})
+        M.builtins[#M.builtins].midiProgram=e[4];M.sampledStrings[e[3].path]=true
+    end
+    local function derive(id,name,base,changes,inputGain)
+        local source;for _,p in ipairs(M.builtins) do if p.id=='b:'..base then source=p end end
+        local state=assert(M.state(assert(source).state))
+        for k,v in pairs(changes) do state[k]=v end
+        if inputGain then state.sample.gain=inputGain;for _,ref in pairs(state.sample.attacks or {}) do ref.gain=inputGain end end
+        add(id,name,source.role,'Band / Curated',state);M.builtins[#M.builtins].midiProgram=source.midiProgram
+    end
+    derive('band-doom-guitar','Doom / Neck Fuzz','captured-guitar-rock',{
+        driveType=3,drive=26,ampBass=-3,ampMid=4,ampTreble=-2,cabinet=6,
+        preHighpass=80,cabinetHighpass=65,cabinetLowpass=6500,release=.10,volume=.38,fxOutput=.5935},6)
+    derive('band-modern-guitar','Modern / Tight Bridge','captured-guitar-thrash',{
+        drive=30,ampBass=-5,ampMid=2,ampTreble=5,cabinet=5,preHighpass=145,
+        cabinetHighpass=105,cabinetLowpass=8500,release=.016,volume=.38,fxOutput=.7038},8)
+    derive('band-alternative-guitar','Alternative / Mid Crunch','captured-guitar-rock',{
+        driveType=1,drive=29,ampBass=-4,ampMid=5,ampTreble=3,cabinet=4,preHighpass=115,
+        cabinetHighpass=85,cabinetLowpass=9000,release=.045,volume=.38,fxOutput=.651},6)
+    derive('band-thrash-ref-guitar','Thrash / Scooped Staged Amp','captured-guitar-thrash',{
+        driveType=4,drive=30,ampBass=-12,ampMid=6,ampTreble=4,cabinet=4,preHighpass=65,
+        cabinetHighpass=65,cabinetLowpass=7000,release=.012,volume=.38,fxOutput=.9,stringArticulation=0},6)
+    derive('band-thrash-ref-muted','Thrash / Captured Palm Staged Amp','band-thrash-ref-guitar',{stringArticulation=2})
+    derive('band-industrial-guitar','Industrial / Parallel Staged Amp','captured-guitar-thrash',{
+        driveType=4,drive=30,ampBass=-8,ampMid=4,ampTreble=5,cabinet=5,preHighpass=55,
+        cabinetHighpass=50,cabinetLowpass=8000,release=.012,volume=.38,fxOutput=1.35,stringLayout=4,
+        parallelMix=.65,parallelClean=.2,parallelDirty=.8,parallelNoise=.045,parallelDrive=42,
+        parallelShape=2,parallelComb=.12,parallelDelay=2.9,parallelFeedback=-.15,
+        parallelDepth=.03,parallelLift=2},8)
+    derive('band-industrial-bass','Industrial / Driven Pick Bass','sampled-bass-picked',{
+        driveType=1,drive=12,ampBass=2,ampMid=-4,ampTreble=1,preHighpass=28,cutoff=8000,
+        release=.05,volume=.65,parallelMix=.35,parallelClean=.8,parallelDirty=.25,parallelDrive=20,
+        parallelShape=0,parallelComb=0,parallelLift=0})
+    derive('band-clean-guitar','Clean / Warm Neck','captured-guitar-clean',{
+        ampBass=-2,ampMid=0,ampTreble=3,cabinet=6,preHighpass=85,cabinetHighpass=65,
+        cabinetLowpass=11500,release=.22,volume=.5,fxOutput=.717},4)
+    derive('band-funk-guitar','Funk / Bridge Stabs','captured-guitar-thrash',{
+        driveType=0,drive=0,ampBass=-4,ampMid=1,ampTreble=4,cabinet=6,preHighpass=150,
+        cabinetHighpass=110,cabinetLowpass=12000,release=.025,volume=.5,fxOutput=1,stringArticulation=2},4)
+    derive('band-blues-guitar','Blues / Edge of Breakup','captured-guitar-rock',{
+        driveType=1,drive=14,ampBass=-2,ampMid=4,ampTreble=0,cabinet=6,preHighpass=80,
+        cabinetHighpass=60,cabinetLowpass=8000,release=.18,volume=.46,fxOutput=.329},4)
+    derive('band-jazz-guitar','Jazz / Rounded Neck','captured-guitar-clean',{
+        ampBass=1,ampMid=2,ampTreble=-5,cutoff=7000,cabinet=6,preHighpass=65,
+        cabinetHighpass=45,cabinetLowpass=5500,release=.26,volume=.5,fxOutput=1},4)
+    derive('band-lead-guitar','Lead / Singing Neck','captured-guitar-lead',{
+        drive=24,ampBass=-5,ampMid=6,ampTreble=2,cabinet=5,preHighpass=100,
+        cabinetHighpass=85,cabinetLowpass=9000,release=.20,volume=.38,fxOutput=.8},6)
+    derive('band-steel-guitar','Acoustic / Natural Steel','sampled-guitar-steel',{
+        pickAttack=0,stringResonance=0,pickPitch=0,pickVariation=0,release=.42,cutoff=16000,
+        preHighpass=75,ampBass=-2,ampMid=0,ampTreble=1,volume=.6},2.75)
+    derive('band-nylon-guitar','Classical / Natural Nylon','sampled-guitar-nylon',{
+        pickAttack=0,stringResonance=0,pickPitch=0,pickVariation=0,release=.5,cutoff=13000,
+        preHighpass=65,ampBass=0,ampMid=1,ampTreble=-1,volume=.6},2.75)
+    for _,e in ipairs{{'doom',-.5,2,-2},{'modern',-3,-1,4},{'alternative',-1,2,1},
+        {'funk',-1,1,3},{'clean',0,0,0},{'blues',1,2,-3},{'acoustic',0,0,-2}} do
+        derive('band-'..e[1]..'-kit','Kit / '..e[1],'sampled-drum-kit',{
+            ampBass=e[2],ampMid=e[3],ampTreble=e[4],preHighpass=25,volume=.95,
+            gain=e[1]=='modern' and 1.806 or 1.7,
+            fxOutput=e[1]=='modern' and 2 or e[1]=='doom' and 1.626 or e[1]=='alternative' and 1.687 or 1.5},
+            (e[1]=='clean' or e[1]=='blues') and 2.5 or e[1]=='acoustic' and 1.4 or nil)
+    end
 end
 add('doom-parallel-chug','Industrial Parallel Chug','Guitar','Experimental / Industrial',{
     instrumentType=1,stringDecay=1.6,stringDamping=.25,stringMute=.65,stringArticulation=2,

@@ -1,0 +1,7 @@
+BMC slap bass samples by Bruce H. McCosar (2008), CC BY 3.0.
+https://ccmixter.org/files/bmccosar/13742
+https://creativecommons.org/licenses/by/3.0/
+Fetcher adaptation: mono 48-kHz PCM16, onset trim, terminal fade,
+concert-pitch keyboard mapping and bounded native sample banks.
+No endorsement implied. One recorded dynamic/performance per pitch;
+the two muted thumps are actual different recordings. No normalization.

@@ -169,4 +169,24 @@ do
  t=x.project.tracks[7];t.mixer.mid=-4
  check(x:applySoundSet('recorded-thrash') and x.project.tracks[7].mixer.mid==-4,'cycling away preserves subsequently customized channel EQ')
 end
+do
+ local x=W.new(w.cb);assert(x:import(familySong,'midi/families.mid'))
+ local distinct={}
+ for _,id in ipairs{'band-doom','band-modern','band-alternative','band-funk','band-clean','band-blues','band-acoustic'} do
+  check(x:applySoundSet(id),'curated band applies '..id)
+  local p=assert(format.project(x.project));check(x:load(p),'curated snapshot reloads without source '..id)
+  check(x.project.tracks[1].presetId=='b:band-nylon-guitar' and x.project.tracks[2].presetId=='b:band-steel-guitar','curated set retains nylon/steel identities')
+  check(x.project.tracks[13].presetId=='b:sampled-bass-slap' and x.project.tracks[14].presetId=='b:sampled-bass-pop','GM slap/pop select genuine captured techniques')
+  check(x.project.tracks[13].params.sample.attacks.short.path:find('slap%-short') and x.project.tracks[14].params.sample.attacks.short.path:find('pop%-short'),'short articulation retains its actual recording technique')
+  local t=x.project.tracks[7];local key=t.presetId..':'..t.params.driveType..':'..t.params.drive..':'..t.params.cabinet
+  if id~='band-clean' then check(not distinct[key],'curated rhythm recipes have distinct sources/amp characters') end;distinct[key]=true
+ end
+ check(x:applySoundSet('band-funk') and x.project.tracks[10].presetId=='b:sampled-bass-slap' and x.project.tracks[11].presetId=='b:sampled-bass-picked','explicit Funk / Slap reinterprets finger bass but retains picked technique')
+ local before=assert(format.project(x.project));check(x:applySoundSet('band-modern') and x:undo(),'curated set is one undo action')
+ check(x.project.soundSet==before.soundSet and x.project.tracks[10].params.sample.hash==before.tracks[10].params.sample.hash,'Undo restores captured slap source and genre')
+ for _,id in ipairs{'band-modern','band-alternative','band-doom'} do
+  assert(x:applySoundSet(id));local t=x.project.tracks[7];t.mixer.mid=t.mixer.mid+.5
+  assert(x:applySoundSet('band-clean'));check(x.project.tracks[7].mixer.mid==t.mixer.mid,'customized channel EQ survives leaving '..id)
+ end
+end
 print('PASS GM guitar/bass families, full kits, percussion routing, saved identities, live sound sets and undo; '..checks..' assertions')

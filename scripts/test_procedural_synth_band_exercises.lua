@@ -16,10 +16,10 @@ for _,entry in ipairs(Exercises.entries) do
     for _,t in ipairs(p.tracks) do
         local notes=assert(F.decodeNotes(t.edited));check(#notes>0 and not t.followPrograms,'every part is explicit notes with stable sounds')
         for _,n in ipairs(notes) do count=count+1;check(n.s>=0 and n.s+n.l<=64.001 and n.n>=0 and n.n<=127,'all gates fit one cycle and stay in MIDI range');if n.e then expressive=expressive+1 end end
-        if t.sourceRole=='bass' then bass=bass+1;check(t.sourceProgram==33 or t.sourceProgram==34,'bass has a numeric GM source and the correct register') end
+        if t.sourceRole=='bass' then bass=bass+1;check(({[33]=true,[34]=true,[36]=true,[37]=true})[t.sourceProgram],'bass has an explicit numeric GM technique') end
         if t.instrument=='drumkit' then drums=drums+1;check(t.note==36 or t.note==38 or t.note==42 or t.note==45 or t.note==49,'kit parts use deliberate GM notes') end
     end
-    check(count>100 and expressive>40 and drums==5 and bass==(entry.id=='bass-attacks' and 3 or 1),'exercise includes meaningful string performance and a complete split rhythm section')
+    check(count>100 and expressive>40 and drums==5 and bass==(entry.id=='bass-attacks' and 3 or entry.id=='slap-pop' and 2 or 1),'exercise includes meaningful string performance and a complete split rhythm section')
     local plan=Sequence.compile(p,nil,MIDI,'song',F,Sets.programPatch)
     check(Sequence.validate(plan.bytes,plan.length,true),'native looping score validates with saved attack expression')
     local saved=assert(F.project(p));local loaded=Sequence.compile(saved,nil,MIDI,'song',F,Sets.programPatch)

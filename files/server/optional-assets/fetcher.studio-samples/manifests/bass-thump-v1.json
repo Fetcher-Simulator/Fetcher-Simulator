@@ -1,0 +1,46 @@
+{
+  "id": "bass-thump-v1",
+  "path": "sound/fetcher/banks/bass-thump-v1.fsb",
+  "bytes": 51908,
+  "sha256": "11681dddc98c0578eaa98884647583c100918c848c754c1cbb05ef25171984d6",
+  "native": {
+    "hash": "bbfea9b7c59069e590a3356b74349849",
+    "zones": 2,
+    "pcmBytes": 103688
+  },
+  "license": "CC-BY-3.0",
+  "source": "https://ccmixter.org/files/bmccosar/13742",
+  "attribution": "BMC slap bass samples by Bruce H. McCosar (2008), CC BY 3.0.\nhttps://ccmixter.org/files/bmccosar/13742\nhttps://creativecommons.org/licenses/by/3.0/\nFetcher adaptation: mono 48-kHz PCM16, onset trim, terminal fade,\nconcert-pitch keyboard mapping and bounded native sample banks.\nNo endorsement implied. One recorded dynamic/performance per pitch;\nthe two muted thumps are actual different recordings. No normalization.\n",
+  "archive": "bmccosar_-_BMC_slap_bass_samples.zip",
+  "archiveSha256": "6b2af3543dd111b9f62b53544c4a02ae633fb775e20b42591e006a3c0d610d53",
+  "description": "Recorded muted thumb thumps, two actual alternates.",
+  "conversion": "Mono 48-kHz PCM16; 3-ms onset preroll at -65 dB, original natural tail (4-s cap), 10-ms end fade. Original levels.",
+  "zones": [
+    {
+      "sample": "thump1.flac",
+      "root": 40,
+      "low": 23,
+      "high": 76,
+      "alternate": 0,
+      "sourceSha256": "43936780ca7a1ea00b8d51ce804ca46a201774545f88662a42e831eea620d4c2",
+      "sourceFrames": 12994,
+      "onsetFrame": 0,
+      "trimStartFrame": 0,
+      "frames": 12994,
+      "pcmSha256": "fa17365ec7e3f514a4bcd5dc5dfdba9e082f9741fce65f6984bfe9f6d87c4401"
+    },
+    {
+      "sample": "thump2.flac",
+      "root": 40,
+      "low": 23,
+      "high": 76,
+      "alternate": 1,
+      "sourceSha256": "d2c8d4ea71780f0fdb6cac61c000ab256bfdd345659f9e7ff8c7355196c1e71e",
+      "sourceFrames": 12928,
+      "onsetFrame": 0,
+      "trimStartFrame": 0,
+      "frames": 12928,
+      "pcmSha256": "b2a83e8da172c35105b1cdc9352b0a11daa39823373d04da9a9a8418803e77e8"
+    }
+  ]
+}

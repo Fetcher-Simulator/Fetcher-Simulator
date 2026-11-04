@@ -1,7 +1,7 @@
 {
-  "license": "Per-bank: CC0-1.0 or CC-BY-4.0",
+  "license": "Per-bank: CC0-1.0, CC-BY-3.0 or CC-BY-4.0",
   "nativeApi": 19,
-  "decodedBytesAllBanks": 272066488,
+  "decodedBytesAllBanks": 276805680,
   "banks": [
     {
       "id": "electric-di-v1",
@@ -170,6 +170,76 @@
       "source": "https://zenodo.org/records/14963133",
       "description": "Guitar-TECHS player 1 Ibanez PF300 bridge-pickup DI; recorded pitched palm mutes; one recorded performance per sparse root, no invented alternates/layers. Keys 35-39 transpose the low-E capture.",
       "license": "CC-BY-4.0"
+    },
+    {
+      "id": "bass-slap-v1",
+      "path": "sound/fetcher/banks/bass-slap-v1.fsb",
+      "bytes": 1161972,
+      "sha256": "724dae3212e92884a1ab6dc9977bce288ff38dea61a23ac7b9334d317eee7ef2",
+      "native": {
+        "hash": "1bad74c58007a5d2791a13688cedb054",
+        "zones": 6,
+        "pcmBytes": 2323656
+      },
+      "source": "https://ccmixter.org/files/bmccosar/13742",
+      "description": "Recorded slap long notes, six concert-pitch roots, one dynamic/performance each; nearest-root transposition outside the recorded octave, no invented velocity/RR layers.",
+      "license": "CC-BY-3.0"
+    },
+    {
+      "id": "bass-slap-short-v1",
+      "path": "sound/fetcher/banks/bass-slap-short-v1.fsb",
+      "bytes": 220560,
+      "sha256": "0c04c43b2346671a2950189f4adbed863574620b60540d97f3b0213a8c46c8e0",
+      "native": {
+        "hash": "3673df85f26d54fbc8fd9877d35e1a6f",
+        "zones": 6,
+        "pcmBytes": 440832
+      },
+      "source": "https://ccmixter.org/files/bmccosar/13742",
+      "description": "Recorded slap short notes, six concert-pitch roots, one dynamic/performance each; nearest-root transposition outside the recorded octave, no invented velocity/RR layers.",
+      "license": "CC-BY-3.0"
+    },
+    {
+      "id": "bass-pop-v1",
+      "path": "sound/fetcher/banks/bass-pop-v1.fsb",
+      "bytes": 777282,
+      "sha256": "2aabcbe4ef36f7f90e776788523141b0cffb7cff97163086922b8a3949498b68",
+      "native": {
+        "hash": "4b06701f0d9fc1d2f7e9d31c92f840d0",
+        "zones": 6,
+        "pcmBytes": 1554276
+      },
+      "source": "https://ccmixter.org/files/bmccosar/13742",
+      "description": "Recorded pop long notes, six concert-pitch roots, one dynamic/performance each; nearest-root transposition outside the recorded octave, no invented velocity/RR layers.",
+      "license": "CC-BY-3.0"
+    },
+    {
+      "id": "bass-pop-short-v1",
+      "path": "sound/fetcher/banks/bass-pop-short-v1.fsb",
+      "bytes": 158514,
+      "sha256": "0a3a030be4ca583d6cd26a83260be350ff9d8674be92c469dc7d64082f11c3ba",
+      "native": {
+        "hash": "6ca6d9e589f7de8d19400c0187dd9e92",
+        "zones": 6,
+        "pcmBytes": 316740
+      },
+      "source": "https://ccmixter.org/files/bmccosar/13742",
+      "description": "Recorded pop short notes, six concert-pitch roots, one dynamic/performance each; nearest-root transposition outside the recorded octave, no invented velocity/RR layers.",
+      "license": "CC-BY-3.0"
+    },
+    {
+      "id": "bass-thump-v1",
+      "path": "sound/fetcher/banks/bass-thump-v1.fsb",
+      "bytes": 51908,
+      "sha256": "11681dddc98c0578eaa98884647583c100918c848c754c1cbb05ef25171984d6",
+      "native": {
+        "hash": "bbfea9b7c59069e590a3356b74349849",
+        "zones": 2,
+        "pcmBytes": 103688
+      },
+      "source": "https://ccmixter.org/files/bmccosar/13742",
+      "description": "Recorded muted thumb thumps, two actual alternates.",
+      "license": "CC-BY-3.0"
     }
   ]
 }

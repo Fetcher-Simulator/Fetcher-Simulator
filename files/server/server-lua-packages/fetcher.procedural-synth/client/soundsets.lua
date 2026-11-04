@@ -43,6 +43,22 @@ for _,entry in ipairs{{'captured-rock','Captured Band / Rock','captured-guitar-r
     s.recorded=true;s.captured=true;s.electricRhythm=entry[1]=='captured-thrash';s.muted=entry[1]=='captured-rock' and 'captured-guitar-rock-muted' or entry[3]
     M.entries[#M.entries+1]=s
 end
+for _,e in ipairs{{'doom','Doom / Heavy Rock'},{'modern','Modern Metal'},{'alternative','Alternative Metal'},
+    {'thrash-ref','Scooped Thrash'},{'industrial','Industrial / DOOM'},
+    {'funk','Funk / Slap'},{'clean','Clean Electric'},{'blues','Blues / Jazz'},{'acoustic','Acoustic / Classical'}} do
+    local s=set('band-'..e[1],'Band / '..e[2],9,'studio-keys','sampled-bass-expressive','band-'..e[1]..'-guitar',
+        'studio-strings','band-lead-guitar','pad','glass-bell','studio-brass','studio-reed','studio-organ')
+    if e[1]=='acoustic' then s.patches.guitar='band-steel-guitar';s.patches.pluck=s.patches.guitar end
+    if e[1]=='clean' then s.patches.lead='band-clean-guitar'
+    elseif e[1]=='blues' then s.patches.lead='band-blues-guitar'
+    elseif e[1]=='acoustic' then s.patches.lead='band-nylon-guitar' end
+    s.cleanPatch=e[1]=='blues' and 'band-blues-guitar' or 'band-clean-guitar'
+    s.recorded=true;s.captured=true;s.curated=true;s.muted=s.patches.guitar
+    if e[1]=='thrash-ref' then s.muted='band-thrash-ref-muted' end
+    s.electricRhythm=e[1]=='modern' or e[1]=='alternative' or e[1]=='doom' or e[1]=='thrash-ref' or e[1]=='industrial'
+    s.kitPatch='band-'..((e[1]=='thrash-ref' or e[1]=='industrial') and 'modern' or e[1])..'-kit';s.slap=e[1]=='funk'
+    M.entries[#M.entries+1]=s
+end
 local recordedDrums={};for _,note in ipairs{35,36,37,38,40,41,42,43,44,45,46,47,48,49,50,51,52,53,57,59} do recordedDrums[note]=true end
 local builtins={};for _,p in ipairs(schema.builtins) do builtins[p.id]=p end
 local percussion={
@@ -119,6 +135,22 @@ function M.assignment(id,role,midi,note,instrument,program,name)
             presetId=program==38 and 'b:house-bass' or 'b:acid-bass'
         end
     end
+    if s.curated then
+        if percussionRoles[role] and recordedDrums[note] then presetId='b:'..s.kitPatch
+        elseif role=='guitar' then
+            if program==24 then presetId='b:band-nylon-guitar'
+            elseif program==25 then presetId='b:band-steel-guitar'
+            elseif program==26 then presetId='b:band-jazz-guitar'
+            elseif program==28 then presetId='b:'..s.muted
+            elseif program==27 and not s.electricRhythm then presetId='b:'..s.cleanPatch
+            elseif program==31 or (name or ''):lower():find('solo',1,true) or (name or ''):lower():find('lead',1,true) then presetId='b:'..s.patches.lead
+            else presetId='b:'..s.patches.guitar end
+        elseif role=='bass' then
+            if program==36 or program==33 and s.slap then presetId='b:sampled-bass-slap'
+            elseif program==37 then presetId='b:sampled-bass-pop' end
+            if id=='band-industrial' and (program==33 or program==34) then presetId='b:band-industrial-bass' end
+        end
+    end
     local p=builtins[presetId];if not p then return end
     local state=schema.state(p.state);state.polyphony=math.min(8,state.polyphony)
     -- MIDI bass notes already encode the written octave. Performance presets
@@ -131,12 +163,19 @@ end
 -- compressor/send settings. Leaving this patch removes only our exact recipe;
 -- a player's subsequently customized EQ is never mistaken for a default.
 M.bridgeTone={eqEnabled=1,highpass=90,bass=0,mid=-6,midFrequency=300,treble=6}
+M.tones={['b:captured-guitar-thrash']=M.bridgeTone,
+    ['b:band-thrash-ref-guitar']={eqEnabled=1,highpass=50,bass=6,mid=-12,midFrequency=750,treble=4},
+    ['b:band-thrash-ref-muted']={eqEnabled=1,highpass=50,bass=6,mid=-12,midFrequency=750,treble=4},
+    ['b:band-industrial-guitar']={eqEnabled=1,highpass=45,bass=4,mid=-7,midFrequency=550,treble=2},
+    ['b:band-modern-guitar']={eqEnabled=1,highpass=100,bass=0,mid=-4,midFrequency=350,treble=3},
+    ['b:band-alternative-guitar']={eqEnabled=1,highpass=85,bass=0,mid=-2,midFrequency=400,treble=2},
+    ['b:band-doom-guitar']={eqEnabled=1,highpass=65,bass=0,mid=-3,midFrequency=300,treble=1}}
 local neutralTone={eqEnabled=0,highpass=20,bass=0,mid=0,midFrequency=1000,treble=0}
 function M.apply(track,state,presetId)
     local mixer={};for k,v in pairs(track.mixer or {}) do mixer[k]=v end
-    local matched=track.presetId=='b:captured-guitar-thrash'
-    for k,v in pairs(M.bridgeTone) do if mixer[k]~=v then matched=false end end
-    local tone=presetId=='b:captured-guitar-thrash' and M.bridgeTone or matched and neutralTone
+    local previous=M.tones[track.presetId];local matched=previous~=nil
+    for k,v in pairs(previous or {}) do if mixer[k]~=v then matched=false end end
+    local tone=M.tones[presetId] or matched and neutralTone
     if tone then for k,v in pairs(tone) do mixer[k]=v end;track.mixer=mixer end
     track.params=state;track.presetId=presetId
 end

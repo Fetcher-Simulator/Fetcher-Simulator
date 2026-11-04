@@ -92,8 +92,8 @@ void guitarTests()
     const auto unfiltered=magnitude(naive,3000)/magnitude(naive,9000);
     std::cout<<"9 kHz distortion folded 3 kHz / fundamental: "<<alias<<" (1x "<<unfiltered<<")\n";
     check(alias<unfiltered*0.2,"4x resampling suppresses the folded fifth harmonic by more than 14 dB");
-    std::array<double,4> signatures{};
-    for (int mode=0;mode<4;++mode)
+    std::array<double,5> signatures{};
+    for (int mode=0;mode<5;++mode)
     {
         Effects effect;settings.mode=mode;settings.cabinet=3;settings.drive=36;
         settings.bass=12;settings.mid=-12;settings.treble=12;
@@ -106,6 +106,19 @@ void guitarTests()
         }
     }
     check(std::abs(signatures[1]-signatures[2])>0.01 && std::abs(signatures[2]-signatures[3])>0.01,"drive characters produce distinct responses");
+    check(std::abs(signatures[4]-signatures[2])>0.01 && std::abs(signatures[4]-signatures[3])>0.01,"cascaded preamp is distinct from hard clipping and fuzz");
+    {
+        Effects effect;settings=Effects::Settings{};settings.mode=4;settings.drive=30;
+        std::vector<float> low(24000),high(24000);
+        for(unsigned n=0;n<60000;++n) {
+            const double value=effect.process((n<30000?.04:.4)*std::sin(n*.071),settings);
+            if(n>=6000 && n<30000)low[n-6000]=float(value);
+            if(n>=36000)high[n-36000]=float(value);
+        }
+        check(energy(high)>energy(low)*1.2 && energy(high)<energy(low)*95,"staged amp retains pick dynamics with progressive compression");
+        settings.mode=0;for(unsigned n=0;n<48000;++n)effect.process(0,settings);
+        check(effect.process(0,settings)==0,"staged preamp bypass drains histories and returns to exact silence");
+    }
     Synth open,muted;
     for (auto* s : {&open,&muted})
     {

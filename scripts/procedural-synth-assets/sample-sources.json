@@ -1,6 +1,6 @@
 {
   "acquired": "2026-10-29",
-  "license": "Per-source: CC0-1.0 or CC-BY-4.0",
+  "license": "Per-source: CC0-1.0, CC-BY-3.0 or CC-BY-4.0",
   "status": "curated native electric, regular finger/picked bass, captured short/ghost finger bass, nylon/steel guitar and drum banks in optional-assets/fetcher.studio-samples; Growlybass articulation source remains unintegrated",
   "sources": [
     {
@@ -174,6 +174,28 @@
       "licenseExpected": "CC-BY-4.0",
       "licenseSource": "https://guitar-techs.github.io/",
       "description": "Original player 1 Ibanez PF300 bridge-pickup DI and MIDI annotations; no reconstructed harmonics."
+    },
+    {
+      "asset": "bmccosar_-_BMC_slap_bass_samples.zip",
+      "url": "https://ccmixter.org/content/bmccosar/bmccosar_-_BMC_slap_bass_samples.zip",
+      "page": "https://ccmixter.org/files/bmccosar/13742",
+      "creator": "Bruce H. McCosar",
+      "release": "2008",
+      "bytes": 896296,
+      "sha256": "6b2af3543dd111b9f62b53544c4a02ae633fb775e20b42591e006a3c0d610d53",
+      "licenseExpected": "CC-BY-3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+      "licenseEvidence": "Upload-specific license_info block; site footer has a different license and does not govern this upload.",
+      "upstreamDigestVerified": false,
+      "audioFiles": 30,
+      "techniques": [
+        "slap long",
+        "slap short",
+        "pop long",
+        "pop short",
+        "muted thumps",
+        "hammer transitions (not integrated)"
+      ]
     }
   ]
 }

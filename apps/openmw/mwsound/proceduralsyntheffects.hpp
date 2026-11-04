@@ -52,6 +52,7 @@ namespace MWSound
                 {
                     mUp.fill(0); mDown.fill(0); mDry.fill(0); mCab.fill(0);
                     mBass = mUpper = mTone = mDcIn = mDcOut = 0;
+                    mStageLow1=mStageLow2=mStageEnvelope=0;
                     mIrDry.fill(0);mIrDryAt=0;
                     mPreLow=mPostLow=mPostHigh=0;if(mIrActive){mConvolver.clear();mIrActive=false;}
                     mPreBlend=mPostHighBlend=mPostLowBlend=0;
@@ -65,6 +66,7 @@ namespace MWSound
             {
                 mGain = std::pow(10.0, p.drive / 20);
                 mCompensation = 1 / std::sqrt(mGain);
+                mStageGain=2*std::sqrt(mGain);
                 mToneCoefficient = 1 - std::exp(-2 * Pi * p.tone / 48000);
                 mEq = { std::pow(10.0, p.bass / 20), std::pow(10.0, p.mid / 20), std::pow(10.0, p.treble / 20) };
                 mPreCoefficient=1-std::exp(-2*Pi*p.preHighpass/48000);
@@ -94,10 +96,25 @@ namespace MWSound
                     up += 4 * mFir[tap] * mUp[(mUpPosition + mUp.size() - tap / 4) % mUp.size()];
                 // Use the synth's nominal pre-volume level for drive calibration.
                 const double driven = up * 0.18 * mGain;
+                double amp=0;
+                if(mWeights[4]>1e-7)
+                {
+                    // Separate cascaded preamp: progressive asymmetric clipping,
+                    // interstage bass removal and a bounded supply compression.
+                    // Running at 192 kHz inside the existing anti-alias filters;
+                    // no extra latency, allocation or control-thread work.
+                    const double first=std::tanh(up*.18*mStageGain+.12)-0.11942729853438588;
+                    mStageLow1=zap(mStageLow1+.00522*(first-mStageLow1)); // 160 Hz
+                    const double second=std::tanh((first-.82*mStageLow1)*3.5-.10)+0.09966799462495582;
+                    mStageLow2=zap(mStageLow2+.00294*(second-mStageLow2)); // 90 Hz
+                    mStageEnvelope=zap(mStageEnvelope+.00026*(std::abs(second)-mStageEnvelope));
+                    amp=std::tanh((second-.45*mStageLow2)*2.2/(1+.3*mStageEnvelope));
+                }
                 const double shaped = up * mWeights[0] + mCompensation / 0.18 * (
                     mWeights[1] * std::tanh(driven)
                     + mWeights[2] * std::clamp(driven, -1.0, 1.0)
-                    + mWeights[3] * (std::tanh(driven * 3 + 0.4) - std::tanh(0.4)) / 1.5);
+                    + mWeights[3] * (std::tanh(driven * 3 + 0.4) - std::tanh(0.4)) / 1.5
+                    + mWeights[4] * amp);
                 mDown[mDownPosition] = shaped;
                 if (phase == 0)
                     for (std::size_t tap = 0; tap < mFir.size(); ++tap)
@@ -147,7 +164,7 @@ namespace MWSound
         static double zap(double x) { return std::abs(x) < 1e-20 ? 0 : x; }
         std::array<double, 65> mFir{}, mDown{};
         std::array<double, 17> mUp{}, mDry{};
-        std::array<double, 4> mWeights{ 1, 0, 0, 0 };
+        std::array<double, 5> mWeights{ 1, 0, 0, 0, 0 };
         std::array<double, 7> mCabWeights{ 1, 0, 0, 0, 0, 0, 0 };
         std::array<double, 12> mCab{};
         std::array<double, 3> mEq{ 1, 1, 1 };
@@ -156,6 +173,7 @@ namespace MWSound
         bool mWasActive = false;
         double mBlend = 0, mBass = 0, mUpper = 0, mTone = 0, mDcIn = 0, mDcOut = 0;
         double mGain = 1, mCompensation = 1, mToneCoefficient = 1;
+        double mStageLow1=0,mStageLow2=0,mStageEnvelope=0,mStageGain=2;
         CabinetConvolver mConvolver;
         ProceduralParallel mParallel;
         std::array<double,65> mIrDry{};unsigned mIrDryAt=0,mLastIr=0;bool mIrActive=false;

@@ -52,7 +52,7 @@ namespace MWSound
         { "stringDamping", 0, 1, 0.35f },
         { "stringMute", 0, 1, 0 },
         { "stringPick", 0.05f, 0.95f, 0.23f },
-        { "driveType", 0, 3, 0, true },
+        { "driveType", 0, 4, 0, true },
         { "drive", 0, 36, 12 },
         { "driveTone", 200, 16000, 12000 },
         { "fxMix", 0, 1, 1 },
@@ -126,8 +126,8 @@ namespace MWSound
         }
     }
 
-    ProceduralSynth::ProceduralSynth()
-        : mStrings(std::make_unique<Strings>())
+    ProceduralSynth::ProceduralSynth(unsigned alternateSeed)
+        : mAlternateSeed(alternateSeed), mStrings(std::make_unique<Strings>())
     {
         for (std::size_t i = 0; i < ParameterCount; ++i)
             mTarget[i] = mCurrent[i] = Parameters[i].initial;
@@ -283,7 +283,7 @@ namespace MWSound
             const auto& z=zones[index];
             if(note<z.lowKey || note>z.highKey || velocity<z.lowVelocity || velocity>z.highVelocity)continue;
             if(!advance)return &z;
-            const unsigned alternate=mSampleAlternates[variant][index]++%z.alternates;
+            const unsigned alternate=(mSampleAlternates[variant][index]++ + mAlternateSeed)%z.alternates;
             for(const auto& candidate:zones)if(candidate.lowKey==z.lowKey && candidate.highKey==z.highKey
                 && candidate.lowVelocity==z.lowVelocity && candidate.highVelocity==z.highVelocity
                 && candidate.alternate==alternate)return &candidate;

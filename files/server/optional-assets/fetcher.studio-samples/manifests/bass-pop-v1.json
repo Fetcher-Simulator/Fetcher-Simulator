@@ -1,0 +1,98 @@
+{
+  "id": "bass-pop-v1",
+  "path": "sound/fetcher/banks/bass-pop-v1.fsb",
+  "bytes": 777282,
+  "sha256": "2aabcbe4ef36f7f90e776788523141b0cffb7cff97163086922b8a3949498b68",
+  "native": {
+    "hash": "4b06701f0d9fc1d2f7e9d31c92f840d0",
+    "zones": 6,
+    "pcmBytes": 1554276
+  },
+  "license": "CC-BY-3.0",
+  "source": "https://ccmixter.org/files/bmccosar/13742",
+  "attribution": "BMC slap bass samples by Bruce H. McCosar (2008), CC BY 3.0.\nhttps://ccmixter.org/files/bmccosar/13742\nhttps://creativecommons.org/licenses/by/3.0/\nFetcher adaptation: mono 48-kHz PCM16, onset trim, terminal fade,\nconcert-pitch keyboard mapping and bounded native sample banks.\nNo endorsement implied. One recorded dynamic/performance per pitch;\nthe two muted thumps are actual different recordings. No normalization.\n",
+  "archive": "bmccosar_-_BMC_slap_bass_samples.zip",
+  "archiveSha256": "6b2af3543dd111b9f62b53544c4a02ae633fb775e20b42591e006a3c0d610d53",
+  "description": "Recorded pop long notes, six concert-pitch roots, one dynamic/performance each; nearest-root transposition outside the recorded octave, no invented velocity/RR layers.",
+  "conversion": "Mono 48-kHz PCM16; 3-ms onset preroll at -65 dB, original natural tail (4-s cap), 10-ms end fade. Original levels.",
+  "zones": [
+    {
+      "sample": "apop_long.flac",
+      "root": 45,
+      "low": 35,
+      "high": 45,
+      "alternate": 0,
+      "sourceSha256": "91b4af102bed6199f81979fb7ca99b0c825f86f33fa190dfa926467b1bf33d02",
+      "sourceFrames": 59382,
+      "onsetFrame": 0,
+      "trimStartFrame": 0,
+      "frames": 59382,
+      "pcmSha256": "baacea406791c716a43e7daed7ec8c1c1d7044ef55ab27124b92b42a99c099a4"
+    },
+    {
+      "sample": "bbpop_long.flac",
+      "root": 46,
+      "low": 46,
+      "high": 46,
+      "alternate": 0,
+      "sourceSha256": "01d4913f6f5c9f5e09bc7a451a17f0a1278c146172b75b946e711bd4f929a359",
+      "sourceFrames": 58809,
+      "onsetFrame": 0,
+      "trimStartFrame": 0,
+      "frames": 58809,
+      "pcmSha256": "c04a35347181c765829e3224450a622fde6af029d1f7d9bf56553163df3ca16a"
+    },
+    {
+      "sample": "bpop_long.flac",
+      "root": 47,
+      "low": 47,
+      "high": 47,
+      "alternate": 0,
+      "sourceSha256": "82f89f1543a09839f46d3a08632f70fd2221e0ff9e13a4936fde90edeb94fc2c",
+      "sourceFrames": 29350,
+      "onsetFrame": 0,
+      "trimStartFrame": 0,
+      "frames": 29350,
+      "pcmSha256": "afdcd0678ffdfdd15d4be7fc30ef08a85067e7d57a65ecbe604a5c0fb6881a22"
+    },
+    {
+      "sample": "cpop_long.flac",
+      "root": 48,
+      "low": 48,
+      "high": 49,
+      "alternate": 0,
+      "sourceSha256": "0f7f5e41ee9d383721e7060f667a76da054945fc1a131d405356069eaa660d19",
+      "sourceFrames": 60151,
+      "onsetFrame": 0,
+      "trimStartFrame": 0,
+      "frames": 60151,
+      "pcmSha256": "9c7fa32c87a776ca178ce516ed1d511df3dda098df92062e59061b2d257ee714"
+    },
+    {
+      "sample": "dpop_long.flac",
+      "root": 50,
+      "low": 50,
+      "high": 50,
+      "alternate": 0,
+      "sourceSha256": "af335408aca314200f34f6791cf5679e900a06db4ea94ae1a5b48bf023ec4610",
+      "sourceFrames": 83156,
+      "onsetFrame": 0,
+      "trimStartFrame": 0,
+      "frames": 83156,
+      "pcmSha256": "804b8e6081ad6a33c1567995f097da04444073d8a6c984a318b74e972b8e6ddc"
+    },
+    {
+      "sample": "ebpop_long.flac",
+      "root": 51,
+      "low": 51,
+      "high": 76,
+      "alternate": 0,
+      "sourceSha256": "354b4b6dc8eeca655c334d80d0870b5b05d2dbd15aca7f156b771ab09d2a60cd",
+      "sourceFrames": 97721,
+      "onsetFrame": 0,
+      "trimStartFrame": 0,
+      "frames": 97721,
+      "pcmSha256": "605074670bbe65b8d5df931fd9e8e21a26f9110c9dad28e136679d749cb48fa8"
+    }
+  ]
+}

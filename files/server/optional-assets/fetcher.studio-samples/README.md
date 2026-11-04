@@ -1,5 +1,26 @@
 # Fetcher Studio recorded instrument content
 
+## Package 75: genuine slap and pop
+
+Five small banks add **BMC slap bass samples** by **Bruce H. McCosar (2008)**,
+licensed **CC BY 3.0**: https://ccmixter.org/files/bmccosar/13742 .
+License: https://creativecommons.org/licenses/by/3.0/ . Fetcher adaptations are
+mono 48-kHz PCM16, onset trimming, a 10-ms terminal fade and keyboard mapping;
+no endorsement is implied. Attribution accompanies every derived bank in
+`licenses/`, with exact source/output hashes and cuts in `manifests/`.
+
+Long/short thumb slaps and long/short pops each retain six actual recorded
+pitches, with one dynamic/performance each. Two recorded muted thumps supply
+real alternates. Slap roots are MIDI 33,34,35,36,38,39; pop roots are exactly one
+octave higher. Keyboard ranges extend by nearest-root transposition (slap 23–64,
+pop 35–76); they are not chromatically recorded throughout those ranges.
+Natural source tails are retained up to four seconds. Rebuild with
+`scripts/procedural-synth-assets/build-slap-bass-banks.py` and the pinned source
+archive; no audio/SFZ scripts run in game. Existing bank identities are unchanged.
+The full on-disk library has seventeen banks; each factory set remains within
+the unchanged shared 256-MiB resident PCM limit. The catalogue is not loaded all
+at once. The original sections below document their own earlier package scope.
+
 Original electric bank: FreePats FSBS Electric Guitar Direct, release 2022-09-11.
 Source: https://freepats.zenvoid.org/ElectricGuitar/clean-electric-guitar.html
 License: CC0 1.0 Universal. The original license and README are in `licenses/`.

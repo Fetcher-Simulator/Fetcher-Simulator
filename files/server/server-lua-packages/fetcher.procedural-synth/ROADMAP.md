@@ -2,6 +2,25 @@
 
 Updated 2026-11-04. Completed work and subsequent planned slices are identified below.
 
+Package 75 / native API 34 adds real CC BY thumb-slap/pop/short/thump bass
+recordings, independently selected real alternate takes on adjacent Studio lanes,
+curated genre candidates, gentler acoustic gate releases, original exercises and
+a separate staged-preamp character. Non-heavy sets were reviewed as decent
+starting points. The heavy sounds are **not accepted** as meeting the supplied
+Master of Puppets and Rip & Tear references: C remains the preferred thrash
+baseline; the industrial change is closer but still needs work. A separately
+amped FreePats sample candidate was rejected and is not installed. Priority one
+remains active; another preset/EQ change alone is not its acceptance criterion.
+
+Local two-client acceptance covers simultaneous independent keyboards, late
+listeners, repeated live genre changes, Undo/Redo with explicit resume, dense
+Master of Puppets/Enter Sandman/Riders imports, server-backed save/reload/replay
+and owned-NPC cleanup over more than seven minutes per client. Original profiles
+and database files are protected by hashes. This is a bounded local soak, not
+proof of multi-hour/public/orchestra-scale performance. Dedicated captured
+release/connected-gesture refinement and artist-target listening remain open.
+No VPS, hosted-content update or public workflow is part of this slice.
+
 **Sound-design direction after reviewing the supplied video references:** the
 first native audio slice adds a proper guitar cabinet/microphone IR stage, with
 independent pre-drive shaping, post-cabinet EQ and matched output levels. Follow
@@ -653,7 +672,7 @@ Up to 32 tracks route to placed keyboards or player/owned-NPC band performers,
 with native audio-clock sequencing, server-timed starts, spatial outputs and
 held-instrument presentation. The portable keyboard, inventory icon, scalable
 resizable windows and saved band routing are implemented. Runtime baseline is
-package 73 / native synth API 32 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
+package 75 / native synth API 34 / protocol 27 (local candidate; Vanilla remains 64 and the published client API remains 25). Installed-game sampling, library/recovery,
 automation/controller, tempo/meter, arrangement and first-pass recording tools are
 implemented, together with initial seated keyboard/cello NPC staging.
 

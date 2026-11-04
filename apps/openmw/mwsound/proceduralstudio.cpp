@@ -33,7 +33,7 @@ namespace MWSound
         const bool fresh = !track;
         if (!track)
         {
-            mOwnedTracks[n - 1] = std::make_unique<ProceduralSynth>();
+            mOwnedTracks[n - 1] = std::make_unique<ProceduralSynth>(n - 1);
             track = mOwnedTracks[n - 1].get();
         }
         for (std::size_t i = 0; i < state.size(); ++i)

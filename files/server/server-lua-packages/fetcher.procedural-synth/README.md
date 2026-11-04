@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 74 / native synth API 33 / multiplayer protocol 27.
+Current source: package 75 / native synth API 34 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,37 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models are available. More detailed articulation/animation
 and wider listening-based sound balancing remain in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Band sound candidates (package 75 / API 34; local only)
+
+Mixer's sound-set picker adds **Band / ...** starting points for heavy rock,
+modern/alternative metal, funk/slap, clean electric, blues/jazz and acoustic/
+classical. **New Song → Band sound checks** supplies matching editable exercises,
+including real slap/pop, low-B industrial and scooped-thrash comparisons. Existing
+set and preset IDs remain available; saved personal sounds are not rewritten.
+The **Band / Curated** preset bank exposes individual sounds. Channel EQ recipes
+save with the project; switching away preserves subsequently customized EQ.
+
+The funk set deliberately reinterprets GM finger bass as thumb slap. GM picked
+bass stays picked; GM slap/pop programs select actual corresponding recordings.
+**Strings → Articulation** (or saved note expression/CC mapping) selects recorded
+short and muted-thump attacks. These six-root recordings have one recorded
+dynamic per pitch; velocity scales it. They do not invent velocity layers or
+alternate takes. Acoustic guitar candidates retain their recorded natural tails
+with gentler gate releases; dedicated note-off release recordings are not added.
+
+**Synth → Effects → Character → Staged amp** adds an oversampled cascaded
+preamp with interstage bass filtering and bounded compression. Industrial uses
+the existing parallel branch too. Adjacent Studio tracks start on different
+real recorded alternates when a bank provides them, avoiding identical sampled
+double-tracks. Single-performance banks cannot acquire real alternates this way.
+
+Listening review accepted the non-heavy sets as decent starting points, but
+**has not accepted the heavy presets as meeting the Master of Puppets/Rip & Tear
+targets**. C remains the clearer thrash baseline; the industrial candidate is
+an improvement that still needs work. These are candidates, not album emulations
+or completion of priority one. The rejected separately processed FreePats amp
+audition is not included in the installed library.
 
 ## Note-driven instrument presentation (package 74 / API 33)
 

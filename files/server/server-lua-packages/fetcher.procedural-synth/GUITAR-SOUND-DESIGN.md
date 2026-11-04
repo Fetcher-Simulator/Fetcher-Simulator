@@ -1,5 +1,34 @@
 # Guitar and heavy sound-design direction
 
+## November 4 listening checkpoint (package 75 / API 34)
+
+User references: https://www.youtube.com/watch?v=E0ozmU9cJDg (Master of Puppets,
+remastered) and https://www.youtube.com/watch?v=vyA1z2A-lhU (Rip & Tear).
+The user accepted the non-heavy curated band sets as decent starting points.
+Heavy/doom fuzz, a staged-amp/scooped thrash chain and a separate processed
+FreePats guitar bank did not meet the heavy target. C remains the preferred
+thrash baseline. The revised industrial/parallel low-B candidate is better,
+but not a finished Rip & Tear tone. Do not describe these as accepted artist
+emulations. The FreePats processed bank remains an offline rejected experiment.
+
+The local Master of Puppets MIDI lasts 473.18 seconds, versus 515 seconds for
+the supplied recording, and starts at 220 BPM. It is an arrangement, not an
+exact transcription. A Basic Pitch test on the first 12 seconds of the mixed
+recording missed the opening chord and produced one mixed 36-note part, so it
+is unsuitable as a replacement reference. Audio and generated diagnostics stay
+private in ignored build directories. Do not redistribute commercial reference
+recordings as sample content.
+
+Further heavy work should evaluate a more faithful amp response with documented
+input calibration, usable picked/palm attacks and complete band context. Keep
+source-only/amp-only diagnostics and matched guitar-stem loudness. An offline
+GuitarML IIC+-style model evaluation is a prototype, not installed/native support.
+Model/code redistribution licenses must be audited separately from CC audio.
+
+The native staged preamp and per-lane real alternate selection have bounded DSP
+tests; the two-client soak covers dense imports, changes, persistence and cleanup.
+These checks do not substitute for the remaining listening/recorded-gesture work.
+
 Reviewed October 30, 2026 using the three supplied videos' English captions,
 chapter descriptions and published descriptions. Completed slices are recorded
 below alongside the remaining plan. Listening acceptance remains separate.
