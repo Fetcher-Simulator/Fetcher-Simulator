@@ -484,23 +484,62 @@ function W:setSample(index,reference)
     end
     self:configure(index);self:touch('sound:sample:'..index);return true
 end
-function W:addSampleSlices(references,name)
+function W:addSampleSlices(references,name,arrange)
     if type(references)~='table' or #references<2 or #references>16 or #self.project.tracks+#references>format.maxTracks then
         self.cb.message('Slicing needs 2-16 free tracks, within the 32-track limit.');return false
     end
     if self.recording or self.failedTake then self.cb.message('Keep or cancel the take before slicing.');return false end
+    if arrange~=nil and type(arrange)~='boolean' then return false end
     local p=copy(self.project);local first=#p.tracks+1;local base=p.tracks[self.selected]
+    local startBeat=0;local seconds=0;local finishBeat=0
+    if arrange then
+        p=self:timingProject() or p
+        if not p.timeline then
+            if p.midi~='' then self.cb.message('Load the original MIDI before adding an arranged phrase.');return false end
+            local bars=p.length/16
+            p.composition={bars=bars,numerator=4,denominator=4,loopStart=1,loopEnd=bars,loop=false}
+            p.timeline={beats=bars*4,tempos={{beat=0,tempo=math.floor(60000000/p.bpm+.5)}}}
+        end
+        startBeat=self.cursorBeat or 0
+        if type(startBeat)~='number' or startBeat~=startBeat or startBeat<0 or startBeat>format.maxSongBeats then return false end
+        seconds=format.seconds(p.timeline,startBeat);finishBeat=startBeat
+    end
     for n,reference in ipairs(references) do
         local ref=schema.sample(reference);if not ref or schema.isBank(ref) or not ref.oneShot or ref.loop then return false end
-        local t=format.newTrack('drum',(name or 'Sample'):sub(1,34)..' slice '..n,p.length)
+        local t=format.newTrack(arrange and 'midi' or 'drum',(name or 'Sample'):sub(1,34)..' slice '..n,p.length)
         t.params=base and base.params.sample and schema.state(base.params) or schema.state{attack=.002,sustain=1,release=.08,cutoff=18000,polyphony=8}
         t.params.sample=ref;t.note=ref.root;t.followPrograms=false
         if base then t.output=copy(base.output);t.mixer=copy(base.mixer);t.level=base.level end
+        if arrange then
+            local at=self:beatAt(seconds,'song',p)*4;seconds=seconds+ref.duration
+            local gate=math.max(1/6000,math.floor((self:beatAt(seconds,'song',p)*4-at)*6000+.5)/6000)
+            local length=math.max(.25,gate)
+            if length>format.maxSteps then self.cb.message('A slice is too long for a source clip at this BPM. Add markers or lower BPM.');return false end
+            local notes=format.encodeNotes({{n=ref.root,s=0,l=gate,v=.85}},24000)
+            if not notes then return false end
+            t.edited=format.encodeNotes({},24000);t.sourceRole=base and base.sourceRole or 'percussion';t.instrument=base and base.instrument or nil
+            t.arrangement={clips={{name=t.name:sub(1,32),length=length,notes=notes}},regions={{clip=1,s=at,l=length,transpose=0,mute=false}}}
+            finishBeat=math.max(finishBeat,(at+length)/4)
+        end
         p.tracks[#p.tracks+1]=t
+    end
+    if arrange then
+        p.timeline.beats=math.max(p.timeline.beats,finishBeat)
+        if p.composition then
+            p.composition.bars=math.max(p.composition.bars,format.barAt(p,math.max(0,finishBeat-1e-8)))
+            p.timeline.beats=format.barStart(p,p.composition.bars+1)
+        end
     end
     local valid=format.project(p);if not valid then self.cb.message('Slice limits exceeded; the original project was kept.');return false end
     self:stop(true);self.clipEdit=nil;self.project=valid;self.selected=first;self.noteCache={};self.noteSelection={}
-    self:configureAll();self:touch();self.page='drums'
+    self:configureAll();self:touch();self.page=arrange and 'arrange' or 'drums'
+    if arrange then
+        self.arrangePage=math.floor((first-1)/8);self.arrangeBar=math.max(0,format.barAt(valid,startBeat)-1)
+        self.regionTrack=first;self.regionIndex=1;self.arrangeClip=1;self.regionSelection={}
+        for n=first,#valid.tracks do self.regionSelection[n]={[1]=true} end
+        self.cb.message('Slice phrase placed at the edit playhead. Original track kept; mute it to audition the reconstruction. Use Play song.')
+        return true
+    end
     local lane=0;for n,t in ipairs(valid.tracks) do if t.kind=='drum' then lane=lane+1 end;if n==first then break end end
     self.drumPage=math.floor((lane-1)/8);return true
 end

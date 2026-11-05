@@ -2,6 +2,29 @@
 
 Updated 2026-11-05. Completed work and subsequent planned slices are identified below.
 
+Package 84 / native API 40 adds automatic transient slice suggestions, sensitivity
+and minimum-gap controls, zero-cross snapping, the 15-marker cap with an explicit
+omission notice, and local Undo detect. Markers remain editable drafts. Analysis
+uses bounded two-ms energy bins from the actual decoded playback direction,
+never the audio callback or an enlarged waveform thumbnail. No-attack results
+keep existing markers; the detector is a heuristic for attacks, not source separation.
+
+Create phrase makes independent linked clips at the edit playhead, retaining
+original source timing through tempo maps and keeping the original track.
+Blank drum-lane creation remains available. Creation validates the complete
+candidate project before one Undo; normal sample references, source clips and
+placements handle persistence/relay without a new document or server protocol.
+Only the client C++ API and local Lua package change; no new hosted assets or
+VPS deployment is part of this checkpoint.
+
+All 39 Lua suites and 12 native groups pass, including attack timing/level
+invariance, sensitivity, spacing/caps, reverse-direction analysis, draft controls,
+tempo-map placement, long-pattern preservation, history and atomic limits.
+Monitor-2 native inspection checks gap adjustment, detection without rebuilding
+the editor, and Create phrase. Two copied-profile clients verify decoded attack
+suggestions, linked clip/source references, late listener audio and private
+server-backed save/reload. Original profiles/database remain unchanged.
+
 Package 83 / native API 39 adds the expanded raw-sample waveform editor: source
 peak recalculation at each zoom, panning, draggable trim/sustain-loop handles,
 manual slice markers, per-slice audition and atomic creation of slice lanes.
@@ -769,11 +792,12 @@ priorities rather than blocking sample editing on those open-ended targets.
 
 ## Remaining roadmap (next: sample editing; formerly priority two)
 
-1. **Further sample tools and sound libraries.** Automatic transient-based slice
-   placement, reusable user sample libraries, richer source editing and sound-library expansion beyond the
+1. **Further sample tools and sound libraries.** Reusable user sample libraries,
+   richer source editing and sound-library expansion beyond the
    priority band set. Package 81 adds sustained excerpt loops, reverse and bounded
    loop-join crossfades; package 82 adds equal slices as independent sequencer lanes;
-   package 83 adds zoom, draggable trim/loop points and manual slicing/audition. Continue
+   package 83 adds zoom, draggable trim/loop points and manual slicing/audition;
+   package 84 adds automatic attack suggestions and original-timing arranged phrases. Continue
    listening/balance refinement alongside the orchestral instrument work.
 2. **Section layouts and conductor presentation.** Add saved spacing/layout
    presets, instrument sections, conductor gestures and formation previews.

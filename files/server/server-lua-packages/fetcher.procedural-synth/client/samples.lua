@@ -139,6 +139,21 @@ function M:chops(count)
     local points={};for n=1,count-1 do points[n]=math.floor(n*length/count)/1000 end
     return self:slices(points)
 end
+function M:detect(sensitivity,spacing,snap)
+    if not self.synth.sampleTransients then return nil,'Automatic slicing requires the updated Studio client (API 40).' end
+    if type(sensitivity)~='number' or sensitivity~=sensitivity or sensitivity<0 or sensitivity>1
+        or type(spacing)~='number' or spacing~=spacing or spacing<.01 or spacing>2 then return nil,'Choose sensitivity 0-100% and minimum gap 10-2000ms.' end
+    local info=self:info();if info.status~='Ready' then return nil,'Wait until the sample is Ready.' end
+    local result=self.synth.sampleTransients(self.path,self.offset,self.duration,sensitivity,spacing,self.reverse or false,snap==true)
+    if not result.points or result.hash~=info.hash then return nil,'The sample cannot be analysed as a raw excerpt.' end
+    local points={};local previous=0;local length=math.floor(info.duration*1000)/1000
+    if #result.points>15 then return nil,'Invalid slice analysis.' end
+    for _,point in ipairs(result.points) do
+        if type(point)~='number' or point~=point or point-previous<.01-1e-7 or point>length-.01+1e-7 then return nil,'Invalid slice analysis.' end
+        points[#points+1]=point;previous=point
+    end
+    return {points=points,found=result.found or #points,truncated=result.truncated==true}
+end
 function M:waveRange(first,last)
     if not self.path or not self.synth.sampleWaveformRange then return nil end
     local key=table.concat({self.path,self.offset,self.duration,first,last,tostring(self.reverse)},'|')

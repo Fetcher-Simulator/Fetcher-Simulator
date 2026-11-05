@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 83 / native synth API 39 / multiplayer protocol 27.
+Current source: package 84 / native synth API 40 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,40 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models are available. More detailed articulation/animation
 and wider listening-based sound balancing remain in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Automatic slicing and arranged phrases (package 84)
+
+In **Samples > Edit waveform**, choose **Detect slices** to suggest attack points.
+**Sensitivity** finds stronger or quieter rises; **Minimum gap** sets spacing
+between suggested attacks (10–2000ms). Changing either control keeps the current
+markers until you click Detect again. **Zero snap** also applies to detection.
+Suggestions follow the displayed playback direction, including Reverse.
+
+Drag/delete suggested markers and audition individual slices before applying them.
+**Undo detect** restores the markers that existed before the last detection.
+If no attacks are found, existing markers are kept. At most 15 markers / 16 slices
+are returned; the editor reports omitted attacks and keeps the strongest spaced
+ones. Trim a shorter excerpt or increase the gap to reduce their number. This is
+an attack-energy heuristic: speech, slow swells and complex mixes may need manual
+adjustment. Analysis runs only on request, outside the audio callback, over at
+most 30 seconds of decoded audio. No audio files are rewritten or transmitted.
+
+**Create slice lanes** retains the existing blank drum-lane workflow.
+**Create phrase** instead creates one linked source clip and placement per slice
+on Arrange, starting at the current edit playhead. It preserves source ordering
+and trigger timing in seconds through the current tempo map, without snapping
+attacks to the drum grid. Use **Play song** for the arranged result. Subsequent
+tempo edits move musical placements; the audio itself is not time-stretched.
+The original track, sound routing and mixer settings are kept; mute the original
+track when comparing its playback with the reconstruction.
+
+Phrase creation is one Undo and saves as ordinary project sample references and
+clips. It can extend authored song length independently of Pattern bars. It needs
+2–16 free parts within the 32-part limit and respects existing source-clip, note
+and song limits; failure keeps the whole original project. A slice longer than
+256 piano-roll steps at the current tempo needs more markers or a slower tempo.
+This checkpoint updates only the local test fixture. No server C++ or content
+asset changes are needed. Reusable user sample libraries remain a follow-up.
 
 ## Waveform editing and transport (package 83)
 

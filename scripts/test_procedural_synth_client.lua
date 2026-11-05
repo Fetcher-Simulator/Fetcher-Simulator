@@ -1688,7 +1688,8 @@ end
 do
  local function testWaveEditor()
   local Samples=package.loaded[prefix..'client.samples'];local Workstation=package.loaded[prefix..'client.workstation']
-  local calls=0;local ready=true;local native={version=39,sampleInfo=function(_,_,duration) return {status=ready and 'Ready' or 'Loading',duration=math.min(duration,2),hash=string.rep('a',32)} end,
+  local calls=0;local ready=true;local analysisCalls=0;local native={version=40,sampleInfo=function(_,_,duration) return {status=ready and 'Ready' or 'Loading',duration=math.min(duration,2),hash=string.rep('a',32)} end,
+   sampleTransients=function() analysisCalls=analysisCalls+1;return {points={.4,1.4},found=2,hash=string.rep('a',32)} end,
    sampleWaveformRange=function(_,_,_,first,last,reverse) calls=calls+1;return {minimum={-.3,-.2},maximum={.2,.4},first=first,finish=last} end,
    sampleZeroCrossing=function(_,_,_,point) return point+.002 end}
   local b=Samples.new(native,package.loaded['openmw.vfs'],source);b:select('sound/fx/test.wav');b.duration=2
@@ -1708,6 +1709,18 @@ do
   check(b.loop and b.loop.finish==1.202 and not b.oneShot,'loop handle commits a gated loop on release')
   local refs=assert(b:slices(e.s.points));check(#refs==3 and refs[2].offset==.502 and refs[2].duration==1,'manual markers produce gap-free independent samples')
   check(w:addSampleSlices(refs,'Manual') and #w.project.tracks==4 and w:undo() and #w.project.tracks==1,'manual slices are one reversible project action')
+  local generation=w.generation;local oldPoints=e.s.points
+  check(e:detect() and e.s.points[1]==.4 and e.s.previousPoints[1]==oldPoints[1],'detection suggests editable markers with a recoverable draft')
+  check(w.generation==generation and view.root==widget and e.handles.trimFirst==handle,'detect updates marker widgets without editing or rebuilding the project')
+  local sensitivity
+  for _,element in ipairs(view.children) do local children=element.layout.content
+   if children and children[1] and children[1].layout and children[1].layout.props.text=='Sensitivity' then sensitivity=element;break end
+  end
+  local track=assert(sensitivity).layout.content[2];local width=track.props.size.x
+  mouseDown=true;track.events.mousePress{button=1,offset=vector(width*.8,0)}
+  check(math.abs(e.s.sensitivity-.8)<.001 and analysisCalls==1 and view.root==widget,'sensitivity drag is smooth and detection runs only on request');mouseDown=false
+  for _,item in ipairs(view.root.layout.content) do if item.content and item.content[1] and item.content[1].props and item.content[1].props.text=='Undo detect' then item.events.mouseClick();break end end
+  check(e.s.points[1]==oldPoints[1] and w.generation==generation,'Undo detect restores manual markers without touching musical history')
   w.page='samples';view:setSampleFocus(true);ready=false;b:trim(.2,1);view:render()
   check(view.sampleEditorWaiting and not view.waveEditor,'trim waits for the new asynchronous decode')
   ready=true;view:frame(now+.3);check(view.waveEditor and not view.sampleEditorWaiting and view.waveEditor.length==.8,'ready decode automatically restores the editor after trimming')

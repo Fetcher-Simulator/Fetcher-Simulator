@@ -8,6 +8,7 @@
 #include <optional>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace MWSound
@@ -68,6 +69,56 @@ namespace MWSound
                 }
             }
             return distance<1e9?std::optional<double>(nearest):std::nullopt;
+        }
+        struct Transients { std::vector<double> points;std::size_t found=0; };
+        // Explicit editor request on the control thread, never the audio callback.
+        // Two-ms energy bins keep a 30-second excerpt bounded to 15000 bins.
+        std::optional<Transients> transients(double sensitivity,double spacing,bool reverse,bool snap)const
+        {
+            if(pcm.size()<480 || pcm.size()>1440000 || !zones.empty() || !std::isfinite(sensitivity)
+                || !std::isfinite(spacing) || sensitivity<0 || sensitivity>1 || spacing<.01 || spacing>2)return {};
+            constexpr std::size_t hop=96;
+            const auto bins=(pcm.size()+hop-1)/hop;
+            std::vector<double> energy(bins),fast(bins);
+            double window=0,peak=0;
+            for(std::size_t n=0;n<bins;++n)
+            {
+                const auto first=n*hop,last=std::min(pcm.size(),first+hop);double sum=0;
+                for(auto i=first;i<last;++i){const double value=pcm[reverse?pcm.size()-1-i:i];sum+=value*value;}
+                energy[n]=sum/(last-first);window+=energy[n];if(n>=5)window-=energy[n-5];
+                fast[n]=std::sqrt(std::max(0.0,window/std::min<std::size_t>(n+1,5)));peak=std::max(peak,fast[n]);
+            }
+            Transients out;if(peak<1e-7)return out;
+            std::vector<double> novelty(bins);double envelope=0;
+            const double ratio=1.65-.6*sensitivity,floor=peak*(.075-.06*sensitivity),decay=std::exp(-.002/.06);
+            for(std::size_t n=0;n<bins;++n)
+            {
+                const double change=fast[n]-envelope*ratio;
+                if(change>floor)novelty[n]=change/peak;
+                envelope=std::max(fast[n],envelope*decay);
+            }
+            struct Candidate { double at,score; };std::vector<Candidate> candidates;
+            const double duration=std::floor(pcm.size()/48.0)/1000;
+            for(std::size_t n=0;n<bins;++n)if(novelty[n]>0)
+            {
+                bool maximum=true;
+                for(auto j=n>5?n-5:0;j<std::min(bins,n+6);++j)
+                    if(novelty[j]>novelty[n] || (j<n && novelty[j]==novelty[n])){maximum=false;break;}
+                if(!maximum)continue;
+                double at=(n>4?n-4:0)*.002;
+                if(snap)if(auto crossing=zeroCrossing(at,reverse))at=*crossing;
+                at=std::floor(at*1000+.5)/1000;
+                if(at>=.01 && at<=duration-.01)candidates.push_back({at,novelty[n]});
+            }
+            std::sort(candidates.begin(),candidates.end(),[](const auto& a,const auto& b){return a.score==b.score?a.at<b.at:a.score>b.score;});
+            std::vector<double> accepted;
+            for(const auto& candidate:candidates)
+            {
+                bool near=false;for(double at:accepted)if(std::abs(at-candidate.at)<spacing-1e-9){near=true;break;}
+                if(!near)accepted.push_back(candidate.at);
+            }
+            out.found=accepted.size();accepted.resize(std::min<std::size_t>(15,accepted.size()));
+            std::sort(accepted.begin(),accepted.end());out.points=std::move(accepted);return out;
         }
         void buildWaveform() // loader thread only, raw excerpts only
         {

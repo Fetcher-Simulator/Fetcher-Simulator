@@ -1,6 +1,7 @@
 -- View state is local and non-destructive. Only Apply trim/loop, Use sample,
 -- and Create slices change playback references or the project.
 local ui=require('openmw.ui');local util=require('openmw.util');local async=require('openmw.async');local input=require('openmw.input')
+local Controls=require('scripts.multiplayer.fetcher.procedural-synth.client.controls')
 local E={};E.__index=E;local v=util.vector2;local white=ui.texture{path='white'}
 local c={bg=util.color.rgb(.075,.09,.12),line=util.color.rgb(.14,.17,.21),wave=util.color.rgb(.2,.85,.72),blue=util.color.rgb(.35,.65,.95),text=util.color.rgb(.85,.89,.94)}
 local function clamp(n,a,b) return math.max(a,math.min(b,n)) end
@@ -17,7 +18,7 @@ function E.new(owner,content)
     owner.sampleEditorWaiting=nil
     local key=table.concat({b.path,b.offset,b.duration,tostring(b.reverse)},'|')
     if not b.editView or b.editView.key~=key then b.editView={key=key,first=0,span=length,caret=0,trimFirst=0,trimLast=length,points={},snap=true} end
-    local self=setmetatable({owner=owner,b=b,s=b.editView,length=length,x=25,y=220,width=owner.width-50,height=math.max(160,owner.height-345),handles={}},E)
+    local self=setmetatable({owner=owner,b=b,s=b.editView,length=length,x=25,y=280,width=owner.width-50,height=math.max(160,owner.height-405),handles={}},E)
     self.s.loopFirst=b.loop and b.loop.start or 0;self.s.loopLast=b.loop and b.loop.finish or length
     local function button(text,x,y,width,fn,on) content[#content+1]=owner:button(text,x,y,width,fn,on) end
     button('Back [Esc]',20,55,115,function() owner:setSampleFocus(false) end)
@@ -44,7 +45,21 @@ function E.new(owner,content)
         if not refs then owner.w.cb.message(err or 'Add 1-15 ordered markers, with at least 10ms per slice.');return end
         b:stop();owner.w:addSampleSlices(refs,(b.path:match('([^/]+)$') or 'Sample'):gsub('%.[^.]+$',''))
     end)
-    self.status=owner:element(label('',20,177,owner.width-40));content[#content+1]=self.status
+    button('Create phrase',710,135,180,function()
+        local refs,err=b:slices(self.s.points)
+        if not refs then owner.w.cb.message(err or 'Add 1-15 markers before creating a slice phrase.');return end
+        b:stop();owner.w:addSampleSlices(refs,(b.path:match('([^/]+)$') or 'Sample'):gsub('%.[^.]+$',''),true)
+    end)
+    button('Detect slices',20,183,140,function() self:detect() end)
+    self.s.sensitivity=self.s.sensitivity or .5;self.s.spacing=self.s.spacing or .08
+    local function setting(key,value) self.s[key]=value;self.s.notice='Settings changed. Detect slices replaces the current marker suggestions.';self:draw() end
+    content[#content+1]=Controls.slider(owner,'sliceSensitivity','Sensitivity',{min=0,max=1,step=.01,unit='%'},function() return self.s.sensitivity end,function(value) setting('sensitivity',value) end,175,175,250)
+    content[#content+1]=Controls.slider(owner,'sliceSpacing','Minimum gap',{min=.01,max=2,step=.001,unit='s'},function() return self.s.spacing end,function(value) setting('spacing',value) end,445,175,250)
+    button('Undo detect',715,183,175,function()
+        if self.s.previousPoints then self.s.points=self.s.previousPoints;self.s.previousPoints=nil;self.s.marker=nil;self.s.notice='Previous markers restored.';self:draw() end
+    end)
+    self.status=owner:element(label('',20,224,owner.width-40));content[#content+1]=self.status
+    self.notice=owner:element(label('',20,247,owner.width-40));content[#content+1]=self.notice
     self.wave=owner:element(rect(self.x,self.y,self.width,self.height,c.bg))
     self.wave.layout.events={mousePress=cb(function(e) if e.button==1 then self.s.caret=self:time(e);self.s.marker=nil;self:draw() end end)}
     content[#content+1]=self.wave
@@ -57,6 +72,16 @@ function E.new(owner,content)
     content[#content+1]=label('Drag blue trim handles at the top; loop handles at the bottom. Orange markers split slices.',20,self.y+self.height+43,owner.width-40)
     content[#content+1]=label('Click to place the cursor; wheel zooms, Shift+wheel pans. Changes use millisecond precision. Esc returns.',20,self.y+self.height+65,owner.width-40)
     self:draw();return self
+end
+function E:detect()
+    local result,err=self.b:detect(self.s.sensitivity,self.s.spacing,self.s.snap)
+    if not result then self.s.notice=err;self:draw();return false end
+    if #result.points==0 then self.s.notice='No distinct attacks found. Existing markers kept; raise sensitivity or add markers manually.';self:draw();return false end
+    self.s.previousPoints={};for n,point in ipairs(self.s.points) do self.s.previousPoints[n]=point end
+    self.s.points=result.points;self.s.marker=nil
+    self.s.notice=result.truncated and ('Showing the 15 strongest of '..result.found..' spaced attacks. Raise minimum gap or trim to get fewer.')
+        or ('Suggested '..#result.points..' markers. Drag/delete them, audition a slice, then create lanes or an arranged phrase.')
+    self:draw();return true
 end
 function E:time(e)
     local root=self.owner.root and self.owner.root.layout.props.position or v(0,0);local scale=self.owner.window.scale
@@ -155,5 +180,7 @@ function E:draw()
     end
     self.status.layout.props.text=string.format('View %.3f-%.3fs | Cursor %.3fs | Trim %.3f-%.3fs | Loop %.3f-%.3fs | %d slices',s.first,s.first+s.span,s.caret,s.trimFirst,s.trimLast,s.loopFirst,s.loopLast,#s.points+1)
     self.owner.window:update(self.status)
+    self.notice.layout.props.text=self.s.notice or 'Detect slices suggests attack points. Create phrase keeps source timing at the edit playhead; original part is kept.'
+    self.owner.window:update(self.notice)
 end
 return E

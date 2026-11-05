@@ -121,7 +121,7 @@ namespace MWLua
                     return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash, s.attacks, s.gain, s.playback);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 39;
+            api["version"] = 40;
             api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
                 const auto path = manager->exportStudioMidi(name, bytes);
                 sol::table result(lua, sol::create);
@@ -177,6 +177,17 @@ namespace MWLua
                 if(data->status.load(std::memory_order_acquire)==MWSound::ProceduralSample::Ready)
                     if(auto at=data->zeroCrossing(position,reverse))return *at;
                 return sol::nullopt;
+            };
+            api["sampleTransients"]=[lua](std::string path,double offset,double duration,double sensitivity,double spacing,bool reverse,bool snap) {
+                const auto data=MWBase::Environment::get().getSoundManager()->requestSample(std::move(path),offset,duration);
+                sol::table out(lua,sol::create);
+                if(data->status.load(std::memory_order_acquire)==MWSound::ProceduralSample::Ready)
+                    if(auto result=data->transients(sensitivity,spacing,reverse,snap))
+                    {
+                        out["points"]=sol::as_table(result->points);out["found"]=result->found;
+                        out["truncated"]=result->found>result->points.size();out["hash"]=data->hash;
+                    }
+                return LuaUtil::makeReadOnly(out);
             };
             api["createMasterBus"]=[]{return std::make_shared<MWSound::ProceduralMaster>();};
             using Studio = MWSound::ProceduralStudio;
