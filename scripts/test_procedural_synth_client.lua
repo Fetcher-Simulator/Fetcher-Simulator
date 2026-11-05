@@ -467,6 +467,19 @@ local function button(text)
     end
     error('Missing button '..text)
 end
+do
+    button('Synth').events.mouseClick()
+    local function editorButton(text)
+        for _,item in ipairs(lastEditor.root.layout.content) do if item.content and item.content[1] and item.content[1].props and item.content[1].props.text==text then return item end end
+    end
+    for _,title in ipairs{'Synth','Arrange','Song','Mixer','Piano','Drums','Band','Auto','Samples'} do check(editorButton(title),'Synth retains major tab '..title) end
+    check(not editorButton('Studio'),'redundant Studio button is removed')
+    local params=lastEditor.params;local commands=#sent;editorButton('Synth').events.mouseClick()
+    check(lastEditor.params==params and #sent==commands,'active Synth tab does not replace the selected sound')
+    editorButton('Arrange').events.mouseClick()
+    check(lastStudio.w==w and w.page=='arrange','Synth Arrange tab returns to the same workstation and arrangement')
+    button('Mixer').events.mouseClick();now=now+.01;player.engineHandlers.onFrame(.01)
+end
 button('+ Piano clip').events.mouseClick();now=400.01;player.engineHandlers.onFrame(0.01)
 check(w.page=='piano' and #w.project.tracks==1,'piano clip button switches to editable piano roll')
 local inserted=false
@@ -1337,7 +1350,7 @@ local function testContinuousSliders()
     local editor=Editor.new(schema.state(bank.state),{change=function() end,command=function(op,args) requested=args.presetId end,noteOff=function() end,meter=function() return 0,0 end})
     check(not editor.controls.wave1 and editor.controls.tune1 and editor.controls.cutoff and editor.controls.release,'recorded source exposes tuning/filter/envelopes instead of unused oscillator controls')
     check(editor.controls.stringMute and editor.controls.stringDecay and editor.controls.stringDamping,'recorded strings expose modeled mute, decay and tone controls')
-    for _,item in ipairs(editor.root.layout.content) do if item.content and item.content[1] and item.content[1].props and item.content[1].props.text=='Synth' then item.events.mouseClick();break end end
+    for _,item in ipairs(editor.root.layout.content) do if item.content and item.content[1] and item.content[1].props and item.content[1].props.text=='Keys' then item.events.mouseClick();break end end
     check(requested=='b:studio-keys','source-mode switch loads a synth preset that clears the recorded source')
     local old=editor.root;editor:state(schema.state({}),nil);editor:frame(now+2)
     check(editor.root~=old and editor.controls.wave1,'loading a procedural source restores the correct controls')
@@ -1628,5 +1641,34 @@ do
   view:destroy()
  end
  testSampleEditingUI()
+end
+do
+ local function testArrangeRuler()
+  local Workstation=package.loaded[prefix..'client.workstation'];local Studio=dofile(root..'client/studio.lua')
+  local w=Workstation.new{configure=function() end,panic=function() end,message=function() end,meter=function() return 0 end}
+  assert(w:newSong(120,4,4,16));w.page='arrange';w.arrangeBars=8
+  local view=Studio.new(w,{midiLabel=function() return 'Ruler test' end})
+  local r=view.arranger
+  local function event(fraction)
+   local p=view.root.layout.props.position;local scale=view.window.scale
+   return {button=1,position=vector(p.x+(r.x+r.width*fraction)*scale,p.y+(r.y-16+38)*scale),offset=vector(0,0)}
+  end
+  local history=#w.undoStack;mouseDown=true;r.ruler.layout.events.mousePress(event(.25))
+  check(w.cursorBeat==8,'ruler click places the playhead at the clicked song position')
+  r.seekHandle.layout.events.mouseMove(event(.5));mouseDown=false;r:frame()
+  check(w.cursorBeat==16 and #w.undoStack==history,'playhead drag updates transient position without editing the song')
+  check(r.seekHandle.layout.props.visible,'stopped playhead retains a visible grab point')
+  mouseDown=true;r.firstHandle.layout.events.mousePress(event(.25));r.firstHandle.layout.events.mouseMove(event(.375))
+  check(#w.undoStack==history and w.project.composition.loopStart==1,'loop marker movement previews without repeatedly changing history')
+  mouseDown=false;r:frame()
+  check(w.project.composition.loopStart==4 and w.project.composition.loop and #w.undoStack==history+1,'releasing loop-start handle commits snapped bar once')
+  w.arrangeBars=16;view:render();r=view.arranger
+  mouseDown=true;r.lastHandle.layout.events.mousePress(event(.5));mouseDown=false;r:frame()
+  check(w.project.composition.loopEnd==8,'right loop marker is the exclusive boundary at bar nine')
+  history=#w.undoStack;mouseDown=true;r.firstHandle.layout.events.mousePress(event(.1));r:finish(true);mouseDown=false
+  check(#w.undoStack==history and w.project.composition.loopStart==4,'cancelled ruler drag preserves loop data')
+  view:destroy()
+ end
+ testArrangeRuler()
 end
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

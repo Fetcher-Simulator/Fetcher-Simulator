@@ -36,6 +36,14 @@ local function windowLayer()
     return 'FetcherStudio'
 end
 W.layer=windowLayer
+W.pages={{'synth','Synth'},{'arrange','Arrange'},{'song','Song'},{'mixer','Mixer'},{'piano','Piano'},
+    {'drums','Drums'},{'band','Band'},{'auto','Auto'},{'samples','Samples'}}
+function W.tabs(owner,content,current,select)
+    for n,page in ipairs(W.pages) do
+        local id,title=page[1],page[2]
+        content[#content+1]=owner:button(title,200+(n-1)*59,12,55,function() select(id) end,current==id)
+    end
+end
 function W.new()
     local screen=viewport()
     local defaultScale=math.min(math.max(1,screen.y/900),screen.x/width,screen.y/(height+chrome))

@@ -24,9 +24,9 @@ local function callback(fn) return async:callback(function(...) fn(...); return 
 function E:element(layout)
     local element=self.window:create(layout); self.children[#self.children+1]=element; return element
 end
-function E:button(text,x,y,w,fn)
-    local r=rect(x,y,w,28,colors.track)
-    r.content=ui.content{label(text,7,5,w-10,13)}
+function E:button(text,x,y,w,fn,on)
+    local r=rect(x,y,w,28,on and colors.accent or colors.track)
+    r.content=ui.content{label(text,6,5,w-10,12,on and colors.bg or colors.text)}
     r.events={mouseClick=callback(fn)}
     return r
 end
@@ -186,23 +186,24 @@ function E:render()
     -- Window scales the logical canvas to the current viewport.
     self.width=940
     local w=self.width
-    local content={label('FETCHER STUDIO',20,14,260,22),label(cb.subtitle or 'PROCEDURAL / POLYPHONIC / SPATIAL',20,42,350,12,colors.muted)}
-    if cb.studio then content[#content+1]=self:button('Studio',w-284,15,76,cb.studio) end
-    content[#content+1]=self:button('Hide [F8]',w-198,15,104,cb.hide or cb.close)
-    content[#content+1]=self:button('Finish',w-84,15,64,cb.close)
+    self.window:bounds();local headerWidth=self.window.canvasWidth
+    local content={label('FETCHER STUDIO',20,14,175,18),label(cb.subtitle or 'PROCEDURAL / POLYPHONIC / SPATIAL',20,48,250,11,colors.muted)}
+    Window.tabs(self,content,'synth',function(page) if page~='synth' and cb.navigate then self:releaseAll();cb.navigate(page) end end)
+    content[#content+1]=self:button('Hide [F8]',headerWidth-198,12,104,cb.hide or cb.close)
+    content[#content+1]=self:button('Finish',headerWidth-84,12,64,cb.close)
     if cb.midiPlay then
-        content[#content+1]=self:button('<',350,14,26,function() cb.midiCycle(-1) end)
-        content[#content+1]=self:button('>',382,14,26,function() cb.midiCycle(1) end)
-        content[#content+1]=self:button('Play MIDI',418,14,104,cb.midiPlay)
-        content[#content+1]=self:button('Stop',530,14,64,cb.midiStop)
-        self.midiLabel=self:element(label(cb.midiLabel(),360,46,w-390,12,colors.accent))
-        content[#content+1]=self.midiLabel
-        content[#content+1]=self:button('MIDI list v',350,44,95,function()
+        content[#content+1]=self:button('<',280,44,26,function() cb.midiCycle(-1) end)
+        content[#content+1]=self:button('>',312,44,26,function() cb.midiCycle(1) end)
+        content[#content+1]=self:button('Play MIDI',348,44,94,cb.midiPlay)
+        content[#content+1]=self:button('Stop',448,44,55,cb.midiStop)
+        self.midiLabel=self:element(label(cb.midiLabel(),6,5,367,12,colors.accent))
+        local selector=rect(515,44,395,28,colors.track)
+        selector.content=ui.content{self.midiLabel,label('v',377,5,14,12)}
+        selector.events={mouseClick=callback(function()
             if cb.midiChoices then Dropdown.open(self,cb.midiChoices(),cb.midiSelected(),cb.midiSelect,30,76,850) end
-        end)
-        self.midiLabel.layout.props.position=v(452,48);self.midiLabel.layout.props.size=v(450,20);self.window:update(self.midiLabel)
+        end)};content[#content+1]=selector
     end
-    self.nameElement=self:element{type=ui.TYPE.TextEdit,props={position=v(20,72),size=v(215,28),text=self.name,textSize=15,textColor=colors.accent},
+    self.nameElement=self:element{type=ui.TYPE.TextEdit,props={position=v(20,80),size=v(215,28),text=self.name,textSize=15,textColor=colors.accent},
         events={textChanged=callback(function(text) self.name=text:sub(1,64) end),
             focusGain=callback(function() self.typing=true end),focusLoss=callback(function() self.typing=false end)}}
     content[#content+1]=self.nameElement
@@ -213,14 +214,14 @@ function E:render()
         {'Rename',function() cb.command('rename',{presetId=self.selected,name=self.name}) end},
         {'Delete',function() cb.command('delete',{presetId=self.selected}) end},
         {'Reset',function() cb.command('reset') end}}
-    for n,c in ipairs(commands) do content[#content+1]=self:button(c[1],245+(n-1)*math.floor((w-270)/6),72,math.floor((w-285)/6),c[2]) end
+    for n,c in ipairs(commands) do content[#content+1]=self:button(c[1],245+(n-1)*math.floor((w-270)/6),80,math.floor((w-285)/6),c[2]) end
     self.selection=self:element(label('Choose a preset',60,111,300,14,colors.accent)); content[#content+1]=self.selection
-    local presetBox=rect(54,107,328,28,colors.track);presetBox.content=ui.content{self.selection,label('v',310,5,14,12)}
+    local presetBox=rect(54,115,328,28,colors.track);presetBox.content=ui.content{self.selection,label('v',310,5,14,12)}
     -- selection has coordinates relative to the selector background.
     self.selection.layout.props.position=v(6,4);self.window:update(self.selection)
     presetBox.events={mouseClick=callback(function()
         local choices={};for _,p in ipairs(self.entries) do choices[#choices+1]={id=p.id,label=p.name,search=p.name..' '..(p.bank or '')..' '..(p.role or '')} end
-        Dropdown.open(self,choices,self.selected,function(id) self.selected=id;self.cb.command('load',{presetId=id});self:refreshName() end,54,139,620)
+        Dropdown.open(self,choices,self.selected,function(id) self.selected=id;self.cb.command('load',{presetId=id});self:refreshName() end,54,147,620)
     end)};content[#content]=presetBox
     local function cycle(step)
         local index=0
@@ -229,15 +230,15 @@ function E:render()
         index=(index-1+step)%#self.entries+1
         self.selected=self.entries[index].id; self:refreshName()
     end
-    content[#content+1]=self:button('<',20,107,28,function() cycle(-1) end)
-    content[#content+1]=self:button('>',390,107,28,function() cycle(1) end)
-    content[#content+1]=self:button('Load',428,107,65,function() cb.command('load',{presetId=self.selected}) end)
-    content[#content+1]=self:button((params.sample or params.instrumentType==1 or self.drums) and 'Synth' or 'Drum',515,107,50,function()
+    content[#content+1]=self:button('<',20,115,28,function() cycle(-1) end)
+    content[#content+1]=self:button('>',390,115,28,function() cycle(1) end)
+    content[#content+1]=self:button('Load',428,115,65,function() cb.command('load',{presetId=self.selected}) end)
+    content[#content+1]=self:button((params.sample or params.instrumentType==1 or self.drums) and 'Keys' or 'Drum',515,115,50,function()
         if self.params.sample or self.params.instrumentType==1 then cb.command('load',{presetId='b:studio-keys'});return end
         self.params.instrumentType=0;cb.change('instrumentType',0)
         self.params.drumType=self.drums and 0 or 2;cb.change('drumType',self.params.drumType);self.page='sound';self:render()
     end)
-    content[#content+1]=self:button('Guitar',570,107,60,function()
+    content[#content+1]=self:button('Guitar',570,115,60,function()
         -- Navigation on an existing string sound must not replace its source,
         -- amp settings, articulation or personal preset with a factory patch.
         if self.params.instrumentType==1 or self.params.sample and schema.sampledStrings[self.params.sample.path] then
@@ -248,11 +249,11 @@ function E:render()
         self.page='sound';self:render()
     end)
     if not self.drums and (not params.sample or schema.sampledStrings[params.sample.path]) then
-        content[#content+1]=self:button(self.page=='strings' and 'Sound' or 'Strings',635,107,65,function() self.page=self.page=='strings' and 'sound' or 'strings';self:render() end)
+        content[#content+1]=self:button(self.page=='strings' and 'Sound' or 'Strings',635,115,65,function() self.page=self.page=='strings' and 'sound' or 'strings';self:render() end)
     end
-    content[#content+1]=self:button(self.page=='effects' and 'Sound' or 'Effects',705,107,65,function() self.page=self.page=='effects' and 'sound' or 'effects';self:render() end)
-    content[#content+1]=self:button(self.page=='parallel' and 'Sound' or 'Parallel',775,107,65,function() self.page=self.page=='parallel' and 'sound' or 'parallel';self:render() end)
-    content[#content+1]=self:button(self.page=='presets' and 'Sound' or 'Browse',845,107,65,function() self.page=self.page=='presets' and 'sound' or 'presets';self:render() end)
+    content[#content+1]=self:button(self.page=='effects' and 'Sound' or 'Effects',705,115,65,function() self.page=self.page=='effects' and 'sound' or 'effects';self:render() end)
+    content[#content+1]=self:button(self.page=='parallel' and 'Sound' or 'Parallel',775,115,65,function() self.page=self.page=='parallel' and 'sound' or 'parallel';self:render() end)
+    content[#content+1]=self:button(self.page=='presets' and 'Sound' or 'Browse',845,115,65,function() self.page=self.page=='presets' and 'sound' or 'presets';self:render() end)
     local col=(w-56)/3
     local titles=self.page=='parallel' and {'PARALLEL LAYERS','WAVESHAPER / COMB','MODULATION / DYNAMICS'} or self.page=='strings' and {'ARTICULATION','PICK / ATTACK','STRING / BODY'} or self.page=='effects' and {'DRIVE','AMP TONE','SPEAKER / OUTPUT'} or
         (self.drums and {'DRUM BODY','SNARES / NOISE','OUTPUT'} or {params.sample and 'RECORDED SOURCE' or self.params.instrumentType==1 and 'PLUCKED STRING' or 'OSCILLATORS','FILTER + ENVELOPES','MODULATION + OUTPUT'})

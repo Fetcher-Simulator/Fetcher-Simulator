@@ -362,6 +362,23 @@ test('native automation uploads replicate with the shared clock and remain owner
     check(storage['project:11'].tracks[1].notes[1].e.stringArticulation==2,'per-note expression survives the same authenticated private project save')
     check(storage['project:11'].tracks[1].automation.trackLevel[2].v==.2 and storage['project:11'].tracks[1].automation.reverbSend[1].v==.4,'absolute fader and send lanes survive the authenticated private project save')
 end)
+test('shared seek offsets are validated and retain late-listener clocks',function()
+    local f=require('procedural_synth_project')(schema);local p=f.new();p.length=32;p.loop=false
+    p.tracks[1]=f.newTrack('piano','Seek',32);p.tracks[1].notes={{n=60,s=0,l=24,v=.8}}
+    p.timeline={beats=8,tempos={{beat=0,tempo=500000}}};p.composition={bars=2,numerator=4,denominator=4,loopStart=1,loopEnd=2,loop=false}
+    local score=require('procedural_synth_sequence').compile(p,nil,nil,'song',f)
+    acquire();request('channel',{channel=1,params={},level=1});sent={}
+    local before=#sent
+    for _,offset in ipairs{-1,score.length,0/0,1.5} do request('scoreBegin',{playId=1,count=#score.bytes/11,length=score.length,loop=false,quantum=score.quantum,replace=false,startFrame=offset}) end
+    check(#sent==before,'invalid seek offsets produce no transport publication')
+    request('scoreBegin',{playId=1,count=#score.bytes/11,length=score.length,loop=false,quantum=score.quantum,replace=false,startFrame=48000,barGrid=score.barGrid})
+    request('scoreChunk',{playId=1,index=1,bytes=score.bytes});request('scoreCommit',{playId=1})
+    local begin;for _,event in ipairs(sent) do if event.data.op=='scoreBegin' then begin=event.data end end
+    check(begin and math.abs(begin.activate-begin.started-1)<1e-8,'server activates all outputs one second into the original score')
+    now=now+2;players[3].cell='INT:A';sent={};request('sync',{pid=3})
+    local late;for _,event in ipairs(sent) do if event.data.op=='scoreBegin' then late=event.data end end
+    check(late and late.started==begin.started and late.activate==begin.activate,'late listener receives the same clock origin instead of restarting the sought score')
+end)
 test('tempo/meter bar grids schedule replacements and persist privately',function()
     local f=require('procedural_synth_project')(schema);local seq=require('procedural_synth_sequence')
     local p=f.new();p.composition={bars=8,numerator=4,denominator=4,loopStart=1,loopEnd=8,loop=false}

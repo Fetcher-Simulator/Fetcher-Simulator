@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 81 / native synth API 38 / multiplayer protocol 27.
+Current source: package 82 / native synth API 38 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,49 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models are available. More detailed articulation/animation
 and wider listening-based sound balancing remain in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Arrange, shared navigation and chopping (package 82; Lua only)
+
+**Arrange** is the main-tab name for clip arrangement. The same nine tabs stay
+visible on Synth and the workstation pages: Synth, Arrange, Song, Mixer, Piano,
+Drums, Band, Auto and Samples. Switching pages keeps the current project and
+selected sound; the redundant Studio button is removed. The smaller **Keys**
+button inside the sound editor changes source type; the top Synth tab navigates.
+
+In Arrange's ruler above the track grid:
+
+- Drag the **blue handles** at the ends of the top strip to set loop start/end.
+  They snap to whole song bars and enable the loop. The right marker is exclusive:
+  markers at bars 2 and 6 repeat bars 2–5. Click **Loop: On/Off** to toggle it.
+- Click the ruler to position the **teal playhead**. Drag its small teal top
+  handle to move it. The stopped cursor remains visible, and Play song starts
+  there. Position snaps to sixteenth-note steps. Seeking during playback
+  restarts from that position on the shared server clock; audible playback uses
+  the normal score upload/buffering rather than local-only scrubbing.
+- Loop edits commit once on mouse release and support Undo/Redo. Playhead
+  position is transient, not a saved musical edit. Seeking is disabled during
+  takes. Existing note, clip and automation data is preserved; held notes and
+  controllers are chased by the existing native offset-start implementation.
+
+Authored songs use their existing loop settings; dragging beyond the song end
+can extend it up to 256 bars. Imported MIDI retains its source and stores an
+independent bar loop alongside its tempo/meter map (up to 4096 bars within the
+30-minute limit). Imported parts are not converted or discarded to set a loop.
+With looping enabled, seek positions clamp to that playable loop range.
+
+On **Samples**, **Chop** creates 2, 4, 8 or 16 equal slices of the Ready trimmed
+excerpt, one one-shot drum lane per slice, then opens Drums. Paint steps to
+sequence them independently. The original part is kept. Slice order follows
+the waveform, including Reverse; slice offsets refer to the original installed
+file. Loops are removed from slices. Each cut must be at least 10 ms, and every
+cut's source start must remain within the first ten minutes. The complete batch
+must fit the 32-track limit and is one Undo action. No new audio files are made.
+Slices retain the selected part's output route, level and mixer processing, and
+save/load as ordinary sample references through the existing shared transport.
+
+Package 82 is Lua-only, using the installed API-38 client. The server Lua update
+is also required for bounded shared seek offsets. No client/server C++ rebuild
+or new hosted assets are needed. This checkpoint remains local on port 25567.
 
 ## Sample editing: loops, reverse and crossfades (package 81 / API 38)
 

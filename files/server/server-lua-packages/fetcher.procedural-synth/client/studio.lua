@@ -226,6 +226,7 @@ end
 function S:arrange(content)
     local w,p=self.w,self.w.project;local index=w.selected;local t=p.tracks[index]
     local top=self.arrangeFocus and 55 or 166
+    local first,last,looping=w:songLoop()
     local footer=self.height-103
     local function zoom(factor) self:zoomArrange(factor) end
     content[#content+1]=self:button('< time',20,top,65,function() w.arrangeBar=math.max(0,(w.arrangeBar or 0)-(w.arrangeBars or 8));w.revision=w.revision+1 end)
@@ -240,6 +241,7 @@ function S:arrange(content)
     content[#content+1]=self:button('Zoom -',485,top,60,function() zoom(2) end)
     content[#content+1]=self:button('Zoom +',550,top,60,function() zoom(.5) end)
     content[#content+1]=self:button(self.arrangeFocus and 'Back [Esc]' or 'Expand',760,top,130,function() self:setArrangeFocus(not self.arrangeFocus) end)
+    content[#content+1]=self:button(looping and 'Loop: On' or 'Loop: Off',20,(self.arrangeFocus and 181 or 292)-23,150,function() w:setSongLoop(first,last,not looping) end,looping)
     local id=w.arrangeClip or 1;local clips=t and t.arrangement and t.arrangement.clips or {};local clip=clips[id]
     content[#content+1]=self:button((clip and clip.name or 'Choose source clip')..' v',240,top+39,240,function()
         local choices={};for n,source in ipairs(clips) do choices[#choices+1]={id=n,label=source.name} end
@@ -892,9 +894,18 @@ function S:samplePage(content)
         end
         refresh()
     end)
-    content[#content+1]=self:button('Edit part sample',630,427,260,function()
+    content[#content+1]=self:button('Edit part sample',630,427,160,function()
         if t and schema.isBank(t.params.sample) then w.cb.message('This instrument selects recordings per note and velocity. Use Sound for its envelope and amplifier.')
-        elseif t and t.params.sample then browser:loadReference(t.params.sample);refresh() end
+        elseif t and t.params.sample then browser:loadReference(t.params.sample);refresh()
+        else w.cb.message('This part uses a synthesizer. Browse sounds to choose a sample first.') end
+    end)
+    content[#content+1]=self:button('Chop v',800,427,90,function()
+        local choices={};for _,n in ipairs{2,4,8,16} do choices[#choices+1]={id=n,label='Create '..n..' equal slices / drum lanes'} end
+        Dropdown.open(self,choices,nil,function(count)
+            local refs,err=browser:chops(count)
+            if not refs then w.cb.message(err or 'Choose a Ready excerpt with at least 10ms per slice.');return end
+            browser:stop();w:addSampleSlices(refs,(browser.path:match('([^/]+)$') or 'Sample'):gsub('%.[^.]+$',''))
+        end,430,300,460)
     end)
     content[#content+1]=self:button('Root: '..pitch(browser.root)..' v',20,471,180,function()
         local entries={};for n=0,127 do entries[#entries+1]={id=n,label=pitch(n)..' / MIDI '..n} end
@@ -1032,9 +1043,9 @@ function S:render()
     if self.root then self.root:destroy() end
     for _,e in ipairs(self.children) do e:destroy() end
     self.children={};self.meters={};self.meterLabels={};self.busMeter=nil;self.returnMeter=nil;self.playhead=nil;self.grid=nil
-    local w,p=self.w,self.w.project;local content={label('FETCHER STUDIO',20,15,215,18)}
+    local w,p=self.w,self.w.project;local content={label('FETCHER STUDIO',20,15,175,18)}
     if self.pianoFocus or self.arrangeFocus then
-        content={label(self.arrangeFocus and 'CLIP ARRANGEMENT' or 'PIANO EDITOR',20,13,200,21,c.accent)}
+        content={label(self.arrangeFocus and 'ARRANGE' or 'PIANO EDITOR',20,13,200,21,c.accent)}
         content[#content+1]=self:button('Play song',230,12,96,self.cb.playSong)
         content[#content+1]=self:button(w:clipSource() and 'Play source' or 'Play clips',335,12,96,self.cb.playClips)
         content[#content+1]=self:button('Stop',440,12,58,self.cb.stop)
@@ -1044,10 +1055,11 @@ function S:render()
         self.bodyOffset=0;if self.arrangeFocus then self:arrange(content) else self:piano(content) end
         self.root=self.window:root(content);self.revision=w.revision;return
     end
-    local tabs={{'Synth',self.cb.synth},{'Song',function() w.page='song';w.revision=w.revision+1 end},{'Mixer',function() w.page='mixer';w.revision=w.revision+1 end},
-        {'Piano',function() w.page='piano';w.revision=w.revision+1 end},{'Drums',function() w.page='drums';w.revision=w.revision+1 end},{'Band',function() w.page='band';if w.cb.refreshTargets then w.cb.refreshTargets() end;w.revision=w.revision+1 end},
-        {'Auto',function() w.page='auto';w.revision=w.revision+1 end},{'Samples',function() w.page='samples';w.revision=w.revision+1 end}}
-    for n,tab in ipairs(tabs) do content[#content+1]=self:button(tab[1],245+(n-1)*60,12,56,function() w:endAutomationWrite();tab[2]() end,w.page==tab[1]:lower()) end
+    Window.tabs(self,content,w.page,function(page)
+        self:releaseAll();w:endAutomationWrite()
+        if page=='synth' then self.cb.synth() elseif page=='arrange' then self:openArranger()
+        else w.page=page;if page=='band' and w.cb.refreshTargets then w.cb.refreshTargets() end;w.revision=w.revision+1 end
+    end)
     content[#content+1]=self:button('Hide [F8]',self.width-198,12,104,self.cb.hide)
     content[#content+1]=self:button('Finish',self.width-84,12,64,self.cb.close)
     self.transport=self:element(label('',20,43,self.width-280,12,c.accent));content[#content+1]=self.transport

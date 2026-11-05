@@ -170,7 +170,7 @@ function M.compile(project,song,MIDI,mode,format,programPatch)
     end
     table.sort(notes,function(a,b) return a.frame==b.frame and a.order<b.order or a.frame<b.frame end)
     local first,last
-    if songMode and project.composition then first,last=format.songRange(project) end
+    if songMode and (project.composition or project.loopRange) then first,last=format.songRange(project) end
     local offset=first and math.floor(seconds(first)*M.rate+0.5) or 0
     local length=math.max(1,math.floor((last and seconds(last) or total)*M.rate+0.5)-offset);local bytes={};local events={}
     for _,n in ipairs(notes) do
@@ -231,7 +231,7 @@ function M.compile(project,song,MIDI,mode,format,programPatch)
     end
     bytes=table.concat(bytes);assert(#bytes>0,'No notes to play. Add notes or choose another playback view.')
     assert(#bytes<=M.maxEvents*11,'Score exceeds 68,192 transport records; per-note expression uses one extra record per attack.')
-    local loop=songMode and project.composition and project.composition.loop or not songMode and project.loop
+    local loop=songMode and (format and format.isSongLoop(project) or project.composition and project.composition.loop) or not songMode and project.loop
     local ok,err=M.validate(bytes,length,loop);assert(ok,err)
     local grid
     if songMode and format then

@@ -112,6 +112,20 @@ function M:wave()
     end
     return self.waveform
 end
+function M:chops(count)
+    local ref=self:reference();local info=self:info()
+    if not ref or type(count)~='number' or count%1~=0 or count<2 or count>16 then return nil end
+    local length=math.floor(math.min(info.duration,ref.duration)*1000+1e-6)
+    if length<count*10 then return nil end
+    local out={}
+    for n=1,count do
+        local first,last=math.floor((n-1)*length/count),math.floor(n*length/count)
+        out[n]=schema.sample{path=ref.path,offset=ref.offset+(ref.reverse and length-last or first)/1000,
+            duration=(last-first)/1000,root=ref.root,oneShot=true,hash=ref.hash,gain=ref.gain,reverse=ref.reverse}
+        if not out[n] then return nil,'Every slice must start within the first ten minutes of the file.' end
+    end
+    return out
+end
 function M:info()
     if not self.path then return {status='Choose a sound'} end
     local info=self.synth.sampleInfo(self.path,self.offset,self.duration)

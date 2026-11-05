@@ -173,7 +173,7 @@ local function request(data)
     local fields = 0
     for k,v in pairs(data) do
         fields = fields + 1
-        if fields > 14 or not text(k,24) then return end
+        if fields > (data.op=='scoreBegin' and 15 or 14) or not text(k,24) then return end
         if type(v) == 'table' then if k=='params' then if not schema.state(v) then return end
             elseif k=='expression' and data.op=='on' then if not schema.strike(v) then return end
             elseif k=='masterMixer' and data.op=='effects' then if not projectFormat.bus(v) then return end
@@ -321,12 +321,13 @@ local function request(data)
         if not integer(data.playId,1,2147483647) or data.playId<=(s.lastPlayId or 0)
             or not integer(data.count,1,sequenceFormat.maxEvents) or not integer(data.length,1,sequenceFormat.maxFrames)
             or type(data.loop)~='boolean' or type(data.replace)~='boolean' or not integer(data.quantum,3000,1728000)
+            or data.startFrame~=nil and (not integer(data.startFrame,0,data.length-1) or data.replace and data.startFrame~=0)
             or not budget(data.pid,now,'scoreBegins',4,4) then return end
         local gridOK,barFrames=sequenceFormat.validateBarGrid(data.barGrid,data.length)
         if not gridOK then return end
         s.lastPlayId=data.playId
         s.upload={playId=data.playId,count=data.count,length=data.length,loop=data.loop,quantum=data.quantum,
-            replace=data.replace,barFrames=barFrames,chunks={},size=0,next=1,expires=now+20}
+            replace=data.replace,startFrame=data.startFrame or 0,barFrames=barFrames,chunks={},size=0,next=1,expires=now+20}
         return
     end
     if data.op=='scoreChunk' then
@@ -346,8 +347,8 @@ local function request(data)
         if not valid then emit(data.pid,{op='scoreError',id=s.id,epoch=s.epoch,playId=u.playId,message=err});return end
         local old=s.transport
         u.replace=u.replace and old~=nil
-        u.started=u.replace and old.started or now+0.75
-        u.activate=u.replace and (u.started+(math.floor((now-u.started+0.25)/(u.quantum/48000))+1)*u.quantum/48000) or u.started
+        u.started=u.replace and old.started or now+0.75-u.startFrame/48000
+        u.activate=u.replace and (u.started+(math.floor((now-u.started+0.25)/(u.quantum/48000))+1)*u.quantum/48000) or now+0.75
         if u.replace and u.barFrames then
             local boundary=sequenceFormat.nextBoundary(u.barFrames,u.length,u.loop,now-u.started,0.25)
             if not boundary then

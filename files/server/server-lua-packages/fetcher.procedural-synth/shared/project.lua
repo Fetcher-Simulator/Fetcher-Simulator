@@ -258,8 +258,16 @@ function M.tempoAt(p,beat)
     return tempo
 end
 function M.songRange(p)
+    local range=p.loopRange
+    if range and range.enabled then return M.barStart(p,range.first),M.barStart(p,range.last) end
     local s=p.composition;if not s then return end
     return M.barStart(p,s.loop and s.loopStart or 1),M.barStart(p,(s.loop and s.loopEnd or s.bars)+1)
+end
+function M.isSongLoop(p) return p.loopRange and p.loopRange.enabled or p.composition and p.composition.loop or false end
+function M.loopRange(value)
+    if not keys(value,{first=true,last=true,enabled=true},3) or not int(value.first,1,4096)
+        or not int(value.last,value.first+1,4097) or type(value.enabled)~='boolean' then return nil end
+    return {first=value.first,last=value.last,enabled=value.enabled}
 end
 function M.barBoundaries(p,first,last,maximum)
     local out={};local bar=M.barAt(p,first)
@@ -377,7 +385,7 @@ function M.track(t,length)
     return out
 end
 function M.project(p)
-    if not keys(p,{version=true,name=true,bpm=true,swing=true,length=true,loop=true,midi=true,tracks=true,master=true,effects=true,soundSet=true,band=true,timeline=true,composition=true,autoBand=true,leaderPlays=true,stageLayout=true,masterMixer=true},18)
+    if not keys(p,{version=true,name=true,bpm=true,swing=true,length=true,loop=true,midi=true,tracks=true,master=true,effects=true,soundSet=true,band=true,timeline=true,composition=true,autoBand=true,leaderPlays=true,stageLayout=true,masterMixer=true,loopRange=true},19)
         or not num(p.master or 0.7,0,1) or p.version~=1 or not text(p.name,64) or not num(p.bpm,40,240) or not num(p.swing,0,0.6)
         or not int(p.length,16,M.maxSteps) or p.length%16~=0 or type(p.loop)~='boolean' or not text(p.midi,192)
         or not text(p.soundSet or '',32) or not array(p.tracks,M.maxTracks) then return nil end
@@ -393,6 +401,11 @@ function M.project(p)
         out.stageLayout=p.stageLayout
     end
     if p.timeline~=nil then out.timeline=M.timeline(p.timeline);if not out.timeline then return nil end end
+    if p.loopRange~=nil then
+        out.loopRange=M.loopRange(p.loopRange)
+        if not out.loopRange or not out.timeline or p.composition or M.barStart(out,out.loopRange.last)>M.maxSongBeats
+            or M.seconds(out.timeline,M.barStart(out,out.loopRange.last))>1800 then return nil end
+    end
     if p.composition~=nil then
         out.composition=M.composition(p.composition)
         if not out.composition or p.midi~='' or not out.timeline or math.abs(out.timeline.beats-M.barStart(out,out.composition.bars+1))>1e-7

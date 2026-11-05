@@ -2,6 +2,33 @@
 
 Updated 2026-11-05. Completed work and subsequent planned slices are identified below.
 
+Package 82 adds equal sample chopping into 2/4/8/16 one-shot drum lanes, keeping
+the original track and one Undo for the whole batch. Cuts follow reverse view,
+retain file identities/output/mixer settings and use ordinary shared sample
+references. No audio files or native sample formats change. Minimum slice is
+10 ms; free-track, source-start and project validation are atomic and bounded.
+
+Arrange is now a major tab, with the same nine-page navigation on Synth and
+workstation views. The redundant Studio button is removed. The ruler exposes
+bar-snapped loop handles and a stopped/moving teal playhead grab point; clicking
+it positions the cursor. Musical loop edits save and undo; cursor location is
+transient. Shared score-start offsets reuse existing native note/controller
+chase, with server authentication, finite/range checks and a bounded 15-field
+scoreBegin allowance. Late listeners use the same shifted server clock.
+Imported MIDI gains an independent saved loop range while retaining its source
+and tempo/meter map. Authored songs retain their existing loop document fields.
+The original user files stay separate from all disposable local acceptance.
+Native API 38 remains unchanged; server changes are Lua only. No VPS/public
+workflow or hosted-asset rollout is part of this checkpoint.
+
+All 38 Lua suites pass, including native-coordinate ruler gestures, shared
+tab routing, full authenticated seek messages with bar grids, imported meter
+loops, bounds/history and atomic slicing. Two native clients verify sounding
+sample cuts, shifted-clock seek playback and late snapshots, plus private
+server-backed loop/slice save/reload and Undo/Redo. Monitor-2 inspection checks
+Synth-to-Arrange navigation, both blue loop-handle drags, ruler clicking and the
+teal playhead drag followed by playback. Original user-file hashes are unchanged.
+
 Package 81 / native API 38 begins the next sample-editing priority with a
 256-bin decoded waveform, reverse playback and gated sample loops with numeric
 in/out points and 0–250-ms crossfades. Points are relative to the trimmed,
@@ -713,9 +740,10 @@ priorities rather than blocking sample editing on those open-ended targets.
 
 ## Remaining roadmap (next: sample editing; formerly priority two)
 
-1. **Further sample tools and sound libraries.** Chopping, richer waveform
-   editing and sound-library expansion beyond the priority band set. Package 81
-   adds sustained excerpt loops, reverse and bounded loop-join crossfades. Continue
+1. **Further sample tools and sound libraries.** Manual/transient-based slice
+   placement, richer waveform editing and sound-library expansion beyond the
+   priority band set. Package 81 adds sustained excerpt loops, reverse and bounded
+   loop-join crossfades; package 82 adds equal slices as independent sequencer lanes. Continue
    listening/balance refinement alongside the orchestral instrument work.
 2. **Section layouts and conductor presentation.** Add saved spacing/layout
    presets, instrument sections, conductor gestures and formation previews.

@@ -75,6 +75,7 @@ local function scanSongs()
     refreshExports()
 end
 local stopPlayback,playSong,showEditor,switchPage,makeWorkstation
+local Window=require('scripts.multiplayer.fetcher.procedural-synth.client.window')
 local function silence(i)
     i.audio:allNotesOff(); i.notes={}
     transport:each(i,function(a) a:stop() end)
@@ -529,7 +530,15 @@ showEditor=function()
         end,
         hide=hideEditor,close=function() session.library:guard(function() closeEditor(true) end,'finish the session') end,
             pickup=function() session.library:guard(pickupKeyboard,'pick up the keyboard') end,
-        studio=function() switchPage('studio') end,
+        navigate=function(page)
+            local valid=false;for _,entry in ipairs(Window.pages) do if entry[1]==page and page~='synth' then valid=true end end
+            if not valid then return end
+            w:endAutomationWrite()
+            if page=='arrange' and not w:leaveClip() then return end
+            w.page=page;w.revision=w.revision+1
+            if page=='band' and w.cb.refreshTargets then w.cb.refreshTargets() end
+            switchPage('studio')
+        end,
         meter=function() local audio=channelAudio(i,session.editTrack,false);return audio and audio.peak or 0,audio and audio.voices or 0 end,
         midiLabel=songLabel,midiChoices=midiChoices,midiSelected=function() return songs[selectedSong] end,midiSelect=midiSelect,
         midiCycle=function(step) if #songs>0 then midiSelect(songs[(selectedSong-1+step)%#songs+1]) end end,

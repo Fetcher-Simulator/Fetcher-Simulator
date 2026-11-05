@@ -87,7 +87,7 @@ function W:newSong(bpm,numerator,denominator,bars)
     if self.library then self.library:detach() end
     self.song=nil;self.spans={};self.project=p;self.noteCache={};self.noteSelection={};self.selected=1;self:clampPages(true)
     self.clipEdit=nil;self.regionIndex=nil;self.regionSelection=nil
-    self.rollStart=0;self.bar=0;self.base=60;self.time=0;self.beat=0;self.step=-1;self.page='song'
+    self.rollStart=0;self.bar=0;self.base=60;self.time=0;self.beat=0;self.cursorBeat=nil;self.step=-1;self.page='song'
     self.lastEditKey=nil;self:configureAll();self:touch();return true
 end
 function W:timingProject()
@@ -120,6 +120,47 @@ function W:setComposition(changes)
         table.insert(meters,1,{beat=0,numerator=p.composition.numerator,denominator=p.composition.denominator});p.timeline.meters=meters
     end
     return self:commitTiming(p)
+end
+function W:songLoop()
+    local p=self.project;local range=p.loopRange
+    if range then return range.first,range.last,range.enabled end
+    if p.composition then return p.composition.loopStart,p.composition.loopEnd+1,p.composition.loop end
+    local view={timeline=p.timeline or self.song}
+    local beats=view.timeline and view.timeline.beats or p.length/4
+    return 1,format.barAt(view,math.max(0,beats-1e-8))+1,false
+end
+function W:setSongLoop(first,last,enabled)
+    if type(first)~='number' or type(last)~='number' or first%1~=0 or last%1~=0 or first<1 or last<=first or type(enabled)~='boolean' then return false end
+    local p=self:timingProject();if not p then self.cb.message('Create a song or capture the pattern before setting song-loop bars.');return false end
+    if p.composition then
+        if last>257 then return false end
+        p.composition.bars=math.max(p.composition.bars,last-1)
+        p.composition.loopStart=first;p.composition.loopEnd=last-1;p.composition.loop=enabled
+    else p.loopRange={first=first,last=last,enabled=enabled} end
+    local playing=self.playing;local cursor=self.cursorBeat
+    if not self:commitTiming(p) then return false end
+    self.cursorBeat=cursor
+    if playing then self:play('song') end
+    return true
+end
+function W:seek(beat)
+    if type(beat)~='number' or beat~=beat or beat<0 or beat>format.maxSongBeats or self.recording or self.failedTake or self.playing and not self.cb.schedule then return false end
+    self.cursorBeat=beat;self.beat=beat
+    local timeline=self.project.timeline or self.song
+    if timeline then local first=format.songRange(self.project);self.time=math.max(0,format.seconds(timeline,beat)-(first and format.seconds(timeline,first) or 0)) end
+    if self.playing then
+        return self:play('song')
+    end
+    return true
+end
+function W:seekPlan(plan,mode)
+    if mode~='song' or not self.cursorBeat then return plan end
+    local timeline=self.project.timeline or self.song
+    local first=format.songRange(self.project)
+    local offset=first and format.seconds(timeline,first) or 0
+    plan.startFrame=math.max(0,math.min(plan.length-1,math.floor((format.seconds(timeline,self.cursorBeat)-offset)*48000+.5)))
+    self.time=plan.startFrame/48000;self.beat=self:playbackBeat(self.time)
+    return plan
 end
 function W:editTempo(beat,bpm,remove)
     local p=self:timingProject();if not p or type(beat)~='number' or beat~=beat or beat<0 or beat>format.maxSongBeats then return false end
@@ -424,6 +465,26 @@ function W:setSample(index,reference)
         t.note=reference.root
     end
     self:configure(index);self:touch('sound:sample:'..index);return true
+end
+function W:addSampleSlices(references,name)
+    if type(references)~='table' or #references<2 or #references>16 or #self.project.tracks+#references>format.maxTracks then
+        self.cb.message('Slicing needs 2-16 free tracks, within the 32-track limit.');return false
+    end
+    if self.recording or self.failedTake then self.cb.message('Keep or cancel the take before slicing.');return false end
+    local p=copy(self.project);local first=#p.tracks+1;local base=p.tracks[self.selected]
+    for n,reference in ipairs(references) do
+        local ref=schema.sample(reference);if not ref or schema.isBank(ref) or not ref.oneShot or ref.loop then return false end
+        local t=format.newTrack('drum',(name or 'Sample'):sub(1,34)..' slice '..n,p.length)
+        t.params=base and base.params.sample and schema.state(base.params) or schema.state{attack=.002,sustain=1,release=.08,cutoff=18000,polyphony=8}
+        t.params.sample=ref;t.note=ref.root;t.followPrograms=false
+        if base then t.output=copy(base.output);t.mixer=copy(base.mixer);t.level=base.level end
+        p.tracks[#p.tracks+1]=t
+    end
+    local valid=format.project(p);if not valid then self.cb.message('Slice limits exceeded; the original project was kept.');return false end
+    self:stop(true);self.clipEdit=nil;self.project=valid;self.selected=first;self.noteCache={};self.noteSelection={}
+    self:configureAll();self:touch();self.page='drums'
+    local lane=0;for n,t in ipairs(valid.tracks) do if t.kind=='drum' then lane=lane+1 end;if n==first then break end end
+    self.drumPage=math.floor((lane-1)/8);return true
 end
 function W:prepareSamples(index)
     if not self.cb.sampleStatus then return true end
@@ -856,7 +917,7 @@ function W:import(song,path)
     end
     for _,t in ipairs(extra) do tracks[#tracks+1]=t end
     if self.project.midi~=path and not SoundSets.find(self.project.soundSet) then self.project.soundSet='balanced' end
-    if self.project.midi~=path then self.project.timeline=nil;self.project.composition=nil end
+    if self.project.midi~=path then self.project.timeline=nil;self.project.composition=nil;self.project.loopRange=nil;self.cursorBeat=nil end
     self.song=song
     self.project.timeline=timeline
     self:cacheSpans();self.project.midi=path;self.project.tracks=tracks;self.selected=1;self.noteSelection={};self.noteCache={}
@@ -870,7 +931,7 @@ function W:load(project)
     self:endTake(true);self:stop(true);if self.cb.documentChanged then self.cb.documentChanged() end;if self.project.midi~=valid.midi or valid.composition then self.song=nil end
     self.clipEdit=nil;self.regionIndex=nil;self.regionSelection=nil;self.managedProject=nil
     if self.library then self.library:detach() end
-    self.project=valid;self.checkpoint=copy(valid);self.undoStack={};self.redoStack={};self.lastEditKey=nil;self.noteSelection={};self.noteCache={};self:cacheSpans();self.selected=1;self.bar=0;self.rollStart=0;self:clampPages(true);self.dirty=false;self.revision=self.revision+1;self.generation=self.generation+1;self:configureAll()
+    self.project=valid;self.checkpoint=copy(valid);self.undoStack={};self.redoStack={};self.lastEditKey=nil;self.noteSelection={};self.noteCache={};self.cursorBeat=nil;self:cacheSpans();self.selected=1;self.bar=0;self.rollStart=0;self:clampPages(true);self.dirty=false;self.revision=self.revision+1;self.generation=self.generation+1;self:configureAll()
     if self:needsMidi() and not self.song then self.cb.importMidi(valid.midi) end
     return true
 end
@@ -916,6 +977,7 @@ function W:play(mode)
         local Sequence=require(prefix..'shared.sequence')
         local ok,plan=pcall(Sequence.compile,self.project,self.song,MIDI,mode,format,SoundSets.programPatch)
         if not ok then self.playing=false;self.cb.message(tostring(plan));return false end
+        plan=self:seekPlan(plan,mode)
         self.native=true;self.nativeStarted=false;self.awaiting=true;self.sequenceDirty=false
         if self.cb.schedule(plan,false)==false then self:stop(true);return false end
         return true
@@ -964,7 +1026,7 @@ function W:playbackBeat(time)
     local first,last=format.songRange(self.project)
     if self.mode~='song' or not first then return self:beatAt(time) end
     local offset=format.seconds(self.project.timeline,first)
-    if self.project.composition.loop then time=time%(format.seconds(self.project.timeline,last)-offset) end
+    if format.isSongLoop(self.project) then time=time%(format.seconds(self.project.timeline,last)-offset) end
     return self:beatAt(time+offset,'song')
 end
 function W:recordClock(age)
@@ -1009,7 +1071,7 @@ function W:startTake(index)
     local origin=t.edited and 0 or (self.playing and math.floor(step/self.project.length)*self.project.length or 0)
     local limit=t.edited and math.min(format.maxSongBeats*4,self:beatAt(1800,'song')*4) or origin+self.project.length
     local minimum=0
-    if t.edited and self.project.composition then
+    if t.edited and (self.project.composition or self.project.loopRange and self.project.loopRange.enabled) then
         local first,last=format.songRange(self.project);limit=last*4;minimum=self.playing and first*4 or 0
         if not self.playing then limit=self.project.timeline.beats*4 end
     end
@@ -1034,7 +1096,7 @@ function W:startTake(index)
 end
 function W:recordOn(note,velocity,age,expression)
     local r=self.recording;local step=self:recordClock(age)
-    if r and step and r.overdub and self.project.composition and self.project.composition.loop and r.last and step<r.last then self:autoEndTake(r.limit);return false end
+    if r and step and r.overdub and format.isSongLoop(self.project) and r.last and step<r.last then self:autoEndTake(r.limit);return false end
     if not r or not step or step>=r.limit or type(note)~='number' or note%1~=0 or note<0 or note>127 or r.held[note] then return false end
     velocity=velocity or self.velocity
     if type(velocity)~='number' or velocity~=velocity or velocity<0.01 or velocity>1 then return false end
@@ -1049,7 +1111,7 @@ end
 function W:recordOff(note,step,age)
     local r=self.recording;local held=r and r.held[note];if not held then return false end
     step=math.min(step or self:recordClock(age) or r.last or held.raw,r.limit)
-    if r.overdub and self.project.composition and self.project.composition.loop and step<held.raw then step=r.limit end
+    if r.overdub and format.isSongLoop(self.project) and step<held.raw then step=r.limit end
     self.cb.off(r.index,note);r.held[note]=nil
     local s=math.floor((held.raw-r.origin)/r.snap+0.5)*r.snap
     local finish=math.floor((step-r.origin)/r.snap+0.5)*r.snap
@@ -1093,7 +1155,7 @@ function W:endTake(cancel,finish)
     if not r then if cancel then self.failedTake=nil;self.revision=self.revision+1 end;return false end
     if r.ending then return false end;r.ending=true
     local step=finish or self:recordClock() or r.last
-    if step and r.overdub and self.project.composition and self.project.composition.loop and r.last and step<r.last then step=r.limit end
+    if step and r.overdub and format.isSongLoop(self.project) and r.last and step<r.last then step=r.limit end
     local held={};for note in pairs(r.held) do held[#held+1]=note end
     for _,note in ipairs(held) do self:recordOff(note,step) end
     self.recording=nil;if self.cb.recordEnd then self.cb.recordEnd(r) end;self.revision=self.revision+1
@@ -1117,7 +1179,7 @@ function W:recordFrame()
     if r.overdub and not self.playing and not self.awaiting then self:endTake(false);return end
     if self.cb.canMonitor and not self.cb.canMonitor(r.index) then self:endTake(false);self.cb.message('Recording stopped because its instrument became unavailable.');return end
     local step=self:recordClock()
-    if step and r.overdub and self.project.composition and self.project.composition.loop and r.last and step<r.last then self:autoEndTake(r.limit);return end
+    if step and r.overdub and format.isSongLoop(self.project) and r.last and step<r.last then self:autoEndTake(r.limit);return end
     if step then r.started=true;r.last=step;if step>=r.limit then self:autoEndTake(r.limit) end
     elseif (r.overdub or r.clock) and r.started and not self.awaiting then self:autoEndTake(r.limit) end
 end

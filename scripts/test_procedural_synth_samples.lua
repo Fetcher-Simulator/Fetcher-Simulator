@@ -67,6 +67,11 @@ check(Samples.status(short,edited).status=='Unavailable','matching file identity
 local waveCalls=0;synth.sampleWaveform=function() waveCalls=waveCalls+1;return {hash=ref.hash,duration=2,minimum={-.1},maximum={.2}} end
 check(browser:wave() and browser:wave() and waveCalls==1,'waveform is cached across frames instead of recreating native peak tables')
 browser:trim(.2,1.2);check(browser:wave() and waveCalls==2,'changing the trim invalidates waveform cache')
+browser:select(ref.path);browser.duration=2;local cuts=assert(browser:chops(4))
+check(#cuts==4 and cuts[1].offset==0 and cuts[4].offset==1.5 and cuts[4].duration==.5,'equal chops cover the actual excerpt without gaps or extra files')
+browser.reverse=true;cuts=assert(browser:chops(4));check(cuts[1].offset==1.5 and cuts[4].offset==0 and cuts[1].reverse,'reversed chops follow displayed playback order')
+browser.offset=600;check(not browser:chops(4),'slices outside the bounded source start range fail cleanly')
+browser:select(ref.path);browser.duration=.02;check(not browser:chops(16),'slices shorter than 10ms are rejected')
 state='Loading';check(not w:prepareSamples(),'owner waits for pending loading before transport')
 state='Unavailable';check(w:prepareSamples(),'missing sample does not block unrelated parts')
 check(not w:setSample(1,mismatch),'mismatch cannot replace current sound')

@@ -8,11 +8,12 @@ local function clamp(n,a,b) return math.max(a,math.min(b,n)) end
 function R.new(owner,content)
     local w=owner.w
     local self=setmetatable({owner=owner,w=w,x=190,y=owner.arrangeFocus and 181 or 292,width=owner.width-240,height=math.max(264,(owner.height or 695)-(owner.arrangeFocus and 320 or 431)),pool={},labels={},grids={},page=w.arrangePage or 0},R)
+    self.map=w.project.timeline and w.project or {timeline=w.song,composition=w.project.composition}
     self.rh=self.height/8
     self.bars=w.arrangeBars or 8
-    local finish=w.project.timeline and w.project.timeline.beats*4 or Format.barStart(w.project,self.bars+1)*4
+    local finish=self.map.timeline and self.map.timeline.beats*4 or Format.barStart(self.map,self.bars+1)*4
     for _,t in ipairs(w.project.tracks) do for _,r in ipairs(t.arrangement and t.arrangement.regions or {}) do finish=math.max(finish,r.s+r.l) end end
-    self.contentBars=Format.barAt(w.project,math.max(0,finish/4-1e-8))
+    self.contentBars=Format.barAt(self.map,math.max(0,finish/4-1e-8))
     self.workspaceBars=w.project.composition and 256 or math.min(4096,math.max(256,self.contentBars+self.bars))
     self.maximum=math.max(0,self.workspaceBars-self.bars)
     w.arrangeBar=clamp(w.arrangeBar or 0,0,self.maximum);self:view()
@@ -52,7 +53,50 @@ function R.new(owner,content)
     local barLayout=rect(self.x,self.y+self.height+9,self.width,12,c.line);barLayout.content=ui.content{self.thumb};barLayout.events=events
     self.thumb.layout.events=events;content[#content+1]=barLayout
     self.playhead=owner:element(rect(self.x,self.y,2,self.height,c.selected));content[#content+1]=self.playhead
+    self.ruler=owner:element(rect(self.x,self.y-23,self.width,23,c.bg))
+    self.ruler.layout.events={mousePress=cb(function(e) self:rulerPress('seek',e) end),mouseMove=cb(function(e) self:rulerMove(e) end)}
+    content[#content+1]=self.ruler
+    for _,kind in ipairs{'first','last','seek'} do
+        local handle=owner:element(rect(0,0,10,kind=='seek' and 10 or 8,kind=='seek' and c.selected or c.clip))
+        handle.layout.events={mousePress=cb(function(e) self:rulerPress(kind,e) end),mouseMove=cb(function(e) self:rulerMove(e) end)}
+        self[kind..'Handle']=handle;content[#content+1]=handle
+    end
     self:draw();return self
+end
+function R:rulerPress(kind,e)
+    if e.button~=1 or self.w.recording then return end
+    local first,last,enabled=self.w:songLoop()
+    self.rulerDrag={kind=kind,first=first,last=last,enabled=enabled}
+    self:rulerMove(e)
+    if kind=='seek' then self.rulerDrag.initial=self.rulerDrag.beat;self.w:seek(self.rulerDrag.beat) end
+end
+function R:rulerMove(e)
+    local drag=self.rulerDrag;if not drag then return end
+    local beat=math.max(0,(self.start+clamp(self:point(e).x,0,self.width)/self.cw)/4)
+    if drag.kind=='seek' then
+        drag.beat=math.floor(beat*4+.5)/4
+    else
+        local bar=clamp(math.floor(Format.barPosition(self.map,beat)+.5),1,self.workspaceBars+1)
+        if drag.kind=='first' then drag.first=math.min(bar,drag.last-1) else drag.last=math.max(bar,drag.first+1) end
+    end
+    self:updateRuler();self:updatePlayhead()
+end
+function R:updateRuler()
+    local first,last,enabled=self.w:songLoop()
+    if self.rulerDrag and self.rulerDrag.kind~='seek' then first,last=self.rulerDrag.first,self.rulerDrag.last;enabled=true end
+    local a=(Format.barStart(self.map,first)*4-self.start)*self.cw
+    local b=(Format.barStart(self.map,last)*4-self.start)*self.cw
+    local cells={}
+    if enabled and b>0 and a<self.width then cells[#cells+1]=rect(clamp(a,0,self.width),0,clamp(b,0,self.width)-clamp(a,0,self.width),4,c.clip) end
+    for n=1,self.bars do
+        local at=(Format.barStart(self.map,self.w.arrangeBar+n)*4-self.start)*self.cw
+        cells[#cells+1]={type=ui.TYPE.Text,props={position=v(at+3,7),size=v(45,15),text=tostring(self.w.arrangeBar+n),textSize=10,textColor=c.selected}}
+    end
+    self.ruler.layout.content=ui.content(cells);self.owner.window:update(self.ruler)
+    for _,entry in ipairs{{self.firstHandle,a},{self.lastHandle,b}} do
+        local handle,x=entry[1],entry[2];handle.layout.props.visible=x>=0 and x<=self.width
+        handle.layout.props.position=v(self.x+clamp(x-5,0,self.width-10),self.y-23);self.owner.window:update(handle)
+    end
 end
 function R:point(e)
     local p=self.owner.root and self.owner.root.layout.props.position or v(0,0);local scale=self.owner.window.scale
@@ -92,6 +136,12 @@ function R:move(e)
     self:draw()
 end
 function R:finish(cancel)
+    local ruler=self.rulerDrag;self.rulerDrag=nil
+    if ruler and cancel then self:updateRuler();self:updatePlayhead() end
+    if ruler and not cancel then
+        if ruler.kind=='seek' then if ruler.beat~=ruler.initial then self.w:seek(ruler.beat) end
+        else self.w:setSongLoop(ruler.first,ruler.last,true) end
+    end
     local d=self.drag;self.drag=nil
     if self.scrolling then self.scrolling=nil;if not cancel then self.w.revision=self.w.revision+1 end end
     if d and not cancel and self.w.project.tracks[d.entry.index]==d.entry.track then
@@ -104,23 +154,29 @@ function R:frame()
     if not input.isMouseButtonPressed(1) then self:finish(false) end
 end
 function R:updatePlayhead()
-    local step=self.w.beat*4
+    local step=(self.w.playing and self.w.beat or self.w.cursorBeat or 0)*4
+    if self.rulerDrag and self.rulerDrag.kind=='seek' then step=self.rulerDrag.beat*4 end
     if self.w.mode=='clips' then step=step%self.w.project.length end
     local active=self.w.playing and not self.w.awaiting and (self.w.mode=='song' or self.w.mode=='clips')
     if active and self.owner.arrangePlaySerial~=self.w.playSerial then
         self.owner.arrangePlaySerial=self.w.playSerial
         if step<self.start or step>=self.start+self.steps then
-            self.w.arrangeBar=clamp(Format.barAt(self.w.project,step/4)-1,0,self.maximum);self:draw()
+            self.w.arrangeBar=clamp(Format.barAt(self.map,step/4)-1,0,self.maximum);self:draw()
         end
     end
-    local visible=active and step>=self.start and step<self.start+self.steps
+    local visible=step>=self.start and step<self.start+self.steps
     self.playhead.layout.props.visible=visible
     self.playhead.layout.props.position=v(self.x+(step-self.start)*self.cw,self.y);self.owner.window:update(self.playhead)
+    if self.seekHandle then
+        self.seekHandle.layout.props.visible=visible
+        self.seekHandle.layout.props.position=v(self.x+clamp((step-self.start)*self.cw-5,0,self.width-10),self.y-11)
+        self.owner.window:update(self.seekHandle)
+    end
 end
 function R:view()
-    self.start=Format.barStart(self.w.project,self.w.arrangeBar+1)*4
-    self.bar=Format.barBeats(self.w.project,self.start/4)*4
-    self.steps=Format.barStart(self.w.project,self.w.arrangeBar+self.bars+1)*4-self.start;self.cw=self.width/self.steps
+    self.start=Format.barStart(self.map,self.w.arrangeBar+1)*4
+    self.bar=Format.barBeats(self.map,self.start/4)*4
+    self.steps=Format.barStart(self.map,self.w.arrangeBar+self.bars+1)*4-self.start;self.cw=self.width/self.steps
 end
 function R:draw()
     self:view();local cells={}
@@ -149,5 +205,6 @@ function R:draw()
     self.thumbWidth=math.max(18,self.width*self.bars/(self.maximum+self.bars))
     self.thumb.layout.props.position=v(self.maximum>0 and (self.width-self.thumbWidth)*self.w.arrangeBar/self.maximum or 0,0)
     self.thumb.layout.props.size=v(self.thumbWidth,12);self.owner.window:update(self.thumb)
+    self:updateRuler();self:updatePlayhead()
 end
 return R
