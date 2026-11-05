@@ -1,5 +1,30 @@
 # Fetcher Studio instrument assets
 
+## CC0 recorded string gestures (package 80 / API 37)
+
+The builders adapt original CC0 PCM into bounded native banks, with exact
+source/cut/PCM hashes and retained license text. No SFZ or source scripts execute
+in game. Green Guitar acquisition pins the upstream commit/tree, verifies every
+original Git blob and SHA-256, and checks the complete selection-manifest hash.
+It downloads only the 104 selected WAVs plus original maps/license. Darkblack
+finger releases use the already pinned Black And Blue Basses archive and its
+source metadata maps from the existing band-bank preparation step.
+
+```powershell
+python scripts/procedural-synth-assets/acquire-green-guitar-gestures.py build/studio80-green-source
+python scripts/procedural-synth-assets/build-green-guitar-gestures.py build/studio80-green-source build/synth-core-tests/Release/sample-bank-tool.exe files/server/optional-assets/fetcher.studio-samples
+python scripts/procedural-synth-assets/build-bass-release-bank.py C:/path/to/pinned-band-sources build/synth-core-tests/Release/sample-bank-tool.exe files/server/optional-assets/fetcher.studio-samples
+python scripts/procedural-synth-tests/test-gesture-banks.py build/synth-core-tests/Release/sample-bank-tool.exe
+```
+
+The bass source folder must contain `Black_And_Blue_Basses_1002.zip` and
+`metadata/Black_And_Blue_Basses_1002/Programs/maps/darkblack_rel_map.sfz`.
+The bass builder embeds the existing attack bytes unchanged; it does not
+overwrite `bass-finger-v1`. The Green bank includes actual picked/hammer/release
+classes; downward connections and slides are native modeling, not new captures.
+Both are on-demand content; new trigger flags require the matching API-37 client.
+See the sample-content README and notices for musical ranges and adaptations.
+
 ## Credited orchestral and stage models (package 41)
 
 The runtime bundle replaces the generated violin/bow, cello, trumpet, flute,

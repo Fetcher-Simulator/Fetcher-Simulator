@@ -196,6 +196,20 @@
         "muted thumps",
         "hammer transitions (not integrated)"
       ]
+    },
+    {
+      "asset": "black-green-gesture-subset",
+      "repository": "sfzinstruments/karoryfer.black-and-green-guitars",
+      "commit": "b3b3249d37dc977a1a297bd2dc053e6d9b6b805c",
+      "tree": "ba764c30f7f6582ea5bc78c9edf7bba17bcfeec4",
+      "url": "https://github.com/sfzinstruments/karoryfer.black-and-green-guitars",
+      "licenseExpected": "CC0-1.0",
+      "creators": "Karoryfer Samples; recorded by Brian Wood",
+      "sourceManifestSha256": "92c54002386c6515f989ef90891fc84ede47cc74b700049c2f2cbd06b59cc7a9",
+      "licenseSha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+      "audioFiles": 104,
+      "audioBytes": 46441300,
+      "format": "pinned-git-subset"
     }
   ]
 }

@@ -17,11 +17,14 @@ namespace MWSound
             unsigned char lowKey, highKey, lowVelocity, highVelocity, root, alternate, alternates;
             std::uint32_t start, length;
             unsigned char flags = 0, group = 0, offBy = 0;
+            float releaseDecay = 4; // dB per held second, release-zone Q8 metadata
         };
         enum Status { Loading, Ready, Error };
         std::atomic<Status> status{Loading};
         std::vector<float> pcm; // mono 48 kHz; clips <=30 s, banks <=128 MiB
         std::vector<Zone> zones; // nonempty only for immutable multisample banks
+        bool hasReleases = false; // v2 flag 2: recorded note-off zones
+        bool hasHammer = false; // v2 flag 4: recorded upward connected attacks
         std::string hash, error;
     };
 }

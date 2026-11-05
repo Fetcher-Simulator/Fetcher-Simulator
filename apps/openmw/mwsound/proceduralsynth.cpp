@@ -87,6 +87,9 @@ namespace MWSound
         { "stringSlideTime", 0, 1, .08f },
         { "stringLayout", 0, 6, 0, true },
         { "stringSelect", 0, 7, 0, true },
+        { "stringTouch", 0, 1, 0 },
+        { "stringReleaseLevel", 0, 1, 0 },
+        { "captureTightness", 0, 1, 1 },
     } };
 
     namespace
@@ -127,7 +130,7 @@ namespace MWSound
     }
 
     ProceduralSynth::ProceduralSynth(unsigned alternateSeed)
-        : mAlternateSeed(alternateSeed), mStrings(std::make_unique<Strings>())
+        : mAlternateSeed(alternateSeed), mReleases(std::make_unique<ProceduralRelease>(alternateSeed)), mStrings(std::make_unique<Strings>())
     {
         for (std::size_t i = 0; i < ParameterCount; ++i)
             mTarget[i] = mCurrent[i] = Parameters[i].initial;
@@ -273,7 +276,7 @@ namespace MWSound
         resetConnections();mSampleCurrent=mSampleTarget;mAttackCurrent=mAttackTarget;
         for(auto& counters:mSampleAlternates)counters.fill(0);
     }
-    const ProceduralSample::Zone* ProceduralSynth::sampleZone(int note,float value,bool advance,unsigned variant)
+    const ProceduralSample::Zone* ProceduralSynth::sampleZone(int note,float value,bool advance,unsigned variant,unsigned trigger)
     {
         if(!sampleReady(variant))return nullptr;
         const auto& zones=sampleSettings(variant).data->zones;
@@ -281,10 +284,10 @@ namespace MWSound
         for(std::size_t index=0;index<zones.size();++index)
         {
             const auto& z=zones[index];
-            if(note<z.lowKey || note>z.highKey || velocity<z.lowVelocity || velocity>z.highVelocity)continue;
+            if((z.flags&6)!=trigger || note<z.lowKey || note>z.highKey || velocity<z.lowVelocity || velocity>z.highVelocity)continue;
             if(!advance)return &z;
             const unsigned alternate=(mSampleAlternates[variant][index]++ + mAlternateSeed)%z.alternates;
-            for(const auto& candidate:zones)if(candidate.lowKey==z.lowKey && candidate.highKey==z.highKey
+            for(const auto& candidate:zones)if((candidate.flags&6)==trigger && candidate.lowKey==z.lowKey && candidate.highKey==z.highKey
                 && candidate.lowVelocity==z.lowVelocity && candidate.highVelocity==z.highVelocity
                 && candidate.alternate==alternate)return &candidate;
             break;
@@ -304,7 +307,7 @@ namespace MWSound
     }
     void ProceduralSynth::resetConnections()
     {
-        mConnectionKeys->fill({});mConnectionSerial=0;mConnectionVoices.fill(-1);
+        mConnectionKeys->fill({});mConnectionSerial=0;mConnectionVoices.fill(-1);mReleases->clear();
         for(auto& voice:mVoices)voice.connection=-1;
     }
     int ProceduralSynth::connectionGroup(int note, int selection) const
@@ -370,6 +373,7 @@ namespace MWSound
     }
     void ProceduralSynth::apply(Command command)
     {
+        mLastUnpicked=false;
         unsigned variant=0;const ProceduralSample::Zone* zone=nullptr;bool oneShot=mSampleCurrent.oneShot;
         const auto selectSample=[&] {
             variant=0;const int articulation=command.expression.articulation>=0?command.expression.articulation:int(mCurrent[StringArticulation]);
@@ -423,12 +427,29 @@ namespace MWSound
                 connectedOffset=v->note+v->slide.offset()-command.note;
                 if(mConnectionMode==1)
                 {
+                    mLastUnpicked=true;
+                    mReleases->retarget(v->key,key,command.note);
+                    const auto* hammer=command.note>v->note && v->sampleData && v->sampleData->hasHammer
+                        && v->sampleData==sampleSettings(variant).data?sampleZone(command.note,command.velocity,true,variant,4):nullptr;
+                    if(hammer)
+                    {
+                        v->samplePreviousPosition=v->samplePosition;v->samplePreviousStart=v->sampleStart;v->samplePreviousLength=v->sampleLength;
+                        v->samplePreviousRatio=std::exp2((hammer->root-v->sampleRoot)/12.0);v->sampleFade=144;
+                        v->sampleStart=hammer->start;v->sampleLength=hammer->length;v->sampleRoot=hammer->root;
+                        v->sampleRootFrequency=440*std::exp2((hammer->root-69)/12.0);v->samplePosition=0;
+                    }
+                    v->expression.touch(command.velocity,mCurrent[StringTouch]*(hammer?.15:1),command.note>v->note);
                     v->note=command.note;v->key=key;v->slide.start(connectedOffset,mCurrent[StringSlideTime]);v->age=++mAge;
                     return; // Retain source cursor, resonator, envelopes and picked velocity.
                 }
                 if(releasing && !selectSample()){v->amp.release();v->filter.release();return;}
                 v->note=command.note;v->key=key;pickedConnection=v;
             }
+        }
+        if(releasing)
+        {
+            double slide=0;for(const auto& v:mVoices)if(v.note>=0 && v.key==key){slide=v.slide.offset();break;}
+            mReleases->off(key,mCurrent[StringReleaseLevel],slide);
         }
         if(zone && command.velocity>=0)chokeSamples(zone->offBy);
         const auto prepareConnection=[&](Voice& v) {
@@ -450,6 +471,8 @@ namespace MWSound
             voice.sampleRoot=zone?zone->root:sampleSettings(variant).root;
             voice.sampleRootFrequency=440*std::exp2((voice.sampleRoot-69)/12.0);
             voice.sampleOneShot=oneShot;voice.sampleGroup=zone?zone->group:0;
+            mReleases->remember(key,command.note,mConnectionMode && connectible?group:-1,command.velocity,
+                oneShot?nullptr:voice.sampleData,voice.sampleGain);
         };
         const auto expression=[&](Voice& voice) {
             ProceduralStringExpression::Settings settings;
@@ -510,6 +533,7 @@ namespace MWSound
         });
         // Retain the stolen voice's envelope/phase/filter state to avoid a hard
         // output step.
+        if(slot->note>=0)mReleases->forget(slot->key);
         if (slot->drumType != 0 || mCurrent[DrumType] != 0 || mSampleCurrent.data)
         {
             const double carry = slot->drumLast;
@@ -809,6 +833,22 @@ namespace MWSound
                         (v.sampleLength - 1 - v.samplePosition) / std::max(96.0, 96 * step)});
                     const auto first=v.sampleStart+at;
                     sample = (pcm[first] + (pcm[first + 1] - pcm[first]) * fraction) * fade * v.sampleGain;
+                    if(v.sampleFade)
+                    {
+                        const auto previous=static_cast<unsigned>(v.samplePreviousPosition);
+                        double old=0;
+                        if(previous+1<v.samplePreviousLength)
+                        {
+                            const double f=v.samplePreviousPosition-previous;
+                            const double oldStep=step*v.samplePreviousRatio;
+                            const double edge=std::min({1.0,v.samplePreviousPosition/96,
+                                (v.samplePreviousLength-1-v.samplePreviousPosition)/std::max(96.0,96*oldStep)});
+                            old=(pcm[v.samplePreviousStart+previous]*(1-f)+pcm[v.samplePreviousStart+previous+1]*f)*edge*v.sampleGain;
+                            v.samplePreviousPosition+=oldStep;
+                        }
+                        const double blend=1-double(v.sampleFade--)/144;
+                        sample=old+(sample-old)*blend;
+                    }
                     if(!v.sampleOneShot) {
                         if(sampleMute>0 && v.expression.articulation()==0) {
                             const double frequency=std::clamp(v.sampleRootFrequency*step
@@ -883,6 +923,7 @@ namespace MWSound
             fx.drive = mCurrent[Drive]; fx.tone = mCurrent[DriveTone]; fx.mix = mCurrent[FxMix]; fx.output = mCurrent[FxOutput];
             fx.bass = mCurrent[AmpBass]; fx.mid = mCurrent[AmpMid]; fx.treble = mCurrent[AmpTreble];
             fx.preHighpass=effective[PreHighpass]>0?mCurrent[PreHighpass]:0;
+            fx.captureTightness=mCurrent[CaptureTightness];
             fx.cabinetHighpass=effective[CabinetHighpass]>0?mCurrent[CabinetHighpass]:0;
             fx.cabinetLowpass=effective[CabinetLowpass]>0?mCurrent[CabinetLowpass]:0;
             fx.parallel.mix=effective[ParallelMix]>0?mCurrent[ParallelMix]:0;
@@ -891,11 +932,12 @@ namespace MWSound
             fx.parallel.comb=mCurrent[ParallelComb];fx.parallel.delay=mCurrent[ParallelDelay];fx.parallel.feedback=mCurrent[ParallelFeedback];
             fx.parallel.rate=mCurrent[ParallelRate];fx.parallel.depth=mCurrent[ParallelDepth];fx.parallel.lift=mCurrent[ParallelLift];
             // Preserve legacy multiplication order when the insert is bypassed.
+            mixed+=mReleases->next(mCurrent[2]+mCurrent[3]/100+performancePitch+(effective[22]==0?lfo*2:0));
             const double signal = mEffects.process(mixed, fx);
             output[frame] = static_cast<float>(std::tanh(signal * mCurrent[23] * mCurrent[24] * 0.18 * mPerformance[2] * mPerformance[3]));
             peakValue = std::max(peakValue, std::abs(output[frame]));
         }
-        unsigned count = 0;
+        unsigned count = mReleases->voices();
         for (const auto& v : mVoices)
             if (v.note >= 0)
                 ++count;

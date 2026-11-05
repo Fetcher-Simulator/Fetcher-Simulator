@@ -1,5 +1,32 @@
 # Guitar and heavy sound-design direction
 
+## November 5 acceptance (package 80 / API 37)
+
+The user accepted the second passages in the matched-volume full-band
+Master of Puppets MIDI and original industrial comparisons as usable starting
+points and authorized closing priority one. These compare the existing captured
+set with new Performance recipes. They are not acceptance as exact Metallica or
+DOOM recreations. Old presets remain available; personal sounds are untouched.
+
+The final recipes combine source-correct attacks, the reviewed complete captured
+rig, tighter/longer gate releases, deliberate pre/post cuts, saved channel EQ and
+band balance. New Captured tightness varies the input bass cut from 50 to 181 Hz:
+broader for doom, tighter for modern rhythm. Industrial retains a bounded parallel
+layer and low-B allocation. Separate rhythm/lead/bass/kit choices remain editable.
+
+Real Green Guitar upward hammers and Darkblack finger-bass endings address the
+remaining recorded-gesture foundation. Downward connections/slides remain
+modeled. The recorded release level and legato touch default to zero for old
+sounds. A new original four-bar sound check isolates picked, connected and
+picked-slide phrases over steady backing. All new recordings are credited CC0;
+harmonics and paired DI sources retain their separate CC BY license.
+
+SSE2 reduces the same four-chain amp/boost benchmark from roughly 0.46 to 0.16
+seconds per second PCM on this PC. Scalar and SIMD retain the golden-reference
+maximum error below 0.000001. This is not total application CPU or an unlimited
+orchestra claim. Wider rigs, album-specific production and instrument refinement
+continue as follow-up work; sample editing is now next in the roadmap.
+
 ## Native captured rig checkpoint (package 76 / API 35)
 
 Three matched-guitar-level passages isolated old C, corrected physical-string

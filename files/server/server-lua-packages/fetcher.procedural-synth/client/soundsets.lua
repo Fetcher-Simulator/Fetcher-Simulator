@@ -66,6 +66,23 @@ do
     s.muted='capture-heavy-muted';s.cleanPatch='band-clean-guitar';s.kitPatch='band-modern-kit'
     M.entries[#M.entries+1]=s
 end
+for _,e in ipairs{{'thrash','Tight Thrash','perf-thrash-rhythm','band-modern-kit'},
+    {'modern','Modern Metal','perf-modern-rhythm','band-modern-kit'},
+    {'alternative','Alternative Metal','perf-alt-rhythm','band-alternative-kit'},
+    {'doom','Heavy Doom','perf-doom-rhythm','band-doom-kit'},
+    {'industrial','Industrial','perf-industrial-rhythm','band-modern-kit'},
+    {'funk','Funk','band-funk-guitar','band-funk-kit'},
+    {'clean','Clean Electric','band-clean-guitar','band-clean-kit'},
+    {'blues','Blues / Jazz','band-blues-guitar','band-blues-kit'},
+    {'acoustic','Acoustic / Classical','band-steel-guitar','band-acoustic-kit'}} do
+    local s=set('performance-'..e[1],'Performance / '..e[2],9,'studio-keys','perf-finger-bass',e[3],
+        'studio-strings',e[1]=='acoustic' and 'band-nylon-guitar' or 'perf-connected-lead','pad','glass-bell','studio-brass','studio-reed','studio-organ')
+    s.recorded=true;s.captured=true;s.curated=true;s.performance=true;s.electricRhythm=({thrash=true,modern=true,alternative=true,doom=true,industrial=true})[e[1]] or false
+    s.muted=e[1]=='thrash' and 'perf-thrash-muted' or e[3];s.cleanPatch='band-clean-guitar';s.kitPatch=e[4];s.slap=e[1]=='funk'
+    if e[1]=='clean' or e[1]=='blues' then s.patches.lead=e[3];s.cleanPatch=e[3] end
+    if e[1]=='funk' then s.patches.lead='perf-connected-guitar' end
+    M.entries[#M.entries+1]=s
+end
 local recordedDrums={};for _,note in ipairs{35,36,37,38,40,41,42,43,44,45,46,47,48,49,50,51,52,53,57,59} do recordedDrums[note]=true end
 local builtins={};for _,p in ipairs(schema.builtins) do builtins[p.id]=p end
 local percussion={
@@ -153,6 +170,7 @@ function M.assignment(id,role,midi,note,instrument,program,name)
             elseif program==31 or (name or ''):lower():find('solo',1,true) or (name or ''):lower():find('lead',1,true) then presetId='b:'..s.patches.lead
             else presetId='b:'..s.patches.guitar end
         elseif role=='bass' then
+            if s.performance and program==33 then presetId='b:perf-finger-bass' end
             if program==36 or program==33 and s.slap then presetId='b:sampled-bass-slap'
             elseif program==37 then presetId='b:sampled-bass-pop' end
             if id=='band-industrial' and (program==33 or program==34) then presetId='b:band-industrial-bass' end
@@ -178,6 +196,12 @@ M.tones={['b:captured-guitar-thrash']=M.bridgeTone,
     ['b:band-alternative-guitar']={eqEnabled=1,highpass=85,bass=0,mid=-2,midFrequency=400,treble=2},
     ['b:band-doom-guitar']={eqEnabled=1,highpass=65,bass=0,mid=-3,midFrequency=300,treble=1}}
 local neutralTone={eqEnabled=0,highpass=20,bass=0,mid=0,midFrequency=1000,treble=0}
+M.tones['b:perf-thrash-rhythm']={eqEnabled=1,highpass=80,bass=1,mid=-3,midFrequency=750,treble=1}
+M.tones['b:perf-thrash-muted']=M.tones['b:perf-thrash-rhythm']
+M.tones['b:perf-modern-rhythm']={eqEnabled=1,highpass=95,bass=-1,mid=1,midFrequency=1300,treble=2}
+M.tones['b:perf-alt-rhythm']={eqEnabled=1,highpass=70,bass=0,mid=2,midFrequency=800,treble=0}
+M.tones['b:perf-doom-rhythm']={eqEnabled=1,highpass=50,bass=2,mid=2,midFrequency=500,treble=-1}
+M.tones['b:perf-industrial-rhythm']={eqEnabled=1,highpass=45,bass=1,mid=-1,midFrequency=600,treble=2}
 function M.apply(track,state,presetId)
     local mixer={};for k,v in pairs(track.mixer or {}) do mixer[k]=v end
     local previous=M.tones[track.presetId];local matched=previous~=nil

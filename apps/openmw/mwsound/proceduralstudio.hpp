@@ -88,7 +88,7 @@ namespace MWSound
             int transpose;
             std::uint32_t stamp;
             double age;
-            bool held;
+            bool held, picked=true;
         };
         // Control-thread copy. No Lua, allocation or lock on the audio writer.
         std::vector<PerformanceNote> performance() const;

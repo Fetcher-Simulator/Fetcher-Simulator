@@ -14,6 +14,7 @@
 #include "proceduralaudio.hpp"
 #include "proceduralsample.hpp"
 #include "proceduralstring.hpp"
+#include "proceduralrelease.hpp"
 
 namespace MWSound
 {
@@ -29,10 +30,11 @@ namespace MWSound
             bool discrete = false;
         };
         static constexpr unsigned SampleRate = 48000;
-        static constexpr std::size_t ParameterCount = 81;
+        static constexpr std::size_t ParameterCount = 84;
         // Wire slots 55-59 retain their original MIDI-performance meaning.
         static constexpr unsigned decodeControl(unsigned wire)
-        { return wire<55?wire:wire<60?ParameterCount+wire-55:wire-5; }
+        { return wire<55?wire:wire<60?ParameterCount+wire-55:wire<86?wire-5
+            :wire>=89 && wire<ParameterCount+8?wire-8:~0u; }
         static const std::array<Parameter, ParameterCount> Parameters;
         using State = std::array<float, ParameterCount>;
         struct AttackSample
@@ -80,7 +82,7 @@ namespace MWSound
             StringArticulation, PickAttack, PickDecay, StringResonance, PickPitch, PickVariation, PickDirection,
             ParallelMix, ParallelClean, ParallelDirty, ParallelNoise, ParallelDrive, ParallelShape,
             ParallelComb, ParallelDelay, ParallelFeedback, ParallelRate, ParallelDepth, ParallelLift,
-            StringLegato, StringSlideTime, StringLayout, StringSelect
+            StringLegato, StringSlideTime, StringLayout, StringSelect, StringTouch, StringReleaseLevel, CaptureTightness
         };
         struct Command
         {
@@ -106,6 +108,8 @@ namespace MWSound
             float velocity = 0;
             double phase1 = 0, phase2 = 0;
             double samplePosition = 0;
+            double samplePreviousPosition = 0, samplePreviousRatio = 1;
+            unsigned samplePreviousStart = 0, samplePreviousLength = 0, sampleFade = 0;
             unsigned sampleStart = 0, sampleLength = 0;
             int sampleRoot = 60;
             double sampleRootFrequency = 440, sampleMuteEnvelope = 1, sampleMuteLow = 0;
@@ -151,13 +155,15 @@ namespace MWSound
         std::array<SampleSettings,3> mAttackTarget{}, mAttackCurrent{};
         std::array<std::array<unsigned,512>,4> mSampleAlternates{}; // independent audio-thread zone-group counters
         const unsigned mAlternateSeed; // distinct recorded takes on adjacent Studio lanes
+        std::unique_ptr<ProceduralRelease> mReleases; // allocated on the control thread
+        bool mLastUnpicked=false; // presentation of the most recent native attack
         // Reclaimed on control calls only. The current audio pointer remains
         // pinned until a later call observes that the callback has switched.
         std::vector<std::shared_ptr<ProceduralSample>> mSamplePins;
         const SampleSettings& sampleSettings(unsigned variant) const { return variant ? mAttackCurrent[variant-1] : mSampleCurrent; }
         bool sampleReady(unsigned variant = 0) const;
         void syncSample(); // mMutex held, audio thread only
-        const ProceduralSample::Zone* sampleZone(int note, float velocity, bool advance, unsigned variant = 0);
+        const ProceduralSample::Zone* sampleZone(int note, float velocity, bool advance, unsigned variant = 0, unsigned trigger = 0);
         void chokeSamples(unsigned group);
         State mTarget{}, mCurrent{};
         // Score-owned overrides are audio-thread state, separate from the editable patch.

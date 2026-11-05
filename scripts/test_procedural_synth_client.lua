@@ -289,7 +289,7 @@ e.page='effects';e:render()
 check(e.controls.driveType and e.controls.cabinet,'effects controls exposed per instrument')
 for name in pairs(e.controls) do seen[name]=true end
 e.page='strings';e:render()
-check(e.controls.stringArticulation and e.controls.pickAttack and e.controls.stringResonance and e.controls.pickDirection and e.controls.stringLegato and e.controls.stringSlideTime and e.controls.stringLayout and e.controls.stringSelect,'dedicated Strings page exposes note expression, tuning and independent string controls')
+check(e.controls.stringArticulation and e.controls.pickAttack and e.controls.stringResonance and e.controls.pickDirection and e.controls.stringLegato and e.controls.stringSlideTime and e.controls.stringLayout and e.controls.stringSelect and e.controls.stringTouch and e.controls.stringReleaseLevel,'dedicated Strings page exposes note expression, tuning, connected touch and recorded endings')
 for name in pairs(e.controls) do seen[name]=true end
 e.page='parallel';e:render()
 check(e.controls.parallelMix and e.controls.parallelShape and e.controls.parallelLift,'Parallel page exposes layers, shaper and lift')
@@ -1582,7 +1582,7 @@ end
 do
  local function testGuitarNavigation()
   local Editor=dofile(root..'client/editor.lua')
-  for _,id in ipairs{'b:capture-heavy','b:sampled-electric-metal','b:sampled-guitar-nylon','b:sampled-bass-picked','b:guitar-heavy','b:guitar-natural-harmonics','b:guitar-pinch-harmonics'} do
+  for _,id in ipairs{'b:capture-heavy','b:sampled-electric-metal','b:sampled-guitar-nylon','b:sampled-bass-picked','b:guitar-heavy','b:guitar-natural-harmonics','b:guitar-pinch-harmonics','b:perf-connected-guitar','b:perf-connected-lead','b:perf-finger-bass','b:perf-legato-bass'} do
    local builtin;for _,p in ipairs(schema.builtins) do if p.id==id then builtin=p end end
    local params=assert(schema.state(assert(builtin).state));params.drive=17;params.stringSlideTime=.123
    local sample=schema.sampleKey(params.sample);local edits,commands=0,0

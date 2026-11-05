@@ -100,7 +100,7 @@ namespace MWLua
                     return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash, s.attacks, s.gain);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 36;
+            api["version"] = 37;
             api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
                 const auto path = manager->exportStudioMidi(name, bytes);
                 sol::table result(lua, sol::create);
@@ -187,7 +187,7 @@ namespace MWLua
                         sol::table row(lua,sol::create);
                         row["track"]=n.track;row["note"]=n.note;row["stringSelect"]=n.selection;row["layout"]=n.layout;
                         row["articulation"]=n.articulation;row["direction"]=n.direction;row["transpose"]=n.transpose;
-                        row["stamp"]=n.stamp;row["age"]=n.age;row["held"]=n.held;result[++index]=row;
+                        row["stamp"]=n.stamp;row["age"]=n.age;row["held"]=n.held;row["picked"]=n.picked;result[++index]=row;
                     }
                     return result;
                 },

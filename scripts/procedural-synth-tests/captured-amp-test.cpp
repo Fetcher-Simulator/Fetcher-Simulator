@@ -64,6 +64,19 @@ int main()
         settings.mode=5;for(unsigned n=0;n<2000;++n)check(std::abs(fx.process(0,settings))<1e-10,"silent reactivation must not emit a stale tail");
         trackAllocations=false;check(allocations==0,"capture effect process/reset allocated");
         std::cout<<"PASS native insert, extreme input, Stop tail, bypass/re-entry and allocation checks\n";
+        MWSound::CapturedAmp broad,tight,moving;double broadEnergy=0,tightEnergy=0;
+        trackAllocations=true;
+        for(unsigned n=0;n<24000;++n)
+        {
+            const double source=.08*std::sin(n*.0081);
+            const double a=broad.process(source,.45,0),b=tight.process(source,.45,1);
+            const double c=moving.process(source,.45,double(n%4096)/4095);
+            check(std::isfinite(c) && std::abs(c)<100,"capture tightness modulation is unsafe");
+            broadEnergy+=a*a;tightEnergy+=b*b;
+        }
+        trackAllocations=false;check(allocations==0,"capture filter changes allocated");
+        check(std::abs(broadEnergy-tightEnergy)>.001,"captured body/tightness must change the actual response");
+        std::cout<<"PASS capture low-end range, live coefficient changes and allocation safety\n";
 
         std::array<std::unique_ptr<MWSound::CapturedAmp>,4> band;
         for(auto& amp:band)amp=std::make_unique<MWSound::CapturedAmp>();

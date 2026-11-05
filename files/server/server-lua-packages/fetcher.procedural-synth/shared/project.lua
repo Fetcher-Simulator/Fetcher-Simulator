@@ -19,7 +19,7 @@ end
 -- Times are Studio steps (four per quarter note); absent lanes leave the patch alone.
 M.automationOrder={};M.automationSpecs={};M.maxAutomation=8192
 for i,name in ipairs(schema.order) do
-    local source=schema.specs[name];local spec={min=source.min,max=source.max,default=source.default,discrete=source.discrete,code=i<=55 and 127+i or 132+i}
+    local source=schema.specs[name];local spec={min=source.min,max=source.max,default=source.default,discrete=source.discrete,code=i<=55 and 127+i or i<=81 and 132+i or 135+i}
     if name=='polyphony' then spec.max=8;spec.default=8 end
     M.automationOrder[#M.automationOrder+1]=name;M.automationSpecs[name]=spec
 end

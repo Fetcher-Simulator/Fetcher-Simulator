@@ -83,7 +83,7 @@ void legatoTests()
         a->releaseTrack(1);studioRender(*a,4800);check(!a->trackVoices(1),"track release clears connected held keys");
         a->stop();studioRender(*a,4800);check(!a->trackVoices(1),"Studio Stop clears held-note priority");
         check(!a->loadScore(scoreNote(0,1,1,210,128),36000,false),"connection modes cannot ramp");
-        check(!a->loadScore(scoreNote(0,1,1,217,0),36000,false),"unknown connected control rejected");
+        check(!a->loadScore(scoreNote(0,1,1,220,0),36000,false),"unknown connected control rejected");
         check(a->start(0,18000.0/48000),"connected score supports seek");studioRender(*a,24000,137);
         check(!a->trackVoices(1),"seek does not leave unheard earlier gates in a held stack");
     }

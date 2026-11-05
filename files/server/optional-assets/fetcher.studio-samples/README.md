@@ -1,5 +1,44 @@
 # Fetcher Studio recorded instrument content
 
+## Package 80: CC0 connected guitar and natural bass endings
+
+Two opt-in banks require **native API 37**. The catalogue now has 23 banks;
+the previous 21 bank files and identities are unchanged. Content is still
+loaded on demand within the shared 256-MiB resident float-PCM budget.
+
+`guitar-green-gestures-v1` adapts Karoryfer's **Black And Green Guitars**,
+recorded by **Brian Wood**, CC0. The pinned upstream commit is
+`b3b3249d37dc977a1a297bd2dc053e6d9b6b805c` in
+https://github.com/sfzinstruments/karoryfer.black-and-green-guitars .
+Thirteen source roots cover E2–D6 with nearest-root transposition, and B1–D#2
+transpose the recorded low E. Its 104 zones contain two genuine picked
+dynamics/takes, two upward hammers and two release takes per root. Sources are
+not fabricated or normalized. Cuts retain 3-ms preroll/fade-in and 20-ms end
+fades; picked/hammer/release caps are 3/2/0.65 seconds. Held releases decay at
+the source's 5 dB/s. The acquisition tool fetches only the pinned 104 originals,
+maps and license, verifies Git blob/SHA-256 identities, and executes no source
+scripts. Original SFZ is build-time mapping context, never a game dependency.
+
+`bass-finger-release-v1` preserves every original `bass-finger-v1` attack
+record and PCM byte, adding two real Darkblack finger-release takes per root
+from the pinned CC0 Black And Blue Basses archive. It has 90 zones over B0–E4,
+with 0.65-second release caps and the source's 4 dB/s held decay. The archive
+does not provide a corresponding picked-bass ending, so this is finger-only.
+Some original WAV data chunks include a trailing padding byte in their length;
+conversion reads complete PCM frames and retains original source hashes.
+
+FSBANK2 trigger flag 2 denotes note-off zones; its formerly reserved word is
+Q8 held decay in dB/s (0–24). Flag 4 denotes upward hammer attacks. Trigger
+classes have independent complete alternate groups, and cannot use choke groups
+or combine with one-shot flags. Ordinary API-19 banks remain compatible. Old
+clients reject these new banks, so distribute the matching API-37 client.
+Full source/license/adaptation records accompany the banks in `licenses/` and
+`manifests/`. Runtime release tails share instrument effects/mix processing.
+
+Rebuild with the commands documented in
+`scripts/procedural-synth-assets/README.md`. Validation checks exact identities,
+trigger maps/alternates, source provenance and byte-preserved bass attacks.
+
 ## Package 79: recorded harmonic guitar colors
 
 Two opt-in banks adapt the credited Guitar-TECHS P1/P2 DI harmonic recordings.

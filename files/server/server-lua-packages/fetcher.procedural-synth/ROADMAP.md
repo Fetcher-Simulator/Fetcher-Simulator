@@ -1,6 +1,41 @@
 # FETCHER STUDIO roadmap
 
-Updated 2026-11-04. Completed work and subsequent planned slices are identified below.
+Updated 2026-11-05. Completed work and subsequent planned slices are identified below.
+
+Package 80 / native API 37 closes priority one at the user-accepted usable
+starting-preset level. The November 5 full-band, matched-volume comparisons of
+the existing captured rig and Performance thrash/industrial recipes were
+accepted. Exact Metallica/DOOM recording fidelity remains sound refinement,
+not a claimed result. Nine Performance sets retain distinct rhythm, lead,
+bass and kit choices without replacing existing preset IDs or personal sounds.
+
+Two new CC0 banks add actual upward hammer attacks and note-off releases from
+Karoryfer's Green Guitar and Darkblack finger bass. Sources, pinned original
+hashes, real alternate takes, source maps, adaptations and licenses accompany
+the content. The bass body and all 21 older banks stay byte-identical; all
+factory/project resident unions fit the unchanged 256-MiB PCM budget. Picked
+bass does not borrow finger-bass endings. Downward connections/slides remain
+modeled source continuation/touch; no recorded pull-off claim is made.
+
+Native string ownership handles body-expired note-offs, sustain, connected
+retargeting and independent bounded release tails. A 3-ms source crossfade
+introduces captured hammers; unpicked notes move the fretting hand without a
+false right-hand pick. New Legato touch, Recorded release level and Captured
+tightness controls save, replicate and automate; existing MIDI/mixer wire IDs
+are preserved. Captured tightness spans 50–181 Hz, with legacy 181-Hz defaults.
+SSE2 reduces the four-chain captured-rig benchmark from about 0.46 to 0.16
+seconds per second PCM with scalar/golden equivalence (maximum error 8.95e-7).
+This is a path-specific measurement, not a whole-game FPS guarantee.
+
+All 37 Lua suites and 11 native groups pass. Two native clients completed more
+than seven minutes each with three dense MIDI imports, repeated set changes,
+Undo/Redo/resume, late listening, sounding member/master compression, private
+server-backed save/reload/replay and owned-NPC cleanup. Original user files
+remain hash-identical. Native control inspection covers the new string/effect
+sliders and clears a meter/hint overlap. This is bounded local acceptance,
+not a multi-hour or orchestra-scale guarantee. Server C++ is unchanged; client
+C++ and server Lua change. Local port 25567 only, with no VPS, hosted content
+or public workflow rollout.
 
 Package 79 adds opt-in recorded natural and pinch guitar harmonics from the
 credited CC BY 4.0 Guitar-TECHS DI sources. Both banks use sounding-pitch keys,
@@ -627,106 +662,59 @@ credited sheet booklet into the Yamaha rests and separate stand, and supplies
 stands to non-keyboard NPCs. Native spawned-actor teleport support and positional
 readback repair lineup changes that previously left reused NPCs in old slots.
 
-## Remaining roadmap (next: band listening and performance acceptance)
+## Priority one completed — guitars, bass and full kit
 
-1. **Guitars, electric bass, full drum kit and convincing genre playback.**
-   Prioritize electric guitar and bass, nylon-string classical guitar,
-   steel-string acoustic guitar, and a complete acoustic drum set before further
-   orchestral expansion or conductor/layout features. The goal is convincing
-   musical playback, with Black Sabbath, Metallica and System of a Down as
-   representative listening targets alongside funk, clean/acoustic music and
-   other genres. Use representative riffs, arrangements and matched-level
-   listening comparisons to guide the sound work.
+Completed November 5, 2026, at the accepted editable starting-sound level:
 
-   - **Sound foundation:** evaluate the current plucked-string/drum voices and
-     drive/cabinet processing against representative phrases first. Extend the
-     synthesis or add appropriately licensed multisamples where the existing
-     voices cannot deliver convincing attacks, sustain and timbre. Acceptance
-     requires audible improvement in timbre, dynamics and articulation. Record
-     sources, redistribution licenses and credits for new sound libraries.
-   - **Guitar chain and performance follow-through:** captured cabinet IRs,
-     pre/post cuts, local focus/dim, first-pass pick/resonance/articulation and
-     opt-in parallel processing are implemented. Package 57 also supplies an
-     explicit string-aware fingering/strum note tool. Next are live per-string
-     richer/captured hammer-ons and slides, controller follow-ups and
-     listening-based refinement with drums and bass present. Mono connected
-     legato/picked slides are implemented in package 58; independent string
-     allocation and explicit stepped string selection ship in package 65.
-     Saved per-note fingering and same-pitch string unisons ship in package 73.
-     Package 74 connects saved assignments to native attack-driven hand presentation.
-     Package 66 adds live CC/keyswitch mapping and explicit track-level Auto write;
-     package 67 retains individual attack expression in takes and reusable clips.
-     Package 68 adds general physical-controller Learn/assignments for synth,
-     channel processing, track/master faders and return controls, with native
-     ranges, pickup, local bindings and explicit synth automation capture.
-     Package 69 captures absolute track faders and delay/reverb sends. Master/
-     shared-return/EQ/compressor automation, moving replay widgets, explicit touch/
-     latch modes, relative/14-bit encoders, per-device profiles and custom subranges
-     remain follow-ups. Package 66's attack mappings stay separate.
-     Do not make fidelity depend solely on collecting more samples.
-   - **Guitar and bass articulation:** clean, crunch, fuzz, high-gain rhythm and
-     lead guitar; tight palm-muted/choked notes, sustained chords, picking,
-     bends/slides and usable low-register/drop-tuned phrases. Electric bass
-     needs distinct fingerstyle, picked and slap/pop starting sounds. Classical
-     nylon and acoustic steel strings need distinct attacks/resonance, picked
-     and fingerpicked notes, strummed chords, damping and natural releases.
-     Expose articulation controls and explicit MIDI/controller mapping when
-     needed; ordinary MIDI notes do not reliably encode picking, muting or slap.
-   - **Complete drum set:** kick, snare/rim, rack/floor toms, closed/open/pedal
-     hi-hat, ride and crash cymbals, with double-kick patterns for metal. Use
-     velocity response and variation to avoid identical repeated hits, correct
-     open/closed-hat choke behavior and appropriate cymbal tails. Map imported
-     GM percussion pitches to the correct kit pieces. Keep one physical drummer
-     for compatible kit lanes/parts, retaining independent sound/mixer controls.
-   - **Curated presets and whole-band sound sets:** matched-level classic heavy
-     rock/doom, thrash metal, alternative metal, modern high-gain, clean electric,
-     funk, blues/jazz, classical and acoustic starting points. Funk includes
-     muted rhythm guitar, finger/slap bass and a responsive drum kit. Preserve
-     existing user patches and allow independent rhythm/lead/bass/kit choices;
-     whole-song auditioning should not require replacing every track manually.
-   - **Physical performance:** obtain credited CC0/CC BY guitar, bass and full-kit
-     models, inventory icons and suitable grips/strumming/plucking/stick/pedal
-     motion. Extend the live poser as needed for guitar/bass and seated drummer
-     calibration. Stage the complete kit as one performer footprint and keep
-     its props, sound selection and MIDI part routing independently editable.
+- Distinct electric, acoustic/classical, finger/picked/slap bass and full GM kit
+  sources; real dynamics/alternates, harmonic colors and source-correct maps.
+- Captured rig/cabinet, pre/post cuts, parallel industrial processing, palm/dead
+  attacks, independent strings, bends/connected notes, captured upward hammers,
+  natural endings and controller/note articulation tools.
+- Nine accepted genre starting sets, original editable band sound checks,
+  matched listening comparisons and independent member/song EQ/compression.
+- Credited CC0/CC BY physical instruments, icons, guitar/bass grips and seated
+  kit presentation; corrected hand/stick direction and live pose calibration.
+- Persistence, Undo/Redo, late listeners, concurrent playback and dense-score
+  checks. The final local test report documents the bounded session coverage.
 
-   Delivery order: establish guitar/bass/classical/acoustic and kit identities,
-   routing and audition phrases; improve the sound/articulation foundation;
-   curate and balance the genre banks; then complete models/animation and native
-   band acceptance. Test riffs, chords, bass lines, funk grooves, fingerpicking,
-   acoustic strums and complete imported rock/metal songs. Verify MIDI program/
-   percussion mapping, save/load, Undo, late listeners, concurrent bands and
-   sustained performance at matched listening levels before calling it complete.
-2. **Further sample tools and sound libraries.** Sustained loops, chopping,
+Exact album tones, fingertip perfection across arbitrary rigs, recorded
+pull-offs/continuous slide libraries and unlimited orchestra performance are
+not implied. Continue refinement alongside the later instrument/performance
+priorities rather than blocking sample editing on those open-ended targets.
+
+## Remaining roadmap (next: sample editing; formerly priority two)
+
+1. **Further sample tools and sound libraries.** Sustained loops, chopping,
    reverse, crossfades and sound-library expansion beyond the priority band set. Continue
    listening/balance refinement alongside the orchestral instrument work.
-3. **Section layouts and conductor presentation.** Add saved spacing/layout
+2. **Section layouts and conductor presentation.** Add saved spacing/layout
    presets, instrument sections, conductor gestures and formation previews.
    Extend seating to players and additional instruments, with chair interaction
    and custom-rig/body-height support. Keep explicit safe restaging and the
    standing grid; avoid moving a formation when its leader walks away. Improve
    client-assisted footprint checks for cramped/uneven stages and furniture.
-4. **Orchestral instrument expansion and sound refinement.** Add remaining families
+3. **Orchestral instrument expansion and sound refinement.** Add remaining families
    (including double bass, oboe, bassoon, horn and trombone), articulation, rig/body
    variation support and better acoustic presets/multisamples. Refine grips and
    seated performance across rigs. Balance a Star Wars-theme-scale score;
    the six initial synthetic patches are starting points, not a complete orchestra.
-5. **Large orchestra performance and multiplayer timing.** Profile 32 sounding
+4. **Large orchestra performance and multiplayer timing.** Profile 32 sounding
    physical performers, late joins, separate concurrent bands and long sessions.
    Improve output/voice culling, spatial section grouping and device-drift/latency
    correction before increasing score/performer limits further. Imports over the
    current 32-part budget fail clearly; do not silently drop orchestral parts.
-6. **Acoustic and monitoring refinement.** Add authored room zones and acoustic
+5. **Acoustic and monitoring refinement.** Add authored room zones and acoustic
    presets, connected-room propagation, material-aware absorption, diffraction
    and more accurate direct/reflected balance. Refine the bounded geometric
    estimate in irregular rooms and outdoor transitions. Retain one shared room
    return, user controls and bounded geometry work outside the audio callback.
    Explore stereo monitoring and optional world/monitor blending after profiling.
-7. **Recording follow-ups.** Physical MIDI controller acceptance, live controller
+6. **Recording follow-ups.** Physical MIDI controller acceptance, live controller
    monitoring/capture, shared-source overdub during playback and additional record
    modes. Automatic hardware round-trip measurement and non-Windows input remain
    planned; tap-based timing compensation is available now.
-8. **Mixer/effects routing.** Stereo/panning, arbitrary group buses, flexible effect chains
+7. **Mixer/effects routing.** Stereo/panning, arbitrary group buses, flexible effect chains
    and remaining master/return/EQ/compressor automation. Package 77 adds member
    processing and linked spatial master EQ/compression; arbitrary subgroup routing
    remains separate. Track-fader/send curves

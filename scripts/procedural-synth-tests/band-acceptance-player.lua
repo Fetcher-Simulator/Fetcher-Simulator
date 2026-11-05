@@ -9,6 +9,9 @@ local phase,started,at,role,playingAt,lastChange,lastLog,index=0,nil,0,nil,nil,0
 local flags={};local frames,slow,maxDt=0,0,0
 local styles={'band-thrash-ref','band-industrial','captured-thrash','band-doom','band-modern','band-alternative','band-funk','band-clean','band-blues','band-acoustic'}
 if synth.version>=35 then table.insert(styles,1,'band-capture-metal') end
+if synth.version>=37 then
+ for _,id in ipairs{'performance-acoustic','performance-clean','performance-funk','performance-industrial','performance-thrash','performance-modern'} do table.insert(styles,1,id) end
+end
 local function log(s) print('[StudioBandAcceptanceQA] '..tostring(role)..' '..s) end
 local function imported(n)
  local file=assert(vfs.open('midi/qa-acceptance-'..n..'.mid'));local bytes=file:read('*a');file:close()
@@ -35,7 +38,8 @@ local function run(dt)
    return
   end
   local library=api.projectLibrary();if not library or not library.ready or library.pending then return end
-  local p=assert(Exercises.create(role=='Synth A' and 'acoustic-band' or 'modern-band'))
+  local p=assert(Exercises.create(role=='Synth A' and (synth.version>=37 and 'connected-endings' or 'acoustic-band') or 'modern-band',
+    synth.version>=37 and (role=='Synth A' and 'performance-clean' or 'performance-modern') or nil))
   p.leaderPlays=false;p.autoBand=role=='Synth A';p.stageLayout='standing'
   if synth.version>=36 then p.masterMixer.compEnabled=1;p.masterMixer.threshold=-42;p.masterMixer.ratio=3 end
   assert(w:load(p));api.hide();phase=1;at=now

@@ -60,7 +60,7 @@ void mixAutomationTests()
         check(energy(studioRender(*a,1000))>0,"replacement releases a removed fader curve to the saved base");
         a->stop();studioRender(*a,10000);a->noteOn(1,60,1);
         check(energy(studioRender(*a,12000))>0,"Stop clears fader override for manual notes");
-        check(!a->loadScore(scoreNote(0,1,1,217,0),24000,false)
+        check(!a->loadScore(scoreNote(0,1,1,220,0),24000,false)
             && !a->loadScore(scoreNote(0,1,1,214,129),24000,false)
             && !a->loadScore(scoreNote(0,65536,1,215,128),24000,false)
             && !a->loadScore(scoreNote(0,1,1,216,0)+scoreNote(0,2,1,216,128),24000,false),"unknown, program, oversized and duplicate mix controls reject");

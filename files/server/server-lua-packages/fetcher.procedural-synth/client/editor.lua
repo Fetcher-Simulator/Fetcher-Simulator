@@ -85,7 +85,7 @@ function E:slider(name,title,x,y,width)
     if name=='stringSlideTime' then spec.unit='s';spec.step=.001
     elseif times[name] then spec.unit='s';spec.log=true;spec.step=0.001
     elseif hz[name] then spec.unit='Hz';spec.log=true;spec.step=1
-    elseif name:find('Level') or name:find('volume') or name=='sustain' or name=='filterSustain' or name=='fxMix' or name=='stringDamping' or name=='stringMute' or name=='stringPick' then spec.unit='%';spec.step=0.01
+    elseif name:find('Level') or name:find('volume') or name=='sustain' or name=='filterSustain' or name=='fxMix' or name=='stringDamping' or name=='stringMute' or name=='stringPick' or name=='stringTouch' or name=='captureTightness' then spec.unit='%';spec.step=0.01
     elseif name=='parallelDrive' or name=='parallelLift' then spec.unit='dB';spec.step=.5
     elseif name=='parallelDelay' then spec.unit='ms';spec.step=.1
     elseif name=='parallelRate' then spec.unit='Hz';spec.step=.1
@@ -275,7 +275,8 @@ function E:render()
         content[#content+1]=label('Experimental mono layers; no external plugins.',x1,492,col*2-20,11,colors.accent)
     elseif self.page=='strings' then
         for n,item in ipairs({{'stringArticulation','New-note articulation'},{'stringMute','Patch / palm mute amount'},{'stringDecay','String / muted decay'},{'stringDamping','String damping'}}) do slider(item[1],item[2],x1,185+(n-1)*55,col-20) end
-        for n,item in ipairs({{'pickAttack','Pick attack'},{'pickDecay','Pick decay (seconds)'},{'pickPitch','Pick pitch (semitones)'},{'pickDirection','Pick direction'},{'pickVariation','Modeled pick variation'}}) do slider(item[1],item[2],x2,185+(n-1)*55,col-20) end
+        for n,item in ipairs({{'pickAttack','Pick attack'},{'pickDecay','Pick decay (seconds)'},{'pickPitch','Pick pitch (semitones)'},{'pickDirection','Pick direction'},{'pickVariation','Modeled pick variation'},
+            {'stringTouch','Legato touch'},{'stringReleaseLevel','Recorded release level'}}) do slider(item[1],item[2],x2,185+(n-1)*40,col-20) end
         for n,item in ipairs({{'stringResonance','String resonance'},{'release','Note-off release'},{'stringLegato','Connect'},
             {'stringSlideTime','Slide time'},{'stringLayout','Voices / tuning'},{'stringSelect','String'}}) do slider(item[1],item[2],x3,185+(n-1)*44,col-20) end
         if not params.sample and params.instrumentType==1 then slider('stringPick','Pick position',x1,405,col-20) end
@@ -283,11 +284,13 @@ function E:render()
         content[#content+1]=label(params.sample and params.sample.attacks and 'Captured attacks: 2 short/palm; 3 dead/ghost.' or 'Use Auto for phrase / string changes.',x1,478,col-20,11,colors.muted)
         content[#content+1]=label('Strings count from lowest to highest.',x3,455,col-20,11,colors.muted)
         content[#content+1]=label('Auto uses free strings, then connects.',x3,478,col-20,11,colors.muted)
+        content[#content+1]=label('Touch adds unpicked hammer / pull dynamics.',x2,478,col-20,11,colors.muted)
+        content[#content+1]=label('Release level needs recorded note-off zones.',x2,500,col-20,11,colors.muted)
         content[#content+1]=label('Out-of-range notes play normally; 24 frets.',x3,500,col-20,11,colors.muted)
     elseif self.page=='effects' then
         for n,item in ipairs({{'driveType','Character'},{'drive','Input drive (dB)'},{'driveTone','Drive tone (Hz)'},{'fxMix','Wet / dry'},{'preHighpass','Pre-drive low cut (Hz)'}}) do slider(item[1],item[2],x1,185+(n-1)*55,col-20) end
         for n,item in ipairs({{'ampBass','Pre-drive bass (dB)'},{'ampMid','Pre-drive mid (dB)'},{'ampTreble','Pre-drive treble (dB)'},{'cabinetHighpass','Post-cab low cut (Hz)'},{'cabinetLowpass','Post-cab high cut (Hz)'}}) do slider(item[1],item[2],x2,185+(n-1)*55,col-20) end
-        for n,item in ipairs({{'cabinet','Speaker'},{'fxOutput','Effects output'},{'volume','Instrument volume'},{'gain','Output gain'}}) do slider(item[1],item[2],x3,185+(n-1)*55,col-20) end
+        for n,item in ipairs({{'cabinet','Speaker'},{'fxOutput','Effects output'},{'volume','Instrument volume'},{'gain','Output gain'},{'captureTightness','Captured tightness'}}) do slider(item[1],item[2],x3,185+(n-1)*48,col-20) end
         content[#content+1]=label('Post-cab EQ: Mixer > Mix',x3,435,col-20,12,colors.muted)
         content[#content+1]=label('Drive adds color; volume sets level.',x1,477,col*2-20,12,colors.accent)
     elseif self.drums then
@@ -334,7 +337,9 @@ function E:render()
         for n,name in ipairs({'filterAttack','filterDecay','filterSustain','filterRelease'}) do slider(name,({'FLT A','FLT D','FLT S','FLT R'})[n],x2+((n-1)%2)*(col/2-5),420+math.floor((n-1)/2)*45,col/2-18) end
         for n,item in ipairs({{'volume','Instrument volume'},{'gain','Output gain'},{'lfoRate','LFO rate Hz'},{'lfoDepth','LFO depth'},{'lfoTarget','LFO destination'},{'polyphony','Voice limit'}}) do slider(item[1],item[2],x3,185+(n-1)*43,col-20) end
     end
-    self.meter=self:element(label('',x3,455,col-20,12,colors.accent)); content[#content+1]=self.meter
+    local meterX=self.page=='strings' and x1 or x3
+    local meterY=self.page=='strings' and 425 or self.page=='effects' and 477 or self.page=='parallel' and 492 or 455
+    self.meter=self:element(label('',meterX,meterY,col-20,12,colors.accent)); content[#content+1]=self.meter
     content[#content+1]=label('Click values to type. Enter applies. +/- adjusts. Shift = fine.',30,518,870,10,colors.muted)
     self.plot=self:element{type=ui.TYPE.Widget,props={position=v(20,537),size=v(w-40,84)},content=ui.content{}}
     content[#content+1]=self.plot; self:plots()

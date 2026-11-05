@@ -50,6 +50,18 @@ do
     end end
 end
 do
+    local p=assert(Exercises.create('connected-endings'));local parts={}
+    for _,t in ipairs(p.tracks) do if t.sourceRole=='guitar' then parts[#parts+1]=t end end
+    check(#parts==3,'connected comparison isolates three ways of playing the same recorded source')
+    for variant,t in ipairs(parts) do
+        check(t.params.sample.path=='sound/fetcher/banks/guitar-green-gestures-v1.fsb','connection comparison keeps its recorded guitar source constant')
+        check(t.params.stringLegato==variant-1,'comparison includes picked, unpicked connected and picked-slide modes')
+        for _,n in ipairs(assert(F.decodeNotes(t.edited))) do check(n.e and n.e.stringSelect==1,'comparison deliberately connects notes on the same physical string') end
+    end
+    local preset;for _,v in ipairs(schema.builtins) do if v.id=='b:perf-legato-bass' then preset=v end end
+    check(preset and preset.state.stringLayout==6,'connected finger bass uses five-string B tuning at bass-register pitches')
+end
+do
     local p=assert(Exercises.create('bass-attacks'));local parts={}
     for _,t in ipairs(p.tracks) do if t.sourceRole=='bass' then parts[#parts+1]=t end end
     check(#parts==3,'comparison has three independently selectable recorded bass sounds')

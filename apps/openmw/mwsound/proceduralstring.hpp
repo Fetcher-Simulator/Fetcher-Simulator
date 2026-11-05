@@ -56,6 +56,14 @@ namespace MWSound
             else if(settings.articulation==3){mMute=.98;mMuteLoss=std::exp(-6.907755/(48000*.03));}
         }
         bool enabled() const {return mEnabled;}
+        void touch(double velocity,double amount,bool hammer)
+        {
+            if(amount<=0)return;
+            mEnabled=true;
+            mTouch=amount*(.25+.75*velocity);
+            mTouchLoss=std::exp(-1/(48000*(hammer?.006:.010)));
+            mTouchTarget=1+amount*(std::clamp((.25+.75*velocity)/(.25+.75*mVelocity),.4,1.6)-1);
+        }
         unsigned articulation() const {return mSettings.articulation;}
         double pitch() const {return mEnabled?mSettings.pitch*mPitchEnvelope:0;}
         double pickOffset() const
@@ -66,6 +74,12 @@ namespace MWSound
             resonance=resonance<0?mSettings.resonance:resonance;
             if(!mEnabled && resonance<=0)return source;
             source*=mGain;
+            if(mTouchGain!=mTouchTarget)
+            {
+                mTouchGain+=(mTouchTarget-mTouchGain)*.01;
+                if(std::abs(mTouchTarget-mTouchGain)<1e-9)mTouchGain=mTouchTarget;
+            }
+            source*=mTouchGain;
             if(resonance>0)
             {
                 if(!(mAge&31))
@@ -94,14 +108,15 @@ namespace MWSound
                 mPalmLow+=(source-mPalmLow)*mPalmCoefficient;
                 source+=(mPalmLow-source)*mMute;
             }
-            if(mAttack>0)
+            if(mAttack>0 || mTouch>1e-8)
             {
                 mPickHigh+=(noise-mPickHigh)*.07;
                 mPickLow+=(noise-mPickHigh-mPickLow)*.6;
-                source+=mPickLow*mAttack*mAttackEnvelope*.12*(mUp?-1:1);
+                source+=mPickLow*(mAttack*mAttackEnvelope+mTouch*.35)*.12*(mUp?-1:1);
             }
             const double result=source*mMuteEnvelope;
             mMuteEnvelope*=mMuteLoss;mAttackEnvelope*=mAttackLoss;mPitchEnvelope*=.998265395;
+            mTouch*=mTouchLoss;
             ++mAge;return result;
         }
     private:
@@ -112,6 +127,7 @@ namespace MWSound
         bool mEnabled=false,mUp=false;
         double mGain=1,mAttack=0,mVelocity=0,mMute=0,mMuteLoss=1,mMuteEnvelope=1;
         double mAttackLoss=1,mAttackEnvelope=1,mPitchEnvelope=1,mPickHigh=0,mPickLow=0,mPalmLow=0,mPalmCoefficient=0;
+        double mTouch=0,mTouchLoss=1,mTouchGain=1,mTouchTarget=1;
     };
 }
 #endif

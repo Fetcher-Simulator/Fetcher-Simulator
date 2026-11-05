@@ -32,6 +32,8 @@ p('parallelDrive',0,48,18);p('parallelShape',0,3,0,true);p('parallelComb',0,1,0)
 p('parallelFeedback',-.85,.85,.35);p('parallelRate',0,12,.5);p('parallelDepth',0,1,0);p('parallelLift',0,18,0)
 p('stringLegato',0,2,0,true);p('stringSlideTime',0,1,.08)
 p('stringLayout',0,6,0,true);p('stringSelect',0,7,0,true)
+p('stringTouch',0,1,0);p('stringReleaseLevel',0,1,0)
+p('captureTightness',0,1,1)
 function M.valid(name, value)
     local s = M.specs[name]
     return s and type(value) == 'number' and value == value and value >= s.min and value <= s.max
@@ -494,6 +496,44 @@ for _,entry in ipairs{
         stringArticulation=0,polyphony=8,pickAttack=0,pickPitch=0,stringResonance=0,pickVariation=0,cabinet=0,
         sample={path=path,offset=0,duration=1,root=60,oneShot=false,hash=entry[4],gain=entry[5] and 1 or 2.6}})
     M.sampledStrings[path]=true
+end
+
+M.banks[#M.banks+1]='Band / Performance'
+do
+    local function derive(id,name,base,changes)
+        local original;for _,p in ipairs(M.builtins) do if p.id=='b:'..base then original=p end end
+        local state=assert(M.state(assert(original).state));for k,v in pairs(changes or {}) do state[k]=v end
+        add(id,name,original.role,'Band / Performance',state)
+    end
+    derive('perf-finger-bass','Performance / Natural Finger Bass','sampled-bass-expressive',{
+        sample={path='sound/fetcher/banks/bass-finger-release-v1.fsb',offset=0,duration=1,root=60,oneShot=false,hash='c42963239914200bfcb068d03bbde668',attacks={
+            short={path='sound/fetcher/banks/bass-short-v1.fsb',offset=0,duration=1,root=60,oneShot=false,hash='f6bc8a20d8dba535d86ddae52879548b'},
+            dead={path='sound/fetcher/banks/bass-ghost-v1.fsb',offset=0,duration=1,root=60,oneShot=false,hash='3209879caee5a143b3f8e6e5906b1245'}}},
+        stringReleaseLevel=.35,stringTouch=.25})
+    derive('perf-legato-bass','Performance / Connected Finger Bass','perf-finger-bass',{
+        stringLegato=1,stringLayout=6,stringSlideTime=.015,stringTouch=.35})
+    derive('perf-connected-guitar','Performance / Connected Clean Guitar','band-clean-guitar',{
+        sample={path='sound/fetcher/banks/guitar-green-gestures-v1.fsb',offset=0,duration=1,root=60,oneShot=false,hash='9fbacc2fc7da5ae6f3e3a65aad8be1ef',gain=4},
+        stringLegato=1,stringLayout=1,stringSlideTime=.008,stringTouch=.25,stringReleaseLevel=.35,
+        pickAttack=0,pickVariation=0,pickPitch=0,stringResonance=0,release=.16})
+    derive('perf-connected-lead','Performance / Connected Captured Lead','perf-connected-guitar',{
+        driveType=5,drive=12,fxMix=1,fxOutput=.556,volume=.38,cabinet=0,
+        stringLayout=0,stringSlideTime=.008,stringTouch=.35,release=.10})
+    derive('perf-thrash-rhythm','Performance / Tight Thrash','capture-heavy',{
+        release=.012,preHighpass=90,cabinetHighpass=65,cabinetLowpass=10000,captureTightness=.9,volume=.5})
+    derive('perf-thrash-muted','Performance / Tight Thrash Palm','perf-thrash-rhythm',{stringArticulation=2})
+    derive('perf-modern-rhythm','Performance / Modern Rhythm','capture-heavy',{
+        release=.015,preHighpass=135,cabinetHighpass=95,cabinetLowpass=11000,ampMid=1,volume=.5})
+    derive('perf-alt-rhythm','Performance / Alternative Rhythm','capture-heavy',{
+        drive=10,release=.055,preHighpass=95,cabinetHighpass=70,cabinetLowpass=9500,ampMid=2,captureTightness=.35})
+    derive('perf-doom-rhythm','Performance / Heavy Doom Rhythm','capture-heavy',{
+        release=.14,preHighpass=65,cabinetHighpass=50,cabinetLowpass=7200,ampBass=1,ampMid=2,captureTightness=0})
+    derive('perf-industrial-rhythm','Performance / Industrial Rhythm','capture-heavy',{
+        release=.012,preHighpass=55,cabinetHighpass=45,cabinetLowpass=9500,stringLayout=4,
+        parallelMix=.42,parallelClean=.25,parallelDirty=.75,parallelNoise=.025,parallelDrive=32,
+        parallelShape=2,parallelComb=.08,parallelDelay=2.9,parallelFeedback=-.15,parallelDepth=.03,parallelLift=3,captureTightness=.2,volume=.45})
+    M.sampledStrings['sound/fetcher/banks/bass-finger-release-v1.fsb']=true
+    M.sampledStrings['sound/fetcher/banks/guitar-green-gestures-v1.fsb']=true
 end
 
 for _, preset in ipairs(M.builtins) do

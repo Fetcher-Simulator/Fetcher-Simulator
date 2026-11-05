@@ -17,7 +17,7 @@ end
 function M.strings(snapshot,kind,state)
     state=state or {};local active,latest={},nil;local heldLayout;local group={};local explicit,automatic={},{}
     for _,n in ipairs(rows(snapshot)) do
-        if n.age<.18 then latest=n;group[#group+1]=n end
+        if n.age<.18 and n.picked~=false then latest=n;group[#group+1]=n end
         if n.held then
             heldLayout=n.layout
             if n.stringSelect>0 then explicit[#explicit+1]=n else automatic[#automatic+1]=n end

@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 79 / native synth API 36 / multiplayer protocol 27.
+Current source: package 80 / native synth API 37 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,59 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models are available. More detailed articulation/animation
 and wider listening-based sound balancing remain in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Performance sounds and connected strings (package 80 / API 37)
+
+Priority one is complete at the accepted **usable starting-preset** level.
+The November 5 matched-volume thrash and industrial comparisons were accepted;
+these are editable band sounds, not exact recreations of commercial recordings.
+The credited guitar/bass/kit models, drum mapping, articulation controls,
+performer grouping, member/master processing and earlier visual corrections
+remain available. Sample editing is the next roadmap priority.
+
+- **Mixer > Sound set:** the nine **Performance** choices cover thrash, modern,
+  alternative, doom, industrial, funk, clean, blues and acoustic bands. They
+  assign rhythm/lead/bass/kit sounds together and retain Undo. Existing sound
+  sets and personal presets are unchanged.
+- **Synth > preset bank > Band / Performance:** individual guitar and bass
+  starting sounds, including **Connected Clean Guitar**, **Connected Captured Lead**,
+  **Natural Finger Bass** and **Connected Finger Bass**.
+- **Synth > Guitar > Strings:** **Legato touch** adds a short unpicked touch and
+  velocity transition to connected notes. **Recorded release level** blends
+  actual note-off samples on banks that provide them. Zero preserves legacy
+  behavior. Connect and Voices / tuning choose mono/per-string ownership.
+- **Synth > Effects > Captured tightness:** shapes the captured rig's input
+  bass cut from 50 Hz at 0% to the reviewed 181 Hz at 100%. Doom uses a broader
+  setting; tight rhythm uses a higher setting. Old patches default to 100%.
+- **New Song > Band Sound Checks > Connected strings / natural endings:**
+  an original editable four-bar comparison. The first three bars use the same
+  source as separate picked notes, connected hammer/pull notes and picked
+  slides. The fourth exposes separate note endings over finger bass and kit.
+
+The new CC0 Green Guitar bank contains two real picked dynamics/takes, upward
+hammer attacks and physical releases. Upward connections use a 3-ms crossfade
+into a recorded hammer; downward connections and slides retain source/touch
+modeling. This does not claim recorded pull-offs or sampled continuous slides.
+Fretting follows connected notes without inventing a right-hand pick.
+The CC0 natural finger-bass bank preserves the old body PCM and adds actual
+Darkblack release recordings. Picked bass keeps its own source; finger endings
+are not applied to unrelated banks. Credits, pins and conversion records ship
+with the content. Both banks load on demand within the existing 256-MiB budget.
+
+Release ownership survives the end of a short body recording and follows the
+physical string through connected notes. Sustain delays the ending until pedal
+up. Duplicate note-offs cannot retrigger it. Eight bounded release tails use
+their recorded held-time decay, pass through the common effects/mix chain, and
+never steal a held note. Stop/source changes clear them without creating noise.
+
+The captured rig now has an SSE2 implementation with a scalar fallback. The
+four-chain native benchmark on the development PC fell from about 0.46 to 0.16
+seconds per second of PCM, with the same golden-reference error below 0.000001.
+This measures that DSP path, not total game frame rate or unlimited band size.
+
+Loading package 80's new banks requires the API-37 client. Server changes are
+Lua only; no C++ server rebuild is required. This checkpoint is installed only
+on the local port-25567 fixture. See [acceptance and follow-ups](ROADMAP.md).
 
 ## Recorded guitar harmonics (package 79; Lua/content only)
 

@@ -11,7 +11,9 @@ namespace MWSound
 {
     // Fetcher sample bank v1/v2: bounded little-endian note/velocity zones followed
     // by mono 48-kHz signed 16-bit PCM. No paths, scripts, SFZ or external data.
-    // V2 adds per-zone one-shot and choke groups. Loader thread only;
+    // V2 adds one-shot/choke metadata; API 37 adds flag 2 note-off zones
+    // (reserved word = Q8 held decay in dB/s) and flag 4 upward hammer attacks.
+    // Attack and release alternates are independent groups. Loader thread only;
     // Ready publication makes both vectors immutable.
     inline void readInstrument(std::istream& stream, std::uint64_t bytes, ProceduralSample& out,
         const std::function<void(std::size_t)>& reserve)
@@ -37,28 +39,32 @@ namespace MWSound
             unsigned extra=0;
             if(version2) {z.flags=static_cast<unsigned char>(flags);z.group=byte();z.offBy=byte();extra=number(2);}
             z.start=number(4);z.length=number(4);
+            if(z.flags&2)z.releaseDecay=extra/256.f;
             if(z.lowKey>z.highKey || z.highKey>127 || !z.lowVelocity || z.lowVelocity>z.highVelocity
                 || z.highVelocity>127 || z.root>127 || !z.alternates || z.alternates>8 || z.alternate>=z.alternates
-                || (version2 ? flags>1 || z.group>15 || z.offBy>15 || extra : flags!=0)
+                || (version2 ? (flags!=0 && flags!=1 && flags!=2 && flags!=4) || z.group>15 || z.offBy>15
+                    || (flags==2 ? extra>6144 : extra!=0) || ((flags==2 || flags==4) && (z.group || z.offBy)) : flags!=0)
                 || z.length<2 || z.length>1440000 || std::uint64_t(z.start)+z.length>frames)
                 throw std::runtime_error("Invalid instrument sample zone");
             for(const auto& previous:out.zones)
             {
                 const bool overlaps=z.lowKey<=previous.highKey && previous.lowKey<=z.highKey
                     && z.lowVelocity<=previous.highVelocity && previous.lowVelocity<=z.highVelocity;
-                if(overlaps && (z.lowKey!=previous.lowKey || z.highKey!=previous.highKey
+                if(overlaps && (z.flags&6)==(previous.flags&6) && (z.lowKey!=previous.lowKey || z.highKey!=previous.highKey
                     || z.lowVelocity!=previous.lowVelocity || z.highVelocity!=previous.highVelocity
                     || z.alternates!=previous.alternates || z.alternate==previous.alternate
-                    || z.flags!=previous.flags || z.group!=previous.group || z.offBy!=previous.offBy))
+                    || z.flags!=previous.flags || z.group!=previous.group || z.offBy!=previous.offBy || z.releaseDecay!=previous.releaseDecay))
                     throw std::runtime_error("Ambiguous instrument sample zones");
             }
             out.zones.push_back(z);
+            out.hasReleases=out.hasReleases || (z.flags&2);
+            out.hasHammer=out.hasHammer || (z.flags&4);
         }
         for(const auto& z:out.zones)
         {
             unsigned count=0;
             for(const auto& other:out.zones)if(z.lowKey==other.lowKey && z.highKey==other.highKey
-                && z.lowVelocity==other.lowVelocity && z.highVelocity==other.highVelocity)++count;
+                && z.lowVelocity==other.lowVelocity && z.highVelocity==other.highVelocity && (z.flags&6)==(other.flags&6))++count;
             if(count!=z.alternates)throw std::runtime_error("Incomplete instrument alternate group");
         }
         reserve(std::size_t(frames)*sizeof(float));out.pcm.resize(frames);

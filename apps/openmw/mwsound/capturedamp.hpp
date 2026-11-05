@@ -7,6 +7,10 @@
 #include <exception>
 #include <memory>
 #include "capturedampdata.hpp"
+#if !defined(OPENMW_CAPTURED_AMP_SCALAR) && (defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2))
+#include <emmintrin.h>
+#define OPENMW_CAPTURED_AMP_SSE2 1
+#endif
 
 namespace MWSound
 {
@@ -103,6 +107,37 @@ namespace MWSound
             const float* w=CapturedAmpData::Weights.data()+CapturedAmpData::Offsets[layer];
             const float* bias=w+kernel*64;
             Frame z{};
+#ifdef OPENMW_CAPTURED_AMP_SSE2
+            // Parallel output lanes retain the scalar accumulation order within
+            // each lane. No FMA, horizontal reductions or changed model taps.
+            auto lo=_mm_loadu_ps(bias),hi=_mm_loadu_ps(bias+4);
+            for(unsigned k=0;k<kernel;++k)
+            {
+                const auto* x=history((kernel-1-k)*CapturedAmpData::Dilations[layer]);
+                for(unsigned j=0;j<8;++j)
+                {
+                    const auto inputLane=_mm_set1_ps(x[j]);const auto* weights=w+k*64+j*8;
+                    lo=_mm_add_ps(lo,_mm_mul_ps(_mm_loadu_ps(weights),inputLane));
+                    hi=_mm_add_ps(hi,_mm_mul_ps(_mm_loadu_ps(weights+4),inputLane));
+                }
+            }
+            const auto signal=_mm_set1_ps(input),leak=_mm_set1_ps(.01f);
+            lo=_mm_add_ps(lo,_mm_mul_ps(_mm_loadu_ps(bias+8),signal));
+            hi=_mm_add_ps(hi,_mm_mul_ps(_mm_loadu_ps(bias+12),signal));
+            lo=_mm_max_ps(lo,_mm_mul_ps(lo,leak));hi=_mm_max_ps(hi,_mm_mul_ps(hi,leak));
+            _mm_storeu_ps(z.data(),lo);_mm_storeu_ps(z.data()+4,hi);
+            _mm_storeu_ps(sum.data(),_mm_add_ps(_mm_loadu_ps(sum.data()),lo));
+            _mm_storeu_ps(sum.data()+4,_mm_add_ps(_mm_loadu_ps(sum.data()+4),hi));
+            lo=_mm_add_ps(_mm_loadu_ps(value.data()),_mm_loadu_ps(bias+80));
+            hi=_mm_add_ps(_mm_loadu_ps(value.data()+4),_mm_loadu_ps(bias+84));
+            for(unsigned j=0;j<8;++j)
+            {
+                const auto lane=_mm_set1_ps(z[j]);const auto* weights=bias+16+j*8;
+                lo=_mm_add_ps(lo,_mm_mul_ps(_mm_loadu_ps(weights),lane));
+                hi=_mm_add_ps(hi,_mm_mul_ps(_mm_loadu_ps(weights+4),lane));
+            }
+            _mm_storeu_ps(value.data(),lo);_mm_storeu_ps(value.data()+4,hi);
+#else
             for(unsigned i=0;i<8;++i)z[i]=bias[i];
             for(unsigned k=0;k<kernel;++k)
             {
@@ -119,6 +154,7 @@ namespace MWSound
             for(unsigned i=0;i<8;++i)value[i]+=bias[80+i];
             for(unsigned j=0;j<8;++j)
                 for(unsigned i=0;i<8;++i)value[i]+=bias[16+j*8+i]*z[j];
+#endif
         }
     };
 
@@ -152,15 +188,16 @@ namespace MWSound
         CapturedAmpModel mModel;
         Biquad mInputLow=cut(7500,false),mInputHigh=cut(181,true),mMid=mid(),mBoostLow=cut(4975,false),mDc=cut(30,true);
         unsigned mQuiet=24000,mDelayAt=0;std::array<double,17> mDelay{};
+        double mTightness=1;unsigned mFilterFrame=0;
     public:
         CapturedAmp(){reset();}
         void reset()
         {
             mModel.reset();mInputLow.reset();mInputHigh.reset();mMid.reset();mBoostLow.reset();
             mDc.reset(mModel.silentOutput());
-            mQuiet=24000;mDelayAt=0;mDelay.fill(0);
+            mQuiet=24000;mDelayAt=0;mDelay.fill(0);mFilterFrame=0;
         }
-        double process(double input,double trim)
+        double process(double input,double trim,double tightness=1)
         {
             // Preserve the capture/HP tail, then sleep silent instruments. Wake
             // from the cached silence state without loading/prewarming a model.
@@ -170,6 +207,12 @@ namespace MWSound
                 if(++mQuiet==24000){reset();return 0;}
             }
             else mQuiet=0;
+            if(!(mFilterFrame++&31))
+            {
+                tightness=std::isfinite(tightness)?std::clamp(tightness,0.0,1.0):1;
+                if(std::abs(tightness-mTightness)>1e-6)
+                {mInputHigh.c=cut(50+131*tightness,true).c;mTightness=tightness;}
+            }
             double x=mInputLow.process(std::clamp(input,-16.0,16.0));
             x=mMid.process(mInputHigh.process(x));
             x=mBoostLow.process(std::tanh(2.55*x)/2.55)*trim;
@@ -180,4 +223,7 @@ namespace MWSound
         }
     };
 }
+#ifdef OPENMW_CAPTURED_AMP_SSE2
+#undef OPENMW_CAPTURED_AMP_SSE2
+#endif
 #endif

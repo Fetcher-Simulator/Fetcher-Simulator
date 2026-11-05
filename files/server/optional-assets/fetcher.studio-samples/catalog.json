@@ -1,7 +1,7 @@
 {
   "license": "Per-bank: CC0-1.0, CC-BY-3.0 or CC-BY-4.0",
   "nativeApi": 19,
-  "decodedBytesAllBanks": 319852080,
+  "decodedBytesAllBanks": 399139260,
   "banks": [
     {
       "id": "electric-di-v1",
@@ -296,6 +296,42 @@
       "license": "CC-BY-4.0",
       "source": "https://zenodo.org/records/14963133",
       "description": "Recorded Guitar-TECHS pinch harmonics; sounding-pitch keys, with original annotation/fretted notes and overtones retained in provenance."
+    },
+    {
+      "id": "bass-finger-release-v1",
+      "path": "sound/fetcher/banks/bass-finger-release-v1.fsb",
+      "bytes": 19153824,
+      "sha256": "62b0a791c258f18a9854427201106d7904e90b5081c2c8a218326237123f4515",
+      "native": {
+        "hash": "c42963239914200bfcb068d03bbde668",
+        "zones": 90,
+        "pcmBytes": 38304000
+      },
+      "license": "CC0-1.0",
+      "source": "https://github.com/sfzinstruments/karoryfer.black-and-blue-basses",
+      "archive": "Black_And_Blue_Basses_1002.zip",
+      "archiveSha256": "cf77fc782abf996826fe75cfd948d356968de7c8b967c471c6a433835d2b4f55",
+      "requiredNativeApi": 37,
+      "description": "Original Darkblack finger body plus two real captured physical note endings per sparse root; separate native note-off zones."
+    },
+    {
+      "id": "guitar-green-gestures-v1",
+      "path": "sound/fetcher/banks/guitar-green-gestures-v1.fsb",
+      "bytes": 20493694,
+      "sha256": "218c1de5bf906bfd1169582b37297d1d96d3ca3de41ae0078341e37538631055",
+      "native": {
+        "hash": "9fbacc2fc7da5ae6f3e3a65aad8be1ef",
+        "zones": 104,
+        "pcmBytes": 40983180
+      },
+      "license": "CC0-1.0",
+      "source": "https://github.com/sfzinstruments/karoryfer.black-and-green-guitars",
+      "commit": "b3b3249d37dc977a1a297bd2dc053e6d9b6b805c",
+      "creators": "Karoryfer Samples; recorded by Brian Wood",
+      "sourceManifestSha256": "92c54002386c6515f989ef90891fc84ede47cc74b700049c2f2cbd06b59cc7a9",
+      "licenseSha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+      "requiredNativeApi": 37,
+      "description": "Green Gretsch guitar: two real picked dynamics/takes, captured upward hammer attacks and physical release samples. Keys 35-39 transpose recorded low E."
     }
   ]
 }

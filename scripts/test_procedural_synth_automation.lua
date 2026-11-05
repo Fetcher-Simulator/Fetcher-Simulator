@@ -22,6 +22,9 @@ do
     check(format.automationSpecs.pitchBend.code==183 and format.automationSpecs.pickDirection.code==197,'new expression controls preserve existing MIDI codes')
 end
 check(format.automationSpecs.pitchBend.code==183 and format.automationSpecs.pedal.code==187 and format.automationSpecs.preHighpass.code==188,'new filter controls preserve existing MIDI wire slots')
+check(format.automationSpecs.stringTouch.code==217 and format.automationSpecs.stringReleaseLevel.code==218
+    and format.automationSpecs.captureTightness.code==219 and format.automationSpecs.trackLevel.code==214
+    and format.automationSpecs.reverbSend.code==216,'new string/capture controls preserve saved mixer automation wire slots')
 do
     local probe=assert(format.project(w.project));probe.tracks[1].params.cabinet=6;probe.tracks[1].params.preHighpass=120
     probe.tracks[1].automation={preHighpass={{s=0,v=80,linear=true},{s=8,v=180,linear=false}}}

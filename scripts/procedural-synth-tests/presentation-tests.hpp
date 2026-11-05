@@ -35,5 +35,12 @@ void presentationTests()
     }
     check(first==second,"presentation reads are bit-exact and do not consume or alter playback");
     a->close();check(a->performance().empty(),"closed stream never leaves a held visual note");
+    auto touch=std::make_unique<NativeStudio>();setupStudio(*touch);
+    touch->set(1,"instrumentType",1);touch->set(1,"stringLegato",1);touch->set(1,"stringLayout",1);touch->set(1,"stringTouch",.4f);
+    touch->strike(1,40,.8f,{-1,1,0});studioRender(*touch,9600);
+    touch->strike(1,42,.7f,{-1,1,0});studioRender(*touch,480);
+    rows=touch->performance();bool unpicked=false;
+    for(const auto& row:rows)if(row.note==42)unpicked=!row.picked;
+    check(unpicked,"unpicked native connection is published without inventing a picked attack");
     std::cout<<"PASS native read-only performance snapshots, exact string identity, source timing, live retriggers and cleanup\n";
 }

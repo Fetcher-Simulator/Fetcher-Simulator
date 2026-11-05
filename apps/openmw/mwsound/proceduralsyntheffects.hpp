@@ -23,6 +23,7 @@ namespace MWSound
             double bass = 0, mid = 0, treble = 0;
             double preHighpass = 0, cabinetHighpass = 0, cabinetLowpass = 0;
             ProceduralParallel::Settings parallel;
+            double captureTightness=1;
         };
         ProceduralSynthEffects()
         {
@@ -130,7 +131,7 @@ namespace MWSound
                 // The capture includes its cabinet. Drive=12 dB reproduces the
                 // reviewed .45 input trim. Align with the existing 16-frame
                 // insert latency; there is no additional model block latency.
-                wet+=mCaptured->process(shapedInput,mGain*.1130348894179311)*mWeights[5];
+                wet+=mCaptured->process(shapedInput,mGain*.1130348894179311,p.captureTightness)*mWeights[5];
             }
             else if(mCapturedActive){mCaptured->reset();mCapturedActive=false;}
             wet=mParallel.process(shapedInput,wet,p.parallel,mFir);

@@ -145,9 +145,10 @@ namespace MWSound
             if (note.pitch >= 128)
             {
                 const unsigned wire = note.pitch - 128;
-                const unsigned code = wire >= ProceduralSynth::ControlCount ? wire : ProceduralSynth::decodeControl(wire);
+                const unsigned code = wire>=86 && wire<=88 ? ProceduralSynth::ControlCount+wire-86 : ProceduralSynth::decodeControl(wire);
                 const bool program = note.velocity == 129;
-                if (++controls > MaxControls || wire >= ProceduralSynth::ControlCount+ProceduralMixer::AutomationCount || note.duration > 65535
+                if (++controls > MaxControls || wire >= ProceduralSynth::ControlCount+ProceduralMixer::AutomationCount
+                    || code >= ProceduralSynth::ControlCount+ProceduralMixer::AutomationCount || note.duration > 65535
                     || (note.velocity != 0 && note.velocity != 128 && !program)
                     || (program && code >= ProceduralSynth::ParameterCount)
                     || (note.velocity == 128 && (code == ProceduralSynth::ParameterCount+4 || (code < ProceduralSynth::ParameterCount && ProceduralSynth::Parameters[code].discrete)))) return false;
@@ -357,7 +358,7 @@ namespace MWSound
         const double tune=track->mAutomated[2]?track->mAutomation[2]:track->mProgrammed[2]?track->mProgram[2]:mPresentationTune[n];
         const unsigned transpose=unsigned(std::lround(tune)+24);
         const std::uint64_t packed=layout|(selection<<3)|(articulation<<6)|(direction<<8)|(transpose<<10)
-            |(1u<<16)|(1u<<17)|(std::uint64_t(std::uint32_t(mRendered.load()))<<32);
+            |(1u<<16)|(1u<<17)|(std::uint64_t(track->mLastUnpicked)<<18)|(std::uint64_t(std::uint32_t(mRendered.load()))<<32);
         mPresentation->keys[n][key].store(packed,std::memory_order_relaxed);
     }
     std::vector<ProceduralStudio::PerformanceNote> ProceduralStudio::performance() const
@@ -374,7 +375,7 @@ namespace MWSound
             const bool held=bits&(1u<<16);
             if(!held && age>12000)continue;
             result.push_back({n+1,key%128,unsigned(bits>>3)&7,unsigned(bits)&7,unsigned(bits>>6)&3,
-                unsigned(bits>>8)&3,int((bits>>10)&63)-24,stamp,double(age)/48000,held});
+                unsigned(bits>>8)&3,int((bits>>10)&63)-24,stamp,double(age)/48000,held,!(bits&(1u<<18))});
         }
         return result;
     }

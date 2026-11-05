@@ -30,7 +30,7 @@ check(w:automationValue(1,'trackLevel',5)==.7,'new lane does not change pre-reco
 local project=assert(F.project(w.project));local plan=Sequence.compile(project,nil,MIDI,'song',F)
 check(Sequence.validate(plan.bytes,plan.length,plan.loop),'portable mix curves validate on the shared server path')
 for code=214,216 do local points=records(plan,code);check(#points==2 and points[1].frame==0 and points[2].frame==72000 and points[2].mode==128,'fader/send lanes use native score time and continuous ramp flags') end
-local bad=plan.bytes:gsub(string.char(214,128),string.char(217,128),1)
+local bad=plan.bytes:gsub(string.char(214,128),string.char(220,128),1)
 check(not Sequence.validate(bad,plan.length,plan.loop),'unknown future wire control is rejected')
 local parsed=MIDI.parse(dofile(root..'client/midi-export.lua').encode(project,nil,MIDI,F))
 check(#MIDI.parts(parsed)==1 and MIDI.editableSpans(parsed,MIDI.parts(parsed)[1].id)[1].n==60,'MIDI export keeps notes while Studio-specific mix lanes remain private')
@@ -45,7 +45,7 @@ project.tracks[1].automation.program={{s=0,v=25,linear=false}};project.tracks[1]
 local SoundSets=package.loaded[prefix..'client.soundsets'];plan=Sequence.compile(project,nil,MIDI,'song',F,SoundSets.programPatch)
 local fader=records(plan,214)
 check(fader[1].frame==0 and math.abs(fader[1].value-16384)<=1,'loop crop chases fader interpolation at the native start')
-for at=1,#plan.bytes,11 do if plan.bytes:byte(at+9)>=214 then check(plan.bytes:byte(at+10)~=129,'program snapshots never turn mixer controls into synth parameters') end end
+for at=1,#plan.bytes,11 do if plan.bytes:byte(at+9)>=214 and plan.bytes:byte(at+9)<=216 then check(plan.bytes:byte(at+10)~=129,'program snapshots never turn mixer controls into synth parameters') end end
 -- Hardware fader/send capture follows a fixed track and applies latency exactly once.
 assert(w:newSong(120,4,4,8));local saved={};local r=R.new(w,{}, {getRealTime=function() return 100 end},{},
     {get=function(_,k) return saved[k] end,set=function(_,k,v) saved[k]=v end},function() end);w.recorder=r
