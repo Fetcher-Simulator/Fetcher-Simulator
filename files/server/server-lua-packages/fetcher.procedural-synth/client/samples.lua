@@ -75,7 +75,7 @@ function M:scanStatus()
 end
 function M:select(path)
     self:stop();self.path=path;self.offset=0;self.duration=30;self.root=60;self.oneShot=true
-    self.loop=nil;self.reverse=nil;self.gain=nil;self.waveform=nil;self.waveKey=nil;self.expectedHash=nil
+    self.loop=nil;self.reverse=nil;self.gain=nil;self.waveform=nil;self.waveKey=nil;self.expectedHash=nil;self.editView=nil
 end
 function M:loadReference(ref)
     ref=schema.sample(ref);if not ref or schema.isBank(ref) then return false end
@@ -86,7 +86,7 @@ end
 function M:trim(first,last)
     if type(first)~='number' or type(last)~='number' or first~=first or last~=last or first<0 or first>600 or last-first<.01 or last-first>30 then return false end
     self:stop();self.offset=math.floor(first*1000+.5)/1000;self.duration=math.floor((last-first)*1000+.5)/1000
-    self.loop=nil;self.waveform=nil;self.waveKey=nil;return true
+    self.loop=nil;self.waveform=nil;self.waveKey=nil;self.editView=nil;return true
 end
 function M:setLoop(first,last,fade)
     local info=self:info();if info.status~='Ready' then return false end
@@ -112,19 +112,54 @@ function M:wave()
     end
     return self.waveform
 end
-function M:chops(count)
+function M:slices(points)
     local ref=self:reference();local info=self:info()
-    if not ref or type(count)~='number' or count%1~=0 or count<2 or count>16 then return nil end
+    if not ref or type(points)~='table' or #points<1 or #points>15 then return nil end
     local length=math.floor(math.min(info.duration,ref.duration)*1000+1e-6)
-    if length<count*10 then return nil end
+    local edges={0};for _,point in ipairs(points) do
+        if type(point)~='number' or point~=point then return nil end
+        local ms=math.floor(point*1000+.5)
+        if ms-edges[#edges]<10 or ms>length-10 then return nil end
+        edges[#edges+1]=ms
+    end
+    edges[#edges+1]=length
     local out={}
-    for n=1,count do
-        local first,last=math.floor((n-1)*length/count),math.floor(n*length/count)
+    for n=1,#edges-1 do
+        local first,last=edges[n],edges[n+1]
         out[n]=schema.sample{path=ref.path,offset=ref.offset+(ref.reverse and length-last or first)/1000,
             duration=(last-first)/1000,root=ref.root,oneShot=true,hash=ref.hash,gain=ref.gain,reverse=ref.reverse}
         if not out[n] then return nil,'Every slice must start within the first ten minutes of the file.' end
     end
     return out
+end
+function M:chops(count)
+    if type(count)~='number' or count%1~=0 or count<2 or count>16 then return nil end
+    local info=self:info();if info.status~='Ready' then return nil end
+    local length=math.floor(math.min(info.duration,self.duration)*1000+1e-6)
+    local points={};for n=1,count-1 do points[n]=math.floor(n*length/count)/1000 end
+    return self:slices(points)
+end
+function M:waveRange(first,last)
+    if not self.path or not self.synth.sampleWaveformRange then return nil end
+    local key=table.concat({self.path,self.offset,self.duration,first,last,tostring(self.reverse)},'|')
+    if key~=self.rangeKey then
+        local wave=self.synth.sampleWaveformRange(self.path,self.offset,self.duration,first,last,self.reverse or false)
+        if not wave.minimum then return nil end
+        self.rangeKey=key;self.rangeWave=wave
+    end
+    return self.rangeWave
+end
+function M:snapPoint(point,enabled)
+    local info=self:info();local length=info.duration or 0
+    if enabled and self.synth.sampleZeroCrossing then
+        point=self.synth.sampleZeroCrossing(self.path,self.offset,self.duration,point,self.reverse or false) or point
+    end
+    return math.max(0,math.min(math.floor(length*1000)/1000,math.floor(point*1000+.5)/1000))
+end
+function M:trimView(first,last)
+    local info=self:info();if info.status~='Ready' or first<0 or last>info.duration+1e-6 or last-first<.01 then return false end
+    local offset=self.offset+(self.reverse and info.duration-last or first)
+    return self:trim(offset,offset+last-first)
 end
 function M:info()
     if not self.path then return {status='Choose a sound'} end
@@ -146,7 +181,10 @@ function M:reference()
     if ref and M.status(self.synth,ref).status=='Ready' then return ref end
 end
 function M:audition()
-    self:stop();local ref=self:reference();if not ref then return false end
+    return self:auditionReference(self:reference())
+end
+function M:auditionReference(ref)
+    self:stop();if not ref or M.status(self.synth,ref).status~='Ready' then return false end
     self.preview=self.synth.create(self.source)
     self.preview:set('attack',0.002);self.preview:set('sustain',1);self.preview:set('release',0.08)
     self.preview:set('cutoff',18000);self.preview:set('resonance',0)

@@ -2,6 +2,35 @@
 
 Updated 2026-11-05. Completed work and subsequent planned slices are identified below.
 
+Package 83 / native API 39 adds the expanded raw-sample waveform editor: source
+peak recalculation at each zoom, panning, draggable trim/sustain-loop handles,
+manual slice markers, per-slice audition and atomic creation of slice lanes.
+Zero-cross snap searches within 5ms and retains the existing millisecond reference
+format. No PCM copies or audio-file writes are needed. Local view edits remain
+drafts until trim/loop/assignment or slice creation is applied.
+
+Live BPM controls accept changes during playback and coalesce the buffered shared
+score restart at the preserved beat. Other slider widgets retain their document
+and track references. Recording timing stays protected. Default Space pause/resume,
+Shift+Space beginning, Ctrl+Space ruler-loop start and Enter edit-cursor shortcuts
+respect typing/chooser/recording ownership. Beginning plays the full song once
+without editing the saved loop range. Pattern bars, Pattern loop and Ruler loop
+have separate labels. The duplicate Arrange bar-number layer is removed.
+
+Remaining sample work includes reusable user libraries, wider source editing and
+placement tools, and additional sounds; this does not close the whole priority.
+Only the local port-25567 setup is in scope for this checkpoint.
+
+All 38 Lua suites and 11 native groups pass. Copied-profile two-client acceptance
+checks real waveform-range/zero-cross APIs, manual slice relay, live tempo,
+server-backed private save/reload and a two-second sustained pause followed by
+resume. The native Activate binding's injected Enter is replayed with Space to
+prevent immediate restarts; the user also confirms pause/resume in Arrange.
+Monitor-2 inspection covers trim/marker drags, waveform zoom and readable 64-bar
+ruler labels. Original user state remains unchanged and test clients stay closed
+after installation. Native C++ changes are client-side only; no C++ server or
+hosted-asset update is required.
+
 Package 82 adds equal sample chopping into 2/4/8/16 one-shot drum lanes, keeping
 the original track and one Undo for the whole batch. Cuts follow reverse view,
 retain file identities/output/mixer settings and use ordinary shared sample
@@ -740,10 +769,11 @@ priorities rather than blocking sample editing on those open-ended targets.
 
 ## Remaining roadmap (next: sample editing; formerly priority two)
 
-1. **Further sample tools and sound libraries.** Manual/transient-based slice
-   placement, richer waveform editing and sound-library expansion beyond the
+1. **Further sample tools and sound libraries.** Automatic transient-based slice
+   placement, reusable user sample libraries, richer source editing and sound-library expansion beyond the
    priority band set. Package 81 adds sustained excerpt loops, reverse and bounded
-   loop-join crossfades; package 82 adds equal slices as independent sequencer lanes. Continue
+   loop-join crossfades; package 82 adds equal slices as independent sequencer lanes;
+   package 83 adds zoom, draggable trim/loop points and manual slicing/audition. Continue
    listening/balance refinement alongside the orchestral instrument work.
 2. **Section layouts and conductor presentation.** Add saved spacing/layout
    presets, instrument sections, conductor gestures and formation previews.

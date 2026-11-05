@@ -155,8 +155,9 @@ function W:seek(beat)
 end
 function W:seekPlan(plan,mode)
     if mode~='song' or not self.cursorBeat then return plan end
-    local timeline=self.project.timeline or self.song
-    local first=format.songRange(self.project)
+    local project=self.playbackProject or self.project
+    local timeline=project.timeline or self.song
+    local first=format.songRange(project)
     local offset=first and format.seconds(timeline,first) or 0
     plan.startFrame=math.max(0,math.min(plan.length-1,math.floor((format.seconds(timeline,self.cursorBeat)-offset)*48000+.5)))
     self.time=plan.startFrame/48000;self.beat=self:playbackBeat(self.time)
@@ -184,9 +185,26 @@ function W:editMeter(beat,n,d,remove)
     return self:commitTiming(p)
 end
 function W:setTempo(value)
-    if self.playing or self.recording or type(value)~='number' or value~=value or value<40 or value>240 then return false end
-    if self.project.timeline or self.song then return self:editTempo(0,value) end
-    self.project.bpm=value;self:touch('bpm',true);return true
+    if self.recording or self.failedTake then self.cb.message('End or cancel the take before changing BPM.');return false end
+    if type(value)~='number' or value~=value or value<40 or value>240 then return false end
+    if value==self.project.bpm then return true end
+    if self.playing and (not self.cb.schedule or not self.cb.progress) then self.cb.message('Live BPM changes require native Studio playback.');return false end
+    local p=(self.project.timeline or self.song) and self:timingProject() or copy(self.project)
+    p.bpm=value
+    if p.timeline then
+        local points={{beat=0,tempo=math.floor(60000000/value+.5)}}
+        for _,point in ipairs(p.timeline.tempos) do if point.beat>0 then points[#points+1]=point end end
+        p.timeline.tempos=points
+    end
+    local valid=format.project(p);if not valid then self.cb.message('Tempo would exceed the song timing limits.');return false end
+    if self.playing then
+        self.pendingTempo=self.pendingTempo or {project=copy(self.playbackProject or self.project),mode=self.mode,full=self.playFullSong}
+        self.pendingTempo.at=self.wall+.25
+    end
+    -- Quiet controls elsewhere retain references to the document and tracks.
+    -- Only timing changes; do not detach those widgets from their live model.
+    self.project.bpm=valid.bpm;self.project.timeline=valid.timeline
+    self.noteCache={};self:touch('bpm',true);return true
 end
 function W:addPart(role)
     if not self.project.timeline or #self.project.tracks>=format.maxTracks or self.recording then return false end
@@ -951,6 +969,8 @@ function W:audition(index)
     return true
 end
 function W:stop(force)
+    self.pendingTempo=nil
+    self.paused=nil;self.playbackProject=nil;self.playFullSong=nil
     if self.bandSetup then self.bandSetup.resume=nil end
     self:endAutomationWrite()
     self:endTake(false)
@@ -960,9 +980,17 @@ function W:stop(force)
     local active=self.playing or #self.preview>0;self.playing=false;self.pending={};self.preview={};self.counts={}
     if midi and midi.playing then midi:stop() elseif active or force then self.cb.panic() end
 end
-function W:play(mode)
+function W:scoreProject()
+    if not self.playFullSong then return self.project end
+    local p=copy(self.project)
+    if p.composition then p.composition.loop=false end
+    if p.loopRange then p.loopRange.enabled=false end
+    return p
+end
+function W:play(mode,fromBeat,full)
     if self.bandSetup then self.cb.message('Wait for NPC stage setup before playing.');return false end
     self:stop(true)
+    self.playFullSong=full
     if not self:prepareSamples() then return false end
     if mode=='song' and not self:hasSong() then self.cb.message('Load the original MIDI file for unedited parts first.');return false end
     if mode=='song' and not self.cb.schedule then
@@ -975,9 +1003,14 @@ function W:play(mode)
     self:configureAll();self.time=0;self.beat=0;self.step=-1;self.pending={};self.counts={};self.playing=true;self.mode=mode;self.playSerial=(self.playSerial or 0)+1
     if self.cb.schedule then
         local Sequence=require(prefix..'shared.sequence')
-        local ok,plan=pcall(Sequence.compile,self.project,self.song,MIDI,mode,format,SoundSets.programPatch)
+        self.playbackProject=self:scoreProject()
+        local ok,plan=pcall(Sequence.compile,self.playbackProject,self.song,MIDI,mode,format,SoundSets.programPatch)
         if not ok then self.playing=false;self.cb.message(tostring(plan));return false end
         plan=self:seekPlan(plan,mode)
+        if fromBeat and mode~='song' then
+            plan.startFrame=math.floor(fromBeat*60/self.project.bpm*48000+.5)%plan.length
+            self.time=plan.startFrame/48000;self.beat=self:playbackBeat(self.time)
+        end
         self.native=true;self.nativeStarted=false;self.awaiting=true;self.sequenceDirty=false
         if self.cb.schedule(plan,false)==false then self:stop(true);return false end
         return true
@@ -995,39 +1028,62 @@ function W:play(mode)
 end
 function W:compilePlan()
     local Sequence=require(prefix..'shared.sequence')
-    if self.mode~='pattern' then return Sequence.compile(self.project,self.song,MIDI,self.mode,format,SoundSets.programPatch) end
+    if self.mode~='pattern' then return Sequence.compile(self:scoreProject(),self.song,MIDI,self.mode,format,SoundSets.programPatch) end
     local clip=assert(self:clipSource(),'Select a clip source first.')
     local p=copy(self.project);p.composition=nil;p.timeline=nil;p.length=clip.length;p.swing=0;p.loop=true
     for _,t in ipairs(p.tracks) do t.kind='midi';t.edited=nil;t.arrangement=nil;t.automation=nil;t.followPrograms=false end
     p.tracks[self.selected].kind='piano';p.tracks[self.selected].notes=format.decodeNotes(clip.notes)
     return Sequence.compile(p,nil,MIDI,'clips',format,SoundSets.programPatch)
 end
-function W:playClip()
+function W:playClip(fromBeat)
     if not self:clipSource() or not self.cb.schedule then return false end
     if not self:prepareSamples(self.selected) then return false end
     self:stop(true);self:configureAll();self.mode='pattern';self.time=0;self.beat=0;self.step=-1;self.playSerial=(self.playSerial or 0)+1
     local ok,plan=pcall(self.compilePlan,self)
     if not ok then self.cb.message(tostring(plan));return false end
+    if fromBeat then plan.startFrame=math.floor(fromBeat*60/self.project.bpm*48000+.5)%plan.length;self.time=plan.startFrame/48000;self.beat=self:playbackBeat(self.time) end
     self.playing=true;self.native=true;self.nativeStarted=false;self.awaiting=true;self.sequenceDirty=false
     if self.cb.schedule(plan,false)==false then self:stop(true);return false end
     return true
 end
-function W:beatAt(time,mode)
-    if (mode or self.mode)~='song' then return time*self.project.bpm/60 end
+function W:beatAt(time,mode,project)
+    project=project or self.project
+    if (mode or self.mode)~='song' then return time*project.bpm/60 end
     local beat,seconds,tempo=0,0,500000
-    local timeline=self.project.timeline or self.song
+    local timeline=project.timeline or self.song
     for _,t in ipairs(timeline.tempos or {}) do
-        local at=self.project.timeline and seconds+(t.beat-beat)*tempo/1000000 or t.time
+        local at=project.timeline and seconds+(t.beat-beat)*tempo/1000000 or t.time
         if at>time then break end;beat,seconds,tempo=t.beat,at,t.tempo
     end
     return beat+(time-seconds)*1000000/tempo
 end
-function W:playbackBeat(time)
-    local first,last=format.songRange(self.project)
-    if self.mode~='song' or not first then return self:beatAt(time) end
-    local offset=format.seconds(self.project.timeline,first)
-    if format.isSongLoop(self.project) then time=time%(format.seconds(self.project.timeline,last)-offset) end
-    return self:beatAt(time+offset,'song')
+function W:playbackBeat(time,project)
+    project=project or self.playbackProject or self.project
+    local first,last=format.songRange(project)
+    if self.mode~='song' or not first then return self:beatAt(time,nil,project) end
+    local offset=format.seconds(project.timeline,first)
+    if format.isSongLoop(project) then time=time%(format.seconds(project.timeline,last)-offset) end
+    return self:beatAt(time+offset,'song',project)
+end
+function W:transportAction(action)
+    if self.recording or self.failedTake then self.cb.message('End or cancel the take before using transport shortcuts.');return false end
+    if action=='pause' and self.playing then
+        local time=self.time
+        if self.native and self.cb.progress and not self.awaiting then local _,position=self.cb.progress();time=position end
+        local paused={beat=self:playbackBeat(time,self.pendingTempo and self.pendingTempo.project),mode=self.mode,full=self.playFullSong}
+        self:stop(true);self.paused=paused;self.beat=paused.beat;self.cursorBeat=paused.beat;self.time=time;return true
+    end
+    local paused=self.paused;local mode=paused and paused.mode or self.playing and self.mode
+        or (self.clipEdit and 'pattern' or self.page=='drums' and 'clips' or self:hasSong() and 'song' or 'clips')
+    local beat=action=='pause' and paused and paused.beat or self.cursorBeat or 0
+    if action=='beginning' then beat=0;mode=self:hasSong() and 'song' or 'clips'
+    elseif action=='loop' then
+        local first=self:songLoop();local map=self.project.timeline and self.project or {timeline=self.song,composition=self.project.composition}
+        beat=format.barStart(map,first);mode=self:hasSong() and 'song' or 'clips'
+    end
+    self.cursorBeat=beat
+    if mode=='pattern' then return self:playClip(beat) end
+    return self:play(mode,beat,action=='beginning' or action=='pause' and paused and paused.full)
 end
 function W:recordClock(age)
     local r=self.recording;if not r then return end
@@ -1046,6 +1102,7 @@ function W:recordClock(age)
 end
 function W:startTake(index)
     self:endAutomationWrite()
+    if self.pendingTempo then self.cb.message('Wait for the live tempo change before recording.');return false end
     if self.failedTake then self.cb.message('Retry or cancel the recovered take before recording again.');return false end
     if self.playing and (not self.native or not self.cb.progress) then self.cb.message('Native playback is required for overdub.');return false end
     if self.recording or not self:canEditNotes(index) then self.cb.message('Choose a piano clip or convert the MIDI part with Edit MIDI first.');return false end
@@ -1201,6 +1258,13 @@ function W:frame(dt)
     self:recordFrame()
     if self.native then
         self.wall=self.wall+math.max(0,type(dt)=='number' and dt==dt and dt or 0)
+        if self.pendingTempo and self.wall>=self.pendingTempo.at then
+            local pending=self.pendingTempo;local _,time=self.cb.progress()
+            local beat=self:playbackBeat(time,pending.project)
+            self.pendingTempo=nil
+            if pending.mode=='song' then self.cursorBeat=beat end
+            if pending.mode=='pattern' then self:playClip(beat) else self:play(pending.mode,beat,pending.full) end;return
+        end
         local preview={}
         for _,n in ipairs(self.preview) do
             if n.finish<=self.wall then
@@ -1209,7 +1273,7 @@ function W:frame(dt)
             else preview[#preview+1]=n end
         end
         self.preview=preview
-        if self.sequenceDirty and not self.automationWriting and self.wall-(self.lastSequenceEdit or -10)>0.25 then
+        if self.sequenceDirty and not self.pendingTempo and not self.automationWriting and self.wall-(self.lastSequenceEdit or -10)>0.25 then
             self.sequenceDirty=false;self.lastSequenceEdit=self.wall
             local ok,plan=pcall(self.compilePlan,self)
             if not ok or self.cb.schedule(plan,true)==false then self:stop(true);self.cb.message(tostring(plan));return end
@@ -1217,7 +1281,7 @@ function W:frame(dt)
         if not self.awaiting then
             local playing,time,fault,complete=self.cb.progress()
             if playing then self.nativeStarted=true end
-            self.time=time;self.beat=self:playbackBeat(time);self.step=math.floor(self.beat*4)
+            self.time=time;self.beat=self:playbackBeat(time,self.pendingTempo and self.pendingTempo.project);self.step=math.floor(self.beat*4)
             if not playing and (self.nativeStarted or complete or fault and fault~=0) then self:endAutomationWrite();self.playing=false;self.native=false;if fault and fault~=0 then self.cb.message('Native transport stopped: active-note limit.');self.cb.stopSequence() end end
         end
         return

@@ -121,7 +121,7 @@ namespace MWLua
                     return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash, s.attacks, s.gain, s.playback);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 38;
+            api["version"] = 39;
             api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
                 const auto path = manager->exportStudioMidi(name, bytes);
                 sol::table result(lua, sol::create);
@@ -160,6 +160,23 @@ namespace MWLua
                     out["minimum"]=sol::as_table(data->waveMin);out["maximum"]=sol::as_table(data->waveMax);
                 }
                 return LuaUtil::makeReadOnly(out);
+            };
+            api["sampleWaveformRange"]=[lua](std::string path,double offset,double duration,double first,double finish,bool reverse) {
+                const auto data=MWBase::Environment::get().getSoundManager()->requestSample(std::move(path),offset,duration);
+                sol::table out(lua,sol::create);
+                if(data->status.load(std::memory_order_acquire)==MWSound::ProceduralSample::Ready)
+                    if(auto view=data->view(first,finish,reverse))
+                    {
+                        out["minimum"]=sol::as_table(view->minimum);out["maximum"]=sol::as_table(view->maximum);
+                        out["first"]=view->first;out["finish"]=view->finish;out["hash"]=data->hash;
+                    }
+                return LuaUtil::makeReadOnly(out);
+            };
+            api["sampleZeroCrossing"]=[](std::string path,double offset,double duration,double position,bool reverse)->sol::optional<double> {
+                const auto data=MWBase::Environment::get().getSoundManager()->requestSample(std::move(path),offset,duration);
+                if(data->status.load(std::memory_order_acquire)==MWSound::ProceduralSample::Ready)
+                    if(auto at=data->zeroCrossing(position,reverse))return *at;
+                return sol::nullopt;
             };
             api["createMasterBus"]=[]{return std::make_shared<MWSound::ProceduralMaster>();};
             using Studio = MWSound::ProceduralStudio;

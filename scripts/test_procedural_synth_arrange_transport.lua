@@ -39,3 +39,21 @@ check(#slices.undoStack==history+1 and slices:undo() and #slices.project.tracks=
 for n=6,32 do slices.project.tracks[n]=F.newTrack('piano','Full',16) end
 local before=#slices.project.tracks;check(not slices:addSampleSlices(refs,'Overflow') and #slices.project.tracks==before,'full project cannot receive a partial slice batch')
 print('PASS shared seek offsets, authored/imported bar loops, tempo/meter mapping, persistence, recording guards and atomic sample chops; '..checks..' assertions')
+local live=make();live.cb.progress=function() return true,2 end;assert(live:newSong(120,4,4,16))
+live.project.tracks[1].edited=F.encodeNotes({{n=60,s=0,l=128,v=.8}},960);live:touch();assert(live:play('song'));live.awaiting=false
+local revision=live.revision;local history=#live.undoStack;local n=#scheduled
+local document,track=live.project,live.project.tracks[1]
+check(live:setTempo(140) and live:setTempo(160) and live.project.bpm==160,'live BPM accepts slider, numeric and step changes')
+check(live.revision==revision and #live.undoStack==history+1 and #scheduled==n,'drag is quiet and coalesces into one history entry without rescheduling each motion')
+check(live.project==document and live.project.tracks[1]==track,'live timing edits retain all other controls document/track identities')
+live:frame(.1);check(live.beat==4 and #scheduled==n,'pending tempo retains the old sounding beat map')
+check(not live:startTake(1),'recording cannot start during tempo resync')
+live:frame(.2);check(#scheduled==n+1 and scheduled[#scheduled].plan.startFrame==72000 and live.playing,'tempo resync keeps beat four at the new rate')
+live:setTempo(180);live:stop();n=#scheduled;live:frame(.4);check(not live.pendingTempo and #scheduled==n,'Stop cancels deferred tempo rescheduling')
+assert(live:setSongLoop(3,6,true));live.cursorBeat=12;assert(live:play('song'));live.awaiting=false;live.cb.progress=function() return true,1 end
+check(live:transportAction('pause') and not live.playing and live.paused and math.abs(live.cursorBeat-11)<.0001,'pause stores absolute beat within cropped loop')
+check(live:transportAction('pause') and live.playing and scheduled[#scheduled].plan.startFrame==48000,'Space resumes at the stored position')
+check(live:transportAction('beginning') and scheduled[#scheduled].plan.startFrame==0 and not scheduled[#scheduled].plan.loop and live.project.composition.loop,'beginning plays the full song once without changing saved loop state')
+check(live:transportAction('loop') and scheduled[#scheduled].plan.startFrame==0 and scheduled[#scheduled].plan.loop,'loop shortcut starts at the ruler range')
+live.recording={};check(not live:transportAction('pause'),'shortcuts cannot cut off a recording');live.recording=nil
+print('PASS live BPM coalescing/beat preservation, stopped cancellation, recording guards and transport pause/resume/from-start/loop')

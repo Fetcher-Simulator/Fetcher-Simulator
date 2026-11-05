@@ -152,7 +152,7 @@ function W:root(content)
     bar.content=ui.content{title,self:button('Scale -',178,62,function() self:zoom(-0.1) end),
         {type=ui.TYPE.Text,props={position=v(248,10),size=v(58,22),text=string.format('%.0f%%',s*100),textSize=13,textColor=text}},
         self:button('+',307,28,function() self:zoom(0.1) end),
-        self:button(self.expanded and 'Back to Piano' or self.full and 'Restore' or 'Fullscreen',345,103,function() if self.expanded then self.restoreExpanded() else self:fullscreen() end end),
+        self:button(self.expanded and 'Back to Studio' or self.full and 'Restore' or 'Fullscreen',345,103,function() if self.expanded then self.restoreExpanded() else self:fullscreen() end end),
         {type=ui.TYPE.Text,props={position=v(470,10),size=v(181,22),text='Monitor Volume (local)',textSize=13,textColor=text}},monitor,
         self.monitorText}
     -- Action widgets must be in a Window template for native dragging/resizing.
@@ -167,9 +167,11 @@ function W:root(content)
     end
     local root={type=ui.TYPE.Window,layer=windowLayer(),props={position=v(self:isFullscreen() and 0 or self.x,self:isFullscreen() and 0 or self.y),
         size=v(self.actualWidth,self.actualHeight)},template={content=ui.content(template)},content=ui.content(content),
-        events={windowDrag=cb(function(e) self:drag(e) end),keyPress=self.keyPress}}
+        events={windowDrag=cb(function(e) self:drag(e) end),keyPress=self.keyPress,keyRelease=self.keyRelease}}
     self.changed=false;self.monitor=volume
-    return ui.create(root)
+    local element=ui.create(root)
+    if self.keyPress and ui.setFocus then ui.setFocus(element) end
+    return element
 end
 function W:frame(owner)
     local screen=viewport()

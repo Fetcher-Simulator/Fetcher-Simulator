@@ -101,6 +101,8 @@ package.loaded[prefix..'client.guitar-page']=dofile(root..'client/guitar-page.lu
 package.loaded[prefix..'client.arranger']=dofile(root..'client/arranger.lua')
 package.loaded[prefix..'client.library']=dofile(root..'client/library.lua')
 package.loaded[prefix..'client.controller-page']=dofile(root..'client/controller-page.lua')
+package.loaded[prefix..'client.transport-keys']=dofile(root..'client/transport-keys.lua')
+package.loaded[prefix..'client.sample-editor']=dofile(root..'client/sample-editor.lua')
 local Studio=dofile(root..'client/studio.lua')
 local lastStudio
 local newStudio=Studio.new
@@ -1234,7 +1236,8 @@ local function testContinuousSliders()
     local Workstation=dofile(root..'client/workstation.lua')
     local Studio=dofile(root..'client/studio.lua')
     local uw=Workstation.new{configure=function() end,effects=function() end,panic=function() end,
-        meter=function() return 0 end,meters=function() return 0,0,0 end,message=function() end}
+        meter=function() return 0 end,meters=function() return 0,0,0 end,message=function() end,
+        schedule=function() return true end,progress=function() return true,2 end,stopSequence=function() end}
     check(uw:newSong(120,4,4,8),'slider regression creates a timeline-backed song')
     uw.page='mixer'
     local view=Studio.new(uw,{midiLabel=function() return 'Slider QA' end,hide=function() error('unexpected hide') end})
@@ -1254,7 +1257,15 @@ local function testContinuousSliders()
         check(fill.layout.props.size.x>width*.7 and field.layout.props.text~='','drag updates fill and value before release on '..title)
         finishDrag();return slider
     end
-    numeric('BPM');check(math.abs(uw.project.bpm-190)<.001,'timeline BPM reads the new project during continuous drag')
+    uw.playing=true;uw.native=true;uw.mode='song'
+    local tempo=numeric('BPM');check(math.abs(uw.project.bpm-190)<.001 and uw.pendingTempo,'timeline BPM accepts continuous drag while playing')
+    local rootWidget=view.root;local field=tempo.layout.content[3];local transported=0
+    view.cb.transport=function() transported=transported+1 end
+    field.layout.events.focusGain();field.layout.events.textChanged('137');field.layout.events.keyPress{code=input.KEY.Enter}
+    view:key(input.KEY.Enter,true);view:key(input.KEY.Enter,false)
+    check(uw.project.bpm==137 and transported==0 and view.root==rootWidget,'typed live BPM commits without triggering transport or rebuilding the window')
+    tempo.layout.content[5].events.mouseClick();check(uw.project.bpm==138,'live tempo plus button applies')
+    tempo.layout.content[4].events.mouseClick();check(uw.project.bpm==137,'live tempo minus button applies');uw:stop()
     numeric('Swing')
     local function plain(width)
         for _,item in ipairs(view.root.layout.content) do if item.props and item.props.size and item.props.size.x==width*view.window.scale and item.events and item.events.mouseMove then return item end end
@@ -1395,7 +1406,7 @@ local Studio=dofile(root..'client/studio.lua')
     end
     local function click(text) local target=assert(find(view.root.layout.content,text),text);target.events.mouseClick();view:render() end
     assert(uw:storeNotes(1,{{n=40,s=0,l=4,v=.8},{n=47,s=0,l=4,v=.8},{n=52,s=0,l=4,v=.8},{n=64,s=32,l=4,v=.8}}));view:render()
-    click('Fit clips');check(uw.project.length==48 and find(view.root.layout.content,'Clips 3 v'),'Piano fits later recorded material and labels the shared range in the header')
+    click('Fit clips');check(uw.project.length==48 and find(view.root.layout.content,'Pattern bars: 3 v'),'Piano fits later recorded material and labels the shared range in the header')
     click('Guitar / bass tools');check(uw.page=='guitar','Piano exposes the new string-performance tool')
     local before=uw.generation;click('Preview plan')
     check(uw.guitarPreview and uw.generation==before and find(view.root.layout.content,'Apply / one Undo'),'preview displays an explicit apply action without changing notes')
@@ -1667,8 +1678,61 @@ do
   check(w.project.composition.loopEnd==8,'right loop marker is the exclusive boundary at bar nine')
   history=#w.undoStack;mouseDown=true;r.firstHandle.layout.events.mousePress(event(.1));r:finish(true);mouseDown=false
   check(#w.undoStack==history and w.project.composition.loopStart==4,'cancelled ruler drag preserves loop data')
+  w.arrangeBars=64;view:render();r=view.arranger
+  local labels=0;for _,item in ipairs(r.ruler.layout.content) do if item.type==ui.TYPE.Text then labels=labels+1 end end
+  check(labels==16 and #r.labels==0,'64-bar Arrange uses one readable ruler row without overlapping adjacent labels')
   view:destroy()
  end
  testArrangeRuler()
+end
+do
+ local function testWaveEditor()
+  local Samples=package.loaded[prefix..'client.samples'];local Workstation=package.loaded[prefix..'client.workstation']
+  local calls=0;local ready=true;local native={version=39,sampleInfo=function(_,_,duration) return {status=ready and 'Ready' or 'Loading',duration=math.min(duration,2),hash=string.rep('a',32)} end,
+   sampleWaveformRange=function(_,_,_,first,last,reverse) calls=calls+1;return {minimum={-.3,-.2},maximum={.2,.4},first=first,finish=last} end,
+   sampleZeroCrossing=function(_,_,_,point) return point+.002 end}
+  local b=Samples.new(native,package.loaded['openmw.vfs'],source);b:select('sound/fx/test.wav');b.duration=2
+  local w=Workstation.new{configure=function() end,panic=function() end,message=function() end,meter=function() return 0 end,samples=function() return b end}
+  w:add('piano');w.page='samples';local view=Studio.new(w,{midiLabel=function() return '' end,hide=function() error('expanded Escape must retain Studio') end})
+  view:setSampleFocus(true);view:render();local e=view.waveEditor;local widget=view.root;local handle=e.handles.trimFirst
+  e.s.caret=.5;check(e:addMarker(),'manual marker added at the cursor');e.s.caret=1.5;check(e:addMarker(),'second marker added')
+  check(#e.s.points==2 and e:slice().duration==.498,'slice audition uses the selected final interval')
+  e:zoom(.5);check(e.s.span==1 and calls==2,'zoom requests fresh source-resolution waveform peaks')
+  e:draw();check(calls==2 and view.root==widget and e.handles.trimFirst==handle,'view updates retain controls and reuse cached native peaks')
+  e.s.first=0;e.s.span=2
+  local function event(t) local p=view.root.layout.props.position;local scale=view.window.scale;return {button=1,position=vector(p.x+(e.x+e.width*t/2)*scale,p.y+(e.y+38)*scale)} end
+  mouseDown=true;e.handles.trimFirst.layout.events.mousePress(event(.2));e.handles.trimFirst.layout.events.mouseMove(event(.3))
+  check(b.offset==0 and view.root==widget,'trim drag is a non-destructive preview with stable widgets')
+  mouseDown=false;e:frame();check(math.abs(e.s.trimFirst-.302)<1e-6,'drop snaps once to the nearby zero crossing')
+  mouseDown=true;e.handles.loopLast.layout.events.mousePress(event(1.2));mouseDown=false;e:frame()
+  check(b.loop and b.loop.finish==1.202 and not b.oneShot,'loop handle commits a gated loop on release')
+  local refs=assert(b:slices(e.s.points));check(#refs==3 and refs[2].offset==.502 and refs[2].duration==1,'manual markers produce gap-free independent samples')
+  check(w:addSampleSlices(refs,'Manual') and #w.project.tracks==4 and w:undo() and #w.project.tracks==1,'manual slices are one reversible project action')
+  w.page='samples';view:setSampleFocus(true);ready=false;b:trim(.2,1);view:render()
+  check(view.sampleEditorWaiting and not view.waveEditor,'trim waits for the new asynchronous decode')
+  ready=true;view:frame(now+.3);check(view.waveEditor and not view.sampleEditorWaiting and view.waveEditor.length==.8,'ready decode automatically restores the editor after trimming')
+  view:key(input.KEY.Escape,true);check(not view.sampleFocus,'Escape restores normal Samples page');view:key(input.KEY.Escape,false);view:destroy()
+ end
+ testWaveEditor()
+ local keys=package.loaded[prefix..'client.transport-keys'];input.KEY.Space=301;local owner={};local actions={}
+ input.isShiftPressed=function() return shift end
+ local function action(value) actions[#actions+1]=value end
+ keys.handle(owner,input.KEY.Space,true,action);keys.handle(owner,input.KEY.Space,true,action);keys.handle(owner,input.KEY.Space,false)
+ check(#actions==1 and actions[1]=='pause','transport key latch prevents duplicate native/engine events')
+ now=now+.2;shift=true;keys.handle(owner,input.KEY.Space,true,action);keys.handle(owner,input.KEY.Space,false);shift=false
+ now=now+.2;ctrl=true;keys.handle(owner,input.KEY.Space,true,action);keys.handle(owner,input.KEY.Space,false);ctrl=false
+ now=now+.2;keys.handle(owner,input.KEY.Enter,true,action);keys.handle(owner,input.KEY.Enter,false)
+ check(actions[2]=='beginning' and actions[3]=='loop' and actions[4]=='cursor','default transport modifiers select all four actions')
+ owner.typing=true;keys.handle(owner,input.KEY.Enter,true,action);check(#actions==4,'text editing retains Enter and Space')
+ local pressed={};input.isKeyPressed=function(code) return pressed[code] or false end
+ owner={};pressed[input.KEY.Space]=true;keys.frame(owner,action);keys.frame(owner,action)
+ check(#actions==5,'native consumed key is polled once across frames')
+ keys.handle(owner,input.KEY.Enter,true,action);keys.handle(owner,input.KEY.Enter,false)
+ check(#actions==5,'native Space followed by synthetic Enter cannot immediately restart the paused score')
+ keys.handle(owner,input.KEY.Space,false);now=now+.2;keys.handle(owner,input.KEY.Space,true,action)
+ check(#actions==5,'synthetic key-up while the physical key is held cannot retrigger transport')
+ pressed[input.KEY.Space]=false;keys.frame(owner,action);owner.typing=true;pressed[input.KEY.Enter]=true;keys.frame(owner,action)
+ owner.typing=false;keys.frame(owner,action);check(#actions==5,'text commit does not turn held Enter into transport')
+ pressed[input.KEY.Enter]=false;keys.frame(owner,action);input.isKeyPressed=nil
 end
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

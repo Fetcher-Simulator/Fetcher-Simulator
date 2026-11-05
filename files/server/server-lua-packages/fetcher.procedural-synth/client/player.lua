@@ -271,6 +271,15 @@ local function playSelected()
     if path==w.project.midi and w:hasSong() then return w:play('song') end
     return playSong(path,'play')
 end
+local function transportAction(action)
+    if not session then return false end
+    local w=session.workstation
+    if w.recording or w.failedTake then return w:transportAction(action) end
+    -- A newly selected file must still pass the normal import/save guard.
+    if not w.playing and not w.paused and session.songSelection and session.songSelection~=w.project.midi then return playSelected() end
+    if not w:hasSong() and not w.clipEdit and (#w.project.tracks==0 or w:needsMidi()) then return playSelected() end
+    return w:transportAction(action)
+end
 makeWorkstation=function(i)
     local tokens,last=80,core.getRealTime()
     local channelTokens,channelAt=16,core.getRealTime()
@@ -483,6 +492,7 @@ showEditor=function()
             synth=function() switchPage('synth',w.project.tracks[w.selected] and w.selected or 0) end,
             sound=function(index) w.selected=index;switchPage('synth',index) end,
             playSong=playSelected,
+            transport=transportAction,
             newSong=function(bpm,numerator,denominator,bars) return session.library:guard(function() if editor then editor:releaseAll() end;w:newSong(bpm,numerator,denominator,bars) end,'create a new song') end,
             exercise=function(id,setId) return session.library:guard(function() if editor then editor:releaseAll() end;w:loadExercise(id,setId) end,'open a band sound check') end,
             playClips=function() stopPlayback();if w.clipEdit then w:playClip() else w:play('clips') end end,
@@ -542,7 +552,7 @@ showEditor=function()
         meter=function() local audio=channelAudio(i,session.editTrack,false);return audio and audio.peak or 0,audio and audio.voices or 0 end,
         midiLabel=songLabel,midiChoices=midiChoices,midiSelected=function() return songs[selectedSong] end,midiSelect=midiSelect,
         midiCycle=function(step) if #songs>0 then midiSelect(songs[(selectedSong-1+step)%#songs+1]) end end,
-        midiPlay=playSelected,midiStop=function() stopPlayback(true) end,
+        midiPlay=playSelected,midiStop=function() stopPlayback(true) end,transport=transportAction,
     })
     local view=session.views[session.editTrack] or session.editTrack==0 and session.view
     if view then

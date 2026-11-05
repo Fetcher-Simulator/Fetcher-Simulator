@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 82 / native synth API 38 / multiplayer protocol 27.
+Current source: package 83 / native synth API 39 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,44 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models are available. More detailed articulation/animation
 and wider listening-based sound balancing remain in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Waveform editing and transport (package 83)
+
+Samples > **Edit waveform** expands the raw-excerpt editor. Fit and Zoom +/-
+request fresh 256-bin peaks from the decoded source; wheel zooms and Shift+wheel
+pans. The bottom scrollbar pans the visible time range. Blue top handles preview
+trim; **Apply trim** commits it. Bottom handles commit the gated sustain loop on
+release. Reverse view follows playback direction. Optional **Zero snap** finds a
+nearby crossing within 5ms; saved boundaries retain millisecond precision.
+
+Click to position the cursor, then **Add slice at cursor**. Drag orange markers,
+remove the selected marker, or **Audition slice**. **Create slice lanes** creates
+2–16 ordinary one-shot drum lanes in one Undo, without changing the original part
+or writing audio files. Markers need 10ms between boundaries. **Use sample on
+part**, then Save, keeps trim/loop edits. Escape restores the normal Samples page.
+This editor handles individual file excerpts; multisample banks retain zone-based
+instrument behavior. Choosing/trimming/reversing the source resets the local view.
+
+Default transport shortcuts work across Synth and Studio pages when a text field,
+chooser or recording tool does not own the keys. Native menu Activate-to-Enter
+translation is coalesced with the original Space press:
+
+- **Space:** pause/resume at the current musical position.
+- **Shift+Space:** play the entire song from its beginning once, without changing
+  the saved ruler-loop setting.
+- **Ctrl+Space:** play from the ruler-loop start, respecting its enabled setting.
+- **Enter:** play from the current edit playhead.
+
+Pause/resume and live BPM changes use the existing shared score upload/buffered
+restart, preserving musical position across listeners. They are not sample-accurate
+seamless time stretching. BPM drag, text and +/- controls work during playback;
+rapid edits coalesce before rescheduling. End/cancel recording before changing
+tempo. Later tempo-map points retain their explicit tempos.
+
+**Pattern bars** sets the shared piano/drum pattern length. **Pattern loop**
+repeats Play clips; **Ruler loop: On/Off** controls the independent song loop
+shown by Arrange's blue handles. Arrange uses one ruler label row at every zoom.
+This checkpoint is local only; no hosted assets or C++ server changes are needed.
 
 ## Arrange, shared navigation and chopping (package 82; Lua only)
 
@@ -24,7 +62,7 @@ In Arrange's ruler above the track grid:
 
 - Drag the **blue handles** at the ends of the top strip to set loop start/end.
   They snap to whole song bars and enable the loop. The right marker is exclusive:
-  markers at bars 2 and 6 repeat bars 2–5. Click **Loop: On/Off** to toggle it.
+  markers at bars 2 and 6 repeat bars 2–5. Click **Ruler loop: On/Off** to toggle it.
 - Click the ruler to position the **teal playhead**. Drag its small teal top
   handle to move it. The stopped cursor remains visible, and Play song starts
   there. Position snaps to sixteenth-note steps. Seeking during playback

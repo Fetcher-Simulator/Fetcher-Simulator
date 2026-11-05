@@ -12,6 +12,7 @@ local Window=require('scripts.multiplayer.fetcher.procedural-synth.client.window
 local AutomationRoll=require('scripts.multiplayer.fetcher.procedural-synth.client.automation-roll')
 local PianoRoll=require('scripts.multiplayer.fetcher.procedural-synth.client.piano-roll')
 local Arranger=require('scripts.multiplayer.fetcher.procedural-synth.client.arranger')
+local TransportKeys=require('scripts.multiplayer.fetcher.procedural-synth.client.transport-keys')
 local S={};S.__index=S
 local v=util.vector2
 local white=ui.texture{path='white'}
@@ -241,7 +242,7 @@ function S:arrange(content)
     content[#content+1]=self:button('Zoom -',485,top,60,function() zoom(2) end)
     content[#content+1]=self:button('Zoom +',550,top,60,function() zoom(.5) end)
     content[#content+1]=self:button(self.arrangeFocus and 'Back [Esc]' or 'Expand',760,top,130,function() self:setArrangeFocus(not self.arrangeFocus) end)
-    content[#content+1]=self:button(looping and 'Loop: On' or 'Loop: Off',20,(self.arrangeFocus and 181 or 292)-23,150,function() w:setSongLoop(first,last,not looping) end,looping)
+    content[#content+1]=self:button(looping and 'Ruler loop: On' or 'Ruler loop: Off',20,(self.arrangeFocus and 181 or 292)-29,150,function() w:setSongLoop(first,last,not looping) end,looping)
     local id=w.arrangeClip or 1;local clips=t and t.arrangement and t.arrangement.clips or {};local clip=clips[id]
     content[#content+1]=self:button((clip and clip.name or 'Choose source clip')..' v',240,top+39,240,function()
         local choices={};for n,source in ipairs(clips) do choices[#choices+1]={id=n,label=source.name} end
@@ -769,6 +770,7 @@ function S:zoomRoll(factor)
     self.w.rollSteps=math.max(minimum,math.min(64,self.w.rollSteps*factor));self.w.revision=self.w.revision+1
 end
 function S:wheel(delta)
+    if self.waveEditor then self.waveEditor:wheel(delta);return end
     if self.arranger and self.w.page=='arrange' then
         if input.isCtrlPressed and input.isCtrlPressed() then self:zoomArrange(delta>0 and .5 or 2);return end
         self.w.arrangeBar=math.max(0,math.min(self.arranger.maximum,(self.w.arrangeBar or 0)-math.floor(delta)));self.w.revision=self.w.revision+1;return
@@ -859,6 +861,7 @@ function S:samplePage(content)
     local browser=self.samples;local t=w.project.tracks[w.selected]
     local function refresh() w.revision=w.revision+1 end
     content[#content+1]=label('INSTALLED GAME SAMPLES',20,166,870,18,c.accent)
+    content[#content+1]=self:button('Edit waveform',650,166,240,function() self:setSampleFocus(true) end)
     content[#content+1]=self:button(t and ('Part '..w.selected..': '..t.name..' v') or 'Choose a part v',20,207,390,function()
         local entries={};for n,track in ipairs(w.project.tracks) do entries[#entries+1]={id=n,label=n..': '..track.name} end
         Dropdown.open(self,entries,w.selected,function(n) w.selected=n;refresh() end,20,242,600)
@@ -1023,10 +1026,16 @@ function S:projects(content)
     content[#content+1]=label('Named saves: '..#l.entries..'/16. Autosave: every 30 seconds while dirty, including when Studio is hidden.',20,610,880,12,c.muted)
     content[#content+1]=label('Projects and recovery drafts belong to this character in the server database. MIDI exports stay local.',20,644,880,12,c.muted)
 end
+function S:setSampleFocus(active)
+    self.sampleFocus=active;self.window.expanded=active
+    self.window.restoreExpanded=active and function() self:setSampleFocus(false) end or nil
+    self.window:bounds();self.window.changed=true;self.w.revision=self.w.revision+1
+end
 function S:render()
     self.numericRefresh={};self.simpleRefresh={};self.controllerStatus=nil
     if self.arrangeFocus and self.w.page~='arrange' then self.arrangeFocus=false;self.window.expanded=false;self.window.restoreExpanded=nil end
     if self.pianoFocus and self.w.page~='piano' then self.pianoFocus=false;self.window.expanded=false;self.window.restoreExpanded=nil end
+    if self.sampleFocus and self.w.page~='samples' then self.sampleFocus=false;self.window.expanded=false;self.window.restoreExpanded=nil end
     self.window:bounds();self.width,self.height=self.window.canvasWidth,self.window.canvasHeight
     if self.samples and self.w.page~='samples' then self.samples:stop() end
     self.sampleStatus=nil;self.sampleWaveform=nil;self.sampleWaveKey=nil
@@ -1037,6 +1046,7 @@ function S:render()
     if self.roll then self.roll:finish(true);self.roll=nil end
     if self.automationRoll then self.automationRoll:finish(true);self.automationRoll=nil end
     if self.arranger then self.arranger:finish(true);self.arranger=nil end
+    if self.waveEditor then self.waveEditor:finish(true);self.waveEditor=nil end
     Dropdown.close(self)
     self.controlEpoch=(self.controlEpoch or 0)+1
     self.typing=false
@@ -1044,15 +1054,16 @@ function S:render()
     for _,e in ipairs(self.children) do e:destroy() end
     self.children={};self.meters={};self.meterLabels={};self.busMeter=nil;self.returnMeter=nil;self.playhead=nil;self.grid=nil
     local w,p=self.w,self.w.project;local content={label('FETCHER STUDIO',20,15,175,18)}
-    if self.pianoFocus or self.arrangeFocus then
-        content={label(self.arrangeFocus and 'ARRANGE' or 'PIANO EDITOR',20,13,200,21,c.accent)}
+    if self.pianoFocus or self.arrangeFocus or self.sampleFocus then
+        content={label(self.sampleFocus and 'SAMPLE EDITOR' or self.arrangeFocus and 'ARRANGE' or 'PIANO EDITOR',20,13,200,21,c.accent)}
         content[#content+1]=self:button('Play song',230,12,96,self.cb.playSong)
         content[#content+1]=self:button(w:clipSource() and 'Play source' or 'Play clips',335,12,96,self.cb.playClips)
         content[#content+1]=self:button('Stop',440,12,58,self.cb.stop)
         self.transport=self:element(label('',515,18,self.width-755,12,c.accent));content[#content+1]=self.transport
         content[#content+1]=self:button('Undo',self.width-226,12,80,function() w:undo() end,#w.undoStack>0)
         content[#content+1]=self:button('Redo',self.width-133,12,80,function() w:redo() end,#w.redoStack>0)
-        self.bodyOffset=0;if self.arrangeFocus then self:arrange(content) else self:piano(content) end
+        self.bodyOffset=0;if self.sampleFocus then self.waveEditor=require('scripts.multiplayer.fetcher.procedural-synth.client.sample-editor').new(self,content)
+        elseif self.arrangeFocus then self:arrange(content) else self:piano(content) end
         self.root=self.window:root(content);self.revision=w.revision;return
     end
     Window.tabs(self,content,w.page,function(page)
@@ -1065,21 +1076,21 @@ function S:render()
     self.transport=self:element(label('',20,43,self.width-280,12,c.accent));content[#content+1]=self.transport
     content[#content+1]=self:button('Undo',self.width-226,41,80,function() w:undo() end,#w.undoStack>0)
     content[#content+1]=self:button('Redo',self.width-133,41,80,function() w:redo() end,#w.redoStack>0)
-    content[#content+1]=self:button('Play song',20,70,96,function() self.cb.playSong() end)
-    content[#content+1]=self:button(w:clipSource() and 'Play source' or 'Play clips',125,70,96,function() self.cb.playClips() end)
-    content[#content+1]=self:button('Stop',230,70,58,self.cb.stop)
-    local tempo=Controls.slider(self,'bpm','BPM',{min=40,max=240,step=1},function() return w.project.bpm end,function(value) w:setTempo(value) end,309,64,180)
+    content[#content+1]=self:button('Play song',20,70,88,function() self.cb.playSong() end)
+    content[#content+1]=self:button(w:clipSource() and 'Play source' or 'Play clips',116,70,88,function() self.cb.playClips() end)
+    content[#content+1]=self:button('Stop',212,70,54,self.cb.stop)
+    local tempo=Controls.slider(self,'bpm','BPM',{min=40,max=240,step=1},function() return w.project.bpm end,function(value) w:setTempo(value) end,274,64,156)
     content[#content+1]=tempo
-    local swing=Controls.slider(self,'swing','Swing',{min=0,max=0.6,unit='%',step=0.01},function() return p.swing end,function(value) p.swing=value;w:touch('swing',true) end,504,64,99)
+    local swing=Controls.slider(self,'swing','Swing',{min=0,max=0.6,unit='%',step=0.01},function() return w.project.swing end,function(value) w.project.swing=value;w:touch('swing',true) end,436,64,118)
     content[#content+1]=swing
-    content[#content+1]=self:button('Clips '..p.length/16 ..' v',self.width-324,70,84,function()
+    content[#content+1]=self:button('Pattern bars: '..p.length/16 ..' v',self.width-382,70,114,function()
         local choices={{id='fit',label='Fit clips: recorded/placed material'}}
         for n=1,Project.maxSteps/16 do choices[#choices+1]={id=n*16,label=n..' shared clip bars (piano + drums)'} end
         Dropdown.open(self,choices,p.length,function(value) if value=='fit' then w:fitClipLoop() else w:length(value) end end,self.width-410,102,390)
     end)
-    content[#content+1]=self:button('Clip loop',self.width-228,70,61,function() p.loop=not p.loop;w:touch() end,p.loop)
-    content[#content+1]=self:button('Save',self.width-156,70,54,function() w:save() end)
-    content[#content+1]=self:button('Projects',self.width-98,70,75,self.cb.load)
+    content[#content+1]=self:button('Pattern loop',self.width-258,70,88,function() p.loop=not p.loop;w:touch() end,p.loop)
+    content[#content+1]=self:button('Save',self.width-160,70,54,function() w:save() end)
+    content[#content+1]=self:button('Projects',self.width-96,70,75,self.cb.load)
     local name=self:element{type=ui.TYPE.TextEdit,props={position=v(20,112),size=v(170,28),text=p.name,textSize=14,textColor=c.text},
         events={textChanged=cb(function(text) p.name=text:gsub('%c',''):sub(1,64);w:touch('name',true) end),focusGain=cb(function() self.typing=true end),focusLoss=cb(function() self.typing=false end)}}
     content[#content+1]=name
@@ -1101,7 +1112,8 @@ end
 function S:resize() self:render() end
 function S.new(workstation,callbacks)
     local self=setmetatable({kind='studio',w=workstation,cb=callbacks,window=Window.new(),children={},width=940,lastFrame=-1},S)
-    self.window.keyPress=cb(function(e) if e.code==input.KEY.Escape then self:key(e.code,true) end end)
+    self.window.keyPress=cb(function(e) self:key(e.code,true) end)
+    self.window.keyRelease=cb(function(e) self:key(e.code,false) end)
     self.window.pickup=callbacks.pickup;self:render();I.UI.addMode('Interface',{windows={}})
     if I.Controls and I.Controls.overrideUiControls then I.Controls.overrideUiControls(true) end
     return self
@@ -1111,6 +1123,7 @@ function S:releaseAll()
     if self.roll then self.roll:finish(true) end
     if self.automationRoll then self.automationRoll:finish(true) end
     if self.arranger then self.arranger:finish(true) end
+    if self.waveEditor then self.waveEditor:finish(true) end
     self:releaseRecordKeys();self.w:endTake(false)
 end
 function S:releaseRecordKeys()
@@ -1118,6 +1131,7 @@ function S:releaseRecordKeys()
     self.recordHeld={};self.recordKeys={};self.mouseRecord=nil
 end
 function S:key(code,on)
+    if not on then TransportKeys.handle(self,code,false) end
     -- Focused native Lua widgets can consume key presses before onKeyPress.
     -- Root key events and engine events share one press/release latch.
     if code==input.KEY.Escape then
@@ -1127,6 +1141,7 @@ function S:key(code,on)
     self.recordKeys=self.recordKeys or {}
     if not on and self.recordKeys[code] then self:recordKey(self.recordKeys[code],false);self.recordKeys[code]=nil;return end
     if self.dropdown then if on and code==input.KEY.Escape then Dropdown.close(self);self.restoreInterfaceFrames=2 end;return end
+    if on and code==input.KEY.Escape and self.sampleFocus then self:setSampleFocus(false);self.restoreInterfaceFrames=2;return end
     if on and code==input.KEY.Escape and self.arrangeFocus then self:setArrangeFocus(false);self.restoreInterfaceFrames=2;return end
     if on and code==input.KEY.Escape and self.pianoFocus then self:setPianoFocus(false);self.restoreInterfaceFrames=2;return end
     if on and code==input.KEY.Escape then if self.w.page=='guitar' then self.w.page='piano';self.w.revision=self.w.revision+1;self.restoreInterfaceFrames=2 elseif self.w.page=='rename' and self.cancelRename then self.cancelRename();self.restoreInterfaceFrames=2 else self.cb.hide() end;return end
@@ -1139,6 +1154,7 @@ function S:key(code,on)
         end
         return
     end
+    if not self.w.recording and TransportKeys.handle(self,code,on,self.cb.transport) then return end
     if ctrl then
         if self.roll then self.roll:finish(true) end
         if self.automationRoll then self.automationRoll:finish(true) end
@@ -1201,6 +1217,9 @@ end
 function S:frame(now)
     self.window:frame(self)
     Dropdown.frame(self)
+    if input.isKeyPressed then
+        if input.isKeyPressed(input.KEY.Escape) then self:key(input.KEY.Escape,true) else self.escapeHeld=false end
+    end
     -- Native Escape can pop Interface before Lua receives the key. Consuming
     -- it to leave the expanded editor must retain Studio's mouse/input mode.
     if self.restoreInterfaceFrames then
@@ -1209,10 +1228,15 @@ function S:frame(now)
         if I.UI.getMode()==nil then I.UI.addMode('Interface',{windows={}});return end
     end
     if I.UI.getMode()~='Interface' then self.cb.hide();return end
+    TransportKeys.frame(self,not self.w.recording and self.w.page~='recordsetup' and self.cb.transport or nil)
     if self.roll then self.roll:frame() end
     if self.automationRoll then self.automationRoll:frame() end
     if self.arranger then self.arranger:frame() end
+    if self.waveEditor then self.waveEditor:frame() end
     if self.samples then self.samples:frame() end
+    if self.sampleFocus and self.sampleEditorWaiting and self.samples:info().status~='Loading' then
+        self.sampleEditorWaiting=nil;self.w.revision=self.w.revision+1
+    end
     if self.mouseRecord and not input.isMouseButtonPressed(1) then self:recordKey(self.mouseRecord,false);self.mouseRecord=nil end
     -- Autosave/roster/status replies may revise the background while a chooser
     -- owns focus. Apply the pending redraw after selection or dismissal.
@@ -1224,12 +1248,16 @@ function S:frame(now)
     if self.controllerStatus then
         self.controllerStatus.layout.props.text=self.w.recorder.controllers.status or 'Move a mapped knob or fader.';self.window:update(self.controllerStatus)
     end
-    self.transport.layout.props.text=string.format('%s  |  %.1fs  |  Beat %.1f  |  %s%s',self.w.awaiting and 'BUFFER' or (self.w.playing and 'PLAY' or 'STOP'),self.w.time,self.w.beat+1,self.w.project.name,self.w.dirty and ' *' or '')
-    if self.w.mode=='song' and (self.w.project.timeline or self.w.song) then
+    local focused=self.pianoFocus or self.arrangeFocus or self.sampleFocus
+    self.transport.layout.props.text=string.format('%s | %.1fs | Beat %.1f',self.w.awaiting and 'BUFFER' or self.w.paused and 'PAUSE' or (self.w.playing and 'PLAY' or 'STOP'),self.w.time,self.w.beat+1)
+    if not focused then self.transport.layout.props.text=self.transport.layout.props.text..' | '..self.w.project.name..(self.w.dirty and ' *' or '') end
+    if not focused and self.w.mode=='song' and (self.w.project.timeline or self.w.song) then
         local view={timeline=self.w.project.timeline or self.w.song,composition=self.w.project.composition}
         local n,d=Project.meterAt(view,self.w.beat)
         self.transport.layout.props.text=self.transport.layout.props.text..string.format('  |  Bar %.2f  %d/%d  %.3g BPM',Project.barPosition(view,self.w.beat),n,d,60000000/Project.tempoAt(view,self.w.beat))
     end
+    local limit=math.floor(self.transport.layout.props.size.x/7)
+    if #self.transport.layout.props.text>limit then self.transport.layout.props.text=self.transport.layout.props.text:sub(1,math.max(0,limit-3))..'...' end
     self.window:update(self.transport)
     if self.sampleStatus then
         local info=self.samples:info();local t=self.w.project.tracks[self.w.selected]

@@ -64,7 +64,10 @@ function C.slider(owner,name,title,spec,get,set,x,y,width)
         end),
         focusLoss=cb(commit),
         keyPress=cb(function(e)
-            if e.code==input.KEY.Enter or e.code==input.KEY.NP_Enter then commit()
+            if e.code==input.KEY.Enter or e.code==input.KEY.NP_Enter then
+                -- The commit ends typing before the engine's key handler runs.
+                -- Keep this press owned by the field through key release.
+                owner.transportHeld=owner.transportHeld or {};owner.transportHeld[e.code]=true;commit()
             elseif e.code==input.KEY.Escape then editing=false;owner.typing=false;draft=nil;refresh() end
         end)}}
     local trackWidth=width-36

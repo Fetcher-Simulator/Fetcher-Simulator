@@ -95,6 +95,16 @@ void sampleTests()
     }
     check(studioRender(*a,60000,480)==studioRender(*b,60000,137),"loop seams remain identical across callback chunk sizes");
     a->stop();studioRender(*a,480);check(!a->voices(),"sequencer Stop clears loop gate on the audio callback");
+    Sample waveform;waveform.pcm={-.8f,-.4f,.4f,.8f};
+    auto view=waveform.view(0,4.0/48000,false),reverseView=waveform.view(0,4.0/48000,true);
+    check(view && reverseView && view->minimum[0]==-.8f && reverseView->minimum[0]==.8f && view->maximum[255]==.8f,"sub-bin waveform zoom remains bounded and reverses playback order");
+    auto zoom=waveform.view(1.0/48000,3.0/48000,false);
+    check(zoom && zoom->minimum[0]==-.4f && zoom->maximum[255]==.4f,"zoom recalculates extrema from source PCM rather than enlarging old peaks");
+    auto cross=waveform.zeroCrossing(2.0/48000,false),reverseCross=waveform.zeroCrossing(2.0/48000,true);
+    check(cross && reverseCross && std::abs(*cross-1.5/48000)<1e-10 && std::abs(*reverseCross-1.5/48000)<1e-10,"zero crossing interpolates in displayed playback direction");
+    check(!waveform.view(-1,.1,false) && !waveform.view(0,1,false) && !waveform.view(.1,.1,false) && !waveform.zeroCrossing(-1,false),"waveform editor rejects invalid ranges");
+    waveform.zones.push_back({});check(!waveform.view(0,4.0/48000,false) && !waveform.zeroCrossing(0,false),"multisample banks cannot be edited as arbitrary raw excerpts");
+    waveform.zones.clear();waveform.pcm.assign(48000,.5f);check(!waveform.zeroCrossing(.5,false),"zero snap cannot jump beyond its five-millisecond neighborhood");
     std::cout << "PASS sample loading, identity, pitch, chords, one-shot/gated release, stop, end and control-thread reclamation\n";
     std::cout << "PASS reverse interpolation, bounded sustain loops/crossfades, transposition, late decode rejection, waveform and native scheduling\n";
 }

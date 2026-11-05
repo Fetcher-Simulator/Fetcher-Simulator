@@ -24,9 +24,6 @@ function R.new(owner,content)
                 if not w:leaveClip() then return end;w.selected=index;w.arrangeClip=1;w.regionIndex=nil;w.regionSelection={};w.revision=w.revision+1
             end,w.selected==index)
             local grid=rect(self.x,self.y+(row-1)*self.rh,self.width,self.rh-3,c.bg);local cells={}
-            for b=0,self.bars-1 do
-                if row==1 then local label=owner:element{type=ui.TYPE.Text,props={position=v(self.x+b*self.width/self.bars,self.y-23),size=v(50,20),text=tostring(w.arrangeBar+b+1),textSize=11,textColor=c.selected}};self.labels[#self.labels+1]=label;content[#content+1]=label end
-            end
             self.grids[#self.grids+1]=owner:element(grid);grid=self.grids[#self.grids].layout
             grid.content=ui.content(cells);grid.events={mousePress=cb(function(e)
                 if e.button~=1 then return end
@@ -88,7 +85,8 @@ function R:updateRuler()
     local b=(Format.barStart(self.map,last)*4-self.start)*self.cw
     local cells={}
     if enabled and b>0 and a<self.width then cells[#cells+1]=rect(clamp(a,0,self.width),0,clamp(b,0,self.width)-clamp(a,0,self.width),4,c.clip) end
-    for n=1,self.bars do
+    local stride=1;while self.width/self.bars*stride<30 do stride=stride*2 end
+    for n=1,self.bars,stride do
         local at=(Format.barStart(self.map,self.w.arrangeBar+n)*4-self.start)*self.cw
         cells[#cells+1]={type=ui.TYPE.Text,props={position=v(at+3,7),size=v(45,15),text=tostring(self.w.arrangeBar+n),textSize=10,textColor=c.selected}}
     end
@@ -180,9 +178,8 @@ function R:view()
 end
 function R:draw()
     self:view();local cells={}
-    for index,label in ipairs(self.labels) do
-        local bar=self.w.arrangeBar+index;local at=(Format.barStart(self.w.project,bar)*4-self.start)*self.cw
-        label.layout.props.text=tostring(bar);label.layout.props.position=v(self.x+at,self.y-23);self.owner.window:update(label)
+    for index=1,self.bars do
+        local bar=self.w.arrangeBar+index;local at=(Format.barStart(self.map,bar)*4-self.start)*self.cw
         cells[#cells+1]=rect(at,0,1,self.rh-3,c.line)
     end
     for _,grid in ipairs(self.grids) do grid.layout.content=ui.content(cells);self.owner.window:update(grid) end

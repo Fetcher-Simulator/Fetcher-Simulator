@@ -6,6 +6,7 @@ local I=require('openmw.interfaces')
 local Dropdown=require('scripts.multiplayer.fetcher.procedural-synth.client.dropdown')
 local Window=require('scripts.multiplayer.fetcher.procedural-synth.client.window')
 local Controls=require('scripts.multiplayer.fetcher.procedural-synth.client.controls')
+local TransportKeys=require('scripts.multiplayer.fetcher.procedural-synth.client.transport-keys')
 local schema=require('scripts.multiplayer.fetcher.procedural-synth.shared.schema')
 local v=util.vector2
 local white=ui.texture{path='white'}
@@ -70,10 +71,12 @@ function E:note(note,on,velocity)
     elseif not on and self.held[note] then self.held[note]=nil; self.cb.noteOff(note) end
 end
 function E:key(code,on)
+    if not on then TransportKeys.handle(self,code,false) end
     if self.dropdown then if code==input.KEY.Escape and on then Dropdown.close(self) end;return end
     if code==input.KEY.Escape and on then (self.cb.hide or self.cb.close)(); return end
-    if on and input.isCtrlPressed and input.isCtrlPressed() then return end
     if on and (self.typing or I.UI.getMode()~='Interface') then return end
+    if TransportKeys.handle(self,code,on,self.cb.transport) then return end
+    if on and input.isCtrlPressed and input.isCtrlPressed() then return end
     local keys={input.KEY.Z,input.KEY.S,input.KEY.X,input.KEY.D,input.KEY.C,input.KEY.V,input.KEY.G,
         input.KEY.B,input.KEY.H,input.KEY.N,input.KEY.J,input.KEY.M,input.KEY.Comma}
     for n,k in ipairs(keys) do if code==k then self:note(59+n,on) end end
@@ -168,6 +171,8 @@ function E:plots()
 end
 function E.new(params,cb)
     local self=setmetatable({params=params,cb=cb,window=Window.new(),children={},controls={},entries={},held={},name='Untitled',lastMeter=0},E)
+    self.window.keyPress=callback(function(e) self:key(e.code,true) end)
+    self.window.keyRelease=callback(function(e) self:key(e.code,false) end)
     self.window.pickup=cb.pickup;self:render();I.UI.addMode('Interface',{windows={}});return self
 end
 function E:render()
@@ -376,6 +381,7 @@ function E:frame(now)
     Dropdown.frame(self)
     if self.pendingRender and not self.dropdown then self:render() end
     if I.UI.getMode()~='Interface' then (self.cb.hide or self.cb.close)(); return end
+    TransportKeys.frame(self,self.cb.transport)
     if self.mouseNote and not input.isMouseButtonPressed(1) then self:note(self.mouseNote,false); self.mouseNote=nil end
     if now-self.lastMeter>0.1 then
         self.lastMeter=now
