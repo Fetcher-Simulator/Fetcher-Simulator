@@ -45,9 +45,9 @@ namespace MWSound
         };
         bool configure(unsigned track, const ProceduralSynth::State& state, float level, bool audible = true);
         bool sample(unsigned n, std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash,
-            const ProceduralSynth::AttackSamples& attacks = {}, float gain = 1)
+            const ProceduralSynth::AttackSamples& attacks = {}, float gain = 1, ProceduralSamplePlayback playback = {})
         {
-            return hasTrack(n) && std::atomic_load(&mTracks[n - 1])->sample(std::move(data), root, oneShot, hash, attacks, gain);
+            return hasTrack(n) && std::atomic_load(&mTracks[n - 1])->sample(std::move(data), root, oneShot, hash, attacks, gain, playback);
         }
         bool hasTrack(unsigned track) const;
         bool mixer(unsigned track, const ProceduralMixer::State& state);

@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 80 / native synth API 37 / multiplayer protocol 27.
+Current source: package 81 / native synth API 38 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,52 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models are available. More detailed articulation/animation
 and wider listening-based sound balancing remain in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Sample editing: loops, reverse and crossfades (package 81 / API 38)
+
+On **Samples**, select a part and browse an installed sound, or click **Edit part
+sample** to load that part's existing reference. The waveform shows the decoded
+excerpt in playback order. Selecting another sound clears the previous edits.
+
+1. Set **Start / End** in seconds within the source file, then **Apply trim**.
+   Excerpts remain limited to 0.01–30 seconds, starting within the first ten
+   minutes. Changing the trim clears loop points so stale bounds cannot survive.
+2. Toggle **Reverse** to play the excerpt backwards. Pitch/root and envelopes
+   still apply. The waveform flips to match what you will hear.
+3. Toggle **Loop**. This selects gated playback and starts with the complete
+   decoded excerpt, rather than assuming the requested excerpt was all present.
+   Set **Loop in / out** in seconds relative to the displayed excerpt, and
+   **Crossfade** in milliseconds, then **Apply loop**. Blue lines mark the loop;
+   its darker final section is the join into its beginning. The audio before
+   loop-in plays once. Reverse uses the same displayed playback-relative points.
+4. **Audition** holds the preview note. **Release preview** plays its note-off
+   envelope; **Stop preview** clears it. A gated loop repeats through the release
+   envelope until silent. It does not jump to the audio after loop-out at key-up.
+5. Click **Use sample on part**, then save the project or sound preset. Draft
+   browser edits do not change the assigned part until this button is clicked.
+   The part keeps its notes, clips, physical output and mixer processing.
+
+Loop length must be at least 10 ms. Crossfade is 0–250 ms, at most half the loop.
+The overlapped join shortens each repetition by the crossfade length. Set it to
+zero for an unblended boundary, which can click on discontinuous material.
+Changing to **One-shot** disables the loop; one-shots retain their normal finite
+tail and overlapping hits. Use **Sound** to adjust the gated release envelope.
+The root note plays at original speed; pitching changes playback and loop speed.
+
+These edits apply to individual game/voice/music excerpts, not multisample bank
+zones. Banks keep their existing instrument maps and recorded articulations.
+Edits save as bounded metadata with the original file hash; no game audio is
+rewritten or sent over the network. Each listener needs the same installed file.
+An invalid/shorter decoded excerpt stays silent on that part, without replacing
+it with a synthesizer or stopping unrelated parts. Undo/Redo, project/preset
+storage and late-listener snapshots retain the complete playback reference.
+
+Waveform extrema are prepared once on the loader thread, with 256 fixed bins.
+Reverse/loop settings reuse the same immutable PCM/cache entry and independent
+voice cursors. No file loading, waveform generation or allocation occurs in
+the audio callback. The existing 32-entry/256-MiB PCM limits remain unchanged.
+The matching API-38 client is required; server changes are Lua only. This
+checkpoint is local-only. Chopping and richer waveform editing are next.
 
 ## Performance sounds and connected strings (package 80 / API 37)
 

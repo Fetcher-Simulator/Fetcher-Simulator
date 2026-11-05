@@ -2,6 +2,8 @@
 #define OPENMW_MWSOUND_PROCEDURALSAMPLE_H
 
 #include <atomic>
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -25,6 +27,20 @@ namespace MWSound
         std::vector<Zone> zones; // nonempty only for immutable multisample banks
         bool hasReleases = false; // v2 flag 2: recorded note-off zones
         bool hasHammer = false; // v2 flag 4: recorded upward connected attacks
+        std::array<float,256> waveMin{},waveMax{};
+        bool waveformReady=false;
+        void buildWaveform() // loader thread only, raw excerpts only
+        {
+            if(pcm.empty())return;
+            for(std::size_t n=0;n<waveMin.size();++n)
+            {
+                const auto first=n*pcm.size()/waveMin.size();
+                const auto last=std::max(first+1,(n+1)*pcm.size()/waveMin.size());
+                const auto bounds=std::minmax_element(pcm.begin()+first,pcm.begin()+last);
+                waveMin[n]=*bounds.first;waveMax[n]=*bounds.second;
+            }
+            waveformReady=true;
+        }
         std::string hash, error;
     };
 }

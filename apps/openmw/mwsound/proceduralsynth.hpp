@@ -15,6 +15,7 @@
 #include "proceduralsample.hpp"
 #include "proceduralstring.hpp"
 #include "proceduralrelease.hpp"
+#include "proceduralsampleplayback.hpp"
 
 namespace MWSound
 {
@@ -50,7 +51,7 @@ namespace MWSound
         explicit ProceduralSynth(unsigned alternateSeed = 0);
         bool set(std::string_view name, float value);
         bool sample(std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash,
-            const AttackSamples& attacks = {}, float gain = 1);
+            const AttackSamples& attacks = {}, float gain = 1, ProceduralSamplePlayback playback = {});
         bool noteOn(int note, float velocity);
         struct Strike
         {
@@ -108,6 +109,7 @@ namespace MWSound
             float velocity = 0;
             double phase1 = 0, phase2 = 0;
             double samplePosition = 0;
+            bool sampleWrapped = false;
             double samplePreviousPosition = 0, samplePreviousRatio = 1;
             unsigned samplePreviousStart = 0, samplePreviousLength = 0, sampleFade = 0;
             unsigned sampleStart = 0, sampleLength = 0;
@@ -145,10 +147,11 @@ namespace MWSound
             int root = 60;
             bool oneShot = false;
             float gain = 1;
+            ProceduralSamplePlayback playback;
             std::array<char, 32> hash{};
             bool operator==(const SampleSettings& other) const
             {
-                return data == other.data && root == other.root && oneShot == other.oneShot && gain == other.gain && hash == other.hash;
+                return data == other.data && root == other.root && oneShot == other.oneShot && gain == other.gain && hash == other.hash && playback == other.playback;
             }
         };
         SampleSettings mSampleTarget, mSampleCurrent;

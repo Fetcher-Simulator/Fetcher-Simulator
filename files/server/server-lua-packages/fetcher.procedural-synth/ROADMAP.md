@@ -2,6 +2,34 @@
 
 Updated 2026-11-05. Completed work and subsequent planned slices are identified below.
 
+Package 81 / native API 38 begins the next sample-editing priority with a
+256-bin decoded waveform, reverse playback and gated sample loops with numeric
+in/out points and 0–250-ms crossfades. Points are relative to the trimmed,
+displayed playback view; Reverse flips that view. An intro plays once, then
+the selected span repeats through the note's release envelope. Loop joins
+overlap rather than adding time. One-shot mode disables the loop. Preview
+release, assignment and existing envelope controls remain separate actions.
+
+References retain the original file hash and independent per-voice cursors,
+reusing immutable decoded PCM. No game audio is rewritten or transmitted.
+Loop bounds are checked against both bounded saved metadata and actual decoded
+length, including late loader publication. Invalid/missing parts stay silent
+without taking other parts down. Banks keep their existing zone behavior;
+these edits are for individual file excerpts. Waveforms are built off the audio
+thread and update one child widget without rebuilding an open chooser.
+
+All 37 Lua suites and 11 native groups cover validation, preview lifecycle,
+project/preset/history/relay, reverse interpolation, crossfade continuity,
+high-pitch wraps, note-off/Stop, shared-source isolation and callback invariance.
+Two native clients verify real decoder/waveform publication, preview release,
+late-snapshot loop/reverse metadata, sounding sustained score gates, shared-source
+isolation and server-backed save/reload/replay. Native monitor-2 inspection
+checks waveform/loop markers, reverse view and the complete controls at 1080x800.
+Original profile/database files stay hash-identical during disposable testing.
+No C++ server changes or new hosted assets are required;
+only the local port-25567 fixture is updated. Next: chopping and richer
+waveform editing, followed by the rest of the sample-library work.
+
 Package 80 / native API 37 closes priority one at the user-accepted usable
 starting-preset level. The November 5 full-band, matched-volume comparisons of
 the existing captured rig and Performance thrash/industrial recipes were
@@ -685,8 +713,9 @@ priorities rather than blocking sample editing on those open-ended targets.
 
 ## Remaining roadmap (next: sample editing; formerly priority two)
 
-1. **Further sample tools and sound libraries.** Sustained loops, chopping,
-   reverse, crossfades and sound-library expansion beyond the priority band set. Continue
+1. **Further sample tools and sound libraries.** Chopping, richer waveform
+   editing and sound-library expansion beyond the priority band set. Package 81
+   adds sustained excerpt loops, reverse and bounded loop-join crossfades. Continue
    listening/balance refinement alongside the orchestral instrument work.
 2. **Section layouts and conductor presentation.** Add saved spacing/layout
    presets, instrument sections, conductor gestures and formation previews.

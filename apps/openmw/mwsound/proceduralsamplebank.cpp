@@ -178,5 +178,6 @@ namespace MWSound
             const auto b = std::min(a + 1, source.size() - 1);
             pcm[i] = static_cast<float>(source[a] + (source[b] - source[a]) * (at - a));
         }
+        job.data->buildWaveform();
     }
 }

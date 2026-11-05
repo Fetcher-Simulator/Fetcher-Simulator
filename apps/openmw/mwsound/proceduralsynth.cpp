@@ -233,21 +233,23 @@ namespace MWSound
         return value;
     }
     bool ProceduralSynth::sample(std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash,
-        const AttackSamples& attacks, float gain)
+        const AttackSamples& attacks, float gain, ProceduralSamplePlayback playback)
     {
         const auto valid=[](const auto& data,int root,bool oneShot,std::string_view hash,bool variant) {
             return root>=0 && root<=127 && (!data || (hash.size()==32
                 && hash.find_first_not_of("0123456789abcdef")==hash.npos && (!variant || !oneShot)));
         };
         const auto validGain=[](float value){return std::isfinite(value) && value>=.25f && value<=8;};
-        if(!valid(data,root,oneShot,hash,false) || !validGain(gain))return false;
+        if(!valid(data,root,oneShot,hash,false) || !validGain(gain) || !playback.valid(oneShot)
+            || (playback.edited() && (!data || (data->status.load(std::memory_order_acquire)==ProceduralSample::Ready
+                && !data->zones.empty()))))return false;
         for(const auto& attack:attacks)if(!valid(attack.data,attack.root,attack.oneShot,attack.hash,true)
             || !validGain(attack.gain) || (attack.data && (!data || oneShot)))return false;
         const auto settings=[](const auto& data,int root,bool oneShot,std::string_view hash) {
             SampleSettings value;value.data=data.get();value.root=root;value.oneShot=oneShot;
             if(data)std::copy(hash.begin(),hash.end(),value.hash.begin());return value;
         };
-        auto next=settings(data,root,oneShot,hash);next.gain=gain;std::array<SampleSettings,3> nextAttacks{};
+        auto next=settings(data,root,oneShot,hash);next.gain=gain;next.playback=playback;std::array<SampleSettings,3> nextAttacks{};
         for(unsigned n=0;n<3;++n){nextAttacks[n]=settings(attacks[n].data,attacks[n].root,attacks[n].oneShot,attacks[n].hash);nextAttacks[n].gain=attacks[n].gain;}
         std::lock_guard lock(mMutex);
         // All data a current voice could read stays pinned until a later control
@@ -267,7 +269,8 @@ namespace MWSound
     {
         const auto& settings=sampleSettings(variant);const auto* data=settings.data;
         return data && data->status.load(std::memory_order_acquire)==ProceduralSample::Ready
-            && data->pcm.size()>1 && data->hash==std::string_view(settings.hash.data(),32);
+            && data->pcm.size()>1 && data->hash==std::string_view(settings.hash.data(),32)
+            && (!settings.playback.edited() || (data->zones.empty() && settings.playback.fits(data->pcm.size())));
     }
     void ProceduralSynth::syncSample()
     {
@@ -823,7 +826,8 @@ namespace MWSound
                     if (!sampleAvailable) { v = Voice{}; continue; }
                     const auto& pcm = v.sampleData->pcm;
                     const auto at = static_cast<std::size_t>(v.samplePosition);
-                    if (at + 1 >= v.sampleLength) { v = Voice{}; continue; }
+                    const auto& playback=mSampleCurrent.playback;
+                    if (!playback.loop() && at + 1 >= v.sampleLength) { v = Voice{}; continue; }
                     const double fraction = v.samplePosition - at;
                     const double step = std::exp2((v.note - v.sampleRoot + mCurrent[2]
                         + mCurrent[3] / 100 + pitchLfo + pitchEnvelope) / 12);
@@ -832,7 +836,9 @@ namespace MWSound
                     const double fade = std::min({1.0, v.samplePosition / 96,
                         (v.sampleLength - 1 - v.samplePosition) / std::max(96.0, 96 * step)});
                     const auto first=v.sampleStart+at;
-                    sample = (pcm[first] + (pcm[first + 1] - pcm[first]) * fraction) * fade * v.sampleGain;
+                    if(playback.edited())
+                        sample=playback.read(pcm,v.sampleStart,v.sampleLength,v.samplePosition,step,v.sampleWrapped)*v.sampleGain;
+                    else sample = (pcm[first] + (pcm[first + 1] - pcm[first]) * fraction) * fade * v.sampleGain;
                     if(v.sampleFade)
                     {
                         const auto previous=static_cast<unsigned>(v.samplePreviousPosition);

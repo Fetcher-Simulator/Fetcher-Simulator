@@ -825,13 +825,34 @@ function S:drums(content)
     content[#content+1]=label('Arrange pattern captures all piano/drum lanes together. Song length is independent of pattern bars.',20,657,880,12,c.muted)
     content[#content+1]=label('Clear bar clears drums only. Delete bar removes time across piano/drum pattern lanes; Undo restores it.',20,680,880,11,c.muted)
 end
+function S:refreshSampleWave()
+    if not self.sampleWaveform or not self.samples then return end
+    local browser=self.samples;local wave=browser:wave();if not wave then return end
+    local key=wave.hash..'|'..tostring(browser.reverse)..'|'..(browser.loop and table.concat({browser.loop.start,browser.loop.finish,browser.loop.crossfade},',') or '')
+    if self.sampleWaveKey==key then return end
+    self.sampleWaveKey=key;local data={rect(0,0,870,64,c.panel)}
+    local points=browser.loop
+    if points then
+        local first,last=870*points.start/wave.duration,870*points.finish/wave.duration
+        data[#data+1]=rect(first,0,last-first,64,c.track)
+        if points.crossfade>0 then data[#data+1]=rect(last-870*points.crossfade/wave.duration,0,870*points.crossfade/wave.duration,64,c.bg) end
+    end
+    data[#data+1]=rect(0,32,870,1,c.muted)
+    for n=1,#wave.minimum do
+        local index=browser.reverse and #wave.minimum+1-n or n
+        local low,high=wave.minimum[index],wave.maximum[index]
+        data[#data+1]=rect((n-1)*870/#wave.minimum,32-high*30,math.max(1,870/#wave.minimum),math.max(1,(high-low)*30),c.accent)
+    end
+    if points then for _,point in ipairs{points.start,points.finish} do data[#data+1]=rect(math.min(868,870*point/wave.duration),0,2,64,c.note) end end
+    self.sampleWaveform.layout.content=ui.content(data);self.window:update(self.sampleWaveform)
+end
 function S:samplePage(content)
     local w=self.w
     if not w.cb.samples then content[#content+1]=label('Sample browser unavailable',20,180,870);return end
     if not self.samples then
         self.samples=w.cb.samples();self.samples:start()
         local t=w.project.tracks[w.selected];local ref=t and t.params.sample
-        if ref and not schema.isBank(ref) then for k,value in pairs(ref) do self.samples[k]=value end end
+        if ref and not schema.isBank(ref) then self.samples:loadReference(ref) end
     end
     local browser=self.samples;local t=w.project.tracks[w.selected]
     local function refresh() w.revision=w.revision+1 end
@@ -852,51 +873,66 @@ function S:samplePage(content)
     transcript.props.size=v(880,32);transcript.props.multiline=true;transcript.props.wordWrap=true
     content[#content+1]=transcript
     self.sampleStatus=self:element(label('',20,310,880,11,c.accent));content[#content+1]=self.sampleStatus
-    content[#content+1]=label('Start (seconds)',20,333,180,13,c.muted)
-    content[#content+1]=label('End (seconds)',240,333,180,13,c.muted)
+    self.sampleWaveform=self:element{type=ui.TYPE.Widget,props={position=v(20,334),size=v(870,64)},content=ui.content{rect(0,0,870,64,c.panel)}}
+    content[#content+1]=self.sampleWaveform;self.sampleWaveKey=nil;self:refreshSampleWave()
+    content[#content+1]=label('Start (seconds)',20,405,180,12,c.muted)
+    content[#content+1]=label('End (seconds)',240,405,180,12,c.muted)
     local startText,endText=tostring(browser.offset),tostring(browser.offset+browser.duration)
-    local function field(x,value,change)
+    local function field(x,y,value,change)
         return self:element{type=ui.TYPE.TextEdit,template={content=ui.content{{type=ui.TYPE.Image,props={relativeSize=v(1,1),resource=white,color=c.track}}}},
-            props={position=v(x,365),size=v(180,28),text=value,textSize=15,textColor=c.text},events={
+            props={position=v(x,y),size=v(180,28),text=value,textSize=14,textColor=c.text},events={
             textChanged=cb(change),focusGain=cb(function() self.typing=true end),focusLoss=cb(function() self.typing=false end)}}
     end
-    content[#content+1]=field(20,startText,function(text) startText=text:sub(1,20) end)
-    content[#content+1]=field(240,endText,function(text) endText=text:sub(1,20) end)
-    content[#content+1]=self:button('Apply trim',460,363,150,function()
+    content[#content+1]=field(20,427,startText,function(text) startText=text:sub(1,20) end)
+    content[#content+1]=field(240,427,endText,function(text) endText=text:sub(1,20) end)
+    content[#content+1]=self:button('Apply trim',460,427,150,function()
         local first,last=tonumber(startText),tonumber(endText)
-        if not first or not last or first~=first or last~=last or first<0 or first>600 or last-first<0.01 or last-first>30 then
+        if not browser:trim(first,last) then
             w.cb.message('Start must be 0-600 seconds; the excerpt must be 0.01-30 seconds long.');return
         end
-        browser:stop();browser.offset=math.floor(first*1000+0.5)/1000;browser.duration=math.floor((last-first)*1000+0.5)/1000;refresh()
+        refresh()
     end)
-    content[#content+1]=label('Up to 30 seconds per excerpt; start within the first 10 minutes.',20,408,870,12,c.muted)
-    content[#content+1]=self:button('Root: '..pitch(browser.root)..' v',20,451,200,function()
+    content[#content+1]=self:button('Edit part sample',630,427,260,function()
+        if t and schema.isBank(t.params.sample) then w.cb.message('This instrument selects recordings per note and velocity. Use Sound for its envelope and amplifier.')
+        elseif t and t.params.sample then browser:loadReference(t.params.sample);refresh() end
+    end)
+    content[#content+1]=self:button('Root: '..pitch(browser.root)..' v',20,471,180,function()
         local entries={};for n=0,127 do entries[#entries+1]={id=n,label=pitch(n)..' / MIDI '..n} end
         Dropdown.open(self,entries,browser.root,function(n) browser:stop();browser.root=n;refresh() end,20,280,390)
     end)
-    content[#content+1]=self:button(browser.oneShot and 'One-shot' or 'Gated',240,451,180,function() browser:stop();browser.oneShot=not browser.oneShot;refresh() end,browser.oneShot)
-    content[#content+1]=self:button('Audition',460,451,150,function()
+    content[#content+1]=self:button(browser.oneShot and 'One-shot' or 'Gated',210,471,150,function()
+        browser:stop();browser.oneShot=not browser.oneShot;if browser.oneShot then browser.loop=nil end;refresh()
+    end,browser.oneShot)
+    content[#content+1]=self:button(browser.reverse and 'Reverse: On' or 'Reverse: Off',370,471,180,function() browser:stop();browser.reverse=not browser.reverse;refresh() end,browser.reverse)
+    content[#content+1]=self:button(browser.loop and 'Loop: On' or 'Loop: Off',565,471,160,function()
+        if browser:toggleLoop() then refresh() else w.cb.message('Wait until Ready; looping needs at least 0.02 seconds of audio.') end
+    end,browser.loop~=nil)
+    content[#content+1]=self:button('Use synth keys',740,471,150,function() w:preset(w.selected,'b:studio-keys') end)
+    local points=browser.loop or {start=0,finish=0,crossfade=.02}
+    local inText,outText,fadeText=tostring(points.start),tostring(points.finish),tostring(points.crossfade*1000)
+    for _,item in ipairs{{20,'Loop in (excerpt s)'},{240,'Loop out (excerpt s)'},{460,'Crossfade (ms)'}} do content[#content+1]=label(item[2],item[1],513,190,12,c.muted) end
+    content[#content+1]=field(20,535,inText,function(text) inText=text:sub(1,20) end)
+    content[#content+1]=field(240,535,outText,function(text) outText=text:sub(1,20) end)
+    content[#content+1]=field(460,535,fadeText,function(text) fadeText=text:sub(1,20) end)
+    content[#content+1]=self:button('Apply loop',670,535,220,function()
+        local fade=tonumber(fadeText)
+        if browser:setLoop(tonumber(inText),tonumber(outText),fade and fade/1000) then refresh()
+        else w.cb.message('Loop must fit the decoded excerpt and last at least 0.01s. Crossfade: 0-250ms, at most half the loop.') end
+    end)
+    content[#content+1]=self:button('Audition',20,583,130,function()
         if not browser:audition() then w.cb.message('Wait until the preview is Ready, or choose another trim.');end
     end)
-    content[#content+1]=self:button('Stop preview',630,451,180,function() browser:stop() end)
-    content[#content+1]=label('Root plays at original speed. Gated follows MIDI note length; one-shot plays to the end.',20,499,870,12,c.muted)
-    if t and t.kind=='drum' then
-        content[#content+1]=label('Lane trigger: '..pitch(t.note)..' / MIDI '..t.note..'  |  New samples match the root automatically.',20,521,670,11,c.accent)
-        content[#content+1]=self:button('Match root',710,510,180,function() w:setTrack(w.selected,'note',browser.root) end)
-    end
-    content[#content+1]=self:button('Use sample on part',20,543,250,function()
+    content[#content+1]=self:button('Release preview',165,583,150,function() browser:release() end)
+    content[#content+1]=self:button('Stop preview',330,583,130,function() browser:stop() end)
+    content[#content+1]=self:button('Use sample on part',475,583,200,function()
         local ref=browser:reference();if ref then browser:stop();w:setSample(w.selected,ref)
         else w.cb.message('Choose a sound and wait until Ready before assigning it.');end
     end)
-    content[#content+1]=self:button('Sound / save preset',290,543,220,function() if t then self.cb.sound(w.selected) end end)
-    content[#content+1]=self:button('Use synth keys',530,543,160,function() w:preset(w.selected,'b:studio-keys') end)
-    content[#content+1]=self:button('Edit part sample',710,543,180,function()
-        if t and schema.isBank(t.params.sample) then w.cb.message('This instrument selects recordings per note and velocity. Use Sound to adjust its envelope and amplifier.')
-        elseif t and t.params.sample then browser:stop();for k,value in pairs(t.params.sample) do browser[k]=value end;refresh() end
-    end)
-    content[#content+1]=label(t and t.params.sample and ('Assigned: '..t.params.sample.path):sub(1,125) or 'Assigned: synthesized sound',20,595,880,12,c.accent)
-    content[#content+1]=label('Piano, recorded notes, imported MIDI and linked clips all play the assigned sound through its band output.',20,627,880,12,c.muted)
-    content[#content+1]=label('Save stores the reference and file identity. Each listener needs the same installed file.',20,657,880,12,c.muted)
+    content[#content+1]=self:button('Sound / save preset',690,583,200,function() if t then self.cb.sound(w.selected) end end)
+    content[#content+1]=label('Loop points follow the waveform, starting at 0 inside the trim; Reverse flips this playback view.',20,625,880,11,c.muted)
+    content[#content+1]=label(t and t.params.sample and ('Assigned: '..t.params.sample.path):sub(1,t.kind=='drum' and 90 or 125) or 'Assigned: synthesized sound',20,647,t and t.kind=='drum' and 700 or 880,12,c.accent)
+    if t and t.kind=='drum' then content[#content+1]=self:button('Match root',740,644,150,function() w:setTrack(w.selected,'note',browser.root) end) end
+    content[#content+1]=label('Gated loops sustain through release. Use Sound for the envelope. Assign, then Save to keep edits.',20,674,880,11,c.muted)
 end
 function S:renameTrack(index)
     local t=self.w.project.tracks[index];if not t then return end
@@ -982,7 +1018,7 @@ function S:render()
     if self.pianoFocus and self.w.page~='piano' then self.pianoFocus=false;self.window.expanded=false;self.window.restoreExpanded=nil end
     self.window:bounds();self.width,self.height=self.window.canvasWidth,self.window.canvasHeight
     if self.samples and self.w.page~='samples' then self.samples:stop() end
-    self.sampleStatus=nil
+    self.sampleStatus=nil;self.sampleWaveform=nil;self.sampleWaveKey=nil
     if self.lastPage=='recordsetup' and self.w.page~='recordsetup' and self.w.recorder and self.w.recorder.calibrating then self.w.recorder:stopClock() end
     if self.lastPage=='record' and self.w.page~='record' then self:releaseRecordKeys() end;self.lastPage=self.w.page
     self.recordText=nil;self.recordKeyboard=nil
@@ -1190,6 +1226,7 @@ function S:frame(now)
             ..(info.duration and string.format(' / %.3fs',info.duration) or '')..'  |  Part: '..assigned.status
             ..((info.error and info.error~='') and (' / '..info.error) or '')
         self.window:update(self.sampleStatus)
+        self:refreshSampleWave()
     end
     if self.recordText then self.recordText.layout.props.text=self.w:recordStatus();self.window:update(self.recordText) end
     for note,key in pairs(self.recordKeyboard or {}) do key.element.layout.props.color=self.recordHeld and self.recordHeld[note] and c.accent or key.color;self.window:update(key.element) end

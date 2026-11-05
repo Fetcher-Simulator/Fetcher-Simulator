@@ -18,9 +18,9 @@ for _,changes in ipairs{{path='sound/../secret.wav'},{path='C:/test.wav'},{path=
     check(not schema.state{sample=invalid},'invalid sample rejected')
 end
 local state='Loading';local previews=0;local stopped=0
-local synth={sampleInfo=function() return {status=state,hash=string.rep('a',32),duration=2} end,
+local synth={version=38,sampleInfo=function() return {status=state,hash=string.rep('a',32),duration=2} end,
     create=function() previews=previews+1;return {set=function() end,sample=function() end,noteOn=function() end,
-        keepAlive=function() end,close=function() stopped=stopped+1 end} end}
+        keepAlive=function() end,noteOff=function() end,close=function() stopped=stopped+1 end} end}
 local paths={'sound/vo/d/m/hlo_dm001.mp3','sound/fx/test.wav','music/test.ogg'}
 local browser=Samples.new(synth,{pathsWithPrefix=function(prefix)
     local n=0;return function() repeat n=n+1 until not paths[n] or paths[n]:sub(1,#prefix)==prefix;return paths[n] end
@@ -44,6 +44,29 @@ check(w.project.tracks[1].notes==notes and w.project.tracks[1].output==output,'a
 local project=dofile(root..'shared/project.lua')(schema)
 check(project.project(w.project).tracks[1].params.sample.hash==ref.hash,'project round trip preserves identity/trim')
 check(w:undo() and not w.project.tracks[1].params.sample and w:redo() and w.project.tracks[1].params.sample,'sample undo/redo')
+local edited={path=ref.path,offset=ref.offset,duration=2,root=60,oneShot=false,hash=ref.hash,reverse=true,loop={start=.2,finish=1.8,crossfade=.02}}
+check(w:setSample(1,edited) and project.project(w.project).tracks[1].params.sample.loop.finish==1.8,'reverse/loop edit survives complete project validation')
+check(w:undo() and not w.project.tracks[1].params.sample.reverse and w:redo() and w.project.tracks[1].params.sample.reverse,'reverse/loop edits support Undo/Redo together')
+check(schema.sampleKey(edited)~=schema.sampleKey(ref),'playback edits reconfigure the sound without changing its file hash')
+for _,loop in ipairs{{start=.2,finish=.205,crossfade=0},{start=.2,finish=3,crossfade=0},{start=.2,finish=1,crossfade=.5},
+    {start=0/0,finish=1,crossfade=0},{start=.2,finish=1,crossfade=.02,extra=1}} do
+ local bad={};for k,v in pairs(edited) do bad[k]=v end;bad.loop=loop;check(not schema.sample(bad),'malformed loop rejected before save or relay')
+end
+local bad={};for k,v in pairs(edited) do bad[k]=v end;bad.oneShot=true;check(not schema.sample(bad),'one-shot cannot carry an endless sustain loop')
+bad.oneShot=false;bad.reverse=1;check(not schema.sample(bad),'direction is boolean only')
+check(browser:loadReference(edited) and browser.loop.crossfade==.02 and browser.reverse,'editing a part loads its complete playback view')
+check(browser:audition() and browser:release(),'loop preview can be explicitly released')
+check(browser:trim(.1,1.5) and not browser.loop and browser.reverse,'changing trim clears stale loop bounds while keeping reverse')
+browser:select(ref.path);check(not browser.loop and not browser.reverse and not browser.gain,'choosing a new source clears previous playback edits')
+check(browser:toggleLoop() and not browser.oneShot and browser.loop.finish==2,'loop default uses actual decoded length rather than requested 30-second cap')
+check(not browser:setLoop(0,3,.02),'loop editing cannot extend beyond the decoded file')
+check(browser:toggleLoop() and not browser.loop,'loop can be disabled without changing the source')
+local old={version=37,sampleInfo=synth.sampleInfo};check(Samples.status(old,edited).status=='Unavailable','older client reports unsupported playback edits')
+local short={version=38,sampleInfo=function() return {status='Ready',hash=ref.hash,duration=.5} end}
+check(Samples.status(short,edited).status=='Unavailable','matching file identity still validates decoded loop bounds')
+local waveCalls=0;synth.sampleWaveform=function() waveCalls=waveCalls+1;return {hash=ref.hash,duration=2,minimum={-.1},maximum={.2}} end
+check(browser:wave() and browser:wave() and waveCalls==1,'waveform is cached across frames instead of recreating native peak tables')
+browser:trim(.2,1.2);check(browser:wave() and waveCalls==2,'changing the trim invalidates waveform cache')
 state='Loading';check(not w:prepareSamples(),'owner waits for pending loading before transport')
 state='Unavailable';check(w:prepareSamples(),'missing sample does not block unrelated parts')
 check(not w:setSample(1,mismatch),'mismatch cannot replace current sound')

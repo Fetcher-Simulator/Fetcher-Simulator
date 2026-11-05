@@ -1596,4 +1596,37 @@ do
  end
  testGuitarNavigation()
 end
+do
+ local function testSampleEditingUI()
+  local Samples=package.loaded[prefix..'client.samples'];local Studio=dofile(root..'client/studio.lua')
+  local F=package.loaded[prefix..'shared.project'](schema);local waveReady=false;local hash=string.rep('a',32)
+  local native={version=38,sampleInfo=function() return {status='Ready',duration=2,hash=hash} end,
+   sampleWaveform=function() return waveReady and {hash=hash,duration=2,minimum={-.1,-.2,-.3,-.4},maximum={.1,.2,.3,.4}} or {} end}
+  local browser=Samples.new(native,package.loaded['openmw.vfs'],source)
+  local w=package.loaded[prefix..'client.workstation'].new{configure=function() end,panic=function() end,message=function() end,
+   sampleStatus=function(ref) return Samples.status(native,ref) end,samples=function() return browser end,meter=function() return 0 end}
+  w.project.tracks[1]=F.newTrack('piano','Sample',16);w.project.tracks[1].notes={{n=60,s=0,l=8,v=.8}}
+  w.project.tracks[1].params.sample={path='sound/fx/test.wav',offset=0,duration=2,root=60,oneShot=true,hash=hash}
+  w.page='samples';local view=Studio.new(w,{midiLabel=function() return 'Sample UI' end})
+  local function find(text)
+   for _,item in ipairs(view.root.layout.content) do if item.content and item.content[1] and item.content[1].props and item.content[1].props.text==text then return item end end
+   error('Missing sample button '..text)
+  end
+  local rootWidget=view.root;local waveform=view.sampleWaveform
+  local Dropdown=package.loaded[prefix..'client.dropdown'];local popup=Dropdown.open(view,{{id=1,label='Keep this menu'}},1,function() end,20,245,400)
+  waveReady=true;view:frame(now+.2)
+  check(view.root==rootWidget and view.sampleWaveform==waveform and view.dropdown==popup,'waveform publication updates only its child widget without dismissing a menu')
+  Dropdown.close(view);find('Reverse: Off').events.mouseClick();view:render()
+  find('Loop: Off').events.mouseClick();view:render()
+  check(browser.reverse and browser.loop and not browser.oneShot,'Samples controls enable reverse and a bounded gated loop')
+  local notes=w.project.tracks[1].notes;find('Use sample on part').events.mouseClick()
+  check(w.project.tracks[1].params.sample.reverse and w.project.tracks[1].params.sample.loop.finish==2 and w.project.tracks[1].notes==notes,'assigning loop edits preserves the existing musical notes')
+  find('Gated').events.mouseClick();view:render()
+  check(browser.oneShot and not browser.loop,'switching to one-shot clears the incompatible loop')
+  find('Edit part sample').events.mouseClick();view:render()
+  check(browser.loop and browser.reverse and not browser.oneShot,'Edit part sample restores its saved playback view without stale state')
+  view:destroy()
+ end
+ testSampleEditingUI()
+end
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

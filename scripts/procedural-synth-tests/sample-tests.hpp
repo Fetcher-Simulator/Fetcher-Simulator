@@ -59,5 +59,42 @@ void sampleTests()
     const auto whole = studioRender(*a, 24000, 480), split = studioRender(*b, 24000, 137);
     check(whole == split && energy(whole) > .001, "sample score timing independent of decoder block size");
     a->stop(); studioRender(*a, 4800); check(!a->voices(), "Studio Stop releases sample one-shots");
+    using Playback=MWSound::ProceduralSamplePlayback;
+    Playback loop;loop.loopStart=.1;loop.loopEnd=.3;loop.crossfade=.02;
+    auto sustained=std::make_unique<Synth>();setup(*sustained,false,hash);
+    check(sustained->sample(data,60,false,hash,{},1,loop),"bounded raw loop settings accepted");
+    sustained->noteOn(72,.8f);render(*sustained,144000);
+    check(sustained->voices()==1 && energy(render(*sustained,4800))>.001,"short excerpt sustains for seconds at transposed pitch");
+    sustained->noteOff(72);render(*sustained,9600);check(!sustained->voices(),"loop continues smoothly through the envelope then retires on note-off");
+    sustained->noteOn(127,.8f);render(*sustained,48000);check(sustained->voices()==1,"large cursor increments remain inside the loop");
+    sustained->allNotesOff();render(*sustained,4800);check(!sustained->voices(),"Stop clears a looping voice");
+    Playback reverse;reverse.reverse=true;
+    std::vector<float> ramp(4800);for(unsigned n=0;n<ramp.size();++n)ramp[n]=float(n)/ramp.size();
+    double pos=600.25;bool wrapped=false;
+    check(std::abs(reverse.read(ramp,0,unsigned(ramp.size()),pos,1,wrapped)-(ramp.size()-1-pos)/ramp.size())<1e-6,"reverse interpolation reads the source backwards at fractional positions");
+    Playback seam;seam.loopStart=0;seam.loopEnd=.08;seam.crossfade=.01;
+    pos=.08*48000-1;double before=seam.read(ramp,0,unsigned(ramp.size()),pos,1,wrapped);++pos;
+    double after=seam.read(ramp,0,unsigned(ramp.size()),pos,1,wrapped);
+    check(wrapped && std::abs(after-before)<.003,"linear crossfade joins mismatched loop endpoints without a hard step");
+    for(unsigned n=0;n<10000;++n){pos+=23456.7;check(std::isfinite(seam.read(ramp,0,unsigned(ramp.size()),pos,23456.7,wrapped)) && pos<3840,"many wraps per frame stay finite and bounded");}
+    Playback invalid=loop;invalid.loopEnd=2;
+    check(sustained->sample(data,60,false,hash,{},1,invalid),"bounded metadata binds independently of per-listener decoded length");
+    sustained->noteOn(60,1);check(energy(render(*sustained,4800))==0 && !sustained->voices(),"loop past decoded audio is silent without interrupting unrelated parts");
+    invalid=loop;invalid.crossfade=.2;check(!invalid.valid(),"crossfade cannot consume more than half the loop");
+    check(!sustained->sample(data,60,true,hash,{},1,loop),"one-shot cannot create a nonterminating loop");
+    auto pending=std::make_shared<Sample>();pending->hash=hash;
+    check(sustained->sample(pending,60,false,hash,{},1,loop),"loading loop source may bind before publication");
+    pending->pcm.resize(20);pending->status.store(Sample::Ready,std::memory_order_release);
+    sustained->noteOn(60,1);check(energy(render(*sustained,4800))==0 && !sustained->voices(),"late shorter decode never reads invalid loop points or falls back to oscillators");
+    data->buildWaveform();check(data->waveformReady && data->waveMin.size()==256,"loader waveform has a fixed bounded size");
+    for(unsigned n=0;n<256;++n)check(data->waveMin[n]<=data->waveMax[n] && data->waveMin[n]>=-1 && data->waveMax[n]<=1,"waveform bins retain bounded amplitude extrema");
+    for(auto* studio:{a.get(),b.get()})
+    {
+        studio->stop();check(studio->sample(1,data,60,false,hash,{},1,loop),"native sequencer accepts looped sample reference");
+        check(studio->loadScore(scoreNote(0,90000,1,60),96000,false) && studio->start(0,0),"long sample gate score accepted");
+    }
+    check(studioRender(*a,60000,480)==studioRender(*b,60000,137),"loop seams remain identical across callback chunk sizes");
+    a->stop();studioRender(*a,480);check(!a->voices(),"sequencer Stop clears loop gate on the audio callback");
     std::cout << "PASS sample loading, identity, pitch, chords, one-shot/gated release, stop, end and control-thread reclamation\n";
+    std::cout << "PASS reverse interpolation, bounded sustain loops/crossfades, transposition, late decode rejection, waveform and native scheduling\n";
 }

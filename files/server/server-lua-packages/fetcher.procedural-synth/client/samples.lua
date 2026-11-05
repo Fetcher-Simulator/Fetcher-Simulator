@@ -17,9 +17,15 @@ function M.category(path)
 end
 function M.status(synth,reference)
     if not reference then return {status='Synth'} end
+    if (reference.reverse or reference.loop) and (synth.version or 0)<38 then
+        return {status='Unavailable',error='Sample editing requires the updated Studio client (API 38).'}
+    end
     local info=synth.sampleInfo(reference.path,reference.offset,reference.duration)
     if info.status=='Ready' and reference.hash and info.hash~=reference.hash then
         return {status='Mismatch',error='Installed file differs from the saved sample'}
+    end
+    if info.status=='Ready' and reference.loop and reference.loop.finish>info.duration+1e-6 then
+        return {status='Unavailable',error='Loop extends past the decoded excerpt. Shorten its end point.'}
     end
     local pending=info
     for _,attack in ipairs(schema.attackOrder) do if reference.attacks and reference.attacks[attack] then
@@ -69,10 +75,50 @@ function M:scanStatus()
 end
 function M:select(path)
     self:stop();self.path=path;self.offset=0;self.duration=30;self.root=60;self.oneShot=true
+    self.loop=nil;self.reverse=nil;self.gain=nil;self.waveform=nil;self.waveKey=nil;self.expectedHash=nil
+end
+function M:loadReference(ref)
+    ref=schema.sample(ref);if not ref or schema.isBank(ref) then return false end
+    self:select(ref.path)
+    for k,value in pairs(ref) do self[k]=value end
+    self.expectedHash=ref.hash;return true
+end
+function M:trim(first,last)
+    if type(first)~='number' or type(last)~='number' or first~=first or last~=last or first<0 or first>600 or last-first<.01 or last-first>30 then return false end
+    self:stop();self.offset=math.floor(first*1000+.5)/1000;self.duration=math.floor((last-first)*1000+.5)/1000
+    self.loop=nil;self.waveform=nil;self.waveKey=nil;return true
+end
+function M:setLoop(first,last,fade)
+    local info=self:info();if info.status~='Ready' then return false end
+    local reference={path=self.path,offset=self.offset,duration=self.duration,root=self.root,oneShot=false,hash=info.hash,
+        reverse=self.reverse,loop={start=first,finish=last,crossfade=fade}}
+    local ref=schema.sample(reference)
+    if not ref or ref.loop.finish>info.duration+1e-6 then return false end
+    self:stop();self.oneShot=false;self.loop=ref.loop;return true
+end
+function M:toggleLoop()
+    if self.loop then self:stop();self.loop=nil;return true end
+    local info=self:info();if info.status~='Ready' then return false end
+    local length=math.floor(info.duration*1000)/1000
+    if length<.02 then return false end
+    return self:setLoop(0,length,math.min(.02,math.floor(length*250)/1000))
+end
+function M:wave()
+    if not self.path or not self.synth.sampleWaveform then return nil end
+    local key=table.concat({self.path,self.offset,self.duration},'|')
+    if key~=self.waveKey then
+        local result=self.synth.sampleWaveform(self.path,self.offset,self.duration)
+        if result.minimum then self.waveform=result;self.waveKey=key end
+    end
+    return self.waveform
 end
 function M:info()
     if not self.path then return {status='Choose a sound'} end
-    return self.synth.sampleInfo(self.path,self.offset,self.duration)
+    local info=self.synth.sampleInfo(self.path,self.offset,self.duration)
+    if info.status=='Ready' and self.expectedHash and info.hash~=self.expectedHash then
+        return {status='Mismatch',error='Installed file differs from the saved sample'}
+    end
+    return info
 end
 function M:description()
     if not self.path then return '' end
@@ -81,7 +127,9 @@ function M:description()
 end
 function M:reference()
     local info=self:info();if info.status~='Ready' then return nil end
-    return schema.sample{path=self.path,offset=self.offset,duration=self.duration,root=self.root,oneShot=self.oneShot,hash=info.hash}
+    local ref=schema.sample{path=self.path,offset=self.offset,duration=self.duration,root=self.root,oneShot=self.oneShot,hash=info.hash,
+        gain=self.gain,reverse=self.reverse,loop=self.loop}
+    if ref and M.status(self.synth,ref).status=='Ready' then return ref end
 end
 function M:audition()
     self:stop();local ref=self:reference();if not ref then return false end
@@ -90,5 +138,6 @@ function M:audition()
     self.preview:set('cutoff',18000);self.preview:set('resonance',0)
     self.preview:sample(ref);self.preview:noteOn(ref.root,0.85);return true
 end
+function M:release() if self.preview then self.preview:noteOff(self.root);return true end;return false end
 function M:stop() if self.preview then self.preview:close();self.preview=nil end end
 return M

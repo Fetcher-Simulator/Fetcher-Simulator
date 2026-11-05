@@ -24,6 +24,7 @@ namespace MWLua
             bool oneShot = false;
             std::string hash;
             float gain = 1;
+            MWSound::ProceduralSamplePlayback playback;
             MWSound::ProceduralSynth::AttackSamples attacks{};
         };
         SampleSettings readSample(const sol::object& value)
@@ -44,6 +45,26 @@ namespace MWLua
                 throw std::invalid_argument("Instrument banks use fixed zone roots and gated playback");
             result.gain=table["gain"].get_or(1.f);
             if(!std::isfinite(result.gain) || result.gain<.25f || result.gain>8)throw std::invalid_argument("Invalid sample input gain");
+            const sol::object reverse=table["reverse"],loop=table["loop"];
+            if(reverse.valid() && reverse!=sol::nil)
+            {
+                if(!reverse.is<bool>())throw std::invalid_argument("Invalid sample direction");
+                result.playback.reverse=reverse.as<bool>();
+            }
+            if(loop.valid() && loop!=sol::nil)
+            {
+                const auto points=loop.as<sol::table>();
+                for(const auto& entry:points)
+                    if(!entry.first.is<std::string>() || (entry.first.as<std::string>()!="start"
+                        && entry.first.as<std::string>()!="finish" && entry.first.as<std::string>()!="crossfade"))
+                        throw std::invalid_argument("Invalid sample loop field");
+                result.playback.loopStart=points["start"].get<double>();
+                result.playback.loopEnd=points["finish"].get<double>();
+                result.playback.crossfade=points["crossfade"].get<double>();
+                if(!result.playback.loop())throw std::invalid_argument("Invalid sample loop range");
+            }
+            if(!result.playback.valid(result.oneShot) || result.playback.loopEnd>duration
+                || (path.ends_with(".fsb") && result.playback.edited()))throw std::invalid_argument("Invalid sample playback settings");
             result.root = static_cast<int>(root);
             const sol::object attacks=table["attacks"];
             if(attacks.valid() && attacks!=sol::nil)
@@ -97,10 +118,10 @@ namespace MWLua
                 "voices", sol::property(&Synth::voices), "sample",
                 [](Synth& synth, const sol::object& value) {
                     auto s = readSample(value);
-                    return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash, s.attacks, s.gain);
+                    return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash, s.attacks, s.gain, s.playback);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 37;
+            api["version"] = 38;
             api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
                 const auto path = manager->exportStudioMidi(name, bytes);
                 sol::table result(lua, sol::create);
@@ -130,6 +151,16 @@ namespace MWLua
                 return LuaUtil::makeReadOnly(info);
             };
             lua.new_usertype<MWSound::ProceduralMaster>("ProceduralMaster",sol::no_constructor);
+            api["sampleWaveform"]=[lua](std::string path,double offset,double duration) {
+                const auto data=MWBase::Environment::get().getSoundManager()->requestSample(std::move(path),offset,duration);
+                sol::table out(lua,sol::create);
+                if(data->status.load(std::memory_order_acquire)==MWSound::ProceduralSample::Ready && data->waveformReady)
+                {
+                    out["hash"]=data->hash;out["duration"]=data->pcm.size()/48000.0;
+                    out["minimum"]=sol::as_table(data->waveMin);out["maximum"]=sol::as_table(data->waveMax);
+                }
+                return LuaUtil::makeReadOnly(out);
+            };
             api["createMasterBus"]=[]{return std::make_shared<MWSound::ProceduralMaster>();};
             using Studio = MWSound::ProceduralStudio;
             lua.new_usertype<Studio>(
@@ -201,7 +232,7 @@ namespace MWLua
                         state[i] = values[Synth::Parameters[i].name].get_or(Synth::Parameters[i].initial);
                     auto sample = readSample(values["sample"]);
                     return studio.configure(n, state, level, audible.value_or(true))
-                        && studio.sample(n, std::move(sample.data), sample.root, sample.oneShot, sample.hash, sample.attacks, sample.gain);
+                        && studio.sample(n, std::move(sample.data), sample.root, sample.oneShot, sample.hash, sample.attacks, sample.gain, sample.playback);
                 },
                 "start",
                 [](Studio& studio, double delay, double offset) {
