@@ -67,8 +67,9 @@ end
 function M.drums(snapshot,now,state)
     state=state or {seen={},hands={}};state.seen=state.seen or {};state.hands=state.hands or {}
     if snapshot and snapshot.playing==false and #snapshot==0 then
-        state.hands={};state.kick=nil;state.hat=nil;state.closed=nil
+        state.hands={};state.seen={};state.nextHand=nil;state.kick=nil;state.hat=nil;state.closed=nil
     end
+    local hits={}
     for _,n in ipairs(rows(snapshot)) do if n.age<=.25 then
         local key=n.track*128+n.note
         if state.seen[key]~=n.stamp then
@@ -76,27 +77,49 @@ function M.drums(snapshot,now,state)
             local hit={note=n.note,at=now-n.age,stamp=n.stamp}
             if n.note==35 or n.note==36 then state.kick=hit
             elseif n.note==44 then state.hat=hit;state.closed=true
-            elseif n.note==42 or n.note==46 then
-                state.closed=n.note==42;state.hands.L=hit
             else
-                local leftPiece=n.note==49 or n.note==55 or n.note==57
-                local rightPiece=n.note==41 or n.note==43 or n.note==51 or n.note==53 or n.note==59
-                local leftBusy=state.hands.L and hit.at-state.hands.L.at<.09
-                local rightBusy=state.hands.R and hit.at-state.hands.R.at<.09
-                local side=leftPiece and 'L' or rightPiece and 'R' or leftBusy and 'R' or rightBusy and 'L' or state.nextHand or 'R'
-                -- Keep outer cymbals on their reachable side. If two written
-                -- hits need one hand at once, the outer piece takes precedence;
-                -- move a simultaneous central hit to the other free stick.
-                local old=state.hands[side];local other=side=='L' and 'R' or 'L'
-                if old and math.abs(old.at-hit.at)<.002 and old.note>=37 and old.note<=40
-                    and (not state.hands[other] or hit.at-state.hands[other].at>.002) then state.hands[other]=old end
-                state.hands[side]=hit;state.nextHand=side=='L' and 'R' or 'L'
+                hit.hat=n.note==42 or n.note==46
+                if hit.hat then state.closed=n.note==42 end
+                hit.snare=n.note>=37 and n.note<=40
+                hit.side=hit.hat and 'R' or (n.note==49 or n.note==55 or n.note==57) and 'L'
+                    or (n.note==41 or n.note==43 or n.note==51 or n.note==53 or n.note==59) and 'R'
+                hit.priority=hit.hat and 3 or hit.side and 2 or hit.snare and 1 or 0
+                hits[#hits+1]=hit
             end
         end
     end end
+    -- Resolve each chord before the next one. Reserve the right stick for hats
+    -- and the reachable stick for outer cymbals, then fit snare/toms around them.
+    -- Track order must not turn a normal hat+snare backbeat into one stick hit.
+    local first=1
+    while first<=#hits do
+        local last=first
+        while last<#hits and math.abs(hits[last+1].at-hits[first].at)<.002 do last=last+1 end
+        local chord={};for i=first,last do chord[#chord+1]=hits[i] end
+        table.sort(chord,function(a,b) if a.priority~=b.priority then return a.priority>b.priority end;return a.note<b.note end)
+        for _,hit in ipairs(chord) do
+            local function busy(side,window)
+                local old=state.hands[side];return old and math.abs(hit.at-old.at)<window
+            end
+            local side=hit.side or (hit.snare and 'L' or state.nextHand or 'R')
+            local other=side=='L' and 'R' or 'L'
+            -- Fast snare rolls and tom fills can use either hand; ordinary
+            -- backbeats remain left-handed even when the right stick is idle.
+            if not hit.side and busy(side,.09) and not busy(other,.09) then side,other=other,side end
+            if busy(side,.002) then
+                local old=state.hands[side]
+                if not busy(other,.002) then
+                    if hit.priority>(old.priority or 0) then state.hands[other]=old
+                    else side=other end
+                else side=nil end -- More than two simultaneous notes remain audio-only.
+            end
+            if side then state.hands[side]=hit;state.nextHand=side=='L' and 'R' or 'L' end
+        end
+        first=last+1
+    end
     local out={hands={},feet={L=state.closed==nil and 0 or state.closed and .08 or -.10,R=0}}
     for _,side in ipairs{'L','R'} do local hit=state.hands[side]
-        out.hands[side]={note=hit and hit.note or (side=='L' and 42 or 38),pulse=hit and pulse(now-hit.at,.14) or 0}
+        out.hands[side]={note=hit and hit.note or (side=='L' and 38 or 42),pulse=hit and pulse(now-hit.at,.14) or 0}
     end
     out.feet.R=state.kick and .16*pulse(now-state.kick.at,.15) or 0
     if state.hat then out.feet.L=out.feet.L+.10*pulse(now-state.hat.at,.15) end

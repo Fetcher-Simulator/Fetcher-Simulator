@@ -84,8 +84,9 @@ function A:frame(instances,dt,now)
                                 if extra.hand and p.pose and p.pose.targets[extra.hand] then
                                     attachment=root:inverse()*T.move(p.pose.targets[extra.hand])*actor.rotation*T.move(extra.position or v(0,0,0))*(extra.rotation or T.identity)
                                     if profile.kind=='drumkit' and p.pose.stickRotations and p.pose.stickRotations[extra.hand] then
-                                        attachment=root:inverse()*T.move(p.pose.targets[extra.hand])*actor.rotation*T.move(extra.position or v(0,0,0))*p.pose.stickRotations[extra.hand]*(extra.rotation or T.identity)
+                                        attachment=root:inverse()*T.move(p.pose.targets[extra.hand])*actor.rotation*p.pose.stickRotations[extra.hand]*T.move(extra.position or v(0,0,0))*(extra.rotation or T.identity)
                                     end
+                                    if extra.grip then attachment=attachment*T.move(v(0,0,0)-extra.grip) end
                                 elseif extra.position then
                                     local travel=extra.bow and p.pose and p.pose.bowTravel or 0
                                     local offset=extra.position+extra.rotation*v(travel,0,0)

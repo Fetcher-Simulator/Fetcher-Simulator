@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 77 / native synth API 36 / multiplayer protocol 27.
+Current source: package 78 / native synth API 36 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,18 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models are available. More detailed articulation/animation
 and wider listening-based sound balancing remain in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Drummer hand and stick correction (package 78; Lua only)
+
+The normal right-handed groove uses the right stick for hi-hat and the left for
+snare. Fast rolls/fills can alternate; simultaneous outer cymbals reserve their
+reachable hand and leave the other stick for the snare. MIDI/audio stays intact
+when an overdub contains more than two simultaneous stick hits.
+
+The credited stick mesh is turned about a measured grip near its butt, with its
+rounded -Y tip aimed at the measured drum/cymbal contact. The kit's default wrist
+anchors and palm frames follow that grip. Timpani calibration is unchanged.
+This package needs a client reconnect; native API 36 remains sufficient.
 
 ## Member and song-master EQ/compression (package 77 / API 36)
 
@@ -44,7 +56,7 @@ personal patch, edited amp/articulation values and sample references. Explicit
 source changes remain separate actions.
 
 This source/build is local-only. Loading it needs the matching API-36 client and
-package-77 server Lua. No C++ server rebuild or public/VPS rollout is required.
+package-78 server Lua. No C++ server rebuild or public/VPS rollout is required.
 
 ## Captured heavy rig (package 76 / API 35; local only)
 

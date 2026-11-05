@@ -2,6 +2,17 @@
 
 Updated 2026-11-04. Completed work and subsequent planned slices are identified below.
 
+Package 78 corrects the kit's normal right-hand hi-hat/left-hand snare layout,
+retaining alternating fast rolls/fills and separate sticks for simultaneous
+cymbal/snare hits. Track order and split-poll arrival do not change those choices.
+The NIF's rounded -Y tip is turned about a measured grip near its butt; wrist
+anchors, impact/lift contact and palm orientation follow that frame. Timpani is
+unchanged. All 37 Lua suites pass, with two-client front/side/overhead local
+inspection during looping playback and late-listener pose checks. Original user
+profiles/database remain hash-identical. Lua-only, native API 36 unchanged; no
+VPS or public rollout. Further fingertip refinement, heavy tone/articulation and
+broader performance acceptance remain within priority one.
+
 Package 77 / native API 36 implements member EQ/compressor strips on summed
 physical outputs and a linked spatial song master. Band > Mix edits a member;
 Mixer > Master Mix controls the whole project. Source/mix/routing data stays

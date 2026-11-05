@@ -50,19 +50,28 @@ local kitContacts={
     [49]=v(-40,0,99),[55]=v(-40,0,99),[57]=v(-40,0,99),
     [51]=v(38,-10,89),[53]=v(38,-10,89),[59]=v(38,-10,89),
 }
-local stickTip=v(0,20,-5)
+-- The original NIF has its rounded tip at -Y and its butt at +Y.
+-- Grip near the butt, then turn the mesh about that grip, not the wrist origin.
+local stickGrip=v(0,16,-4)
+local stickTip=v(0,-3.6302214,.836)
+local function kitStick(profile,side)
+    for _,extra in ipairs(profile.extras) do if extra.hand==side then return extra end end
+end
 local function kitGrip(profile,side,pitch)
     local contact=profile.position+profile.rotation*(kitContacts[math.floor(pitch)] or kitContacts[38])
     local yaw=math.atan2(contact.x-(side=='L' and -10 or 10),math.max(8,contact.y))
     local rotation=T.rotateZ(yaw)
-    return contact-rotation*stickTip,rotation,contact
+    local extra=kitStick(profile,side)
+    local tip=(extra.position or v(0,0,0))+extra.rotation*(extra.tip-extra.grip)
+    return contact-rotation*tip,rotation,contact
 end
 M.kitGrip=kitGrip
+M.kitStick=kitStick
 M.drumkit={kind='drumkit',anchor='feet',seated=true,model=path..'drumkit.nif',position=v(24,38,0),rotation=T.scale(.75,.75,.75),
     targets={L=v(-57,25,90),R=v(-25,24,70)},musicStand=v(116,95,0),
-    extras={{key='synth_mallet_l',model=path..'mallet.nif',hand='L',rotation=T.identity},
-        {key='synth_mallet_r',model=path..'mallet.nif',hand='R',rotation=T.identity}}}
-M.drumkit.targets.L=kitGrip(M.drumkit,'L',42);M.drumkit.targets.R=kitGrip(M.drumkit,'R',38)
+    extras={{key='synth_mallet_l',model=path..'mallet.nif',hand='L',rotation=T.rotateX(math.pi),grip=stickGrip,tip=stickTip},
+        {key='synth_mallet_r',model=path..'mallet.nif',hand='R',rotation=T.rotateX(math.pi),grip=stickGrip,tip=stickTip}}}
+M.drumkit.targets.L=kitGrip(M.drumkit,'L',38);M.drumkit.targets.R=kitGrip(M.drumkit,'R',42)
 -- Canonical neck/string axes and 85-unit scale match the electric grip.
 for _,name in ipairs{'acoustic','classical'} do
     local profile={};for k,value in pairs(M.guitar) do profile[k]=value end
@@ -137,7 +146,7 @@ function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel,gestu
         end
     elseif profile.kind=='drumkit' then
         local grip,rotation=kitGrip(profile,side,pitch)
-        local reference=kitGrip(profile,side,side=='L' and 42 or 38)
+        local reference=kitGrip(profile,side,side=='L' and 38 or 42)
         local hit=pressed and pulse or 0
         point=profile.targets[side]+grip-reference+v(0,0,4*(1-hit))
         wrist=0;curl=.35;stickRotation=rotation*T.rotateX(-.35*(1-hit))
@@ -195,7 +204,9 @@ local function handDirections(profile,side)
 end
 function M.handDirections(profile,side,stickRotation)
     local forward,normal=handDirections(profile,side)
-    if profile.kind=='drumkit' and stickRotation then forward=stickRotation*v(0,1,0) end
+    if profile.kind=='drumkit' and stickRotation then
+        forward=stickRotation*v(0,1,0);normal=stickRotation*v(0,0,-1)
+    end
     local rotation=profile.tuning and profile.tuning[side..'Rotation']
     return rotation and rotation*forward or forward,rotation and rotation*normal or normal
 end

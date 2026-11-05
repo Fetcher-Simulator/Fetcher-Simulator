@@ -40,6 +40,7 @@ local function frame()
    local library=api.projectLibrary();if not library or not library.ready or library.pending then return end
    local calibration=api.poseCalibration();for _,name in ipairs(calibration.names) do calibration:reset(name) end;calibration.enabled=true
    api.studio();assert(w:newSong(84,4,4,4));w.project.leaderPlays=false;w.project.autoBand=true;w.project.stageLayout='seated'
+   w.project.composition.loop=true -- Keep gestures sounding throughout multi-view inspection.
    for n=2,5 do assert(w:addPart(n==2 and 'bass' or n==5 and 'snare' or 'guitar')) end
    for index,t in ipairs(w.project.tracks) do
     t.instrument=names[index];t.followPrograms=false

@@ -30,14 +30,22 @@ for _,name in ipairs{'guitar','bass','acoustic','classical'} do
 end
 check(Published.drumkit.seated and Published.drumkit.anchor=='feet' and #Published.drumkit.extras==2,'kit is floor anchored with a seated profile and two sticks')
 check(Published.defaults.drumkit.benchScale and Published.defaults.drumkit.LFootTarget,'drummer stool and both feet are exposed to the existing poser')
-for _,hit in ipairs{{'L',42},{'L',49},{'R',38},{'R',45},{'R',51}} do
+for _,hit in ipairs{{'R',42},{'R',46},{'L',38},{'L',49},{'R',38},{'L',45},{'R',45},{'R',51}} do
  local side,note=hit[1],hit[2]
  local grip,rotation,contact=Published.kitGrip(Published.drumkit,side,note)
  local point,_,_,stick=Published.motion(Published.drumkit,side,note,true,1,0,1)
- local tip=point+stick*v(0,20,-5)
+ local extra=Published.kitStick(Published.drumkit,side)
+ -- Bead and butt measured independently from the actual shipped NIF, not
+ -- the old +Y assumption that made both sticks look backwards.
+ local bead=v(0,-3.6302214,.836);local butt=v(0,19.653225,-4.88)
+ local localTip=extra.position+extra.rotation*(bead-extra.grip)
+ local tip=point+stick*localTip
  check(math.abs(tip.x-contact.x)+math.abs(tip.y-contact.y)+math.abs(tip.z-contact.z)<.001,'stick tip meets its measured drum/cymbal contact at impact')
  local rest,_,_,raised=Published.motion(Published.drumkit,side,note,false,0,0,0)
- check((rest+raised*v(0,20,-5)).z>contact.z+3,'idle stick clears the measured head instead of intersecting it')
+ check((rest+raised*localTip).z>contact.z+3,'idle stick clears the measured head instead of intersecting it')
+ check((extra.rotation*(butt-extra.grip)).y<0 and localTip.y>19,'butt projects behind the grip and rounded striking tip projects forward')
+ local forward,normal=Published.handDirections(Published.drumkit,side,raised)
+ check(math.abs(forward.x*normal.x+forward.y*normal.y+forward.z*normal.z)<1e-6,'lifted stick retains an orthogonal palm frame')
 end
 local stickStrike=Published.motion(Published.timpani,'L',45,true,1,0,2)
 check(math.abs(stickStrike.z-(Published.timpani.targets.L.z-6*Published.defaults.timpani.LMotionScale))<.01,'timpani downstroke respects the accepted target and motion calibration')
