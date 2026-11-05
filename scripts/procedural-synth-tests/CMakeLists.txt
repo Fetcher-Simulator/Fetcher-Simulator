@@ -31,6 +31,8 @@ if(Python3_Interpreter_FOUND)
     "${CMAKE_CURRENT_SOURCE_DIR}/test-bass-attack-banks.py" "$<TARGET_FILE:sample-bank-tool>")
   add_test(NAME recorded-slap-pop COMMAND "${Python3_EXECUTABLE}"
     "${CMAKE_CURRENT_SOURCE_DIR}/test-slap-bass-banks.py" "$<TARGET_FILE:sample-bank-tool>")
+  add_test(NAME recorded-guitar-harmonics COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/test-guitar-harmonic-banks.py" "$<TARGET_FILE:sample-bank-tool>")
   add_test(NAME score-audition-config COMMAND "${Python3_EXECUTABLE}"
     "${CMAKE_CURRENT_SOURCE_DIR}/test-score-audition.py" "$<TARGET_FILE:score-audition>")
 endif()

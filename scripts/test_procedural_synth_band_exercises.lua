@@ -31,6 +31,25 @@ for _,entry in ipairs(Exercises.entries) do
     end
 end
 do
+    local p=assert(Exercises.create('harmonic-accents'));local voices={};local phrases={}
+    for _,t in ipairs(p.tracks) do if t.sourceRole=='guitar' then voices[#voices+1]=t end end
+    check(#voices==3,'harmonic check retains three independent recorded guitar choices')
+    for variant,t in ipairs(voices) do
+        phrases[variant]={}
+        check(t.presetId==({'b:capture-heavy-lead','b:guitar-natural-harmonics','b:guitar-pinch-harmonics'})[variant],'comparison pins explicit recorded harmonic sounds')
+        for _,n in ipairs(assert(F.decodeNotes(t.edited))) do
+            local bar=math.floor(n.s/16)
+            check(bar==variant-1 or bar==3,'harmonics occupy their comparison bar and the final accent exchange')
+            check(n.n>=(variant==2 and 52 or variant==3 and 60 or 35) and n.n<=(variant==2 and 83 or variant==3 and 96 or 86),'demo stays in the actual recorded bank register')
+            if bar<3 then phrases[variant][#phrases[variant]+1]=n.n end
+        end
+    end
+    for n,note in ipairs(phrases[1]) do check(note==phrases[2][n] and note==phrases[3][n],'all three comparison passages retain the same sounding-pitch phrase') end
+    for _,patch in ipairs(schema.builtins) do if patch.id=='b:guitar-natural-harmonics' or patch.id=='b:guitar-pinch-harmonics' then
+        check(not patch.midiProgram and patch.bank=='Band / Recorded Harmonics','new harmonic sounds are opt-in and do not change imported GM assignments')
+    end end
+end
+do
     local p=assert(Exercises.create('bass-attacks'));local parts={}
     for _,t in ipairs(p.tracks) do if t.sourceRole=='bass' then parts[#parts+1]=t end end
     check(#parts==3,'comparison has three independently selectable recorded bass sounds')

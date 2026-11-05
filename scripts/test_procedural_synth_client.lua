@@ -1582,7 +1582,7 @@ end
 do
  local function testGuitarNavigation()
   local Editor=dofile(root..'client/editor.lua')
-  for _,id in ipairs{'b:capture-heavy','b:sampled-electric-metal','b:sampled-guitar-nylon','b:sampled-bass-picked','b:guitar-heavy'} do
+  for _,id in ipairs{'b:capture-heavy','b:sampled-electric-metal','b:sampled-guitar-nylon','b:sampled-bass-picked','b:guitar-heavy','b:guitar-natural-harmonics','b:guitar-pinch-harmonics'} do
    local builtin;for _,p in ipairs(schema.builtins) do if p.id==id then builtin=p end end
    local params=assert(schema.state(assert(builtin).state));params.drive=17;params.stringSlideTime=.123
    local sample=schema.sampleKey(params.sample);local edits,commands=0,0

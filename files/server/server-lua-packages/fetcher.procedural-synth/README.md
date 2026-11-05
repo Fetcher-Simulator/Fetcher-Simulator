@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 78 / native synth API 36 / multiplayer protocol 27.
+Current source: package 79 / native synth API 36 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,35 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models are available. More detailed articulation/animation
 and wider listening-based sound balancing remain in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Recorded guitar harmonics (package 79; Lua/content only)
+
+In **Synth > preset bank > Band / Recorded Harmonics**, choose **Recorded /
+Natural Harmonics** or **Captured Rig / Pinch Harmonics**. Mixer saved-sound
+selection offers the same sounds. These are dedicated opt-in sounds; imported
+GM assignments and existing sound sets retain their current instruments.
+
+Natural harmonics are keyed by sounding pitch, E3–B5 (MIDI 52–83), with a clean
+chain. Pinch harmonics also use sounding-pitch keys, C4–C7 (60–96), through the
+reviewed captured heavy rig. Original fretted notes and overtones stay in the
+provenance; alternate takes are grouped by audible pitch. Keys
+outside these ranges are silent; neither bank is a full-range ordinary guitar.
+The bell-like/squealing attacks are recordings, not a blanket distortion boost.
+
+On **New Song**, choose **Recorded harmonic accents** under **Band Sound Checks**,
+then **Open sound check**. This opens an editable original four-bar band check.
+Bars 1/2/3 expose the same pitched phrase as picked lead, natural harmonics and pinch
+harmonics; bar 4 exchanges accents. Bass/kit stay constant. Each sound occupies
+its own editable track and can use track, performer and master EQ/compression.
+
+The two CC BY 4.0 Guitar-TECHS banks retain player/string/source identities,
+actual alternate takes where available and exact conversion provenance. Weak,
+misaligned and pitch-tracking artifacts are rejected. All nineteen existing
+banks are unchanged. This adds harmonic colors; dedicated recorded connected
+gestures and artist-target acceptance remain open within priority one.
+
+The optional sample content must be installed alongside this Lua package.
+Native API 36 remains sufficient; no C++ server rebuild is needed.
 
 ## Drummer hand and stick correction (package 78; Lua only)
 
@@ -56,7 +85,7 @@ personal patch, edited amp/articulation values and sample references. Explicit
 source changes remain separate actions.
 
 This source/build is local-only. Loading it needs the matching API-36 client and
-package-78 server Lua. No C++ server rebuild or public/VPS rollout is required.
+package-79 server Lua. No C++ server rebuild or public/VPS rollout is required.
 
 ## Captured heavy rig (package 76 / API 35; local only)
 

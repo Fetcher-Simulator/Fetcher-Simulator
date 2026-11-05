@@ -2,6 +2,29 @@
 
 Updated 2026-11-04. Completed work and subsequent planned slices are identified below.
 
+Package 79 adds opt-in recorded natural and pinch guitar harmonics from the
+credited CC BY 4.0 Guitar-TECHS DI sources. Both banks use sounding-pitch keys,
+so different source overtones cannot make alternate takes jump octaves.
+Natural harmonics cover E3–B5 (12 roots/20 zones); pinch covers C4–C7
+(29 roots/44 zones) through the captured heavy rig. They retain original
+player/string/fretted-note identities, measured spectral checks and exact cuts.
+Weak, misaligned and tracking-ghost attacks are rejected. The two banks rebuild
+identically, while all nineteen old banks retain their bytes. The catalogue now
+has 21 banks; factory/project resident unions fit the existing 256-MiB budget.
+
+Band / Recorded Harmonics exposes both dedicated sounds without changing normal
+GM or sound-set assignments. New Song's Recorded harmonic accents sound check
+keeps picked/natural/pinch passages at the same written pitch over constant
+bass/kit, then exchanges accents. Playback gains are checked in the native
+full-band render; this is a starting point, not artist-tone acceptance.
+All 37 Lua suites and eight native groups pass. Two native clients verify both
+harmonic lanes' actual RMS, concurrent playback, late listening, live switching,
+Undo/Redo, private server-backed save/reload/replay and owned-NPC cleanup.
+Original profile/database hashes are unchanged. Lua/content only, native API 36
+unchanged; local port 25567 only, no C++ server rebuild or hosted/VPS rollout.
+Dedicated captured connected/release gestures, heavy-target listening and wider
+long-session performance acceptance remain within priority one.
+
 Package 78 corrects the kit's normal right-hand hi-hat/left-hand snare layout,
 retaining alternating fast rolls/fills and separate sticks for simultaneous
 cymbal/snare hits. Track order and split-poll arrival do not change those choices.

@@ -1,4 +1,4 @@
-Guitar-TECHS — recorded open notes and palm mutes
+Guitar-TECHS — recorded guitar articulations
 Creators: Hegel Emmanuel Pedroza Villalobos, Termeh Taheri, Wallace Abreu,
 Ryan Corey, Iran R. Roman. Guitar-TECHS dataset, 2025, players 1 and 2 DI.
 Source: https://zenodo.org/records/14963133
@@ -31,3 +31,14 @@ channels (P1 shares channel zero). It selects the smallest available fret at
 unchanged concert pitch, excludes P1's velocity-10 pickup annotations, and
 retains exact source cuts/hashes for each take. These are actual alternate
 recordings, not synthesized variations. Existing v1 banks retain their bytes.
+
+Package 79 adapts the same authors' P1/P2 natural and pinch harmonic DI
+recordings as guitar-harmonics-natural-v1 and guitar-harmonics-pinch-v1.
+Changes: mono 48-kHz decoding, 25-Hz high-pass for DC/handling drift,
+MIDI/RMS attack alignment, <=2-second cuts with fades and bounded strength
+normalization. Both techniques use sounding-pitch keys to avoid pitch jumps between alternate
+takes; original fretted notes and overtones remain in the provenance. Weak/misaligned/pitch
+tracking artifacts are rejected. Exact cuts, spectral checks, archive/audio/MIDI
+hashes, and the original player/string/velocity are retained in both manifests.
+Each alternate is a different real player recording; no harmonic reconstruction
+or artificially duplicated takes are used. The CC BY 4.0 license remains unchanged.

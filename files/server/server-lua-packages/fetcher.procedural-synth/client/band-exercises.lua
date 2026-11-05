@@ -20,11 +20,13 @@ M.entries={
     {id='acoustic-band',name='Natural acoustic band',bpm=96,set='band-acoustic',description='Recorded steel fingerpicking and nylon melody with natural gated releases.'},
     {id='scooped-thrash',name='Scooped thrash band',bpm=184,set='band-thrash-ref',description='Staged bridge amp, interstage bass filtering and post-cab 750-Hz scoop. Same notes as Tight thrash.'},
     {id='industrial-band',name='Industrial low-B band',bpm=112,set='band-industrial',description='Original low-B chug pattern, parallel fold/noise texture, driven bass and full kit; not a transcription of a soundtrack.'},
+    {id='harmonic-accents',name='Recorded harmonic accents',bpm=112,set='band-capture-metal',description='Bars 1/2/3: picked lead, clean natural harmonics, captured high-gain pinch harmonics. Bar 4 alternates accents; bass and kit stay constant.'},
 }
 function M.find(id) for _,entry in ipairs(M.entries) do if entry.id==id then return entry end end end
 function M.create(id,setId)
     local entry=M.find(id);if not entry or setId and not Sets.find(setId) then return nil end
-    local bassComparison=id=='bass-attacks';local stringUnisons=id=='string-unisons';local slapComparison=id=='slap-pop'
+    local bassComparison=id=='bass-attacks';local stringUnisons=id=='string-unisons';local slapComparison=id=='slap-pop';local harmonicComparison=id=='harmonic-accents'
+    if harmonicComparison then id='heavy' end
     if slapComparison then id='funk' end
     id=({['doom-band']='heavy',['modern-band']='thrash',['alternative-band']='heavy',
         ['clean-band']='clean',['blues-band']='clean',['acoustic-band']='acoustic',
@@ -146,6 +148,23 @@ function M.create(id,setId)
                 local bar=math.floor(item.s/16)
                 selected[#selected+1]={n=item.n+(variant==2 and 12 or 0),s=item.s,l=item.l,v=item.v,
                     e={stringArticulation=bar<2 and 1 or n%4<2 and 2 or 3}}
+            end end
+            t.edited=assert(F.encodeNotes(selected,960));if variant>1 then p.tracks[#p.tracks+1]=t end
+        end
+    end
+    if harmonicComparison then
+        for variant,preset in ipairs{'b:capture-heavy-lead','b:guitar-natural-harmonics','b:guitar-pinch-harmonics'} do
+            local t=variant==1 and p.tracks[guitar] or F.newTrack('midi','Harmonics',64)
+            local patch;for _,candidate in ipairs(schema.builtins) do if candidate.id==preset then patch=candidate end end
+            t.name=({'Picked lead reference','Natural harmonics (sounding pitch)','Pinch harmonics (sounding pitch)'})[variant]
+            t.sourceRole='guitar';t.sourceProgram=30;t.instrument='guitar';t.note=72;t.level=.6;t.followPrograms=false
+            Sets.apply(t,assert(schema.state(patch.state)),preset)
+            local selected={}
+            for bar=0,3 do for step=0,14,2 do
+                if bar==variant-1 or bar==3 and (step/2)%3==variant-1 then
+                    selected[#selected+1]={n=72+({0,2,4,7,4,2,0,7})[step/2+1],s=bar*16+step,l=1.65,v=.8,
+                        e={stringArticulation=1}}
+                end
             end end
             t.edited=assert(F.encodeNotes(selected,960));if variant>1 then p.tracks[#p.tracks+1]=t end
         end

@@ -479,6 +479,23 @@ do
     M.sampledStrings['sound/fetcher/banks/guitar-techs-paired-open-v2.fsb']=true
 end
 
+-- Dedicated recorded harmonic sounds. Opt-in only: ordinary program/sound-set
+-- assignment keeps its existing picked or palm-muted bank.
+M.banks[#M.banks+1]='Band / Recorded Harmonics'
+for _,entry in ipairs{
+    {'guitar-natural-harmonics','Recorded / Natural Harmonics','natural','a702007eefb7b94d4fbf2e7e227a1594',false},
+    {'guitar-pinch-harmonics','Captured Rig / Pinch Harmonics','pinch','a62c7b59b13f83fa7142747a8165be01',true},
+} do
+    local path='sound/fetcher/banks/guitar-harmonics-'..entry[3]..'-v1.fsb'
+    add(entry[1],entry[2],'Guitar','Band / Recorded Harmonics',{
+        attack=.003,decay=.2,sustain=1,release=entry[5] and .10 or .32,cutoff=18000,resonance=0,
+        driveType=entry[5] and 5 or 0,drive=entry[5] and 12 or 0,driveTone=16000,
+        fxMix=entry[5] and 1 or 0,fxOutput=.556,volume=entry[5] and .32 or .5,
+        stringArticulation=0,polyphony=8,pickAttack=0,pickPitch=0,stringResonance=0,pickVariation=0,cabinet=0,
+        sample={path=path,offset=0,duration=1,root=60,oneShot=false,hash=entry[4],gain=entry[5] and 1 or 2.6}})
+    M.sampledStrings[path]=true
+end
+
 for _, preset in ipairs(M.builtins) do
     preset.state = assert(M.state(preset.state),'Invalid built-in: '..preset.id)
     preset.bank=preset.bank or 'General';preset.role=preset.role or (preset.state.drumType>0 and 'Drums' or 'Synth')

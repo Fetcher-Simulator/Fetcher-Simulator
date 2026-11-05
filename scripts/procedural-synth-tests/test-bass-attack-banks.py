@@ -10,7 +10,7 @@ root = Path(__file__).resolve().parents[2]
 assets = root / 'files/server/optional-assets/fetcher.studio-samples'
 tool = Path(sys.argv[1]) if len(sys.argv) > 1 else root / 'build/synth-core-tests/Release/sample-bank-tool.exe'
 catalog = json.loads((assets / 'catalog.json').read_text())
-assert len(catalog['banks']) == 19
+assert len(catalog['banks']) == 21
 assert sum(r['native']['pcmBytes'] for r in catalog['banks']) == catalog['decodedBytesAllBanks']
 # The installed library may exceed the resident cache. Check every factory
 # sound set's union of possible referenced banks (not just one demo song).
@@ -85,4 +85,4 @@ for entry in catalog['banks']:
         assert zone['sourceSha256'] not in source_hashes, 'Alternates/layers must be distinct recordings'
         source_hashes.add(zone['sourceSha256'])
     print('PASS', entry['id'], count, 'bounded zones, actual alternate sources, coverage, trim, gated tails and identities')
-print('PASS all seventeen production bank identities and each factory resident PCM budget')
+print('PASS all production bank identities and each factory resident PCM budget')

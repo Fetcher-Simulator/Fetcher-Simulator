@@ -1,5 +1,31 @@
 # Fetcher Studio recorded instrument content
 
+## Package 79: recorded harmonic guitar colors
+
+Two opt-in banks adapt the credited Guitar-TECHS P1/P2 DI harmonic recordings.
+`guitar-harmonics-natural-v1` has 12 sounding-pitch roots from E3 to B5, with
+20 zones. `guitar-harmonics-pinch-v1` has 29 sounding-pitch roots from C4 to C7,
+with 44 zones. Each root has one or two actual player
+takes, never duplicated/generated alternates. Nearest-root transposition fills
+the bounded register. There are no zones outside those ranges.
+
+The builder rejects weak, misaligned and pitch-tracking ghost labels; it retains
+spectral pitch/overtone checks and exact archive/audio/MIDI/PCM hashes in both
+manifests. Conversion averages DI to mono 48 kHz, removes DC/handling drift with
+a 25-Hz high-pass, aligns attacks within 100 ms, retains a 3-ms preroll, caps
+cuts at two seconds and adds edge fades/bounded strength normalization. The
+clean natural preset uses a separate playback gain to match the reference.
+
+Credits and the original CC BY 4.0 license remain in
+`licenses/guitar-techs-ATTRIBUTION.txt` and `guitar-techs-CC-BY-4.0.txt`.
+All nineteen older banks keep their bytes. The on-disk catalogue now has 21
+banks; the resident loader budget remains 256 MiB and loads on demand.
+
+Rebuild from the pinned source archives:
+```powershell
+python scripts/procedural-synth-assets/build-guitar-harmonic-banks.py C:\path\to\Guitar-TECHS build/synth-core-tests/Release/sample-bank-tool.exe files/server/optional-assets/fetcher.studio-samples
+```
+
 ## Package 76: corrected paired guitar takes
 
 Two additional v2 banks combine the actual Guitar-TECHS P1 bridge and P2 neck
