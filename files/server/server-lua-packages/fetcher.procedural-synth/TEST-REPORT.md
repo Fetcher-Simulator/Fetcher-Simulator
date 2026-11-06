@@ -1,3 +1,22 @@
+## 2026-11-06 — package 85: saved sample recipes, kits and editor opening
+
+- `python build/run-synth-automation-tests.py`: all 40 Lua suites pass. Added
+  private/authenticated sample storage, revision conflicts, failed-write isolation,
+  64-entry bounds, malformed-data preservation, recipe/hash/decode checks,
+  asynchronous edit protection, timeout reconciliation, actual library controls,
+  Synth Projects navigation and activation-Space/native Enter regression checks.
+- Native two-client acceptance (`sample-library-player.lua`) on copied profiles
+  and SQLite database, port 25567, monitor 2: UI Save new kit, persisted
+  reverse/root/gain/markers/snap restore after keyboard reacquisition, drum lanes
+  plus Undo, arranged phrase/native listener audio, private library isolation,
+  rename/delete revisions and Synth Projects click all pass.
+- All 675 protected original user files remain hash-identical during acceptance.
+  Clients are closed and computer-use capture is released afterward.
+- Lua-only; native API 40 unchanged. No C++ server build, hosted assets, VPS,
+  public release or workflow is part of this checkpoint. The opening-key fix is
+  covered by deterministic physical-held/injected-Enter tests; the user should
+  still try their normal activation binding during the next playing session.
+
 # Local validation report - October 15-17, 2026 (America/Chicago)
 
 ## November 4: note-driven instrument presentation (package 74 / API 33)

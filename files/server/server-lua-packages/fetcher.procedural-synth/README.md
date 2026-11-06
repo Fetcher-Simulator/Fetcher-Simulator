@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 84 / native synth API 40 / multiplayer protocol 27.
+Current source: package 85 / native synth API 40 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,42 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models are available. More detailed articulation/animation
 and wider listening-based sound balancing remain in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Personal sample library and saved slice kits (package 85)
+
+Open **Samples > Sample library**, or **Sample library / Save kit...** in the
+expanded waveform editor. Apply any pending trim first, enter a name, then choose
+**Save new sample** or **Save new kit**. Kits need 1–15 ordered markers, with at
+least 10ms per slice. The searchable chooser lists both kinds; select an entry,
+wait for **Ready**, then preview it, use the sample on the selected part, or make
+drum lanes/an original-timing Arrange phrase from its current markers. **Back to
+editor** restores the prior normal/expanded view. New lane/phrase creation retains
+the original part and uses one Undo.
+
+Each server character can store 64 entries independently of its 16 projects and
+personal synth presets. Samples remember source trim, root note, gain, reverse,
+one-shot/sustain-loop settings and the exact installed-file hash. Kits also keep
+the decoded excerpt length, marker order, sensitivity, minimum gap and snap choice.
+These are recipes referencing installed sounds; no audio files are uploaded,
+copied, embedded or downloaded. Missing/different files remain unavailable or
+mismatched. Banks continue to use their existing sound presets rather than this
+raw-excerpt library. Entries can be reused in any project on that character.
+
+**Update saved** replaces the opened entry using its current revision;
+**Rename saved** only renames it. **Delete saved** requires a second confirmation
+click and keeps the working draft and existing project references intact. A late
+open reply cannot replace newer edits or a departed editor. After a request
+timeout, refresh before saving again to reconcile any completed server write.
+Unsupported stored versions and failed writes preserve prior data.
+
+The Synth header now has **Projects**, opening the same project library without
+changing the current sound. Opening Synth/Studio consumes the activation Space
+press (and native synthetic Enter) until transport keys are released. Subsequent
+Space pause/resume and the existing modifier shortcuts still work.
+
+This checkpoint is Lua-only: native API 40 and the client/server protocol are
+unchanged. Only the local port-25567 fixture is updated; no public/VPS rollout or
+hosted-content change is included.
 
 ## Automatic slicing and arranged phrases (package 84)
 

@@ -64,6 +64,7 @@ function M:frame()
         local ok,err=coroutine.resume(scan);if not ok then scanError=tostring(err);scan=nil end
     end
     if self.preview then self.preview:keepAlive() end
+    self:applyPendingRecipe()
 end
 function M:entries()
     local out={};for _,entry in ipairs(catalog or {}) do
@@ -76,6 +77,7 @@ end
 function M:select(path)
     self:stop();self.path=path;self.offset=0;self.duration=30;self.root=60;self.oneShot=true
     self.loop=nil;self.reverse=nil;self.gain=nil;self.waveform=nil;self.waveKey=nil;self.expectedHash=nil;self.editView=nil
+    self.pendingRecipe=nil;self.recipeError=nil
 end
 function M:loadReference(ref)
     ref=schema.sample(ref);if not ref or schema.isBank(ref) then return false end
@@ -86,7 +88,53 @@ end
 function M:trim(first,last)
     if type(first)~='number' or type(last)~='number' or first~=first or last~=last or first<0 or first>600 or last-first<.01 or last-first>30 then return false end
     self:stop();self.offset=math.floor(first*1000+.5)/1000;self.duration=math.floor((last-first)*1000+.5)/1000
-    self.loop=nil;self.waveform=nil;self.waveKey=nil;self.editView=nil;return true
+    self.loop=nil;self.waveform=nil;self.waveKey=nil;self.editView=nil;self.pendingRecipe=nil;self.recipeError=nil;return true
+end
+function M:viewKey() return table.concat({self.path or '',self.offset,self.duration,tostring(self.reverse)},'|') end
+function M:draftKey()
+    local fields={self:viewKey(),tostring(self.root),tostring(self.oneShot),tostring(self.gain),tostring(self.expectedHash)}
+    for _,key in ipairs{'start','finish','crossfade'} do fields[#fields+1]=tostring(self.loop and self.loop[key]) end
+    local view=self.editView
+    if view then
+        fields[#fields+1]=view.key
+        for _,key in ipairs{'trimFirst','trimLast','sensitivity','spacing','snap'} do fields[#fields+1]=tostring(view[key]) end
+        for _,point in ipairs(view.points or {}) do fields[#fields+1]=tostring(point) end
+    end
+    return table.concat(fields,'|')
+end
+function M:recipe(kind)
+    if self.pendingRecipe then return nil,'Wait for the saved sample to finish loading.' end
+    local ref=self:reference();if not ref then return nil,'Choose a matching Ready sample before saving.' end
+    local info=self:info();local span=math.floor(info.duration*1000+1e-6)/1000;local view=self.editView
+    if view and view.key==self:viewKey() and (math.abs(view.trimFirst or 0)>.0001 or math.abs((view.trimLast or span)-span)>.0001) then
+        return nil,'Apply trim before saving the sample or kit.'
+    end
+    local value={version=1,kind=kind,source=ref,span=span}
+    if kind=='kit' then
+        if not view or view.key~=self:viewKey() then return nil,'Open the waveform editor and add or detect slice markers first.' end
+        value.markers=view.points;value.settings={sensitivity=view.sensitivity or .5,spacing=view.spacing or .08,snap=view.snap~=false}
+    end
+    local valid=require('scripts.multiplayer.fetcher.procedural-synth.shared.sample-library')(schema).recipe(value)
+    if valid then return valid end
+    return nil,'Check the sample bounds; a kit needs 1-15 ordered markers with at least 10ms per slice.'
+end
+function M:loadRecipe(value)
+    local recipe=require('scripts.multiplayer.fetcher.procedural-synth.shared.sample-library')(schema).recipe(value)
+    if not recipe or not self:loadReference(recipe.source) then return false end
+    self.pendingRecipe=recipe;self.pendingRecipeKey=self:draftKey();self:applyPendingRecipe();return true
+end
+function M:applyPendingRecipe()
+    local recipe=self.pendingRecipe;if not recipe then return end
+    if self.pendingRecipeKey~=self:draftKey() then self.pendingRecipe=nil;return end
+    local info=self:info();if info.status~='Ready' then return end
+    self.pendingRecipe=nil
+    if math.abs(math.floor(info.duration*1000+1e-6)/1000-recipe.span)>.0001 then
+        self.recipeError='Decoded excerpt length differs from the saved sample. Choose a matching source or a new trim.';return
+    end
+    local settings=recipe.settings or {sensitivity=.5,spacing=.08,snap=true};local points={}
+    for n,point in ipairs(recipe.markers or {}) do points[n]=point end
+    self.editView={key=self:viewKey(),first=0,span=recipe.span,caret=0,trimFirst=0,trimLast=recipe.span,points=points,
+        sensitivity=settings.sensitivity,spacing=settings.spacing,snap=settings.snap}
 end
 function M:setLoop(first,last,fade)
     local info=self:info();if info.status~='Ready' then return false end
@@ -177,6 +225,7 @@ function M:trimView(first,last)
     return self:trim(offset,offset+last-first)
 end
 function M:info()
+    if self.recipeError then return {status='Unavailable',error=self.recipeError} end
     if not self.path then return {status='Choose a sound'} end
     local info=self.synth.sampleInfo(self.path,self.offset,self.duration)
     if info.status=='Ready' and self.expectedHash and info.hash~=self.expectedHash then

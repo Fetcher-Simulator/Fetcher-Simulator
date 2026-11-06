@@ -1,6 +1,26 @@
 # FETCHER STUDIO roadmap
 
-Updated 2026-11-05. Completed work and subsequent planned slices are identified below.
+Updated 2026-11-06. Completed work and subsequent planned slices are identified below.
+
+Package 85 / native API 40 adds a private per-character library of 64 named raw
+samples and slice kits. Recipes retain source trim/root/gain/reverse/loop/hash;
+kits retain decoded length, ordered markers and detection/snap settings. The
+searchable library supports preview, explicit update/rename/confirmed deletion,
+and reuse as independent drum lanes or an original-timing Arrange phrase.
+Storage uses the existing character database API, authenticated owner requests,
+revision checks, atomic writes and bounded recipes. Missing/mismatched assets
+stay unavailable; no audio files are copied or transmitted. Late opens cannot
+replace newer drafts; timed-out writes require reconciliation before retrying.
+
+Projects is restored to the Synth header. Editor opening waits for the activation
+Space/native Enter to release before enabling transport shortcuts. All 40 Lua
+suites pass, including opening-key, actual UI, private/authenticated storage,
+revision/failed-write/limit and asynchronous-draft regression checks. Native
+monitor-2 acceptance verifies kit saving, source/marker restore after reacquiring
+the keyboard, lane Undo/phrase playback, rename/delete and Synth Projects. A
+second copied-profile client hears the phrase with its own private library.
+Original profiles/database remain unchanged. This slice changes Lua only and is
+installed only on port 25567, with the clients closed after testing.
 
 Package 84 / native API 40 adds automatic transient slice suggestions, sensitivity
 and minimum-gap controls, zero-cross snapping, the 15-marker cap with an explicit
@@ -40,7 +60,7 @@ respect typing/chooser/recording ownership. Beginning plays the full song once
 without editing the saved loop range. Pattern bars, Pattern loop and Ruler loop
 have separate labels. The duplicate Arrange bar-number layer is removed.
 
-Remaining sample work includes reusable user libraries, wider source editing and
+Remaining sample work includes wider source editing and
 placement tools, and additional sounds; this does not close the whole priority.
 Only the local port-25567 setup is in scope for this checkpoint.
 
@@ -792,12 +812,13 @@ priorities rather than blocking sample editing on those open-ended targets.
 
 ## Remaining roadmap (next: sample editing; formerly priority two)
 
-1. **Further sample tools and sound libraries.** Reusable user sample libraries,
-   richer source editing and sound-library expansion beyond the
+1. **Further sample tools and sound libraries.** Richer source editing,
+   additional placement tools and sound-library expansion beyond the
    priority band set. Package 81 adds sustained excerpt loops, reverse and bounded
    loop-join crossfades; package 82 adds equal slices as independent sequencer lanes;
    package 83 adds zoom, draggable trim/loop points and manual slicing/audition;
-   package 84 adds automatic attack suggestions and original-timing arranged phrases. Continue
+   package 84 adds automatic attack suggestions and original-timing arranged phrases;
+   package 85 adds reusable named samples and slice kits. Continue
    listening/balance refinement alongside the orchestral instrument work.
 2. **Section layouts and conductor presentation.** Add saved spacing/layout
    presets, instrument sections, conductor gestures and formation previews.

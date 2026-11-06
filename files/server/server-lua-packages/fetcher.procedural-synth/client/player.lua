@@ -51,6 +51,7 @@ local connected, lastSync, lastHeartbeat, lastEdit = false, -10, 0, 0
 local dirty
 local songs,selectedSong,playback,loading,scanned={},1,nil,nil,false
 local Library=require('scripts.multiplayer.fetcher.procedural-synth.client.library')
+local SampleLibrary=require('scripts.multiplayer.fetcher.procedural-synth.client.sample-library')
 local exportedSongs={}
 local installedSongs,hosted={}
 local function refreshExports()
@@ -540,6 +541,7 @@ showEditor=function()
         end,
         hide=hideEditor,close=function() session.library:guard(function() closeEditor(true) end,'finish the session') end,
             pickup=function() session.library:guard(pickupKeyboard,'pick up the keyboard') end,
+        projects=function() w.page='projects';w.revision=w.revision+1;session.library:list();switchPage('studio') end,
         navigate=function(page)
             local valid=false;for _,entry in ipairs(Window.pages) do if entry[1]==page and page~='synth' then valid=true end end
             if not valid then return end
@@ -599,6 +601,10 @@ local function message(data)
     end
     if data.op=='pickedUp' then
         if session and session.id==data.id and session.epoch==data.epoch then ui.showMessage('Keyboard added to inventory. Place it from inventory to perform again.');closeEditor(false) end
+        return
+    end
+    if data.op=='sampleResult' then
+        if session and data.id==session.id and data.epoch==session.epoch then session.sampleLibrary:receive(data) end
         return
     end
     if data.op=='libResult' then
@@ -670,6 +676,7 @@ local function message(data)
             session.workstation=makeWorkstation(i)
             session.library=Library.new(session.workstation,{send=send,now=core.getRealTime,session=session.epoch,message=ui.showMessage,
                 show=function() if session.page~='studio' then switchPage('studio') end end})
+            session.sampleLibrary=SampleLibrary.new(session.workstation,{send=send,now=core.getRealTime})
             showEditor();session.library:list()
             send('roster');send('list'); lastHeartbeat=core.getRealTime()
         end
@@ -831,6 +838,7 @@ local function frame(dt)
     end
     session.workstation:frame(transportDt)
     session.library:frame(now)
+    session.sampleLibrary:frame(now)
     if editor then editor:frame(now) end
 end
 return {
@@ -893,6 +901,7 @@ return {
         show=showEditor,
         midiSongs=function() local out={};for n,p in ipairs(songs) do out[n]=p end;return out end,
         projectLibrary=function() return session and session.library end,
+        sampleLibrary=function() return session and session.sampleLibrary end,
         saveProject=function() return session and session.workstation:save() end,
         loadProject=function() if session then
             stopPlayback();if session.library.active>0 then return session.library:open(session.library.active,false,true) else send('dawLoad') end

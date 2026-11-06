@@ -12,6 +12,7 @@ local source={recordId='fetcher_procedural_synth_v1',valid=true}
 function source:isValid() return self.valid end
 local self={cell={id='ToddTest'}}
 package.loaded[prefix..'shared.schema']=schema
+package.loaded[prefix..'shared.sample-library']=dofile(root..'shared/sample-library.lua')
 package.loaded[prefix..'client.speech-catalog']=dofile(root..'client/speech-catalog.lua')
 package.loaded[prefix..'client.voice-text']=dofile(root..'client/voice-text.lua')
 package.loaded[prefix..'shared.voice-transcripts']=dofile(root..'shared/voice-transcripts.lua')
@@ -100,6 +101,8 @@ package.loaded[prefix..'client.guitar-tools']=dofile(root..'client/guitar-tools.
 package.loaded[prefix..'client.guitar-page']=dofile(root..'client/guitar-page.lua')
 package.loaded[prefix..'client.arranger']=dofile(root..'client/arranger.lua')
 package.loaded[prefix..'client.library']=dofile(root..'client/library.lua')
+package.loaded[prefix..'client.sample-library']=dofile(root..'client/sample-library.lua')
+package.loaded[prefix..'client.sample-library-page']=dofile(root..'client/sample-library-page.lua')
 package.loaded[prefix..'client.controller-page']=dofile(root..'client/controller-page.lua')
 package.loaded[prefix..'client.transport-keys']=dofile(root..'client/transport-keys.lua')
 package.loaded[prefix..'client.sample-editor']=dofile(root..'client/sample-editor.lua')
@@ -1036,6 +1039,17 @@ button('Back to Piano [Esc]').events.mouseClick();now=now+.01;lastStudio:frame(n
 check(lastStudio.root.layout.props.size.x==oldSize.x and lastStudio.root.layout.props.size.y==oldSize.y,'Back to Piano restores the windowed canvas')
 api.hide();check(not uiOverride,'hiding Studio restores game inventory controls')
 api.show();check(uiOverride,'reopening Studio reacquires UI controls')
+do
+-- Synth's header must reach the same project library without replacing the sound.
+local beforeProjects=schema.state(w.project.tracks[1].params);local projectGeneration=w.generation
+assert(api.sound(1));local projects
+for _,item in ipairs(lastEditor.root.layout.content) do
+ if item.content and item.content[1] and item.content[1].props and item.content[1].props.text=='Projects' then projects=item end
+end
+check(projects~=nil,'Synth exposes Projects alongside its persistent navigation')
+projects.events.mouseClick();now=now+.01;lastStudio:frame(now)
+check(w.page=='projects' and w.generation==projectGeneration and w.project.tracks[1].params.cutoff==beforeProjects.cutoff,'Synth Projects opens the existing library without changing the sound or project')
+end
 -- Real Projects controls exercise Save As naming, explicit deletion, and unsaved Finish.
 button('Projects').events.mouseClick();now=now+.01;lastStudio:frame(now)
 check(w.page=='projects' and button('Save As new'),'header opens named project library')
@@ -1727,6 +1741,30 @@ do
   view:key(input.KEY.Escape,true);check(not view.sampleFocus,'Escape restores normal Samples page');view:key(input.KEY.Escape,false);view:destroy()
  end
  testWaveEditor()
+ local function testSampleLibraryPage()
+  local Workstation=package.loaded[prefix..'client.workstation'];local Samples=package.loaded[prefix..'client.samples']
+  local synth={version=40,sampleInfo=function() return {status='Ready',duration=2,hash=string.rep('a',32)} end,
+   sampleWaveformRange=function() return {minimum={-.2},maximum={.2}} end}
+  local w=Workstation.new{samples=function() return Samples.new(synth,{},{},{}) end,configure=function() end,panic=function() end,message=function() end,meter=function() return 0 end,sampleStatus=function() return {status='Ready'} end}
+  w:add('piano');w.page='samples'
+  local sent={};local l=package.loaded[prefix..'client.sample-library'].new(w,{now=function() return now end,send=function(op,data) sent[#sent+1]={op=op,data=data} end})
+  local view=Studio.new(w,{midiLabel=function() return '' end,hide=function() end});local b=view:sampleBrowser();b:select('sound/test.wav');b.duration=2
+  b.editView={key=b:viewKey(),first=0,span=2,caret=0,points={.4,1},trimFirst=0,trimLast=2,sensitivity=.7,spacing=.12,snap=false};view:setSampleFocus(true);view:render()
+  view:openSampleLibrary('kit');view:render()
+  check(w.page=='samplelibrary' and sent[1].op=='sampleList' and not view.sampleFocus,'expanded waveform opens the private library and lists saved entries')
+  l:receive{requestId=sent[1].data.requestId,entries={}};view:frame(now+.2)
+  local function click(text)
+   for _,item in ipairs(view.root.layout.content) do if item.content and item.content[1] and item.content[1].props and item.content[1].props.text==text then item.events.mouseClick();return end end
+   error('missing sample library button '..text)
+  end
+  click('Save new kit');check(sent[2].op=='sampleSave' and #sent[2].data.recipe.markers==2 and not sent[2].data.recipe.settings.snap,'library Save kit stores current marker settings')
+  l:receive{requestId=sent[2].data.requestId,entries={},entry={id=1,revision=1,name=l.name,recipe=sent[2].data.recipe}};view:frame(now+.4)
+  local gen=w.generation;click('Current kit to drum lanes');check(#w.project.tracks==4 and w.generation==gen+1,'saved kit creates independently editable drum lanes in one action')
+  w.page='samplelibrary';view:render();click('Back to editor');view:render()
+  check(w.page=='samples' and view.sampleFocus and view.waveEditor.s.points[2]==1,'Back restores the expanded waveform and markers');view:destroy()
+  check(l.browser==nil,'destroying Studio prevents late saved-entry replies from changing the draft')
+ end
+ testSampleLibraryPage()
  local keys=package.loaded[prefix..'client.transport-keys'];input.KEY.Space=301;local owner={};local actions={}
  input.isShiftPressed=function() return shift end
  local function action(value) actions[#actions+1]=value end
@@ -1746,6 +1784,17 @@ do
  check(#actions==5,'synthetic key-up while the physical key is held cannot retrigger transport')
  pressed[input.KEY.Space]=false;keys.frame(owner,action);owner.typing=true;pressed[input.KEY.Enter]=true;keys.frame(owner,action)
  owner.typing=false;keys.frame(owner,action);check(#actions==5,'text commit does not turn held Enter into transport')
- pressed[input.KEY.Enter]=false;keys.frame(owner,action);input.isKeyPressed=nil
+ pressed[input.KEY.Enter]=false;keys.frame(owner,action)
+ -- Opening from Activate must consume the physical Space and injected Enter.
+ owner={};pressed[input.KEY.Space]=true;now=now+.2;keys.prime(owner)
+ keys.handle(owner,input.KEY.Space,true,action);keys.handle(owner,input.KEY.Enter,true,action)
+ now=now+1;keys.frame(owner,action);check(#actions==5,'holding Activate while opening cannot change transport')
+ keys.handle(owner,input.KEY.Space,false);keys.frame(owner,action)
+ check(#actions==5 and owner.transportOpening,'synthetic release cannot arm transport while physical Activate is held')
+ pressed[input.KEY.Space]=false;keys.frame(owner,action)
+ check(not owner.transportOpening and #actions==5,'opening arms only after all transport keys are released')
+ now=now+.2;pressed[input.KEY.Space]=true;keys.frame(owner,action);keys.frame(owner,action)
+ check(#actions==6 and actions[6]=='pause','the next intentional press still toggles once')
+ pressed[input.KEY.Space]=false;keys.frame(owner,action);input.isKeyPressed=nil
 end
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

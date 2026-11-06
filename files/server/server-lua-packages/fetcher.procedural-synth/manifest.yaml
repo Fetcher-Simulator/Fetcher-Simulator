@@ -1,10 +1,11 @@
 manifestVersion: 3
 packageId: fetcher.procedural-synth
-packageVersion: 84
+packageVersion: 85
 requiredOpenMWLuaApi: 144
 requiredMultiplayerLuaApi: 12
 dependencies: []
 files:
+  - shared/sample-library.lua
   - shared/schema.lua
   - shared/project.lua
   - shared/sequence.lua
@@ -12,6 +13,8 @@ files:
   - client/stage-actor.lua
   - client/stage-preflight.lua
   - client/library.lua
+  - client/sample-library.lua
+  - client/sample-library-page.lua
   - client/controller-map.lua
   - client/controller-page.lua
   - client/recorder.lua

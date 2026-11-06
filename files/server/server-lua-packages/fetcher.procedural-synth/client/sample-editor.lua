@@ -9,7 +9,7 @@ local function rect(x,y,w,h,color) return {type=ui.TYPE.Image,props={position=v(
 local function label(text,x,y,w) return {type=ui.TYPE.Text,props={position=v(x,y),size=v(w,24),text=text,textSize=12,textColor=c.text}} end
 local function cb(fn) return async:callback(function(e) fn(e);return false end) end
 function E.new(owner,content)
-    local b=owner.samples;local info=b:info();local length=math.floor((info.duration or 0)*1000)/1000
+    local b=owner.samples;local info=b:info();local length=math.floor((info.duration or 0)*1000+1e-6)/1000
     if info.status~='Ready' or length<.01 or not b.synth.sampleWaveformRange then
         owner.sampleEditorWaiting=info.status=='Loading'
         content[#content+1]=label(info.status=='Loading' and 'Loading the edited excerpt...' or info.error or 'Choose a Ready sample. Expanded editing requires the updated client (API 39).',20,100,850)
@@ -34,6 +34,10 @@ function E.new(owner,content)
     end)
     button(b.loop and 'Loop: On' or 'Loop: Off',170,95,140,function() if b:toggleLoop() then owner.w.revision=owner.w.revision+1 end end,b.loop~=nil)
     button('Use sample on part',320,95,190,function() local ref=b:reference();if ref then b:stop();owner.w:setSample(owner.w.selected,ref) end end)
+    if owner.w.sampleLibrary then
+        button('Sample library',525,95,175,function() owner:openSampleLibrary() end)
+        button('Save kit...',715,95,175,function() owner:openSampleLibrary('kit') end)
+    end
     button('Add slice at cursor',20,135,180,function() self:addMarker() end)
     button('Delete marker',210,135,140,function() if self.s.marker then table.remove(self.s.points,self.s.marker);self.s.marker=nil;self:draw() end end)
     button('Audition slice',360,135,140,function()

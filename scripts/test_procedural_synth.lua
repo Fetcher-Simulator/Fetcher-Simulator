@@ -43,6 +43,23 @@ local function request(op,extra)
     module.eventHandlers.Synth_Request(d)
 end
 local function test(name,fn) sequence=0; reset(); fn(); tests=tests+1; print('PASS '..name) end
+test('sample library is private and authenticated before storage access',function()
+    acquire();sent={}
+    local reads=0;local original=package.loaded.mp.getCharacterStorageForCharacter
+    package.loaded.mp.getCharacterStorageForCharacter=function(...) reads=reads+1;return original(...) end
+    request('sampleList',{requestId=1,pid=2,characterId=22})
+    request('sampleList',{requestId=2,characterId=22})
+    request('sampleList',{requestId=3,epoch=9})
+    check(reads==0 and #sent==0,'foreign owner, character and epoch never read storage')
+    request('sampleSave',{requestId=4,entryId=0,name='Private',recipe={version=1,kind='sample',span=1,
+        source={path='sound/test.wav',offset=0,duration=1,root=60,oneShot=true,hash=string.rep('a',32)}}})
+    check(#sent==1 and sent[1].guid==1 and sent[1].data.op=='sampleResult' and sent[1].data.entry.id==1,'saved sample reply is delivered only to its owner')
+    request('sampleList',{requestId=5})
+    check(#sent==2 and sent[2].guid==1 and #sent[2].data.entries==1,'private list uses the authenticated character')
+    request('sampleOpen',{requestId=6,entryId=1,seq=sequence})
+    check(#sent==2,'replayed request is rejected before storage')
+end)
+
 test('schema defaults, validation, bounded payload and migration',function()
     local defaults=schema.state({}); check(defaults.polyphony==16)
     check(schema.state({version=2})==nil); check(schema.state({gain=0/0})==nil)

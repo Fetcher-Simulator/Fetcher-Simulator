@@ -850,17 +850,30 @@ function S:refreshSampleWave()
     if points then for _,point in ipairs{points.start,points.finish} do data[#data+1]=rect(math.min(868,870*point/wave.duration),0,2,64,c.note) end end
     self.sampleWaveform.layout.content=ui.content(data);self.window:update(self.sampleWaveform)
 end
-function S:samplePage(content)
-    local w=self.w
-    if not w.cb.samples then content[#content+1]=label('Sample browser unavailable',20,180,870);return end
+function S:sampleBrowser()
+    local w=self.w;if not w.cb.samples then return nil end
     if not self.samples then
         self.samples=w.cb.samples();self.samples:start()
         local t=w.project.tracks[w.selected];local ref=t and t.params.sample
         if ref and not schema.isBank(ref) then self.samples:loadReference(ref) end
     end
+    if w.sampleLibrary then w.sampleLibrary.browser=self.samples end
+    return self.samples
+end
+function S:openSampleLibrary(kind)
+    local browser=self:sampleBrowser();local library=self.w.sampleLibrary;if not browser or not library then return end
+    self.libraryReturnFocus=self.sampleFocus==true;self:setSampleFocus(false);browser:stop()
+    if library.name=='' and browser.path then library.name=(browser.path:match('([^/]+)$') or 'Sample'):gsub('%.[^.]+$',''):sub(1,55)..(kind=='kit' and ' kit' or '') end
+    self.w.page='samplelibrary';self.w.revision=self.w.revision+1
+    if not library.ready and not library.pending then library:list() end
+end
+function S:samplePage(content)
+    local w=self.w
+    if not self:sampleBrowser() then content[#content+1]=label('Sample browser unavailable',20,180,870);return end
     local browser=self.samples;local t=w.project.tracks[w.selected]
     local function refresh() w.revision=w.revision+1 end
     content[#content+1]=label('INSTALLED GAME SAMPLES',20,166,870,18,c.accent)
+    if w.sampleLibrary then content[#content+1]=self:button('Sample library',420,166,210,function() self:openSampleLibrary() end) end
     content[#content+1]=self:button('Edit waveform',650,166,240,function() self:setSampleFocus(true) end)
     content[#content+1]=self:button(t and ('Part '..w.selected..': '..t.name..' v') or 'Choose a part v',20,207,390,function()
         local entries={};for n,track in ipairs(w.project.tracks) do entries[#entries+1]={id=n,label=n..': '..track.name} end
@@ -1037,7 +1050,10 @@ function S:render()
     if self.pianoFocus and self.w.page~='piano' then self.pianoFocus=false;self.window.expanded=false;self.window.restoreExpanded=nil end
     if self.sampleFocus and self.w.page~='samples' then self.sampleFocus=false;self.window.expanded=false;self.window.restoreExpanded=nil end
     self.window:bounds();self.width,self.height=self.window.canvasWidth,self.window.canvasHeight
-    if self.samples and self.w.page~='samples' then self.samples:stop() end
+    if self.samples and self.w.page~='samples' and self.w.page~='samplelibrary' then
+        self.samples:stop();if self.w.sampleLibrary and self.w.sampleLibrary.browser==self.samples then self.w.sampleLibrary.browser=nil end
+    end
+    self.librarySampleStatus=nil
     self.sampleStatus=nil;self.sampleWaveform=nil;self.sampleWaveKey=nil
     if self.lastPage=='recordsetup' and self.w.page~='recordsetup' and self.w.recorder and self.w.recorder.calibrating then self.w.recorder:stopClock() end
     if self.lastPage=='record' and self.w.page~='record' then self:releaseRecordKeys() end;self.lastPage=self.w.page
@@ -1066,7 +1082,7 @@ function S:render()
         elseif self.arrangeFocus then self:arrange(content) else self:piano(content) end
         self.root=self.window:root(content);self.revision=w.revision;return
     end
-    Window.tabs(self,content,w.page,function(page)
+    Window.tabs(self,content,w.page=='samplelibrary' and 'samples' or w.page,function(page)
         self:releaseAll();w:endAutomationWrite()
         if page=='synth' then self.cb.synth() elseif page=='arrange' then self:openArranger()
         else w.page=page;if page=='band' and w.cb.refreshTargets then w.cb.refreshTargets() end;w.revision=w.revision+1 end
@@ -1103,7 +1119,7 @@ function S:render()
     content[#content+1]=self:button('Import',self.width-229,112,92,self.cb.import)
     content[#content+1]=self:button('Export MIDI',self.width-125,112,100,function() w:exportMidi() end)
     local body={};self.bodyOffset=(w.page=='piano' or w.page=='drums' or w.page=='auto' or w.page=='arrange') and 0 or math.max(0,(self.width-940)/2)
-    if w.page=='guitar' then require('scripts.multiplayer.fetcher.procedural-synth.client.guitar-page')(self,body) elseif w.page=='timing' then self:timing(body) elseif w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='controllers' then require('scripts.multiplayer.fetcher.procedural-synth.client.controller-page')(self,body) elseif w.page=='midimapping' then self:midiMappings(body) elseif w.page=='recordsetup' then self:recordSetup(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' or w.page=='bus' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
+    if w.page=='guitar' then require('scripts.multiplayer.fetcher.procedural-synth.client.guitar-page')(self,body) elseif w.page=='timing' then self:timing(body) elseif w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='samplelibrary' then require('scripts.multiplayer.fetcher.procedural-synth.client.sample-library-page')(self,body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='controllers' then require('scripts.multiplayer.fetcher.procedural-synth.client.controller-page')(self,body) elseif w.page=='midimapping' then self:midiMappings(body) elseif w.page=='recordsetup' then self:recordSetup(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' or w.page=='bus' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
     -- Keep the header above centered page containers in native hit testing.
     if self.bodyOffset>0.1 then table.insert(content,1,{type=ui.TYPE.Widget,props={position=v(self.bodyOffset,0),size=v(940,self.height)},content=ui.content(body)})
     else for _,item in ipairs(body) do content[#content+1]=item end end
@@ -1112,6 +1128,7 @@ end
 function S:resize() self:render() end
 function S.new(workstation,callbacks)
     local self=setmetatable({kind='studio',w=workstation,cb=callbacks,window=Window.new(),children={},width=940,lastFrame=-1},S)
+    TransportKeys.prime(self)
     self.window.keyPress=cb(function(e) self:key(e.code,true) end)
     self.window.keyRelease=cb(function(e) self:key(e.code,false) end)
     self.window.pickup=callbacks.pickup;self:render();I.UI.addMode('Interface',{windows={}})
@@ -1268,6 +1285,10 @@ function S:frame(now)
         self.window:update(self.sampleStatus)
         self:refreshSampleWave()
     end
+    if self.librarySampleStatus then
+        local info=self.samples:info();local text='Draft: '..info.status..' | '..#self.w.sampleLibrary.entries..'/64 saved entries. '..(info.error or '')
+        if self.librarySampleStatus.layout.props.text~=text then self.librarySampleStatus.layout.props.text=text;self.window:update(self.librarySampleStatus) end
+    end
     if self.recordText then self.recordText.layout.props.text=self.w:recordStatus();self.window:update(self.recordText) end
     for note,key in pairs(self.recordKeyboard or {}) do key.element.layout.props.color=self.recordHeld and self.recordHeld[note] and c.accent or key.color;self.window:update(key.element) end
     for lane,meter in pairs(self.meters) do meter.layout.props.size=v(math.max(1,220*math.max(0,math.min(1,(20*math.log(math.max(0.001,self.w.cb.meter(lane)))/math.log(10)+60)/60))),3);self.window:update(meter) end
@@ -1290,6 +1311,7 @@ function S:frame(now)
     end
 end
 function S:destroy()
+    if self.w.sampleLibrary and self.w.sampleLibrary.browser==self.samples then self.w.sampleLibrary.browser=nil end
     if self.samples then self.samples:stop() end
     self:releaseAll()
     Dropdown.close(self)

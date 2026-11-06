@@ -171,6 +171,7 @@ function E:plots()
 end
 function E.new(params,cb)
     local self=setmetatable({params=params,cb=cb,window=Window.new(),children={},controls={},entries={},held={},name='Untitled',lastMeter=0},E)
+    TransportKeys.prime(self)
     self.window.keyPress=callback(function(e) self:key(e.code,true) end)
     self.window.keyRelease=callback(function(e) self:key(e.code,false) end)
     self.window.pickup=cb.pickup;self:render();I.UI.addMode('Interface',{windows={}});return self
@@ -192,10 +193,11 @@ function E:render()
     self.width=940
     local w=self.width
     self.window:bounds();local headerWidth=self.window.canvasWidth
-    local content={label('FETCHER STUDIO',20,14,175,18),label(cb.subtitle or 'PROCEDURAL / POLYPHONIC / SPATIAL',20,48,250,11,colors.muted)}
+    local content={label('FETCHER STUDIO',20,14,175,18),label((cb.subtitle or 'PROCEDURAL SYNTH'):sub(1,19),130,48,140,11,colors.muted)}
     Window.tabs(self,content,'synth',function(page) if page~='synth' and cb.navigate then self:releaseAll();cb.navigate(page) end end)
     content[#content+1]=self:button('Hide [F8]',headerWidth-198,12,104,cb.hide or cb.close)
     content[#content+1]=self:button('Finish',headerWidth-84,12,64,cb.close)
+    if cb.projects then content[#content+1]=self:button('Projects',20,44,100,function() self:releaseAll();cb.projects() end) end
     if cb.midiPlay then
         content[#content+1]=self:button('<',280,44,26,function() cb.midiCycle(-1) end)
         content[#content+1]=self:button('>',312,44,26,function() cb.midiCycle(1) end)
