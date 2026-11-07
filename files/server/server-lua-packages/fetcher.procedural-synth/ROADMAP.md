@@ -2,6 +2,29 @@
 
 Updated 2026-11-07. Completed work and subsequent planned slices are identified below.
 
+Package 87 begins section layouts/conductor presentation with saved Grid,
+Instrument sections and Arc presets, Standard/Roomy/Wide spacing shortcuts and
+independent across/depth/leader-distance multipliers. The Band Formation page
+previews grouped automatic performers or current bound NPCs by slot/family.
+Small families stay together in compact shared rows; member/track order and
+routes are unchanged by geometry. Existing nil settings reproduce the old grid.
+Preview edits save/undo normally without moving a live band or stopping sound.
+Explicit Auto or Restage applies the captured placement, with the existing posture
+setting and drum-kit footprint clearance. Floor checks, server jobs and diagrams
+share the same deterministic positions. Oversized formations are rejected before
+movement if a member would be outside the keyboard's 2000-unit performer range.
+Only the local port-25567 fixture is in scope; no native C++ or assets change.
+
+All 42 Lua suites pass, including all preset/yaw/32-member clearance cases,
+legacy coordinates, strict settings, source mirrors, custom floor preflight,
+server actor readback, ownership/dedup, range rejection, preview stability and
+project history. Native monitor-2 acceptance checks preset/spacing controls,
+actual section placements, ongoing audio/unchanged actor positions while editing
+an Arc preview, identity-preserving restage, project save/reload and NPC cleanup.
+A late listener sees/hears the four performers. Copied profiles/database protect
+the original user state. The room's wall check also rejects a formation that
+crosses blocked space rather than claiming the preview is safe to apply.
+
 Package 86 / native API 41 closes the agreed core sample-editing priority with
 source-relative fade-in/out, cached-peak normalization to at most -1 dBFS,
 manual source gain and grouped local edit Undo/Redo. Green waveform handles and
@@ -843,8 +866,9 @@ refinement continue with instrument expansion. Advanced destructive editing,
 time stretching and per-slice saved override maps remain possible future work,
 rather than keeping this finished core priority open indefinitely.
 
-1. **Section layouts and conductor presentation.** Add saved spacing/layout
-   presets, instrument sections, conductor gestures and formation previews.
+1. **Conductor presentation and further stage layouts.** Package 87 supplies
+   saved presets, instrument sections, spacing and previews. Next add conductor
+   gestures and more flexible section placement/layout customization.
    Extend seating to players and additional instruments, with chair interaction
    and custom-rig/body-height support. Keep explicit safe restaging and the
    standing grid; avoid moving a formation when its leader walks away. Improve

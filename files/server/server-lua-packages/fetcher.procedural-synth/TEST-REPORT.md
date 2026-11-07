@@ -1,3 +1,24 @@
+## 2026-11-07 — package 87: formation presets, sections and preview
+
+- All 42 Lua suites pass. Formation checks cover 1–32 NPCs, all presets, rotated
+  leaders, normal/kit clearance, strict and legacy settings, stable route IDs,
+  project history, same client/server algorithms, preflight Z values, server move
+  completion and rejection before movement when outside keyboard range.
+- UI harness checks Band navigation, live preview/spacing without rebuilding
+  widgets or stopping audio, and chooser stability during refreshes.
+- Native copied-profile two-client acceptance on port 25567 / monitor 2 checks
+  actual preset selection and spacing drag, shared-rule actor XY positions,
+  late-observer actors/audio, no movement or audio interruption while previewing,
+  identity-preserving explicit Arc restage, saved project round trip and cleanup.
+  A too-deep initial ToddTest layout was correctly blocked by its wall check;
+  the quartet used for final placement fits the open floor. Manual UI checks
+  were followed by an automated geometry/persistence recheck after adding range
+  validation. Native read-only coordinate userdata is accepted alongside tables
+  and covered by a regression; the original range-guard mismatch is corrected.
+- Original user state is protected by copied SQLite/profile paths and hashes.
+  Capture is released and clients close afterward. Lua-only; native API 41,
+  server executable, public/VPS configuration and hosted assets stay unchanged.
+
 ## 2026-11-07 — package 86 / API 41: sample-editing completion
 
 - All **41 Lua suites** pass, including source-field validation, normalizer raw

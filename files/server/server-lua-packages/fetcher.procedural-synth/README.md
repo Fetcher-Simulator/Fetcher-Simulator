@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 86 / native synth API 41 / multiplayer protocol 27.
+Current source: package 87 / native synth API 41 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,43 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models are available. More detailed articulation/animation
 and wider listening-based sound balancing remain in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Saved formation presets and preview (package 87)
+
+Open **Band > Formation**. Choose **Grid**, **Instrument sections** or **Arc**;
+use the Standard/Roomy/Wide spacing presets or adjust **Across spacing**, **Row
+depth** and **Leader distance** individually (100–200%). The posture choice on
+Band remains separate: Standing or the existing Seated instrument support.
+Settings save per project and have normal project Undo/Redo; starting a new song
+or loading a sound-check exercise preserves the current formation preference.
+Existing projects without settings retain their exact original grid positions.
+
+The numbered top-down preview identifies NPC slots and colors instrument families.
+**Automatic band** previews the grouped song parts, including Leader plays and
+shared drum lanes. **Bound NPCs** previews the unique NPCs currently assigned to
+the band. Sections keep small instrument families together while packing rows in
+Strings, Woodwinds, Brass, Keys, Guitars/bass and Percussion order. Arc seats face
+the leader. Wider full-drum-kit clearance is retained across presets.
+
+Changing preview settings during playback does not move actors or interrupt sound.
+**Create / update auto band** groups/routes the current song and reuses or hires
+owned NPCs. **Restage bound NPCs** moves the current bound NPCs, preserving their
+identities and routing. Applying placement stops playback and captures the leader's
+current location/facing; walking afterward does not drag the formation along.
+The existing Band-page Auto NPC band button also honors the saved settings.
+
+Client floor, footprint, headroom and wall checks use the same positions that the
+server independently calculates from the bounded preset settings. The server
+chooses all X/Y/yaw values; clients supply only checked floor heights. A formation
+must fit within 2000 units of the keyboard so its NPCs remain usable. Reduce
+spacing/distance or choose another preset if it crosses that boundary. The preview
+is a diagram, not a collision-tested world overlay; room obstacles can still reject
+placement. Restaging still checks ownership, busy performers and actual native
+teleport completion. No free-position dragging, custom-rig seating or conductor
+animation is added in this slice.
+
+This checkpoint changes Lua only. Native API 41 and hosted content are unchanged;
+only the local port-25567 fixture is updated.
 
 ## Source fades, normalization and slice editing (package 86)
 

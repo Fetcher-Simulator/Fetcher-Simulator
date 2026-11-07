@@ -185,6 +185,7 @@ local function request(data)
             elseif k=='routes' and data.op=='band' then if not projectFormat.routes(v) then return end
             elseif k=='project' and (data.op=='libSave' or data.op=='libSnapshot' or data.op=='autoBand') then -- Validate after ownership/rate checks below.
             elseif k=='recipe' and data.op=='sampleSave' then -- Validate after ownership/character/rate checks below.
+            elseif k=='formation' and data.op=='stageBand' then -- Scalar preset settings are validated below.
             elseif k=='ground' and (data.op=='autoBand' or data.op=='stageBand') then -- Bounded grid/anchor validation follows ownership checks in stage:begin.
             elseif k=='project' and (data.op=='dawSave' or data.op=='pickup') then if not projectFormat.project(v) then return end
             else return end
@@ -260,7 +261,11 @@ local function request(data)
         local project=data.op=='autoBand' and projectFormat.project(data.project) or nil
         if data.op=='autoBand' and not project then return end
         if data.stageLayout~=nil and data.stageLayout~='standing' and data.stageLayout~='seated' then return end
-        if data.op=='stageBand' then project={stageLayout=data.stageLayout or s.stageLayout} end
+        if data.op=='stageBand' then
+            local settings=data.formation;if settings==nil then settings=s.formation end
+            local formation=projectFormat.formation(settings);if not formation then return end
+            project={stageLayout=data.stageLayout or s.stageLayout,formation=formation}
+        end
         stage:begin(s,project,data.requestId,sessions,data.op=='stageBand',data.op=='clearBand',data.ground)
         return
     end

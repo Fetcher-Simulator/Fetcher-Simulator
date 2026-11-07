@@ -73,16 +73,13 @@ function S:begin(s,project,requestId,sessions,restage,clear,ground)
         local yaw=p.rz or 0
         anchor={x=p.x-math.sin(yaw)*50,y=p.y-math.cos(yaw)*50,z=p.z,rx=0,ry=0,rz=yaw}
     end
-    local layout=project and project.stageLayout or s.stageLayout or 'standing'
+    local layout=project and (project.stageLayout or 'standing') or s.stageLayout or 'standing'
     local plan=(restage or clear) and {} or Layout.plan(project)
-    if restage then
-        local seen={};for _,m in ipairs(s.band) do local t=m.target
-            if t and t.kind=='npc' and owns(registry,t) and not seen[t.mpNum] then
-                plan[#plan+1]={target=t};seen[t.mpNum]=true
-                if t.instrument=='drumkit' then plan.wideSpacing=true end
-            end
-        end
-    end
+    if restage then plan=Layout.bound(s.band,function(target) return owns(registry,target) end) end
+    local settings;if project then settings=project.formation else settings=s.formation end
+    local formation=format.formation(settings)
+    local positions=formation and Layout.positions(anchor,plan,formation)
+    if not positions then return reject('Invalid formation settings.') end
     if (restage and #plan==0) or #plan>format.maxMembers or not Layout.position(anchor,1,math.max(1,#plan)) then
         return reject(restage and 'Bind owned NPC performers before staging.' or 'Create or import song parts first.')
     end
@@ -99,8 +96,15 @@ function S:begin(s,project,requestId,sessions,restage,clear,ground)
         end
         for key in pairs(h) do if type(key)~='number' or key%1~=0 or key<1 or key>#plan then return reject('Invalid stage floor array.') end end
         for index=1,#plan do
-            local p=Layout.position(anchor,index,#plan,plan.wideSpacing);local z=h[index]
+            local p=positions[index];local z=h[index]
             if not finite(z) or math.abs(z-anchor.z)>Layout.floorLimit(anchor,p) then return reject('Stage floor height is out of range.') end
+        end
+    end
+    if not clear then
+        local home=mp.getObjectByMpNum(s.id);if not home or not home.position then return reject('The leader keyboard is unavailable.') end
+        for index,p in ipairs(positions) do
+            local point={x=p.x,y=p.y,z=ground and ground.heights[index] or p.z}
+            if not Layout.inRange(home.position,point) then print(string.format('[SynthStageRange] server home=%s,%s,%s slot=%s,%s,%s types=%s/%s limit=%s',home.position.x,home.position.y,home.position.z,point.x,point.y,point.z,type(home.position),type(point),Layout.stageRange));return reject('Formation exceeds the keyboard range (2000 units). Reduce spacing/distance or choose a smaller preset.') end
         end
     end
     local busy=busyActors(sessions,s.id,s.characterId)
@@ -113,13 +117,13 @@ function S:begin(s,project,requestId,sessions,restage,clear,ground)
     if not restage and #plan>#pool+format.maxMembers-#registry.entries then
         return reject('Not enough available owned performers. Dismiss missing/dead NPCs or release their other band first.')
     end
-    if not clear then s.stageLayout=layout end
+    if not clear then s.stageLayout=layout;s.formation=formation end
     if not restage and not clear then s.managedBand=true end
     if not restage and not clear and project.leaderPlays~=false and mp.teleportPlayer
         and type(keyboardModel)=='string' and keyboardModel:lower():gsub('\\','/'):find('keyboard%-stand%.nif$')
         and not mp.teleportPlayer(s.owner,s.cell,anchor) then return reject('Could not align the leader with the keyboard.') end
     self.jobs[s.characterId]={id=s.id,epoch=s.epoch,owner=s.owner,character=s.characterId,requestId=requestId,session=s,
-        anchor=anchor,ground=ground and ground.heights,cell=s.cell,layout=layout,plan=plan,routes=plan.routes,pool=pool,targets={},used={},cursor=1,restage=restage,clear=clear,expires=mp.getUptime()+45}
+        anchor=anchor,ground=ground and ground.heights,cell=s.cell,layout=layout,formation=formation,positions=positions,plan=plan,routes=plan.routes,pool=pool,targets={},used={},cursor=1,restage=restage,clear=clear,expires=mp.getUptime()+45}
     return true
 end
 function S:tick(sessions)
@@ -153,7 +157,7 @@ function S:tick(sessions)
                 for _,e in ipairs(job.pool) do if not job.used[e.mpNum] and old and e.mpNum==old.mpNum and e.refId==old.refId then entry=e;break end end
                 if not entry then for _,e in ipairs(job.pool) do if not job.used[e.mpNum] then entry=e;break end end end
             end
-            local position=Layout.position(job.anchor,index,#job.plan,job.plan.wideSpacing)
+            local source=job.positions[index];local position={x=source.x,y=source.y,z=source.z,rx=source.rx,ry=source.ry,rz=source.rz}
             position.z=job.ground and job.ground[index] or position.z
             local cell=Layout.cellAt(job.cell,position)
             if entry then

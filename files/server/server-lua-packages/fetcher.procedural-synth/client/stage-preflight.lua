@@ -2,10 +2,11 @@
 return function(nearby,util,Layout)
     local M={};local V=util.vector3
     local function finite(n) return type(n)=='number' and n==n and math.abs(n)<1e8 end
-    function M.new(anchor,count,complete,wide)
+    function M.new(anchor,count,complete,wide,plan,formation,home)
         local invalid=type(count)~='number' or count%1~=0 or count<0 or count>32
         if not invalid then invalid=not Layout.position(anchor,1,math.max(1,count)) end
-        return setmetatable({anchor=anchor,count=count,complete=complete,wide=wide,index=1,step=1,heights={},rays=0,invalid=invalid}, {__index=M})
+        local positions=plan and Layout.positions(anchor,plan,formation);if plan and (not positions or #positions~=count) then invalid=true end
+        return setmetatable({home=home,positions=positions,anchor=anchor,count=count,complete=complete,wide=wide,index=1,step=1,heights={},rays=0,invalid=invalid}, {__index=M})
     end
     function M:finish(error)
         self.done=true;self.complete(not error and {anchor=self.anchor,heights=self.heights} or nil,error)
@@ -18,7 +19,7 @@ return function(nearby,util,Layout)
         local offsets=self.wide and {{0,0},{-110,-40},{135,-40},{-110,110},{135,110}} or {{0,0},{-58,-32},{58,-32},{-58,108},{58,108}}
         for _=1,8 do
             if self.index>self.count then self:finish();return end
-            local p=Layout.position(self.anchor,self.index,self.count,self.wide)
+            local p=self.positions and self.positions[self.index] or Layout.position(self.anchor,self.index,self.count,self.wide)
             local function ray(a,b,radius)
                 self.rays=self.rays+1;return nearby.castRay(a,b,{collisionType=mask,radius=radius or 0})
             end
@@ -42,6 +43,7 @@ return function(nearby,util,Layout)
                     local z=hit.hitPos.z
                     if math.abs(z-self.anchor.z)>limit then self:finish('Stage floor is too far above or below the leader for NPC '..self.index..'.');return end
                     if self.step==1 then
+                        if self.home and not Layout.inRange(self.home,{x=p.x,y=p.y,z=z}) then print(string.format('[SynthStageRange] client home=%s,%s,%s slot=%s,%s,%s limit=%s',self.home.x,self.home.y,self.home.z,p.x,p.y,z,Layout.stageRange));self:finish('Formation exceeds the keyboard range (2000 units). Reduce spacing/distance or choose a smaller preset.');return end
                         self.heights[self.index]=z;self.floor={x=normal.x or 0,y=normal.y or 0,z=normal.z}
                     else
                         local center=self.heights[self.index];local n=self.floor

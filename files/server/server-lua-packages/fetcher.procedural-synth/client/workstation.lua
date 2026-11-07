@@ -40,7 +40,7 @@ function W:loadExercise(id,setId)
     if self.recording or self.failedTake then self.cb.message('Keep or cancel the take before opening a sound check.');return false end
     local candidate=require(prefix..'client.band-exercises').create(id,setId);if not candidate then return false end
     candidate.band=copy(self.project.band);candidate.autoBand=self.project.autoBand
-    candidate.leaderPlays=self.project.leaderPlays;candidate.stageLayout=self.project.stageLayout
+    candidate.leaderPlays=self.project.leaderPlays;candidate.stageLayout=self.project.stageLayout;candidate.formation=copy(self.project.formation)
     candidate=assert(format.project(candidate))
     self:setAudition(0);self:stop(true)
     if self.recorder then self.recorder:releaseInput() end
@@ -79,7 +79,7 @@ function W:newSong(bpm,numerator,denominator,bars)
     p.timeline={beats=s.bars*s.numerator*4/s.denominator,tempos={{beat=0,tempo=math.floor(60000000/p.bpm+0.5)}}}
     -- Keep the physical roster while starting a fresh musical document.
     p.band=copy(self.project.band)
-    p.autoBand=self.project.autoBand;p.leaderPlays=self.project.leaderPlays
+    p.autoBand=self.project.autoBand;p.leaderPlays=self.project.leaderPlays;p.stageLayout=self.project.stageLayout;p.formation=copy(self.project.formation)
     p.tracks[1]=format.newTrack('midi','Piano 1',p.length);p.tracks[1].edited=format.encodeNotes({},960);p.tracks[1].sourceRole='keys'
     p.tracks[1].params,p.tracks[1].presetId=SoundSets.assignment('balanced','keys',true)
     p=format.project(p);if not p then return false end
@@ -365,7 +365,7 @@ function W:setAudition(index)
     self.revision=self.revision+1;return true
 end
 function W:stageDescription()
-    local description={midi=self.project.midi,leaderPlays=self.project.leaderPlays~=false,stageLayout=self.project.stageLayout or 'standing',tracks={}}
+    local description={midi=self.project.midi,leaderPlays=self.project.leaderPlays~=false,stageLayout=self.project.stageLayout or 'standing',formation=copy(self.project.formation),tracks={}}
     for index,t in ipairs(self.project.tracks) do description.tracks[index]={kind=t.kind,instrument=t.instrument,
         sourceRole=t.sourceRole,followPrograms=t.followPrograms,presetId=t.presetId,params=copy(t.params)} end
     return description
@@ -379,6 +379,12 @@ end
 function W:setStageLayout(layout)
     if layout~='standing' and layout~='seated' then return false end
     self:stop(true);self.project.stageLayout=layout;self.managedProject=nil;self:touch('stageLayout');return true
+end
+function W:setFormation(value,key,quiet)
+    if self.bandSetup or self.recording or self.failedTake then self.cb.message('Finish the current stage setup or recording before changing formation.');return false end
+    local valid=format.formation(value);if not valid then return false end
+    if equal(valid,format.formation(self.project.formation)) then return true end
+    self.project.formation=valid;self.managedProject=nil;self:touch('formation:'..(key or 'preset'),quiet);return true
 end
 function W:setupNpcBand(restage,resume,clear)
     if self.recording or self.failedTake then self.cb.message('Keep or cancel the take before setting up NPCs.');return false end

@@ -460,7 +460,7 @@ function S:band(content)
     self:pageSelector(content,'bandPage','Tracks',550,566,305)
     content[#content+1]=self:button('Refresh instruments',20,610,175,function() if w.cb.refreshBand then w.cb.refreshBand() end;w.revision=w.revision+1 end)
     content[#content+1]=self:button(w.bandSetup and 'Setting up NPCs...' or ('Auto NPC band ('..#p.tracks..' parts)'),205,610,270,function() self:releaseAll();w:setupNpcBand(false) end)
-    content[#content+1]=self:button('Restage grid',485,610,155,function() self:releaseAll();w:setupNpcBand(true) end)
+    content[#content+1]=self:button('Formation',485,610,155,function() w.page='formation';w.revision=w.revision+1 end)
     local selectedIndex=w.selected;local selected=p.tracks[selectedIndex]
     local instrument=selected and (selected.instrument or Project.instrumentFor(selected.kind=='drum' and 'percussion' or selected.sourceRole))
     content[#content+1]=self:button('Part '..w.selected..': '..(Project.instrumentNames[instrument] or instrument or 'Choose part')..' v',650,610,240,function()
@@ -477,7 +477,7 @@ function S:band(content)
         local name=p.stageLayout=='seated' and (instrument=='keyboard' or instrument=='cello') and instrument..'_seated' or instrument or 'lute'
         self.cb.tunePose(name)
     end end)
-    content[#content+1]=label('Grouped parts keep their sounds. Auto trims surplus hires; Finish removes managed NPCs. Use clear, level ground.',20,675,880,11,c.muted)
+    content[#content+1]=label('Grouped parts keep their sounds. Auto trims surplus hires; Finish removes managed NPCs. Use a clear stage; Formation previews placement.',20,675,880,11,c.muted)
 end
 local function db(value) return value>0.00001 and string.format('%.1f',20*math.log(value)/math.log(10)) or '-inf' end
 function S:addMasterMeter(content,y)
@@ -1053,7 +1053,7 @@ function S:render()
     if self.samples and self.w.page~='samples' and self.w.page~='samplelibrary' then
         self.samples:stop();if self.w.sampleLibrary and self.w.sampleLibrary.browser==self.samples then self.w.sampleLibrary.browser=nil end
     end
-    self.librarySampleStatus=nil
+    self.librarySampleStatus=nil;self.formationView=nil
     self.sampleStatus=nil;self.sampleWaveform=nil;self.sampleWaveKey=nil
     if self.lastPage=='recordsetup' and self.w.page~='recordsetup' and self.w.recorder and self.w.recorder.calibrating then self.w.recorder:stopClock() end
     if self.lastPage=='record' and self.w.page~='record' then self:releaseRecordKeys() end;self.lastPage=self.w.page
@@ -1082,7 +1082,7 @@ function S:render()
         elseif self.arrangeFocus then self:arrange(content) else self:piano(content) end
         self.root=self.window:root(content);self.revision=w.revision;return
     end
-    Window.tabs(self,content,w.page=='samplelibrary' and 'samples' or w.page,function(page)
+    Window.tabs(self,content,w.page=='samplelibrary' and 'samples' or w.page=='formation' and 'band' or w.page,function(page)
         self:releaseAll();w:endAutomationWrite()
         if page=='synth' then self.cb.synth() elseif page=='arrange' then self:openArranger()
         else w.page=page;if page=='band' and w.cb.refreshTargets then w.cb.refreshTargets() end;w.revision=w.revision+1 end
@@ -1119,7 +1119,7 @@ function S:render()
     content[#content+1]=self:button('Import',self.width-229,112,92,self.cb.import)
     content[#content+1]=self:button('Export MIDI',self.width-125,112,100,function() w:exportMidi() end)
     local body={};self.bodyOffset=(w.page=='piano' or w.page=='drums' or w.page=='auto' or w.page=='arrange') and 0 or math.max(0,(self.width-940)/2)
-    if w.page=='guitar' then require('scripts.multiplayer.fetcher.procedural-synth.client.guitar-page')(self,body) elseif w.page=='timing' then self:timing(body) elseif w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='samplelibrary' then require('scripts.multiplayer.fetcher.procedural-synth.client.sample-library-page')(self,body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='controllers' then require('scripts.multiplayer.fetcher.procedural-synth.client.controller-page')(self,body) elseif w.page=='midimapping' then self:midiMappings(body) elseif w.page=='recordsetup' then self:recordSetup(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' or w.page=='bus' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
+    if w.page=='guitar' then require('scripts.multiplayer.fetcher.procedural-synth.client.guitar-page')(self,body) elseif w.page=='timing' then self:timing(body) elseif w.page=='auto' then self:automation(body) elseif w.page=='projects' then self:projects(body) elseif w.page=='rename' then self:renamePage(body) elseif w.page=='samples' then self:samplePage(body) elseif w.page=='samplelibrary' then require('scripts.multiplayer.fetcher.procedural-synth.client.sample-library-page')(self,body) elseif w.page=='arrange' then self:arrange(body) elseif w.page=='newsong' then self:newSong(body) elseif w.page=='song' then self:song(body) elseif w.page=='controllers' then require('scripts.multiplayer.fetcher.procedural-synth.client.controller-page')(self,body) elseif w.page=='midimapping' then self:midiMappings(body) elseif w.page=='recordsetup' then self:recordSetup(body) elseif w.page=='record' then self:record(body) elseif w.page=='piano' then self:piano(body) elseif w.page=='drums' then self:drums(body) elseif w.page=='channel' or w.page=='bus' then self:channel(body) elseif w.page=='returns' then self:returns(body) elseif w.page=='formation' then require('scripts.multiplayer.fetcher.procedural-synth.client.formation-page')(self,body) elseif w.page=='band' then self:band(body) else self:mixer(body) end
     -- Keep the header above centered page containers in native hit testing.
     if self.bodyOffset>0.1 then table.insert(content,1,{type=ui.TYPE.Widget,props={position=v(self.bodyOffset,0),size=v(940,self.height)},content=ui.content(body)})
     else for _,item in ipairs(body) do content[#content+1]=item end end
@@ -1264,6 +1264,7 @@ function S:frame(now)
     -- Autosave/roster/status replies may revise the background while a chooser
     -- owns focus. Apply the pending redraw after selection or dismissal.
     if self.revision~=self.w.revision and not self.dropdown and not input.isMouseButtonPressed(1) then self:render() end
+    if self.formationView then self.formationView:frame() end
     self:updatePlayheads()
     if now-self.lastFrame<0.1 then return end;self.lastFrame=now
     for _,refresh in ipairs(self.numericRefresh or {}) do refresh() end

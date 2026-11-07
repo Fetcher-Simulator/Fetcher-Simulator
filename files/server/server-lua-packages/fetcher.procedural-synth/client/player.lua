@@ -342,7 +342,7 @@ makeWorkstation=function(i)
         hire=function(slot) send('hire',{slot=slot}) end,
         setupBand=function(requestId,restage,project,clear)
             local document=i.workstation.project
-            local message={requestId=requestId,project=project,stageLayout=document.stageLayout or 'standing'}
+            local message={requestId=requestId,project=project,stageLayout=document.stageLayout or 'standing',formation=restage and Project.formation(document.formation) or nil}
             local op=clear and 'clearBand' or restage and 'stageBand' or 'autoBand'
             if clear then send(op,message);return end
             local position=self.position;local _,yaw=self.rotation:getAnglesXZ()
@@ -355,16 +355,15 @@ makeWorkstation=function(i)
                     anchor={x=p.x-math.sin(rz)*50,y=p.y-math.cos(rz)*50,z=p.z,rz=rz}
                 end
             end
-            local plan=stageLayout.plan(document);local count=#plan;local wide=plan.wideSpacing
-            if restage then local seen={};count=0;wide=false;for _,m in ipairs(document.band) do local t=m.target
-                if t and t.kind=='npc' and not seen[t.mpNum] then seen[t.mpNum]=true;count=count+1;if t.instrument=='drumkit' then wide=true end end
-            end end
+            local plan=restage and stageLayout.bound(document.band) or stageLayout.plan(document)
+            local count=#plan;local wide=plan.wideSpacing
+            local home=i.source.position;if home then home={x=home.x,y=home.y,z=home.z} end
             i.stageCheck=StagePreflight.new(anchor,count,function(ground,error)
                 i.stageCheck=nil
                 local w=i.workstation;if not w.bandSetup or w.bandSetup.requestId~=requestId then return end
                 if error then w:receiveBandSetup{requestId=requestId,error=error};return end
                 message.ground=ground;send(op,message)
-            end,wide)
+            end,wide,plan,document.formation,home)
         end,
         dismiss=function(slot) send('dismiss',{slot=slot}) end,
         invite=function(slot) send('invite',{slot=slot}) end,

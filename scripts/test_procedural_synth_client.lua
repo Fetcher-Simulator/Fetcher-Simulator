@@ -123,6 +123,7 @@ package.loaded[prefix..'client.pose-editor']=dofile(root..'client/pose-editor.lu
 package.loaded[prefix..'client.listening']=dofile(root..'client/listening.lua')
 package.loaded[prefix..'client.listening-panel']=dofile(root..'client/listening-panel.lua')
 package.loaded[prefix..'shared.band-layout']=dofile(root..'shared/band-layout.lua')
+package.loaded[prefix..'client.formation-page']=dofile(root..'client/formation-page.lua')
 package.loaded[prefix..'client.stage-preflight']=dofile(root..'client/stage-preflight.lua')
 local player=dofile(root..'client/player.lua')
 local api=player.interface
@@ -1787,6 +1788,23 @@ do
   check(l.browser==nil,'destroying Studio prevents late saved-entry replies from changing the draft')
  end
  testSampleLibraryPage()
+ local function testFormationPage()
+  local Workstation=package.loaded[prefix..'client.workstation'];local w=Workstation.new{configure=function() end,panic=function() end,message=function() end,meter=function() return 0 end}
+  for i,name in ipairs{'violin','flute','trumpet','keyboard'} do w:add('piano');w.project.tracks[i].instrument=name;w.project.tracks[i].params.fine1=i end
+  w.project.leaderPlays=false;w.page='band'
+  local view=Studio.new(w,{midiLabel=function() return '' end,hide=function() end});local function click(text)
+   for _,item in ipairs(view.root.layout.content) do if item.content and item.content[1] and item.content[1].props and item.content[1].props.text==text then item.events.mouseClick();return end end
+   error('missing Formation control '..text)
+  end
+  click('Formation');view:frame(now+.2);check(w.page=='formation' and view.formationView,'Band opens Formation page')
+  local root=view.root;local preview=view.formationView.preview;local signature=view.formationView.signature
+  w.playing=true;w.native=true;w:setFormation({preset='sections',spacing=1.25,depth=1.2,distance=1},'spacing',true);view:frame(now+.4)
+  check(view.root==root and view.formationView.preview==preview and view.formationView.signature~=signature and w.playing,'live spacing/preset preview retains widgets and playback')
+  click('Preset: grid v');check(view.dropdown~=nil,'preset chooser opens');view:frame(now+.6);check(view.dropdown and view.root==root,'preview refresh cannot dismiss an open preset chooser')
+  package.loaded[prefix..'client.dropdown'].close(view);view:render()
+  click('Back to Band');view:frame(now+.8);check(w.page=='band' and not view.formationView,'Back restores the Band page');view:destroy()
+ end
+ testFormationPage()
  local keys=package.loaded[prefix..'client.transport-keys'];input.KEY.Space=301;local owner={};local actions={}
  input.isShiftPressed=function() return shift end
  local function action(value) actions[#actions+1]=value end

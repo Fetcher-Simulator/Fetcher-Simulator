@@ -13,7 +13,7 @@ local function inventory(p)
 end
 local function nearby(p,s)
     local home=mp.getObjectByMpNum(s.id);local a,b=p and p.position,home and home.position
-    return p and home and Layout.sameWorld(p.cell,s.cell) and a and b and (a.x-b.x)^2+(a.y-b.y)^2+(a.z-b.z)^2<=2000^2
+    return p and home and Layout.sameWorld(p.cell,s.cell) and a and b and Layout.inRange(b,a)
 end
 function P:registry(character)
     if self.registries[character] then return self.registries[character] end

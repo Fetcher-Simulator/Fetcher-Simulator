@@ -384,8 +384,16 @@ function M.track(t,length)
     end
     return out
 end
+M.formationPresets={{id='grid',name='Grid'},{id='sections',name='Instrument sections'},{id='arc',name='Arc'}}
+function M.formation(value)
+    if value==nil then return {preset='grid',spacing=1,depth=1,distance=1} end
+    if not keys(value,{preset=true,spacing=true,depth=true,distance=true},4)
+        or not ({grid=true,sections=true,arc=true})[value.preset]
+        or not num(value.spacing,1,2) or not num(value.depth,1,2) or not num(value.distance,1,2) then return nil end
+    local out={preset=value.preset};for _,key in ipairs{'spacing','depth','distance'} do out[key]=math.floor(value[key]*1000+.5)/1000 end;return out
+end
 function M.project(p)
-    if not keys(p,{version=true,name=true,bpm=true,swing=true,length=true,loop=true,midi=true,tracks=true,master=true,effects=true,soundSet=true,band=true,timeline=true,composition=true,autoBand=true,leaderPlays=true,stageLayout=true,masterMixer=true,loopRange=true},19)
+    if not keys(p,{version=true,name=true,bpm=true,swing=true,length=true,loop=true,midi=true,tracks=true,master=true,effects=true,soundSet=true,band=true,timeline=true,composition=true,autoBand=true,leaderPlays=true,stageLayout=true,formation=true,masterMixer=true,loopRange=true},20)
         or not num(p.master or 0.7,0,1) or p.version~=1 or not text(p.name,64) or not num(p.bpm,40,240) or not num(p.swing,0,0.6)
         or not int(p.length,16,M.maxSteps) or p.length%16~=0 or type(p.loop)~='boolean' or not text(p.midi,192)
         or not text(p.soundSet or '',32) or not array(p.tracks,M.maxTracks) then return nil end
@@ -396,6 +404,7 @@ function M.project(p)
     for _,name in ipairs{'autoBand','leaderPlays'} do
         if p[name]~=nil then if type(p[name])~='boolean' then return nil end;out[name]=p[name] end
     end
+    if p.formation~=nil then out.formation=M.formation(p.formation);if not out.formation then return nil end end
     if p.stageLayout~=nil then
         if p.stageLayout~='standing' and p.stageLayout~='seated' then return nil end
         out.stageLayout=p.stageLayout
