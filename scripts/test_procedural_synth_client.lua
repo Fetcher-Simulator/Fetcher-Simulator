@@ -1743,13 +1743,35 @@ do
  testWaveEditor()
  local function testSampleLibraryPage()
   local Workstation=package.loaded[prefix..'client.workstation'];local Samples=package.loaded[prefix..'client.samples']
-  local synth={version=40,sampleInfo=function() return {status='Ready',duration=2,hash=string.rep('a',32)} end,
+  local synth={version=41,sampleInfo=function(_,_,duration) return {status='Ready',duration=duration,peak=.4,hash=string.rep('a',32)} end,
    sampleWaveformRange=function() return {minimum={-.2},maximum={.2}} end}
   local w=Workstation.new{samples=function() return Samples.new(synth,{},{},{}) end,configure=function() end,panic=function() end,message=function() end,meter=function() return 0 end,sampleStatus=function() return {status='Ready'} end}
   w:add('piano');w.page='samples'
   local sent={};local l=package.loaded[prefix..'client.sample-library'].new(w,{now=function() return now end,send=function(op,data) sent[#sent+1]={op=op,data=data} end})
   local view=Studio.new(w,{midiLabel=function() return '' end,hide=function() end});local b=view:sampleBrowser();b:select('sound/test.wav');b.duration=2
   b.editView={key=b:viewKey(),first=0,span=2,caret=0,points={.4,1},trimFirst=0,trimLast=2,sensitivity=.7,spacing=.12,snap=false};view:setSampleFocus(true);view:render()
+  local edge=view.waveEditor;local initialRoot=view.root;local generation=w.generation
+  mouseDown=true;local position=view.root.layout.props.position;local scale=view.window.scale
+  edge.handles.fadeIn.layout.events.mousePress{button=1,position=vector(position.x+(edge.x+edge.width*.1)*scale,position.y+(edge.y+38)*scale)}
+  edge.handles.fadeIn.layout.events.mouseMove{button=1,position=vector(position.x+(edge.x+edge.width*.2)*scale,position.y+(edge.y+38)*scale)}
+  mouseDown=false;edge:frame()
+  check(b.fadeIn==.4 and #b.editUndo==1 and view.root==initialRoot and w.generation==generation,'fade handle drag is smooth, grouped and does not modify the project')
+  check(edge.guides.fadeIn.layout.props.visible and math.abs(edge.guides.fadeIn.layout.props.position.x-(edge.x+edge.width*.2)*scale)<.001 and math.abs(edge.guides.fadeIn.layout.props.size.y-edge.height*scale)<.001,'fade handle keeps a full-height guide at its exact source position')
+  view:history(false);check(not b.fadeIn and w.generation==generation,'expanded editor Undo uses source edits instead of musical history')
+  view:history(true);check(b.fadeIn==.4,'expanded editor Redo restores the fade')
+  local undoSize=#b.editUndo;local redoStack=b.editRedo
+  mouseDown=true;edge.handles.fadeOut.layout.events.mousePress{button=1,position=vector(position.x+(edge.x+edge.width*.9)*scale,position.y+(edge.y+38)*scale)}
+  edge:finish(true);mouseDown=false
+  check(not b.fadeOut and b.fadeIn==.4 and #b.editUndo==undoSize and b.editRedo==redoStack,'cancelled fade drag restores settings and both history stacks')
+  local function clickExpanded(text)
+   for _,item in ipairs(view.root.layout.content) do if item.content and item.content[1] and item.content[1].props and item.content[1].props.text==text then item.events.mouseClick();return end end
+   error('missing source control '..text)
+  end
+  clickExpanded('Normalize -1 dB');check(b.gain*.4<=10^(-1/20) and b.gain>2,'normalization updates source gain with headroom')
+  b.editView.caret=.5;clickExpanded('Edit slice');view:render()
+  check(b.sliceParent and b.offset==.4 and b.duration==.6 and (b.fadeIn or 0)<=.6,'Edit slice loads a bounded independent source excerpt')
+  clickExpanded('Back to source');view:render()
+  check(not b.sliceParent and b.offset==0 and b.duration==2 and b.editView.points[2]==1 and b.fadeIn==.4,'Back to source restores the full kit draft and edge edits')
   view:openSampleLibrary('kit');view:render()
   check(w.page=='samplelibrary' and sent[1].op=='sampleList' and not view.sampleFocus,'expanded waveform opens the private library and lists saved entries')
   l:receive{requestId=sent[1].data.requestId,entries={}};view:frame(now+.2)

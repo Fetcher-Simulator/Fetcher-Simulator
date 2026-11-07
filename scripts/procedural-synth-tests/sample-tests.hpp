@@ -105,6 +105,26 @@ void sampleTests()
     check(!waveform.view(-1,.1,false) && !waveform.view(0,1,false) && !waveform.view(.1,.1,false) && !waveform.zeroCrossing(-1,false),"waveform editor rejects invalid ranges");
     waveform.zones.push_back({});check(!waveform.view(0,4.0/48000,false) && !waveform.zeroCrossing(0,false),"multisample banks cannot be edited as arbitrary raw excerpts");
     waveform.zones.clear();waveform.pcm.assign(48000,.5f);check(!waveform.zeroCrossing(.5,false),"zero snap cannot jump beyond its five-millisecond neighborhood");
+    Playback edge;edge.fadeIn=.2;edge.fadeOut=.3;
+    std::vector<float> flat(48000,.5f);double edgePos=4800;bool edgeWrapped=false;
+    check(edge.valid() && edge.fits(flat.size()),"source edge fades validate against decoded length");
+    check(std::abs(edge.read(flat,0,48000,edgePos,1,edgeWrapped)-.25)<1e-6,"fade-in ramps in playback-relative seconds");
+    edgePos=40800;check(std::abs(edge.read(flat,0,48000,edgePos,1,edgeWrapped)-.2499653)<1e-5,"fade-out reaches zero at the source end");
+    edge.reverse=true;edgePos=4800;check(std::abs(edge.read(flat,0,48000,edgePos,1,edgeWrapped)-.25)<1e-6,"reverse preserves playback-relative fade direction");
+    edgePos=0;check(edge.read(flat,0,48000,edgePos,1,edgeWrapped)==0,"explicit fade starts at zero");
+    edge.fadeIn=std::nan("");check(!edge.valid(),"NaN fade rejected");edge.fadeIn=-1;check(!edge.valid(),"negative fade rejected");
+    edge.fadeIn=.8;check(!edge.fits(flat.size()),"combined fades cannot exceed the decoded excerpt");
+    edge=loop;edge.fadeIn=.1;edge.fadeOut=.1;edgeWrapped=true;edgePos=5000;
+    check(std::abs(edge.read(flat,0,48000,edgePos,1,edgeWrapped)-.5)<1e-6,"loop wraps do not repeat the entry or ending ramps");
+    Sample peakData;peakData.pcm=flat;peakData.pcm[17]=-.75f;peakData.buildWaveform();
+    check(peakData.sourcePeak==.75f,"published source peak includes negative extrema");
+    Playback faded;faded.fadeIn=.025;faded.fadeOut=.04;
+    for(auto* studio:{a.get(),b.get()})
+    {
+        studio->stop();check(studio->sample(1,data,60,true,hash,{},1,faded),"native Studio accepts source fades");
+        check(studio->loadScore(scoreNote(0,12000,1,60),24000,false) && studio->start(0,0),"faded sample score accepted");
+    }
+    check(studioRender(*a,24000,480)==studioRender(*b,24000,137),"faded sample playback remains callback-size invariant");
     std::cout << "PASS sample loading, identity, pitch, chords, one-shot/gated release, stop, end and control-thread reclamation\n";
     std::cout << "PASS reverse interpolation, bounded sustain loops/crossfades, transposition, late decode rejection, waveform and native scheduling\n";
 }

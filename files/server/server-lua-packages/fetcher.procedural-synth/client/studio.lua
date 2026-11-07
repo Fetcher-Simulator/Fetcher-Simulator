@@ -1076,8 +1076,8 @@ function S:render()
         content[#content+1]=self:button(w:clipSource() and 'Play source' or 'Play clips',335,12,96,self.cb.playClips)
         content[#content+1]=self:button('Stop',440,12,58,self.cb.stop)
         self.transport=self:element(label('',515,18,self.width-755,12,c.accent));content[#content+1]=self.transport
-        content[#content+1]=self:button('Undo',self.width-226,12,80,function() w:undo() end,#w.undoStack>0)
-        content[#content+1]=self:button('Redo',self.width-133,12,80,function() w:redo() end,#w.redoStack>0)
+        content[#content+1]=self:button('Undo',self.width-226,12,80,function() self:history(false) end,#w.undoStack>0)
+        content[#content+1]=self:button('Redo',self.width-133,12,80,function() self:history(true) end,#w.redoStack>0)
         self.bodyOffset=0;if self.sampleFocus then self.waveEditor=require('scripts.multiplayer.fetcher.procedural-synth.client.sample-editor').new(self,content)
         elseif self.arrangeFocus then self:arrange(content) else self:piano(content) end
         self.root=self.window:root(content);self.revision=w.revision;return
@@ -1090,8 +1090,8 @@ function S:render()
     content[#content+1]=self:button('Hide [F8]',self.width-198,12,104,self.cb.hide)
     content[#content+1]=self:button('Finish',self.width-84,12,64,self.cb.close)
     self.transport=self:element(label('',20,43,self.width-280,12,c.accent));content[#content+1]=self.transport
-    content[#content+1]=self:button('Undo',self.width-226,41,80,function() w:undo() end,#w.undoStack>0)
-    content[#content+1]=self:button('Redo',self.width-133,41,80,function() w:redo() end,#w.redoStack>0)
+    content[#content+1]=self:button('Undo',self.width-226,41,80,function() self:history(false) end,#w.undoStack>0)
+    content[#content+1]=self:button('Redo',self.width-133,41,80,function() self:history(true) end,#w.redoStack>0)
     content[#content+1]=self:button('Play song',20,70,88,function() self.cb.playSong() end)
     content[#content+1]=self:button(w:clipSource() and 'Play source' or 'Play clips',116,70,88,function() self.cb.playClips() end)
     content[#content+1]=self:button('Stop',212,70,54,self.cb.stop)
@@ -1147,6 +1147,12 @@ function S:releaseRecordKeys()
     for note in pairs(self.recordHeld or {}) do self.w:recordOff(note) end
     self.recordHeld={};self.recordKeys={};self.mouseRecord=nil
 end
+function S:history(redo)
+    if self.sampleFocus and self.samples then
+        if self.waveEditor then self.waveEditor:finish() end
+        self.samples:undoEdit(redo);if self.waveEditor then self.waveEditor:draw() end
+    elseif redo then self.w:redo() else self.w:undo() end
+end
 function S:key(code,on)
     if not on then TransportKeys.handle(self,code,false) end
     -- Focused native Lua widgets can consume key presses before onKeyPress.
@@ -1176,8 +1182,8 @@ function S:key(code,on)
         if self.roll then self.roll:finish(true) end
         if self.automationRoll then self.automationRoll:finish(true) end
         if self.arranger then self.arranger:finish(true) end
-        if code==input.KEY.Z then if input.isShiftPressed and input.isShiftPressed() then self.w:redo() else self.w:undo() end
-        elseif code==input.KEY.Y then self.w:redo()
+        if code==input.KEY.Z then if input.isShiftPressed and input.isShiftPressed() then self:history(true) else self:history(false) end
+        elseif code==input.KEY.Y then self:history(true)
         elseif self.arranger then
             if code==input.KEY.A then self.w:selectAllRegions()
             elseif code==input.KEY.D then self.w:batchRegions('duplicate') end

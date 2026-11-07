@@ -1,3 +1,23 @@
+## 2026-11-07 — package 86 / API 41: sample-editing completion
+
+- All **41 Lua suites** pass, including source-field validation, normalizer raw
+  peak/headroom/boost-cap/silence behavior, grouped local Undo/Redo, real UI fade
+  drag/history/extraction/back, exact guide positioning, reversed slice bounds and project/library round trips.
+- All **12 native groups** pass after rebuilding the client and core harness.
+  Added exact fade amplitude/direction checks, malformed/decoded-length rejection,
+  loop-wrap behavior, raw negative-peak publication and faded score callback-size
+  invariance. Zero-default references retain the existing native rendering path.
+- Copied-profile two-client acceptance on monitor 2 / port 25567 passes: actual
+  lower green fade-handle drags, Normalize click, source Undo/Redo, Edit slice and
+  Back to source, kit save/open, project save/reload, late-listener fade/gain
+  metadata and sounding native phrase. A first harness run exposed its own stale
+  draft guard by opening from the waveform rather than library page; corrected
+  navigation is exercised in the passing run.
+- All 675 protected original user files stay hash-identical during acceptance.
+  Capture is released and clients close afterward. API 41 is client C++ only;
+  server Lua carries additive fields. The two package-85 library modules now
+  appear in the server release-file list. No VPS/public/asset rollout occurs.
+
 ## 2026-11-06 — package 85: saved sample recipes, kits and editor opening
 
 - `python build/run-synth-automation-tests.py`: all 40 Lua suites pass. Added

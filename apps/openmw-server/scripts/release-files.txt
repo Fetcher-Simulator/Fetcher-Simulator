@@ -33,6 +33,8 @@ procedural_synth_schema.lua
 procedural_synth_project.lua
 procedural_synth_sequence.lua
 procedural_synth_library.lua
+procedural_synth_sample_format.lua
+procedural_synth_samples.lua
 procedural_synth_performers.lua
 mark_recall.lua
 mod_manifest.lua

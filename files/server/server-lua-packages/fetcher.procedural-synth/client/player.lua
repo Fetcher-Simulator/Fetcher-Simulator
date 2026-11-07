@@ -144,7 +144,9 @@ object=function(id)
 end
 local function apply(instance, params)
     for name in pairs(schema.specs) do instance.audio:set(name,params[name]) end
-    if instance.audio.sample then instance.audio:sample(params.sample) end
+    local supported=transport:supports(params.sample)
+    if instance.audio.sample then instance.audio:sample(supported and params.sample or nil) end
+    if not supported then instance.audio:allNotesOff();instance.audio:set('volume',0) end
     instance.params=params
 end
 local function applyChannel(i,n,params,level,mixer,audible)
@@ -178,6 +180,7 @@ end
 local function playNote(i,channel,note,velocity,expression)
     if expression~=nil then expression=schema.strike(expression);if not expression then return false end end
     local params=channel==0 and i.params or i.channels[channel] and i.channels[channel].params
+    if params and not transport:supports(params.sample) then return false end
     if params and params.drumType==3 then
         -- Every listener applies the same kit choke locally from the note event.
         for n,c in pairs(i.channels) do if c.params.drumType==4 and c.audio then

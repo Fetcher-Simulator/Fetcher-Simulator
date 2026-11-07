@@ -32,6 +32,7 @@ namespace MWSound
         bool hasHammer = false; // v2 flag 4: recorded upward connected attacks
         std::array<float,256> waveMin{},waveMax{};
         bool waveformReady=false;
+        float sourcePeak=0; // Raw source peak, published with Ready; normalization is control-thread only.
         struct View
         {
             std::array<float,256> minimum{},maximum{};
@@ -123,6 +124,7 @@ namespace MWSound
         void buildWaveform() // loader thread only, raw excerpts only
         {
             if(pcm.empty())return;
+            sourcePeak=0;for(float value:pcm)sourcePeak=std::max(sourcePeak,std::abs(value));
             for(std::size_t n=0;n<waveMin.size();++n)
             {
                 const auto first=n*pcm.size()/waveMin.size();

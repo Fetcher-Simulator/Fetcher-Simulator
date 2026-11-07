@@ -45,6 +45,8 @@ namespace MWLua
                 throw std::invalid_argument("Instrument banks use fixed zone roots and gated playback");
             result.gain=table["gain"].get_or(1.f);
             if(!std::isfinite(result.gain) || result.gain<.25f || result.gain>8)throw std::invalid_argument("Invalid sample input gain");
+            result.playback.fadeIn=table["fadeIn"].get_or(0.0);
+            result.playback.fadeOut=table["fadeOut"].get_or(0.0);
             const sol::object reverse=table["reverse"],loop=table["loop"];
             if(reverse.valid() && reverse!=sol::nil)
             {
@@ -63,7 +65,7 @@ namespace MWLua
                 result.playback.crossfade=points["crossfade"].get<double>();
                 if(!result.playback.loop())throw std::invalid_argument("Invalid sample loop range");
             }
-            if(!result.playback.valid(result.oneShot) || result.playback.loopEnd>duration
+            if(!result.playback.valid(result.oneShot) || (result.playback.loopEnd>duration || result.playback.fadeIn+result.playback.fadeOut>duration)
                 || (path.ends_with(".fsb") && result.playback.edited()))throw std::invalid_argument("Invalid sample playback settings");
             result.root = static_cast<int>(root);
             const sol::object attacks=table["attacks"];
@@ -121,7 +123,7 @@ namespace MWLua
                     return synth.sample(std::move(s.data), s.root, s.oneShot, s.hash, s.attacks, s.gain, s.playback);
                 });
             sol::table api(lua, sol::create);
-            api["version"] = 40;
+            api["version"] = 41;
             api["exportMidi"] = [manager = context.mLuaManager, lua](std::string name, std::string bytes) {
                 const auto path = manager->exportStudioMidi(name, bytes);
                 sol::table result(lua, sol::create);
@@ -140,6 +142,7 @@ namespace MWLua
                 if (status != MWSound::ProceduralSample::Loading)
                 {
                     info["hash"] = data->hash; info["error"] = data->error;
+                    if(data->zones.empty())info["peak"]=data->sourcePeak;
                     info["duration"] = data->pcm.size() / 48000.0;
                     if(!data->zones.empty())
                     {

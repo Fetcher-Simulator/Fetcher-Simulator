@@ -43,3 +43,15 @@ transport:receive({op='transportStop',id=8,epoch=2,playId=99},instances)
 check(transport.downloads[8] and transport.downloads[8].epoch==3,'older session cannot cancel a pending new-session download')
 check(#messages==0,'valid playback produces no error messages')
 print('PASS clock estimation, chunk upload, future start, live replacement, late seek and cancellation')
+
+-- Old native bindings ignore unknown fade fields: explicitly mute that lane,
+-- rather than playing a different patch or disrupting other tracks.
+do
+ local audible;local savedVersion=engine.version;local savedConfigure=i.studio.configure
+ i.studio.configure=function(_,_,_,_,value) audible=value;return true end
+ local reference={fadeIn=.1};i.channels[1].params.sample=reference
+ engine.version=40;transport:configure(i,1);check(audible==false and not transport:supports(reference),'old client silences unsupported faded lane')
+ engine.version=41;transport:configure(i,1);check(audible==true and transport:supports(reference),'current client keeps edited lane audible')
+ i.channels[1].params.sample=nil;engine.version=40;transport:configure(i,1);check(audible==true,'unrelated legacy parts remain audible')
+ i.studio.configure=savedConfigure;engine.version=savedVersion
+end

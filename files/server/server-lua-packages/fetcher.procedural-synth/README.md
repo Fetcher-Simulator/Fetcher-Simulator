@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 85 / native synth API 40 / multiplayer protocol 27.
+Current source: package 86 / native synth API 41 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,47 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models are available. More detailed articulation/animation
 and wider listening-based sound balancing remain in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Source fades, normalization and slice editing (package 86)
+
+In **Samples > Edit waveform**, use the **Fade in / Fade out** sliders, numeric
+fields or green lower waveform handles. Values are milliseconds on the source
+in playback order, including Reverse. The waveform reflects source gain and edge
+fades. Matching full-height guides connect each handle to its source position:
+blue trim, purple loop, orange slices and green cursor/fades. Both ramps must fit within the decoded excerpt; a shortened trim/slice
+fits inherited ramps to its new length. These are non-destructive playback edits,
+not rewritten sound files. Sustain loops use fade-in only on entry and the sound's
+release envelope on note-off; source fade-out does not fade every loop wrap.
+
+**Normalize -1 dB** sets source gain from the actual decoded raw peak, including
+negative peaks, with at least 1 dB of source headroom. It rounds gain downward
+and caps boost at 8x, reporting when a very quiet excerpt remains below target.
+Silent/missing/mismatched sources stay unchanged. This is peak normalization,
+not loudness matching, a limiter or protection against later mixer/effect boosts.
+**Source gain** remains manually adjustable from 0.25x to 8x.
+
+Fade/gain changes and normalization have a local 32-step Undo/Redo history; one
+drag is one edit. In the expanded sample editor, the header Undo/Redo and
+Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y use that source history. Musical project history stays
+separate until **Use sample on part**, which is an ordinary project Undo action.
+Preview the edits with Audition; apply them to the part and save the project,
+or save/update a named sample or slice kit in the sample library.
+
+To work on one interval, put the cursor in a marked slice and choose **Edit
+slice**. It opens an independent, bounded excerpt while keeping the original
+kit draft. Edit, preview, assign or save that excerpt as a named sample.
+**Back to source** restores the full source and its markers/settings; it does
+not merge the extracted sample's edits into every kit slice. Kit-created lanes
+and phrases inherit fitted source fades and gain, and can then be edited separately.
+
+Package 86 needs native synth API 41 for fades and cached raw peak information.
+Old references without fades keep their existing sound. Old clients report
+faded references unavailable instead of silently playing different settings.
+Shared/server Lua validation carries the new bounded fields through ordinary
+samples, presets, projects and private libraries. No server C++ or hosted-asset
+change is needed; this checkpoint updates only the local port-25567 fixture.
+The agreed core sample-editing priority is complete; advanced time stretching,
+source separation and per-slice override maps inside a saved kit are not added.
 
 ## Personal sample library and saved slice kits (package 85)
 

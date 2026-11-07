@@ -19,7 +19,7 @@ function M.recipe(value)
     local source=schema.sample(value.source)
     if not source or not source.hash or schema.isBank(source) or value.span>source.duration+1e-7 then return nil end
     local span=math.floor(value.span*1000+.5)/1000
-    if source.loop and source.loop.finish>span+1e-7 then return nil end
+    if source.loop and source.loop.finish>span+1e-7 or (source.fadeIn or 0)+(source.fadeOut or 0)>span+1e-7 then return nil end
     local out={version=1,kind=value.kind,source=source,span=span}
     if value.kind=='sample' then if value.markers~=nil or value.settings~=nil then return nil end;return out end
     if not array(value.markers,15) or #value.markers<1 then return nil end

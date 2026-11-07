@@ -18,7 +18,7 @@ function E.new(owner,content)
     owner.sampleEditorWaiting=nil
     local key=table.concat({b.path,b.offset,b.duration,tostring(b.reverse)},'|')
     if not b.editView or b.editView.key~=key then b.editView={key=key,first=0,span=length,caret=0,trimFirst=0,trimLast=length,points={},snap=true} end
-    local self=setmetatable({owner=owner,b=b,s=b.editView,length=length,x=25,y=280,width=owner.width-50,height=math.max(160,owner.height-405),handles={}},E)
+    local self=setmetatable({owner=owner,b=b,s=b.editView,length=length,x=25,y=366,width=owner.width-50,height=math.max(140,owner.height-491),handles={},guides={}},E)
     self.s.loopFirst=b.loop and b.loop.start or 0;self.s.loopLast=b.loop and b.loop.finish or length
     local function button(text,x,y,width,fn,on) content[#content+1]=owner:button(text,x,y,width,fn,on) end
     button('Back [Esc]',20,55,115,function() owner:setSampleFocus(false) end)
@@ -62,18 +62,39 @@ function E.new(owner,content)
     button('Undo detect',715,183,175,function()
         if self.s.previousPoints then self.s.points=self.s.previousPoints;self.s.previousPoints=nil;self.s.marker=nil;self.s.notice='Previous markers restored.';self:draw() end
     end)
-    self.status=owner:element(label('',20,224,owner.width-40));content[#content+1]=self.status
-    self.notice=owner:element(label('',20,247,owner.width-40));content[#content+1]=self.notice
+    local function edit(kind,value)
+        local first,last=b.fadeIn or 0,b.fadeOut or 0
+        if kind=='fadeIn' then first=math.min(value,length-last) elseif kind=='fadeOut' then last=math.min(value,length-first) end
+        if not b:setEdits(kind=='gain' and value or b.gain or 1,first,last,kind) then self.s.notice='Sample edge editing requires a matching Ready sample on API 41.' end
+        self:draw()
+    end
+    content[#content+1]=Controls.slider(owner,'sampleFadeIn','Fade in',{min=0,max=length,step=.001,unit='s'},function() return b.fadeIn or 0 end,function(value) edit('fadeIn',value) end,20,220,280)
+    content[#content+1]=Controls.slider(owner,'sampleFadeOut','Fade out',{min=0,max=length,step=.001,unit='s'},function() return b.fadeOut or 0 end,function(value) edit('fadeOut',value) end,315,220,280)
+    content[#content+1]=Controls.slider(owner,'sampleInputGain','Source gain',{min=.25,max=8,step=.01,log=true},function() return b.gain or 1 end,function(value) edit('gain',value) end,610,220,280)
+    button('Edit slice',20,270,140,function()
+        local ref=self:slice();local parent=b:recipe('kit')
+        if not ref or not parent then self.s.notice='Add a marker and choose a slice with the cursor first.';self:draw();return end
+        if b:loadReference(ref) then b.sliceParent=parent;owner.w.revision=owner.w.revision+1 end
+    end)
+    button('Back to source',170,270,150,function()
+        local parent=b.sliceParent
+        if parent then b:loadRecipe(parent);owner.w.revision=owner.w.revision+1 else self.s.notice='Edit slice opens a separate excerpt; this is already the full source.';self:draw() end
+    end)
+    button('Normalize -1 dB',330,270,170,function() local _,message=b:normalize();self.s.notice=message;self:draw() end)
+    button('Undo sample edit',510,270,180,function() b:undoEdit(false);self:draw() end)
+    button('Redo sample edit',710,270,180,function() b:undoEdit(true);self:draw() end)
+    self.status=owner:element(label('',20,310,owner.width-40));content[#content+1]=self.status
+    self.notice=owner:element(label('',20,333,owner.width-40));content[#content+1]=self.notice
     self.wave=owner:element(rect(self.x,self.y,self.width,self.height,c.bg))
     self.wave.layout.events={mousePress=cb(function(e) if e.button==1 then self.s.caret=self:time(e);self.s.marker=nil;self:draw() end end)}
     content[#content+1]=self.wave
-    for _,kind in ipairs{'trimFirst','trimLast','loopFirst','loopLast','caret'} do self:handle(content,kind) end
+    for _,kind in ipairs{'trimFirst','trimLast','loopFirst','loopLast','caret','fadeIn','fadeOut'} do self:handle(content,kind) end
     for n=1,15 do self:handle(content,n) end
     local bar=owner:slider(self.x,self.y+self.height+15,self.width,length>self.s.span and self.s.first/(length-self.s.span) or 0,function(value)
         self.s.first=value*(length-self.s.span);self:draw()
     end,function() return length>self.s.span and self.s.first/(length-self.s.span) or 0 end)
     content[#content+1]=bar
-    content[#content+1]=label('Drag blue trim handles at the top; loop handles at the bottom. Orange markers split slices.',20,self.y+self.height+43,owner.width-40)
+    content[#content+1]=label('Blue: trim. Purple: loop. Orange: slices. Green: cursor/fades. Drag the squares; lines mark their exact source positions.',20,self.y+self.height+43,owner.width-40)
     content[#content+1]=label('Click to place the cursor; wheel zooms, Shift+wheel pans. Changes use millisecond precision. Esc returns.',20,self.y+self.height+65,owner.width-40)
     self:draw();return self
 end
@@ -93,9 +114,11 @@ function E:time(e)
     return clamp(self.s.first+clamp(x,0,self.width)/self.width*self.s.span,0,self.length)
 end
 function E:handle(content,kind)
+    local guide=self.owner:element(rect(0,0,1,self.height,c.blue));self.guides[kind]=guide;content[#content+1]=guide
     local h=self.owner:element(rect(0,0,10,15,c.blue));self.handles[kind]=h
     h.layout.events={mousePress=cb(function(e)
         if e.button~=1 then return end
+        if kind=='fadeIn' or kind=='fadeOut' then self.fadeBefore=self.b:editState();self.fadeUndoCount=#(self.b.editUndo or {});self.fadeRedo=self.b.editRedo;self.b:finishEdit() end
         self.drag=kind;if type(kind)=='number' then self.s.marker=kind end
         self:move(e)
     end),mouseMove=cb(function(e) if self.drag==kind then self:move(e) end end)}
@@ -109,11 +132,20 @@ function E:move(e)
     elseif kind=='trimLast' then s.trimLast=math.max(value,s.trimFirst+.01)
     elseif kind=='loopFirst' then s.loopFirst=math.min(value,s.loopLast-.01)
     elseif kind=='loopLast' then s.loopLast=math.max(value,s.loopFirst+.01)
-    elseif kind=='caret' then s.caret=value end
+    elseif kind=='caret' then s.caret=value
+    elseif kind=='fadeIn' then self.b:setEdits(self.b.gain or 1,math.min(value,self.length-(self.b.fadeOut or 0)),self.b.fadeOut or 0,kind)
+    elseif kind=='fadeOut' then self.b:setEdits(self.b.gain or 1,self.b.fadeIn or 0,math.min(self.length-value,self.length-(self.b.fadeIn or 0)),kind) end
     self:draw()
 end
 function E:finish(cancel)
     local kind=self.drag;if not kind then return end;self.drag=nil
+    if kind=='fadeIn' or kind=='fadeOut' then
+        if cancel and self.fadeBefore then
+            self.b.gain,self.b.fadeIn,self.b.fadeOut=self.fadeBefore.gain,self.fadeBefore.fadeIn,self.fadeBefore.fadeOut
+            while #(self.b.editUndo or {})>self.fadeUndoCount do table.remove(self.b.editUndo) end;self.b.editRedo=self.fadeRedo or {}
+        end
+        self.b:finishEdit();self.fadeBefore=nil;self:draw();return
+    end
     if cancel then return end
     local s=self.s;local value=type(kind)=='number' and s.points[kind] or s[kind]
     value=self.b:snapPoint(value,s.snap)
@@ -132,6 +164,7 @@ function E:finish(cancel)
 end
 function E:frame()
     if self.drag and not input.isMouseButtonPressed(1) then self:finish() end
+    if not input.isMouseButtonPressed(1) and not self.owner.typing then self.b:finishEdit() end
     if not self.waveKey then self:draw() end
 end
 function E:zoom(factor)
@@ -155,36 +188,39 @@ end
 function E:slice()
     local s=self.s;local first,last=0,self.length
     for _,point in ipairs(s.points) do if point<=s.caret then first=point else last=point;break end end
-    local ref=self.b:reference();if not ref or last-first<.01 then return nil end
-    ref.offset=math.floor((ref.offset+(ref.reverse and self.length-last or first))*1000+.5)/1000
-    ref.duration=math.floor((last-first)*1000+.5)/1000;ref.loop=nil;ref.oneShot=true
-    return require('scripts.multiplayer.fetcher.procedural-synth.shared.schema').sample(ref)
+    return self.b:excerpt(first,last)
 end
 function E:draw()
-    local s=self.s;local key=table.concat({s.first,s.span},'|')
+    local s=self.s;local key=table.concat({s.first,s.span,self.b.gain or 1,self.b.fadeIn or 0,self.b.fadeOut or 0},'|')
     if key~=self.waveKey then
         local wave=self.b:waveRange(s.first,math.min(self.length,s.first+s.span))
         if wave then
             local data={rect(0,self.height/2,self.width,1,c.line)}
             for n=1,#wave.minimum do
-                local low,high=wave.minimum[n],wave.maximum[n]
+                local at=s.first+(n-.5)/#wave.minimum*s.span
+                local first,last=self.b.fadeIn or 0,self.b.fadeOut or 0
+                local envelope=math.min(1,first>0 and at/first or 1,last>0 and (self.length-at)/last or 1)*(self.b.gain or 1)
+                local low,high=clamp(wave.minimum[n]*envelope,-1,1),clamp(wave.maximum[n]*envelope,-1,1)
                 data[#data+1]=rect((n-1)*self.width/#wave.minimum,self.height/2-high*(self.height/2-20),math.max(1,self.width/#wave.minimum),math.max(1,(high-low)*(self.height/2-20)),c.wave)
             end
             self.wave.layout.content=ui.content(data);self.owner.window:update(self.wave);self.waveKey=key
         end
     end
     for kind,h in pairs(self.handles) do
-        local point=type(kind)=='number' and s.points[kind] or s[kind]
+        local point=type(kind)=='number' and s.points[kind] or kind=='fadeIn' and (self.b.fadeIn or 0) or kind=='fadeOut' and (self.length-(self.b.fadeOut or 0)) or s[kind]
         local x=point and (point-s.first)/s.span*self.width
         h.layout.props.visible=x~=nil and x>=0 and x<=self.width
         local loop=kind=='loopFirst' or kind=='loopLast'
-        h.layout.props.position=v(self.x+clamp((x or 0)-5,0,self.width-10),self.y+(loop and self.height-15 or type(kind)=='number' and 24 or kind=='caret' and 46 or 0))
-        h.layout.props.color=type(kind)=='number' and util.color.rgb(1,.65,.25) or kind=='caret' and c.wave or c.blue
-        self.owner.window:update(h)
+        h.layout.props.position=v(self.x+clamp((x or 0)-5,0,self.width-10),self.y+((kind=='fadeIn' or kind=='fadeOut') and self.height-40 or loop and self.height-15 or type(kind)=='number' and 24 or kind=='caret' and 46 or 0))
+        local color=type(kind)=='number' and util.color.rgb(1,.65,.25) or loop and util.color.rgb(.72,.52,.95) or (kind=='caret' or kind=='fadeIn' or kind=='fadeOut') and c.wave or c.blue
+        h.layout.props.color=color
+        local guide=self.guides[kind];guide.layout.props.visible=h.layout.props.visible
+        guide.layout.props.position=v(self.x+(x or 0),self.y);guide.layout.props.color=color
+        self.owner.window:update(guide);self.owner.window:update(h)
     end
     self.status.layout.props.text=string.format('View %.3f-%.3fs | Cursor %.3fs | Trim %.3f-%.3fs | Loop %.3f-%.3fs | %d slices',s.first,s.first+s.span,s.caret,s.trimFirst,s.trimLast,s.loopFirst,s.loopLast,#s.points+1)
     self.owner.window:update(self.status)
-    self.notice.layout.props.text=self.s.notice or 'Detect slices suggests attack points. Create phrase keeps source timing at the edit playhead; original part is kept.'
+    self.notice.layout.props.text=self.s.notice or (self.b.loop and 'Sustain loops use fade-in once; note-off uses the sound release envelope instead of source fade-out.' or self.b.sliceParent and 'Editing an extracted slice. Use sample on part or save it; Back to source restores the full kit draft.' or 'Green lower handles shape fades. Use sample on part applies edits; saving the project retains them.')
     self.owner.window:update(self.notice)
 end
 return E

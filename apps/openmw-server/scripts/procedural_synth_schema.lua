@@ -65,7 +65,7 @@ end
 M.attackOrder={'open','short','dead'}
 function M.sample(input,leaf)
     if type(input)~='table' then return nil end
-    local fields={path=true,offset=true,duration=true,root=true,oneShot=true,hash=true,gain=true,attacks=not leaf,reverse=true,loop=true}
+    local fields={path=true,offset=true,duration=true,root=true,oneShot=true,hash=true,gain=true,attacks=not leaf,reverse=true,loop=true,fadeIn=true,fadeOut=true}
     for key in pairs(input) do if not fields[key] then return nil end end
     local path=input.path
     if type(path)~='string' or #path>240 or not (path:sub(1,6)=='sound/' or path:sub(1,6)=='music/')
@@ -92,7 +92,12 @@ function M.sample(input,leaf)
         if last-first<10 or last>math.floor(result.duration*1000+.5) or fade*2>last-first then return nil end
         result.loop={start=first/1000,finish=last/1000,crossfade=fade/1000}
     end
-    if path:sub(-4)=='.fsb' and (result.reverse or result.loop) then return nil end
+    for _,name in ipairs{'fadeIn','fadeOut'} do if input[name]~=nil then
+        if not number(input[name],0,30) then return nil end
+        local value=math.floor(input[name]*1000+.5)/1000;if value>0 then result[name]=value end
+    end end
+    if (result.fadeIn or 0)+(result.fadeOut or 0)>result.duration+1e-7 then return nil end
+    if path:sub(-4)=='.fsb' and (result.reverse or result.loop or result.fadeIn or result.fadeOut) then return nil end
     if input.gain~=nil then
         if not number(input.gain,.25,8) then return nil end
         if input.gain~=1 then result.gain=math.floor(input.gain*1000+.5)/1000 end
@@ -115,6 +120,8 @@ function M.sampleKey(sample)
     local key=table.concat({sample.path,sample.offset,sample.duration,sample.root,tostring(sample.oneShot),sample.hash},'|')
     if sample.gain then key=key..'|gain='..sample.gain end
     if sample.reverse then key=key..'|reverse' end
+    if sample.fadeIn then key=key..'|fadeIn='..sample.fadeIn end
+    if sample.fadeOut then key=key..'|fadeOut='..sample.fadeOut end
     if sample.loop then key=key..'|loop='..table.concat({sample.loop.start,sample.loop.finish,sample.loop.crossfade},',') end
     for _,attack in ipairs(M.attackOrder) do if sample.attacks and sample.attacks[attack] then
         key=key..'|'..attack..'='..M.sampleKey(sample.attacks[attack])

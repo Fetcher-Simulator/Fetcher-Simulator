@@ -1,6 +1,30 @@
 # FETCHER STUDIO roadmap
 
-Updated 2026-11-06. Completed work and subsequent planned slices are identified below.
+Updated 2026-11-07. Completed work and subsequent planned slices are identified below.
+
+Package 86 / native API 41 closes the agreed core sample-editing priority with
+source-relative fade-in/out, cached-peak normalization to at most -1 dBFS,
+manual source gain and grouped local edit Undo/Redo. Green waveform handles and
+numeric sliders update without rebuilding the editor. Color-matched full-height
+guides make all handle positions visible across the waveform. Silent/missing sources
+stay intact; normalization reports its bounded 8x boost and does not claim
+loudness matching or prevent later effects/mixer clipping. Sustain loops use the
+entry fade and note-off envelope, avoiding repeated ending ramps.
+
+Edit slice opens a separate bounded sample with fitted fades; Back to source
+restores the full kit draft. Named samples/kits and projects retain fade/gain
+references. Created lanes and phrases inherit the fitted settings. In the
+expanded editor, header/keyboard Undo uses local source history; applying a
+reference to a part uses musical history. Original audio remains immutable.
+All 41 Lua suites and 12 native test groups pass, including malformed/late-length
+bounds, grouped/cancelled drags, normalization headroom/caps/silence, reverse,
+loop behavior and callback-size invariance. Native monitor-2 checks verify fade
+handle drags, normalization/Undo, slice extraction/back, private library and
+project persistence; a second client hears the shared edited phrase. Original
+user files remain unchanged during copied-profile acceptance. The native change
+is client-side only; server Lua and the local port-25567 fixture are updated.
+The previous library modules are also classified for future release packaging.
+No VPS, workflow, hosted assets or public release is included.
 
 Package 85 / native API 40 adds a private per-character library of 64 named raw
 samples and slice kits. Recipes retain source trim/root/gain/reverse/loop/hash;
@@ -810,43 +834,42 @@ pull-offs/continuous slide libraries and unlimited orchestra performance are
 not implied. Continue refinement alongside the later instrument/performance
 priorities rather than blocking sample editing on those open-ended targets.
 
-## Remaining roadmap (next: sample editing; formerly priority two)
+## Remaining roadmap (next: section layouts and conductor presentation)
 
-1. **Further sample tools and sound libraries.** Richer source editing,
-   additional placement tools and sound-library expansion beyond the
-   priority band set. Package 81 adds sustained excerpt loops, reverse and bounded
-   loop-join crossfades; package 82 adds equal slices as independent sequencer lanes;
-   package 83 adds zoom, draggable trim/loop points and manual slicing/audition;
-   package 84 adds automatic attack suggestions and original-timing arranged phrases;
-   package 85 adds reusable named samples and slice kits. Continue
-   listening/balance refinement alongside the orchestral instrument work.
-2. **Section layouts and conductor presentation.** Add saved spacing/layout
+Core sample editing is complete at package 86: loops/reverse, waveform zoom and
+trim, manual/automatic slicing, phrases, private libraries, source fades/gain,
+normalization and source-edit history. Further sound-library growth and listening
+refinement continue with instrument expansion. Advanced destructive editing,
+time stretching and per-slice saved override maps remain possible future work,
+rather than keeping this finished core priority open indefinitely.
+
+1. **Section layouts and conductor presentation.** Add saved spacing/layout
    presets, instrument sections, conductor gestures and formation previews.
    Extend seating to players and additional instruments, with chair interaction
    and custom-rig/body-height support. Keep explicit safe restaging and the
    standing grid; avoid moving a formation when its leader walks away. Improve
    client-assisted footprint checks for cramped/uneven stages and furniture.
-3. **Orchestral instrument expansion and sound refinement.** Add remaining families
+2. **Orchestral instrument expansion and sound refinement.** Add remaining families
    (including double bass, oboe, bassoon, horn and trombone), articulation, rig/body
-   variation support and better acoustic presets/multisamples. Refine grips and
+   variation support and better acoustic presets/multisamples and sound libraries. Refine grips and
    seated performance across rigs. Balance a Star Wars-theme-scale score;
    the six initial synthetic patches are starting points, not a complete orchestra.
-4. **Large orchestra performance and multiplayer timing.** Profile 32 sounding
+3. **Large orchestra performance and multiplayer timing.** Profile 32 sounding
    physical performers, late joins, separate concurrent bands and long sessions.
    Improve output/voice culling, spatial section grouping and device-drift/latency
    correction before increasing score/performer limits further. Imports over the
    current 32-part budget fail clearly; do not silently drop orchestral parts.
-5. **Acoustic and monitoring refinement.** Add authored room zones and acoustic
+4. **Acoustic and monitoring refinement.** Add authored room zones and acoustic
    presets, connected-room propagation, material-aware absorption, diffraction
    and more accurate direct/reflected balance. Refine the bounded geometric
    estimate in irregular rooms and outdoor transitions. Retain one shared room
    return, user controls and bounded geometry work outside the audio callback.
    Explore stereo monitoring and optional world/monitor blending after profiling.
-6. **Recording follow-ups.** Physical MIDI controller acceptance, live controller
+5. **Recording follow-ups.** Physical MIDI controller acceptance, live controller
    monitoring/capture, shared-source overdub during playback and additional record
    modes. Automatic hardware round-trip measurement and non-Windows input remain
    planned; tap-based timing compensation is available now.
-7. **Mixer/effects routing.** Stereo/panning, arbitrary group buses, flexible effect chains
+6. **Mixer/effects routing.** Stereo/panning, arbitrary group buses, flexible effect chains
    and remaining master/return/EQ/compressor automation. Package 77 adds member
    processing and linked spatial master EQ/compression; arbitrary subgroup routing
    remains separate. Track-fader/send curves

@@ -92,10 +92,15 @@ function T:laneStudio(i,n,create)
     if create then return self:studio(i,slot) end
     return slot==0 and i.studio or i.outputs and i.outputs[slot] and i.outputs[slot].audio
 end
+function T:supports(reference)
+    if not reference then return true end
+    local version=self.synth.version or 0
+    return not ((reference.fadeIn or reference.fadeOut) and version<41 or (reference.reverse or reference.loop) and version<38)
+end
 function T:configure(i,n)
     local c=i.channels[n];local a=self:laneStudio(i,n,true)
     if not a then return end
-    assert(a:configure(n,c.params,c.level,c.audible~=false),'Native instrument budget reached ('..(self.synth.maxUnits or 32)..' units). Finish another performance.')
+    assert(a:configure(n,c.params,c.level,c.audible~=false and self:supports(c.params.sample)),'Native instrument budget reached ('..(self.synth.maxUnits or 32)..' units). Finish another performance.')
     assert(a:mixer(n,c.mixer or {}),'Invalid mixer state')
     if a.monitor then a:monitor(n,not i.auditionTrack and 1 or i.auditionTrack==n and 1 or 0.25) end
 end

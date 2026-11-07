@@ -17,12 +17,18 @@ function M.category(path)
 end
 function M.status(synth,reference)
     if not reference then return {status='Synth'} end
+    if (reference.fadeIn or reference.fadeOut) and (synth.version or 0)<41 then
+        return {status='Unavailable',error='Sample fades require the updated Studio client (API 41).'}
+    end
     if (reference.reverse or reference.loop) and (synth.version or 0)<38 then
         return {status='Unavailable',error='Sample editing requires the updated Studio client (API 38).'}
     end
     local info=synth.sampleInfo(reference.path,reference.offset,reference.duration)
     if info.status=='Ready' and reference.hash and info.hash~=reference.hash then
         return {status='Mismatch',error='Installed file differs from the saved sample'}
+    end
+    if info.status=='Ready' and (reference.fadeIn or reference.fadeOut) and (reference.fadeIn or 0)+(reference.fadeOut or 0)>info.duration+1e-6 then
+        return {status='Unavailable',error='Fades extend past the decoded excerpt.'}
     end
     if info.status=='Ready' and reference.loop and reference.loop.finish>info.duration+1e-6 then
         return {status='Unavailable',error='Loop extends past the decoded excerpt. Shorten its end point.'}
@@ -77,7 +83,7 @@ end
 function M:select(path)
     self:stop();self.path=path;self.offset=0;self.duration=30;self.root=60;self.oneShot=true
     self.loop=nil;self.reverse=nil;self.gain=nil;self.waveform=nil;self.waveKey=nil;self.expectedHash=nil;self.editView=nil
-    self.pendingRecipe=nil;self.recipeError=nil
+    self.pendingRecipe=nil;self.recipeError=nil;self.fadeIn=nil;self.fadeOut=nil;self.editUndo={};self.editRedo={};self.editGroup=nil;self.sliceParent=nil
 end
 function M:loadReference(ref)
     ref=schema.sample(ref);if not ref or schema.isBank(ref) then return false end
@@ -88,11 +94,13 @@ end
 function M:trim(first,last)
     if type(first)~='number' or type(last)~='number' or first~=first or last~=last or first<0 or first>600 or last-first<.01 or last-first>30 then return false end
     self:stop();self.offset=math.floor(first*1000+.5)/1000;self.duration=math.floor((last-first)*1000+.5)/1000
-    self.loop=nil;self.waveform=nil;self.waveKey=nil;self.editView=nil;self.pendingRecipe=nil;self.recipeError=nil;return true
+    self.loop=nil;self.waveform=nil;self.waveKey=nil;self.editView=nil;self.pendingRecipe=nil;self.recipeError=nil;
+    local ref={fadeIn=self.fadeIn,fadeOut=self.fadeOut};M.fitFades(ref,self.duration);self.fadeIn,self.fadeOut=ref.fadeIn,ref.fadeOut
+    self.editUndo={};self.editRedo={};self.editGroup=nil;return true
 end
 function M:viewKey() return table.concat({self.path or '',self.offset,self.duration,tostring(self.reverse)},'|') end
 function M:draftKey()
-    local fields={self:viewKey(),tostring(self.root),tostring(self.oneShot),tostring(self.gain),tostring(self.expectedHash)}
+    local fields={self:viewKey(),tostring(self.root),tostring(self.oneShot),tostring(self.gain),tostring(self.fadeIn),tostring(self.fadeOut),tostring(self.expectedHash)}
     for _,key in ipairs{'start','finish','crossfade'} do fields[#fields+1]=tostring(self.loop and self.loop[key]) end
     local view=self.editView
     if view then
@@ -139,7 +147,7 @@ end
 function M:setLoop(first,last,fade)
     local info=self:info();if info.status~='Ready' then return false end
     local reference={path=self.path,offset=self.offset,duration=self.duration,root=self.root,oneShot=false,hash=info.hash,
-        reverse=self.reverse,loop={start=first,finish=last,crossfade=fade}}
+        reverse=self.reverse,fadeIn=self.fadeIn,fadeOut=self.fadeOut,loop={start=first,finish=last,crossfade=fade}}
     local ref=schema.sample(reference)
     if not ref or ref.loop.finish>info.duration+1e-6 then return false end
     self:stop();self.oneShot=false;self.loop=ref.loop;return true
@@ -174,11 +182,53 @@ function M:slices(points)
     local out={}
     for n=1,#edges-1 do
         local first,last=edges[n],edges[n+1]
-        out[n]=schema.sample{path=ref.path,offset=ref.offset+(ref.reverse and length-last or first)/1000,
-            duration=(last-first)/1000,root=ref.root,oneShot=true,hash=ref.hash,gain=ref.gain,reverse=ref.reverse}
+        out[n]=self:excerpt(first/1000,last/1000)
         if not out[n] then return nil,'Every slice must start within the first ten minutes of the file.' end
     end
     return out
+end
+-- Source fades are playback-relative seconds; shortened slices fit both ramps.
+function M.fitFades(ref,length)
+    local a,b=ref.fadeIn or 0,ref.fadeOut or 0
+    if a+b>length then local ratio=length/(a+b);a=math.floor(a*ratio*1000)/1000;b=math.min(b,length-a) end
+    ref.fadeIn=a>0 and a or nil;ref.fadeOut=b>0 and b or nil;return ref
+end
+function M:excerpt(first,last)
+    local ref=self:reference();local info=self:info()
+    if not ref or first<0 or last>info.duration+1e-6 or last-first<.01 then return nil end
+    ref.offset=math.floor((ref.offset+(ref.reverse and info.duration-last or first))*1000+.5)/1000
+    ref.duration=math.floor((last-first)*1000+.5)/1000;ref.loop=nil;ref.oneShot=true
+    return schema.sample(M.fitFades(ref,ref.duration))
+end
+function M:editState() return {gain=self.gain,fadeIn=self.fadeIn,fadeOut=self.fadeOut} end
+function M:finishEdit() self.editGroup=nil end
+function M:setEdits(gain,first,last,group)
+    local info=self:info();local length=math.floor((info.duration or 0)*1000+1e-6)/1000
+    if info.status~='Ready' or (self.synth.version or 0)<41 then return false end
+    if type(gain)~='number' or gain~=gain or gain<.25 or gain>8 or type(first)~='number' or type(last)~='number'
+        or first~=first or last~=last or first<0 or last<0 then return false end
+    gain=math.floor(gain*1000+.5)/1000;first=math.floor(first*1000+.5)/1000;last=math.floor(last*1000+.5)/1000
+    if first+last>length+1e-7 then return false end
+    if gain==(self.gain or 1) and first==(self.fadeIn or 0) and last==(self.fadeOut or 0) then return true end
+    self.editUndo=self.editUndo or {};self.editRedo={}
+    if not group or self.editGroup~=group then
+        self.editUndo[#self.editUndo+1]=self:editState();if #self.editUndo>32 then table.remove(self.editUndo,1) end
+    end
+    self.editGroup=group;self:stop();self.gain=gain~=1 and gain or nil;self.fadeIn=first>0 and first or nil;self.fadeOut=last>0 and last or nil;return true
+end
+function M:undoEdit(redo)
+    self:finishEdit();local from=redo and self.editRedo or self.editUndo;local to=redo and self.editUndo or self.editRedo
+    if not from or #from==0 then return false end
+    to[#to+1]=self:editState();local state=table.remove(from);self:stop();self.gain,self.fadeIn,self.fadeOut=state.gain,state.fadeIn,state.fadeOut;return true
+end
+function M:normalize()
+    local info=self:info();local peak=info.peak
+    if info.status~='Ready' or not self:reference() or (self.synth.version or 0)<41 or type(peak)~='number' or peak~=peak then return false,'Wait for Ready on an API 41 client before normalizing.' end
+    if peak<1e-7 then return false,'The excerpt is silent; gain was kept.' end
+    local target=10^(-1/20);local gain=math.floor(math.min(8,target/peak)*1000)/1000
+    if gain<.25 then return false,'Source peak exceeds the supported gain range. Use a quieter source.' end
+    self:finishEdit();local ok=self:setEdits(gain,self.fadeIn or 0,self.fadeOut or 0);self:finishEdit()
+    return ok,gain==8 and peak*gain<target-.001 and 'Boost capped at 8x; this quiet source remains below -1 dBFS.' or 'Source normalized to at most -1 dBFS. Effects and mixer levels can still raise the output.'
 end
 function M:chops(count)
     if type(count)~='number' or count%1~=0 or count<2 or count>16 then return nil end
@@ -241,7 +291,7 @@ end
 function M:reference()
     local info=self:info();if info.status~='Ready' then return nil end
     local ref=schema.sample{path=self.path,offset=self.offset,duration=self.duration,root=self.root,oneShot=self.oneShot,hash=info.hash,
-        gain=self.gain,reverse=self.reverse,loop=self.loop}
+        gain=self.gain,reverse=self.reverse,loop=self.loop,fadeIn=self.fadeIn,fadeOut=self.fadeOut}
     if ref and M.status(self.synth,ref).status=='Ready' then return ref end
 end
 function M:audition()

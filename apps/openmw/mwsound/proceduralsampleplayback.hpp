@@ -14,19 +14,21 @@ namespace MWSound
     {
         bool reverse=false;
         double loopStart=0,loopEnd=0,crossfade=0;
+        double fadeIn=0,fadeOut=0;
         bool loop()const {return loopEnd>0;}
-        bool edited()const {return reverse || loop();}
+        bool edited()const {return reverse || loop() || fadeIn>0 || fadeOut>0;}
         bool operator==(const ProceduralSamplePlayback& other)const
-        {return reverse==other.reverse && loopStart==other.loopStart && loopEnd==other.loopEnd && crossfade==other.crossfade;}
+        {return reverse==other.reverse && loopStart==other.loopStart && loopEnd==other.loopEnd && crossfade==other.crossfade && fadeIn==other.fadeIn && fadeOut==other.fadeOut;}
         bool valid(bool oneShot=false)const
         {
-            return std::isfinite(loopStart) && std::isfinite(loopEnd) && std::isfinite(crossfade)
+            return std::isfinite(fadeIn) && std::isfinite(fadeOut) && fadeIn>=0 && fadeOut>=0 && fadeIn+fadeOut<=30
+                && std::isfinite(loopStart) && std::isfinite(loopEnd) && std::isfinite(crossfade)
                 && (loopEnd==0 ? loopStart==0 && crossfade==0
                     : !oneShot && loopStart>=0 && loopEnd<=30 && loopEnd-loopStart>=.01-1e-9
                         && crossfade>=0 && crossfade<=.25 && crossfade<=(loopEnd-loopStart)/2+1e-9);
         }
         bool fits(std::size_t frames)const
-        {return !loop() || loopEnd*48000<=frames+1e-6;}
+        {return fadeIn*48000+fadeOut*48000<=frames+1e-6 && (!loop() || loopEnd*48000<=frames+1e-6);}
 
         double read(const std::vector<float>& pcm,unsigned start,unsigned length,
             double& position,double step,bool& wrapped)const
@@ -53,7 +55,11 @@ namespace MWSound
             }
             const double fade=loop()? (wrapped?1:std::min(1.0,position/96))
                 :std::min({1.0,position/96,(length-1-position)/std::max(96.0,96*step)});
-            return result*fade;
+            // A sustain loop uses its note-off envelope for ending; do not fade
+            // every wrap. The source fade-in applies only to the initial pass.
+            const double in=fadeIn>0 && !(loop() && wrapped)?std::min(1.0,position/(fadeIn*48000)):1;
+            const double out=fadeOut>0 && !loop()?std::min(1.0,(length-1-position)/(fadeOut*48000)):1;
+            return result*fade*in*out;
         }
     };
 }
