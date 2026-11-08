@@ -41,7 +41,9 @@ package.loaded[prefix..'client.midi-export']=dofile(root..'client/midi-export.lu
 package.loaded[prefix..'client.pose-defaults']=dofile(root..'client/pose-defaults.lua')
 package.loaded[prefix..'client.instrument-profiles']=dofile(root..'client/instrument-profiles.lua')
 package.loaded[prefix..'client.seated-pose']=dofile(root..'client/seated-pose.lua')
+package.loaded[prefix..'client.performance-body']=dofile(root..'client/performance-body.lua')
 package.loaded[prefix..'client.performance']=dofile(root..'client/performance.lua')
+package.loaded[prefix..'client.conductor']=dofile(root..'client/conductor.lua')
 local viewport=vector(1024,768)
 local mouseDown=false
 local ui={TYPE={Text='Text',TextEdit='TextEdit',Widget='Widget',Image='Image',Window='Window'},
@@ -1796,6 +1798,8 @@ do
    for _,item in ipairs(view.root.layout.content) do if item.content and item.content[1] and item.content[1].props and item.content[1].props.text==text then item.events.mouseClick();return end end
    error('missing Formation control '..text)
   end
+  click('Conduct: Off');check(w.project.conductor==true,'Band control enables saved conductor preference');view:render()
+  click('Conduct: On');check(w.project.conductor==false,'Band control disables conductor preference');view:render()
   click('Formation');view:frame(now+.2);check(w.page=='formation' and view.formationView,'Band opens Formation page')
   local root=view.root;local preview=view.formationView.preview;local signature=view.formationView.signature
   w.playing=true;w.native=true;w:setFormation({preset='sections',spacing=1.25,depth=1.2,distance=1},'spacing',true);view:frame(now+.4)
@@ -1836,5 +1840,24 @@ do
  now=now+.2;pressed[input.KEY.Space]=true;keys.frame(owner,action);keys.frame(owner,action)
  check(#actions==6 and actions[6]=='pause','the next intentional press still toggles once')
  pressed[input.KEY.Space]=false;keys.frame(owner,action);input.isKeyPressed=nil
+end
+do
+ local function testConductorRoles()
+  local Actors=package.loaded[prefix..'client.actors'];local C=package.loaded[prefix..'client.conductor'];local old=C.new
+  local cell={};local observer={cell=cell};local actor={cell=cell,isValid=function() return true end}
+  local frames,clears=0,0
+  C.new=function(a) return {actor=a,pose={applied=6},frame=function() frames=frames+1;return true end,clear=function() clears=clears+1 end} end
+  local a=Actors.new({getObjectMpNum=function() end,getPlayerObject=function() return actor end},{actors={}},observer)
+  local i={id=77,owner=9,conductor=true,leaderPlays=false,performers={},availability={}}
+  a:frame({[77]=i},.1,now);check(frames==1 and #a:status()==1,'opted-in composer is presented as conductor')
+  i.leaderPlays=true;a:frame({[77]=i},.1,now);check(clears==1 and #a:status()==0,'playing leader releases conductor arms')
+  i.leaderPlays=false;i.performers[1]={kind='player',guid=9,instrument='lute'};i.availability[1]='Ready'
+  a:frame({[77]=i},.1,now);check(frames==1,'held performer pose takes precedence over conductor')
+  i.performers={};a:frame({[77]=i},.1,now);check(frames==2,'unbound leader resumes conductor')
+  actor.isValid=function() return false end;a:frame({[77]=i},.1,now);check(clears==2,'lost actor clears conductor')
+  actor.isValid=function() return true end;a:frame({[77]=i},.1,now);a:clearInstance(i)
+  check(clears==3 and #a:status()==0,'Finish clears conductor state immediately');C.new=old
+ end
+ testConductorRoles()
 end
 print(string.format('PASS client/editor lifecycle, chords, edits, presets, selection/recording, listener cleanup; %d assertions',checks))

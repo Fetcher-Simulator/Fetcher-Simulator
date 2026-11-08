@@ -25,7 +25,7 @@ now=100.02;transport:receive({op='clock',sent=100,serverTime=50.01},instances)
 check(math.abs(transport.offset+50)<0.000001,'clock estimate subtracts half RTT')
 transport:frame(instances);check(requests[#requests].op=='scoreCommit','bounded chunks commit only after complete upload')
 local function download(id,started,activate,replace,epoch)
-    transport:receive({op='scoreBegin',id=7,epoch=epoch or 1,playId=id,count=#plan.bytes/11,length=plan.length,loop=true,started=started,activate=activate,replace=replace},instances)
+    transport:receive({op='scoreBegin',id=7,epoch=epoch or 1,playId=id,count=#plan.bytes/11,length=plan.length,loop=true,started=started,activate=activate,replace=replace,pulseMap=plan.pulseMap},instances)
     transport:receive({op='scoreChunk',id=7,epoch=epoch or 1,playId=id,index=1,bytes=plan.bytes},instances)
     transport:receive({op='scoreReady',id=7,epoch=epoch or 1,playId=id},instances)
 end
@@ -54,4 +54,18 @@ do
  engine.version=41;transport:configure(i,1);check(audible==true and transport:supports(reference),'current client keeps edited lane audible')
  i.channels[1].params.sample=nil;engine.version=40;transport:configure(i,1);check(audible==true,'unrelated legacy parts remain audible')
  i.studio.configure=savedConfigure;engine.version=savedVersion
+end
+
+-- Presentation uses the audible native phase, including crop/loop and delayed replacement.
+do
+ i.studio.playing=true;i.studio.position=.75;i.studio.audiblePosition=.5
+ local _,pulses=Sequence.validatePulseMap(plan.pulseMap,plan.length)
+ i.transport={playId=20,length=plan.length,loop=true,pulses=pulses}
+ check(transport:beatClock(i).beat==1,'audible position wins over ahead-of-output score position')
+ i.studio.audiblePosition=2.5;check(transport:beatClock(i).beat==1,'looped presentation follows loop phase')
+ local old=i.transport;i.transport={playId=21,length=plan.length,loop=true,activate=now+transport.offset+1,previous=old}
+ check(transport:beatClock(i).playId==20,'queued live replacement keeps previous presentation map until activation')
+ now=now+2;check(transport:beatClock(i).playId==21 and not i.transport.previous,'replacement activates and drops obsolete map')
+ transport:stop(i);check(not transport:beatClock(i).playing,'stop clears presentation clock')
+ i.studio.audiblePosition=nil
 end

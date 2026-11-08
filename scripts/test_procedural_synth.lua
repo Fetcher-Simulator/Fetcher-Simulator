@@ -344,14 +344,15 @@ test('native scores are validated, timestamped and included in late sync',functi
     local score=Sequence.compile(p,nil,nil,'clips')
     acquire();request('channel',{channel=1,params={},level=1});sent={}
     request('clock',{sent=12});check(sent[#sent].data.op=='clock' and sent[#sent].data.serverTime==now,'clock echo uses server time')
-    request('scoreBegin',{playId=1,count=#score.bytes/11,length=score.length,loop=score.loop,quantum=score.quantum,replace=false})
+    request('scoreBegin',{playId=1,count=#score.bytes/11,length=score.length,loop=score.loop,quantum=score.quantum,replace=false,pulseMap=score.pulseMap})
     request('scoreChunk',{playId=1,index=1,bytes=score.bytes});request('scoreCommit',{playId=1})
     local ready,meta=0,nil
     for _,e in ipairs(sent) do if e.data.op=='scoreReady' then ready=ready+1 elseif e.data.op=='scoreBegin' then meta=e.data end end
+    check(meta.pulseMap==score.pulseMap,'listeners receive validated musical pulse metadata')
     check(ready==2 and meta.started>now and meta.started==meta.activate,'both clients get one future shared start')
     sent={};players[3].cell='INT:A';request('sync',{pid=3})
     check(sent[#sent].data.op=='scoreReady','late listener receives the compiled score with its original clock anchor')
-    for _,e in ipairs(sent) do check(e.data.op~='on','score playback does not relay frame-dispatched note events') end
+    for _,e in ipairs(sent) do if e.data.op=='scoreBegin' then check(e.data.pulseMap==score.pulseMap,'late listeners keep pulse metadata') end;check(e.data.op~='on','score playback does not relay frame-dispatched note events') end
     request('transportStop',{playId=1});local before=#sent
     for id=1,1000 do request('transportStop',{playId=id}) end
     check(#sent==before,'duplicate and invented Stop generations cannot flood listeners')
@@ -727,5 +728,16 @@ test('stage floor payload reaches owned-session validation',function()
     local f=require('procedural_synth_project')(schema);local p=f.new()
     request('autoBand',{requestId=1,project=p,stageLayout='seated',ground={anchor={x=0,y=0,z=0,rz=0},heights={}}})
     check(sent[#sent] and sent[#sent].data.op=='bandSetup','ground payload must reach stage service rather than silently timing out')
+end)
+test('conductor preference is owner-authorized and relayed',function()
+    local f=require('procedural_synth_project')(schema);acquire();sent={}
+    request('band',{band=f.band(),routes={},leaderPlays=false,conductor=true})
+    check(sent[#sent].data.conductor==true,'owner preference reaches observers')
+    local before=#sent
+    request('band',{pid=2,band=f.band(),routes={},conductor=false})
+    request('band',{band=f.band(),routes={},conductor='yes'})
+    check(#sent==before,'listeners and malformed flags cannot change conductor')
+    players[3].cell='INT:A';request('sync',{pid=3})
+    check(sent[#sent].data.conductor==true,'late join state includes conductor choice')
 end)
 print(string.format('%d tests, %d assertions passed',tests,checks))

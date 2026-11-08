@@ -79,6 +79,28 @@ function M.validateBarGrid(bytes,length)
     if frames[1]~=0 or frames[#frames]~=length then return nil,'Bar grid must cover the score.' end
     return true,frames
 end
+-- Optional presentation pulse map: frame, musical beat / 960, microseconds
+-- per quarter. Bounded independently of note data; relayed to late listeners.
+function M.validatePulseMap(bytes,length)
+    if bytes==nil then return true end
+    if not integer(length,1,M.maxFrames) or type(bytes)~='string' or #bytes<12 or #bytes%12~=0 or #bytes>1025*12 then return nil,'Invalid pulse map size.' end
+    local out={};local frame,beat=-1,-1
+    for at=1,#bytes,12 do local f,b,t=u32(bytes,at),u32(bytes,at+4),u32(bytes,at+8)
+        if f<=frame or f>=length or b<beat or b>4294967294 or t<1 or t>16777215 then return nil,'Invalid pulse map point.' end
+        out[#out+1]={frame=f,beat=b/960,tempo=t};frame,beat=f,b
+    end
+    if out[1].frame~=0 then return nil,'Pulse map must start at zero.' end
+    return true,out
+end
+function M.pulseAt(points,seconds)
+    if not points then return math.max(0,seconds)*2,2 end -- Older scores: 120 BPM.
+    local frame=math.max(0,seconds)*M.rate;local low,high=1,#points
+    while low<high do local mid=math.ceil((low+high)/2)
+        if points[mid].frame<=frame then low=mid else high=mid-1 end
+    end
+    local point=points[low];local rate=1000000/point.tempo
+    return point.beat+(frame-point.frame)/M.rate*rate,rate
+end
 function M.nextBoundary(frames,length,loop,elapsed,lead)
     local target=math.max(0,elapsed+(lead or 0.25))*M.rate
     local cycle=loop and math.floor(target/length) or 0;local phase=target-cycle*length
@@ -242,7 +264,26 @@ function M.compile(project,song,MIDI,mode,format,programPatch)
         end
         frames[#frames+1]=length;assert(#frames<=4097,'Playback supports at most 4096 bars per song.');local packed={};for _,frame in ipairs(frames) do packed[#packed+1]=pack(frame) end;grid=table.concat(packed)
     end
-    return {bytes=bytes,length=length,loop=loop,barGrid=grid,
+    local tempos=songMode and timeline.tempos or {};local pulseMap
+    -- Bound presentation compilation as well as its wire representation. Raw
+    -- MIDI may have more tempo events than an editable project can retain.
+    if #(tempos or {})<=1025 then
+        local tempo=not songMode and math.floor(60000000/project.bpm+.5) or 500000
+        for _,point in ipairs(tempos or {}) do if point.beat>(first or 0) then break end;tempo=point.tempo end
+        local pulses={{frame=0,beat=first or 0,tempo=tempo}}
+        for _,point in ipairs(tempos or {}) do
+            local frame=math.floor(seconds(point.beat)*M.rate+.5)-offset
+            if point.beat>(first or 0) and frame>=0 and frame<length then
+                if pulses[#pulses].frame==frame then pulses[#pulses]=nil end
+                pulses[#pulses+1]={frame=frame,beat=point.beat,tempo=point.tempo}
+            end
+        end
+        if #pulses<=1025 then local packed={}
+            for _,p in ipairs(pulses) do packed[#packed+1]=pack(p.frame)..pack(math.min(4294967294,math.floor(p.beat*960+.5)))..pack(p.tempo) end
+            pulseMap=table.concat(packed);assert(M.validatePulseMap(pulseMap,length))
+        end
+    end
+    return {bytes=bytes,length=length,loop=loop,barGrid=grid,pulseMap=pulseMap,
         quantum=math.max(3000,math.min(1728000,math.floor((songMode and project.composition and format.barBeats(project) or 4)*60/project.bpm*M.rate+0.5)))}
 end
 return M

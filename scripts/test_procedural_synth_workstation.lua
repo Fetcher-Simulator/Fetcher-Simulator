@@ -24,12 +24,20 @@ local w=Workstation.new{
 }
 check(#w.catalog==#schema.builtins and #w.catalog>=40,'banks available before asynchronous personal catalog response')
 do
-    local modes={}
-    local conductor=Workstation.new{band=function(_,_,leaderPlays) modes[#modes+1]=leaderPlays end,panic=function() end}
+    local modes,gestures={},{}
+    local conductor=Workstation.new{band=function(_,_,leaderPlays,enabled) modes[#modes+1]=leaderPlays;gestures[#gestures+1]=enabled end,panic=function() end}
     conductor:configureBand();check(modes[#modes]==true,'new project synchronizes playing mode')
     conductor:setLeaderPlays(false);check(modes[#modes]==false,'toggle immediately synchronizes conductor mode')
     conductor:undo();check(modes[#modes]==true,'undo synchronizes playing mode')
     conductor:redo();check(modes[#modes]==false,'redo synchronizes conductor mode')
+    check(gestures[#gestures]==false,'gestures are opt-in')
+    check(conductor:setConductor(true) and gestures[#gestures] and format.project(conductor.project).conductor,'conductor toggle synchronizes and saves')
+    conductor:undo();check(not gestures[#gestures],'gesture toggle undo restores preference')
+    conductor:redo();check(gestures[#gestures],'gesture toggle redo restores preference')
+    conductor.bandSetup={document=conductor.project,generation=conductor.generation}
+    conductor:setConductor(false);check(conductor.bandSetup.generation==conductor.generation,'presentation toggle preserves in-flight valid stage setup')
+    conductor.bandSetup.generation=conductor.generation-1;local stale=conductor.bandSetup.generation
+    conductor:setConductor(true);check(conductor.bandSetup.generation==stale,'presentation toggle cannot revive an obsolete stage plan')
 end
 w:setCatalog(schema.builtins)
 check(w:add('drum') and w.project.tracks[1].presetId=='b:kick','new drum uses native kick preset')

@@ -469,15 +469,16 @@ function S:band(content)
         table.sort(choices,function(a,b) return a.label<b.label end)
         Dropdown.open(self,choices,instrument,function(name) w:setStageInstrument(selectedIndex,name) end,490,260,400)
     end)
-    content[#content+1]=self:button('Auto manage: '..(p.autoBand and 'On' or 'Off'),20,645,200,function() w:setAutoBand(not p.autoBand) end)
-    content[#content+1]=self:button('Leader plays: '..(p.leaderPlays~=false and 'On' or 'Off'),230,645,200,function() w:setLeaderPlays(p.leaderPlays==false) end)
-    content[#content+1]=self:button('Remove owned NPCs',440,645,145,function() self:releaseAll();w:setupNpcBand(false,nil,true) end)
-    content[#content+1]=self:button('Listening',590,645,145,function() self:releaseAll();if self.cb.listening then self.cb.listening() end end)
-    content[#content+1]=self:button('Pose tuner',740,645,150,function() self:releaseAll();if self.cb.tunePose then
+    content[#content+1]=self:button('Auto manage: '..(p.autoBand and 'On' or 'Off'),20,645,175,function() w:setAutoBand(not p.autoBand) end)
+    content[#content+1]=self:button('Leader plays: '..(p.leaderPlays~=false and 'On' or 'Off'),205,645,175,function() w:setLeaderPlays(p.leaderPlays==false) end)
+    content[#content+1]=self:button('Conduct: '..(p.conductor and 'On' or 'Off'),390,645,130,function() w:setConductor(not p.conductor) end,p.conductor==true)
+    content[#content+1]=self:button('Remove owned NPCs',530,645,150,function() self:releaseAll();w:setupNpcBand(false,nil,true) end)
+    content[#content+1]=self:button('Listening',690,645,95,function() self:releaseAll();if self.cb.listening then self.cb.listening() end end)
+    content[#content+1]=self:button('Pose tuner',795,645,95,function() self:releaseAll();if self.cb.tunePose then
         local name=p.stageLayout=='seated' and (instrument=='keyboard' or instrument=='cello') and instrument..'_seated' or instrument or 'lute'
         self.cb.tunePose(name)
     end end)
-    content[#content+1]=label('Grouped parts keep their sounds. Auto trims surplus hires; Finish removes managed NPCs. Use a clear stage; Formation previews placement.',20,675,880,11,c.muted)
+    content[#content+1]=label('Conduct requires Leader plays Off. Walking yields gestures; Finish removes managed NPCs. Formation previews placement.',20,675,880,11,c.muted)
 end
 local function db(value) return value>0.00001 and string.format('%.1f',20*math.log(value)/math.log(10)) or '-inf' end
 function S:addMasterMeter(content,y)

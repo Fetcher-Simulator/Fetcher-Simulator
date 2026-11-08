@@ -4,6 +4,7 @@ local util=require('openmw.util')
 local types=require('openmw.types')
 local Profiles=require('scripts.multiplayer.fetcher.procedural-synth.client.instrument-profiles')
 local Gestures=require('scripts.multiplayer.fetcher.procedural-synth.client.performance-notes')
+local Body=require('scripts.multiplayer.fetcher.procedural-synth.client.performance-body')
 local M={}
 local v,T=util.vector3,util.transform
 local zero=v(0,0,0)
@@ -50,15 +51,17 @@ function M.new(actor,calibration)
         for name in pairs(self.appliedBones) do anim.clearBoneTransform(self.actor,name) end
         self.appliedBones={};self.applied=0;self.fingers=0
         self.stringGesture=nil;self.drumGesture=nil;self.stickPulse=nil;self.stickRotations=nil;self.pedalMotion=nil;self.fretting=nil;self.fretPosition=nil
+        self.bodyState=nil;self.bodyMotion=nil;self.bodyBones=nil;self.propTransform=nil;self.motionPosition={}
     end
-    function p:frame(dt,source,notes,now,strikes,profile,snapshot)
+    function p:frame(dt,source,notes,now,strikes,profile,snapshot,clock)
         self.error=0;self.reachError=0;self.legReachError=0;self.fingers=0
         local record=not profile and source.recordId=='fetcher_procedural_keyboard_v1' and types.Miscellaneous.record(source) or (not profile and types.Activator.record(source))
         local staged=record and record.model:lower():gsub('\\','/'):find('keyboard%-stand%.nif$')~=nil
         local halfWidth,spacing,spread,front,height=8,0.65,5,-2,5
         if staged then halfWidth,spacing,spread,front,height=14,1.2,18,-18,91 end
         if staged then profile=calibration and calibration:placedKeyboard() or {kind='keyboard',targets={L=v(-18,-18,91),R=v(18,-18,91)}} end
-        local written={}
+        local written={};local facing=profile and profile.facing or self.actor.rotation
+        if profile and (profile.kind=='guitar' or profile.kind=='bass' or profile.kind=='lute') then facing=source.rotation end
         local function setBone(name,rotation,position)
             local extra=profile and profile.tuning and profile.tuning.bones[name:lower()]
             anim.setBoneTransform(self.actor,name,{rotation=extra and rotation*extra.rotation or rotation,position=(position or zero)+(extra and extra.position or zero),weight=self.amount})
@@ -104,6 +107,40 @@ function M.new(actor,calibration)
         local bodyShift=zero
         self.seated=false
         if profile and profile.seated then bodyShift,self.seated=Seated.apply(self,root,profile,setBone,drumming and drumming.feet) end
+        self.motionPosition=self.motionPosition or {}
+        local moving=Body.moving(self.motionPosition,self.actor.position,dt)
+        local body;body,self.bodyState=Body.frame(self.bodyState,dt,clock,profile and profile.kind or 'keyboard',self.seated,moving,Body.drumReach(drumming and drumming.hands))
+        self.bodyMotion=body
+        local bodyBones={};local bodyWorld=T.move(bodyShift)
+        local function motionBone(lower,angle,axis,second,secondAxis)
+            local name=self.bones[lower];local bone=name and anim.getBoneTransform(self.actor,name,true,true)
+            if not bone or math.abs(angle)+(second and math.abs(second) or 0)<.00001 then return end
+            local inverse=bone:inverse();local origin=bone*zero
+            local localAxis=inverse*(origin+facing*axis)-inverse*origin;localAxis=localAxis/localAxis:length()
+            local rotation=T.rotate(angle,localAxis)
+            if second then local b=inverse*(origin+facing*secondAxis)-inverse*origin;rotation=rotation*T.rotate(second,b/b:length()) end
+            setBone(name,rotation);bodyBones[name]=true
+            return bone,localAxis
+        end
+        local spine,axis=motionBone('bip01 spine2',body.yaw,v(0,0,1),body.roll,v(0,1,0))
+        if spine then
+            local inverse=spine:inverse();local origin=spine*zero
+            local rollAxis=inverse*(origin+facing*v(0,1,0))-inverse*origin
+            local effective=T.rotate(body.yaw*self.amount,axis)*T.rotate(body.roll*self.amount,rollAxis/rollAxis:length())
+            local shifted=T.move(bodyShift)*spine
+            bodyWorld=shifted*effective*shifted:inverse()*T.move(bodyShift)
+        end
+        motionBone('bip01 head',body.nod,v(1,0,0))
+        -- Seated pedal poses already animate both feet; never layer a generic
+        -- tap over the drummer's actual kick / hi-hat pedal motion.
+        motionBone('bip01 r foot',body.foot,v(1,0,0))
+        for name in pairs(self.bodyBones or {}) do if not bodyBones[name] and not written[name] then anim.clearBoneTransform(self.actor,name);self.appliedBones[name]=nil end end
+        self.bodyBones=bodyBones
+        -- Keep guitars/bass/lutes stable in the player's grip. Shoulders sway
+        -- behind the instrument; IK compensates instead of rocking the mesh.
+        local strings=profile and (profile.kind=='guitar' or profile.kind=='bass' or profile.kind=='lute')
+        self.propTransform=profile and profile.anchor~='feet' and not strings and bodyWorld or T.identity
+        local function sourcePoint(point) return self.propTransform*(source.position+source.rotation*point) end
         local pulse=math.max(0,1-(now-self.strike)/0.13)
         self.bowTravel=profile and Profiles.bowTravel(profile,now-self.strike,#signature>0) or 0
         for _,side in ipairs{'L','R'} do
@@ -118,7 +155,7 @@ function M.new(actor,calibration)
                 if u and f and h then
                     -- Solve before race/model scaling. Rotating world-space arm
                     -- lengths is inaccurate for actors with nonuniform scale.
-                    u,f,h=toModel*T.move(bodyShift)*u,toModel*T.move(bodyShift)*f,toModel*T.move(bodyShift)*h
+                    u,f,h=toModel*bodyWorld*u,toModel*bodyWorld*f,toModel*bodyWorld*h
                     local s,e,w=u*zero,f*zero,h*zero
                     local current=anim.getBoneTransform(self.actor,hand,true)
                     if current and self.targets[side] then self.error=math.max(self.error,(current*zero-self.targets[side]):length()) end
@@ -137,11 +174,11 @@ function M.new(actor,calibration)
                             hand and hand.pulse or pulse,strikes,#low+#high,self.bowTravel,gesture)
                     else point,wrist,curl=v(x,front,height+(#group>0 and -pulse or 0)),pulse*.08,0 end
                     if stickRotation and self.stickRotations then self.stickRotations[side]=stickRotation end
-                    local target=toModel*(source.position+source.rotation*point)
+                    local target=toModel*sourcePoint(point)
                     local a,b=(e-s):length(),(w-e):length()
                     if a>0.1 and b>0.1 then
                         local bias=profile and profile.tuning and profile.tuning[side..'Pole'] or v(sign,0,-0.6)
-                        local pole=toModel*(root*s+self.actor.rotation*bias)-s
+                        local pole=toModel*(root*s+facing*bias)-s
                         local elbow,tip=M.elbow(s,target,a,b,pole)
                         if elbow then
                             self.reachError=math.max(self.reachError,(root*target-root*tip):length())
@@ -161,8 +198,8 @@ function M.new(actor,calibration)
                                 local tt=thumb and anim.getBoneTransform(self.actor,thumb,true,true)
                                 if ft and tt then
                                     local inverseHand=h:inverse()
-                                    local forward=inverseHand*(toModel*T.move(bodyShift)*ft*zero)
-                                    local thumbDirection=inverseHand*(toModel*T.move(bodyShift)*tt*zero)
+                                    local forward=inverseHand*(toModel*bodyWorld*ft*zero)
+                                    local thumbDirection=inverseHand*(toModel*bodyWorld*tt*zero)
                                     local normal=forward:cross(thumbDirection)*(side=='L' and 1 or -1)
                                     unposedPalm=h*normal-h*zero
                                     unposedForward=h*forward-h*zero
@@ -170,9 +207,9 @@ function M.new(actor,calibration)
                                     local posedHand=posedFore*foreRotation*posedFore:inverse()*adjusted*h
                                     local inversePosed=posedHand:inverse()
                                     local desiredForward,desiredNormal=Profiles.handDirections(profile,side,stickRotation)
-                                    local origin=toModel*source.position
-                                    local direction=toModel*(source.position+source.rotation*desiredForward)-origin
-                                    local palm=toModel*(source.position+source.rotation*desiredNormal)-origin
+                                    local origin=toModel*sourcePoint(zero)
+                                    local direction=toModel*sourcePoint(desiredForward)-origin
+                                    local palm=toModel*sourcePoint(desiredNormal)-origin
                                     local localForward=inversePosed*(tip+direction)
                                     local localNormal=inversePosed*(tip+palm)
                                     if localForward:length()>.001 and normal:length()>.001 then
@@ -198,10 +235,10 @@ function M.new(actor,calibration)
                                         local bone=anim.getBoneTransform(self.actor,name,true,true)
                                         local other=(child or parent) and anim.getBoneTransform(self.actor,child or parent,true,true)
                                         if bone then
-                                            bone=toModel*bone
+                                            bone=toModel*bodyWorld*bone
                                             local origin=bone*zero
                                             local direction=unposedForward
-                                            if other then other=toModel*other;direction=child and other*zero-origin or origin-other*zero end
+                                            if other then other=toModel*bodyWorld*other;direction=child and other*zero-origin or origin-other*zero end
                                             local bend=M.bendAxis(direction,unposedPalm) or M.bendAxis(unposedForward,unposedPalm)
                                             if bend then local inverse=bone:inverse();axis=inverse*(origin+bend)-inverse*origin;axis=axis/axis:length();self.fingerAxes[name]=axis end
                                             local inverse=bone:inverse();local normal=inverse*(origin+unposedPalm)-inverse*origin

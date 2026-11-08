@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 87 / native synth API 41 / multiplayer protocol 27.
+Current source: package 88 / native synth API 41 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -11,6 +11,32 @@ available, with credited CC BY orchestral, guitar, bass, drum-kit and stage mode
 Acoustic/classical physical guitar models are available. More detailed articulation/animation
 and wider listening-based sound balancing remain in this part of the roadmap.
 See [the roadmap](ROADMAP.md).
+
+## Conductor and performer motion (package 88)
+
+On **Band**, set **Leader plays: Off**, then **Conduct: On** for optional
+beat-driven arm gestures with a short opening cue and lowered hands on Stop.
+The preference saves with the project and supports Undo/Redo. It does not route
+an instrument to the leader, lock the camera, move the band or immobilize the
+player. Walking yields the arm overrides; gestures resume after standing still.
+First-person self gestures are hidden; other clients can still see the conductor.
+A leader already assigned to a held instrument keeps that instrument's pose.
+
+During native song/clip playback, performers nod and standing players tap a foot
+and sway subtly. The seated full-kit drummer swivels toward recent reaches,
+keeping the existing note-driven kick/hi-hat pedals. Seated performers do not
+receive standing foot taps. The arm solver compensates for torso motion, while
+chairs, stands and actor root positions stay fixed. Guitar/bass/lute attachments
+remain stable; their smaller, smoothed sway moves the shoulders behind the grip.
+Chest attachment anchors do not follow per-frame idle/pose feedback.
+
+A bounded tempo/beat map accompanies the score for both owners and late listeners.
+Gestures use the native audible position, including crop/loop phase, tempo changes
+and delayed live-edit activation. Older scores without metadata use a 120 BPM
+presentation fallback; raw MIDI maps over 1,025 points also fall back. Gestures
+settle on Stop, and bone overrides clear on Finish, lost targets, death or role
+changes. This first pass does not recognize playing style, conduct live notes,
+add root motion or replace authored instrument articulation.
 
 ## Saved formation presets and preview (package 87)
 

@@ -313,9 +313,9 @@ makeWorkstation=function(i)
             return (not params or not params.sample or Samples.status(synth,params.sample).status=='Ready')
                 and channelAudio(i,channel,true) and (not synth.createStudio or transport:laneStudio(i,channel,true))~=nil
         end,
-        band=function(band,routes,leaderPlays)
-            i.leaderPlays=leaderPlays~=false
-            local values={tostring(i.leaderPlays)}
+        band=function(band,routes,leaderPlays,conductor)
+            i.leaderPlays=leaderPlays~=false;i.conductor=conductor==true
+            local values={tostring(i.leaderPlays),tostring(i.conductor)}
             for n,m in ipairs(band) do
                 local t=m.target;values[#values+1]=m.name;values[#values+1]=Project.targetKey(t)
                 values[#values+1]=t and t.cell or '';values[#values+1]=t and t.refId or ''
@@ -329,7 +329,7 @@ makeWorkstation=function(i)
             for _,slot in ipairs(routes) do values[#values+1]=slot end
             local signature=table.concat(values,'|')
             transport:applyEffects(i)
-            if signature~=i.bandSignature then i.bandSignature=signature;i.pendingBand={band=Project.band(band),routes=Project.routes(routes),leaderPlays=i.leaderPlays};flushChannels() end
+            if signature~=i.bandSignature then i.bandSignature=signature;i.pendingBand={band=Project.band(band),routes=Project.routes(routes),leaderPlays=i.leaderPlays,conductor=i.conductor};flushChannels() end
         end,
         bandStatus=function(slot)
             local status=i.availability and i.availability[slot] or 'Unbound'
@@ -664,7 +664,7 @@ local function message(data)
         if i then destroy(data.id) end
         local ok,audio=pcall(synth.create,source)
         if not ok then ui.showMessage(tostring(audio)); return end
-        i={id=data.id,audio=audio,source=source,cell=self.cell,owner=data.owner,leaderPlays=data.leaderPlays~=false,notes={},channels={},epoch=data.epoch,seq=data.seq,seen=core.getRealTime(),serverCell=data.cell}
+        i={id=data.id,audio=audio,source=source,cell=self.cell,owner=data.owner,leaderPlays=data.leaderPlays~=false,conductor=data.conductor==true,notes={},channels={},epoch=data.epoch,seq=data.seq,seen=core.getRealTime(),serverCell=data.cell}
         instances[data.id]=i;apply(i,params);applyEffects(i,data.effects,data.master,data.masterMixer);transport:band(i,data.band,data.routes,data.availability,data.performers)
         for n,channel in pairs(data.channels or {}) do
             local state=schema.state(channel.params)
@@ -689,6 +689,7 @@ local function message(data)
     local channel=data.channel or 0
     if data.op=='band' then
         if data.leaderPlays~=nil then i.leaderPlays=data.leaderPlays~=false end
+        if data.conductor~=nil then i.conductor=data.conductor==true end
         local statusChanged=false
         for slot=1,Project.maxMembers do if (i.availability or {})[slot]~=(data.availability or {})[slot] then statusChanged=true end end
         if i.workstation then
@@ -753,6 +754,7 @@ local function frame(dt)
         -- Request only when there are no instances: a snapshot never restarts held notes.
         if next(instances)==nil then mp.sendToServer('Synth_Request',{version=1,op='sync'}) end
     end
+    for _,i in pairs(instances) do i.beatClock=transport:beatClock(i) end
     actors:frame(instances,dt,now)
     for _,i in pairs(instances) do if i.stageCheck then i.stageCheck:frame() end end
     listening:frame(instances,session,performerState,transport,now,self.cell)
@@ -810,7 +812,7 @@ local function frame(dt)
                             notes=i.studio:notes();strikes=strikes+i.studio.strikes
                             for key in pairs(i.notes) do if key<128 or transport:destination(i,math.floor(key/128))==0 then notes[key]=true end end
                         end
-                        i.pose:frame(dt,i.source,notes,now,strikes)
+                        i.pose:frame(dt,i.source,notes,now,strikes,nil,nil,i.beatClock)
                     end
                 end
             end

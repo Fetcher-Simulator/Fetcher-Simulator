@@ -193,6 +193,7 @@ function T:receive(data,instances)
         if i and i.transport and i.transport.playId==data.playId then return true end
         if type(data.count)~='number' or data.count<1 or data.count>Sequence.maxEvents then return true end
         if old and old.epoch==data.epoch and old.playId>data.playId then return true end
+        if not Sequence.validatePulseMap(data.pulseMap,data.length) then return true end
         data.chunks={};data.size=0;data.next=1;data.received=self.core.getRealTime();self.downloads[data.id]=data
     elseif old and old.playId==data.playId and old.epoch==data.epoch then
         if data.op=='scoreReady' then old.ready=true
@@ -231,9 +232,25 @@ function T:finish(i,d)
     end
     for _,g in pairs(i.outputs or {}) do g.started=true end
     i.lastScore={bytes=bytes,length=d.length,loop=d.loop,started=d.started,activate=d.activate,playId=d.playId}
-    i.transport={playId=d.playId,started=d.started,length=d.length,loop=d.loop}
+    local _,pulses=Sequence.validatePulseMap(d.pulseMap,d.length)
+    local previous=d.replace and i.transport
+    if previous and previous.previous and self.core.getRealTime()+self.offset<previous.activate then previous=previous.previous end
+    i.transport={playId=d.playId,started=d.started,activate=d.activate,length=d.length,loop=d.loop,pulses=pulses,previous=previous}
     i.scoreDeadline=nil
     if i.workstation then i.workstation.awaiting=false end
+end
+function T:beatClock(i)
+    local audio=i.studio;local score=i.transport
+    local serverTime=self.core.getRealTime()+(self.offset or 0)
+    if score and score.previous then
+        if serverTime<score.activate then score=score.previous else score.previous=nil end
+    end
+    local playing=score and audio and audio.playing==true
+    if playing and self.offset and score.activate and serverTime<score.activate then playing=false end
+    local seconds=audio and (audio.audiblePosition or audio.position) or 0
+    if score and score.loop then seconds=seconds%(score.length/Sequence.rate) end
+    local beat,rate=Sequence.pulseAt(score and score.pulses,seconds or 0)
+    return {beat=beat,rate=rate,playing=playing==true,playId=score and score.playId}
 end
 function T:frame(instances)
     local now=self.core.getRealTime()
@@ -265,7 +282,7 @@ function T:frame(instances)
         -- more settings than one network burst permits.
         if u and not i.pendingBand and not next(i.pendingChannels or {}) then
             if not u.began then
-                u.send('scoreBegin',{playId=u.playId,count=#u.plan.bytes/11,length=u.plan.length,loop=u.plan.loop,quantum=u.plan.quantum,barGrid=u.plan.barGrid,replace=u.replace,startFrame=not u.replace and u.plan.startFrame or nil})
+                u.send('scoreBegin',{playId=u.playId,count=#u.plan.bytes/11,length=u.plan.length,loop=u.plan.loop,quantum=u.plan.quantum,barGrid=u.plan.barGrid,pulseMap=u.plan.pulseMap,replace=u.replace,startFrame=not u.replace and u.plan.startFrame or nil})
                 u.began=true
             end
             u.budget=math.min(8,u.budget+math.max(0,now-u.last)*32);u.last=now

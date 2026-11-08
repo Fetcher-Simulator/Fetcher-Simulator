@@ -40,7 +40,7 @@ function W:loadExercise(id,setId)
     if self.recording or self.failedTake then self.cb.message('Keep or cancel the take before opening a sound check.');return false end
     local candidate=require(prefix..'client.band-exercises').create(id,setId);if not candidate then return false end
     candidate.band=copy(self.project.band);candidate.autoBand=self.project.autoBand
-    candidate.leaderPlays=self.project.leaderPlays;candidate.stageLayout=self.project.stageLayout;candidate.formation=copy(self.project.formation)
+    candidate.leaderPlays=self.project.leaderPlays;candidate.conductor=self.project.conductor;candidate.stageLayout=self.project.stageLayout;candidate.formation=copy(self.project.formation)
     candidate=assert(format.project(candidate))
     self:setAudition(0);self:stop(true)
     if self.recorder then self.recorder:releaseInput() end
@@ -79,7 +79,7 @@ function W:newSong(bpm,numerator,denominator,bars)
     p.timeline={beats=s.bars*s.numerator*4/s.denominator,tempos={{beat=0,tempo=math.floor(60000000/p.bpm+0.5)}}}
     -- Keep the physical roster while starting a fresh musical document.
     p.band=copy(self.project.band)
-    p.autoBand=self.project.autoBand;p.leaderPlays=self.project.leaderPlays;p.stageLayout=self.project.stageLayout;p.formation=copy(self.project.formation)
+    p.autoBand=self.project.autoBand;p.leaderPlays=self.project.leaderPlays;p.conductor=self.project.conductor;p.stageLayout=self.project.stageLayout;p.formation=copy(self.project.formation)
     p.tracks[1]=format.newTrack('midi','Piano 1',p.length);p.tracks[1].edited=format.encodeNotes({},960);p.tracks[1].sourceRole='keys'
     p.tracks[1].params,p.tracks[1].presetId=SoundSets.assignment('balanced','keys',true)
     p=format.project(p);if not p then return false end
@@ -355,7 +355,7 @@ end
 function W:configureBand()
     if self.cb.band then
         local routes={};for n,t in ipairs(self.project.tracks) do routes[n]=t.output.slot or 0 end
-        self.cb.band(self.project.band,routes,self.project.leaderPlays~=false)
+        self.cb.band(self.project.band,routes,self.project.leaderPlays~=false,self.project.conductor==true)
     end
 end
 function W:setAudition(index)
@@ -375,6 +375,15 @@ function W:setAutoBand(enabled)
 end
 function W:setLeaderPlays(enabled)
     self:stop(true);self.project.leaderPlays=enabled==true;self.managedProject=nil;self:configureBand();self:touch('leaderPlays');return true
+end
+function W:setConductor(enabled)
+    if type(enabled)~='boolean' then return false end
+    local staging=self.bandSetup and self.bandSetup.document==self.project and self.bandSetup.generation==self.generation
+    self.project.conductor=enabled;self:configureBand();self:touch('conductor')
+    -- Presentation does not change the captured stage plan. Preserve a still
+    -- valid setup reply, without reviving one invalidated by musical edits.
+    if staging then self.bandSetup.generation=self.generation end
+    return true
 end
 function W:setStageLayout(layout)
     if layout~='standing' and layout~='seated' then return false end

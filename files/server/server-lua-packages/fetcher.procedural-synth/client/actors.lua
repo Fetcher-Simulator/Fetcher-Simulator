@@ -1,11 +1,12 @@
 -- Locally rendered held props/arms; audio remains native and server-authorized.
 local anim=require('openmw.animation');local util=require('openmw.util');local types=require('openmw.types')
 local Performance=require('scripts.multiplayer.fetcher.procedural-synth.client.performance')
+local Conductor=require('scripts.multiplayer.fetcher.procedural-synth.client.conductor')
 local vfs=require('openmw.vfs')
 local camera=require('openmw.camera')
 local profiles=require('scripts.multiplayer.fetcher.procedural-synth.client.instrument-profiles')
 local A={};A.__index=A;local v,T=util.vector3,util.transform
-function A.new(mp,nearby,self,calibration) return setmetatable({mp=mp,nearby=nearby,self=self,calibration=calibration,objects={},poses={},targetActors={}},A) end
+function A.new(mp,nearby,self,calibration) return setmetatable({mp=mp,nearby=nearby,self=self,calibration=calibration,objects={},poses={},conductors={},targetActors={}},A) end
 function A:profile(name) return self.calibration and self.calibration:profile(name) or profiles[name] end
 function A:targets(instrument)
     local out={};for key,p in pairs(self.targetActors) do if p.instrument==instrument and p.actor:isValid() then
@@ -30,8 +31,15 @@ function A:clear(key)
     end
     self.poses[key]=nil
 end
-function A:clearInstance(i) for _,r in pairs(i.performers or {}) do self:clear(self:key(r)) end end
-function A:clearAll() for key in pairs(self.poses) do self:clear(key) end;self.objects={};self.targetActors={} end
+function A:clearInstance(i)
+    for _,r in pairs(i.performers or {}) do self:clear(self:key(r)) end
+    if self.conductors[i.id] then self.conductors[i.id]:clear();self.conductors[i.id]=nil end
+end
+function A:clearAll()
+    for key in pairs(self.poses) do self:clear(key) end
+    for _,c in pairs(self.conductors) do c:clear() end
+    self.conductors={};self.objects={};self.targetActors={}
+end
 function A:frame(instances,dt,now)
     self.objects={};self.targetActors={};local npcs={};local active={}
     for _,actor in ipairs(self.nearby.actors or {}) do local id=self.mp.getObjectMpNum(actor);if id then npcs[id]=actor end end
@@ -72,12 +80,22 @@ function A:frame(instances,dt,now)
                         local torso=anim.getBoneTransform(actor,'Bip01 Spine2',true,true)
                         local root=anim.getBoneTransform(actor,'Bip01',true,true)
                         if torso and root then
+                            local strings=profile.kind=='guitar' or profile.kind=='bass' or profile.kind=='lute'
+                            local _,yaw=actor.rotation:getAnglesXZ();local facing=strings and T.rotateZ(yaw) or actor.rotation
                             local position=profile.anchor=='feet' and actor.position or torso*v(0,0,0)
-                            local source={position=position,rotation=actor.rotation}
-                            if p.pose and not p.pose.missing then
-                                p.pose:frame(math.min(.2,now-(p.frameAt or now-dt)),source,playing and group.audio:notes() or {},now,group and group.audio.strikes or 0,profile,group and group.audio.performance and group.audio:performance() or nil)
+                            if profile.anchor~='feet' then
+                                -- Do not feed the animated chest back into the
+                                -- attachment each frame: idle/pose updates can
+                                -- otherwise make a strapped instrument twitch.
+                                p.chestAnchor=p.chestAnchor or facing:inverse()*(position-actor.position)
+                                position=actor.position+facing*p.chestAnchor
                             end
-                            local transform=root:inverse()*T.move(position)*actor.rotation*T.move(profile.position)*profile.rotation
+                            local source={position=position,rotation=facing}
+                            if p.pose and not p.pose.missing then
+                                p.pose:frame(math.min(.2,now-(p.frameAt or now-dt)),source,playing and group.audio:notes() or {},now,group and group.audio.strikes or 0,profile,group and group.audio.performance and group.audio:performance() or nil,i.beatClock)
+                            end
+                            local transform=root:inverse()*(p.pose and p.pose.propTransform or T.identity)*T.move(position)*facing*T.move(profile.position)*profile.rotation
+                            p.propPosition=(T.move(position)*facing*T.move(profile.position))*v(0,0,0)
                             anim.setVisualAttachment(actor,'synth_instrument',profile.model,{bone='Bip01',transform=transform,timeout=.6})
                             for _,extra in ipairs(profile.extras or {}) do
                                 local attachment
@@ -120,6 +138,21 @@ function A:frame(instances,dt,now)
         end
     end
     for key in pairs(self.poses) do if not active[key] then self:clear(key) end end
+    local conducting={};local busy={}
+    for _,target in pairs(self.targetActors) do busy[target.actor]=true end
+    for id,i in pairs(instances) do
+        local actor=i.conductor and i.leaderPlays==false and i.owner and self.mp.getPlayerObject and self.mp.getPlayerObject(i.owner)
+        local cell=actor and actor:isValid() and actor.cell;local observer=self.self.cell
+        local visible=actor~=self.self or camera.getMode()~=camera.MODE.FirstPerson
+        if cell and visible and not busy[actor] and (cell==observer or cell.isExterior and observer and observer.isExterior)
+            and (not types.Actor.isDead or not types.Actor.isDead(actor)) then
+            local c=self.conductors[id]
+            if c and c.actor~=actor then c:clear();self.conductors[id]=nil;c=nil end
+            if not c then c=Conductor.new(actor);self.conductors[id]=c end
+            if c then conducting[id]=true;c.active=c:frame(dt,i.beatClock,now) end
+        end
+    end
+    for id,c in pairs(self.conductors) do if not conducting[id] then c:clear();self.conductors[id]=nil end end
 end
 function A:status()
     local result={}
@@ -127,7 +160,8 @@ function A:status()
         result[#result+1]={key=key,instrument=p.instrument,profile=p.profileKey,seated=p.pose and p.pose.seated==true,seatedUnsupported=p.seatedUnsupported,bones=p.pose and p.pose.applied or 0,fingerAxes=axes,
         fret=p.pose and p.pose.fretting and p.pose.fretting.position,stickLeft=p.pose and p.pose.stickPulse and p.pose.stickPulse.L,stickRight=p.pose and p.pose.stickPulse and p.pose.stickPulse.R,footLeft=p.pose and p.pose.pedalMotion and p.pose.pedalMotion.L,footRight=p.pose and p.pose.pedalMotion and p.pose.pedalMotion.R,
         fingers=p.pose and p.pose.fingers or 0,error=p.pose and p.pose.error or 0,reachError=p.pose and p.pose.reachError or 0,legReachError=p.pose and p.pose.legReachError or 0,missingModel=p.missingModel,
-        attachments=anim.visualAttachmentCount and anim.visualAttachmentCount(p.actor) or 0} end
+        body=p.pose and p.pose.bodyMotion,propPosition=p.propPosition,attachments=anim.visualAttachmentCount and anim.visualAttachmentCount(p.actor) or 0} end
+    for id,c in pairs(self.conductors) do if c.active then result[#result+1]={key='conductor:'..id,instrument='conductor',bones=c.pose.applied,body=c.pose.bodyMotion,reachError=c.pose.reachError} end end
     return result
 end
 return A

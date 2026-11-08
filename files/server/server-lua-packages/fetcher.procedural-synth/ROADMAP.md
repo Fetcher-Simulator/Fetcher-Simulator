@@ -1,6 +1,31 @@
 # FETCHER STUDIO roadmap
 
-Updated 2026-11-07. Completed work and subsequent planned slices are identified below.
+Updated 2026-11-08. Completed work and subsequent planned slices are identified below.
+
+Package 88 adds opt-in Band > Conduct when Leader plays is Off. Rig-fitted arm
+cues follow the shared audible beat, yield to walking and clear at the end.
+Standing performers get restrained sway, head nods and foot taps; the seated kit
+drummer turns toward reached drums without replacing note-driven pedal motion.
+The arm solver compensates for torso rotation. Strapped guitars/bass/lutes keep
+stable attachment anchors and smaller smoothed shoulder motion, following live
+feedback that instrument rocking looked twitchy. Stage roots and furniture stay
+fixed. Conductor preferences save/undo, and do not invalidate an otherwise valid
+in-flight stage setup.
+
+Compact, validated score pulse maps preserve tempo changes, loop/crop phase and
+late-listener timing; queued live edits retain the previous pulse map until
+activation. Stop settles motion; Finish, death, target loss and role changes
+clear overrides. Older/no-map scores use a 120 BPM presentation fallback.
+Only the local port-25567 fixture is updated; native API 41 and assets are unchanged.
+
+All 43 Lua suites pass, including actual Band toggle clicks, strict/private saved
+preferences, owner-only replication, late-listener pulse metadata, tempo/crop/loop
+phase, delayed map activation, stage-job preservation, rig fitting, walking/Stop
+cleanup and instrument-role precedence. Native monitor-2 multi-view inspection
+covers the kit, guitar, flute and conductor. The final two-client run verifies
+sounding late-listener gestures, both torso directions, native guitar attachment
+stability, private save/reload and complete Stop/Finish cleanup. Copied profiles
+and database preserve the original user state; clients are closed afterward.
 
 Package 87 begins section layouts/conductor presentation with saved Grid,
 Instrument sections and Arc presets, Standard/Roomy/Wide spacing shortcuts and
@@ -857,7 +882,7 @@ pull-offs/continuous slide libraries and unlimited orchestra performance are
 not implied. Continue refinement alongside the later instrument/performance
 priorities rather than blocking sample editing on those open-ended targets.
 
-## Remaining roadmap (next: section layouts and conductor presentation)
+## Remaining roadmap (next: flexible stage placement and wider seating)
 
 Core sample editing is complete at package 86: loops/reverse, waveform zoom and
 trim, manual/automatic slicing, phrases, private libraries, source fades/gain,
@@ -866,9 +891,9 @@ refinement continue with instrument expansion. Advanced destructive editing,
 time stretching and per-slice saved override maps remain possible future work,
 rather than keeping this finished core priority open indefinitely.
 
-1. **Conductor presentation and further stage layouts.** Package 87 supplies
-   saved presets, instrument sections, spacing and previews. Next add conductor
-   gestures and more flexible section placement/layout customization.
+1. **Further stage layouts and seating.** Packages 87-88 supply saved formations,
+   instrument sections, spacing, previews, optional conductor gestures and
+   restrained performer motion. Next add flexible section placement/layout customization.
    Extend seating to players and additional instruments, with chair interaction
    and custom-rig/body-height support. Keep explicit safe restaging and the
    standing grid; avoid moving a formation when its leader walks away. Improve
