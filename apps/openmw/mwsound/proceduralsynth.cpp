@@ -232,6 +232,11 @@ namespace MWSound
         }
         return value;
     }
+    bool ProceduralSynth::sample(std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash)
+    {
+        return sample(std::move(data), root, oneShot, hash, {});
+    }
+
     bool ProceduralSynth::sample(std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash,
         const AttackSamples& attacks, float gain, ProceduralSamplePlayback playback)
     {

@@ -50,8 +50,9 @@ namespace MWSound
 
         explicit ProceduralSynth(unsigned alternateSeed = 0);
         bool set(std::string_view name, float value);
+        bool sample(std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash);
         bool sample(std::shared_ptr<ProceduralSample> data, int root, bool oneShot, std::string_view hash,
-            const AttackSamples& attacks = {}, float gain = 1, ProceduralSamplePlayback playback = {});
+            const AttackSamples& attacks, float gain = 1, ProceduralSamplePlayback playback = {});
         bool noteOn(int note, float velocity);
         struct Strike
         {
