@@ -2,14 +2,20 @@ local V={};V.__index=V
 local function v(x,y,z) return setmetatable({x=x,y=y,z=z},V) end
 function V.__add(a,b) return v(a.x+b.x,a.y+b.y,a.z+b.z) end
 function V.__sub(a,b) return v(a.x-b.x,a.y-b.y,a.z-b.z) end
+function V.__unm(a) return v(-a.x,-a.y,-a.z) end
 function V.__mul(a,b) return v(a.x*b,a.y*b,a.z*b) end
 local R={};R.__index=R
 function R.__mul(a,b)
- if b.x then return v(a[1]*b.x+a[2]*b.y+a[3]*b.z,a[4]*b.x+a[5]*b.y+a[6]*b.z,a[7]*b.x+a[8]*b.y+a[9]*b.z) end
+ if b.x then
+  local rotated=v(a[1]*b.x+a[2]*b.y+a[3]*b.z,a[4]*b.x+a[5]*b.y+a[6]*b.z,a[7]*b.x+a[8]*b.y+a[9]*b.z)
+  return rotated+(a.translation or v(0,0,0))
+ end
  local out={};for row=0,2 do for col=0,2 do local n=0;for k=0,2 do n=n+a[row*3+k+1]*b[k*3+col+1] end;out[row*3+col+1]=n end end
+ out.translation=b.translation and a*b.translation or a.translation
  return setmetatable(out,R)
 end
 local T={identity=setmetatable({1,0,0,0,1,0,0,0,1},R)}
+function T.move(offset) return setmetatable({1,0,0,0,1,0,0,0,1,translation=offset},R) end
 -- Match utilpackage.cpp: the named rotation helpers use negative world axes.
 function T.rotateX(n) local s,c=math.sin(-n),math.cos(n);return setmetatable({1,0,0,0,c,-s,0,s,c},R) end
 function T.rotateY(n) local s,c=math.sin(-n),math.cos(n);return setmetatable({c,0,s,0,1,0,-s,0,c},R) end
@@ -30,6 +36,28 @@ for _,name in ipairs{'guitar','bass','acoustic','classical'} do
 end
 check(Published.drumkit.seated and Published.drumkit.anchor=='feet' and #Published.drumkit.extras==2,'kit is floor anchored with a seated profile and two sticks')
 check(Published.defaults.drumkit.benchScale and Published.defaults.drumkit.LFootTarget,'drummer stool and both feet are exposed to the existing poser')
+do
+ local mounts={ride=v(49.177,2.599,95.064),crash=v(-45.491,12.794,102.296)}
+ local function close(a,b) return math.abs(a.x-b.x)+math.abs(a.y-b.y)+math.abs(a.z-b.z)<1e-6 end
+ local stage=T.move(v(10,20,30))*T.rotateZ(2)*T.scale(.75,.75,.75)
+ for _,part in ipairs(Published.kitParts) do
+  local mount=mounts[part.name]
+  if mount then
+   local rim=mount+v(12,18,0)
+   for _,strike in ipairs{-1,1} do
+    local wobble=Published.kitPartTransform(part,{cymbals={[part.name]=strike}})
+    check(close((stage*wobble)*mount,stage*mount),'tilting '..part.name..' holds its mount under stage rotation and scale')
+    check(not close(wobble*rim,rim),'tilting '..part.name..' moves the rim')
+   end
+  elseif part.name=='hat' then
+   local closed=Published.kitPartTransform(part,{cymbals={},hatClosure=1})
+   local struck=Published.kitPartTransform(part,{cymbals={hat=-1},hatClosure=1})
+   check(close(closed*v(1,2,3),v(1,2,1.5)),'hat pedal closes vertically along the shaft')
+   check(close(struck*v(1,2,3),v(1,2,1.15)) and close(struck*v(4,5,6),v(4,5,4.15)),
+    'hi-hat strike adds a small vertical bounce without tilting the plate')
+  end
+ end
+end
 for _,hit in ipairs{{'R',42},{'R',46},{'L',38},{'L',49},{'R',38},{'L',45},{'R',45},{'R',51}} do
  local side,note=hit[1],hit[2]
  local grip,rotation,contact=Published.kitGrip(Published.drumkit,side,note)

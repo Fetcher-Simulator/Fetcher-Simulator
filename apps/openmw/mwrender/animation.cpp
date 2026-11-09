@@ -1888,7 +1888,7 @@ namespace MWRender
 
     void Animation::addEffect(std::string_view model, std::string_view effectId, bool loop, std::string_view bonename,
         std::string_view texture, bool useAmbientLight, bool autoTransform, const std::optional<osg::Matrix>& transform,
-        bool preserveNodeStructure, unsigned int nodeMask)
+        bool preserveNodeStructure, unsigned int nodeMask, osg::MatrixTransform* attachmentNode)
     {
         if (!mObjectRoot.get())
             return;
@@ -1952,14 +1952,20 @@ namespace MWRender
 
         parentNode->addChild(trans);
 
+        osg::Group* modelParent = trans;
+        if (attachmentNode)
+        {
+            trans->addChild(attachmentNode);
+            modelParent = attachmentNode;
+        }
         Resource::SceneManager* sceneManager = mResourceSystem->getSceneManager();
         osg::ref_ptr<osg::Node> node;
         if (preserveNodeStructure)
         {
-            node = sceneManager->getInstancePreservingNodeStructure(VFS::Path::toNormalized(model), trans);
+            node = sceneManager->getInstancePreservingNodeStructure(VFS::Path::toNormalized(model), modelParent);
         }
         else
-            node = sceneManager->getInstance(VFS::Path::toNormalized(model), trans);
+            node = sceneManager->getInstance(VFS::Path::toNormalized(model), modelParent);
 
         if (useAmbientLight)
         {
@@ -2238,22 +2244,19 @@ namespace MWRender
         // the stool and the music stand.
         if (it == mScriptAttachments.end() && mScriptAttachments.size() >= MaxScriptAttachments)
             return false;
-        if (it==mScriptAttachments.end() || it->second.model!=model || it->second.bone!=bone)
+        auto& value = mScriptAttachments[id];
+        if (!value.node || !value.node->getNumParents() || value.model != model || value.bone != bone)
         {
             removeEffect(effect);
-            addEffect(model,effect,true,bone,{},false,false,transform);
+            // Keep the full affine transform. Extracting a quaternion from a
+            // scaled matrix shifts off-origin pivots, such as a cymbal mount.
+            value.node = new osg::MatrixTransform(transform);
+            addEffect(model, effect, true, bone, {}, false, false, std::nullopt, false, Mask_Effect, value.node);
+            value.model = model;
+            value.bone = bone;
         }
-        else if (it->second.transform!=transform)
-        {
-            // IK anchors and bow/mallet motion update every frame. Keep the
-            // instantiated mesh/controllers instead of cloning its NIF again.
-            if (!setEffectTransform(effect,transform.getTrans(),transform.getRotate(),transform.getScale()))
-            {
-                removeEffect(effect);
-                addEffect(model,effect,true,bone,{},false,false,transform);
-            }
-        }
-        auto& value=mScriptAttachments[id];value.model=model;value.bone=bone;value.transform=transform;
+        else if (value.node->getMatrix() != transform)
+            value.node->setMatrix(transform);
         value.expires=std::chrono::steady_clock::now()+std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float>(timeout));
         return true;
     }

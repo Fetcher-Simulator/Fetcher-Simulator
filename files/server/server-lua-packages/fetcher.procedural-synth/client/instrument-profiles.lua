@@ -51,10 +51,12 @@ local kitContacts={
     [51]=v(43,0,87.96),[53]=v(43,0,87.96),[59]=v(43,0,87.96),
 }
 M.kitStageModel=path..'drumkit-stage.nif'
+local hatCloseTravel=1.5
 M.kitParts={
-    {name='ride',pivot=v(49.9,3.1,93)},
-    {name='crash',pivot=v(-45.5,12.8,100)},
-    {name='hat',pivot=v(-70.3,-2.6,83.9)},
+    -- Washer centers in the split stage NIFs, including the ride's inward shift.
+    {name='ride',pivot=v(49.177,2.599,95.064),tilt=.11},
+    {name='crash',pivot=v(-45.491,12.794,102.296),tilt=.15},
+    {name='hat'},
     {name='hat-pedal',pivot=v(-70.3,-20,1.2)},
     {name='kick-pedal',pivot=v(-1.55,-28.8,1.2)},
     {name='beater',pivot=v(-1.55,-11,11.4)},
@@ -73,8 +75,11 @@ function M.kitPartTransform(part, motion)
     if part.name=='kick-pedal' then return T.move(pivot)*T.rotateX(.16*kick)*T.move(-pivot) end
     if part.name=='beater' then return T.move(pivot)*T.rotateX(.9*kick)*T.move(-pivot) end
     if part.name=='hat-pedal' then return T.move(pivot)*T.rotateX(.13*closure)*T.move(-pivot) end
-    local drop=part.name=='hat' and -2.6*closure or 0
-    return T.move(pivot+v(0,0,drop))*T.rotateX(.10*wobble)*T.rotateY(.055*wobble)*T.move(-pivot)
+    if part.name=='hat' then
+        -- Slide on the shaft, with a small strike bounce above the lower plate.
+        return T.move(v(0,0,-hatCloseTravel*closure+.35*wobble))
+    end
+    return T.move(pivot)*T.rotateX(part.tilt*wobble)*T.rotateY(.055*wobble)*T.move(-pivot)
 end
 -- The original NIF has its rounded tip at -Y and its butt at +Y.
 -- Grip near the butt, then turn the mesh about that grip, not the wrist origin.
@@ -87,7 +92,7 @@ local function kitGrip(profile,side,pitch)
     local point=kitContacts[math.floor(pitch)] or kitContacts[38]
     if profile.animatedKit then
         if pitch==51 or pitch==53 or pitch==59 then point=point+v(-14,-4,0) end
-        if pitch==42 then point=point+v(0,0,-2.6) end
+        if pitch==42 then point=point+v(0,0,-hatCloseTravel) end
     end
     local contact=profile.position+profile.rotation*point
     local yaw=math.atan2(contact.x-(side=='L' and -10 or 10),math.max(8,contact.y))

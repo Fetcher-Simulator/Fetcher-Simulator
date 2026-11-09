@@ -238,7 +238,7 @@ namespace MWRender
         struct ScriptAttachment
         {
             std::string model, bone;
-            osg::Matrixf transform;
+            osg::ref_ptr<osg::MatrixTransform> node;
             std::chrono::steady_clock::time_point expires;
         };
         std::map<std::string, ScriptAttachment, std::less<>> mScriptAttachments;
@@ -397,12 +397,14 @@ namespace MWRender
          * @param autoTransform auto-calculate vfx transform
          * @param transform apply a relative transform
          * @param nodeMask scene traversal mask for the attached model
+         * @param attachmentNode optional matrix node for script-controlled placement
          * @note Will not add an effect twice.
          */
         void addEffect(std::string_view model, std::string_view effectId, bool loop = false,
             std::string_view bonename = {}, std::string_view texture = {}, bool useAmbientLight = true,
             bool autoTransform = true, const std::optional<osg::Matrix>& transform = std::nullopt,
-            bool preserveNodeStructure = false, unsigned int nodeMask = Mask_Effect);
+            bool preserveNodeStructure = false, unsigned int nodeMask = Mask_Effect,
+            osg::MatrixTransform* attachmentNode = nullptr);
 
         void removeEffect(std::string_view effectId);
         void removeEffects();

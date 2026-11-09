@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 89 / native synth API 41 / multiplayer protocol 27.
+Current source: package 90 / native synth API 41 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -21,7 +21,8 @@ Head and foot motions get smaller as tempo rises and use half-time above
 156 BPM. The guitar and bass playing poses incorporate the latest in-game exports.
 
 The seated stage kit uses the same scale with the ride stand moved inward.
-Its cymbals wobble on hits. Hi-hat closure moves the upper cymbal and pedal,
+The ride and crash wobble around their center mounts. The upper hi-hat slides
+along its shaft with a small vertical bounce. Hi-hat closure also moves the pedal,
 while kick notes drive the pedal, beater and head. The complete stage kit needs
 the updated client and its stage meshes. Older clients use the static kit.
 Studio NPCs keep their hands free of automatically equipped lights.
