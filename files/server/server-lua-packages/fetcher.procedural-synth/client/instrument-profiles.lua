@@ -34,7 +34,7 @@ function M.trumpetValveTransform(pressure)
 end
 M.flute={kind='flute',model=path..'flute.nif',position=v(0,8,13),rotation=T.identity,restDrop=11,restShift=v(-11,6,0),
     targets={L=v(6,11,15),R=v(28,1.5,14)}}
-M.clarinet={kind='clarinet',model=path..'clarinet.nif',position=v(0,8,13),rotation=T.identity,restDrop=13,restPitch=12,restShift=v(0,6,0),
+M.clarinet={kind='clarinet',model=path..'clarinet.nif',position=v(0,8,13),rotation=T.identity,restDrop=13,restPitch=12,restShift=v(0,6,0),restRightForward=1.25,
     targets={L=v(-6,14.1,0),R=v(6,16.6,-13)}}
 M.timpani={kind='timpani',anchor='feet',model=path..'timpani.nif',position=v(0,35,0),rotation=T.identity,
     targets={L=v(-10,27,82),R=v(10,27,82)},
@@ -177,7 +177,7 @@ function M.windRest(profile,amount)
     return T.move(pivot+shift*amount)
         *T.rotateX(math.rad(profile.restPitch or 0)*amount)*T.move(-pivot)
 end
-function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel,gesture)
+function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel,gesture,windRest)
     local point=profile.targets[side];local wrist,curl=0,.05;local stickRotation
     if profile.kind=='keyboard' then
         local shift=clamp((pitch-(side=='L' and 53 or 67))*.9,-16,16)
@@ -238,6 +238,9 @@ function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel,gestu
     local bowHand=side=='R' and (profile.kind=='violin' or profile.kind=='cello')
     if profile.tuning and not bowHand and not (profile.kind=='drumkit' and gesture and gesture.reach>0) then
         point=profile.targets[side]+(point-profile.targets[side])*(profile.tuning[side..'MotionScale'] or 1)
+    end
+    if side=='R' and profile.restRightForward then
+        point=point+v(0,profile.restRightForward*(windRest or 0),0)
     end
     return point,wrist,curl,stickRotation
 end

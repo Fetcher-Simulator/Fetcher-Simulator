@@ -108,14 +108,14 @@ def export(name,objects,transform,sourceName):
 def matrix(rotation,scale,center,offset=(0,0,0)):
     return Matrix.Translation(Vector(offset))@Matrix.Scale(scale,4)@rotation@Matrix.Translation(-Vector(center))
 
-def string_transform(objects,length,name):
+def string_transform(objects,length,front=None):
     points=np.array([list(o.matrix_world@v.co) for o in objects for v in o.data.vertices])
     center=points.mean(axis=0);_,axes=np.linalg.eigh(np.cov((points-center).T));neck=axes[:,2];normal=axes[:,0]
     along=(points-center)@neck;radius=np.linalg.norm((points-center)-np.outer(along,neck),axis=1)
     # The body is wider than the headstock: +Y is always toward the tuners.
     q1,q3=np.quantile(along,[.2,.8])
     if np.mean(radius[along<q1])<np.mean(radius[along>q3]):neck=-neck
-    if normal[np.argmax(np.abs(normal))]<0:normal=-normal
+    if (normal[np.argmax(np.abs(normal))] if front is None else np.dot(normal,front-center))<0:normal=-normal
     across=np.cross(neck,normal);rotation=Matrix([list(across),list(neck),list(normal)]).to_4x4()
     transformed=(points-center)@np.array(rotation)[:3,:3].T;lo,hi=transformed.min(axis=0),transformed.max(axis=0)
     scale=length/(hi[1]-lo[1]);origin=Vector((float((lo[0]+hi[0])/2),float(lo[1]+length*.25/scale),float((lo[2]+hi[2])/2)))
@@ -176,10 +176,14 @@ for name,item in plan.items():
         low,high=bounds(selected);center=(low+high)/2
         export(name,selected,matrix(Matrix.Rotation(-.25,4,'X')@Matrix.Rotation(math.pi/2,4,'Z'),24/(high.x-low.x),center,(0,8,-2)),name)
     elif name in ('guitar','bass','acoustic','classical'):
-        transform=string_transform(objects,100 if name=='bass' else 85,name)
-        # These two sources have their soundboard on the opposite thin axis.
-        # Keep +Y toward the headstock and +Z toward the strings, as the grips expect.
-        if name in ('acoustic','classical'):transform=Matrix.Rotation(math.pi,4,'Y')@transform
+        front=None
+        if name=='acoustic':
+            # The saddle is on the string side of the textured soundboard.
+            # Use it to disambiguate the thin-axis sign in the fit.
+            saddle=next(o for o in objects if o.name=='GRIFF_bar_down_0')
+            a,b=bounds([saddle]);front=np.array((a+b)/2)
+        transform=string_transform(objects,100 if name=='bass' else 85,front)
+        if name=='classical':transform=Matrix.Rotation(math.pi,4,'Y')@transform
         export(name,objects,transform,name)
     elif name=='drumkit':
         selected=[]

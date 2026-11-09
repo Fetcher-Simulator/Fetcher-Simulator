@@ -1,7 +1,10 @@
--- Approved in-game calibrations, updated 2026-11-08. Numeric data only.
+-- Approved in-game calibrations, updated 2026-11-09. Numeric data only.
 -- Offsets retain the package-37 reference frame; do not apply them twice.
 return {
     profiles={
+        acoustic={
+            LTarget={-23.0573863983,15.3931082982,-4.00070323488},
+        },
         bass={
             LRotation={-41.3924050633,81.3924050633,128.860759494},
             LTarget={-24.8945147679,7.40752461322,-7.06364275668},
@@ -109,6 +112,12 @@ return {
             extras={},
             propPosition={0,8,13},
             propRotation={0,0,0},
+        },
+        classical={
+            LTarget={-19.5573863983,14.5334036568,-4.65717299578},
+            RPole={3,0.227848101266,-0.6},
+            RRotation={-26.2025316456,-13.5443037975,-18.6075949367},
+            RTarget={10.0573863983,17.8301687764,-8.01687763713},
         },
         drum={
             LCurlBias=0,
@@ -257,5 +266,5 @@ return {
         },
     },
     referenceVersion=37,
-    version=91,
+    version=92,
 }

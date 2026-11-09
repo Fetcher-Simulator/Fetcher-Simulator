@@ -254,21 +254,20 @@
   "acoustic": {
     "source": "acoustic",
     "model": "meshes/fetcher/orchestra/acoustic.nif",
-    "triangles": 14828,
+    "triangles": 28758,
     "bounds": [
       [
-        -15.68537712097168,
-        -21.249996185302734,
-        -4.256706781387329
+        -15.990511894226074,
+        -21.249998092651367,
+        -5.1339192390441895
       ],
       [
-        15.685378074645996,
-        63.75,
-        4.256703958511353
+        15.990509986877441,
+        63.75000762939453,
+        5.133919715881348
       ]
     ],
-    "sha256": "a24398bef5ad3f3a9a3ee51cc9b40a7bfd1f676f4c8de3fbb8b60d48d84a90d8",
-    "depthScale": 0.74
+    "sha256": "c0abfab4f4fcee1e24a70a59b976d99ab484d5897f490e9a8133827d5da921d1"
   },
   "classical": {
     "source": "classical",

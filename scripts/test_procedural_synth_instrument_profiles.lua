@@ -37,7 +37,8 @@ end
 for _,name in ipairs{'acoustic','classical'} do
     local defaults=Published.defaults[name]
     for _,field in ipairs{'propPosition','propRotation','LTarget','RTarget','LRotation','RRotation','LPole','RPole'} do
-        for axis=1,3 do check(defaults[field][axis]==Published.defaults.guitar[field][axis],name..' inherits the electric '..field) end
+        local expected=approved.profiles[name][field] or Published.defaults.guitar[field]
+        for axis=1,3 do check(defaults[field][axis]==expected[axis],name..' applies its export over the electric '..field) end
     end
 end
 check(Published.drumkit.seated and Published.drumkit.anchor=='feet' and #Published.drumkit.extras==2,'kit is floor anchored with a seated profile and two sticks')
@@ -126,6 +127,12 @@ local frog=P.violin.position+P.violin.rotation*v(19,0,4.75)
 check(math.abs(P.violin.targets.R.y+7-frog.y)<.001 and math.abs(P.violin.targets.R.z-1-frog.z)<.001,'bow frog is held by the fingers rather than placed through the wrist')
 local lf=P.handDirections(P.clarinet,'L');local rf=P.handDirections(P.clarinet,'R')
 check(lf.x>0 and rf.x<0 and P.clarinet.targets.L.z>P.clarinet.targets.R.z,'clarinet hands cross its upper/lower keys from opposite sides rather than hanging down the tube')
+do
+ local function target(side,rest) return Published.motion(Published.clarinet,side,60,false,0,0,0,0,nil,rest) end
+ local play=target('R',0);local half=target('R',.5);local rest=target('R',1)
+ check(rest.x==play.x and rest.z==play.z and rest.y>play.y and math.abs(half.y-(rest.y+play.y)/2)<1e-6,'right wrist moves forward smoothly only during clarinet rest')
+ check(target('L',0).y==target('L',1).y,'clarinet left wrist keeps its calibrated grip')
+end
 check(math.abs(P.trumpet.position.y-3.5-(P.clarinet.position.y-.5))<.001,'wind mouthpieces share the same lip plane instead of burying the trumpet cup in the face')
 local tf,tn=P.handDirections(P.trumpet,'R');local sf,sn=P.handDirections(P.trumpet,'L')
 check(tf.x<0 and tn.z<0 and sf.z>0 and sn.x>0,'trumpet valve fingers cross inward with palm down; left palm faces the casings with fingers wrapping upward')
@@ -225,7 +232,8 @@ do
   local migrated=make(Published,package.loaded['openmw.util'],storage)
   local p=migrated:profile(name);local expected=Published[name]
   local leftTarget=export.LTarget or Published.defaults[name].LTarget
-  check(math.abs(p.position.x-export.propPosition[1])<1e-7 and math.abs(p.targets.L.x-leftTarget[1])<1e-7,'new default positions match '..name..' export')
+  local propPosition=export.propPosition or Published.defaults[name].propPosition
+  check(math.abs(p.position.x-propPosition[1])<1e-7 and math.abs(p.targets.L.x-leftTarget[1])<1e-7,'new default positions match '..name..' export')
   for _,axis in ipairs{v(1,0,0),v(0,1,0),v(0,0,1)} do
    local a,b=p.rotation*axis,expected.rotation*axis
    check(math.abs(a.x-b.x)+math.abs(a.y-b.y)+math.abs(a.z-b.z)<1e-7,'saved '..name..' prop rotation is not applied twice')

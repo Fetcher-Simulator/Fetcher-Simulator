@@ -151,21 +151,14 @@
   },
   {
     "id": "acoustic",
-    "title": "Acoustic Guitar",
-    "author": "zackama",
-    "authorUrl": "https://sketchfab.com/zackama",
-    "source": "https://sketchfab.com/3d-models/acoustic-guitar-7ec9c643c9a243c0ac458cc942aa4082",
+    "title": "Acoustic guitar",
+    "author": "iam3d_ar",
+    "authorUrl": "https://sketchfab.com/iam3d_ar",
+    "source": "https://sketchfab.com/3d-models/acoustic-guitar-ce63135788664884adb41ec0e16aac0b",
     "license": "CC BY 4.0",
     "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
-    "downloadSha256": "d94f3d7fed6da22a8a389356322813c95877f62d6268ebd1825d301d6267400c",
-    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes. Reduced body depth and applied wood textures from gazorpinhas's CC BY 4.0 classical guitar.",
-    "upstream": {
-      "title": "Low Poly Classical Guitar (wood textures)",
-      "author": "gazorpinhas",
-      "authorUrl": "https://sketchfab.com/gazorpinhas",
-      "source": "https://sketchfab.com/3d-models/low-poly-classical-guitar-90ca0a9c525e47d48a68146fd7bd97e3",
-      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
-    }
+    "downloadSha256": "4a2636662f999f93f8b6b05f75a6d885d7c43af1220fe6f4e5764dfd82d93790",
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
   },
   {
     "id": "classical",
@@ -176,6 +169,6 @@
     "license": "CC BY 4.0",
     "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
     "downloadSha256": "8dab9e21391fdb97fb3bb68645626c611b015352cbab9bfdbe3c152ae1d26408",
-    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes. Reduced body depth for the shared playing pose. Wood textures also used on the acoustic cutaway."
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes. Reduced body depth for the shared playing pose."
   }
 ]

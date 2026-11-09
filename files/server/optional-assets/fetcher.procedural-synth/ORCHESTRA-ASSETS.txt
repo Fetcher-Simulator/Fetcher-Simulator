@@ -98,9 +98,9 @@ License: Creative Commons Attribution 4.0 International
 https://creativecommons.org/licenses/by/4.0/
 Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes. Display plinth and loose spare cymbal omitted; dense hardware simplified for real-time use. Drums, cymbals, hi-hat and pedals retained.
 
-Acoustic Guitar — zackama
-Source: https://sketchfab.com/3d-models/acoustic-guitar-7ec9c643c9a243c0ac458cc942aa4082
-Author: https://sketchfab.com/zackama
+Acoustic guitar — iam3d_ar
+Source: https://sketchfab.com/3d-models/acoustic-guitar-ce63135788664884adb41ec0e16aac0b
+Author: https://sketchfab.com/iam3d_ar
 License: Creative Commons Attribution 4.0 International
 https://creativecommons.org/licenses/by/4.0/
 Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes.

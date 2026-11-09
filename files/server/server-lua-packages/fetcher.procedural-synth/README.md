@@ -2,7 +2,7 @@
 
 This optional package supplies native spatial multiplayer synthesis and sample playback, its in-game sound editor, MIDI mixer, piano clips, drum machine and personal presets/projects. Procedural synthesis works without prerecorded content. Optional recorded instruments use separate credited content banks. Bardcraft scripts, a client ESP and external sampler plugins are not required.
 
-Current source: package 91 / native synth API 41 / multiplayer protocol 27.
+Current source: package 92 / native synth API 41 / multiplayer protocol 27.
 Studio supports 32 parts, reusable multi-track patterns, subtitle sample search
 and independent concurrent playback. These native changes require matching client
 and server builds; source completion does not publish a release.
@@ -17,8 +17,9 @@ See [the roadmap](ROADMAP.md).
 The flute and clarinet rest farther forward. The flute also shifts toward the
 performer's center. Trumpet valves follow the right-hand fingering while the
 left hand holds its grip. The animated trumpet needs its split prop assets.
-Both acoustic guitar poses start from the electric calibration. The acoustic
-cutaway uses wood textures, and both guitar bodies are fitted to the playing plane.
+Package 92 adds the textured steel-string acoustic guitar by iam3d_ar and
+updates both guitar grips from in-game Pose Tuner exports. It also brings the
+clarinet's right hand forward in its rest pose.
 
 ## Instrument phrasing and kit motion (package 89)
 

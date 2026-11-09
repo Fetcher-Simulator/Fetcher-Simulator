@@ -193,7 +193,7 @@ function M.new(actor,calibration)
                         local hand=drumming and drumming.hands[side]
                         if hand then pitch=hand.note end
                         point,wrist,curl,stickRotation=Profiles.motion(profile,side,pitch,hand and hand.pulse>0 or not hand and #group>0,
-                            hand and hand.pulse or pulse,strikes,#low+#high,self.bowTravel,hand or gesture)
+                            hand and hand.pulse or pulse,strikes,#low+#high,self.bowTravel,hand or gesture,self.windRest)
                     else point,wrist,curl=v(x,front,height+(#group>0 and -pulse or 0)),pulse*.08,0 end
                     if stickRotation and self.stickRotations then self.stickRotations[side]=stickRotation end
                     local target=toModel*sourcePoint(point)
