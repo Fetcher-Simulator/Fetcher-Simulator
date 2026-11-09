@@ -755,6 +755,7 @@ local function frame(dt)
         if next(instances)==nil then mp.sendToServer('Synth_Request',{version=1,op='sync'}) end
     end
     for _,i in pairs(instances) do i.beatClock=transport:beatClock(i) end
+    actors.previewInstrument=tuner and tuner.instrument
     actors:frame(instances,dt,now)
     for _,i in pairs(instances) do if i.stageCheck then i.stageCheck:frame() end end
     listening:frame(instances,session,performerState,transport,now,self.cell)

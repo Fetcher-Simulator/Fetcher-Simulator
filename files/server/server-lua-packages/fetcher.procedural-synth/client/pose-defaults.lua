@@ -1,7 +1,36 @@
--- Approved in-game calibrations, updated 2026-10-29. Numeric data only.
+-- Approved in-game calibrations, updated 2026-11-08. Numeric data only.
 -- Offsets retain the package-37 reference frame; do not apply them twice.
 return {
     profiles={
+        bass={
+            LRotation={-41.3924050633,81.3924050633,128.860759494},
+            LTarget={-24.8945147679,7.40752461322,-7.06364275668},
+            RPole={3,-0.732067510549,0.227848101266},
+            RRotation={-24.3037974684,2.27848101266,-47.0886075949},
+            RTarget={17.2995780591,17.2995780591,-12.9395218003},
+            propPosition={9,11,-16.25},
+            propRotation={-8,-14,0},
+        },
+        drumkit={
+            LFootRotation={-10.3738317757,-10.3738317757,-28.5981308411},
+            LFootTarget={-30.6853582555,21.4953271028,-0.311526479751},
+            LKneePole={-1.29113924051,1.31434599156,-0.151898734177},
+            RFootRotation={0.841121495327,-11.7757009346,-35.6074766355},
+            RFootTarget={-0.311526479751,2.80373831776,-2.64797507788},
+            RKneePole={0.354430379747,0.628691983122,-0.689873417722},
+            benchPosition={0,-8.8785046729,0.467289719626},
+            benchScale=0.767317158931,
+            pelvisOffset={-1.54711673699,-11.3924050633,-26.1603375527},
+            propPosition={16.203271028,29.1066978193,0},
+        },
+        guitar={
+            LRotation={180,142.151898734,-64.8101265823},
+            LTarget={-23.0573863983,17,-8.72011251758},
+            RPole={3,0,-0.6},
+            RTarget={10.5573863983,17.3301687764,-11.9701125176},
+            propPosition={11.0109034268,12.5303738318,-18.5},
+            propRotation={-8,-15,2},
+        },
         cello={
             LCurlBias=-1.35759493671,
             LCurlScale=1.11814345992,
@@ -228,5 +257,5 @@ return {
         },
     },
     referenceVersion=37,
-    version=45,
+    version=89,
 }

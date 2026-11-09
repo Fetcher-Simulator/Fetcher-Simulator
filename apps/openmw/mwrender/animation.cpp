@@ -2234,7 +2234,10 @@ namespace MWRender
         if (getNodeMap().find(bone)==getNodeMap().end()) return false;
         const std::string id(key), effect="__lua_prop_"+id;
         auto it=mScriptAttachments.find(id);
-        if (it==mScriptAttachments.end() && mScriptAttachments.size()>=8) return false;
+        // A seated Studio kit uses the base, seven moving parts, two sticks,
+        // the stool and the music stand.
+        if (it == mScriptAttachments.end() && mScriptAttachments.size() >= MaxScriptAttachments)
+            return false;
         if (it==mScriptAttachments.end() || it->second.model!=model || it->second.bone!=bone)
         {
             removeEffect(effect);

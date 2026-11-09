@@ -516,6 +516,7 @@ namespace MWRender
             const osg::Quat& rotation, float weight, float timeout);
         void clearScriptBoneTransform(std::string_view name);
         void clearScriptBoneTransforms();
+        static constexpr std::size_t MaxScriptAttachments = 12;
         bool setScriptAttachment(std::string_view key, std::string_view model, std::string_view bone,
             const osg::Matrixf& transform, float timeout);
         void clearScriptAttachment(std::string_view key);

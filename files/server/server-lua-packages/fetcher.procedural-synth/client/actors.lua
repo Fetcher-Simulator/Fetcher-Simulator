@@ -28,6 +28,9 @@ function A:clear(key)
     if p.actor:isValid() and anim.clearVisualAttachment then pcall(anim.clearVisualAttachment,p.actor,'synth_instrument') end
     if p.actor:isValid() and anim.clearVisualAttachment then
         for _,key in ipairs{'synth_bow','synth_mallet_l','synth_mallet_r','synth_chair','synth_music_stand'} do pcall(anim.clearVisualAttachment,p.actor,key) end
+        if p.kitProfile then
+            for _,part in ipairs(profiles.kitParts) do pcall(anim.clearVisualAttachment,p.actor,part.key) end
+        end
     end
     self.poses[key]=nil
 end
@@ -66,6 +69,23 @@ function A:frame(instances,dt,now)
                     if vfs.fileExists and not vfs.fileExists(profile.model) then profile=profiles.lute end
                     if p and (p.actor~=actor or p.instrument~=r.instrument or p.requestedProfile~=requested) then self:clear(key);p=nil end
                     if not p then p={actor=actor,instrument=r.instrument,requestedProfile=requested,pose=Performance.new(actor),refresh=-10};self.poses[key]=p end
+                    if profile.kind=='drumkit' then
+                        if p.kitSource~=profile then
+                            p.kitSource=profile
+                            local complete=(anim.maxVisualAttachments or 8)>=12
+                                and (not vfs.fileExists or vfs.fileExists(profiles.kitStageModel))
+                            for _,part in ipairs(profiles.kitParts) do
+                                if vfs.fileExists and not vfs.fileExists(part.model) then complete=false end
+                            end
+                            if complete then
+                                p.kitProfile={}
+                                for field,value in pairs(profile) do p.kitProfile[field]=value end
+                                p.kitProfile.animatedKit=true
+                                p.kitProfile.model=profiles.kitStageModel
+                            else p.kitProfile=nil end
+                        end
+                        profile=p.kitProfile or profile
+                    end
                     p.profileKey=requested
                     if profile.seated and p.pose and not Performance.canSeat(p.pose.bones) then
                         profile=self:profile(r.instrument);p.profileKey=r.instrument;p.seatedUnsupported=true
@@ -92,11 +112,17 @@ function A:frame(instances,dt,now)
                             end
                             local source={position=position,rotation=facing}
                             if p.pose and not p.pose.missing then
-                                p.pose:frame(math.min(.2,now-(p.frameAt or now-dt)),source,playing and group.audio:notes() or {},now,group and group.audio.strikes or 0,profile,group and group.audio.performance and group.audio:performance() or nil,i.beatClock)
+                                p.pose:frame(math.min(.2,now-(p.frameAt or now-dt)),source,playing and group.audio:notes() or {},now,group and group.audio.strikes or 0,profile,group and group.audio.performance and group.audio:performance() or nil,i.beatClock,self.previewInstrument==requested)
                             end
                             local transform=root:inverse()*(p.pose and p.pose.propTransform or T.identity)*T.move(position)*facing*T.move(profile.position)*profile.rotation
                             p.propPosition=(T.move(position)*facing*T.move(profile.position))*v(0,0,0)
                             anim.setVisualAttachment(actor,'synth_instrument',profile.model,{bone='Bip01',transform=transform,timeout=.6})
+                            if profile.animatedKit then
+                                for _,part in ipairs(profiles.kitParts) do
+                                    local motion=profiles.kitPartTransform(part,p.pose and p.pose.drumMotion)
+                                    anim.setVisualAttachment(actor,part.key,part.model,{bone='Bip01',transform=transform*motion,timeout=.6})
+                                end
+                            end
                             for _,extra in ipairs(profile.extras or {}) do
                                 local attachment
                                 if extra.hand and p.pose and p.pose.targets[extra.hand] then
@@ -160,7 +186,9 @@ function A:status()
         result[#result+1]={key=key,instrument=p.instrument,profile=p.profileKey,seated=p.pose and p.pose.seated==true,seatedUnsupported=p.seatedUnsupported,bones=p.pose and p.pose.applied or 0,fingerAxes=axes,
         fret=p.pose and p.pose.fretting and p.pose.fretting.position,stickLeft=p.pose and p.pose.stickPulse and p.pose.stickPulse.L,stickRight=p.pose and p.pose.stickPulse and p.pose.stickPulse.R,footLeft=p.pose and p.pose.pedalMotion and p.pose.pedalMotion.L,footRight=p.pose and p.pose.pedalMotion and p.pose.pedalMotion.R,
         fingers=p.pose and p.pose.fingers or 0,error=p.pose and p.pose.error or 0,reachError=p.pose and p.pose.reachError or 0,legReachError=p.pose and p.pose.legReachError or 0,missingModel=p.missingModel,
-        body=p.pose and p.pose.bodyMotion,propPosition=p.propPosition,attachments=anim.visualAttachmentCount and anim.visualAttachmentCount(p.actor) or 0} end
+        body=p.pose and p.pose.bodyMotion,propPosition=p.propPosition,windRest=p.pose and p.pose.windRest,
+        bowTravel=p.pose and p.pose.bowTravel,drumMotion=p.pose and p.pose.drumMotion,
+        attachments=anim.visualAttachmentCount and anim.visualAttachmentCount(p.actor) or 0} end
     for id,c in pairs(self.conductors) do if c.active then result[#result+1]={key='conductor:'..id,instrument='conductor',bones=c.pose.applied,body=c.pose.bodyMotion,reachError=c.pose.reachError} end end
     return result
 end

@@ -144,7 +144,7 @@ Source: https://sketchfab.com/3d-models/drum-kit-898f2f4ba1704abe9c784066e2b0f75
 Author: https://sketchfab.com/art.katja
 License: Creative Commons Attribution 4.0 International
 https://creativecommons.org/licenses/by/4.0/
-Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes. Display plinth and loose spare cymbal omitted; dense hardware simplified for real-time use. Drums, cymbals, hi-hat and pedals retained.
+Changes: Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes. Display plinth and loose spare cymbal omitted; dense hardware simplified for real-time use. Drums, cymbals, hi-hat and pedals retained. The stage variant splits animated cymbals, pedal boards, beater and kick head, and moves the ride stand inward.
 
 Acoustic Guitar — zackama
 Source: https://sketchfab.com/3d-models/acoustic-guitar-7ec9c643c9a243c0ac458cc942aa4082

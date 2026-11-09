@@ -22,11 +22,11 @@ M.violin.targets.R=M.violin.position+M.violin.rotation*v(19,0,4.75)-v(0,7,-1)
 M.cello={kind='cello',anchor='feet',model=path..'cello.nif',position=v(0,17,80),rotation=T.rotateZ(math.pi)*T.rotateX(-math.pi/2),
     targets={L=v(-6,27,111),R=v(19,18.75,88)},centerNote=48,
     extras={{key='synth_bow',model=path..'bow.nif',position=v(0,6,8),rotation=T.rotateZ(math.pi),bow=true}}}
-M.trumpet={kind='trumpet',model=path..'trumpet.nif',position=v(0,11,13),rotation=T.identity,
+M.trumpet={kind='trumpet',model=path..'trumpet.nif',position=v(0,11,13),rotation=T.identity,restDrop=16,restPitch=32,
     targets={L=v(-5,28,10),R=v(10,27,20.5)}}
-M.flute={kind='flute',model=path..'flute.nif',position=v(0,8,13),rotation=T.identity,
+M.flute={kind='flute',model=path..'flute.nif',position=v(0,8,13),rotation=T.identity,restDrop=11,
     targets={L=v(6,11,15),R=v(28,1.5,14)}}
-M.clarinet={kind='clarinet',model=path..'clarinet.nif',position=v(0,8,13),rotation=T.identity,
+M.clarinet={kind='clarinet',model=path..'clarinet.nif',position=v(0,8,13),rotation=T.identity,restDrop=13,restPitch=12,
     targets={L=v(-6,14.1,0),R=v(6,16.6,-13)}}
 M.timpani={kind='timpani',anchor='feet',model=path..'timpani.nif',position=v(0,35,0),rotation=T.identity,
     targets={L=v(-10,27,82),R=v(10,27,82)},
@@ -46,10 +46,36 @@ end
 local kitContacts={
     [37]=v(-38,-17,66),[38]=v(-38,-17,66),[39]=v(-38,-17,66),[40]=v(-38,-17,66),
     [41]=v(35,-16,63),[43]=v(35,-16,63),[45]=v(10,0,82),[47]=v(10,0,82),
-    [48]=v(-14,0,83),[50]=v(-14,0,83),[42]=v(-60,-5,84),[46]=v(-60,-5,84),
-    [49]=v(-40,0,99),[55]=v(-40,0,99),[57]=v(-40,0,99),
-    [51]=v(38,-10,89),[53]=v(38,-10,89),[59]=v(38,-10,89),
+    [48]=v(-14,0,83),[50]=v(-14,0,83),[42]=v(-60,-5,83.62),[46]=v(-60,-5,83.62),
+    [49]=v(-40,0,91.1),[55]=v(-40,0,91.1),[57]=v(-40,0,91.1),
+    [51]=v(43,0,87.96),[53]=v(43,0,87.96),[59]=v(43,0,87.96),
 }
+M.kitStageModel=path..'drumkit-stage.nif'
+M.kitParts={
+    {name='ride',pivot=v(49.9,3.1,93)},
+    {name='crash',pivot=v(-45.5,12.8,100)},
+    {name='hat',pivot=v(-70.3,-2.6,83.9)},
+    {name='hat-pedal',pivot=v(-70.3,-20,1.2)},
+    {name='kick-pedal',pivot=v(-1.55,-28.8,1.2)},
+    {name='beater',pivot=v(-1.55,-11,11.4)},
+    {name='kick-head',pivot=v(-1.55,-6,29)},
+}
+for _,part in ipairs(M.kitParts) do
+    part.model=path..'drumkit-'..part.name..'.nif'
+    part.key='synth_kit_'..part.name
+end
+function M.kitPartTransform(part, motion)
+    local wobble=motion and motion.cymbals[part.name] or 0
+    local kick=motion and motion.kick or 0
+    local closure=motion and motion.hatClosure or 0
+    local pivot=part.pivot
+    if part.name=='kick-head' then return T.move(v(0,.45*kick,0)) end
+    if part.name=='kick-pedal' then return T.move(pivot)*T.rotateX(.16*kick)*T.move(-pivot) end
+    if part.name=='beater' then return T.move(pivot)*T.rotateX(.9*kick)*T.move(-pivot) end
+    if part.name=='hat-pedal' then return T.move(pivot)*T.rotateX(.13*closure)*T.move(-pivot) end
+    local drop=part.name=='hat' and -2.6*closure or 0
+    return T.move(pivot+v(0,0,drop))*T.rotateX(.10*wobble)*T.rotateY(.055*wobble)*T.move(-pivot)
+end
 -- The original NIF has its rounded tip at -Y and its butt at +Y.
 -- Grip near the butt, then turn the mesh about that grip, not the wrist origin.
 local stickGrip=v(0,16,-4)
@@ -58,12 +84,17 @@ local function kitStick(profile,side)
     for _,extra in ipairs(profile.extras) do if extra.hand==side then return extra end end
 end
 local function kitGrip(profile,side,pitch)
-    local contact=profile.position+profile.rotation*(kitContacts[math.floor(pitch)] or kitContacts[38])
+    local point=kitContacts[math.floor(pitch)] or kitContacts[38]
+    if profile.animatedKit then
+        if pitch==51 or pitch==53 or pitch==59 then point=point+v(-14,-4,0) end
+        if pitch==42 then point=point+v(0,0,-2.6) end
+    end
+    local contact=profile.position+profile.rotation*point
     local yaw=math.atan2(contact.x-(side=='L' and -10 or 10),math.max(8,contact.y))
     local rotation=T.rotateZ(yaw)
     local extra=kitStick(profile,side)
     local tip=(extra.position or v(0,0,0))+extra.rotation*(extra.tip-extra.grip)
-    return contact-rotation*tip,rotation,contact
+    return contact-rotation*tip,rotation,contact,yaw
 end
 M.kitGrip=kitGrip
 M.kitStick=kitStick
@@ -127,8 +158,10 @@ function M.compile(base,d)
     end
     return p
 end
-function M.bowTravel(profile,age,pressed)
-    return (profile.kind=='violin' or profile.kind=='cello') and pressed and math.sin(age*math.pi*1.6)*5 or 0
+function M.windRest(profile,amount)
+    local pivot=profile.position
+    return T.move(pivot+v(0,0,-profile.restDrop*amount))
+        *T.rotateX(math.rad(profile.restPitch or 0)*amount)*T.move(-pivot)
 end
 function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel,gesture)
     local point=profile.targets[side];local wrist,curl=0,.05;local stickRotation
@@ -145,10 +178,18 @@ function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel,gestu
             wrist=pressed and -.25*pulse or 0;curl=.2
         end
     elseif profile.kind=='drumkit' then
-        local grip,rotation=kitGrip(profile,side,pitch)
+        local grip,rotation,_,yaw=kitGrip(profile,side,pitch)
         local reference=kitGrip(profile,side,side=='L' and 38 or 42)
-        local hit=pressed and pulse or 0
+        local hit=gesture and gesture.impact or (pressed and pulse or 0)
         point=profile.targets[side]+grip-reference+v(0,0,4*(1-hit))
+        if gesture and gesture.reach>0 then
+            point=grip+v(0,0,4*(1-hit))
+            if gesture.previous and gesture.approach<1 then
+                local previous,_,_,previousYaw=kitGrip(profile,side,gesture.previous)
+                point=previous+(point-previous)*gesture.approach+v(0,0,4*(1-gesture.approach))
+                rotation=T.rotateZ(previousYaw+(yaw-previousYaw)*gesture.approach)
+            end
+        end
         wrist=0;curl=.35;stickRotation=rotation*T.rotateX(-.35*(1-hit))
     elseif profile.kind=='drum' or profile.kind=='timpani' then
         local hit=pressed and ((count or 0)>1 or ((strikes or 0)%2==0)==(side=='L'))
@@ -179,7 +220,10 @@ function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel,gestu
             wrist=-.20*gesture.pulse;curl=.2
         end
     end
-    if profile.tuning then point=profile.targets[side]+(point-profile.targets[side])*(profile.tuning[side..'MotionScale'] or 1) end
+    local bowHand=side=='R' and (profile.kind=='violin' or profile.kind=='cello')
+    if profile.tuning and not bowHand and not (profile.kind=='drumkit' and gesture and gesture.reach>0) then
+        point=profile.targets[side]+(point-profile.targets[side])*(profile.tuning[side..'MotionScale'] or 1)
+    end
     return point,wrist,curl,stickRotation
 end
 local function handDirections(profile,side)
@@ -255,8 +299,15 @@ for _,name in ipairs{'keyboard','lute','drum','violin','cello','trumpet','flute'
     -- above the new timpani head for its six-unit downstroke.
     if name=='timpani' then d.LTarget[3]=91;d.RTarget[3]=91 end
     if name=='drumkit' then d.LFootTarget={-22,22,0};d.RFootTarget={17,2,0};d.benchScale=.9 end
-    merge(d,approved.profiles[name] or ((name=='acoustic' or name=='classical') and approved.profiles.guitar) or {})
+    merge(d,approved.profiles[name] or {})
     M.defaults[name]=d;M[name]=M.compile(M.reference[name],d)
+    if name=='drumkit' then
+        for _,side in ipairs{'L','R'} do
+            local grip=kitGrip(M[name],side,side=='L' and 38 or 42)
+            d[side..'Target']={grip.x,grip.y,grip.z}
+            M[name].targets[side]=grip
+        end
+    end
 end
 -- Seated profiles have independent tuner values; standing exports stay intact.
 for _,kind in ipairs{'keyboard','cello'} do

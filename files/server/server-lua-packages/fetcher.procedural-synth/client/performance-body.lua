@@ -8,31 +8,33 @@ function M.frame(state,dt,clock,kind,seated,moving,reach)
     local active=clock and clock.playing and not moving
     state.level=smooth(state.level,active and 1 or 0,dt,7)
     local beat=clock and clock.beat or 0
-    -- Extremely fast MIDI tempos still get bounded, modest presentation.
-    local phase=(beat%1)*math.pi*2;local level=state.level
+    -- Follow half-time at fast tempos, with smaller gestures as tempo rises.
+    local rate=clock and clock.rate or 2
+    local accent=beat/(rate>2.6 and 2 or 1)
+    local phase=(accent%1)*math.pi*2;local level=state.level
+    local emphasis=math.min(1,(2/math.max(rate,2))^2)
     local tap=(1-math.cos(phase))*.5
     -- Generic transform.rotate is right-handed (unlike rotateZ's game yaw):
     -- facing +Y, a right-side +X reach needs a negative world-Z turn.
-    local yaw=kind=='drumkit' and -clamp(reach or 0,-1,1)*math.rad(13) or 0
-    state.yaw=smooth(state.yaw,yaw*level,dt,9)
+    local yaw=kind=='drumkit' and -clamp(reach or 0,-1,1)*math.rad(23) or 0
+    state.yaw=smooth(state.yaw,yaw*level,dt,16)
     local strings=kind=='guitar' or kind=='bass' or kind=='lute'
     local roll=not seated and kind~='conductor' and math.sin(beat*math.pi/2)*math.rad(strings and .6 or 1.4)*level or 0
     state.roll=smooth(state.roll or 0,roll,dt,4)
     return {level=level,yaw=state.yaw,
         roll=state.roll,
-        nod=(tap-.5)*math.rad(3)*level,
-        foot=not seated and kind~='conductor' and tap*math.rad(7)*level or 0},state
+        nod=(tap-.5)*math.rad(2.4)*level*emphasis,
+        foot=not seated and kind~='conductor' and tap*math.rad(5)*level*emphasis or 0},state
 end
 function M.drumReach(hands)
     if not hands then return 0 end
     -- Right-side ride/floor tom, left-side hats/crash. Snare stays centered.
-    local direction={[42]=-.7,[44]=-.7,[46]=-.7,[49]=-.8,[57]=-.8,
-        [51]=1,[53]=1,[59]=1,[41]=.9,[43]=.9,[45]=.35,[47]=.25,[48]=-.25,[50]=-.25}
-    local sum,weight=0,0
-    for _,side in ipairs{'L','R'} do local hand=hands[side]
-        if hand then local w=clamp(hand.pulse or 0,0,1);sum=sum+(direction[hand.note] or 0)*w;weight=weight+w end
-    end
-    return weight>0 and sum/math.max(1,weight) or 0
+    local direction={[42]=-1,[46]=-1,[49]=-.65,[55]=-.65,[57]=-.65,
+        [51]=1,[53]=1,[59]=1,[41]=.7,[43]=.7,[45]=.25,[47]=.25,[48]=-.2,[50]=-.2}
+    local right,left=hands.R,hands.L
+    local r=right and (direction[right.note] or 0)*(right.reach or right.pulse) or 0
+    local l=left and (direction[left.note] or 0)*(left.reach or left.pulse) or 0
+    return math.abs(r)>=math.abs(l) and r or l
 end
 function M.moving(state,position,dt)
     local last=state.position;state.position=position

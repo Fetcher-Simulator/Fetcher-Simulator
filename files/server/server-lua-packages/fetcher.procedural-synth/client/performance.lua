@@ -51,9 +51,10 @@ function M.new(actor,calibration)
         for name in pairs(self.appliedBones) do anim.clearBoneTransform(self.actor,name) end
         self.appliedBones={};self.applied=0;self.fingers=0
         self.stringGesture=nil;self.drumGesture=nil;self.stickPulse=nil;self.stickRotations=nil;self.pedalMotion=nil;self.fretting=nil;self.fretPosition=nil
+        self.drumMotion=nil;self.bowState=nil;self.windRest=nil;self.windLastHeld=nil
         self.bodyState=nil;self.bodyMotion=nil;self.bodyBones=nil;self.propTransform=nil;self.motionPosition={}
     end
-    function p:frame(dt,source,notes,now,strikes,profile,snapshot,clock)
+    function p:frame(dt,source,notes,now,strikes,profile,snapshot,clock,preview)
         self.error=0;self.reachError=0;self.legReachError=0;self.fingers=0
         local record=not profile and source.recordId=='fetcher_procedural_keyboard_v1' and types.Miscellaneous.record(source) or (not profile and types.Activator.record(source))
         local staged=record and record.model:lower():gsub('\\','/'):find('keyboard%-stand%.nif$')~=nil
@@ -93,6 +94,7 @@ function M.new(actor,calibration)
         end
         self.amount=math.min(1,self.amount+math.min(dt,0.1)*4)
         local gesture,drumming
+        self.drumMotion=nil
         if snapshot and profile then
             if profile.kind=='guitar' or profile.kind=='bass' then
                 gesture,self.stringGesture=Gestures.strings(snapshot,profile.kind,self.stringGesture)
@@ -101,6 +103,7 @@ function M.new(actor,calibration)
                 gesture.position=self.fretPosition;self.fretting=gesture
             elseif profile.kind=='drumkit' then
                 drumming,self.drumGesture=Gestures.drums(snapshot,now,self.drumGesture)
+                self.drumMotion=drumming
                 self.stickPulse={L=drumming.hands.L.pulse,R=drumming.hands.R.pulse};self.stickRotations={};self.pedalMotion=drumming.feet
             end
         end
@@ -140,9 +143,22 @@ function M.new(actor,calibration)
         -- behind the instrument; IK compensates instead of rocking the mesh.
         local strings=profile and (profile.kind=='guitar' or profile.kind=='bass' or profile.kind=='lute')
         self.propTransform=profile and profile.anchor~='feet' and not strings and bodyWorld or T.identity
+        if profile and profile.restDrop then
+            local held=#signature>0 or preview
+            if held then self.windLastHeld=now end
+            local desired=self.windLastHeld and now-self.windLastHeld<.24 and 0 or 1
+            self.windRest=self.windRest or desired
+            local rate=desired==0 and 19 or 8
+            self.windRest=self.windRest+(desired-self.windRest)*(1-math.exp(-math.min(dt,.2)*rate))
+            local anchor=T.move(source.position)*source.rotation
+            self.propTransform=self.propTransform*anchor*Profiles.windRest(profile,self.windRest)*anchor:inverse()
+        end
         local function sourcePoint(point) return self.propTransform*(source.position+source.rotation*point) end
         local pulse=math.max(0,1-(now-self.strike)/0.13)
-        self.bowTravel=profile and Profiles.bowTravel(profile,now-self.strike,#signature>0) or 0
+        if profile and (profile.kind=='violin' or profile.kind=='cello') then
+            self.bowTravel,self.bowState=Gestures.bow(snapshot,#signature>0,self.strike,now,dt,self.bowState)
+            self.bowTravel=self.bowTravel*(profile.tuning and profile.tuning.RMotionScale or 1)
+        end
         for _,side in ipairs{'L','R'} do
             local sign=side=='L' and -1 or 1
             local upper=self.bones[('Bip01 '..side..' UpperArm'):lower()]
@@ -171,7 +187,7 @@ function M.new(actor,calibration)
                         local hand=drumming and drumming.hands[side]
                         if hand then pitch=hand.note end
                         point,wrist,curl,stickRotation=Profiles.motion(profile,side,pitch,hand and hand.pulse>0 or not hand and #group>0,
-                            hand and hand.pulse or pulse,strikes,#low+#high,self.bowTravel,gesture)
+                            hand and hand.pulse or pulse,strikes,#low+#high,self.bowTravel,hand or gesture)
                     else point,wrist,curl=v(x,front,height+(#group>0 and -pulse or 0)),pulse*.08,0 end
                     if stickRotation and self.stickRotations then self.stickRotations[side]=stickRotation end
                     local target=toModel*sourcePoint(point)
@@ -181,7 +197,9 @@ function M.new(actor,calibration)
                         local pole=toModel*(root*s+facing*bias)-s
                         local elbow,tip=M.elbow(s,target,a,b,pole)
                         if elbow then
-                            self.reachError=math.max(self.reachError,(root*target-root*tip):length())
+                            local reachError=(root*target-root*tip):length()
+                            self.reachError=math.max(self.reachError,reachError)
+                            if drumming then drumming.hands[side].reachError=reachError end
                             self.targets[side]=root*tip
                             local inverseUpper=u:inverse()
                             local upperRotation=between(inverseUpper*e,inverseUpper*elbow)

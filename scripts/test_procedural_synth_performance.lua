@@ -77,4 +77,19 @@ check(d.hands.L.note==49 and d.hands.R.note==38,'a simultaneous crash arriving i
 d,s=M.drums({row(49,0,0,92)},114)
 d,s=M.drums({row(38,0,0,93)},114,s)
 check(d.hands.L.note==49 and d.hands.R.note==38,'split-poll crash/snare is independent of arrival order')
-print('PASS native-note visual interpretation: saved string/fret/stroke, open strings, bass fingers, independent sticks/pedals and cleanup; '..count..' assertions')
+do
+ local bow,position= nil,0
+ for i=1,240 do
+  local elapsed=i/60
+  local nextPosition
+  nextPosition,bow=M.bow({row(64,0,elapsed,1)},true,100,100+elapsed,1/60,bow)
+  check(nextPosition>=position and nextPosition<=5,'a four-second held note has one bounded bow direction')
+  position=nextPosition
+ end
+ local reversed=M.bow({row(67,0,.02,2)},true,104.02,104.04,1/60,bow)
+ check(reversed<position,'a new attack reverses the bow without resetting its position')
+end
+d=M.drums({row(51,0,.07,101),row(36,0,.07,102),row(44,0,.07,103)},116)
+check(d.hands.R.note==51 and d.hands.R.impact==1,'right wrist reaches ride during the impact window')
+check(d.cymbals.ride and d.cymbals.ride~=0 and d.kick>0 and d.hatClosure==1,'kit pieces get independent ride, kick and hat motion')
+print('PASS native-note visual interpretation: frets, sustained bow, independent sticks/pedals and kit impacts; '..count..' assertions')

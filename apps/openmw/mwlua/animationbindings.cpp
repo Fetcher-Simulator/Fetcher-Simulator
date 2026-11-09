@@ -305,6 +305,7 @@ namespace MWLua
         };
 
         api["visualAttachmentsVersion"] = 1;
+        api["maxVisualAttachments"] = MWRender::Animation::MaxScriptAttachments;
         api["setVisualAttachment"] = [context](const LObject& object, std::string key, std::string model, const sol::table& options) {
             std::string bone=options.get_or<std::string>("bone","Bip01 Spine2");
             const float timeout=options.get_or("timeout",0.5f);

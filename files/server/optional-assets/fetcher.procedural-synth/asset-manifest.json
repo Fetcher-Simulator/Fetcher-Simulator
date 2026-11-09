@@ -5,8 +5,8 @@
   "files": [
     {
       "path": "ATTRIBUTION.txt",
-      "bytes": 11505,
-      "sha256": "afcc67906f9af1979adc39baa218fcf6fd30ebee550656822ad2a840c2bdd3b4"
+      "bytes": 11617,
+      "sha256": "9fd57dca476792e9a2582d9f3ef9f01223533794635e38a999a0cd2961d055b7"
     },
     {
       "path": "conversion-report.json",
@@ -132,6 +132,46 @@
       "path": "meshes/fetcher/orchestra/classical.nif",
       "bytes": 205338,
       "sha256": "0e939743e6bffc9629a10b6ea7803dd9d633a95c6e23b6a0ec07243ea112cbc3"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/drumkit-beater.nif",
+      "bytes": 7431,
+      "sha256": "1464e23b2b7b59d81e5601289f57d950ea53de64825c211df66069a9510e0439"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/drumkit-crash.nif",
+      "bytes": 12476,
+      "sha256": "367d0955cc33fa3de2b1d605b6afc8448e821e70dc59fe037b69f65f0a61e81f"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/drumkit-hat-pedal.nif",
+      "bytes": 7830,
+      "sha256": "8226e5106bdfc83e3a1156954c9ebd7d2962c0299a808d8c198d8cfa5d7002c6"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/drumkit-hat.nif",
+      "bytes": 9116,
+      "sha256": "f6b52f4c329dafa2302685c70c330a5472ab065e167b3c64c57bc7fb0b7502be"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/drumkit-kick-head.nif",
+      "bytes": 7476,
+      "sha256": "94e1e726bc47286e3fc5a72e88f132f79728807cf8e02771a4937833668f487c"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/drumkit-kick-pedal.nif",
+      "bytes": 7830,
+      "sha256": "189d223ea3658551f28bafb29c48c7c302becedbf25718f417e359a27e18f08a"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/drumkit-ride.nif",
+      "bytes": 14340,
+      "sha256": "6fbcf12ead5106a7cb2d0e1564b447d9627f69bbdb62fcfbcfcb95e1bd17a185"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/drumkit-stage.nif",
+      "bytes": 3064432,
+      "sha256": "ca80eff637d1b609f792ab425724568c6c70d0f2816fa36d0752656e469458e8"
     },
     {
       "path": "meshes/fetcher/orchestra/drumkit.nif",

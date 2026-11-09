@@ -325,9 +325,12 @@
 --- Version of the optional expiring local visual attachment extension (1).
 -- @field [parent=#animation] #number visualAttachmentsVersion
 
+--- Maximum number of active visual attachment keys per actor.
+-- @field [parent=#animation] #number maxVisualAttachments
+
 --- Adds or refreshes a presentation-only model on a loaded actor, including remote actors.
 -- Queued at the synchronized action boundary. Does not create an inventory item,
--- change equipment, apply physics or replicate intent. Up to eight keys per actor.
+-- change equipment, apply physics or replicate intent. See maxVisualAttachments.
 -- Call from a local/player script. Refresh while needed; expiry uses real time.
 -- @function [parent=#animation] setVisualAttachment
 -- @param openmw.core#GameObject actor

@@ -1184,6 +1184,10 @@ namespace MWMechanics
          */
         if (!isPlayer)
         {
+            // Studio performers inherit a vanilla NPC inventory. Keep their
+            // instrument hand free of automatic lights, even at night.
+            if (ptr.getCellRef().getRefId().startsWith("fetcher_synth_bard_"))
+                mayEquip = false;
             auto torchIter = std::find_if(std::begin(inventoryStore), std::end(inventoryStore), [&](auto entry) {
                 return entry.getType() == ESM::Light::sRecordId && entry.getClass().canBeEquipped(entry, ptr).first;
             });

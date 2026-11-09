@@ -894,6 +894,9 @@ rather than keeping this finished core priority open indefinitely.
 1. **Further stage layouts and seating.** Packages 87-88 supply saved formations,
    instrument sections, spacing, previews, optional conductor gestures and
    restrained performer motion. Next add flexible section placement/layout customization.
+   Add a saved editor for owned NPC performers with a name, race, head, hair,
+   clothing and armor. Validate choices against available records, preserve
+   performer identity and routing, and refit instrument grips for custom rigs.
    Extend seating to players and additional instruments, with chair interaction
    and custom-rig/body-height support. Keep explicit safe restaging and the
    standing grid; avoid moving a formation when its leader walks away. Improve
