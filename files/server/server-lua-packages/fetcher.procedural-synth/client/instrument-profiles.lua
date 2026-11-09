@@ -24,9 +24,17 @@ M.cello={kind='cello',anchor='feet',model=path..'cello.nif',position=v(0,17,80),
     extras={{key='synth_bow',model=path..'bow.nif',position=v(0,6,8),rotation=T.rotateZ(math.pi),bow=true}}}
 M.trumpet={kind='trumpet',model=path..'trumpet.nif',position=v(0,11,13),rotation=T.identity,restDrop=16,restPitch=32,
     targets={L=v(-5,28,10),R=v(10,27,20.5)}}
-M.flute={kind='flute',model=path..'flute.nif',position=v(0,8,13),rotation=T.identity,restDrop=11,
+M.trumpetBody=path..'trumpet-body.nif'
+M.trumpetValves={}
+for valve=1,3 do
+    M.trumpetValves[valve]={key='synth_trumpet_valve_'..valve,model=path..'trumpet-valve-'..valve..'.nif'}
+end
+function M.trumpetValveTransform(pressure)
+    return T.move(v(0,0,-.8*pressure))
+end
+M.flute={kind='flute',model=path..'flute.nif',position=v(0,8,13),rotation=T.identity,restDrop=11,restShift=v(-11,6,0),
     targets={L=v(6,11,15),R=v(28,1.5,14)}}
-M.clarinet={kind='clarinet',model=path..'clarinet.nif',position=v(0,8,13),rotation=T.identity,restDrop=13,restPitch=12,
+M.clarinet={kind='clarinet',model=path..'clarinet.nif',position=v(0,8,13),rotation=T.identity,restDrop=13,restPitch=12,restShift=v(0,6,0),
     targets={L=v(-6,14.1,0),R=v(6,16.6,-13)}}
 M.timpani={kind='timpani',anchor='feet',model=path..'timpani.nif',position=v(0,35,0),rotation=T.identity,
     targets={L=v(-10,27,82),R=v(10,27,82)},
@@ -111,7 +119,7 @@ M.drumkit.targets.L=kitGrip(M.drumkit,'L',38);M.drumkit.targets.R=kitGrip(M.drum
 -- Canonical neck/string axes and 85-unit scale match the electric grip.
 for _,name in ipairs{'acoustic','classical'} do
     local profile={};for k,value in pairs(M.guitar) do profile[k]=value end
-    profile.model=path..name..'.nif';profile.targets={L=M.guitar.targets.L+v(0,1,0),R=M.guitar.targets.R+v(0,4,0)+M.guitar.rotation*v(0,8,0)};M[name]=profile
+    profile.model=path..name..'.nif';M[name]=profile
 end
 local function clamp(n,a,b) return math.max(a,math.min(b,n)) end
 local function copy(value)
@@ -165,7 +173,8 @@ function M.compile(base,d)
 end
 function M.windRest(profile,amount)
     local pivot=profile.position
-    return T.move(pivot+v(0,0,-profile.restDrop*amount))
+    local shift=(profile.restShift or v(0,0,0))+v(0,0,-profile.restDrop)
+    return T.move(pivot+shift*amount)
         *T.rotateX(math.rad(profile.restPitch or 0)*amount)*T.move(-pivot)
 end
 function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel,gesture)
@@ -207,9 +216,10 @@ function M.motion(profile,side,pitch,pressed,pulse,strikes,count,bowTravel,gestu
             local axis=profile.rotation*profile.extras[1].rotation*v(1,0,0)
             point=point+axis*(bowTravel or 0);curl=.35
         end
-    elseif profile.kind=='trumpet' or profile.kind=='flute' or profile.kind=='clarinet' then
+    elseif profile.kind=='trumpet' then
+        curl=side=='L' and .24 or .25
+    elseif profile.kind=='flute' or profile.kind=='clarinet' then
         curl=pressed and .32 or .2
-        if profile.kind=='trumpet' and side=='R' then curl=.12 end
     end
     if gesture and (profile.kind=='guitar' or profile.kind=='bass') then
         if side=='L' then
@@ -262,10 +272,7 @@ end
 local function fingerCurl(profile,side,name,base,pitch,pressed)
     if not pressed then return base end
     local finger=tonumber(name:lower():match('finger(%d)')) or 0
-    if profile.kind=='trumpet' and side=='R' and finger>0 then
-        local valves={0,7,5,6,3,1,2,0,6,3,1,2};local bit=2^math.min(2,finger-1)
-        return math.floor(valves[math.floor(pitch)%12+1]/bit)%2==1 and .32 or .12
-    elseif profile.kind=='clarinet' and finger>0 then
+    if profile.kind=='clarinet' and finger>0 then
         return (math.floor(pitch)+finger*2+(side=='L' and 0 or 3))%12<7 and .35 or .1
     elseif profile.kind=='flute' and finger>0 then
         return (math.floor(pitch)+finger*2+(side=='L' and 0 or 3))%12<7 and .35 or .1
@@ -274,6 +281,13 @@ local function fingerCurl(profile,side,name,base,pitch,pressed)
 end
 function M.fingerCurl(profile,side,name,base,pitch,pressed,gesture)
     local amount=fingerCurl(profile,side,name,base,pitch,pressed)
+    if profile.kind=='trumpet' and side=='R' and gesture then
+        local finger=tonumber(name:lower():match('finger(%d)')) or 0
+        local pressure=gesture[finger] or 0
+        -- Vanilla rigs share the last three fingers under Finger2.
+        if finger==2 and not gesture.independentRing then pressure=math.max(pressure,gesture[3]) end
+        amount=amount+.11*pressure
+    end
     if gesture and (profile.kind=='guitar' or profile.kind=='bass') then
         local finger=tonumber(name:lower():match('finger(%d)')) or 0
         if side=='L' and finger>0 then amount=gesture.frets[finger] and .34 or .16
@@ -285,7 +299,7 @@ function M.fingerCurl(profile,side,name,base,pitch,pressed,gesture)
     return clamp(amount,0,1.5)
 end
 function M.fingerSpread(profile,side,name,gesture)
-    if not gesture or side~='L' then return 0 end
+    if not gesture or not gesture.frets or side~='L' then return 0 end
     local finger=tonumber(name:lower():match('finger(%d)')) or 0
     local strings=gesture.frets[finger];if not strings then return 0 end
     local mean=0;for _,string in ipairs(strings) do mean=mean+string end;mean=mean/#strings
@@ -304,6 +318,7 @@ for _,name in ipairs{'keyboard','lute','drum','violin','cello','trumpet','flute'
     -- above the new timpani head for its six-unit downstroke.
     if name=='timpani' then d.LTarget[3]=91;d.RTarget[3]=91 end
     if name=='drumkit' then d.LFootTarget={-22,22,0};d.RFootTarget={17,2,0};d.benchScale=.9 end
+    if name=='acoustic' or name=='classical' then merge(d,approved.profiles.guitar or {}) end
     merge(d,approved.profiles[name] or {})
     M.defaults[name]=d;M[name]=M.compile(M.reference[name],d)
     if name=='drumkit' then
@@ -325,7 +340,7 @@ for _,kind in ipairs{'keyboard','cello'} do
     for _,side in ipairs{'L','R'} do
         for _,key in ipairs{'Rotation','Pole','CurlScale','CurlBias','MotionScale'} do d[side..key]=copy(M.defaults[kind][side..key]) end
     end
-    merge(d,approved.profiles[name] or ((name=='acoustic' or name=='classical') and approved.profiles.guitar) or {})
+    merge(d,approved.profiles[name] or {})
     M.defaults[name]=d;M[name]=M.compile(base,d)
 end
 return M

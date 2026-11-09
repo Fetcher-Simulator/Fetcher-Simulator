@@ -19,7 +19,7 @@
     "license": "CC BY 4.0",
     "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
     "downloadSha256": "705aad90c3c37af15e61516369bfcd9903e8398a7fbb510a5296cffd4f2161c5",
-    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes. Stage variant separates three moving valve buttons."
   },
   {
     "id": "flute",
@@ -158,7 +158,14 @@
     "license": "CC BY 4.0",
     "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
     "downloadSha256": "d94f3d7fed6da22a8a389356322813c95877f62d6268ebd1825d301d6267400c",
-    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes. Reduced body depth and applied wood textures from gazorpinhas's CC BY 4.0 classical guitar.",
+    "upstream": {
+      "title": "Low Poly Classical Guitar (wood textures)",
+      "author": "gazorpinhas",
+      "authorUrl": "https://sketchfab.com/gazorpinhas",
+      "source": "https://sketchfab.com/3d-models/low-poly-classical-guitar-90ca0a9c525e47d48a68146fd7bd97e3",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/"
+    }
   },
   {
     "id": "classical",
@@ -169,6 +176,6 @@
     "license": "CC BY 4.0",
     "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
     "downloadSha256": "8dab9e21391fdb97fb3bb68645626c611b015352cbab9bfdbe3c152ae1d26408",
-    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes."
+    "changes": "Static glTF to NIF 4.0.0.2; rescaled/reoriented for in-game grips; original UVs retained; PBR adapted to legacy materials; textures resized to mipmapped DDS; inventory icons rendered from converted meshes. Reduced body depth for the shared playing pose. Wood textures also used on the acoustic cutaway."
   }
 ]

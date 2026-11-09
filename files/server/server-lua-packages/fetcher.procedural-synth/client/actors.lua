@@ -31,6 +31,9 @@ function A:clear(key)
         if p.kitProfile then
             for _,part in ipairs(profiles.kitParts) do pcall(anim.clearVisualAttachment,p.actor,part.key) end
         end
+        if p.valveParts then
+            for _,part in ipairs(p.valveParts) do pcall(anim.clearVisualAttachment,p.actor,part.key) end
+        end
     end
     self.poses[key]=nil
 end
@@ -68,7 +71,14 @@ function A:frame(instances,dt,now)
                     local missing=not self:hasModel(r.instrument)
                     if vfs.fileExists and not vfs.fileExists(profile.model) then profile=profiles.lute end
                     if p and (p.actor~=actor or p.instrument~=r.instrument or p.requestedProfile~=requested) then self:clear(key);p=nil end
-                    if not p then p={actor=actor,instrument=r.instrument,requestedProfile=requested,pose=Performance.new(actor),refresh=-10};self.poses[key]=p end
+                    if not p then
+                        p={actor=actor,instrument=r.instrument,requestedProfile=requested,pose=Performance.new(actor),refresh=-10};self.poses[key]=p
+                        if profile.kind=='trumpet' then
+                            local exists=vfs.fileExists or function() return true end
+                            p.valveParts=exists(profiles.trumpetBody) and profiles.trumpetValves or nil
+                            for _,part in ipairs(profiles.trumpetValves) do if not exists(part.model) then p.valveParts=nil end end
+                        end
+                    end
                     if profile.kind=='drumkit' then
                         if p.kitSource~=profile then
                             p.kitSource=profile
@@ -116,7 +126,14 @@ function A:frame(instances,dt,now)
                             end
                             local transform=root:inverse()*(p.pose and p.pose.propTransform or T.identity)*T.move(position)*facing*T.move(profile.position)*profile.rotation
                             p.propPosition=(T.move(position)*facing*T.move(profile.position))*v(0,0,0)
-                            anim.setVisualAttachment(actor,'synth_instrument',profile.model,{bone='Bip01',transform=transform,timeout=.6})
+                            anim.setVisualAttachment(actor,'synth_instrument',p.valveParts and profiles.trumpetBody or profile.model,{bone='Bip01',transform=transform,timeout=.6})
+                            if p.valveParts then
+                                local pressures=p.pose and p.pose.trumpetValves
+                                for valve,part in ipairs(p.valveParts) do
+                                    local motion=profiles.trumpetValveTransform(pressures and pressures[valve] or 0)
+                                    anim.setVisualAttachment(actor,part.key,part.model,{bone='Bip01',transform=transform*motion,timeout=.6})
+                                end
+                            end
                             if profile.animatedKit then
                                 for _,part in ipairs(profiles.kitParts) do
                                     local motion=profiles.kitPartTransform(part,p.pose and p.pose.drumMotion)
@@ -187,7 +204,7 @@ function A:status()
         fret=p.pose and p.pose.fretting and p.pose.fretting.position,stickLeft=p.pose and p.pose.stickPulse and p.pose.stickPulse.L,stickRight=p.pose and p.pose.stickPulse and p.pose.stickPulse.R,footLeft=p.pose and p.pose.pedalMotion and p.pose.pedalMotion.L,footRight=p.pose and p.pose.pedalMotion and p.pose.pedalMotion.R,
         fingers=p.pose and p.pose.fingers or 0,error=p.pose and p.pose.error or 0,reachError=p.pose and p.pose.reachError or 0,legReachError=p.pose and p.pose.legReachError or 0,missingModel=p.missingModel,
         body=p.pose and p.pose.bodyMotion,propPosition=p.propPosition,windRest=p.pose and p.pose.windRest,
-        bowTravel=p.pose and p.pose.bowTravel,drumMotion=p.pose and p.pose.drumMotion,
+        bowTravel=p.pose and p.pose.bowTravel,drumMotion=p.pose and p.pose.drumMotion,valves=p.pose and p.pose.trumpetValves,
         attachments=anim.visualAttachmentCount and anim.visualAttachmentCount(p.actor) or 0} end
     for id,c in pairs(self.conductors) do if c.active then result[#result+1]={key='conductor:'..id,instrument='conductor',bones=c.pose.applied,body=c.pose.bodyMotion,reachError=c.pose.reachError} end end
     return result

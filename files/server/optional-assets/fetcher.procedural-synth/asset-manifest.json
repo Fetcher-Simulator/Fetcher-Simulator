@@ -5,8 +5,8 @@
   "files": [
     {
       "path": "ATTRIBUTION.txt",
-      "bytes": 11617,
-      "sha256": "9fd57dca476792e9a2582d9f3ef9f01223533794635e38a999a0cd2961d055b7"
+      "bytes": 11864,
+      "sha256": "9957ca98a67f65548ac81cb0b6584f525772502b540df41b89e962111cb83dae"
     },
     {
       "path": "conversion-report.json",
@@ -105,8 +105,8 @@
     },
     {
       "path": "meshes/fetcher/orchestra/acoustic.nif",
-      "bytes": 444272,
-      "sha256": "0404976418ca515f83597f0f8cf7db46a081c22ceef2743eaad746117985c753"
+      "bytes": 444274,
+      "sha256": "a24398bef5ad3f3a9a3ee51cc9b40a7bfd1f676f4c8de3fbb8b60d48d84a90d8"
     },
     {
       "path": "meshes/fetcher/orchestra/bass.nif",
@@ -131,7 +131,7 @@
     {
       "path": "meshes/fetcher/orchestra/classical.nif",
       "bytes": 205338,
-      "sha256": "0e939743e6bffc9629a10b6ea7803dd9d633a95c6e23b6a0ec07243ea112cbc3"
+      "sha256": "f1d1f6099a41c894cb19fb04fc64c9ff6ddb3b3015f06753b8a1beec10bd4822"
     },
     {
       "path": "meshes/fetcher/orchestra/drumkit-beater.nif",
@@ -219,6 +219,26 @@
       "sha256": "f8c47d21b72288e605eb23b39b47b4a9f5230d5e0b5b895e72aa2a8dc9c7ad26"
     },
     {
+      "path": "meshes/fetcher/orchestra/trumpet-body.nif",
+      "bytes": 707698,
+      "sha256": "22c6203c83efee4ea37faecfbab2095e63bb8063b44caaacb5f269081c43a30a"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/trumpet-valve-1.nif",
+      "bytes": 22826,
+      "sha256": "4ea468d6fec2af3a8f50eed98986444552c1af1397d8890e57019e6524c4d5d9"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/trumpet-valve-2.nif",
+      "bytes": 22826,
+      "sha256": "d5ca0c9d44ab2269be7a46706ce122a427990722956d6eb16181f207157beb14"
+    },
+    {
+      "path": "meshes/fetcher/orchestra/trumpet-valve-3.nif",
+      "bytes": 22826,
+      "sha256": "ab6738adcce0fc43500798b548498cb41c06ed201f18781dc4587b3492d4abc9"
+    },
+    {
       "path": "meshes/fetcher/orchestra/trumpet.nif",
       "bytes": 774793,
       "sha256": "844573af6899b6395a3d6f649ad699f42dcb267b81c5b4bab4bd49af33e1c01d"
@@ -250,8 +270,8 @@
     },
     {
       "path": "orchestra-report.json",
-      "bytes": 6671,
-      "sha256": "c795fe8dd937319ddb45adfe2f6fb22c0c9ab0dc89fbc02dbca4b9552427d915"
+      "bytes": 6718,
+      "sha256": "80071a8a5203ac1f52130c550551d6eea07554cdb2a6ae21c4c5baaf0230b0c6"
     },
     {
       "path": "provenance.json",
@@ -265,13 +285,13 @@
     },
     {
       "path": "sketchfab-models.json",
-      "bytes": 10387,
-      "sha256": "57474404440fce327a161163905d816912c62d01a85f9b6de64a9535a8b054d1"
+      "bytes": 10977,
+      "sha256": "1d3aee30544cf515a97a310445f64a3bdeea6853ac13cb34e0ae8b58da17da3e"
     },
     {
       "path": "sketchfab-orchestra-report.json",
-      "bytes": 6671,
-      "sha256": "c795fe8dd937319ddb45adfe2f6fb22c0c9ab0dc89fbc02dbca4b9552427d915"
+      "bytes": 6718,
+      "sha256": "80071a8a5203ac1f52130c550551d6eea07554cdb2a6ae21c4c5baaf0230b0c6"
     },
     {
       "path": "stage-provenance.json",

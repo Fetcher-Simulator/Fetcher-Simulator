@@ -52,6 +52,7 @@ function M.new(actor,calibration)
         self.appliedBones={};self.applied=0;self.fingers=0
         self.stringGesture=nil;self.drumGesture=nil;self.stickPulse=nil;self.stickRotations=nil;self.pedalMotion=nil;self.fretting=nil;self.fretPosition=nil
         self.drumMotion=nil;self.bowState=nil;self.windRest=nil;self.windLastHeld=nil
+        self.trumpetValves=nil
         self.bodyState=nil;self.bodyMotion=nil;self.bodyBones=nil;self.propTransform=nil;self.motionPosition={}
     end
     function p:frame(dt,source,notes,now,strikes,profile,snapshot,clock,preview)
@@ -78,7 +79,7 @@ function M.new(actor,calibration)
             signature[#signature+1]=note
             local group=note<60 and low or high;group[#group+1]=note
         end
-        table.sort(signature);signature=table.concat(signature,',')
+        table.sort(signature);local highest=signature[#signature];signature=table.concat(signature,',')
         if profile and profile.kind=='drumkit' then
             local hats,other={},{}
             for identity in pairs(notes) do local note=identity%128
@@ -94,6 +95,11 @@ function M.new(actor,calibration)
         end
         self.amount=math.min(1,self.amount+math.min(dt,0.1)*4)
         local gesture,drumming
+        if profile and profile.kind=='trumpet' then
+            self.trumpetValves=Gestures.trumpet(snapshot,highest,dt,self.trumpetValves)
+            self.trumpetValves.independentRing=self.bones['bip01 r finger3']~=nil
+            gesture=self.trumpetValves
+        end
         self.drumMotion=nil
         if snapshot and profile then
             if profile.kind=='guitar' or profile.kind=='bass' then

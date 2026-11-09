@@ -34,6 +34,12 @@ for _,name in ipairs{'guitar','bass','acoustic','classical'} do
     check(neck.x<0 and neck.z>0 and face.y>.96,'calibrated string model neck points left/up and its strings face away from the player')
     check(Published.defaults[name].LTarget and profile.model:find('/'..name..'.nif',1,true),'new string instrument has independent editable pose defaults')
 end
+for _,name in ipairs{'acoustic','classical'} do
+    local defaults=Published.defaults[name]
+    for _,field in ipairs{'propPosition','propRotation','LTarget','RTarget','LRotation','RRotation','LPole','RPole'} do
+        for axis=1,3 do check(defaults[field][axis]==Published.defaults.guitar[field][axis],name..' inherits the electric '..field) end
+    end
+end
 check(Published.drumkit.seated and Published.drumkit.anchor=='feet' and #Published.drumkit.extras==2,'kit is floor anchored with a seated profile and two sticks')
 check(Published.defaults.drumkit.benchScale and Published.defaults.drumkit.LFootTarget,'drummer stool and both feet are exposed to the existing poser')
 do
@@ -135,7 +141,26 @@ local a=P.motion(P.violin,'R',60,true,1,0,1,0);local b=P.motion(P.violin,'R',60,
 check(b.x~=a.x and b.y~=a.y,'bow hand translates along the bow axis')
 local grip=P.motion(P.timpani,'L',48,true,1,0,1)
 check(math.abs(grip.z-10-2-64)<.001,'timpani felt head contacts the drum head rather than the wrist')
-check(P.fingerCurl(P.trumpet,'R','Bip01 R Finger1',.3,60,true)<P.fingerCurl(P.trumpet,'R','Bip01 R Finger1',.3,61,true),'trumpet finger presses track the valve combination')
+do
+ local idle,down={0,0,0},{1,0,1}
+ local function curl(side,finger,pressure)
+  local _,_,base=P.motion(P.trumpet,side,60,pressure==down,1,0,1)
+  return P.fingerCurl(P.trumpet,side,'Bip01 '..side..' Finger'..finger,base,60,pressure==down,pressure)
+ end
+ check(curl('R',1,down)>curl('R',1,idle),'the index finger follows valve one')
+ check(curl('R',2,down)>curl('R',2,idle),'the shared vanilla finger joint responds to valve three')
+ check(curl('L',1,down)==curl('L',1,idle),'the left grip does not change with the note')
+ down.independentRing=true
+ check(curl('R',2,down)==curl('R',2,idle) and curl('R',3,down)>curl('R',3,idle),'a rig with independent ring fingers uses the correct joint')
+ local cap=P.trumpetValveTransform(1)*v(0,21.925,3.299)
+ check(math.abs(cap.z-2.499)<.0001 and cap.x==0 and cap.y==21.925,'pressed valve moves along its own shaft')
+ for _,name in ipairs{'flute','clarinet'} do
+  local wind=Published[name]
+  local rest=Published.windRest(wind,1)*wind.position
+  local play=Published.windRest(wind,0)*wind.position
+  check(rest.y>play.y and rest.z<play.z and (name~='flute' or rest.x<play.x),name..' rest lowers and clears the body')
+ end
+end
 for _,name in ipairs{'keyboard','lute','drum','violin','cello','trumpet','flute','clarinet','timpani'} do
  for _,side in ipairs{'L','R'} do local direction,normal=P.handDirections(P[name],side)
   check(math.abs(direction.x*normal.x+direction.y*normal.y+direction.z*normal.z)<.001,'palm frame is well-defined for '..name..' '..side)

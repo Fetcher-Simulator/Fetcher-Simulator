@@ -4,6 +4,25 @@ local tunings={{40,45,50,55,59,64},{38,45,50,55,59,64},{36,43,48,53,57,62},
     {35,40,45,50,55,59,64},{28,33,38,43},{23,28,33,38,43}}
 local function clamp(n,a,b) return math.max(a,math.min(b,n)) end
 local function pulse(age,seconds) return clamp(1-age/seconds,0,1) end
+-- Middle-register B-flat trumpet fingering, indexed by written pitch class.
+local trumpetMasks={0,7,5,6,3,1,2,0,6,3,1,2}
+function M.trumpet(snapshot,fallback,dt,pressure)
+    local latest,pitch=math.huge,fallback
+    for _,note in ipairs(snapshot or {}) do
+        if note.held then
+            local sounding=note.note+(note.transpose or 0)
+            if note.age<latest or note.age==latest and sounding>pitch then latest,pitch=note.age,sounding end
+        end
+    end
+    local mask=pitch and trumpetMasks[(math.floor(pitch)+2)%12+1] or 0
+    pressure=pressure or {0,0,0}
+    local mix=math.min(1,dt/.045)
+    for valve=1,3 do
+        local down=math.floor(mask/2^(valve-1))%2
+        pressure[valve]=pressure[valve]+(down-pressure[valve])*mix
+    end
+    return pressure
+end
 function M.bow(snapshot,held,lastStrike,now,dt,state)
     state=state or {travel=0,direction=1}
     local attack

@@ -4,6 +4,14 @@ local function row(note,string,fretAge,stamp,layout,held,direction,transpose,tra
  return {note=note,stringSelect=string or 0,age=fretAge or 0,stamp=stamp or 0,layout=layout or 1,
     held=held~=false,direction=direction or 0,transpose=transpose or 0,track=track or 1}
 end
+do
+ local pressure=M.trumpet({row(58,0,.2),row(60,0,.01)},58,.045)
+ check(pressure[1]==1 and pressure[2]==0 and pressure[3]==1,'the latest held note supplies one B-flat trumpet fingering')
+ pressure=M.trumpet({row(66,0,.01,nil,nil,false)},nil,.0225,pressure)
+ check(pressure[1]==.5 and pressure[2]==0 and pressure[3]==.5,'released voices allow the valves to spring up together')
+ pressure=M.trumpet(nil,58,.045,pressure)
+ check(pressure[1]==0 and pressure[2]==0 and pressure[3]==0,'concert B-flat has an open fingering')
+end
 local plan,state=M.strings({row(64,1),row(64,6)},'guitar')
 check(plan.strings[1].fret==24 and plan.strings[6].fret==0,'same-pitch string unisons keep two physical fret locations')
 check(plan.frets[1] and #plan.frets[1]==1 and plan.frets[1][1]==1,'open strings do not invent a fretting finger')
